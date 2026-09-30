@@ -150,6 +150,57 @@ const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set([
 ]);
 
 /**
+ * Height, in canvas grid rows, of the retired `'compact-tall'` view mode.
+ * A tab saved in that mode restores as `'compact'` at this height.
+ */
+export const LEGACY_COMPACT_TALL_HEIGHT_UNITS = 3;
+
+/**
+ * Height, in canvas grid rows, that a plain `'compact'` tab had before heights
+ * were stored. A compact tab restored without a valid height gets this one, so
+ * old tabs keep the size they were saved at.
+ */
+export const LEGACY_COMPACT_HEIGHT_UNITS = 2;
+
+/** The retired view-mode value, only ever read from old stored blobs. */
+const LEGACY_COMPACT_TALL_VIEW_MODE = 'compact-tall';
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+/**
+ * Stored view mode and compact height, validated.
+ *
+ * Persisted JSON is external input: a `compactHeightUnits` that is not a
+ * positive integer is dropped. A legacy `'compact-tall'` tab becomes compact at
+ * {@link LEGACY_COMPACT_TALL_HEIGHT_UNITS}, and a compact tab without a valid
+ * height gets {@link LEGACY_COMPACT_HEIGHT_UNITS}; a valid stored height always
+ * wins. The range is canvas's concern; it clamps again on read.
+ */
+function restoredCompactView(
+  tab: TabState,
+): Pick<TabState, 'viewMode' | 'compactHeightUnits'> {
+  const storedMode: string | undefined = tab.viewMode;
+  const storedUnits = isPositiveInteger(tab.compactHeightUnits)
+    ? tab.compactHeightUnits
+    : undefined;
+  if (storedMode === LEGACY_COMPACT_TALL_VIEW_MODE) {
+    return {
+      viewMode: 'compact',
+      compactHeightUnits: storedUnits ?? LEGACY_COMPACT_TALL_HEIGHT_UNITS,
+    };
+  }
+  if (storedMode === 'compact') {
+    return {
+      viewMode: 'compact',
+      compactHeightUnits: storedUnits ?? LEGACY_COMPACT_HEIGHT_UNITS,
+    };
+  }
+  return { viewMode: tab.viewMode, compactHeightUnits: storedUnits };
+}
+
+/**
  * Bring one stored tab back to a state the running app can own.
  *
  * The single definition of "restored tab", used by BOTH readers —
@@ -169,6 +220,7 @@ const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set([
 export function sanitizeRestoredTab(tab: TabState): TabState {
   return {
     ...tab,
+    ...restoredCompactView(tab),
     // Mirror projectTabForPersist explicitly. Only a recognized placeholder or
     // generated name on an empty draft is safe to treat as default.
     titleOrigin: tab.titleOrigin ?? legacyTitleOrigin(tab),

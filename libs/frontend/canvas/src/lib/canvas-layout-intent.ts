@@ -1,6 +1,3 @@
-import { isCompactViewMode } from '@ptah-extension/chat-types';
-import { assertNever } from '@ptah-extension/shared';
-
 /** Gridstack column units in one rendered row. */
 export const GRID_COLUMNS = 12;
 
@@ -18,11 +15,29 @@ export const MAX_CANVAS_TILES = 20;
 /** Gridstack row units a full tile occupies. */
 export const FULL_TILE_HEIGHT_UNITS = 6;
 
-/** Gridstack row units a compact tile occupies. */
-export const COMPACT_TILE_HEIGHT_UNITS = 2;
+/** Smallest height, in Gridstack row units, a compact tile may take. */
+export const MIN_COMPACT_TILE_HEIGHT_UNITS = 2;
 
-/** Gridstack row units a compact tall tile occupies. */
-export const COMPACT_TALL_TILE_HEIGHT_UNITS = 3;
+/**
+ * Largest compact height. One row short of full so a compact tile never
+ * triggers the full-tile viewport floor in `CanvasLayoutService.cellHeightFor`.
+ */
+export const MAX_COMPACT_TILE_HEIGHT_UNITS = FULL_TILE_HEIGHT_UNITS - 1;
+
+/**
+ * Clamp a tab's stored compact height (opaque to chat, possibly absent or
+ * stale) into `[MIN_COMPACT_TILE_HEIGHT_UNITS, MAX_COMPACT_TILE_HEIGHT_UNITS]`.
+ * Absent or non-finite input gives the minimum.
+ */
+export function clampCompactHeightUnits(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return MIN_COMPACT_TILE_HEIGHT_UNITS;
+  }
+  return Math.min(
+    MAX_COMPACT_TILE_HEIGHT_UNITS,
+    Math.max(MIN_COMPACT_TILE_HEIGHT_UNITS, Math.round(value)),
+  );
+}
 
 export const TILE_SPANS = ['third', 'half', 'two-thirds', 'full'] as const;
 export type TileSpan = (typeof TILE_SPANS)[number];
@@ -67,45 +82,94 @@ export type CanvasLayoutPreset =
   | 'focus-plus-stack';
 
 /**
- * Transient height tier for one tile, derived from the owning tab's view mode
- * in `TabManagerService`. Never stored in `TileIntent` or persistence.
+ * One tile's transient view constraint, derived from the owning tab's view
+ * mode and compact height in `TabManagerService`. Never stored in
+ * `TileIntent` or canvas persistence. `heightUnits` is already clamped for a
+ * compact tile and `FULL_TILE_HEIGHT_UNITS` for a full one; layout focus
+ * overrides it to full.
  */
-export type TileHeightTier = 'full' | 'compact' | 'compact-tall';
-
-/** Exact height for each transient tier; layout focus overrides this to full. */
-export function heightUnitsFor(tier: TileHeightTier): number {
-  switch (tier) {
-    case 'full':
-      return FULL_TILE_HEIGHT_UNITS;
-    case 'compact':
-      return COMPACT_TILE_HEIGHT_UNITS;
-    case 'compact-tall':
-      return COMPACT_TALL_TILE_HEIGHT_UNITS;
-    default:
-      return assertNever(tier);
-  }
-}
-
-/** One tile's transient view constraint: id and height tier only. */
 export interface TileViewConstraint {
   readonly tabId: string;
-  readonly heightTier: TileHeightTier;
+  readonly compact: boolean;
+  readonly heightUnits: number;
 }
 
 /** Ordered transient view constraints; absent ids project as full. */
 export type TileViewConstraints = readonly TileViewConstraint[];
 
 /**
- * Stable fingerprint for an ordered constraint list: length-prefixed id and
- * tier. Gestures compare this string to detect a mid-gesture compact/full
- * change without depending on object identity.
+ * Stable fingerprint for an ordered constraint list: length-prefixed id, mode
+ * and height. Gestures compare this string to detect a mid-gesture view or
+ * height change without depending on object identity, and a locked grid uses
+ * it to admit a menu-driven height change.
  */
 export function viewConstraintsFingerprint(
   constraints: TileViewConstraints,
 ): string {
   return constraints
-    .map((c) => `${c.tabId.length}:${c.tabId}=${c.heightTier}`)
+    .map(
+      (c) =>
+        `${c.tabId.length}:${c.tabId}=${c.compact ? 'c' : 'f'}${c.heightUnits}`,
+    )
     .join('|');
+}
+
+/**
+ * One tile's constraint from its tab's view state. A compact height is
+ * clamped here because the tab stores it opaquely; a full tile is always
+ * `FULL_TILE_HEIGHT_UNITS`.
+ */
+export function tileViewConstraint(
+  tabId: string,
+  compact: boolean,
+  storedCompactHeight: number | undefined,
+): TileViewConstraint {
+  return {
+    tabId,
+    compact,
+    heightUnits: compact
+      ? clampCompactHeightUnits(storedCompactHeight)
+      : FULL_TILE_HEIGHT_UNITS,
+  };
+}
+
+/** Structural equality over `(tabId, compact, heightUnits)`, in order. */
+export function sameViewConstraints(
+  a: TileViewConstraints,
+  b: TileViewConstraints,
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (constraint, index) =>
+        constraint.tabId === b[index].tabId &&
+        constraint.compact === b[index].compact &&
+        constraint.heightUnits === b[index].heightUnits,
+    )
+  );
+}
+
+/**
+ * Gridstack live-resize height bounds for one tile. A draggable compact tile
+ * gets the compact range. Every other tile gets explicit `undefined`, which
+ * Gridstack's `update()` assigns and `Utils.sanitizeMinMax` then deletes, so
+ * a tile returning to full sheds its old compact bounds.
+ */
+export function compactResizeBounds(compact: boolean): {
+  readonly minH: number | undefined;
+  readonly maxH: number | undefined;
+} {
+  return compact
+    ? {
+        minH: MIN_COMPACT_TILE_HEIGHT_UNITS,
+        maxH: MAX_COMPACT_TILE_HEIGHT_UNITS,
+      }
+    : { minH: undefined, maxH: undefined };
+}
+
+/** Ids of the compact tiles in a constraint list. */
+function compactIdsOf(constraints: TileViewConstraints): ReadonlySet<string> {
+  return new Set(constraints.filter((c) => c.compact).map((c) => c.tabId));
 }
 
 export interface PackedTile {
@@ -378,7 +442,7 @@ function resolvePreferredWidths(
   tiles: readonly TileIntent[],
   capacity: number,
   layoutFocusTabId: string | null,
-  tierById: ReadonlyMap<string, TileHeightTier>,
+  compactIds: ReadonlySet<string>,
 ): ReadonlyMap<string, number> {
   const minimum = minimumUnitsFor(capacity);
   const widths = new Map<string, number>();
@@ -386,7 +450,7 @@ function resolvePreferredWidths(
   let used = 0;
   const flush = (): void => {
     if (current.length > 0) {
-      finishPreferredRow(current, capacity, minimum, tierById, widths);
+      finishPreferredRow(current, capacity, minimum, compactIds, widths);
     }
     current = [];
     used = 0;
@@ -417,7 +481,7 @@ function finishPreferredRow(
   row: readonly TileIntent[],
   capacity: number,
   minimum: number,
-  tierById: ReadonlyMap<string, TileHeightTier>,
+  compactIds: ReadonlySet<string>,
   widths: Map<string, number>,
 ): void {
   const autoWeights: number[] = [];
@@ -425,7 +489,7 @@ function finishPreferredRow(
   for (const tile of row) {
     if (tile.width.kind === 'span') {
       explicitUnits += effectiveUnits(tile.width, capacity);
-    } else if (isCompactViewMode(tierById.get(tile.tabId))) {
+    } else if (compactIds.has(tile.tabId)) {
       explicitUnits += minimum;
     } else {
       autoWeights.push(normalizeWeight(tile.width.weight));
@@ -440,7 +504,7 @@ function finishPreferredRow(
   for (const tile of row) {
     if (tile.width.kind === 'span') {
       widths.set(tile.tabId, effectiveUnits(tile.width, capacity));
-    } else if (isCompactViewMode(tierById.get(tile.tabId))) {
+    } else if (compactIds.has(tile.tabId)) {
       widths.set(tile.tabId, minimum);
     } else {
       widths.set(tile.tabId, autoUnits[autoIndex++]);
@@ -466,12 +530,12 @@ export function projectTileGeometry(
   const ordered = [...tiles].sort(
     (a, b) => a.order - b.order || a.tabId.localeCompare(b.tabId),
   );
-  const tierById = new Map(viewConstraints.map((c) => [c.tabId, c.heightTier]));
+  const constraintById = new Map(viewConstraints.map((c) => [c.tabId, c]));
   const preferred = resolvePreferredWidths(
     ordered,
     capacity,
     layoutFocusTabId,
-    tierById,
+    compactIdsOf(viewConstraints),
   );
   const minimum = minimumUnitsFor(capacity);
 
@@ -496,9 +560,9 @@ export function projectTileGeometry(
     if (tile.rowBreakBefore) {
       readingFloorY = Math.max(readingFloorY, ...skyline);
     }
-    const tier = tierById.get(tile.tabId) ?? 'full';
-    const compact = isCompactViewMode(tier);
-    const h = heightUnitsFor(tier);
+    const constraint = constraintById.get(tile.tabId);
+    const compact = constraint?.compact ?? false;
+    const h = constraint?.heightUnits ?? FULL_TILE_HEIGHT_UNITS;
     let candidates: readonly number[];
     if (tile.width.kind === 'span') {
       candidates = [effectiveUnits(tile.width, capacity)];
@@ -588,11 +652,11 @@ export function projectPreset(
 /**
  * Translate a complete post-drag Gridstack observation back to logical intent.
  * Observations carry full `(x, y, w, h)`; each `h` must match the tile's
- * projected height tier. Equal `y` no longer identifies a logical row, so at
- * capacity 2/3 the break mask is reconstructed by bounded enumeration: every
+ * projected height (its constraint's `heightUnits`, full when absent). Equal
+ * `y` no longer identifies a logical row, so at capacity 2/3 the break mask is reconstructed by bounded enumeration: every
  * candidate `rowBreakBefore` mask over the observed `(y, x, tabId)` order is
  * run through the same pure skyline projector. Gridstack does not
- * re-apportion untouched tiles mid-gesture, so a full-tier auto tile matches
+ * re-apportion untouched tiles mid-gesture, so a full auto tile matches
  * the candidate projection on `y` and `h` only — its `x`/`w` are re-derived
  * when the committed intent is projected again. Named spans and compact
  * tiles keep the exact `(x, y, w, h)` match, and every tile's `y` is always
@@ -617,9 +681,9 @@ export function projectDragIntent(
     return null;
   }
 
-  const tierById = new Map(viewConstraints.map((c) => [c.tabId, c.heightTier]));
+  const constraintById = new Map(viewConstraints.map((c) => [c.tabId, c]));
   const expectedHeightOf = (tabId: string): number =>
-    heightUnitsFor(tierById.get(tabId) ?? 'full');
+    constraintById.get(tabId)?.heightUnits ?? FULL_TILE_HEIGHT_UNITS;
 
   const seen = new Set<string>();
   for (const observation of observations) {
@@ -731,15 +795,15 @@ export function projectDragIntent(
         exact = false;
         break;
       }
-      // Gridstack leaves untouched auto tiles at their pre-drag widths, so a
-      // Full-tier auto tiles and the actively dragged tile match on row
+      // Gridstack leaves untouched auto tiles at their pre-drag widths, so
+      // full auto tiles and the actively dragged tile match on row
       // placement only; Gridstack may retain a transient x/w for either until
       // committed intent is projected again. Unmoved named/compact tiles keep
       // exact x/w, and y/h are strict for every tile.
       const horizontalPositionIsTransient =
         geometry.tabId === draggedId ||
         (intentOf(geometry.tabId).width.kind === 'auto' &&
-          !isCompactViewMode(tierById.get(geometry.tabId)));
+          !(constraintById.get(geometry.tabId)?.compact ?? false));
       if (
         !horizontalPositionIsTransient &&
         (item.x !== geometry.x || item.w !== geometry.w)

@@ -445,9 +445,15 @@ describe('CanvasTileComponent layout menu contract', () => {
     getTabViewMode: jest.fn(() => 'full'),
     toggleTabViewMode: jest.fn(),
     setViewMode: jest.fn(),
+    // Signal-backed so stepper clicks re-render like the real service.
+    getTabCompactHeightUnits: jest.fn(() => storedHeight()),
+    setCompactHeight: jest.fn((_tabId: string, units: number) =>
+      storedHeight.set(units),
+    ),
     registerVisibleTab: jest.fn(),
     unregisterVisibleTab: jest.fn(),
   };
+  const storedHeight = signal<number | undefined>(undefined);
   const effort = {
     currentEffort: signal<string | null>(null),
     isLoaded: signal(false),
@@ -456,6 +462,11 @@ describe('CanvasTileComponent layout menu contract', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    storedHeight.set(undefined);
+  });
+
+  afterEach(() => {
+    tabManager.getTabViewMode.mockReturnValue('full');
   });
 
   function setup(locked = false) {
@@ -498,6 +509,28 @@ describe('CanvasTileComponent layout menu contract', () => {
     fixture.componentRef.setInput('layoutLocked', locked);
     fixture.detectChanges();
     return fixture;
+  }
+
+  /** Mount a compact tile at a stored height (`undefined` = none stored). */
+  function setupCompact(units: number | undefined, locked = false) {
+    tabManager.getTabViewMode.mockReturnValue('compact');
+    storedHeight.set(units);
+    return setup(locked);
+  }
+
+  function openMenu(fixture: ReturnType<typeof setup>): void {
+    fixture.nativeElement
+      .querySelector('[data-testid="tile-layout-trigger"]')
+      .click();
+    fixture.detectChanges();
+  }
+
+  function heightPresets(
+    fixture: ReturnType<typeof setup>,
+  ): HTMLButtonElement[] {
+    return Array.from(
+      fixture.nativeElement.querySelectorAll('[data-view-mode]'),
+    ) as HTMLButtonElement[];
   }
 
   it('exposes trigger/menu ARIA and four stored-span radio choices', () => {
@@ -623,19 +656,30 @@ describe('CanvasTileComponent layout menu contract', () => {
     expect(tabManager.toggleTabViewMode).toHaveBeenCalledWith('tile-1');
   });
 
-  it.each(['full', 'compact', 'compact-tall'] as const)(
-    'selects %s directly in the existing menu even while locked',
-    (mode) => {
+  it.each([
+    [
+      'full',
+      () =>
+        expect(tabManager.setViewMode).toHaveBeenCalledWith('tile-1', 'full'),
+    ],
+    [
+      'compact',
+      () =>
+        expect(tabManager.setCompactHeight).toHaveBeenCalledWith('tile-1', 2),
+    ],
+    [
+      'tall',
+      () =>
+        expect(tabManager.setCompactHeight).toHaveBeenCalledWith('tile-1', 3),
+    ],
+  ] as const)(
+    'applies the %s height preset directly from the menu even while locked',
+    (preset, expectWrite) => {
       const fixture = setup(true);
       const focus = jest.fn();
       fixture.componentInstance.focusRequested.subscribe(focus);
-      fixture.nativeElement
-        .querySelector('[data-testid="tile-layout-trigger"]')
-        .click();
-      fixture.detectChanges();
-      const choices = Array.from(
-        fixture.nativeElement.querySelectorAll('[data-view-mode]'),
-      ) as HTMLButtonElement[];
+      openMenu(fixture);
+      const choices = heightPresets(fixture);
       expect(choices.map((choice) => choice.textContent?.trim())).toEqual([
         'Full',
         'Compact',
@@ -652,11 +696,8 @@ describe('CanvasTileComponent layout menu contract', () => {
         choices.map((choice) => choice.getAttribute('aria-checked')),
       ).toEqual(['true', 'false', 'false']);
       expect(choices.every((choice) => !choice.disabled)).toBe(true);
-      const choice = choices.find(
-        (button) => button.dataset['viewMode'] === mode,
-      );
-      choice?.click();
-      expect(tabManager.setViewMode).toHaveBeenCalledWith('tile-1', mode);
+      choices.find((button) => button.dataset['viewMode'] === preset)?.click();
+      expectWrite();
       expect(fixture.componentInstance.layoutMenuOpen()).toBe(false);
       expect(focus).not.toHaveBeenCalled();
     },
@@ -664,13 +705,8 @@ describe('CanvasTileComponent layout menu contract', () => {
 
   it('includes height choices in keyboard navigation under layout lock', () => {
     const fixture = setup(true);
-    fixture.nativeElement
-      .querySelector('[data-testid="tile-layout-trigger"]')
-      .click();
-    fixture.detectChanges();
-    const choices = Array.from(
-      fixture.nativeElement.querySelectorAll('[data-view-mode]'),
-    ) as HTMLButtonElement[];
+    openMenu(fixture);
+    const choices = heightPresets(fixture);
     choices[0].focus();
     choices[0].dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }),
@@ -690,28 +726,161 @@ describe('CanvasTileComponent layout menu contract', () => {
         .getAttribute('aria-label'),
     ).toBe('Switch to compact view');
 
-    tabManager.getTabViewMode.mockReturnValue('compact');
-    try {
-      const compact = setup();
+    // Every compact height advertises the SAME return trip, because the
+    // one-click affordance is binary. Picking a height belongs to the menu.
+    for (const units of [2, 4]) {
+      const compact = setupCompact(units);
+      expect(compact.componentInstance.isCompactMode()).toBe(true);
       expect(
         compact.nativeElement
           .querySelector('[data-testid="tile-view-mode-toggle"]')
           .getAttribute('aria-label'),
       ).toBe('Switch to full view');
-      // Both compact tiers advertise the SAME return trip, because the
-      // one-click affordance is binary. Picking a specific tier belongs to
-      // the tile menu (VIEW_MODE_OPTIONS), not to this button.
-      tabManager.getTabViewMode.mockReturnValue('compact-tall');
-      const tall = setup();
-      expect(tall.componentInstance.isCompactMode()).toBe(true);
-      expect(
-        tall.nativeElement
-          .querySelector('[data-testid="tile-view-mode-toggle"]')
-          .getAttribute('aria-label'),
-      ).toBe('Switch to full view');
-    } finally {
-      tabManager.getTabViewMode.mockReturnValue('full');
     }
+  });
+
+  describe('height stepper', () => {
+    const stepper = (fixture: ReturnType<typeof setup>) => ({
+      decrease: fixture.nativeElement.querySelector(
+        '[data-height-step="decrease"]',
+      ) as HTMLButtonElement | null,
+      increase: fixture.nativeElement.querySelector(
+        '[data-height-step="increase"]',
+      ) as HTMLButtonElement | null,
+      value: (
+        fixture.nativeElement.querySelector(
+          '[data-testid="tile-height-units"]',
+        ) as HTMLElement | null
+      )?.textContent?.trim(),
+    });
+
+    it('appears only for a compact tile, labelled, with the current height visible', () => {
+      const full = setup();
+      openMenu(full);
+      expect(stepper(full).increase).toBeNull();
+      expect(stepper(full).decrease).toBeNull();
+
+      const compact = setupCompact(3);
+      openMenu(compact);
+      const { decrease, increase, value } = stepper(compact);
+      expect(decrease?.getAttribute('aria-label')).toBe('Decrease tile height');
+      expect(increase?.getAttribute('aria-label')).toBe('Increase tile height');
+      expect(decrease?.hasAttribute('data-layout-item')).toBe(true);
+      expect(increase?.hasAttribute('data-layout-item')).toBe(true);
+      expect(value).toBe('3 rows');
+    });
+
+    it('shows the default two rows when no height is stored', () => {
+      const compact = setupCompact(undefined);
+      openMenu(compact);
+      expect(stepper(compact).value).toBe('2 rows');
+      expect(stepper(compact).decrease?.disabled).toBe(true);
+    });
+
+    it('steps one row at a time, keeps the menu open and disables at 2 and 5', () => {
+      const fixture = setupCompact(2);
+      openMenu(fixture);
+      expect(stepper(fixture).decrease?.disabled).toBe(true);
+      expect(stepper(fixture).increase?.disabled).toBe(false);
+
+      stepper(fixture).increase?.click();
+      fixture.detectChanges();
+      expect(tabManager.setCompactHeight).toHaveBeenLastCalledWith('tile-1', 3);
+      expect(fixture.componentInstance.layoutMenuOpen()).toBe(true);
+      expect(stepper(fixture).value).toBe('3 rows');
+
+      stepper(fixture).increase?.click();
+      stepper(fixture).increase?.click();
+      fixture.detectChanges();
+      expect(stepper(fixture).value).toBe('5 rows');
+      expect(stepper(fixture).increase?.disabled).toBe(true);
+      expect(stepper(fixture).decrease?.disabled).toBe(false);
+
+      stepper(fixture).decrease?.click();
+      fixture.detectChanges();
+      expect(tabManager.setCompactHeight).toHaveBeenLastCalledWith('tile-1', 4);
+      expect(stepper(fixture).value).toBe('4 rows');
+      expect(tabManager.setCompactHeight).toHaveBeenCalledTimes(4);
+    });
+
+    it('clamps a stored height above the maximum and never writes past it', () => {
+      const fixture = setupCompact(9);
+      openMenu(fixture);
+      expect(stepper(fixture).value).toBe('5 rows');
+      expect(stepper(fixture).increase?.disabled).toBe(true);
+      stepper(fixture).decrease?.click();
+      expect(tabManager.setCompactHeight).toHaveBeenCalledWith('tile-1', 4);
+    });
+
+    it('moves focus off a step button that just reached its bound', () => {
+      const fixture = setupCompact(4);
+      openMenu(fixture);
+      const { increase, decrease } = stepper(fixture);
+      increase?.focus();
+      increase?.click();
+      fixture.detectChanges();
+      expect(increase?.disabled).toBe(true);
+      expect(document.activeElement).toBe(decrease);
+    });
+
+    it('stays enabled under layout lock beside the disabled geometry items', () => {
+      const fixture = setupCompact(3, true);
+      openMenu(fixture);
+      const { decrease, increase } = stepper(fixture);
+      expect(decrease?.disabled).toBe(false);
+      expect(increase?.disabled).toBe(false);
+      expect(heightPresets(fixture).every((choice) => !choice.disabled)).toBe(
+        true,
+      );
+      const spans = Array.from(
+        fixture.nativeElement.querySelectorAll('[data-span]'),
+      ) as HTMLButtonElement[];
+      expect(spans.every((button) => button.disabled)).toBe(true);
+
+      increase?.click();
+      expect(tabManager.setCompactHeight).toHaveBeenCalledWith('tile-1', 4);
+    });
+
+    it('is reachable with Up/Down under lock and keeps Left/Right inside its row', () => {
+      const fixture = setupCompact(3, true);
+      openMenu(fixture);
+      const { decrease, increase } = stepper(fixture);
+      const presets = heightPresets(fixture);
+      presets[2].focus();
+      presets[2].dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+      );
+      expect(document.activeElement).toBe(decrease);
+      decrease?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+      );
+      expect(document.activeElement).toBe(increase);
+      increase?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+      );
+      expect(document.activeElement).toBe(decrease);
+    });
+
+    it.each([
+      [2, 'compact'],
+      [3, 'tall'],
+      [4, null],
+      [5, null],
+    ] as const)('at %i rows checks the %s preset only', (units, checked) => {
+      const fixture = setupCompact(units);
+      openMenu(fixture);
+      const presets = heightPresets(fixture);
+      expect(
+        presets
+          .filter((button) => button.getAttribute('aria-checked') === 'true')
+          .map((button) => button.dataset['viewMode']),
+      ).toEqual(checked ? [checked] : []);
+      expect(
+        presets
+          .filter((button) => button.classList.contains('btn-primary'))
+          .map((button) => button.dataset['viewMode']),
+      ).toEqual(checked ? [checked] : []);
+    });
   });
 
   it('toggles the view mode once per click and swallows every pointer start', () => {
