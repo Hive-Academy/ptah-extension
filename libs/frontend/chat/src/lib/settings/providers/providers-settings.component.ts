@@ -15,6 +15,7 @@ import {
   ProviderSetupWizardComponent, type ProviderWizardCommit, type WizardCommitState,
 } from './provider-setup-wizard.component';
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
+import { RoutingMapComponent } from './routing-map.component';
 import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
 // Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk (the write runner is tiny).
 import type { CredentialsCommit, CredentialsExternalAuth } from './connection-drawer/credentials-tab.component';
@@ -37,7 +38,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NativeCardComponent, ProviderModelPickerComponent, SettingScopeRowComponent,
-    ProviderConnectionCardComponent, ProviderSetupWizardComponent, ConnectionDetailDrawerComponent],
+    ProviderConnectionCardComponent, ProviderSetupWizardComponent, ConnectionDetailDrawerComponent, RoutingMapComponent],
   template: `
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
       <!-- No width or side padding of its own: the Settings shell (settings.component.html) already sets
@@ -71,6 +72,39 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
           } @else if (section.state.status === 'loading' || section.state.status === 'unloaded') {
             <p role="status" aria-live="polite" [attr.data-read-loading]="section.id">Loading {{ section.label }}…</p>
           }
+        }
+
+        <!-- Main Agent node → the main-agent block below until the Batch 26 popover (D14); D16 badges in its header.
+             Deferred (eager route at its bundle budget) behind a same-footprint placeholder. -->
+        @defer (on immediate) {
+        <ptah-routing-map (nodeActivated)="$event === 'main-agent' && requestFocus('main-agent')">
+          <div main-agent-badges class="contents" data-testid="main-scope-badges">
+            @for (fieldName of mainValueFields; track fieldName) {
+              @if (state.mainSources().data?.[fieldName]; as entry) {
+                <ptah-setting-scope-row [fieldName]="fieldName === 'model' ? 'Main agent model' : 'Reasoning effort'"
+                  [shortFieldName]="fieldName === 'model' ? 'Model' : 'Effort'" [scope]="entry.scope"
+                  [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(entry.key)" [workspaceName]="workspaceName()"
+                  [fallbackPreview]="entry.fallbackPreview" [disabled]="saving() || state.mainSources().status !== 'ready'"
+                  (clearRequested)="reviewClear(entry.key)"
+                  [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'" (useGlobalRequested)="reviewClear(entry.key, 'all-above-global')" />
+              }
+            }
+            @for (key of mainKeys; track key) {
+              @if (state.scopeEntry(key); as entry) {
+                <ptah-setting-scope-row [fieldName]="key === 'authMethod' ? 'Main agent authentication' : 'Main agent provider'"
+                  [shortFieldName]="key === 'authMethod' ? 'Authentication' : 'Provider'"
+                  [scope]="entry.scope" [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(key)"
+                  [workspaceName]="workspaceName()" [fallbackPreview]="entry.fallbackPreview" [credentialSource]="entry.credentialSource"
+                  [fallbackValueLabel]="key === 'authMethod' ? authenticationLabel(entry.fallbackPreview?.value) : null"
+                  [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'"
+                  [disabled]="saving() || state.scopes().status !== 'ready'"
+                  (clearRequested)="reviewClear(key)" (useGlobalRequested)="reviewClear(key, 'all-above-global')" />
+              }
+            }
+          </div>
+        </ptah-routing-map>
+        } @placeholder {
+          <div class="min-h-[178px] rounded-xl border border-base-300 bg-base-200/40 p-3" aria-busy="true" data-testid="routing-map-placeholder"></div>
         }
 
         <section aria-labelledby="providers-main-heading" class="space-y-3" [attr.aria-busy]="state.route().status === 'loading'">
@@ -122,31 +156,6 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
                   }
                 </div>
               }
-              <!-- D16 scope badges: only overridden fields show one; an inherited field renders nothing (RUX-6). -->
-              <div class="flex flex-wrap items-center gap-1.5" data-testid="main-scope-badges">
-                @for (fieldName of mainValueFields; track fieldName) {
-                  @if (state.mainSources().data?.[fieldName]; as entry) {
-                    <ptah-setting-scope-row [fieldName]="fieldName === 'model' ? 'Main agent model' : 'Reasoning effort'"
-                      [shortFieldName]="fieldName === 'model' ? 'Model' : 'Effort'" [scope]="entry.scope"
-                      [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(entry.key)" [workspaceName]="workspaceName()"
-                      [fallbackPreview]="entry.fallbackPreview" [disabled]="saving() || state.mainSources().status !== 'ready'"
-                      (clearRequested)="reviewClear(entry.key)"
-                      [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'" (useGlobalRequested)="reviewClear(entry.key, 'all-above-global')" />
-                  }
-                }
-                @for (key of mainKeys; track key) {
-                  @if (state.scopeEntry(key); as entry) {
-                    <ptah-setting-scope-row [fieldName]="key === 'authMethod' ? 'Main agent authentication' : 'Main agent provider'"
-                      [shortFieldName]="key === 'authMethod' ? 'Authentication' : 'Provider'"
-                      [scope]="entry.scope" [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(key)"
-                      [workspaceName]="workspaceName()" [fallbackPreview]="entry.fallbackPreview" [credentialSource]="entry.credentialSource"
-                      [fallbackValueLabel]="key === 'authMethod' ? authenticationLabel(entry.fallbackPreview?.value) : null"
-                      [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'"
-                      [disabled]="saving() || state.scopes().status !== 'ready'"
-                      (clearRequested)="reviewClear(key)" (useGlobalRequested)="reviewClear(key, 'all-above-global')" />
-                  }
-                }
-              </div>
             </div>
           </ptah-native-card>
           @if (modelDraft() !== null) {

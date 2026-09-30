@@ -109,6 +109,23 @@ for (const host of ['vscode', 'electron'] as const) {
       // sidebar leaves ~215 px cards at the same `lg` breakpoint and rows wrap: escalated (Q-extra-1,
       // batch-24-report.md), measured and logged here, asserted by the Batch 28 fold gate once decided.
       if (host === 'vscode') for (const height of heights) expect(height).toBeLessThanOrEqual(80);
+      // Batch 25: the routing map's three work nodes (deferred chunk; wait for it, not its placeholder).
+      const nodes = page.locator('[data-testid^="routing-node-"][data-testid$="agent"], [data-testid="routing-node-background-roles"], [data-testid="routing-node-cli-agents"]');
+      await expect(page.locator('[data-testid="routing-map"]')).toBeVisible();
+      await expect(nodes).toHaveCount(3);
+      const nodeBoxes = await nodes.evaluateAll((all) => all.map((node) => {
+        const box = node.getBoundingClientRect();
+        return { w: Math.round(box.width), h: Math.round(box.height), top: Math.round(box.top) };
+      }));
+      const nodeColumns = await page.locator('[data-testid="routing-map-nodes"]').evaluate((grid) =>
+        getComputedStyle(grid).gridTemplateColumns.split(' ').length);
+      console.log(`B25 nodes ${host}/${theme}: ${nodeBoxes.map((b) => `${b.w}x${b.h}@${b.top}`).join(', ')}, ${nodeColumns} columns`);
+      // Container-width columns (Q-extra-1 rule): 3 side by side in VS Code, 2 in Electron's narrower page.
+      expect(nodeColumns).toBe(host === 'vscode' ? 3 : 2);
+      // Node titles never wrap (one line of 16px at text-xs leading).
+      for (const height of await page.locator('[data-testid="routing-map"] h3').evaluateAll((all) => all.map((h) => h.getBoundingClientRect().height))) {
+        expect(height).toBeLessThanOrEqual(20);
+      }
       // Batch 23 (D16): every scope badge names its field; the open popover is its own capture.
       const badges = page.locator('[data-testid="scope-badge"]');
       // The scopes read lands after the tab renders; the fixture overrides the effort key.

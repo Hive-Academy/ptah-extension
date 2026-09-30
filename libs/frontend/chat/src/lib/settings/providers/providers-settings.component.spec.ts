@@ -583,9 +583,13 @@ describe('ProvidersSettingsComponent', () => {
     await render();
     // The compact card's one inline action is `btn-xs` by plan (:631): 24px, the WCAG 2.2 AA target size.
     const cardAction = (node: Element) => node.closest('[data-testid="provider-connection-card"]') !== null;
+    // A routing-map node's action is stretched over the whole node (≥ 88px): the node is its target.
+    const nodeAction = (node: Element) => node.getAttribute('data-testid') === 'routing-node-action';
     const actions = Array.from(element.querySelectorAll('button'));
     expect(actions.some(cardAction)).toBe(true);
-    for (const node of actions) {
+    expect(actions.filter(nodeAction)).toHaveLength(3);
+    for (const node of actions.filter(nodeAction)) expect(node.classList.contains('after:inset-0')).toBe(true);
+    for (const node of actions.filter((candidate) => !nodeAction(candidate))) {
       expect(node.classList.contains(cardAction(node) ? 'min-h-6' : 'min-h-9')).toBe(true);
       expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
     }
