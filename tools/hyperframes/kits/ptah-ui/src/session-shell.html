@@ -277,13 +277,15 @@
               '<span class="muted">' + K.icon("more", 28) + "</span>" +
               '<span class="muted">' + K.icon("x", 28) + "</span>" +
               "</div>" +
-              '<div class="ss-stats" data-ptah-part="stats">' + statsHtml + '<span class="ss-stats-chev">' + K.icon("chevron-down", 24) + "</span></div>" +
+              '<div class="ss-stats" data-ptah-part="stats" data-layout-allow-overflow>' + statsHtml + '<span class="ss-stats-chev">' + K.icon("chevron-down", 24) + "</span></div>" +
               '<div class="ss-ctx" data-ptah-part="context-bar"><div class="ss-ctx-fill ' + ctxCls + '"></div></div>' +
               (strip ? '<div class="ss-strip t-small muted"><span class="pu-dot" style="background:#16a34a"></span><span>' + e(strip) + "</span></div>" : "") +
               footerHtml +
               (focused ? '<div class="ss-focused"></div>' : "") +
               "</div>";
 
+            // A narrow tile clips the stats row, as the app does; the clipped chips are intentional (layout audit).
+            K.qa(".ss-stats span").forEach(function (s) { s.setAttribute("data-layout-allow-occlusion", ""); });
             var tile = K.q(".ss-tile");
             var statEls = K.qa(".ss-stat");
             var fill = K.q(".ss-ctx-fill");

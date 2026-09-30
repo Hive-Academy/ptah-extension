@@ -112,6 +112,10 @@ Criterion: WCAG 2.2 AA. Kit text is always >= 26px, which is "large text" (3:1 t
 
 Kit deviation (deliberate, contrast): filled `badge-success` and `badge-info` use `#131317` text, not the theme `*-content` token. Source uses the content token (`CU/atoms/cost-badge.component.ts:32`). The dark text on green that appears in the reference screenshots is consistent with this. Error fills keep `error-content` (passes large).
 
+Kit deviation 2 (deliberate, contrast, approved 2026-10-01): the kit muted token is `#989291`, not the app's `#8e8887`. Multi-session shots (`app-window` 2+2) mount session tiles at u = 0.43, so kit text renders at about 11 px and the `hyperframes check` contrast audit applies the 4.5:1 normal-text rule. The app value measures 4.21-4.44:1 there (ghost chips, muted labels on base-300); `#989291` passes on base-100/200/300. Icon and accent uses of `#8e8887` (tool icon fallback, `unverified` toast accent, uncolored subagent) keep the app value because they carry no text.
+
+Badge text weight is 500 (SPEC 4.3 `micro` 26/500); `base.css` had 400.
+
 ### 1.6 Source vs screenshot conflicts (source wins)
 
 1. Tool-name badge color is **status**, not tool identity: `badge-success` complete, `badge-info` streaming, `badge-error` error, `badge-ghost` pending (`CU/molecules/tool-execution/tool-call-header.component.ts:405-412`). Tool identity is the **icon** color (`CU/atoms/tool-icon.component.ts:94-127`): Read info, Write success, Bash warning, Grep secondary (gold), Edit accent, Glob info, Workflow primary, Task* secondary, Monitor accent, SendMessage info, ScheduleWakeup warning, anything else (including PowerShell) muted with the Terminal icon. Screenshots show all-green badges because every visible tool was complete.

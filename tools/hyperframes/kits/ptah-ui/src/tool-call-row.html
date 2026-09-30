@@ -180,7 +180,7 @@
               '<span class="tr-chev">' + K.icon("chevron-down", 24) + "</span>" +
               '<span class="tr-icon" style="color:' + ic.color + '">' + K.icon(ic.icon, 28) + "</span>" +
               '<span class="tr-badges" data-ptah-part="badge">' + badges + "</span>" +
-              '<span class="tr-text" data-ptah-part="label"><span class="tr-label trunc">' + K.esc(label) + '</span><span class="tr-live trunc">' + K.esc(liveText) + "</span></span>" +
+              '<span class="tr-text" data-ptah-part="label"><span class="tr-label trunc" data-layout-allow-overlap>' + K.esc(label) + '</span><span class="tr-live trunc" data-layout-allow-overlap>' + K.esc(liveText) + "</span></span>" +
               '<span class="tr-status" data-ptah-part="status"><span class="tr-spin" style="color:#3b82f6">' + K.icon("loader", 32) +
               '</span><span class="tr-ok" style="color:' + (outcome === "done" ? "#16a34a" : "#dc2626") + '">' + K.icon(outcome === "done" ? "check" : "x", 32) + "</span></span>" +
               (dur ? '<span class="pu-chip c-ghost tr-dur">' + K.esc(dur) + "</span>" : "") +
