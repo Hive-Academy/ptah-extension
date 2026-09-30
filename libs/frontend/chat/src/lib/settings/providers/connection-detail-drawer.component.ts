@@ -1,11 +1,15 @@
 import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal, untracked } from '@angular/core';
-import type { ProvidersConnection } from '@ptah-extension/core';
+import type { ProvidersConnection, ProvidersConnectionDraft } from '@ptah-extension/core';
 import { NativeDrawerComponent, NativeTabGroupComponent } from '@ptah-extension/ui';
 import type { UsedBy } from './connection-usage';
 import {
   connectionDrawerTabs, connectionKind, type ConnectionDrawerTabId, type ConnectionKind,
 } from './connection-drawer/connection-kind';
 import { OverviewTabComponent, type OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
+import {
+  CredentialsTabComponent, replaceKeyDraft, type CancelDraftFn, type CredentialsCommit, type CredentialsExternalAction,
+  type CredentialsSetup, type ReplaceKeyRequest, type VerifyDraftFn,
+} from './connection-drawer/credentials-tab.component';
 
 const AUTH_MODE_LABELS: Readonly<Record<ConnectionKind, string>> = {
   'claude-cli': 'CLI subscription',
@@ -48,14 +52,18 @@ function avatarTone(id: string): string {
 }
 
 /**
- * Until the Credentials (Batch 21), Models & Tiers and Advanced (Batch 22) tab bodies land, these tabs
- * keep today's editing path: the setup wizard the card's Manage opened (D14 — no capability lost).
+ * Until the Models & Tiers and Advanced (Batch 22) tab bodies land, these tabs keep today's editing
+ * path: the setup wizard the card's Manage opened (D14 — no capability lost). Credentials keeps it only
+ * where the tab does not yet hold every credential path: a local or custom endpoint's base URL.
  */
 const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview'>, string>> = {
-  credentials: 'Replace, check or remove the credential for this connection in setup.',
+  credentials: 'Change this connection\'s endpoint address in setup.',
   models: 'Choose the model used for each tier in setup.',
   advanced: 'Edit this endpoint\'s name, base URL and protocol in setup.',
 };
+
+/** Kinds whose Credentials tab holds every credential path (no setup fallback in its footer). */
+const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'oauth', 'claude-cli']);
 
 /**
  * Per-connection detail drawer (implementation-plan.md :637-667, design-spec §2.3/§3.4). The tabs come
@@ -69,7 +77,7 @@ const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview'>, st
   selector: 'ptah-connection-detail-drawer',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NativeDrawerComponent, NativeTabGroupComponent, OverviewTabComponent],
+  imports: [NativeDrawerComponent, NativeTabGroupComponent, OverviewTabComponent, CredentialsTabComponent],
   template: `
     <ptah-native-drawer [isOpen]="connection() !== null" widthClass="w-full max-w-lg"
       [ariaLabel]="(connection()?.name ?? 'Connection') + ' connection details'" (closed)="closed.emit()">
@@ -83,7 +91,7 @@ const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview'>, st
           </div>
         </div>
       }
-      @if (connection()) {
+      @if (connection(); as current) {
         <!-- Four tabs stay on one line (prototype): the labels inherit nowrap and the strip takes 8px of the
              body padding on each side; the tab body resets both. -->
         <ptah-native-tab-group class="-mx-2 block whitespace-nowrap" [tabs]="tabs()" [(activeId)]="activeTab"
@@ -96,6 +104,17 @@ const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview'>, st
                   [loading]="loading()" [checking]="checking()" [saving]="saving()" [usedBy]="usedBy()" [usageComplete]="usageComplete()"
                   [usageError]="usageError()" (checkConnectionRequested)="checkConnectionRequested.emit()"
                   (retryUsageRequested)="retryUsageRequested.emit()" />
+              }
+              @case ('credentials') {
+                <ptah-connection-credentials-tab [connection]="current" [kind]="kind()" [isActiveDriver]="isActive()"
+                  [saving]="saving()" [setup]="credentialsSetup()" [commit]="credentialsCommit()"
+                  [externalMessage]="externalMessage()" [verifyDraftConnection]="verifyDraftConnection()"
+                  [cancelDraftVerification]="cancelDraftVerification()" (replaceKeyRequested)="emitReplace(current, $event)"
+                  (deleteKeyRequested)="deleteKeyRequested.emit()" (signOutRequested)="signOutRequested.emit()"
+                  (externalActionRequested)="externalActionRequested.emit($event)" />
+                @if (setupFallback()) {
+                  <p class="mt-4 text-xs text-base-content-muted" data-testid="connection-setup-copy">{{ setupCopy() }}</p>
+                }
               }
               @default {
                 @if (loading()) {
@@ -116,7 +135,7 @@ const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview'>, st
           <span class="text-xs text-base-content-muted">Esc to close</span>
           <div class="flex items-center gap-2">
             <button type="button" class="btn btn-ghost btn-sm" (click)="closed.emit()" data-testid="connection-drawer-close">Close</button>
-            @if (activeTabId() !== 'overview') {
+            @if (setupFallback()) {
               <button type="button" class="btn btn-primary btn-sm" [disabled]="loading() || !canEdit()"
                 (click)="setupRequested.emit(current.id)" data-testid="connection-edit-in-setup">Edit in setup</button>
             }
@@ -143,7 +162,18 @@ export class ConnectionDetailDrawerComponent {
   readonly usageError = input(false);
   /** Wire protocol of a custom entry; `null` for a catalog connection or while it is unknown. */
   readonly customProtocol = input<CustomProtocol | null>(null);
+  /** Credentials tab: stored endpoint and tiers, its own last write, the host's sign-in message. */
+  readonly credentialsSetup = input<CredentialsSetup | null>(null);
+  readonly credentialsCommit = input<CredentialsCommit | null>(null);
+  readonly externalMessage = input<string | null>(null);
+  readonly verifyDraftConnection = input.required<VerifyDraftFn>();
+  readonly cancelDraftVerification = input.required<CancelDraftFn>();
   readonly closed = output<void>();
+  /** A verified Replace, as the `connectProvider` draft (`replaceKeyDraft`: credential only, connect-only). */
+  readonly replaceKeyRequested = output<ProvidersConnectionDraft>();
+  readonly deleteKeyRequested = output<void>();
+  readonly signOutRequested = output<void>();
+  readonly externalActionRequested = output<CredentialsExternalAction>();
   readonly checkConnectionRequested = output<void>();
   readonly retryUsageRequested = output<void>();
   /** Open the setup wizard for this provider (the parent closes the drawer first). */
@@ -193,12 +223,21 @@ export class ConnectionDetailDrawerComponent {
       default: return current?.hasKey ? 'Stored on this machine' : 'No key stored';
     }
   });
+  /** "Edit in setup" (D14) stays on a tab whose body does not yet hold every edit it replaces. */
+  protected readonly setupFallback = computed(() => {
+    const tab = this.activeTabId();
+    return tab !== 'overview' && !(tab === 'credentials' && CREDENTIALS_COMPLETE.has(this.kind()));
+  });
   protected readonly setupCopy = computed(() => {
     const tab = this.activeTabId();
     return tab === 'overview' ? '' : SETUP_COPY[tab];
   });
 
   private readonly connectionId = computed(() => this.connection()?.id ?? null);
+
+  protected emitReplace(connection: ProvidersConnection, request: ReplaceKeyRequest): void {
+    this.replaceKeyRequested.emit(replaceKeyDraft(connection, request, this.credentialsSetup()));
+  }
 
   constructor() {
     // Every connection opens on Overview.

@@ -59,7 +59,7 @@ const draft: ProviderWizardCommit = { providerId: 'first', displayName: 'First',
   editedTiers: ['everyday', 'complex', 'fast'], saveTo: 'global', activation: 'connect-only' };
 
 class StateStub {
-  readonly connectionSetup = signal(unloaded());
+  readonly connectionSetup = signal<ProvidersSettingsSection<{ providerId: string; baseUrl: string | null; tiers: { sonnet: string | null; opus: string | null; haiku: string | null } }>>(unloaded());
   readonly cliTest = signal(unloaded());
   readonly refreshConnectionSetup = jest.fn(async () => undefined);
   readonly testCliConnection = jest.fn(async () => undefined);
@@ -74,6 +74,8 @@ class StateStub {
   readonly lanes = signal(ready({}));
   readonly judging = signal(ready({ judgeProvider: '' }));
   readonly customEntry = jest.fn(() => null);
+  readonly deleteStoredKey = jest.fn(async (_id: string, _context: unknown) => true);
+  readonly disconnectCopilot = jest.fn(async (_context: unknown) => true);
   readonly cliAgents = signal(ready([]));
   readonly cliModels = signal(ready({}));
   readonly mainSources = signal(ready({}));
@@ -104,9 +106,9 @@ class StateStub {
   readonly writeScopes = jest.fn((): SettingScope[] => ['global', 'app', 'workspace']);
   readonly saveSettings = jest.fn(async () => undefined);
   readonly clearScopeOverride = jest.fn(async () => undefined);
-  readonly connectProvider = jest.fn(async () => undefined);
+  readonly connectProvider = jest.fn(async (_draft: unknown, _context: unknown): Promise<boolean | undefined> => undefined);
   readonly activateConnection = jest.fn(async () => undefined);
-  readonly verifyDraft = jest.fn(async () => undefined);
+  readonly verifyDraft = jest.fn(async (_params: { probeId: string }) => undefined);
   readonly cancelVerification = jest.fn(async () => ({ cancelled: false }));
   readonly performExternalAuth = jest.fn(async () => undefined);
 }
@@ -202,6 +204,66 @@ describe('ProvidersSettingsComponent', () => {
       await openDrawer('second');
       state.commit.set({ ...idle, status: 'saving' }); await render();
       expect(checkButton()?.disabled).toBe(true);
+    });
+
+    describe('Credentials writes (Batch 21)', () => {
+      const byId = (id: string) => element.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+      async function credentialsTab(id: string) {
+        state.route.set(ready(route)); await render();
+        await openDrawer(id);
+        Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).find((tab) => tab.textContent?.trim() === 'Credentials')?.click();
+        await render();
+      }
+      async function verifiedReplace(key: string) {
+        byId('credentials-replace')?.click(); await render();
+        const input = byId('credentials-new-key') as HTMLInputElement;
+        input.value = key; input.dispatchEvent(new Event('input')); await render();
+        state.verifyDraft.mockImplementationOnce(async (params: { probeId: string }) => {
+          state.verification.set(ready({ probeId: params.probeId, outcome: 'verified', reason: null, detail: null,
+            latencyMs: 40, modelUsed: null, checkedAt: '2026-09-30T10:00:00Z' }));
+        });
+        byId('credentials-verify')?.click(); await render(); await render();
+      }
+
+      it('opening the drawer reads the stored endpoint and tiers the Replace draft keeps', async () => {
+        await credentialsTab('second');
+        expect(state.refreshConnectionSetup).toHaveBeenCalledWith('second');
+      });
+
+      it('Replace saves through connectProvider, connect-only, with the verified probe and the stored tiers', async () => {
+        state.connectionSetup.set(ready({ providerId: 'second', baseUrl: null, tiers: { sonnet: 'one', opus: 'two', haiku: 'three' } }));
+        await credentialsTab('second');
+        await verifiedReplace('sk-second');
+        state.connectProvider.mockImplementationOnce(async () => { state.commit.set({ ...idle, status: 'saved', saved: ['Connection credential'] }); return true; });
+        byId('credentials-save')?.click(); await render(); await render();
+        const [draft] = state.connectProvider.mock.calls[0] as unknown as [Record<string, unknown>];
+        expect(draft).toMatchObject({ providerId: 'second', activation: 'connect-only', saveTo: 'global', editedTiers: [],
+          credential: { kind: 'apiKey', value: 'sk-second' }, tiers: { everyday: 'one', complex: 'two', fast: 'three' } });
+        expect((draft['verified'] as { probeId: string }).probeId).toMatch(/^drawer-probe-/);
+        expect(byId('credentials-commit')?.textContent).toContain('Key replaced.');
+      });
+
+      it('never reports Saved after a failed write, nor for an earlier save (D15)', async () => {
+        state.commit.set({ ...idle, status: 'saved', saved: ['Something earlier'] });
+        await credentialsTab('second');
+        expect(byId('credentials-commit')).toBeNull();
+        byId('credentials-delete')?.click(); await render();
+        state.deleteStoredKey.mockImplementationOnce(async () => {
+          state.commit.set({ ...idle, status: 'failed', unsaved: ['Stored key'], message: 'Stored key was not saved.' }); return true;
+        });
+        byId('credentials-delete-confirm-button')?.click(); await render(); await render();
+        expect(state.deleteStoredKey).toHaveBeenCalledWith('second', { scopeKey: 'workspace', activePath: '/workspace' });
+        expect(byId('credentials-commit')?.textContent).toContain('Not saved. Stored key was not saved.');
+        expect(byId('credentials-commit')?.textContent).not.toContain('deleted');
+      });
+
+      it('a write refused because another save runs says so instead of Saved', async () => {
+        await credentialsTab('second');
+        byId('credentials-delete')?.click(); await render();
+        state.deleteStoredKey.mockImplementationOnce(async () => false);
+        byId('credentials-delete-confirm-button')?.click(); await render(); await render();
+        expect(byId('credentials-commit')?.textContent).toContain('Another save is in progress');
+      });
     });
   });
 

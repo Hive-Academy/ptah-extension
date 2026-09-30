@@ -40,10 +40,16 @@ const TABS: readonly { readonly label: 'Providers' | 'Agent Orchestration'; read
   { label: 'Agent Orchestration', name: 'orchestration' },
 ];
 
-/** Connection drawers compared with `prototypes/final/screenshots/interactions/drawer-*.png` (Batch 20). */
-const DRAWERS: readonly { readonly card: string; readonly name: string }[] = [
+/**
+ * Connection drawers compared with `prototypes/final/screenshots/interactions/drawer-*.png` (Batch 20)
+ * and with the prototype's Credentials markup (`prototypes/final/index.html`, Batch 21). `tab` is the
+ * drawer tab shown; Overview when absent.
+ */
+const DRAWERS: readonly { readonly card: string; readonly name: string; readonly tab?: string }[] = [
   { card: 'Moonshot', name: 'drawer-moonshot' },
   { card: 'sovereigneg', name: 'drawer-sovereigneg' },
+  { card: 'Moonshot', name: 'drawer-moonshot-credentials', tab: 'Credentials' },
+  { card: 'Claude (Subscription)', name: 'drawer-claude-cli-credentials', tab: 'Credentials' },
 ];
 
 /**
@@ -84,6 +90,7 @@ for (const host of ['vscode', 'electron'] as const) {
         await page.locator('[data-testid="provider-connection-card"]').filter({ hasText: entry.card })
           .locator('[data-testid="btn-manage"]').click();
         await expect(drawer).toBeVisible();
+        if (entry.tab) await page.getByRole('tab', { name: entry.tab, exact: true }).click();
         await waitForSettled(page);
         await waitForDrawerOpened(page);
         await page.screenshot({ path: capturePath(entry.name, host, theme), animations: 'disabled' });

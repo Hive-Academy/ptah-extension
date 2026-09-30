@@ -3,7 +3,7 @@ import {
   afterRenderEffect, computed, effect, inject, input, output, signal, untracked,
 } from '@angular/core';
 import {
-  ProvidersSettingsStateService, type ProvidersConnection, type ProvidersEditContext,
+  ProvidersSettingsStateService, type ProvidersConnection, type ProvidersConnectionDraft, type ProvidersEditContext,
   type ProvidersExternalAuthAction,
 } from '@ptah-extension/core';
 import { NativeCardComponent, ProviderModelPickerComponent } from '@ptah-extension/ui';
@@ -15,6 +15,8 @@ import {
 } from './provider-setup-wizard.component';
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
 import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
+// Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk.
+import type { CredentialsCommit } from './connection-drawer/credentials-tab.component';
 import { connectionUsage } from './connection-usage';
 
 /** Deep-link sections the Providers tab owns. Background roles and CLI agents are on Orchestration. */
@@ -161,7 +163,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
             <ptah-provider-connection-card [providerId]="connection.id" [providerName]="connection.name" [authModality]="connection.authMode"
               [sourceLabel]="connection.hasKey ? 'Credential: stored on this machine' : null"
               [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
-              [isBlocked]="isBlocked(connection.id)" [canActivateMain]="!saving() && state.route().status === 'ready'" [canManage]="canStartSetup() && connection.id !== 'anthropic'"
+              [isBlocked]="isBlocked(connection.id)" [canActivateMain]="!saving() && state.route().status === 'ready'" [canManage]="canStartSetup()"
               (changeMainProviderRequested)="requestFocus('connections')" (activateMainRequested)="beginActivation(connection.id)"
               (manageRequested)="openDrawer(connection.id)" (setupRequested)="openWizard(connection.id)"
               (addKeyRequested)="openWizard(connection.id)" (replaceKeyRequested)="openWizard(connection.id)"
@@ -251,8 +253,13 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
           [checking]="state.route().status === 'loading'" [saving]="saving()" [canEdit]="canStartSetup()"
           [usedBy]="usage().byProvider[connection.id] ?? []" [usageComplete]="usage().complete" [usageError]="usageError()"
           [customProtocol]="state.customEntry(connection.id)?.lane ?? null"
+          [credentialsSetup]="credentialsSetup()" [credentialsCommit]="drawerCommit()"
+          [externalMessage]="state.externalAuth().data?.providerId === connection.id ? state.externalAuth().data?.message ?? null : null"
+          [verifyDraftConnection]="verifyDraftConnection" [cancelDraftVerification]="cancelDraftVerification"
           (closed)="closeDrawer()" (checkConnectionRequested)="state.checkConnection()" (retryUsageRequested)="state.refresh()"
-          (setupRequested)="setupFromDrawer($event)" />
+          (setupRequested)="setupFromDrawer($event)" (replaceKeyRequested)="replaceKey($event)"
+          (deleteKeyRequested)="deleteKey(connection.id)" (signOutRequested)="signOutCopilot()"
+          (externalActionRequested)="externalAction(connection.id, $event)" />
       }
     }
     @if (wizardOpen()) {
@@ -356,6 +363,14 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly drawerConnection = computed(() => {
     const id = this.drawerId();
     return id ? this.state.connections().data?.find((entry) => entry.id === id) ?? null : null;
+  });
+  /** Outcome of the drawer's own last write; never an earlier save's (D15). */
+  protected readonly drawerCommit = signal<CredentialsCommit | null>(null);
+  /** Stored endpoint and main-agent tiers of the open connection (a Replace keeps the tiers as stored). */
+  protected readonly credentialsSetup = computed(() => {
+    const setup = this.state.connectionSetup();
+    return setup.status === 'ready' && setup.data && setup.data.providerId === this.drawerId()
+      ? { baseUrl: setup.data.baseUrl, tiers: setup.data.tiers } : null;
   });
   /** Who uses each connection. `undefined`/`null` sources mean "not loaded" (see connection-usage.ts). */
   protected readonly usage = computed(() => {
@@ -485,8 +500,36 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const active = this.element.nativeElement.ownerDocument.activeElement;
     this.drawerOpener = active instanceof HTMLElement ? active : null;
     this.drawerId.set(providerId);
+    this.drawerCommit.set(null);
+    void this.state.refreshConnectionSetup(providerId);
   }
-  protected closeDrawer(): void { this.drawerId.set(null); }
+  protected closeDrawer(): void { this.drawerId.set(null); this.drawerCommit.set(null); }
+  protected deleteKey(providerId: string): Promise<void> {
+    return this.drawerWrite((context) => this.state.deleteStoredKey(providerId, context));
+  }
+  protected signOutCopilot(): Promise<void> {
+    return this.drawerWrite((context) => this.state.disconnectCopilot(context));
+  }
+  /** The drawer builds the verified Replace draft (`replaceKeyDraft`); this only runs the write. */
+  protected replaceKey(draft: ProvidersConnectionDraft): Promise<void> {
+    return this.drawerWrite((context) => this.state.connectProvider(draft, context));
+  }
+  /**
+   * Runs one drawer write and reports only ITS outcome: `saving` first, then `state.commit()` once the
+   * write resolved. `false` from the state means it was refused because another save is running.
+   */
+  protected async drawerWrite(write: (context: ProvidersEditContext) => Promise<boolean>): Promise<void> {
+    const context = this.state.reviewContext();
+    if (!context) {
+      this.drawerCommit.set({ status: 'blocked', message: 'Settings are still loading. Retry in a moment.' });
+      return;
+    }
+    this.drawerCommit.set({ status: 'saving', message: null });
+    const started = await write(context);
+    const commit = this.state.commit();
+    this.drawerCommit.set(started ? { status: commit.status, message: commit.message }
+      : { status: 'blocked', message: 'Another save is in progress. Retry when it finishes.' });
+  }
   /**
    * "Edit in setup" from a drawer tab: close the drawer, put focus back on the card that opened it,
    * then open the wizard, so closing the wizard returns focus to that card too.

@@ -89,3 +89,12 @@ Gate 1.7 (user) → architect → team-leader → batches with cross-side review
   quota. Cross-side reviews and small lane batches now use **codex + antigravity**.
 - Lanes (2026-09-30, user): continue with **Glm + antigravity** (codex limited until 2026-10-03 20:10;
   opencode still excluded).
+- Execution (2026-09-30, user): Providers (21-28) and Orchestration (29-36) stay **sequential**, no second worktree.
+- Advanced and Search & Voice tabs (2026-09-30, user): **no new prototype and no Gate 1.7**. They reuse the approved
+  `prototypes/final/` patterns for one unified settings UI. Gate: a short pattern map (control → approved pattern) plus a
+  preserve list from `investigation/tabs-advanced-search-voice-audit.md`, approved once by the user; then batches with
+  Gate G and Gate V against the approved patterns. This replaces the "separate prototype + Gate 1.7" line above.
+- Reviews (2026-09-30, user): no per-batch code review from Batch 22 on. Each batch still passes typecheck/test/lint,
+  Gate G and captures before the team-leader commits it. The cross-side code review is combined: one over the whole
+  Providers diff (21-28) at Gate V 28, one over the whole Orchestration diff (29-36) at Gate V 36, and one for the
+  Advanced / Search & Voice batches at their Gate V.

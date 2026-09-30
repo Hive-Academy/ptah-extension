@@ -271,18 +271,80 @@ async function throughBlankWizardCustomOption(
 
 /**
  * Since Batch 20 the card's Manage opens the connection detail drawer. Asserts it is THIS
- * connection's drawer, then takes the Credentials tab's one primary action, "Edit in setup", which
- * keeps the setup wizard path Manage used to open directly (D14) until Batches 21/22 build the tab
- * bodies.
+ * connection's drawer, then takes the Models & Tiers tab's one primary action, "Edit in setup", which
+ * keeps the setup wizard path Manage used to open directly (D14) until Batch 22 builds that tab body.
+ * (Since Batch 21 the Credentials tab of an API-key, sign-in or CLI connection holds its own actions
+ * and no longer offers setup; Models & Tiers still does for every kind.)
  */
 async function setupThroughDrawer(page: Page, providerName: string): Promise<void> {
   await expect(page.locator('[data-testid="connection-detail-drawer"]')).toBeVisible();
   await expect(page.locator('[data-testid="connection-drawer-title"]')).toContainText(providerName);
-  await page.getByRole('tab', { name: 'Credentials', exact: true }).click();
+  await page.getByRole('tab', { name: 'Models & Tiers', exact: true }).click();
   const setup = page.locator('[data-testid="connection-edit-in-setup"]');
   await visibleEnabled(setup);
   await setup.click();
   await expect(page.locator('[data-testid="connection-detail-drawer"]')).toHaveCount(0);
+}
+
+/** Manage on a configured card, then the drawer's Credentials tab (Batch 21). */
+async function credentialsOf(page: Page, providerName: string): Promise<Locator> {
+  await providersTab(page);
+  const trigger = card(page, providerName).locator('[data-testid="btn-manage"]');
+  await visibleEnabled(trigger);
+  await trigger.click();
+  await expect(page.locator('[data-testid="connection-drawer-title"]')).toContainText(providerName);
+  await page.getByRole('tab', { name: 'Credentials', exact: true }).click();
+  const tab = page.locator('[data-testid="connection-credentials"]');
+  await expect(tab).toBeVisible();
+  return tab;
+}
+
+/** Closes the connection drawer through its footer Close. Best-effort: used from `finally`. */
+async function closeConnectionDrawer(page: Page): Promise<void> {
+  await page.locator('[data-testid="connection-drawer-close"]').click({ timeout: 5000 }).catch(() => undefined);
+  await expect(page.locator('[data-testid="connection-detail-drawer"]')).toHaveCount(0);
+}
+
+/**
+ * Re-reads the Providers page: leaving the tab tears `ProvidersSettingsComponent` down and coming back
+ * runs `state.open()` again, so a fixture auth change (a stored Claude API key, a Copilot sign-in) shows.
+ */
+async function remountProviders(page: Page): Promise<void> {
+  await advancedTab(page);
+  await providersTab(page);
+}
+
+/**
+ * Runs `body` with an auth fixture change that makes an extra card appear, then restores the fixture
+ * and re-reads, so later entries see the BRIEF baseline.
+ */
+async function withAuthStatus(page: Page, change: Partial<ReturnType<typeof getFixtureState>['authStatus']>,
+  body: () => Promise<void>): Promise<void> {
+  const state = getFixtureState(page);
+  const before = { ...state.authStatus };
+  Object.assign(state.authStatus, change);
+  try {
+    await remountProviders(page);
+    await body();
+  } finally {
+    await closeConnectionDrawer(page);
+    Object.assign(state.authStatus, before);
+    await remountProviders(page);
+  }
+}
+
+/** Confirms an inline two-step write in the Credentials tab and asserts its RPC went out. */
+async function confirmWrite(page: Page, trigger: string, confirm: string, method: string, params: unknown): Promise<void> {
+  const state = getFixtureState(page);
+  const before = state.calls.length;
+  const start = page.locator(`[data-testid="${trigger}"]`);
+  await visibleEnabled(start);
+  await start.click();
+  const confirmButton = page.locator(`[data-testid="${confirm}"]`);
+  await visibleEnabled(confirmButton);
+  await confirmButton.click();
+  await expect(page.locator('[data-testid="credentials-commit"]')).toBeVisible();
+  await expect.poll(() => state.calls.slice(before).find((call) => call.method === method)?.params).toEqual(params);
 }
 
 /** Opens the setup wizard from an already-configured card's action button, then closes it. */
@@ -749,9 +811,27 @@ const notYetBuilt = async (): Promise<void> => {
 };
 
 const restoredPending: readonly ReachabilityEntry[] = [
-  { id: '#7', capability: 'Delete the stored Anthropic API key', status: 'pending', reach: notYetBuilt },
-  { id: '#8', capability: 'Delete a stored third-party provider key', status: 'pending', reach: notYetBuilt },
-  { id: '#12', capability: 'GitHub Copilot sign out / disconnect', status: 'pending', reach: notYetBuilt },
+  { id: '#7', capability: 'Delete the stored Anthropic API key', status: 'restored',
+    // Batch 21: drawer Credentials -> Delete key -> inline confirm -> auth:deleteStoredKey (D4).
+    reach: (page) => withAuthStatus(page, { hasApiKey: true }, async () => {
+      await credentialsOf(page, 'Claude API');
+      await confirmWrite(page, 'credentials-delete', 'credentials-delete-confirm-button', 'auth:deleteStoredKey', { providerId: 'anthropic' });
+    }) },
+  { id: '#8', capability: 'Delete a stored third-party provider key', status: 'restored',
+    reach: async (page) => {
+      try {
+        await credentialsOf(page, 'Moonshot');
+        await confirmWrite(page, 'credentials-delete', 'credentials-delete-confirm-button', 'auth:deleteStoredKey', { providerId: 'moonshot' });
+      } finally {
+        await closeConnectionDrawer(page);
+      }
+    } },
+  { id: '#12', capability: 'GitHub Copilot sign out / disconnect', status: 'restored',
+    // Batch 21: drawer Credentials -> Sign out -> inline confirm -> auth:copilotLogout.
+    reach: (page) => withAuthStatus(page, { copilotAuthenticated: true }, async () => {
+      await credentialsOf(page, 'GitHub Copilot');
+      await confirmWrite(page, 'credentials-sign-out', 'credentials-sign-out-confirm-button', 'auth:copilotLogout', {});
+    }) },
   { id: '#25', capability: 'Delete a custom provider', status: 'pending', reach: notYetBuilt },
   { id: '#27', capability: 'Custom provider models endpoint', status: 'pending', reach: notYetBuilt },
   { id: '#28', capability: 'Custom provider help URL', status: 'pending', reach: notYetBuilt },
@@ -761,11 +841,75 @@ const restoredPending: readonly ReachabilityEntry[] = [
   { id: '#43', capability: 'Ptah CLI agent status (Ready/Error/Init/No Key)', status: 'pending', reach: notYetBuilt },
   { id: '#44', capability: 'Ptah CLI agent key status (Key set/No key/Cloud signin)', status: 'pending', reach: notYetBuilt },
   { id: '#47', capability: 'Inline GitHub login when adding a Copilot-backed CLI agent', status: 'pending', reach: notYetBuilt },
-  { id: '#49', capability: 'Show/hide API key in CLI agent add/edit forms', status: 'pending', reach: notYetBuilt },
+  { id: '#49', capability: 'Show/hide API key in CLI agent add/edit forms', status: 'restored',
+    // Batch 21 restores the drawer Credentials half (the Replace key field). The CLI agent add/edit
+    // forms get theirs with the add-instance modal (plan :753); that batch extends this reach.
+    reach: async (page) => {
+      try {
+        await credentialsOf(page, 'Moonshot');
+        await page.locator('[data-testid="credentials-replace"]').click();
+        const key = page.locator('[data-testid="credentials-new-key"]');
+        await expect(key).toHaveAttribute('type', 'password');
+        await page.locator('[data-testid="credentials-toggle-visibility"]').click();
+        await expect(key).toHaveAttribute('type', 'text');
+      } finally {
+        await closeConnectionDrawer(page);
+      }
+    } },
   { id: '#53', capability: 'CLI-agent tier mapping (cliAgent scope)', status: 'pending', reach: notYetBuilt },
   { id: '#54', capability: 'Tier-mapping badges on CLI agent cards', status: 'pending', reach: notYetBuilt },
   { id: '#70', capability: 'Per-CLI permission and safety notes', status: 'pending', reach: notYetBuilt },
   { id: '#71', capability: 'Per-CLI grouping of delegated settings, hidden when not installed', status: 'pending', reach: notYetBuilt },
+];
+
+// ---------------------------------------------------------------------------
+// Regressed UX (parity-inventory.md "Regressed UX"), added when the batch that fixes each one lands.
+// ---------------------------------------------------------------------------
+
+const regressedUx: readonly ReachabilityEntry[] = [
+  { id: 'RUX-1', capability: 'Replace a stored key without the 5-step wizard (verify, then save)', status: 'restored',
+    // Batch 21: a failed check keeps Save disabled; a passing one enables it. Nothing is saved here.
+    reach: async (page) => {
+      try {
+        await credentialsOf(page, 'Moonshot');
+        await page.locator('[data-testid="credentials-replace"]').click();
+        const key = page.locator('[data-testid="credentials-new-key"]');
+        const save = page.locator('[data-testid="credentials-save"]');
+        await key.fill(INVALID_PROBE_KEY);
+        await page.locator('[data-testid="credentials-verify"]').click();
+        await expect(page.locator('[data-testid="credentials-probe"]')).toContainText('Nothing was saved');
+        await expect(save).toBeDisabled();
+        await key.fill('sk-e2e-replacement');
+        await page.locator('[data-testid="credentials-verify"]').click();
+        await expect(page.locator('[data-testid="credentials-probe"]')).toContainText('Key verified');
+        await expect(save).toBeEnabled();
+      } finally {
+        await closeConnectionDrawer(page);
+      }
+    } },
+  { id: 'RUX-4', capability: 'The Claude API key is manageable from its own card', status: 'restored',
+    reach: (page) => withAuthStatus(page, { hasApiKey: true }, async () => {
+      const tab = await credentialsOf(page, 'Claude API');
+      await expect(tab.locator('[data-testid="credentials-key-mask"]')).toBeVisible();
+      await visibleEnabled(tab.locator('[data-testid="credentials-delete"]'));
+    }) },
+  { id: 'RUX-10', capability: 'Setup help text (claude login / install, Codex login, Get a key)', status: 'restored',
+    reach: async (page) => {
+      try {
+        const cli = await credentialsOf(page, 'Claude (Subscription)');
+        await expect(cli.locator('[data-testid="credentials-cli"]')).toContainText('npm install -g @anthropic-ai/claude-code');
+        await visibleEnabled(cli.locator('[data-testid="credentials-copy-login"]'));
+        await closeConnectionDrawer(page);
+        const codex = await credentialsOf(page, 'OpenAI Codex');
+        await expect(codex.locator('[data-testid="credentials-codex-copy"]')).toContainText('~/.codex/auth.json');
+        await visibleEnabled(codex.locator('[data-testid="credentials-open-login"]'));
+        await closeConnectionDrawer(page);
+        const key = await credentialsOf(page, 'Moonshot');
+        await expect(key.locator('[data-testid="credentials-get-key"]')).toHaveAttribute('href', /^https:\/\//);
+      } finally {
+        await closeConnectionDrawer(page);
+      }
+    } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -798,10 +942,14 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
   ...orchestrationPolicy,
   ...other,
   ...restoredPending,
+  ...regressedUx,
 ];
 
-/** Guard constant (D14 rule 2): only S4 sets this; later batches must not shrink it. */
-export const EXPECTED_CAPABILITY_COUNT = 81;
+/**
+ * Guard constant (D14 rule 2): S4 set it to 81; later batches may only grow it. Batch 21 added the
+ * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84.
+ */
+export const EXPECTED_CAPABILITY_COUNT = 84;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

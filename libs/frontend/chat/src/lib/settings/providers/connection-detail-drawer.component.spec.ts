@@ -10,6 +10,9 @@ const MOONSHOT = connection({});
 const SOVEREIGNEG = connection({ id: 'sovereigneg', name: 'sovereigneg', custom: true });
 const CLAUDE_CLI = connection({ id: 'claude-cli', name: 'Claude (Subscription)', authMode: 'cli', hasKey: false });
 
+const verify = jest.fn(async (params: { probeId: string }) => ({ probeId: params.probeId, outcome: 'verified' as const,
+  reason: null, detail: null, latencyMs: 50, modelUsed: null, checkedAt: '2026-09-30T10:00:00Z' }));
+
 describe('ConnectionDetailDrawerComponent', () => {
   let fixture: ComponentFixture<ConnectionDetailDrawerComponent>;
 
@@ -19,6 +22,8 @@ describe('ConnectionDetailDrawerComponent', () => {
       providers: [{ provide: AppStateManager, useValue: { requestSettingsTab: jest.fn() } }],
     });
     fixture = TestBed.createComponent(ConnectionDetailDrawerComponent);
+    fixture.componentRef.setInput('verifyDraftConnection', verify);
+    fixture.componentRef.setInput('cancelDraftVerification', jest.fn(async () => ({ cancelled: true })));
   });
   afterEach(() => { fixture.destroy(); TestBed.resetTestingModule(); });
 
@@ -114,6 +119,7 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(byTestId('connection-drawer-close')).not.toBeNull();
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Save Changes');
 
+    // A custom endpoint's base URL is not in the Credentials tab yet (Advanced, Batch 22): setup stays (D14).
     for (const label of ['Credentials', 'Models & Tiers', 'Advanced']) {
       selectTab(label);
       const buttons = Array.from(query('[drawer-footer]')?.querySelectorAll('button') ?? []);
@@ -124,9 +130,31 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(setup).toHaveBeenCalledWith('sovereigneg');
   });
 
+  it.each([
+    ['an API-key connection', MOONSHOT],
+    ['the Claude CLI subscription', CLAUDE_CLI],
+  ])('Credentials of %s holds every credential path: the tab body, no setup fallback', (_name, value) => {
+    render({ connection: value, canEdit: true });
+    selectTab('Credentials');
+    expect(byTestId('connection-credentials')).not.toBeNull();
+    expect(byTestId('connection-edit-in-setup')).toBeNull();
+    const buttons = Array.from(query('[drawer-footer]')?.querySelectorAll('button') ?? []);
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Close']);
+  });
+
+  it('relays the Credentials tab requests', () => {
+    const deleted = jest.fn();
+    fixture.componentInstance.deleteKeyRequested.subscribe(deleted);
+    render({ connection: MOONSHOT });
+    selectTab('Credentials');
+    byTestId('credentials-delete')?.click(); fixture.detectChanges();
+    byTestId('credentials-delete-confirm-button')?.click();
+    expect(deleted).toHaveBeenCalledTimes(1);
+  });
+
   it('Edit in setup is disabled while setup cannot start', () => {
     render({ connection: MOONSHOT, canEdit: false });
-    selectTab('Credentials');
+    selectTab('Models & Tiers');
     expect((byTestId('connection-edit-in-setup') as HTMLButtonElement).disabled).toBe(true);
   });
 
