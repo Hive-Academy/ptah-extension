@@ -79,6 +79,7 @@ function summary(
     content: {
       kind: 'question',
       text: 'Which path?',
+      format: 'plain',
       additionalPromptCount: 2,
       actionable: true,
     },
@@ -234,6 +235,7 @@ describe(CompactSessionActivityComponent.name, () => {
         content: {
           kind: 'prose',
           text: '## Assistant decision\n\nVerified **100%** coverage.',
+          format: 'markdown',
           additionalPromptCount: 0,
           actionable: false,
         },
@@ -250,6 +252,7 @@ describe(CompactSessionActivityComponent.name, () => {
         content: {
           kind: 'question',
           text: 'Which file should be edited?',
+          format: 'plain',
           additionalPromptCount: 0,
           actionable: true,
         },
@@ -583,10 +586,231 @@ describe(CompactSessionActivityComponent.name, () => {
     );
     const row = fixture.componentInstance.feedRows()[0];
 
-    expect(row.text).toBe('Reading …/lib/logger.ts');
+    expect(row.text).toBe('Reading .../lib/logger.ts');
     expect(row.text.length).toBeLessThanOrEqual(120);
     // The full un-shortened line stays available in the row tooltip.
     expect(row.title).toContain(longPath);
+  });
+
+  it('renders a tool row like the normal tool header: icon, status badge, target, check', () => {
+    const fixture = render(
+      summary({
+        marks: [
+          mark({
+            id: 'tool:read',
+            label: 'Read completed',
+            text: '.../app/main.ts',
+            toolName: 'Read',
+          }),
+          mark({
+            id: 'tool:mcp',
+            tone: 'live',
+            label: 'mcp__ptah__workspace_analyze started',
+            text: 'mcp__ptah__workspace_analyze',
+            toolName: 'mcp__ptah__workspace_analyze',
+          }),
+        ],
+      }),
+    );
+    const lines = [
+      ...fixture.nativeElement.querySelectorAll(
+        '[data-zone="feed"] .cs-row-line',
+      ),
+    ] as HTMLElement[];
+    const readBadge = lines[0].querySelector(
+      '[data-testid="cs-tool-badge"]',
+    ) as HTMLElement;
+    const mcpBadge = lines[1].querySelector(
+      '[data-testid="cs-tool-badge"]',
+    ) as HTMLElement;
+
+    expect(lines[0].querySelector('ptah-tool-icon')).not.toBeNull();
+    expect(readBadge.textContent?.trim()).toBe('Read');
+    expect(readBadge.className).toContain('badge');
+    expect(readBadge.className).toContain('badge-success');
+    expect(lines[0].textContent).toContain('.../app/main.ts');
+    expect(lines[0].textContent).not.toContain('TOOL');
+    expect(
+      lines[0].querySelectorAll('lucide-angular.text-success'),
+    ).toHaveLength(1);
+    // A running tool uses the info colour, its Ptah short name, and no
+    // settled status icon.
+    expect(mcpBadge.textContent?.trim()).toBe('workspace analyze');
+    expect(mcpBadge.className).toContain('badge-info');
+    expect(
+      lines[1].querySelectorAll(
+        'lucide-angular.text-success, lucide-angular.text-error',
+      ),
+    ).toHaveLength(0);
+    // Plain one-line targets need no expansion.
+    expect(lines[0].getAttribute('role')).toBeNull();
+  });
+
+  it('expands a failed tool row to its bounded error excerpt', () => {
+    const fixture = render(
+      summary({
+        marks: [
+          mark({
+            id: 'tool:bash',
+            tone: 'error',
+            label: 'Bash failed',
+            text: '$a - $b',
+            toolName: 'Bash',
+            excerpt: "Method invocation failed ... 'op_Subtraction'",
+          }),
+        ],
+      }),
+    );
+    const line = fixture.nativeElement.querySelector(
+      '[data-zone="feed"] .cs-row-line',
+    ) as HTMLElement;
+
+    expect(
+      (line.querySelector('[data-testid="cs-tool-badge"]') as HTMLElement)
+        .className,
+    ).toContain('badge-error');
+    expect(line.querySelectorAll('lucide-angular.text-error')).toHaveLength(1);
+    expect(line.textContent).toContain('$a - $b');
+    expect(line.textContent).not.toContain('op_Subtraction');
+
+    line.click();
+    fixture.detectChanges();
+    const detail = fixture.nativeElement.querySelector(
+      '.cs-row-detail',
+    ) as HTMLElement;
+    expect(detail.textContent).toContain('op_Subtraction');
+  });
+
+  it('never shows a successful tool output in a feed row, title or detail', () => {
+    const output = 'export const SECRET_FILE_BODY = 1;';
+    const fixture = render(
+      summary({
+        marks: [
+          mark({
+            id: 'tool:read',
+            label: 'Read completed',
+            text: '.../app/main.ts',
+            toolName: 'Read',
+            // A stray excerpt on a success must still stay hidden.
+            excerpt: output,
+          }),
+        ],
+      }),
+    );
+    const row = fixture.componentInstance.feedRows()[0];
+    const feed = fixture.nativeElement.querySelector(
+      '[data-zone="feed"]',
+    ) as HTMLElement;
+
+    expect(row.detail).toBeNull();
+    expect(row.title).not.toContain('SECRET_FILE_BODY');
+    expect(feed.innerHTML).not.toContain('SECRET_FILE_BODY');
+  });
+
+  it('keeps a tool row target literal instead of stripping it as markdown', () => {
+    const fixture = render(
+      summary({
+        marks: [
+          mark({
+            id: 'tool:glob',
+            label: 'Glob completed',
+            text: '**/*.spec.ts',
+            toolName: 'Glob',
+          }),
+        ],
+      }),
+    );
+
+    expect(fixture.componentInstance.feedRows()[0].text).toBe('**/*.spec.ts');
+  });
+
+  it('renders a snippet recap as plain monospace text without markdown or its own scroll', () => {
+    const fixture = render(
+      summary({
+        content: {
+          kind: 'error',
+          text: 'Oops\n---\n+ added\n    indented',
+          format: 'snippet',
+          additionalPromptCount: 0,
+          actionable: false,
+        },
+      }),
+    );
+    const recap = fixture.nativeElement.querySelector(
+      '[data-zone="recap"]',
+    ) as HTMLElement;
+    const snippet = recap.querySelector(
+      '[data-testid="cs-recap-snippet"]',
+    ) as HTMLElement;
+
+    expect(recap.querySelector('ptah-markdown-block, markdown')).toBeNull();
+    expect(snippet.tagName).toBe('PRE');
+    expect(snippet.textContent).toBe('Oops\n---\n+ added\n    indented');
+    expect(snippet.className).toContain('font-mono');
+    expect(snippet.className).toContain('text-error');
+    expect(snippet.className).not.toContain('overflow');
+    expect(snippet.className).not.toContain('max-h');
+  });
+
+  it('renders markdown recap content through ptah-markdown-block only for the markdown format', () => {
+    const fixture = render(
+      summary({
+        content: {
+          kind: 'prose',
+          text: 'Done with `code`.',
+          format: 'markdown',
+          additionalPromptCount: 0,
+          actionable: false,
+        },
+      }),
+    );
+    const recap = fixture.nativeElement.querySelector(
+      '[data-zone="recap"]',
+    ) as HTMLElement;
+
+    expect(recap.querySelector('ptah-markdown-block')).not.toBeNull();
+    expect(recap.querySelector('pre')).toBeNull();
+
+    const plain = render(
+      summary({
+        content: {
+          kind: 'result',
+          text: '.../app/main.ts',
+          format: 'plain',
+          additionalPromptCount: 0,
+          actionable: false,
+        },
+      }),
+    );
+    expect(
+      plain.nativeElement.querySelector(
+        '[data-zone="recap"] ptah-markdown-block',
+      ),
+    ).toBeNull();
+    expect(
+      plain.nativeElement.querySelector('[data-zone="recap"] p')?.textContent,
+    ).toContain('.../app/main.ts');
+  });
+
+  it('flattens recap list cards and removes the inner code-block scroll', () => {
+    const source = readFileSync(
+      join(__dirname, 'compact-session-activity.component.ts'),
+      'utf8',
+    );
+    const rule = (selector: string) => {
+      const start = source.indexOf(`${selector} {`);
+      return source.slice(start, source.indexOf('}', start));
+    };
+
+    expect(rule(':host ::ng-deep .cs-recap-md .prose-list-card')).toContain(
+      'border: 0',
+    );
+    expect(rule(':host ::ng-deep .cs-recap-md .prose-list-card')).toContain(
+      'background: none',
+    );
+    const pre = rule(':host ::ng-deep .cs-recap-md pre');
+    expect(pre).not.toContain('max-height');
+    expect(pre).toContain('overflow: visible');
   });
 
   it('falls back to a single column for a stacked body without a handle', () => {

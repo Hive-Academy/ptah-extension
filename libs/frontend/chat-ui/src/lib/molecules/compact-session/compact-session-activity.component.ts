@@ -11,14 +11,22 @@ import {
   afterRenderEffect,
   type ElementRef,
 } from '@angular/core';
+import { LucideAngularModule, CheckCircle, XCircle } from 'lucide-angular';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import { CompactSessionStatsComponent } from './compact-session-stats.component';
 import { stripMarkdownToPlainText } from './compact-plain-text';
-import { shortenRowText } from './compact-wire-text';
+import {
+  feedKindLabel,
+  feedRow,
+  feedToneGlyph,
+  wireBadgeClass,
+  type CompactFeedRow,
+} from './compact-feed-rows';
 import {
   SplitHandleComponent,
   type SplitHandleOrientation,
 } from '../../atoms/split-handle.component';
+import { ToolIconComponent } from '../../atoms/tool-icon.component';
 import type {
   CompactSemanticMark,
   CompactSemanticMarkKind,
@@ -28,69 +36,10 @@ import type {
 
 export type FeedFilter = 'all' | 'error' | 'warn';
 
-export interface CompactFeedRow {
-  readonly mark: CompactSemanticMark;
-  /** Plain-text label. */
-  readonly label: string;
-  /** Primary one-line row text: the mark detail when present, else the label. */
-  readonly text: string;
-  /** Row title/tooltip: the label plus the full detail line. */
-  readonly title: string;
-  /** Full plain-text detail for the inline expanded block; null when absent. */
-  readonly detail: string | null;
-}
-
 interface PaneSize {
   readonly width: number;
   readonly height: number;
 }
-
-const KIND_LABEL: Record<CompactSemanticMarkKind, string> = {
-  tool: 'TOOL',
-  agent: 'AGENT',
-  prose: 'PROSE',
-  prompt: 'ASK',
-  compaction: 'COMP',
-  terminal: 'TERM',
-};
-
-/**
- * Badge colour is coded by mark KIND (like the wire-console prototype), while
- * tone stays dual-coded through the glyph and the row accent.
- */
-type WireBadgeTone = 'info' | 'secondary' | 'primary' | 'warning' | 'error';
-
-const KIND_BADGE_TONE: Record<CompactSemanticMarkKind, WireBadgeTone> = {
-  tool: 'info',
-  agent: 'secondary',
-  prose: 'primary',
-  prompt: 'warning',
-  compaction: 'warning',
-  terminal: 'error',
-};
-
-const BADGE_CLASSES: Record<WireBadgeTone, string> = {
-  info: 'border-info/30 bg-info/10 text-info',
-  secondary: 'border-secondary/30 bg-secondary/10 text-secondary',
-  primary: 'border-primary/30 bg-primary/10 text-primary',
-  warning: 'border-warning/30 bg-warning/10 text-warning',
-  error: 'border-error/30 bg-error/10 text-error',
-};
-
-/**
- * Full class string for a wire badge. Bound through a single `[class]` so
- * the static layout classes and the kind-coded colours do not collide with
- * the no-duplicate-attributes template rule.
- */
-const BADGE_BASE_CLASSES =
-  'inline-flex min-w-[60px] shrink-0 items-center justify-center gap-1 rounded border px-1.5 py-px text-center text-[9px] font-bold';
-
-/** Input bound for conversion; tool output can be very large. */
-const DETAIL_SOURCE_LIMIT = 4000;
-/** The detail block wraps and scrolls, so 600 plain chars is plenty. */
-const DETAIL_TEXT_LIMIT = 600;
-/** The row description is one visually truncated line. */
-const ROW_TEXT_LIMIT = 120;
 
 /** Same threshold as the CSS `@container (max-width: 600px)` stacked tier. */
 const STACKED_BREAKPOINT_PX = 600;
@@ -106,23 +55,14 @@ const FALLBACK_RECAP_WIDTH = 320;
 const FALLBACK_RECAP_HEIGHT = 180;
 
 /**
- * Tone is dual-coded: every badge pairs this glyph with a colour class so
- * tone reads correctly without colour vision.
- */
-const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
-  idle: '○',
-  live: '▶',
-  success: '✓',
-  warning: '▲',
-  error: '✖',
-};
-
-/**
  * Bounded, dual-pane wire console body for compact sessions:
- * - Left pane: Executive assistant recap (rendered via MarkdownBlockComponent for
- *   rich content, or plain text for interactive prompts) and agent context.
- * - Right pane: Real-time teletype activity feed with kind-coded badges, live
- *   auto-scroll, expandable detail rows, filter chips, and terminal prompt footer.
+ * - Left pane: Executive assistant recap, rendered by `content.format`:
+ *   MarkdownBlockComponent for assistant prose and agent summaries, a plain
+ *   monospace snippet for an unanswered tool or agent error, plain text otherwise.
+ * - Right pane: Real-time teletype activity feed. Tool rows read like the
+ *   normal view's tool header (icon, status-coloured name badge, target,
+ *   check/cross); other rows keep kind-coded badges. Live auto-scroll,
+ *   expandable detail rows, filter chips, and terminal prompt footer.
  * - The recap/feed split is resizable through a drag handle; sizes flow through
  *   the --cs-recap-w / --cs-recap-h custom properties, so the CSS defaults
  *   apply until the user resizes.
@@ -134,8 +74,10 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
   standalone: true,
   imports: [
     CompactSessionStatsComponent,
+    LucideAngularModule,
     MarkdownBlockComponent,
     SplitHandleComponent,
+    ToolIconComponent,
   ],
   host: {
     class: 'block h-full min-h-0 overflow-hidden',
@@ -304,6 +246,8 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
         line-height: 1.3;
         margin-top: 0.5rem;
         margin-bottom: 0.25rem;
+        border: 0;
+        padding-bottom: 0;
         color: oklch(var(--bc));
       }
       :host ::ng-deep .cs-recap-md p {
@@ -318,9 +262,12 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
         border-radius: 0.2rem;
         background-color: oklch(var(--b3) / 0.5);
       }
+      /* The recap scroll is the only vertical scroll area: code blocks wrap
+         instead of scrolling on their own. */
       :host ::ng-deep .cs-recap-md pre {
-        max-height: 120px;
-        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        overflow: visible;
         margin: 0.375rem 0;
         padding: 0.375rem 0.5rem;
         border-radius: 0.25rem;
@@ -360,6 +307,20 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
       }
       :host ::ng-deep .cs-recap-md li {
         margin: 0.125rem 0;
+      }
+      /* The markdown lib boxes every list in a card; in the recap, nested
+         lists must read as plain lists, not nested boxes. */
+      :host ::ng-deep .cs-recap-md .prose-list-card {
+        background: none;
+        border: 0;
+        padding: 0;
+        margin: 0.25rem 0;
+        font-size: inherit;
+      }
+      .cs-recap-snippet {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        margin: 0;
       }
       :host ::ng-deep .cs-recap-md blockquote {
         margin: 0.25rem 0;
@@ -461,10 +422,15 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
             </div>
 
             <div class="cs-recap-scroll my-2 pr-1">
-              @if (isMarkdownContent()) {
+              @if (summary().content.format === 'markdown') {
                 <div class="cs-recap-md">
                   <ptah-markdown-block [content]="summary().content.text" />
                 </div>
+              } @else if (summary().content.format === 'snippet') {
+                <pre
+                  class="cs-recap-snippet font-mono text-[11px] leading-snug text-error"
+                  data-testid="cs-recap-snippet"
+                  >{{ summary().content.text }}</pre>
               } @else {
                 <p
                   class="whitespace-pre-line text-xs leading-relaxed"
@@ -635,18 +601,44 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
                     >
                       {{ formatWireTime(row.mark.timestamp) }}
                     </span>
-                    <span [class]="wireBadgeClass(row.mark)">
-                      <span aria-hidden="true">{{
-                        toneGlyph(row.mark.tone)
-                      }}</span>
-                      {{ kindLabel(row.mark.kind) }}
-                    </span>
+                    @if (row.tool; as tool) {
+                      <ptah-tool-icon
+                        class="inline-flex shrink-0"
+                        aria-hidden="true"
+                        [toolName]="tool.name"
+                      />
+                      <span
+                        [class]="tool.badgeClass"
+                        data-testid="cs-tool-badge"
+                      >
+                        <span class="truncate">{{ tool.displayName }}</span>
+                      </span>
+                    } @else {
+                      <span [class]="wireBadgeClass(row.mark)">
+                        <span aria-hidden="true">{{
+                          toneGlyph(row.mark.tone)
+                        }}</span>
+                        {{ kindLabel(row.mark.kind) }}
+                      </span>
+                    }
                     <span class="min-w-0 flex-1 truncate">
                       {{ row.text }}
                       @if (newestLiveMarkId() === row.mark.id) {
                         <span class="blinking-cursor" aria-hidden="true"></span>
                       }
                     </span>
+                    @if (
+                      row.tool &&
+                      (row.mark.tone === 'success' || row.mark.tone === 'error')
+                    ) {
+                      <lucide-angular
+                        [img]="row.mark.tone === 'success' ? CheckIcon : XIcon"
+                        class="h-3 w-3 shrink-0"
+                        [class.text-success]="row.mark.tone === 'success'"
+                        [class.text-error]="row.mark.tone === 'error'"
+                        aria-hidden="true"
+                      />
+                    }
                   </div>
                   @if (
                     row.detail !== null &&
@@ -704,6 +696,8 @@ const TONE_GLYPH: Record<CompactSummaryStatusTone, string> = {
 export class CompactSessionActivityComponent {
   readonly summary = input.required<CompactSessionSummary>();
   readonly openFullView = output<void>();
+  protected readonly CheckIcon = CheckCircle;
+  protected readonly XIcon = XCircle;
 
   readonly activeFilter = signal<FeedFilter>('all');
   readonly feedListRef = viewChild<ElementRef<HTMLElement>>('feedList');
@@ -750,22 +744,7 @@ export class CompactSessionActivityComponent {
   });
 
   readonly feedRows = computed<readonly CompactFeedRow[]>(() =>
-    this.filteredMarks().map((mark) => {
-      const label = stripMarkdownToPlainText(mark.label);
-      const detail = mark.text
-        ? stripMarkdownToPlainText(
-            mark.text.slice(0, DETAIL_SOURCE_LIMIT),
-          ).slice(0, DETAIL_TEXT_LIMIT)
-        : null;
-      const fullText = detail || label;
-      return {
-        mark,
-        label,
-        detail: detail || null,
-        text: shortenRowText(fullText, ROW_TEXT_LIMIT),
-        title: detail ? `${label} — ${detail}` : label,
-      };
-    }),
+    this.filteredMarks().map(feedRow),
   );
 
   /**
@@ -1012,23 +991,16 @@ export class CompactSessionActivityComponent {
     this.recapHeight.set(null);
   }
 
-  protected isMarkdownContent(): boolean {
-    const kind = this.summary().content.kind;
-    return kind === 'prose' || kind === 'result' || kind === 'error';
-  }
-
   protected kindLabel(kind: CompactSemanticMarkKind): string {
-    return KIND_LABEL[kind];
+    return feedKindLabel(kind);
   }
 
   protected toneGlyph(tone: CompactSummaryStatusTone): string {
-    return TONE_GLYPH[tone];
+    return feedToneGlyph(tone);
   }
 
   protected wireBadgeClass(mark: CompactSemanticMark): string {
-    const tone: WireBadgeTone =
-      mark.tone === 'error' ? 'error' : KIND_BADGE_TONE[mark.kind];
-    return `${BADGE_BASE_CLASSES} ${BADGE_CLASSES[tone]}`;
+    return wireBadgeClass(mark);
   }
 
   protected statusToneBadge(): { glyph: string; label: string } {
