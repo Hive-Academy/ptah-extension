@@ -1,0 +1,11 @@
+{
+  "name": "gallery",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes hyperframes@0.8.97 preview",
+    "check": "npx --yes hyperframes@0.8.97 check",
+    "render": "npx --yes hyperframes@0.8.97 render",
+    "publish": "npx --yes hyperframes@0.8.97 publish"
+  }
+}

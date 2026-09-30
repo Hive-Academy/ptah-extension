@@ -1,0 +1,316 @@
+<!doctype html>
+<!--
+  ptah-ui/chat-message: user, peer and assistant chat messages with streaming assistant prose (SPEC 4.2).
+  Mirrors libs/frontend/chat/src/lib/components/organisms/message-bubble.component.html:3-35 (assistant avatar, header, bubble),
+  :44-70 (collapsed summary row), :147-160 (footer chips), :185-215 (user and peer-injected variants);
+  message-bubble.component.css:100-115 (strong, inline code);
+  libs/frontend/chat-ui/src/lib/atoms/token-badge.component.ts:31, cost-badge.component.ts:32, duration-badge.component.ts:18.
+
+  States: streaming (caret, avatar ring, footer hidden) -> final (caret off, footer chips pop).
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 avatar springs, header + bubble slide-settle (bubble already at its final size)
+    c1 0.45 text streams at streamRate words/s, caret follows the last word
+    c2 end of stream + 0.15: caret removed, footer chips spring (tokens, cost, duration; 0.09 s stagger)
+       (a pinned c2 speeds the stream up so it still ends before it)
+  User / peer role: the bubble settles from the right, whole text present (streamRate > 0 reveals by word).
+  Design box 1400 x 380 (assistant) or 1400 x 240 (user / peer). Mount at that size for the 26 px type floor.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-chat-message"
+  data-composition-duration="4"
+  data-composition-variables='[
+    { "id": "role", "type": "enum", "label": "Role", "default": "assistant", "options": [{ "value": "assistant", "label": "Assistant" }, { "value": "user", "label": "User" }, { "value": "peer", "label": "Peer" }] },
+    { "id": "text", "type": "string", "label": "Text (**bold**, `code`)", "default": "The spec is sound. I now spot-check key contracts: the shared constants and the CI job." },
+    { "id": "author", "type": "string", "label": "Author (empty = by role)", "default": "" },
+    { "id": "time", "type": "string", "label": "Time", "default": "5:23 PM" },
+    { "id": "streamRate", "type": "number", "label": "Words per second (0 = no streaming)", "default": 7, "min": 0, "max": 60, "step": 1 },
+    { "id": "tokens", "type": "string", "label": "Tokens chip", "default": "2.2k tokens" },
+    { "id": "cost", "type": "string", "label": "Cost chip", "default": "$7.59" },
+    { "id": "duration", "type": "string", "label": "Duration chip", "default": "1m 27s" },
+    { "id": "footer", "type": "boolean", "label": "Footer chips", "default": true },
+    { "id": "collapsed", "type": "boolean", "label": "Collapsed summary row", "default": false },
+    { "id": "avatar", "type": "string", "label": "Avatar image path", "default": "assets/brand/ptah-icon.png" },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "bubble", "label": "Bubble" }, { "value": "footer", "label": "Footer" }, { "value": "prose", "label": "Prose" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui chat-message</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-chat-message" data-duration="4" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .cm-wrap {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            display: flex;
+            gap: calc(16 * var(--u));
+            align-items: flex-start;
+          }
+          .cm-wrap.user {
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0;
+          }
+          .cm-avatar {
+            position: relative;
+            flex: 0 0 auto;
+            align-self: flex-end;
+            width: calc(48 * var(--u));
+            height: calc(48 * var(--u));
+            border-radius: 50%;
+          }
+          .cm-avatar img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: cover;
+          }
+          .cm-avring {
+            position: absolute;
+            inset: calc(-4 * var(--u));
+            border-radius: 50%;
+            border: calc(4 * var(--u)) solid rgba(212, 175, 55, 0.3);
+          }
+          .cm-col {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+          }
+          .cm-wrap.user .cm-col {
+            width: 100%;
+            align-items: flex-end;
+          }
+          .cm-header {
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+            margin-bottom: calc(8 * var(--u));
+            color: var(--muted);
+            font-size: calc(28 * var(--u));
+          }
+          .cm-header time {
+            font-variant-numeric: tabular-nums;
+          }
+          .cm-bubble {
+            position: relative;
+            min-width: 95%;
+            padding: calc(24 * var(--u)) calc(32 * var(--u));
+            border-radius: calc(16 * var(--u));
+            background: var(--b300);
+            color: var(--fg);
+            box-shadow: 0 calc(12 * var(--u)) calc(36 * var(--u)) rgba(0, 0, 0, 0.45);
+          }
+          .cm-wrap.user .cm-bubble {
+            min-width: 0;
+            max-width: 85%;
+          }
+          .cm-bubble.peer {
+            background: var(--b200);
+            border-left: calc(8 * var(--u)) solid var(--gold);
+          }
+          .cm-prose {
+            position: relative;
+            font-size: calc(32 * var(--u));
+            line-height: 1.6;
+          }
+          .cm-prose strong {
+            font-weight: 700;
+          }
+          .cm-caret {
+            margin-left: calc(4 * var(--u));
+            margin-right: calc(-7 * var(--u));
+            opacity: var(--cb, 0);
+          }
+          .cm-footer {
+            display: flex;
+            gap: calc(12 * var(--u));
+            margin-top: calc(16 * var(--u));
+          }
+          .cm-footer .pu-chip {
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+          }
+          .cm-summary {
+            display: flex;
+            align-items: center;
+            gap: calc(12 * var(--u));
+            color: var(--muted);
+          }
+          .cm-summary .pv {
+            flex: 1 1 auto;
+            min-width: 0;
+          }
+          .cm-tools {
+            display: inline-flex;
+            align-items: center;
+            height: calc(36 * var(--u));
+            padding: 0 calc(12 * var(--u));
+            border-radius: calc(8 * var(--u));
+            background: rgba(232, 230, 225, 0.08);
+            color: var(--muted);
+            font-size: calc(26 * var(--u));
+            font-weight: 600;
+            white-space: nowrap;
+          }
+        </style>
+
+        <div id="cm-clip" class="clip" data-start="0" data-duration="4" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="cm-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var vars0 = window.__hyperframes && window.__hyperframes.getVariables ? window.__hyperframes.getVariables() : {};
+            var role0 = vars0.role === "user" || vars0.role === "peer" ? vars0.role : "assistant";
+            var K = ptahKit(root, { dw: 1400, dh: role0 === "assistant" ? 380 : 240, id: "ptah-ui-chat-message" });
+            var tl = K.tl;
+            K.vignette();
+
+            var role = role0;
+            var isAsst = role === "assistant";
+            var text = K.str("text", "The spec is sound. I now spot-check key contracts: the shared constants and the CI job.");
+            var author = K.str("author", isAsst ? "Claude" : role === "peer" ? "Peer session" : "You");
+            var time = K.str("time", "5:23 PM");
+            // user and peer text is present whole (SPEC 4.2); only the assistant streams
+            var streamRate = isAsst ? K.num("streamRate", 7, 0, 60) : 0;
+            var tokens = K.str("tokens", "2.2k tokens");
+            var cost = K.str("cost", "$7.59");
+            var duration = K.str("duration", "1m 27s");
+            var footer = isAsst && K.bool("footer", true);
+            var collapsed = isAsst && K.bool("collapsed", false);
+            var avatar = K.str("avatar", "assets/brand/ptah-icon.png");
+            var e = K.esc;
+
+            var chips = footer
+              ? '<div class="cm-footer" data-ptah-part="footer">' +
+                (tokens ? '<span class="pu-chip c-outline">' + e(tokens) + "</span>" : "") +
+                (cost ? '<span class="pu-chip c-success">' + e(cost) + "</span>" : "") +
+                (duration ? '<span class="pu-chip c-ghost">' + e(duration) + "</span>" : "") +
+                "</div>"
+              : "";
+            var preview = text.replace(/\*\*|`/g, "");
+            var bubbleInner = collapsed
+              ? '<div class="cm-summary t-small"><span>' + K.icon("chevron-right", 24) + '</span><span class="pv trunc">' + e(preview) + '</span><span class="cm-tools">3 tools</span></div>' + chips
+              : '<div class="cm-prose" data-ptah-part="prose"></div>' + chips;
+
+            var header =
+              '<div class="cm-header">' +
+              (role === "peer" ? '<span style="color:#d4af37">' + K.icon("users", 28) + "</span>" : "") +
+              "<span>" + e(author) + "</span><time>" + e(time) + "</time></div>";
+
+            var stage = document.getElementById("cm-stage");
+            stage.innerHTML =
+              '<div class="cm-wrap' + (isAsst ? "" : " user") + '">' +
+              (isAsst ? '<div class="cm-avatar"><img src="' + e(avatar) + '" alt="" /><div class="cm-avring"></div></div>' : "") +
+              '<div class="cm-col">' + header +
+              '<div class="cm-bubble' + (role === "peer" ? " peer" : "") + '" data-ptah-part="bubble">' + bubbleInner + "</div>" +
+              "</div></div>";
+
+            var bubble = K.q(".cm-bubble");
+            var prose = K.q(".cm-prose");
+            var hdr = K.q(".cm-header");
+            var av = K.q(".cm-avatar");
+            var avRing = K.q(".cm-avring");
+            var chipEls = K.qa(".cm-footer .pu-chip");
+
+            // cues: c2 follows the end of the stream unless pinned; a pinned c2 speeds the stream so it still fits
+            var rawCues = String(K.vars.cues == null ? "" : K.vars.cues).split(",");
+            var pinned2 = rawCues[2] != null && rawCues[2].trim() !== "" && isFinite(Number(rawCues[2]));
+            var c01 = K.cues([0, isAsst ? 0.45 : 0.3]);
+            var units = 0;
+            var rate = streamRate;
+            if (prose) {
+              // lay out the full text first (no reflow), then decide the rate
+              K.stream(prose, text, 0, 0);
+              var unitEls = Array.prototype.slice.call(prose.querySelectorAll("span, strong"));
+              units = unitEls.length;
+              if (rate > 0 && pinned2) {
+                var room = Number(rawCues[2]) - 0.15 - c01[1];
+                if (room > 0.2) rate = Math.max(rate, units / room);
+              }
+            }
+            var streamEnd = rate > 0 && prose ? c01[1] + units / rate : c01[1];
+            var c = K.cues([0, c01[1], streamEnd + 0.15]);
+            if (c[2] < streamEnd) c[2] = streamEnd;
+            var streaming = isAsst && !collapsed && rate > 0;
+
+            K.focusFromVars((footer ? c[2] + 0.35 : c[2]) + 0.5);
+
+            // c0: avatar, header, bubble
+            if (isAsst) {
+              K.spring(av, c[0]);
+              K.settle(hdr, c[0] + 0.05);
+              K.settle(bubble, c[0] + 0.1);
+            } else {
+              K.settle(hdr, c[0], { dy: 0, dx: 16 });
+              K.settle(bubble, c[0] + 0.05, { dy: 0, dx: 16 });
+            }
+            // c1: word stream with a caret that follows the newest word
+            if (prose) {
+              if (rate > 0) {
+                K.stream(prose, text, c[1], rate);
+                var words = Array.prototype.slice.call(prose.querySelectorAll("span, strong"));
+                if (streaming) {
+                  // one zero-width inline caret after each word (plus one before the first) so the caret stays in the
+                  // text flow whatever font finally loads; the current one is visible, --cb carries the blink
+                  var carets = [];
+                  var mk = function () {
+                    var cr = document.createElement("span");
+                    cr.className = "pu-caret cm-caret";
+                    return cr;
+                  };
+                  var first = mk();
+                  prose.insertBefore(first, prose.firstChild);
+                  carets.push(first);
+                  words.forEach(function (w) {
+                    var cr = mk();
+                    w.parentNode.insertBefore(cr, w.nextSibling);
+                    carets.push(cr);
+                  });
+                  gsap.set(carets, { visibility: "hidden" });
+                  var tOn = c[0] + 0.3;
+                  tl.set(first, { visibility: "visible" }, tOn);
+                  words.forEach(function (w, i) {
+                    var t = c[1] + i / rate;
+                    tl.set(carets[i], { visibility: "hidden" }, t);
+                    tl.set(carets[i + 1], { visibility: "visible" }, t);
+                  });
+                  tl.set(carets[carets.length - 1], { visibility: "hidden" }, c[2]);
+                  gsap.set(prose, { "--cb": 0 });
+                  for (var bt = tOn, on = true; bt < c[2]; bt += 0.25, on = !on) tl.set(prose, { "--cb": on ? 1 : 0 }, bt);
+                }
+              }
+            }
+            if (collapsed) K.fadeIn(K.q(".cm-summary"), c[0] + 0.3, 0.3);
+            // c2: final - avatar ring off, footer chips pop
+            if (avRing) {
+              if (streaming) K.fadeOut(avRing, c[2], 0.25);
+              else gsap.set(avRing, { opacity: 0 });
+            }
+            chipEls.forEach(function (ch, i) {
+              K.spring(ch, c[2] + i * 0.09);
+            });
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>

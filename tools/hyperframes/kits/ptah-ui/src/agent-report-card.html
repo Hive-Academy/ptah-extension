@@ -1,0 +1,301 @@
+<!doctype html>
+<!--
+  ptah-ui/agent-report-card: a lane calls ptah_agent_report and the gold tool row expands to "Report Delivered" (SPEC 4.5).
+  Mirrors libs/frontend/chat-ui/src/lib/molecules/tool-execution/tool-call-header.component.ts:74-86 (two gold badges),
+  libs/frontend/chat/src/lib/components/molecules/tool-execution/tool-call-item.component.ts:125-128 (gold border),
+  tool-output-display.component.ts:47-49 (Output), and the exact result text of formatAgentReport in
+  libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/mcp-response-formatter.ts:1954-1971.
+  The row markup is a copy of the gold variant of tool-call-row (components cannot import each other).
+
+  States: running (spinner) -> delivered (check) with the body expanded.
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 row settles, gold border fades in, Superpower then tool badge spring (0.09 s apart)
+    c1 0.45 running for `runFor`, then the check springs (c1b)
+    c2 1.40 chevron rotates, body expands
+    c3 1.90 Input / Output labels settle, heading springs, gold underline sweeps (0.35 s)
+    c4 2.30 "Delivered:" line settles
+    c5 2.55 remaining lines settle (Reason, Parent Session), 0.25 s apart
+    c6 3.00 result text streams (7 words/s)
+  Design box 1400 x 440. Mount at that size for the 26 px type floor.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-agent-report-card"
+  data-composition-duration="5"
+  data-composition-variables='[
+    { "id": "description", "type": "string", "label": "Row description", "default": "mcp__ptah__ptah_agent_report" },
+    { "id": "delivered", "type": "boolean", "label": "Delivered", "default": true },
+    { "id": "reason", "type": "string", "label": "Reason (not delivered only)", "default": "" },
+    { "id": "parentSession", "type": "string", "label": "Parent session id", "default": "903993f2-02b7-42c5-b517-a1cbf2e5d103" },
+    { "id": "result", "type": "string", "label": "Follow-up result text", "default": "WROTE: D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/reviews/p1-approval.md - Verdict: APPROVED" },
+    { "id": "runFor", "type": "number", "label": "Running seconds", "default": 0.9, "min": 0.2, "max": 10, "step": 0.1 },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "heading", "label": "Heading" }, { "value": "kv", "label": "Key values" }, { "value": "badge-superpower", "label": "Superpower badge" }, { "value": "result", "label": "Result" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui agent-report-card</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-agent-report-card" data-duration="5" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .ar-row {
+            position: relative;
+            width: 100%;
+            padding: calc(2 * var(--u));
+            border-radius: calc(8 * var(--u));
+            background: rgba(26, 26, 32, 0.6);
+            overflow: hidden;
+          }
+          .ar-edge {
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            border: calc(2 * var(--u)) solid rgba(36, 36, 48, 0.6);
+            z-index: 2;
+          }
+          .ar-edge.gold {
+            border-color: rgba(212, 175, 55, 0.4);
+          }
+          .ar-line {
+            display: flex;
+            align-items: center;
+            gap: calc(12 * var(--u));
+            height: calc(68 * var(--u));
+            padding: 0 calc(16 * var(--u));
+          }
+          .ar-chev {
+            color: var(--muted);
+            transform-origin: 50% 50%;
+          }
+          .ar-badges {
+            display: flex;
+            gap: calc(8 * var(--u));
+            flex: 0 0 auto;
+          }
+          .ar-badges .pu-badge {
+            color: var(--gold);
+            font-weight: 500;
+          }
+          .ar-badges .pu-badge.strong {
+            font-weight: 600;
+          }
+          .ar-text {
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+            height: calc(40 * var(--u));
+          }
+          .ar-text > span {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            line-height: calc(40 * var(--u));
+            font-family: var(--mono);
+            font-size: calc(26 * var(--u));
+            color: var(--muted);
+          }
+          .ar-status {
+            position: relative;
+            width: calc(32 * var(--u));
+            height: calc(32 * var(--u));
+            flex: 0 0 auto;
+          }
+          .ar-status > * {
+            position: absolute;
+            left: 0;
+            top: 0;
+          }
+          .ar-body {
+            border-top: calc(2 * var(--u)) solid rgba(36, 36, 48, 0.3);
+            padding: calc(8 * var(--u)) calc(16 * var(--u)) calc(10 * var(--u));
+          }
+          .ar-io {
+            display: flex;
+            flex-direction: column;
+            gap: calc(2 * var(--u));
+            margin-bottom: calc(8 * var(--u));
+            font-size: calc(26 * var(--u));
+            font-weight: 600;
+            color: var(--muted);
+          }
+          .ar-io > span {
+            display: flex;
+            align-items: center;
+            gap: calc(8 * var(--u));
+          }
+          .ar-tri {
+            font-size: calc(26 * var(--u));
+          }
+          .ar-well {
+            background: rgba(19, 19, 23, 0.7);
+            border-radius: calc(16 * var(--u));
+            padding: calc(10 * var(--u)) calc(22 * var(--u));
+          }
+          .ar-h2 {
+            display: inline-block;
+            font-size: calc(36 * var(--u));
+            font-weight: 700;
+            line-height: 1.3;
+            color: var(--fg);
+            transform-origin: 0% 50%;
+          }
+          .ar-rule {
+            height: calc(2 * var(--u));
+            margin: calc(4 * var(--u)) 0 calc(6 * var(--u));
+            background: rgba(212, 175, 55, 0.16);
+            transform-origin: 0% 50%;
+          }
+          .ar-kv > div {
+            font-size: calc(28 * var(--u));
+            line-height: 1.4;
+            color: var(--fg);
+            white-space: nowrap;
+          }
+          .ar-kv b {
+            font-weight: 700;
+          }
+          .ar-result {
+            margin-top: calc(8 * var(--u));
+            font-size: calc(32 * var(--u));
+            line-height: 1.45;
+            color: var(--fg);
+          }
+          .ar-result .ar-path {
+            font-family: var(--mono);
+            font-size: calc(28 * var(--u));
+            word-break: break-all;
+          }
+        </style>
+
+        <div id="ar-clip" class="clip" data-start="0" data-duration="5" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="ar-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var K = ptahKit(root, { dw: 1400, dh: 440, id: "ptah-ui-agent-report-card" });
+            var tl = K.tl;
+            K.vignette();
+
+            var description = K.str("description", "mcp__ptah__ptah_agent_report");
+            var delivered = K.bool("delivered", true);
+            var reason = K.str("reason", "");
+            var parentSession = K.str("parentSession", "903993f2-02b7-42c5-b517-a1cbf2e5d103");
+            var result = K.str("result", "WROTE: D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/reviews/p1-approval.md - Verdict: APPROVED");
+            var runFor = K.num("runFor", 0.9, 0.2, 10);
+            var ic = ptahToolIcon("mcp__ptah__ptah_agent_report");
+
+            // exact formatAgentReport lines: Delivered, Reason (if any), Parent Session (if any)
+            var kv = ['<div><b>Delivered:</b> ' + (delivered ? "Yes" : "No") + "</div>"];
+            if (!delivered && reason) kv.push("<div><b>Reason:</b> " + K.esc(reason) + "</div>");
+            if (parentSession) kv.push("<div><b>Parent Session:</b> " + K.esc(parentSession) + "</div>");
+
+            var stage = document.getElementById("ar-stage");
+            stage.innerHTML =
+              '<div class="ar-row" data-ptah-part="container">' +
+              '<div class="ar-edge"></div><div class="ar-edge gold"></div>' +
+              '<div class="ar-line">' +
+              '<span class="ar-chev">' + K.icon("chevron-down", 24) + "</span>" +
+              '<span class="ar-icon" style="color:' + ic.color + '">' + K.icon(ic.icon, 28) + "</span>" +
+              '<span class="ar-badges">' + K.badgeHtml("Ptah Superpower", ["gold"], "strong") + K.badgeHtml("ptah agent report", ["gold"], "") + "</span>" +
+              '<span class="ar-text"><span class="ar-label trunc">' + K.esc(description) + '</span><span class="ar-live trunc">Executing ptah_agent_report...</span></span>' +
+              '<span class="ar-status"><span class="ar-spin" style="color:#3b82f6">' + K.icon("loader", 32) + '</span><span class="ar-ok" style="color:#16a34a">' + K.icon("check", 32) + "</span></span>" +
+              "</div>" +
+              '<div class="ar-bodywrap"><div class="ar-body">' +
+              '<div class="ar-io"><span class="ar-in"><span class="ar-tri">▸</span>Input</span><span class="ar-out">Output</span></div>' +
+              '<div class="ar-well">' +
+              '<div data-ptah-part="heading"><span class="ar-h2">' + (delivered ? "Report Delivered" : "Report NOT Delivered") + '</span><div class="ar-rule"></div></div>' +
+              '<div class="ar-kv" data-ptah-part="kv">' + kv.join("") + "</div>" +
+              "</div></div></div>" +
+              "</div>" +
+              (result ? '<div class="ar-result" data-ptah-part="result"></div>' : "");
+
+            var row = K.q(".ar-row");
+            var gold = K.q(".ar-edge.gold");
+            var chev = K.q(".ar-chev");
+            var badgeEls = K.qa(".ar-badges .pu-badge");
+            badgeEls[0].setAttribute("data-ptah-part", "badge-superpower");
+            badgeEls.forEach(function (b) {
+              K.fill(b, "gold");
+            });
+            var lab = K.q(".ar-label");
+            var live = K.q(".ar-live");
+            var spin = K.q(".ar-spin");
+            var ok = K.q(".ar-ok");
+            var bodyWrap = K.q(".ar-bodywrap");
+            var h2 = K.q(".ar-h2");
+            var rule = K.q(".ar-rule");
+            var kvLines = K.qa(".ar-kv > div");
+            var resEl = K.q(".ar-result");
+
+            var c = K.cues([0, 0.45, 1.4, 1.9, 2.3, 2.55, 3.0]);
+            var c1b = Math.min(c[1] + runFor, c[2]);
+            var streamEnd = c[5] + 0.25 * Math.max(0, kvLines.length - 2);
+            if (resEl) {
+              streamEnd = K.stream(resEl, result, c[6], 7);
+              K.qa(".ar-result > span").forEach(function (s) {
+                if (s.textContent.indexOf("/") >= 0) s.className = "ar-path";
+              });
+            }
+            // measure the fully laid-out body, place the focus ring on the final layout, then set start states
+            var bodyH = bodyWrap.offsetHeight / K.U;
+            K.focusFromVars(Math.max(c[6], streamEnd) + 0.4);
+
+            // c0: row, gold border, parts
+            gsap.set(chev, { rotation: -90 });
+            K.settle(row, c[0]);
+            K.fadeIn(gold, c[0] + 0.1, 0.35);
+            K.spring(chev, c[0] + 0.09);
+            K.spring(K.q(".ar-icon"), c[0] + 0.18);
+            K.spring(badgeEls[0], c[0] + 0.27);
+            K.spring(badgeEls[1], c[0] + 0.36);
+            K.fadeIn(lab, c[0] + 0.3, 0.25);
+            gsap.set([live, spin, ok], { opacity: 0 });
+            // c1: running
+            K.fadeOut(lab, c[1], 0.15);
+            K.fadeIn(live, c[1] + 0.1, 0.15);
+            var pulses = Math.floor((c1b - c[1] - 0.25) / 0.4);
+            if (pulses >= 1) tl.fromTo(live, { opacity: 1 }, { opacity: 0.55, duration: 0.4, ease: "none", yoyo: true, repeat: pulses - 1, immediateRender: false }, c[1] + 0.25);
+            K.fadeIn(spin, c[1], 0.1);
+            K.spin(spin, c[1], Math.max(0.2, c1b - c[1]));
+            // c1b: delivered (check)
+            K.fadeOut(spin, c1b, 0.1);
+            tl.set(live, { opacity: 0 }, c1b);
+            K.fadeIn(lab, c1b + 0.05, 0.2);
+            gsap.set(ok, { opacity: 0, scale: 0.6 });
+            tl.fromTo(ok, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.32, ease: "back.out(1.6)", immediateRender: false }, c1b);
+            // c2: expand
+            K.expand(bodyWrap, c[2], bodyH);
+            // measured before the web font loads; release to the natural height once the expand ends
+            tl.set(bodyWrap, { height: "auto" }, c[2] + 0.55);
+            tl.fromTo(chev, { rotation: -90 }, { rotation: 0, duration: 0.55, ease: "power3.out", immediateRender: false }, c[2]);
+            // c3: Input / Output, heading, underline sweep
+            K.settle(K.q(".ar-in"), c[3], { dy: 12, dur: 0.35 });
+            K.settle(K.q(".ar-out"), c[3] + 0.09, { dy: 12, dur: 0.35 });
+            K.spring(h2, c[3] + 0.12);
+            gsap.set(rule, { scaleX: 0 });
+            tl.fromTo(rule, { scaleX: 0 }, { scaleX: 1, duration: 0.35, ease: "power3.out", immediateRender: false }, c[3] + 0.2);
+            // c4 / c5: key-value lines
+            kvLines.forEach(function (l, i) {
+              K.settle(l, i === 0 ? c[4] : c[5] + (i - 1) * 0.25, { dy: 12, dur: 0.4 });
+            });
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>

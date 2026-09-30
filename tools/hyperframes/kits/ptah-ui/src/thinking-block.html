@@ -1,0 +1,180 @@
+<!doctype html>
+<!--
+  ptah-ui/thinking-block: the "Extended Thinking . click to expand" row (SPEC 4.4).
+  Mirrors libs/frontend/chat-ui/src/lib/molecules/thinking-block.component.ts:28 (card), :30-64 (header), :66-78 (body).
+
+  States: collapsed (hint visible) / expanded (hint out, divider draws, text streams).
+  `flat` drops the card border, background and shadow (dense transcript look).
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 card slide-settles, brain springs
+    c1 0.45 hint pulses once (opacity .5 -> 1, finite)
+    c2 1.40 (expand only) chevron -90 -> 0, card height expands, hint out, divider sweeps, text streams
+  Design box 1400 x 104 (collapsed) or 1400 x 420 (expanded). Mount at that size for the 26 px type floor.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-thinking-block"
+  data-composition-duration="4"
+  data-composition-variables='[
+    { "id": "text", "type": "string", "label": "Thinking text", "default": "The spec is sound. Checking the shared constants first, then the CI job for the git operations..." },
+    { "id": "expand", "type": "boolean", "label": "Expand", "default": false },
+    { "id": "flat", "type": "boolean", "label": "Flat (no card)", "default": false },
+    { "id": "streamRate", "type": "number", "label": "Stream rate (words/s)", "default": 9, "min": 0, "max": 40, "step": 1 },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "brain", "label": "Brain" }, { "value": "header", "label": "Header" }, { "value": "text", "label": "Text" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui thinking-block</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-thinking-block" data-duration="4" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .tb-card {
+            position: absolute;
+            left: 0;
+            top: calc(6 * var(--u));
+            width: 100%;
+            border-radius: calc(16 * var(--u));
+            background: rgba(26, 26, 32, 0.5);
+            border: calc(2 * var(--u)) solid #242430;
+            box-shadow: 0 calc(2 * var(--u)) calc(6 * var(--u)) rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+          }
+          .tb-card.flat {
+            background: transparent;
+            border-color: transparent;
+            box-shadow: none;
+          }
+          .tb-head {
+            display: flex;
+            align-items: center;
+            gap: calc(20 * var(--u));
+            padding: calc(20 * var(--u)) calc(32 * var(--u));
+          }
+          .tb-chev {
+            color: var(--muted);
+            transform-origin: 50% 50%;
+          }
+          .tb-brain {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: calc(48 * var(--u));
+            height: calc(48 * var(--u));
+            border-radius: 50%;
+            background: #242430;
+            color: var(--gold);
+            flex: 0 0 auto;
+          }
+          .tb-label {
+            font-size: calc(28 * var(--u));
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            color: var(--muted);
+            white-space: nowrap;
+          }
+          .tb-hint {
+            margin-left: auto;
+            font-size: calc(26 * var(--u));
+            font-weight: 500;
+            color: var(--muted);
+            white-space: nowrap;
+          }
+          .tb-body {
+            padding: 0 calc(32 * var(--u)) calc(32 * var(--u));
+          }
+          .tb-divider {
+            height: calc(2 * var(--u));
+            background: #242430;
+            transform-origin: 0% 50%;
+            margin-bottom: calc(16 * var(--u));
+          }
+          .tb-text {
+            font-size: calc(32 * var(--u));
+            line-height: 1.6;
+            color: var(--muted);
+          }
+        </style>
+
+        <div id="tb-clip" class="clip" data-start="0" data-duration="4" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="tb-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var vars0 = window.__hyperframes && window.__hyperframes.getVariables ? window.__hyperframes.getVariables() : {};
+            var expand = vars0.expand === true || vars0.expand === "true";
+            var K = ptahKit(root, { dw: 1400, dh: expand ? 420 : 104, id: "ptah-ui-thinking-block" });
+            var tl = K.tl;
+            K.vignette();
+
+            var text = K.str("text", "The spec is sound. Checking the shared constants first, then the CI job for the git operations...");
+            var flat = K.bool("flat", false);
+            var rate = K.num("streamRate", 9, 0, 40);
+
+            var stage = document.getElementById("tb-stage");
+            stage.innerHTML =
+              '<div class="tb-card' + (flat ? " flat" : "") + '">' +
+              '<div class="tb-head" data-ptah-part="header">' +
+              '<span class="tb-chev">' + K.icon("chevron-down", 28) + "</span>" +
+              '<span class="tb-brain" data-ptah-part="brain">' + K.icon("brain", 28) + "</span>" +
+              '<span class="tb-label">Extended Thinking</span>' +
+              '<span class="tb-hint">click to expand</span>' +
+              "</div>" +
+              (expand ? '<div class="tb-wrap"><div class="tb-body"><div class="tb-divider"></div><div class="tb-text" data-ptah-part="text"></div></div></div>' : "") +
+              "</div>";
+
+            var card = K.q(".tb-card");
+            var chev = K.q(".tb-chev");
+            var brain = K.q(".tb-brain");
+            var hint = K.q(".tb-hint");
+            var wrap = K.q(".tb-wrap");
+
+            var c = K.cues([0, 0.45, 1.4]);
+            var streamEnd = c[2];
+            var bodyH = 0;
+            if (wrap) {
+              // lay out every word first (no reflow), then measure the full body once
+              streamEnd = K.stream(K.q(".tb-text"), text, c[2] + 0.3, rate);
+              bodyH = wrap.offsetHeight / K.U;
+            }
+            // focus ring is measured on the final layout, before any transform or height is applied
+            K.focusFromVars((wrap ? Math.max(c[2] + 0.55, streamEnd) : c[1] + 0.5) + 0.5);
+
+            // c0: card + brain
+            gsap.set(chev, { rotation: -90 });
+            K.settle(card, c[0]);
+            K.spring(brain, c[0] + 0.12);
+            // c1: hint pulses once (finite)
+            tl.fromTo(hint, { opacity: 1 }, { opacity: 0.5, duration: 0.2, ease: "none", immediateRender: false }, c[1]);
+            tl.fromTo(hint, { opacity: 0.5 }, { opacity: 1, duration: 0.3, ease: "none", immediateRender: false }, c[1] + 0.2);
+            // c2: expand
+            if (wrap) {
+              K.expand(wrap, c[2], bodyH);
+              // measured before the web font loads; release to the natural height once the expand ends
+              tl.set(wrap, { height: "auto" }, c[2] + 0.55);
+              tl.fromTo(chev, { rotation: -90 }, { rotation: 0, duration: 0.55, ease: "power3.out", immediateRender: false }, c[2]);
+              K.fadeOut(hint, Math.max(c[2], c[1] + 0.5), 0.2);
+              var div = K.q(".tb-divider");
+              gsap.set(div, { scaleX: 0 });
+              tl.fromTo(div, { scaleX: 0 }, { scaleX: 1, duration: 0.3, ease: "power3.out", immediateRender: false }, c[2] + 0.15);
+            }
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>

@@ -1,0 +1,231 @@
+<!doctype html>
+<!--
+  ptah-ui/lane-completion-toast: kit visualization of the <agent-lane-completed ...> push (SPEC 4.9).
+  Reality check: the real push is a model-facing envelope, not a UI toast
+  (libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-completion-notifier.service.ts:342-426).
+  Every field and sentence here is real: title from `Lane <agent> finished: <status> (exit code N) after <duration>.`,
+  `Task: <headline>`, `- <path> — <N bytes|MISSING|EMPTY>`, and the per-verdict `Next: ...` line (nextAction()).
+  The eyebrow "PUSHED TO THE PARENT SESSION" marks it as a visualization, not an existing product toast.
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 card slides in from the right (48 px) and settles; accent bar grows (scaleY, 0.3 s)
+    c1 0.30 icon and verdict chip spring
+    c2 0.55 title, task, deliverable settle 0.09 s apart
+    c3 1.60 next-action line settles
+    focus (default c3 + 0.5): parts chip-verdict | deliverable | title
+  Design box 900 x 230. Recommended mount 900x230, anchored bottom-right by the host.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-lane-completion-toast"
+  data-composition-duration="3"
+  data-composition-variables='[
+    { "id": "agent", "type": "string", "label": "Agent label", "default": "Glm" },
+    { "id": "cli", "type": "string", "label": "CLI", "default": "glm" },
+    { "id": "status", "type": "string", "label": "Status", "default": "completed" },
+    { "id": "exitCode", "type": "number", "label": "Exit code (-1 hides)", "default": 0 },
+    { "id": "duration", "type": "string", "label": "Duration", "default": "7m 32s" },
+    { "id": "task", "type": "string", "label": "Task headline", "default": "Review batch 5 code logic" },
+    { "id": "verdict", "type": "enum", "label": "Verdict", "default": "delivered", "options": [{ "value": "delivered", "label": "delivered" }, { "value": "no-deliverable", "label": "no-deliverable" }, { "value": "unverified", "label": "unverified" }, { "value": "failed", "label": "failed" }] },
+    { "id": "deliverable", "type": "string", "label": "Deliverable path", "default": ".../reviews/batch-5-code-logic-review.md" },
+    { "id": "bytes", "type": "string", "label": "Deliverable state (N bytes, MISSING, EMPTY)", "default": "4120 bytes" },
+    { "id": "stack", "type": "number", "label": "Stack (host stacks extra mounts)", "default": 1, "min": 1, "max": 3, "step": 1 },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "chip-verdict", "label": "Verdict chip" }, { "value": "deliverable", "label": "Deliverable" }, { "value": "title", "label": "Title" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui lane-completion-toast</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-lane-completion-toast" data-duration="3" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .lt-card {
+            position: absolute;
+            inset: 0;
+            background: #242430;
+            border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.15);
+            border-radius: calc(16 * var(--u));
+            box-shadow: 0 calc(12 * var(--u)) calc(36 * var(--u)) rgba(0, 0, 0, 0.45);
+            overflow: hidden;
+          }
+          .lt-bar {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: calc(8 * var(--u));
+            transform-origin: 50% 0;
+          }
+          .lt-body {
+            position: absolute;
+            left: calc(36 * var(--u));
+            right: calc(28 * var(--u));
+            top: calc(19 * var(--u));
+            bottom: calc(19 * var(--u));
+            display: grid;
+            grid-template-columns: calc(48 * var(--u)) minmax(0, 1fr);
+            column-gap: calc(20 * var(--u));
+          }
+          .lt-icon {
+            width: calc(48 * var(--u));
+            height: calc(48 * var(--u));
+            margin-top: calc(33 * var(--u));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .lt-lines {
+            display: flex;
+            flex-direction: column;
+            gap: calc(3 * var(--u));
+            min-width: 0;
+          }
+          .lt-eyebrow {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: calc(16 * var(--u));
+            height: calc(32 * var(--u));
+            font-size: calc(26 * var(--u));
+            font-weight: 600;
+            color: var(--muted);
+          }
+          .lt-title-row {
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+            height: calc(46 * var(--u));
+            min-width: 0;
+          }
+          .lt-title {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: calc(30 * var(--u));
+            font-weight: 600;
+            color: var(--fg);
+          }
+          .lt-chip {
+            flex: 0 0 auto;
+            font-family: var(--mono);
+            font-weight: 600;
+          }
+          .lt-line {
+            height: calc(35 * var(--u));
+            line-height: calc(35 * var(--u));
+            font-size: calc(28 * var(--u));
+          }
+          .lt-deliv {
+            display: flex;
+            min-width: 0;
+          }
+          .lt-deliv > .trunc {
+            flex: 0 1 auto;
+            min-width: 0;
+          }
+          .lt-state {
+            flex: 0 0 auto;
+            white-space: pre;
+          }
+          .lt-eyebrow > .upper {
+            flex: 1 1 auto;
+            min-width: 0;
+          }
+          .lt-eyebrow > .tabular {
+            flex: 0 0 auto;
+          }
+          .lt-next {
+            height: calc(32 * var(--u));
+            line-height: calc(32 * var(--u));
+            font-size: calc(26 * var(--u));
+            font-weight: 500;
+            color: var(--muted);
+          }
+        </style>
+
+        <div id="lt-clip" class="clip" data-start="0" data-duration="3" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="lt-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var K = ptahKit(root, { dw: 900, dh: 230, id: "ptah-ui-lane-completion-toast" });
+            var tl = K.tl;
+            K.vignette();
+
+            PU_ICONS["alert-triangle"] = '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>';
+            PU_ICONS["help-circle"] = '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>';
+
+            var agent = K.str("agent", "Glm");
+            var status = K.str("status", "completed");
+            var exitCode = Math.round(K.num("exitCode", 0));
+            var duration = K.str("duration", "7m 32s");
+            var task = K.str("task", "Review batch 5 code logic");
+            var verdict = K.oneOf("verdict", ["delivered", "no-deliverable", "unverified", "failed"], "delivered");
+            var deliverable = K.str("deliverable", ".../reviews/batch-5-code-logic-review.md");
+            var bytes = K.str("bytes", "4120 bytes");
+
+            // verdict -> accent colour, icon, chip class, real nextAction() sentence (lane-completion-notifier.service.ts:399-426)
+            var V = {
+              delivered: { color: "#16a34a", icon: "check", chip: "c-success", next: "Next: read the deliverable files and verify the work yourself. A lane writing its file is not proof the content is right." },
+              "no-deliverable": { color: "#f97316", icon: "alert-triangle", chip: "c-warning", next: "Next: this lane exited without writing every deliverable it was given, so treat the task as NOT done. Read its output with ptah_agent_read to see how far it got, then resume it with the missing paths named, or do the work another way. Do not report this lane as complete." },
+              unverified: { color: "#8e8887", icon: "help-circle", chip: "c-ghost", next: "Next: read the lane output and check its claims against the files and the project tests before you use them." },
+              failed: { color: "#dc2626", icon: "x", chip: "c-error", next: "Next: the lane did not finish. Read its output with ptah_agent_read, then resume it when a CLI Session ID is present or respawn with a smaller task." },
+            }[verdict];
+
+            var meta = (exitCode >= 0 ? "exit code " + exitCode + " · " : "") + duration;
+            var iconBg = verdict === "unverified" ? "rgba(232,230,225,0.08)" : "color-mix(in oklab, " + V.color + " 16%, transparent)";
+
+            var stage = document.getElementById("lt-stage");
+            stage.innerHTML =
+              '<div class="lt-card">' +
+              '<div class="lt-bar" style="background:' + V.color + '"></div>' +
+              '<div class="lt-body">' +
+              '<div class="lt-icon" style="background:' + iconBg + ";color:" + V.color + '">' + K.icon(V.icon, 28) + "</div>" +
+              '<div class="lt-lines">' +
+              '<div class="lt-eyebrow"><span class="upper trunc">Pushed to the parent session</span><span class="tabular trunc">' + K.esc(meta) + "</span></div>" +
+              '<div class="lt-title-row"><span class="lt-title trunc" data-ptah-part="title">' + K.esc("Lane " + agent + " finished: " + status) + "</span>" +
+              '<span class="pu-chip lt-chip ' + V.chip + '" data-ptah-part="chip-verdict">' + K.esc(verdict) + "</span></div>" +
+              '<div class="lt-line lt-task trunc muted">' + K.esc("Task: " + task) + "</div>" +
+              '<div class="lt-line lt-deliv mono" data-ptah-part="deliverable"><span class="trunc">' + K.esc(deliverable) + '</span><span class="muted lt-state">' + K.esc(" — " + bytes) + "</span></div>" +
+              '<div class="lt-next trunc">' + K.esc(V.next) + "</div>" +
+              "</div></div></div>";
+
+            var c = K.cues([0, 0.3, 0.55, 1.6]);
+            // measure the focus ring before any entrance transform is applied
+            K.focusFromVars(c[3] + 0.5);
+
+            // c0: card slides in from the right, accent bar grows
+            K.settle(K.q(".lt-card"), c[0], { dx: 48, dy: 0 });
+            var bar = K.q(".lt-bar");
+            gsap.set(bar, { scaleY: 0 });
+            tl.fromTo(bar, { scaleY: 0 }, { scaleY: 1, duration: 0.3, ease: "power3.out", immediateRender: false }, c[0] + 0.1);
+            K.fadeIn(K.q(".lt-eyebrow"), c[0] + 0.15, 0.25);
+            // c1: icon + verdict chip
+            K.spring(K.q(".lt-icon"), c[1]);
+            K.spring(K.q(".lt-chip"), c[1] + 0.09);
+            // c2: title, task, deliverable
+            [K.q(".lt-title"), K.q(".lt-task"), K.q(".lt-deliv")].forEach(function (el, i) {
+              K.settle(el, c[2] + i * 0.09, { dy: 12 });
+            });
+            // c3: next action
+            K.settle(K.q(".lt-next"), c[3], { dy: 12 });
+
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>

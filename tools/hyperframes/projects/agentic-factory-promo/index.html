@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #08090c;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: "JetBrains Mono", monospace;
+        color: #f4f1ea;
+        --amber: #f5a524;
+        --amber-lt: #ffbb4d;
+        --emerald: #34d399;
+        --ink: #08090c;
+        --plate: rgba(10, 11, 15, 0.9);
+        --soft: rgba(244, 241, 234, 0.8);
+      }
+
+      /* ---------- persistent background ---------- */
+      #bg {
+        position: absolute;
+        inset: 0;
+        background: #08090c;
+      }
+      #bg-glow {
+        position: absolute;
+        left: 900px;
+        top: -260px;
+        width: 1400px;
+        height: 1400px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(245, 165, 36, 0.22) 0%, rgba(245, 165, 36, 0.06) 38%, rgba(8, 9, 12, 0) 68%);
+      }
+      #bg-grid {
+        position: absolute;
+        left: -80px;
+        top: -80px;
+        width: 2080px;
+        height: 1240px;
+        background-image:
+          linear-gradient(rgba(245, 165, 36, 0.11) 2px, transparent 2px),
+          linear-gradient(90deg, rgba(245, 165, 36, 0.11) 2px, transparent 2px);
+        background-size: 80px 80px;
+      }
+      #bg-ghost {
+        position: absolute;
+        left: 60px;
+        bottom: 20px;
+        width: 1900px;
+        font-family: "Archivo Black", sans-serif;
+        font-size: 250px;
+        line-height: 0.9;
+        letter-spacing: -0.03em;
+        color: rgba(245, 165, 36, 0.07);
+        white-space: nowrap;
+      }
+
+      /* ---------- footage cameras ---------- */
+      .cam {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+        transform-origin: 0 0;
+        overflow: hidden;
+      }
+      .cam video,
+      .cam img {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+        object-fit: cover;
+      }
+      #vignette {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse 75% 70% at 50% 50%, rgba(8, 9, 12, 0) 55%, rgba(8, 9, 12, 0.6) 100%);
+      }
+
+      /* ---------- overlay scenes ---------- */
+      .scene {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+      }
+      .chap {
+        position: absolute;
+        left: 72px;
+        top: 60px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 14px 22px;
+        background: var(--plate);
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        color: #f4f1ea;
+      }
+      .chap b {
+        color: var(--amber);
+      }
+      .plate {
+        position: absolute;
+        left: 72px;
+        bottom: 72px;
+        max-width: 1100px;
+        padding: 30px 40px 32px;
+        background: var(--plate);
+      }
+      .plate.top {
+        top: 150px;
+        bottom: auto;
+      }
+      .plate .rule {
+        display: block;
+        width: 96px;
+        height: 6px;
+        margin-bottom: 20px;
+        background: var(--amber);
+        transform-origin: 0 50%;
+      }
+      .plate h2 {
+        font-family: "Archivo Black", sans-serif;
+        font-weight: 400;
+        font-size: 74px;
+        line-height: 0.98;
+        letter-spacing: -0.02em;
+        color: #f4f1ea;
+      }
+      .plate h2 em {
+        font-style: normal;
+        white-space: nowrap;
+        color: var(--amber);
+      }
+      .plate p {
+        margin-top: 18px;
+        font-size: 27px;
+        line-height: 1.35;
+        color: var(--soft);
+      }
+      .tag {
+        position: absolute;
+        display: block;
+        padding: 10px 16px;
+        background: var(--amber);
+        color: #0b0b0d;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        transform-origin: 0 100%;
+      }
+      .tag.dark {
+        background: var(--plate);
+        color: #f4f1ea;
+        border: 3px solid var(--amber);
+      }
+      .tag.green {
+        background: var(--emerald);
+      }
+      .box {
+        position: absolute;
+        --c: var(--amber);
+        background:
+          linear-gradient(var(--c), var(--c)) left top / 40px 5px no-repeat,
+          linear-gradient(var(--c), var(--c)) left top / 5px 40px no-repeat,
+          linear-gradient(var(--c), var(--c)) right top / 40px 5px no-repeat,
+          linear-gradient(var(--c), var(--c)) right top / 5px 40px no-repeat,
+          linear-gradient(var(--c), var(--c)) left bottom / 40px 5px no-repeat,
+          linear-gradient(var(--c), var(--c)) left bottom / 5px 40px no-repeat,
+          linear-gradient(var(--c), var(--c)) right bottom / 40px 5px no-repeat,
+          linear-gradient(var(--c), var(--c)) right bottom / 5px 40px no-repeat;
+      }
+      .box.green {
+        --c: var(--emerald);
+      }
+
+      /* hook / interstitial type */
+      .slam {
+        position: absolute;
+        left: 140px;
+        font-family: "Archivo Black", sans-serif;
+        font-weight: 400;
+        letter-spacing: -0.035em;
+        line-height: 0.92;
+        white-space: nowrap;
+        color: #f4f1ea;
+        transform-origin: 0 50%;
+      }
+      .slam em {
+        font-style: normal;
+        color: var(--amber);
+      }
+      .lock {
+        position: absolute;
+        left: 140px;
+        top: 380px;
+        display: flex;
+        align-items: center;
+        gap: 44px;
+      }
+      .lock img {
+        display: block;
+        width: 220px;
+        height: 220px;
+      }
+      .lock .word {
+        font-family: "Archivo Black", sans-serif;
+        font-size: 210px;
+        line-height: 0.9;
+        letter-spacing: -0.03em;
+        color: #f4f1ea;
+      }
+      .lock .sub {
+        margin-top: 18px;
+        font-size: 34px;
+        font-weight: 700;
+        letter-spacing: 0.32em;
+        color: var(--amber);
+      }
+      .chips {
+        position: absolute;
+        left: 140px;
+        display: flex;
+        gap: 18px;
+      }
+      .chips span {
+        display: block;
+        padding: 12px 20px;
+        border: 3px solid var(--amber);
+        background: var(--plate);
+        font-size: 28px;
+        font-weight: 700;
+        color: #f4f1ea;
+      }
+
+      /* ticker */
+      .ticker {
+        position: absolute;
+        right: 72px;
+        top: 60px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 14px 22px;
+        background: var(--plate);
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+      }
+      .ticker i {
+        display: block;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--emerald);
+      }
+
+      /* checklist */
+      .check {
+        position: absolute;
+        left: 72px;
+        top: 150px;
+        width: 780px;
+        padding: 34px 38px 26px;
+        background: var(--plate);
+      }
+      .check h3 {
+        font-family: "Archivo Black", sans-serif;
+        font-weight: 400;
+        font-size: 50px;
+        line-height: 1;
+        letter-spacing: -0.02em;
+        margin-bottom: 26px;
+      }
+      .check h3 em {
+        font-style: normal;
+        color: var(--amber);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        padding: 15px 0;
+        border-top: 2px solid rgba(245, 165, 36, 0.22);
+        font-size: 28px;
+        color: var(--soft);
+      }
+      .sq {
+        position: relative;
+        flex: 0 0 38px;
+        width: 38px;
+        height: 38px;
+        border: 3px solid var(--amber);
+      }
+      .sq .fill {
+        position: absolute;
+        inset: 0;
+        background: var(--amber);
+        transform-origin: 50% 50%;
+      }
+      .sq .tick {
+        position: absolute;
+        left: 0;
+        top: -4px;
+        width: 32px;
+        text-align: center;
+        font-size: 30px;
+        font-weight: 700;
+        color: #0b0b0d;
+      }
+
+      /* stamp */
+      .stamp {
+        position: absolute;
+        left: 72px;
+        bottom: 72px;
+        padding: 30px 44px 34px;
+        background: var(--plate);
+        border: 5px solid var(--emerald);
+        transform-origin: 0 100%;
+      }
+      .stamp h2 {
+        font-family: "Archivo Black", sans-serif;
+        font-weight: 400;
+        font-size: 120px;
+        line-height: 1.1;
+        letter-spacing: -0.03em;
+        color: var(--emerald);
+      }
+      .stamp p {
+        margin-top: 22px;
+        font-size: 30px;
+        color: #f4f1ea;
+      }
+
+      /* loop */
+      .loop-head {
+        position: absolute;
+        left: 110px;
+        top: 330px;
+        width: 880px;
+      }
+      .loop-head h2 {
+        font-family: "Archivo Black", sans-serif;
+        font-weight: 400;
+        font-size: 84px;
+        line-height: 1.08;
+        letter-spacing: -0.03em;
+      }
+      .loop-head h2 em {
+        font-style: normal;
+        white-space: nowrap;
+        color: var(--amber);
+      }
+      .loop-head p {
+        margin-top: 30px;
+        font-size: 29px;
+        line-height: 1.4;
+        color: var(--soft);
+      }
+      #ring {
+        position: absolute;
+        left: 1010px;
+        top: 150px;
+        width: 780px;
+        height: 780px;
+      }
+      #ring svg {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 780px;
+        height: 780px;
+      }
+      .hub {
+        position: absolute;
+        left: 290px;
+        top: 290px;
+        width: 200px;
+        height: 200px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(245, 165, 36, 0.3), rgba(8, 9, 12, 0.95) 70%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .hub img {
+        display: block;
+        width: 128px;
+        height: 128px;
+      }
+      .node {
+        position: absolute;
+        width: 200px;
+        height: 64px;
+        margin-left: -100px;
+        margin-top: -32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--ink);
+        border: 3px solid var(--amber);
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: #f4f1ea;
+      }
+      #orbit {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 780px;
+        height: 780px;
+      }
+      #orbit i {
+        position: absolute;
+        left: 376px;
+        top: 62px;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--amber-lt);
+        box-shadow: 0 0 26px 8px rgba(245, 165, 36, 0.55);
+      }
+
+      /* outro */
+      .cta {
+        position: absolute;
+        left: 140px;
+        top: 700px;
+        display: flex;
+        gap: 22px;
+        align-items: center;
+      }
+      .cta .url {
+        padding: 16px 28px;
+        background: var(--amber);
+        color: #0b0b0d;
+        font-size: 40px;
+        font-weight: 700;
+      }
+      .cta .free {
+        padding: 13px 26px;
+        border: 3px solid var(--amber);
+        font-size: 36px;
+        font-weight: 700;
+        color: #f4f1ea;
+      }
+      #flash {
+        position: absolute;
+        inset: 0;
+        background: #ffe2a8;
+      }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-937r" id="root" data-composition-id="main" data-start="0" data-duration="92" data-width="1920" data-height="1080">
+      <!-- persistent background -->
+      <div data-hf-id="hf-2xc0" id="bg">
+        <div data-hf-id="hf-r3kh" id="bg-grid"></div>
+        <div data-hf-id="hf-isbq" id="bg-glow"></div>
+        <div data-hf-id="hf-0wmb" id="bg-ghost" aria-hidden="true" data-layout-ignore="">AGENTIC FACTORY</div>
+      </div>
+
+      <!-- ================= FOOTAGE (track 0) ================= -->
+      <div data-hf-id="hf-f426" class="cam" id="cam-v1">
+        <video data-hf-id="hf-0vzv" id="v1" class="clip" src="assets/footage/rec.mp4" data-start="5.888" data-duration="7.68" data-media-start="4" data-track-index="0" muted playsinline></video>
+      </div>
+      <div data-hf-id="hf-b5y5" class="cam" id="cam-v2">
+        <video data-hf-id="hf-1l4e" id="v2" class="clip" src="assets/footage/rec.mp4" data-start="13.568" data-duration="7.68" data-media-start="28" data-playback-rate="2.4" data-track-index="0" muted playsinline></video>
+      </div>
+      <div data-hf-id="hf-aeac" class="cam" id="cam-v3">
+        <video data-hf-id="hf-brdz" id="v3" class="clip" src="assets/footage/rec.mp4" data-start="21.248" data-duration="5.76" data-media-start="12" data-playback-rate="0.33" data-track-index="0" muted playsinline></video>
+      </div>
+      <div data-hf-id="hf-xvrv" class="cam" id="cam-v4">
+        <video data-hf-id="hf-b3vv" id="v4" class="clip" src="assets/footage/rec.mp4" data-start="27.008" data-duration="7.68" data-media-start="54.6" data-playback-rate="0.68" data-track-index="0" muted playsinline></video>
+      </div>
+      <div data-hf-id="hf-xtin" class="cam" id="cam-v5a">
+        <video data-hf-id="hf-0drx" id="v5a" class="clip" src="assets/footage/rec.mp4" data-start="37.568" data-duration="2.88" data-media-start="86" data-track-index="0" muted playsinline></video>
+      </div>
+      <div data-hf-id="hf-my10" class="cam" id="cam-v5b">
+        <video data-hf-id="hf-ptbq" id="v5b" class="clip" src="assets/footage/rec.mp4" data-start="40.448" data-duration="2.88" data-media-start="90" data-playback-rate="0.8" data-track-index="0" muted playsinline></video>
+      </div>
+      <div data-hf-id="hf-1p89" class="cam" id="cam-s100">
+        <img data-hf-id="hf-o1r4" id="s100" class="clip" src="assets/stills/s100.png" data-start="43.328" data-duration="5.76" data-track-index="0" alt="">
+      </div>
+      <div data-hf-id="hf-nry1" class="cam" id="cam-v6">
+        <video data-hf-id="hf-ia6k" id="v6" class="clip" src="assets/footage/rec.mp4" data-start="49.088" data-duration="7.68" data-media-start="112" data-playback-rate="1.25" data-track-index="0" muted playsinline></video>
+      </div>
+      <div data-hf-id="hf-tmj5" class="cam" id="cam-v7a">
+        <video data-hf-id="hf-2bhx" id="v7a" class="clip" src="assets/footage/rec.mp4" data-start="56.768" data-duration="5.76" data-media-start="160" data-playback-rate="2.2" data-track-index="0" muted playsinline></video>
+      </div>
+      <div data-hf-id="hf-zs8y" class="cam" id="cam-v7b">
+        <video data-hf-id="hf-e6ft" id="v7b" class="clip" src="assets/footage/rec.mp4" data-start="62.528" data-duration="7.68" data-media-start="176" data-playback-rate="2" data-track-index="0" muted playsinline></video>
+      </div>
+      <div data-hf-id="hf-audh" class="cam" id="cam-s232">
+        <img data-hf-id="hf-itv4" id="s232" class="clip" src="assets/stills/s232.png" data-start="70.208" data-duration="6.72" data-track-index="0" alt="">
+      </div>
+
+      <div data-hf-id="hf-h7i3" id="vignette"></div>
+
+      <!-- ================= OVERLAYS (track 2) ================= -->
+
+      <!-- Frame 1: hook -->
+      <div data-hf-id="hf-spqs" id="o-hook" class="clip scene" data-start="0" data-duration="5.888" data-track-index="2">
+        <div data-hf-id="hf-6y5j" id="h-one" class="slam" style="top: 250px; font-size: 230px">ONE</div>
+        <div data-hf-id="hf-pkc3" id="h-prompt" class="slam" style="top: 540px; font-size: 230px"><em data-hf-id="hf-h0m1">PROMPT.</em></div>
+        <div data-hf-id="hf-74f8" id="h-a" class="slam" style="top: 120px; font-size: 160px">A WHOLE</div>
+        <div data-hf-id="hf-pp4o" id="h-eng" class="slam" style="top: 360px; font-size: 160px">ENGINEERING</div>
+        <div data-hf-id="hf-diyv" id="h-team" class="slam" style="top: 600px; font-size: 160px"><em data-hf-id="hf-ya7s">TEAM.</em></div>
+        <div data-hf-id="hf-n3cj" id="h-lock" class="lock">
+          <img data-hf-id="hf-y1da" id="h-icon" src="assets/brand/ptah-icon.png" alt="">
+          <div data-hf-id="hf-yeow">
+            <div data-hf-id="hf-jt1q" id="h-word" class="word">PTAH</div>
+            <div data-hf-id="hf-7gwz" id="h-sub" class="sub">THE AGENTIC FACTORY</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Frame 2: orchestrate -->
+      <div data-hf-id="hf-tbld" id="o-v1" class="clip scene" data-start="5.888" data-duration="7.68" data-track-index="2">
+        <div data-hf-id="hf-8z0p" id="c1-chap" class="chap"><b data-hf-id="hf-27a2">01</b> ORCHESTRATE</div>
+        <div data-hf-id="hf-cg90" id="c1-glm" class="tag">LANE · GLM via Ollama</div>
+        <div data-hf-id="hf-prxw" id="c1-ag" class="tag">LANE · Antigravity CLI</div>
+        <div data-hf-id="hf-iokc" id="c1-main" class="tag dark">MAIN AGENT · Claude + subagents</div>
+        <div data-hf-id="hf-9ebt" id="c1-plate" class="plate">
+          <span data-hf-id="hf-6o6j" class="rule"></span>
+          <h2 data-hf-id="hf-6wxn">ONE MAIN AGENT. <em data-hf-id="hf-qeqf">MANY LANES.</em></h2>
+        </div>
+      </div>
+
+      <!-- Frame 3: parallel sessions -->
+      <div data-hf-id="hf-mnj2" id="o-v2" class="clip scene" data-start="13.568" data-duration="7.68" data-track-index="2">
+        <div data-hf-id="hf-t0le" id="c2-chap" class="chap"><b data-hf-id="hf-48e6">01</b> ORCHESTRATE</div>
+        <div data-hf-id="hf-p84j" id="c2-tick" class="ticker"><i data-hf-id="hf-sq8c" id="c2-dot"></i>SESSIONS · LIVE</div>
+        <div data-hf-id="hf-q9fe" id="c2-plate" class="plate">
+          <span data-hf-id="hf-424r" class="rule"></span>
+          <h2 data-hf-id="hf-p048">PARALLEL <em data-hf-id="hf-r7qg">SESSIONS.</em></h2>
+          <p data-hf-id="hf-6dek">Each session runs its own subagents and CLI lanes.</p>
+        </div>
+      </div>
+
+      <!-- Frame 4: lanes report back -->
+      <div data-hf-id="hf-2qh4" id="o-v3" class="clip scene" data-start="21.248" data-duration="5.76" data-track-index="2">
+        <div data-hf-id="hf-8hx0" id="c3-chap" class="chap"><b data-hf-id="hf-2ll3">02</b> LANES REPORT OVER MCP</div>
+        <div data-hf-id="hf-ey2z" id="c3-box" class="box"></div>
+        <div data-hf-id="hf-1pbr" id="c3-tag" class="tag">ptah_agent_report</div>
+        <div data-hf-id="hf-stuv" id="c3-plate" class="plate">
+          <span data-hf-id="hf-3ntq" class="rule"></span>
+          <h2 data-hf-id="hf-6qg2">LANES <em data-hf-id="hf-btcu">REPORT BACK.</em></h2>
+          <p data-hf-id="hf-xw85">Each lane hands its result to the parent session through the Ptah MCP tools.</p>
+        </div>
+      </div>
+
+      <!-- Frame 5: talk to any lane -->
+      <div data-hf-id="hf-ifwa" id="o-v4" class="clip scene" data-start="27.008" data-duration="7.68" data-track-index="2">
+        <div data-hf-id="hf-6b4d" id="c4-chap" class="chap"><b data-hf-id="hf-2zw4">03</b> TALK TO ANY LANE</div>
+        <div data-hf-id="hf-7ocm" id="c4-tag" class="tag">live lane transcript</div>
+        <div data-hf-id="hf-7gaw" id="c4-plate" class="plate">
+          <span data-hf-id="hf-39ip" class="rule"></span>
+          <h2 data-hf-id="hf-b68y">TALK TO <em data-hf-id="hf-fs43">ANY LANE.</em></h2>
+          <p data-hf-id="hf-ayw6">Open its transcript. Send it a message. Steer it mid-run.</p>
+        </div>
+      </div>
+
+      <!-- Frame 6: interstitial -->
+      <div data-hf-id="hf-h7lk" id="o-int" class="clip scene" data-start="34.688" data-duration="2.88" data-track-index="2">
+        <div data-hf-id="hf-3buj" id="i-1" class="slam" style="top: 130px; font-size: 140px">THEN THE CODE</div>
+        <div data-hf-id="hf-6k4j" id="i-2" class="slam" style="top: 340px; font-size: 140px">MEETS THE</div>
+        <div data-hf-id="hf-uoxi" id="i-3" class="slam" style="top: 550px; font-size: 140px"><em data-hf-id="hf-7ou9">REVIEWERS.</em></div>
+        <div data-hf-id="hf-ckkh" id="i-chips" class="chips" style="top: 820px">
+          <span data-hf-id="hf-6buh" id="i-c1">CodeRabbit</span><span data-hf-id="hf-eo05" id="i-c2">SonarQube</span><span data-hf-id="hf-sion" id="i-c3">CI checks</span>
+        </div>
+      </div>
+
+      <!-- Frame 7: review pipeline -->
+      <div data-hf-id="hf-j3i7" id="o-v5" class="clip scene" data-start="37.568" data-duration="11.52" data-track-index="2">
+        <div data-hf-id="hf-lsfv" id="c5-chap" class="chap"><b data-hf-id="hf-3e75">04</b> REVIEW PIPELINE</div>
+        <div data-hf-id="hf-yu0l" id="c5-plate" class="plate">
+          <span data-hf-id="hf-2v7o" class="rule"></span>
+          <h2 data-hf-id="hf-lhod">EVERY PR GETS <em data-hf-id="hf-1u74">REVIEWED.</em></h2>
+          <p data-hf-id="hf-316y">CodeRabbit, SonarQube and CI run on each pull request.</p>
+        </div>
+        <div data-hf-id="hf-178t" id="c5-box" class="box"></div>
+        <div data-hf-id="hf-twpb" id="c5-tag" class="tag">CodeRabbit → Prompt for AI Agents</div>
+        <div data-hf-id="hf-9rz9" id="c5-plate2" class="plate">
+          <span data-hf-id="hf-2gwn" class="rule"></span>
+          <h2 data-hf-id="hf-ttma">REVIEW NOTES, <em data-hf-id="hf-8k5o">AGENT-READY.</em></h2>
+        </div>
+      </div>
+
+      <!-- Frame 8: one prompt -->
+      <div data-hf-id="hf-ergg" id="o-v6" class="clip scene" data-start="49.088" data-duration="7.68" data-track-index="2">
+        <div data-hf-id="hf-0kis" id="c6-chap" class="chap"><b data-hf-id="hf-3si6">05</b> ONE PROMPT</div>
+        <div data-hf-id="hf-m8dz" id="c6-plate" class="plate top">
+          <span data-hf-id="hf-22lm" class="rule"></span>
+          <h2 data-hf-id="hf-4ea5">ONE PROMPT <em data-hf-id="hf-wyid">TO FIX IT ALL.</em></h2>
+        </div>
+      </div>
+
+      <!-- Frame 9: agents fix it -->
+      <div data-hf-id="hf-vv8v" id="o-v7" class="clip scene" data-start="56.768" data-duration="13.44" data-track-index="2">
+        <div data-hf-id="hf-tku1" id="c7-chap" class="chap"><b data-hf-id="hf-46t7">06</b> AGENTS FIX IT</div>
+        <div data-hf-id="hf-zq3b" id="c7-check" class="check">
+          <h3 data-hf-id="hf-rgdy">THE AGENT <em data-hf-id="hf-4taq">TAKES IT FROM HERE.</em></h3>
+          <div data-hf-id="hf-qyl2" class="row" id="r1"><span data-hf-id="hf-vq9x" class="sq"><span data-hf-id="hf-fswb" class="fill" id="r1f"></span><span data-hf-id="hf-gmg6" class="tick" id="r1t">✓</span></span>Reads every review comment</div>
+          <div data-hf-id="hf-ps8l" class="row" id="r2"><span data-hf-id="hf-pkbd" class="sq"><span data-hf-id="hf-twgi" class="fill" id="r2f"></span><span data-hf-id="hf-dqyx" class="tick" id="r2t">✓</span></span>Pulls the failed CI logs</div>
+          <div data-hf-id="hf-uiyh" class="row" id="r3"><span data-hf-id="hf-qr8g" class="sq"><span data-hf-id="hf-yzwx" class="fill" id="r3f"></span><span data-hf-id="hf-osns" class="tick" id="r3t">✓</span></span>Spawns fixer subagents in parallel</div>
+          <div data-hf-id="hf-i5nk" class="row" id="r4"><span data-hf-id="hf-qcxf" class="sq"><span data-hf-id="hf-xyjs" class="fill" id="r4f"></span><span data-hf-id="hf-4uhn" class="tick" id="r4t">✓</span></span>Lets you message any fixer</div>
+          <div data-hf-id="hf-9sla" class="row" id="r5"><span data-hf-id="hf-odea" class="sq"><span data-hf-id="hf-6w13" class="fill" id="r5f"></span><span data-hf-id="hf-e322" class="tick" id="r5t">✓</span></span>Replies on the PR threads</div>
+        </div>
+        <div data-hf-id="hf-8d9z" id="c7-box" class="box"></div>
+        <div data-hf-id="hf-el8d" id="c7-tag" class="tag">fixer subagents · running in parallel</div>
+      </div>
+
+      <!-- Frame 10: all green -->
+      <div data-hf-id="hf-9pv2" id="o-v8" class="clip scene" data-start="70.208" data-duration="6.72" data-track-index="2">
+        <div data-hf-id="hf-qvhg" id="c8-chap" class="chap"><b data-hf-id="hf-8n3c">07</b> ALL GREEN</div>
+        <div data-hf-id="hf-s556" id="c8-box1" class="box green"></div>
+        <div data-hf-id="hf-vcmn" id="c8-tag1" class="tag green">SonarQube · Quality Gate passed</div>
+        <div data-hf-id="hf-o715" id="c8-box2" class="box green"></div>
+        <div data-hf-id="hf-17sw" id="c8-tag2" class="tag green">CI · all checks passed</div>
+        <div data-hf-id="hf-7a74" id="c8-stamp" class="stamp">
+          <h2 data-hf-id="hf-alt1">ALL GREEN.</h2>
+          <p data-hf-id="hf-an8h">Waiting on one thing: your approval.</p>
+        </div>
+      </div>
+
+      <!-- Frame 11: the loop -->
+      <div data-hf-id="hf-7pr5" id="o-loop" class="clip scene" data-start="76.928" data-duration="7.68" data-track-index="2">
+        <div data-hf-id="hf-xerp" class="loop-head">
+          <h2 data-hf-id="hf-a3xs" id="l-h1">THE FULL SDLC.</h2>
+          <h2 data-hf-id="hf-lk8r" id="l-h2"><em data-hf-id="hf-znco">AGENTIC,</em> <em data-hf-id="hf-gnpi">END TO END.</em></h2>
+          <p data-hf-id="hf-psjj" id="l-p">Claude, its subagents, CLI lanes, CI and reviewers. One loop.</p>
+        </div>
+        <div data-hf-id="hf-m1rf" id="ring">
+          <svg data-hf-id="hf-0vgp" viewBox="0 0 780 780">
+            <circle data-hf-id="hf-v7dz" id="ring-track" cx="390" cy="390" r="314" fill="none" stroke="rgba(245,165,36,0.18)" stroke-width="4" />
+            <circle data-hf-id="hf-6cte" id="ring-draw" cx="390" cy="390" r="314" fill="none" stroke="#f5a524" stroke-width="5" stroke-dasharray="1973" stroke-dashoffset="1973" transform="rotate(-90 390 390)" />
+          </svg>
+          <div data-hf-id="hf-n2sj" id="orbit"><i data-hf-id="hf-wt6k"></i></div>
+          <div data-hf-id="hf-kr5w" id="hub" class="hub"><img data-hf-id="hf-qyce" src="assets/brand/ptah-icon.png" alt=""></div>
+          <div data-hf-id="hf-jxnd" class="node" id="n0" style="left: 390px; top: 76px">PLAN</div>
+          <div data-hf-id="hf-1gcr" class="node" id="n1" style="left: 662px; top: 233px">DELEGATE</div>
+          <div data-hf-id="hf-j33v" class="node" id="n2" style="left: 662px; top: 547px">BUILD</div>
+          <div data-hf-id="hf-py2f" class="node" id="n3" style="left: 390px; top: 704px">REVIEW</div>
+          <div data-hf-id="hf-3r1i" class="node" id="n4" style="left: 118px; top: 547px">FIX</div>
+          <div data-hf-id="hf-d2wu" class="node" id="n5" style="left: 118px; top: 233px">SHIP</div>
+        </div>
+      </div>
+
+      <!-- Frame 12: outro -->
+      <div data-hf-id="hf-2up0" id="o-outro" class="clip scene" data-start="84.608" data-duration="7.392" data-track-index="2">
+        <div data-hf-id="hf-lmqe" id="e-lock" class="lock" style="top: 300px">
+          <img data-hf-id="hf-iv5n" id="e-icon" src="assets/brand/ptah-icon.png" alt="">
+          <div data-hf-id="hf-y7yw">
+            <div data-hf-id="hf-qyv9" id="e-word" class="word">PTAH</div>
+            <div data-hf-id="hf-2np8" id="e-sub" class="sub">THE AGENTIC FACTORY</div>
+          </div>
+        </div>
+        <div data-hf-id="hf-k198" id="e-cta" class="cta">
+          <div data-hf-id="hf-n079" id="e-url" class="url">ptah.live</div>
+          <div data-hf-id="hf-jnph" id="e-free" class="free">Get Ptah free</div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-hmg5" id="flash"></div>
+
+      <!-- ================= AUDIO ================= -->
+      <audio data-hf-id="hf-z2qb" id="music" src="assets/music/mixkit-deep-techno-ambience.mp3" data-start="0" data-duration="92" data-track-index="10" data-volume="0.55" data-automation="{&quot;version&quot;:1,&quot;lanes&quot;:[{&quot;target&quot;:&quot;volume&quot;,&quot;points&quot;:[{&quot;t&quot;:0,&quot;v&quot;:0},{&quot;t&quot;:0.25,&quot;v&quot;:1},{&quot;t&quot;:88.4,&quot;v&quot;:1},{&quot;t&quot;:92,&quot;v&quot;:0}]}]}"></audio>
+
+      <audio data-hf-id="hf-vhqp" id="sfx-01" src="assets/sfx/impact-bass-1.mp3" data-start="0.128" data-duration="2.116" data-track-index="101" data-volume="0.8"></audio>
+      <audio data-hf-id="hf-nc9l" id="sfx-02" src="assets/sfx/click.mp3" data-start="0.608" data-duration="0.366" data-track-index="102" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-oao6" id="sfx-03" src="assets/sfx/whoosh-short.mp3" data-start="1.95" data-duration="0.575" data-track-index="103" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-2doj" id="sfx-04" src="assets/sfx/click.mp3" data-start="2.528" data-duration="0.366" data-track-index="104" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-uggw" id="sfx-05" src="assets/sfx/impact-bass-2.mp3" data-start="3.008" data-duration="2.592" data-track-index="105" data-volume="0.75"></audio>
+      <audio data-hf-id="hf-ux6l" id="sfx-06" src="assets/sfx/sparkle.mp3" data-start="4.448" data-duration="1.802" data-track-index="106" data-volume="0.55"></audio>
+      <audio data-hf-id="hf-gyer" id="sfx-07" src="assets/sfx/whoosh-short.mp3" data-start="5.8" data-duration="0.575" data-track-index="107" data-volume="0.55"></audio>
+      <audio data-hf-id="hf-332s" id="sfx-08" src="assets/sfx/pop.mp3" data-start="6.5" data-duration="0.720" data-track-index="108" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-u1pu" id="sfx-09" src="assets/sfx/pop.mp3" data-start="6.98" data-duration="0.720" data-track-index="109" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-qyq7" id="sfx-10" src="assets/sfx/whoosh.mp3" data-start="9.2" data-duration="0.575" data-track-index="110" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-8zkc" id="sfx-11" src="assets/sfx/pop.mp3" data-start="11.3" data-duration="0.720" data-track-index="111" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-ks7b" id="sfx-12" src="assets/sfx/whoosh-short.mp3" data-start="13.48" data-duration="0.575" data-track-index="112" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-h7jn" id="sfx-13" src="assets/sfx/whoosh-short.mp3" data-start="21.16" data-duration="0.575" data-track-index="113" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-ikii" id="sfx-14" src="assets/sfx/ping.mp3" data-start="22.4" data-duration="1.320" data-track-index="114" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-e6kw" id="sfx-15" src="assets/sfx/whoosh-short.mp3" data-start="26.92" data-duration="0.575" data-track-index="115" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-i7d1" id="sfx-16" src="assets/sfx/pop.mp3" data-start="28.2" data-duration="0.720" data-track-index="116" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-mb1h" id="sfx-17" src="assets/sfx/impact-bass-1.mp3" data-start="34.688" data-duration="2.116" data-track-index="117" data-volume="0.75"></audio>
+      <audio data-hf-id="hf-4lu2" id="sfx-18" src="assets/sfx/click.mp3" data-start="35.648" data-duration="0.366" data-track-index="118" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-b7sc" id="sfx-19" src="assets/sfx/impact-bass-2.mp3" data-start="36.128" data-duration="2.592" data-track-index="119" data-volume="0.7"></audio>
+      <audio data-hf-id="hf-dsbh" id="sfx-20" src="assets/sfx/whoosh-short.mp3" data-start="37.48" data-duration="0.575" data-track-index="120" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-85ti" id="sfx-21" src="assets/sfx/whoosh-short.mp3" data-start="40.36" data-duration="0.575" data-track-index="121" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-pfaw" id="sfx-22" src="assets/sfx/whoosh-short.mp3" data-start="43.24" data-duration="0.575" data-track-index="122" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-y0lg" id="sfx-23" src="assets/sfx/notification.mp3" data-start="44.4" data-duration="2.455" data-track-index="123" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-x09q" id="sfx-24" src="assets/sfx/whoosh-short.mp3" data-start="49.0" data-duration="0.575" data-track-index="124" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-cvdd" id="sfx-25" src="assets/sfx/typing.mp3" data-start="49.6" data-duration="1.500" data-track-index="125" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-nayw" id="sfx-26" src="assets/sfx/typing.mp3" data-start="51.2" data-duration="1.500" data-track-index="126" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-7bnt" id="sfx-27" src="assets/sfx/key-press.mp3" data-start="55.45" data-duration="0.400" data-track-index="127" data-volume="0.7"></audio>
+      <audio data-hf-id="hf-ndog" id="sfx-28" src="assets/sfx/whoosh-short.mp3" data-start="56.68" data-duration="0.575" data-track-index="128" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-9mzr" id="sfx-29" src="assets/sfx/click-soft.mp3" data-start="57.968" data-duration="0.366" data-track-index="129" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-zruk" id="sfx-30" src="assets/sfx/click-soft.mp3" data-start="59.408" data-duration="0.366" data-track-index="130" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-227o" id="sfx-31" src="assets/sfx/click-soft.mp3" data-start="61.328" data-duration="0.366" data-track-index="131" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-9mut" id="sfx-32" src="assets/sfx/whoosh-short.mp3" data-start="62.44" data-duration="0.575" data-track-index="132" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-ijr2" id="sfx-33" src="assets/sfx/click-soft.mp3" data-start="64.208" data-duration="0.366" data-track-index="133" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-tfqx" id="sfx-34" src="assets/sfx/click-soft.mp3" data-start="67.088" data-duration="0.366" data-track-index="134" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-e1dp" id="sfx-35" src="assets/sfx/whoosh-short.mp3" data-start="70.12" data-duration="0.575" data-track-index="135" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-9mtt" id="sfx-36" src="assets/sfx/chime.mp3" data-start="70.88" data-duration="2.500" data-track-index="136" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-r1bs" id="sfx-37" src="assets/sfx/ping.mp3" data-start="71.84" data-duration="1.320" data-track-index="137" data-volume="0.55"></audio>
+      <audio data-hf-id="hf-73rw" id="sfx-38" src="assets/sfx/impact-bass-2.mp3" data-start="73.28" data-duration="2.592" data-track-index="138" data-volume="0.7"></audio>
+      <audio data-hf-id="hf-cyqz" id="sfx-39" src="assets/sfx/sparkle.mp3" data-start="73.3" data-duration="1.802" data-track-index="139" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-468q" id="sfx-40" src="assets/sfx/whoosh-cinematic.mp3" data-start="76.8" data-duration="2.2" data-track-index="140" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-4akc" id="sfx-41" src="assets/sfx/pop.mp3" data-start="77.888" data-duration="0.720" data-track-index="141" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-azb0" id="sfx-42" src="assets/sfx/pop.mp3" data-start="78.368" data-duration="0.720" data-track-index="142" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-qk2l" id="sfx-43" src="assets/sfx/pop.mp3" data-start="78.848" data-duration="0.720" data-track-index="143" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-82s3" id="sfx-44" src="assets/sfx/pop.mp3" data-start="79.328" data-duration="0.720" data-track-index="144" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-2z3y" id="sfx-45" src="assets/sfx/pop.mp3" data-start="79.808" data-duration="0.720" data-track-index="145" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-zpn2" id="sfx-46" src="assets/sfx/pop.mp3" data-start="80.288" data-duration="0.720" data-track-index="146" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-pi8k" id="sfx-47" src="assets/sfx/riser.mp3" data-start="82.2" data-duration="2.4" data-media-start="7.6" data-track-index="147" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-t2v4" id="sfx-48" src="assets/sfx/impact-bass-1.mp3" data-start="84.608" data-duration="2.116" data-track-index="148" data-volume="0.8"></audio>
+      <audio data-hf-id="hf-mqs8" id="sfx-49" src="assets/sfx/sparkle.mp3" data-start="85.3" data-duration="1.802" data-track-index="149" data-volume="0.5"></audio>
+    </div>
+
+    <script>
+      (function () {
+        const tl = gsap.timeline({ paused: true });
+
+        // ---- source → frame mapping (1914x1032 cover-fit into 1920x1080) ----
+        const K = 1080 / 1032;
+        const OX = (1914 * K - 1920) / 2;
+        const F = (sx, sy) => [sx * K - OX, sy * K];
+
+        // camera state that centers frame point (fx, fy) at scale S, clamped to the frame
+        function cam(fx, fy, S) {
+          let x = 960 - fx * S;
+          let y = 540 - fy * S;
+          x = Math.min(0, Math.max(1920 - 1920 * S, x));
+          y = Math.min(0, Math.max(1080 - 1080 * S, y));
+          return { x: x, y: y, scale: S };
+        }
+        const scr = (fx, fy, c) => [fx * c.scale + c.x, fy * c.scale + c.y];
+        function place(id, x, y) {
+          const el = document.getElementById(id);
+          el.style.left = Math.round(x) + "px";
+          el.style.top = Math.round(y) + "px";
+        }
+        function rect(id, x1, y1, x2, y2, c) {
+          const a = scr(x1, y1, c);
+          const b = scr(x2, y2, c);
+          const el = document.getElementById(id);
+          el.style.left = Math.round(a[0]) + "px";
+          el.style.top = Math.round(a[1]) + "px";
+          el.style.width = Math.round(b[0] - a[0]) + "px";
+          el.style.height = Math.round(b[1] - a[1]) + "px";
+          return [a, b];
+        }
+        // camera legs: first state set at t0, then fromTo legs
+        function camera(sel, t0, legs) {
+          let prev = legs[0].c;
+          gsap.set(sel, prev);
+          tl.set(sel, prev, t0);
+          for (let i = 1; i < legs.length; i++) {
+            const L = legs[i];
+            tl.fromTo(sel, Object.assign({}, prev), Object.assign({ duration: L.d, ease: L.ease || "power2.inOut", immediateRender: false }, L.c), t0 + L.t);
+            prev = L.c;
+          }
+        }
+        // blur-snap entrance on each cut
+        function snap(sel, t) {
+          tl.fromTo(sel, { filter: "blur(16px) brightness(1.35)" }, { filter: "blur(0px) brightness(1)", duration: 0.32, ease: "power2.out", immediateRender: false }, t);
+        }
+        // shared overlay entrances
+        function chapIn(id, t) {
+          tl.fromTo("#" + id, { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4, ease: "expo.out" }, t);
+        }
+        function plateIn(id, t) {
+          tl.fromTo("#" + id, { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, t);
+          tl.fromTo("#" + id + " .rule", { scaleX: 0 }, { scaleX: 1, duration: 0.5, ease: "power4.out" }, t + 0.15);
+        }
+        function out(sel, t) {
+          tl.to(sel, { opacity: 0, duration: 0.25, ease: "power1.in" }, t);
+        }
+        function tagIn(id, t) {
+          tl.fromTo("#" + id, { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(2.2)" }, t);
+        }
+        function boxIn(id, t) {
+          tl.fromTo("#" + id, { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.4, ease: "expo.out" }, t);
+        }
+        function slam(id, t, from) {
+          tl.set("#" + id, { opacity: 1 }, t);
+          tl.fromTo("#" + id, from, { x: 0, y: 0, scale: 1, rotation: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, t);
+        }
+        function flash(t) {
+          tl.fromTo("#flash", { opacity: 0.32 }, { opacity: 0, duration: 0.3, ease: "power2.out", immediateRender: false }, t);
+        }
+
+        // ---- background ambience ----
+        gsap.set("#flash", { opacity: 0 });
+        tl.fromTo("#bg-glow", { scale: 0.92, x: 0 }, { scale: 1.08, x: -60, duration: 7.68, ease: "sine.inOut", yoyo: true, repeat: 10 }, 0);
+        tl.fromTo("#bg-grid", { x: 0, y: 0 }, { x: 80, y: 80, duration: 92, ease: "none" }, 0);
+        tl.fromTo("#bg-ghost", { x: 0 }, { x: -260, duration: 92, ease: "none" }, 0);
+
+        // ================= Frame 1: hook =================
+        gsap.set(["#h-one", "#h-prompt", "#h-a", "#h-eng", "#h-team", "#h-icon", "#h-word", "#h-sub"], { opacity: 0 });
+        slam("h-one", 0.128, { scale: 1.6, x: 0 });
+        slam("h-prompt", 0.608, { x: -140, scale: 1 });
+        out(["#h-one", "#h-prompt"], 1.85);
+        slam("h-a", 2.048, { y: 80, scale: 1 });
+        slam("h-eng", 2.528, { x: 160, scale: 1 });
+        slam("h-team", 3.008, { scale: 1.7 });
+        tl.to(["#h-a", "#h-eng", "#h-team"], { opacity: 0, y: -40, duration: 0.3, ease: "power2.in" }, 4.15);
+        tl.fromTo("#h-icon", { opacity: 0, scale: 0.2, rotation: -40 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.6, ease: "back.out(1.8)", immediateRender: false }, 4.448);
+        tl.fromTo("#h-word", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.45, ease: "expo.out", immediateRender: false }, 4.6);
+        tl.fromTo("#h-sub", { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.6, ease: "power3.out", immediateRender: false }, 4.8);
+        tl.fromTo("#h-lock", { scale: 1 }, { scale: 1.06, duration: 1.44, ease: "none" }, 4.448);
+        flash(5.888);
+
+        // ================= Frame 2: orchestrate (v1) =================
+        {
+          const t0 = 5.888;
+          const tight = cam(1488, 480, 1.9);
+          const tight2 = cam(1470, 470, 1.96);
+          const wide = cam(960, 540, 1);
+          camera("#cam-v1", t0, [
+            { c: tight },
+            { t: 0, d: 3.3, ease: "none", c: tight2 },
+            { t: 3.36, d: 1.9, ease: "power4.out", c: wide },
+          ]);
+          snap("#cam-v1", t0);
+          const glm = F(1099, 257);
+          const ag = F(1480, 257);
+          const g = scr(glm[0], glm[1], tight2);
+          const a = scr(ag[0], ag[1], tight2);
+          place("c1-glm", g[0] - 30, g[1] + 46);
+          place("c1-ag", a[0] - 30, a[1] + 46);
+          place("c1-main", 90, 250);
+          chapIn("c1-chap", t0 + 0.3);
+          tagIn("c1-glm", t0 + 0.62);
+          tagIn("c1-ag", t0 + 1.1);
+          out(["#c1-glm", "#c1-ag"], t0 + 3.05);
+          tagIn("c1-main", t0 + 5.4);
+          plateIn("c1-plate", t0 + 5.6);
+        }
+
+        // ================= Frame 3: parallel sessions (v2) =================
+        {
+          const t0 = 13.568;
+          camera("#cam-v2", t0, [
+            { c: cam(960, 540, 1.0) },
+            { t: 0, d: 7.68, ease: "none", c: cam(1000, 520, 1.08) },
+          ]);
+          snap("#cam-v2", t0);
+          chapIn("c2-chap", t0 + 0.2);
+          tl.fromTo("#c2-tick", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.4, ease: "expo.out" }, t0 + 0.5);
+          tl.fromTo("#c2-dot", { opacity: 1 }, { opacity: 0.2, duration: 0.48, ease: "sine.inOut", yoyo: true, repeat: 13 }, t0 + 0.5);
+          plateIn("c2-plate", t0 + 0.9);
+        }
+
+        // ================= Frame 4: lanes report back (v3) =================
+        {
+          const t0 = 21.248;
+          const close = cam(1248, 660, 1.8);
+          camera("#cam-v3", t0, [
+            { c: cam(1250, 640, 1.25) },
+            { t: 0.1, d: 1.0, ease: "power3.inOut", c: close },
+            { t: 1.1, d: 4.6, ease: "none", c: cam(1248, 664, 1.86) },
+          ]);
+          snap("#cam-v3", t0);
+          const p1 = F(1075, 520);
+          const p2 = F(1392, 675);
+          const r = rect("c3-box", p1[0] - 14, p1[1] - 10, p2[0] + 14, p2[1] + 10, close);
+          place("c3-tag", r[0][0], r[0][1] - 62);
+          chapIn("c3-chap", t0 + 0.2);
+          boxIn("c3-box", t0 + 1.1);
+          tagIn("c3-tag", t0 + 1.25);
+          plateIn("c3-plate", t0 + 1.9);
+        }
+
+        // ================= Frame 5: talk to any lane (v4) =================
+        {
+          const t0 = 27.008;
+          const o = F(955, 542);
+          const c = cam(o[0], o[1], 1.4);
+          camera("#cam-v4", t0, [
+            { c: cam(o[0], o[1], 1.1) },
+            { t: 0, d: 1.1, ease: "power3.out", c: c },
+            { t: 1.1, d: 6.5, ease: "none", c: cam(o[0], o[1] + 30, 1.5) },
+          ]);
+          snap("#cam-v4", t0);
+          const tl1 = F(630, 190);
+          const s = scr(tl1[0], tl1[1], c);
+          place("c4-tag", s[0], Math.max(s[1] - 58, 150));
+          chapIn("c4-chap", t0 + 0.2);
+          tagIn("c4-tag", t0 + 1.2);
+          plateIn("c4-plate", t0 + 1.6);
+        }
+
+        // ================= Frame 6: interstitial =================
+        gsap.set(["#i-1", "#i-2", "#i-3"], { opacity: 0 });
+        flash(34.688);
+        slam("i-1", 34.688, { x: -200 });
+        slam("i-2", 35.648, { y: 90 });
+        slam("i-3", 36.128, { scale: 1.6 });
+        tl.fromTo(["#i-c1", "#i-c2", "#i-c3"], { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.3, ease: "back.out(2)", stagger: 0.12 }, 36.6);
+
+        // ================= Frame 7: review pipeline =================
+        {
+          // v5a — PR summary (browser chrome kept out of frame)
+          const t0 = 37.568;
+          camera("#cam-v5a", t0, [
+            { c: cam(820, 560, 1.4) },
+            { t: 0, d: 2.88, ease: "none", c: cam(820, 600, 1.5) },
+          ]);
+          snap("#cam-v5a", t0);
+          chapIn("c5-chap", t0 + 0.2);
+          plateIn("c5-plate", t0 + 0.5);
+          out("#c5-plate", 43.1);
+
+          // v5b — CodeRabbit walkthrough
+          camera("#cam-v5b", 40.448, [
+            { c: cam(900, 660, 1.45) },
+            { t: 0, d: 2.88, ease: "none", c: cam(900, 680, 1.52) },
+          ]);
+          snap("#cam-v5b", 40.448);
+
+          // s100 — CodeRabbit comment still, Ken Burns + callout
+          const t2 = 43.328;
+          const kbB = cam(830, 505, 1.75);
+          camera("#cam-s100", t2, [
+            { c: cam(840, 500, 1.45) },
+            { t: 0, d: 1.0, ease: "power3.out", c: kbB },
+            { t: 1.0, d: 4.76, ease: "none", c: cam(830, 510, 1.82) },
+          ]);
+          snap("#cam-s100", t2);
+          const b1 = F(540, 515);
+          const b2 = F(700, 541);
+          const r = rect("c5-box", b1[0] - 10, b1[1] - 8, b2[0] + 10, b2[1] + 8, kbB);
+          place("c5-tag", r[0][0], r[1][1] + 16);
+          boxIn("c5-box", t2 + 1.05);
+          tagIn("c5-tag", t2 + 1.2);
+          plateIn("c5-plate2", t2 + 1.9);
+        }
+
+        // ================= Frame 8: one prompt (v6) =================
+        {
+          const t0 = 49.088;
+          const p = F(1577, 897);
+          camera("#cam-v6", t0, [
+            { c: cam(p[0], p[1], 1.5) },
+            { t: 0, d: 1.2, ease: "power3.out", c: cam(p[0], p[1], 2.3) },
+            { t: 1.2, d: 6.48, ease: "none", c: cam(p[0], p[1], 2.4) },
+          ]);
+          snap("#cam-v6", t0);
+          chapIn("c6-chap", t0 + 0.2);
+          plateIn("c6-plate", t0 + 0.6);
+        }
+
+        // ================= Frame 9: agents fix it (v7a / v7b) =================
+        {
+          const t0 = 56.768;
+          const col = cam(1600, 640, 1.7);
+          camera("#cam-v7a", t0, [
+            { c: cam(1600, 640, 1.45) },
+            { t: 0, d: 1.0, ease: "power3.out", c: col },
+            { t: 1.0, d: 4.76, ease: "none", c: cam(1600, 650, 1.76) },
+          ]);
+          snap("#cam-v7a", t0);
+          const colB = cam(1600, 640, 1.8);
+          camera("#cam-v7b", 62.528, [{ c: col }, { t: 0, d: 7.68, ease: "none", c: colB }]);
+          snap("#cam-v7b", 62.528);
+
+          chapIn("c7-chap", t0 + 0.2);
+          tl.fromTo("#c7-check", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out" }, t0 + 0.4);
+          const ticks = [57.968, 59.408, 61.328, 64.208, 67.088];
+          ticks.forEach((t, i) => {
+            const n = i + 1;
+            gsap.set("#r" + n, { opacity: 0.35 });
+            gsap.set("#r" + n + "f", { scale: 0 });
+            gsap.set("#r" + n + "t", { opacity: 0 });
+            tl.fromTo("#r" + n, { opacity: 0.35 }, { opacity: 1, duration: 0.2, immediateRender: false }, t - 0.1);
+            tl.fromTo("#r" + n + "f", { scale: 0 }, { scale: 1, duration: 0.3, ease: "back.out(2.5)", immediateRender: false }, t);
+            tl.fromTo("#r" + n + "t", { opacity: 0 }, { opacity: 1, duration: 0.15, immediateRender: false }, t + 0.08);
+          });
+
+          // fixer subagent cards (source ~172 s layout)
+          const c1 = F(1323, 580);
+          const c2 = F(1802, 800);
+          const r = rect("c7-box", c1[0], c1[1], c2[0], c2[1], col);
+          place("c7-tag", r[0][0], r[0][1] - 60);
+          boxIn("c7-box", 61.3);
+          tagIn("c7-tag", 61.4);
+          out(["#c7-box", "#c7-tag"], 62.3);
+        }
+
+        // ================= Frame 10: all green (s232) =================
+        {
+          const t0 = 70.208;
+          const kb = cam(820, 520, 1.45);
+          camera("#cam-s232", t0, [
+            { c: cam(820, 520, 1.3) },
+            { t: 0, d: 0.9, ease: "power3.out", c: kb },
+            { t: 0.9, d: 5.82, ease: "none", c: cam(820, 525, 1.52) },
+          ]);
+          snap("#cam-s232", t0);
+          chapIn("c8-chap", t0 + 0.2);
+          const r1 = rect("c8-box1", 425, 190, 1215, 440, kb);
+          place("c8-tag1", r1[1][0] - 520, r1[0][1] + 12);
+          const r2 = rect("c8-box2", 425, 600, 1215, 668, kb);
+          place("c8-tag2", r2[1][0] - 420, r2[1][1] + 14);
+          boxIn("c8-box1", 70.88);
+          tagIn("c8-tag1", 71.0);
+          boxIn("c8-box2", 71.84);
+          tagIn("c8-tag2", 71.96);
+          tl.fromTo("#c8-stamp", { opacity: 0, scale: 1.6, rotation: -4 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.35, ease: "expo.out" }, 73.28);
+        }
+
+        // ================= Frame 11: the loop =================
+        {
+          const t0 = 76.928;
+          flash(t0);
+          tl.fromTo("#l-h1", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.45, ease: "expo.out" }, t0 + 0.2);
+          tl.fromTo("#l-h2", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.45, ease: "expo.out" }, t0 + 0.5);
+          tl.fromTo("#l-p", { opacity: 0 }, { opacity: 1, duration: 0.5 }, t0 + 1.0);
+          tl.fromTo("#ring-draw", { attr: { "stroke-dashoffset": 1973 } }, { attr: { "stroke-dashoffset": 0 }, duration: 3.0, ease: "power2.inOut" }, t0 + 0.4);
+          tl.fromTo("#hub", { opacity: 0, scale: 0.3 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(2)" }, t0 + 0.3);
+          for (let i = 0; i < 6; i++) {
+            tl.fromTo("#n" + i, { opacity: 0, scale: 0 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.4)" }, t0 + 0.96 + i * 0.48);
+          }
+          tl.fromTo("#orbit", { opacity: 0 }, { opacity: 1, duration: 0.3 }, t0 + 3.4);
+          tl.fromTo("#orbit", { rotation: 0 }, { rotation: 360, duration: 3.84, ease: "power1.inOut", immediateRender: false }, t0 + 3.4);
+          tl.fromTo("#ring", { scale: 1 }, { scale: 1.04, duration: 7.2, ease: "none" }, t0);
+        }
+
+        // ================= Frame 12: outro =================
+        {
+          const t0 = 84.608;
+          flash(t0);
+          gsap.set(["#e-icon", "#e-word", "#e-sub", "#e-url", "#e-free"], { opacity: 0 });
+          tl.fromTo("#e-icon", { opacity: 0, scale: 0.2, rotation: 60 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.7, ease: "back.out(1.7)", immediateRender: false }, t0 + 0.05);
+          tl.fromTo("#e-word", { opacity: 0, x: -80 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out", immediateRender: false }, t0 + 0.3);
+          tl.fromTo("#e-sub", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.7, ease: "power3.out", immediateRender: false }, t0 + 0.55);
+          tl.fromTo("#e-url", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.45, ease: "back.out(2)", immediateRender: false }, t0 + 1.2);
+          tl.fromTo("#e-free", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.45, ease: "back.out(2)", immediateRender: false }, t0 + 1.4);
+          tl.fromTo("#e-lock", { scale: 1 }, { scale: 1.04, duration: 6.4, ease: "none" }, t0);
+          tl.to(["#e-cta", "#e-lock"], { opacity: 0, duration: 0.8, ease: "power1.in" }, 91.1);
+        }
+
+        window.__timelines["main"] = tl;
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,252 @@
+<!doctype html>
+<!--
+  ptah-ui/tool-call-row: the Ptah tool execution row (SPEC 4.3).
+  Mirrors libs/frontend/chat/src/lib/components/molecules/tool-execution/tool-call-item.component.ts:122-130,
+  libs/frontend/chat-ui/src/lib/molecules/tool-execution/tool-call-header.component.ts:59-145,405-412,
+  libs/frontend/chat-ui/src/lib/atoms/tool-icon.component.ts:94-127.
+
+  States: pending (ghost) -> running (info badge, spinner, live text) -> done (success badge, check) | failed.
+  A tool named mcp__ptah__<name> renders the gold two-badge variant ("Ptah Superpower" + "<name with spaces>").
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 row settles, chevron/icon/badge spring (0.09 s stagger)
+    c1 0.45 running: badge -> info, spinner, label -> live text
+    c2 c1+runFor: done/failed: badge -> success/error, check or x springs, label returns, duration pops
+    c3 c2+0.5 (expanded only): chevron rotates, body expands, output lines settle 0.06 s apart
+  Design box 1400 x 72 (collapsed) or 1400 x 440 (expanded). Mount at that size for the 26 px type floor.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-tool-call-row"
+  data-composition-duration="4"
+  data-composition-variables='[
+    { "id": "tool", "type": "string", "label": "Tool", "default": "Bash" },
+    { "id": "label", "type": "string", "label": "Label", "default": "Show git operation constants and the CI job" },
+    { "id": "liveText", "type": "string", "label": "Live text", "default": "" },
+    { "id": "outcome", "type": "enum", "label": "Outcome", "default": "done", "options": [{ "value": "done", "label": "Done" }, { "value": "failed", "label": "Failed" }] },
+    { "id": "duration", "type": "string", "label": "Duration chip", "default": "" },
+    { "id": "runFor", "type": "number", "label": "Running seconds", "default": 1.2, "min": 0.2, "max": 10, "step": 0.1 },
+    { "id": "expanded", "type": "boolean", "label": "Expanded", "default": false },
+    { "id": "output", "type": "string", "label": "Output (| separates lines)", "default": "" },
+    { "id": "startPending", "type": "boolean", "label": "Start pending", "default": false },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "badge", "label": "Badge" }, { "value": "status", "label": "Status" }, { "value": "label", "label": "Label" }, { "value": "container", "label": "Container" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui tool-call-row</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-tool-call-row" data-duration="4" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .tr-row {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            border-radius: calc(8 * var(--u));
+            background: rgba(26, 26, 32, 0.6);
+            border: calc(2 * var(--u)) solid rgba(36, 36, 48, 0.6);
+            overflow: hidden;
+          }
+          .tr-row.ptah {
+            border-color: rgba(212, 175, 55, 0.4);
+          }
+          .tr-line {
+            display: flex;
+            align-items: center;
+            gap: calc(12 * var(--u));
+            height: calc(68 * var(--u));
+            padding: 0 calc(16 * var(--u));
+          }
+          .tr-chev {
+            color: var(--muted);
+            transform-origin: 50% 50%;
+          }
+          .tr-badges {
+            display: flex;
+            gap: calc(8 * var(--u));
+            flex: 0 0 auto;
+          }
+          .tr-badges .pu-badge {
+            color: var(--muted);
+          }
+          .tr-badges .pu-badge.gold {
+            color: var(--gold);
+          }
+          .tr-badges .pu-badge.gold.strong {
+            font-weight: 700;
+          }
+          .tr-text {
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+            height: calc(40 * var(--u));
+          }
+          .tr-text > span {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            line-height: calc(40 * var(--u));
+            font-family: var(--mono);
+            font-size: calc(26 * var(--u));
+            color: var(--muted);
+          }
+          .tr-status {
+            position: relative;
+            width: calc(32 * var(--u));
+            height: calc(32 * var(--u));
+            flex: 0 0 auto;
+          }
+          .tr-status > * {
+            position: absolute;
+            left: 0;
+            top: 0;
+          }
+          .tr-body {
+            border-top: calc(2 * var(--u)) solid rgba(36, 36, 48, 0.3);
+            padding: calc(16 * var(--u));
+          }
+          .tr-io {
+            display: flex;
+            gap: calc(24 * var(--u));
+            margin-bottom: calc(12 * var(--u));
+          }
+          .tr-well {
+            background: rgba(19, 19, 23, 0.7);
+            border-radius: calc(16 * var(--u));
+            padding: calc(18 * var(--u)) calc(22 * var(--u));
+            font-family: var(--mono);
+            font-size: calc(26 * var(--u));
+            line-height: 1.45;
+            color: var(--fg);
+          }
+        </style>
+
+        <div id="tr-clip" class="clip" data-start="0" data-duration="4" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="tr-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var vars0 = window.__hyperframes && window.__hyperframes.getVariables ? window.__hyperframes.getVariables() : {};
+            var expanded = vars0.expanded === true || vars0.expanded === "true";
+            var K = ptahKit(root, { dw: 1400, dh: expanded ? 440 : 72, id: "ptah-ui-tool-call-row" });
+            var tl = K.tl;
+            K.vignette();
+
+            var tool = K.str("tool", "Bash");
+            var isPtah = /^mcp__ptah__/.test(tool);
+            var label = K.str("label", "Show git operation constants and the CI job");
+            var verb = { Read: "Reading", Write: "Writing", Edit: "Editing", Grep: "Searching", Glob: "Finding" }[tool];
+            var liveText = K.str("liveText", verb ? verb + " " + label + "..." : "Executing " + tool + "...");
+            var outcome = K.oneOf("outcome", ["done", "failed"], "done");
+            var dur = K.str("duration", "");
+            var runFor = K.num("runFor", 1.2, 0.2, 10);
+            var startPending = K.bool("startPending", false);
+            var output = K.str("output", "");
+            var ic = ptahToolIcon(tool);
+
+            var stage = document.getElementById("tr-stage");
+            var badges;
+            if (isPtah) {
+              var nm = tool.replace(/^mcp__ptah__/, "").replace(/_/g, " ");
+              badges = K.badgeHtml("Ptah Superpower", ["gold"], "gold strong") + K.badgeHtml(nm, ["gold"], "gold");
+            } else {
+              badges = K.badgeHtml(tool, ["ghost", "info", "success", "error"], "");
+            }
+            var bodyHtml = "";
+            if (expanded) {
+              var lines = (output || "done").split("|").map(function (l) {
+                return '<div class="tr-out">' + K.esc(l) + "</div>";
+              });
+              bodyHtml =
+                '<div class="tr-bodywrap"><div class="tr-body">' +
+                '<div class="tr-io t-micro muted"><span>▸ Input</span><span>Output</span></div>' +
+                '<div class="tr-well">' + lines.join("") + "</div></div></div>";
+            }
+            stage.innerHTML =
+              '<div class="tr-row' + (isPtah ? " ptah" : "") + '" data-ptah-part="container">' +
+              '<div class="tr-line">' +
+              '<span class="tr-chev">' + K.icon("chevron-down", 24) + "</span>" +
+              '<span class="tr-icon" style="color:' + ic.color + '">' + K.icon(ic.icon, 28) + "</span>" +
+              '<span class="tr-badges" data-ptah-part="badge">' + badges + "</span>" +
+              '<span class="tr-text" data-ptah-part="label"><span class="tr-label trunc">' + K.esc(isPtah ? label : label) + '</span><span class="tr-live trunc">' + K.esc(liveText) + "</span></span>" +
+              '<span class="tr-status" data-ptah-part="status"><span class="tr-spin" style="color:#3b82f6">' + K.icon("loader", 32) +
+              '</span><span class="tr-ok" style="color:' + (outcome === "done" ? "#16a34a" : "#dc2626") + '">' + K.icon(outcome === "done" ? "check" : "x", 32) + "</span></span>" +
+              (dur ? '<span class="pu-chip c-ghost tr-dur">' + K.esc(dur) + "</span>" : "") +
+              "</div>" + bodyHtml + "</div>";
+
+            var row = K.q(".tr-row");
+            var chev = K.q(".tr-chev");
+            var badgeEls = K.qa(".tr-badges .pu-badge");
+            var lab = K.q(".tr-label");
+            var live = K.q(".tr-live");
+            var spin = K.q(".tr-spin");
+            var ok = K.q(".tr-ok");
+            var durEl = K.q(".tr-dur");
+
+            // design-height of expanded body, measured once before hiding
+            var bodyWrap = K.q(".tr-bodywrap");
+            var bodyH = bodyWrap ? bodyWrap.offsetHeight / K.U : 0;
+            gsap.set(chev, { rotation: -90 });
+
+            var c = K.cues([0, 0.45, 0.45 + runFor, 0.95 + runFor]);
+            // c0: row + parts
+            K.settle(row, c[0]);
+            K.spring(chev, c[0] + 0.09);
+            K.spring(K.q(".tr-icon"), c[0] + 0.18);
+            badgeEls.forEach(function (b, i) {
+              K.spring(b, c[0] + 0.27 + i * 0.09);
+            });
+            K.fadeIn(lab, c[0] + 0.3, 0.25);
+            gsap.set([live, spin, ok], { opacity: 0 });
+            if (!isPtah) K.fill(badgeEls[0], startPending ? "ghost" : "ghost");
+            // c1: running
+            if (!isPtah) K.fill(badgeEls[0], "info", c[1]);
+            K.fadeOut(lab, c[1], 0.15);
+            K.fadeIn(live, c[1] + 0.1, 0.15);
+            // pulse only whole yoyo pairs that end before the done beat (a pulse past c2 would re-show the live text)
+            var pulses = Math.floor((c[2] - c[1] - 0.25) / 0.8);
+            if (pulses >= 1) {
+              tl.fromTo(live, { opacity: 1 }, { opacity: 0.55, duration: 0.4, ease: "none", yoyo: true, repeat: pulses * 2 - 1, immediateRender: false }, c[1] + 0.25);
+            }
+            K.fadeIn(spin, c[1], 0.1);
+            K.spin(spin, c[1], Math.max(0.2, c[2] - c[1]));
+            // c2: done / failed
+            K.fadeOut(spin, c[2], 0.1);
+            if (!isPtah) K.fill(badgeEls[0], outcome === "done" ? "success" : "error", c[2]);
+            if (!isPtah) tl.set(badgeEls[0], { color: "#131317" }, c[1] + 0.1);
+            if (!isPtah && outcome === "failed") tl.set(badgeEls[0], { color: "#e8e6e1" }, c[2] + 0.1);
+            tl.set(live, { opacity: 0 }, c[2]);
+            K.fadeIn(lab, c[2] + 0.05, 0.2);
+            gsap.set(ok, { opacity: 0, scale: 0.6 });
+            tl.fromTo(ok, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.32, ease: "back.out(1.6)", immediateRender: false }, c[2]);
+            if (durEl) K.spring(durEl, c[2] + 0.12);
+            // c3: expand
+            if (bodyWrap) {
+              K.expand(bodyWrap, c[3], bodyH);
+              tl.fromTo(chev, { rotation: -90 }, { rotation: 0, duration: 0.55, ease: "power3.out", immediateRender: false }, c[3]);
+              K.qa(".tr-out").forEach(function (l, i) {
+                K.settle(l, c[3] + 0.3 + i * 0.06, { dy: 12, dur: 0.35 });
+              });
+            }
+            K.focusFromVars((bodyWrap ? c[3] + 0.7 : c[2]) + 0.5);
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>
