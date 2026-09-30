@@ -22,8 +22,11 @@
     <div id="root" data-composition-id="main" data-start="0" data-duration="@DURATION" data-width="1920" data-height="1080">
 <!--@frames-->
 
+      <!-- SFX bus (/hyperframes-audio): one compressor + limiter and one fader (-2 dB) over every sx-* clip -->
+      <hf-audio-group id="sfx" data-label="SFX" data-volume="0.79" data-fx-chain='{"version":1,"nodes":[{"type":"compressor","id":"s1","params":{"threshold":-18,"ratio":3,"attack":5,"release":120}},{"type":"limiter","id":"s2","params":{"limit":-1}}]}'></hf-audio-group>
+
       <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="@DURATION" data-media-start="12.575" data-track-index="10" data-volume="0.6"
-        data-automation='{"version":1,"lanes":[{"target":"volume","points":[{"t":0,"v":1},{"t":@FADE_START,"v":1},{"t":@DURATION,"v":0}]}]}'></audio>
+        data-automation='{"version":1,"lanes":[{"target":"volume","points":[@MUSIC_POINTS]}]}'></audio>
     </div>
     <script>
       (function () {

@@ -51,8 +51,8 @@ const frames = readdirSync(framesDir)
     const t0 = Number(s);
     // data-seam-in="<shader> <seconds>" names the transition INTO this frame ("cut" = hard cut).
     const seam = (attr("data-seam-in") || "").trim().split(/\s+/);
-    const kept = head[1].replace(/\s(data-composition-id|data-width|data-height|data-frame-start|data-frame-duration|data-seam-in)="[^"]*"/g, "");
-    return { file, id, t0, dur: Number(d), css, js, markup: markup.replace(rootRe, `<div${kept}>`), seam: { shader: seam[0] || "", dur: Number(seam[1] || 0) } };
+    const kept = head[1].replace(/\s(data-composition-id|data-width|data-height|data-frame-start|data-frame-duration|data-seam-in|data-duck)="[^"]*"/g, "");
+    return { file, id, t0, dur: Number(d), css, js, markup: markup.replace(rootRe, `<div${kept}>`), seam: { shader: seam[0] || "", dur: Number(seam[1] || 0) }, duck: (attr("data-duck") || "").split(",").filter((x) => x.trim() !== "").map(Number) };
   });
 
 for (let i = 1; i < frames.length; i++) {
@@ -70,7 +70,7 @@ const transitions = frames.slice(1).map((f) => {
 });
 for (const [i, f] of frames.entries()) {
   const pad = i + 1 < frames.length && frames[i + 1].seam.shader !== "cut" ? frames[i + 1].seam.dur / 2 : 0;
-  f.html = f.markup.replace(/data-start="([\d.]+)"(\s+)data-duration="([\d.]+)"/g, (_, st, sp, du) => {
+  f.html = f.markup.replace(/<audio(\s[^>]*?)?(\sid="sx-)/g, (_, pre, idAttr) => `<audio data-audio-group="sfx"${pre || ""}${idAttr}`).replace(/data-start="([\d.]+)"(\s+)data-duration="([\d.]+)"/g, (_, st, sp, du) => {
     const end = Number(st) + Number(du);
     const extra = pad && Math.abs(end - f.dur) < 0.01 ? pad : 0;
     return `data-start="${round(Number(st) + f.t0)}"${sp}data-duration="${round(Number(du) + extra)}"`;
@@ -78,7 +78,15 @@ for (const [i, f] of frames.entries()) {
   if (/data-start="/.test(f.html.replace(/data-start="[\d.]+"\s+data-duration=/g, ""))) throw new Error(`${f.file}: every data-start must be followed by data-duration`);
 }
 const last = frames[frames.length - 1];
+// Music bed: dip -4 dB (0.63) under each title slam (data-duck, frame-local), recover over 0.3 s; fade over the last bar.
 const duration = round(last.t0 + last.dur);
+const fadeStart = round(duration - 1.791);
+const musicPoints = [{ t: 0, v: 1 }];
+for (const t of frames.flatMap((f) => f.duck.map((d) => round(f.t0 + d))).sort((x, y) => x - y)) {
+  if (t + 0.35 >= fadeStart) continue;
+  musicPoints.push({ t: round(Math.max(0, t - 0.02)), v: 1 }, { t: round(t + 0.03), v: 0.63 }, { t: round(t + 0.35), v: 1 });
+}
+musicPoints.push({ t: fadeStart, v: 1 }, { t: duration, v: 0 });
 
 let out = readFileSync(join(here, "src", "index.tpl"), "utf8");
 out = out
@@ -87,7 +95,7 @@ out = out
   .replace("/*@scenes*/", frames.map((f) => JSON.stringify(f.id)).join(", "))
   .replace("/*@transitions*/", transitions.map((t) => JSON.stringify(t)).join(",\n          "))
   .replace("/*@frames-js*/", frames.map((f) => `// ${f.file}\n(function (tl, T0) {${f.js}})(tl, ${f.t0});`).join("\n"))
-  .replaceAll("@FADE_START", String(round(duration - 1.791)))
+  .replace("@MUSIC_POINTS", musicPoints.map((p) => JSON.stringify(p)).join(","))
   .replaceAll("@DURATION", String(duration));
 
 writeFileSync(join(here, "index.html"), out);
