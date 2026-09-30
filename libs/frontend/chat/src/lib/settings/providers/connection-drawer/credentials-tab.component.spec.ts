@@ -304,6 +304,63 @@ describe('CredentialsTabComponent', () => {
     expect(query('credentials-get-key')?.getAttribute('rel')).toBe('noopener noreferrer');
   });
 
+  describe('external sign-in feedback (Batch 21 review M1)', () => {
+    const codex = connection({ id: 'openai-codex', name: 'OpenAI Codex', authMode: 'oauth', hasKey: false });
+
+    it('while the sign-in runs, Open login is disabled and says it is waiting', () => {
+      render({ connection: codex, kind: 'oauth', externalAuth: { status: 'loading', message: null } });
+      expect(query<HTMLButtonElement>('credentials-open-login')?.disabled).toBe(true);
+      expect(query('credentials-open-login')?.textContent?.trim()).toBe('Waiting for sign-in…');
+      expect(query('credentials-external-busy')?.getAttribute('role')).toBe('status');
+    });
+
+    it('a failed sign-in shows a fixed alert instead of a stale message, and Open login is available again', () => {
+      render({ connection: codex, kind: 'oauth', externalAuth: { status: 'error', message: 'Sign-in detected. Verify the connection before using it.' } });
+      expect(query('credentials-external-error')?.getAttribute('role')).toBe('alert');
+      expect(query('credentials-external-error')?.textContent).toContain('Sign-in could not be checked. Retry.');
+      expect(query('credentials-external-message')).toBeNull();
+      expect(query<HTMLButtonElement>('credentials-open-login')?.disabled).toBe(false);
+    });
+
+    it('Check again (Claude CLI) waits too, and the settled message shows', () => {
+      const cli = connection({ id: 'claude-cli', name: 'Claude (Subscription)', authMode: 'cli', hasKey: false });
+      render({ connection: cli, kind: 'claude-cli', externalAuth: { status: 'loading', message: null } });
+      expect(query<HTMLButtonElement>('credentials-cli-check')?.disabled).toBe(true);
+      render({ externalAuth: { status: 'idle', message: 'Login has not been confirmed. Complete external login, then check again.' } });
+      expect(query('credentials-external-message')?.textContent).toContain('Login has not been confirmed');
+      expect(query('credentials-cli-detected')?.textContent).toContain('Claude CLI detected on this machine.');
+    });
+  });
+
+  describe('stored models for the Replace draft (Batch 21 review minor 5)', () => {
+    async function verifiedKey() {
+      query('credentials-replace')?.click(); fixture.detectChanges();
+      typeKey('sk-new');
+      query('credentials-verify')?.click(); fixture.detectChanges();
+      probe.settle(); await flush();
+    }
+
+    it('Save waits for the stored models, and a failed read says why it stays disabled', async () => {
+      render({ setup: null, setupError: false });
+      await verifiedKey();
+      expect(query('credentials-setup-missing')?.textContent).toContain('Loading the stored models');
+      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      render({ setupError: true });
+      expect(query('credentials-setup-missing')?.textContent).toContain('Could not read the stored models');
+      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      render({ setup: SETUP, setupError: false });
+      expect(query('credentials-setup-missing')).toBeNull();
+      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(false);
+    });
+
+    it('the Claude API key writes no tiers, so it does not wait for them', async () => {
+      render({ connection: connection({ id: 'anthropic', name: 'Claude API' }), isActiveDriver: true, setup: null });
+      await verifiedKey();
+      expect(query('credentials-setup-missing')).toBeNull();
+      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(false);
+    });
+  });
+
   it('a local server needs no key', () => {
     render({ connection: connection({ id: 'ollama', name: 'Ollama', authMode: 'local-native', hasKey: false }), kind: 'local' });
     expect(query('credentials-local')?.textContent).toContain('No key needed');

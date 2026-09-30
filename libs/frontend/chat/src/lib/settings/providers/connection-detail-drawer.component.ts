@@ -8,8 +8,10 @@ import {
 import { OverviewTabComponent, type OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
 import {
   CredentialsTabComponent, replaceKeyDraft, type CancelDraftFn, type CredentialsCommit, type CredentialsExternalAction,
-  type CredentialsSetup, type ReplaceKeyRequest, type VerifyDraftFn,
+  type CredentialsExternalAuth, type CredentialsSetup, type ReplaceKeyRequest, type VerifyDraftFn,
 } from './connection-drawer/credentials-tab.component';
+import { ModelsTiersTabComponent } from './connection-drawer/models-tiers-tab.component';
+import { AdvancedTabComponent } from './connection-drawer/advanced-tab.component';
 
 const AUTH_MODE_LABELS: Readonly<Record<ConnectionKind, string>> = {
   'claude-cli': 'CLI subscription',
@@ -52,14 +54,16 @@ function avatarTone(id: string): string {
 }
 
 /**
- * Until the Models & Tiers and Advanced (Batch 22) tab bodies land, these tabs keep today's editing
- * path: the setup wizard the card's Manage opened (D14 — no capability lost). Credentials keeps it only
- * where the tab does not yet hold every credential path: a local or custom endpoint's base URL.
+ * "Edit in setup" (D14) stays on a tab only for the edits its body does not hold yet, which the setup
+ * wizard still offers:
+ * - Credentials: a local server's address and optional key; a custom endpoint's address is on Advanced;
+ * - Models & Tiers: a custom gateway's own default models (the entry's `defaultTiers`);
+ * - Advanced: a custom gateway's name and protocol.
  */
 const SETUP_COPY: Readonly<Record<Exclude<ConnectionDrawerTabId, 'overview'>, string>> = {
   credentials: 'Change this connection\'s endpoint address in setup.',
-  models: 'Choose the model used for each tier in setup.',
-  advanced: 'Edit this endpoint\'s name, base URL and protocol in setup.',
+  models: 'Change this gateway\'s own default models in setup.',
+  advanced: 'Change this gateway\'s name or protocol in setup.',
 };
 
 /** Kinds whose Credentials tab holds every credential path (no setup fallback in its footer). */
@@ -77,7 +81,8 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
   selector: 'ptah-connection-detail-drawer',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NativeDrawerComponent, NativeTabGroupComponent, OverviewTabComponent, CredentialsTabComponent],
+  imports: [NativeDrawerComponent, NativeTabGroupComponent, OverviewTabComponent, CredentialsTabComponent,
+    ModelsTiersTabComponent, AdvancedTabComponent],
   template: `
     <ptah-native-drawer [isOpen]="connection() !== null" widthClass="w-full max-w-lg"
       [ariaLabel]="(connection()?.name ?? 'Connection') + ' connection details'" (closed)="closed.emit()">
@@ -106,9 +111,9 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
                   (retryUsageRequested)="retryUsageRequested.emit()" />
               }
               @case ('credentials') {
-                <ptah-connection-credentials-tab [connection]="current" [kind]="kind()" [isActiveDriver]="isActive()"
-                  [saving]="saving()" [setup]="credentialsSetup()" [commit]="credentialsCommit()"
-                  [externalMessage]="externalMessage()" [verifyDraftConnection]="verifyDraftConnection()"
+                <ptah-connection-credentials-tab [connection]="current" [kind]="kind()" [isActiveDriver]="isDriver()"
+                  [saving]="saving()" [setup]="credentialsSetup()" [setupError]="credentialsSetupError()" [commit]="credentialsCommit()"
+                  [externalAuth]="externalAuth()" [verifyDraftConnection]="verifyDraftConnection()"
                   [cancelDraftVerification]="cancelDraftVerification()" (replaceKeyRequested)="emitReplace(current, $event)"
                   (deleteKeyRequested)="deleteKeyRequested.emit()" (signOutRequested)="signOutRequested.emit()"
                   (externalActionRequested)="externalActionRequested.emit($event)" />
@@ -116,15 +121,16 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
                   <p class="mt-4 text-xs text-base-content-muted" data-testid="connection-setup-copy">{{ setupCopy() }}</p>
                 }
               }
-              @default {
-                @if (loading()) {
-                  <div class="space-y-2" aria-busy="true" data-testid="connection-tab-skeleton">
-                    <span class="skeleton block h-4 w-3/4"></span>
-                    <span class="skeleton block h-4 w-1/2"></span>
-                  </div>
-                } @else {
-                  <p class="text-sm text-base-content" data-testid="connection-setup-copy">{{ setupCopy() }}</p>
+              @case ('models') {
+                <ptah-connection-models-tab [connection]="current" />
+                @if (setupFallback()) {
+                  <p class="mt-4 text-xs text-base-content-muted" data-testid="connection-setup-copy">{{ setupCopy() }}</p>
                 }
+              }
+              @case ('advanced') {
+                <ptah-connection-advanced-tab [connection]="current" [isDriver]="isDriver()"
+                  [verifyDraftConnection]="verifyDraftConnection()" [cancelDraftVerification]="cancelDraftVerification()" />
+                <p class="mt-4 text-xs text-base-content-muted" data-testid="connection-setup-copy">{{ setupCopy() }}</p>
               }
             }
           </div>
@@ -151,6 +157,12 @@ export class ConnectionDetailDrawerComponent {
   readonly status = input<OverviewConnectionStatus>('not-checked');
   readonly positiveProbeEvidence = input<boolean | null>(null);
   readonly isActive = input(false);
+  /**
+   * This connection is the main agent's driver (the last loaded route's `driverProviderId`). Unlike
+   * `isActive` it stays put while a save runs or the route re-reads, and it holds for a driver whose
+   * key is broken (route not ready): exactly when Replace and the delete warnings matter.
+   */
+  readonly isDriver = input(false);
   readonly loading = input(false);
   readonly checking = input(false);
   /** A settings save is in flight (Check connection waits for it). */
@@ -164,8 +176,9 @@ export class ConnectionDetailDrawerComponent {
   readonly customProtocol = input<CustomProtocol | null>(null);
   /** Credentials tab: stored endpoint and tiers, its own last write, the host's sign-in message. */
   readonly credentialsSetup = input<CredentialsSetup | null>(null);
+  readonly credentialsSetupError = input(false);
   readonly credentialsCommit = input<CredentialsCommit | null>(null);
-  readonly externalMessage = input<string | null>(null);
+  readonly externalAuth = input<CredentialsExternalAuth>({ status: 'idle', message: null });
   readonly verifyDraftConnection = input.required<VerifyDraftFn>();
   readonly cancelDraftVerification = input.required<CancelDraftFn>();
   readonly closed = output<void>();
@@ -225,8 +238,12 @@ export class ConnectionDetailDrawerComponent {
   });
   /** "Edit in setup" (D14) stays on a tab whose body does not yet hold every edit it replaces. */
   protected readonly setupFallback = computed(() => {
-    const tab = this.activeTabId();
-    return tab !== 'overview' && !(tab === 'credentials' && CREDENTIALS_COMPLETE.has(this.kind()));
+    switch (this.activeTabId()) {
+      case 'credentials': return !CREDENTIALS_COMPLETE.has(this.kind());
+      case 'models': return this.kind() === 'custom';
+      case 'advanced': return true;
+      default: return false;
+    }
   });
   protected readonly setupCopy = computed(() => {
     const tab = this.activeTabId();

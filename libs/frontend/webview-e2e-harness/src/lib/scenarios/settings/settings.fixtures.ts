@@ -82,6 +82,20 @@ export const CUSTOM_ENTRIES_FIXTURE = {
   ],
 };
 
+/**
+ * `provider:listModels` — one small catalogue for every provider (Batch 22): two tool-capable models and
+ * one without tool use, so the drawer's pickers render their tool-use summary (#38) and search (#34).
+ */
+export const PROVIDER_MODELS_FIXTURE = {
+  models: [
+    { id: 'kimi-k2.5', name: 'Kimi K2.5', description: '', contextLength: 131072, supportsToolUse: true },
+    { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', description: '', contextLength: 131072, supportsToolUse: true },
+    { id: 'kimi-lite', name: 'Kimi Lite', description: '', contextLength: 32768, supportsToolUse: false },
+  ],
+  totalCount: 3,
+  isStatic: true,
+};
+
 /** `agent:getConfig` — system CLIs + Ptah CLI instance policy (BRIEF:63-68). */
 export const AGENT_CONFIG_FIXTURE = {
   detectedClis: [
@@ -352,6 +366,8 @@ export interface FixtureState {
   readonly modelTiers: Map<string, ModelTiers>;
   /** Scope keys cleared via `config:clearScopeOverride` (read back by `statefulConfigGetScopesResolver`). */
   readonly clearedOverrides: Set<string>;
+  /** `provider:listCustomEntries`, mutated by `provider:updateCustomEntry` (Batch 22 drawer Advanced tab). */
+  customEntries: Array<(typeof CUSTOM_ENTRIES_FIXTURE)['entries'][number] & Record<string, unknown>>;
 }
 
 function createFixtureState(): FixtureState {
@@ -364,6 +380,7 @@ function createFixtureState(): FixtureState {
     ptahCliAgents: PTAH_CLI_LIST_FIXTURE.agents.map((a) => ({ ...a })),
     modelTiers: new Map(),
     clearedOverrides: new Set(),
+    customEntries: CUSTOM_ENTRIES_FIXTURE.entries.map((entry) => ({ ...entry })),
   };
 }
 
@@ -417,7 +434,19 @@ function statefulSettingsFixtures(
     'auth:getAuthStatus': () => ({ ...state.authStatus }),
     'auth:getApiKeyStatus': API_KEY_STATUS_FIXTURE,
     'auth:getEffectiveRoute': EFFECTIVE_ROUTE_FIXTURE,
-    'provider:listCustomEntries': CUSTOM_ENTRIES_FIXTURE,
+    'provider:listCustomEntries': () => ({ entries: state.customEntries.map((entry) => ({ ...entry })) }),
+    'provider:updateCustomEntry': (params: unknown) => {
+      record(state, 'provider:updateCustomEntry', params);
+      const p = params as { id: string; changes: Record<string, unknown> };
+      const entry = state.customEntries.find((candidate) => candidate.id === p.id);
+      if (!entry) return { entry: null };
+      Object.assign(entry, p.changes);
+      return { entry: { ...entry } };
+    },
+    'provider:listModels': (params: unknown) => {
+      record(state, 'provider:listModels', params);
+      return PROVIDER_MODELS_FIXTURE;
+    },
     'provider:getModelTiers': (params: unknown) => {
       const p = params as { providerId: string; scope: string };
       return { ...(state.modelTiers.get(tierKey(p.providerId, p.scope)) ?? { sonnet: null, opus: null, haiku: null }) };

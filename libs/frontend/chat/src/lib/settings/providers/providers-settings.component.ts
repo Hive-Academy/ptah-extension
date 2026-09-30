@@ -15,8 +15,9 @@ import {
 } from './provider-setup-wizard.component';
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
 import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
-// Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk.
-import type { CredentialsCommit } from './connection-drawer/credentials-tab.component';
+// Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk (the write runner is tiny).
+import type { CredentialsCommit, CredentialsExternalAuth } from './connection-drawer/credentials-tab.component';
+import { runDrawerWrite } from './connection-drawer/drawer-write';
 import { connectionUsage } from './connection-usage';
 
 /** Deep-link sections the Providers tab owns. Background roles and CLI agents are on Orchestration. */
@@ -247,19 +248,24 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
       <!-- Mounted only while open: the usage reads run only then, and the drawer restores focus on destroy.
            Deferred into its own chunk: the settings route is eager and at its initial-bundle budget. -->
       @defer (on immediate) {
+        <!-- z-[60]: the drawer stacks above the page save toast (fixed, z-50, bottom-right), which would
+             otherwise cover the drawer's footer Close. The Models & Tiers tab repeats that feedback inline. -->
+        <div class="relative z-[60]">
         <ptah-connection-detail-drawer [connection]="connection" [status]="drawerStatus(connection)"
           [positiveProbeEvidence]="hasProbeEvidence(connection.id)" [isActive]="activeId() === connection.id"
+          [isDriver]="knownDriverId() === connection.id"
           [loading]="state.route().data === null && state.route().status !== 'error'"
           [checking]="state.route().status === 'loading'" [saving]="saving()" [canEdit]="canStartSetup()"
           [usedBy]="usage().byProvider[connection.id] ?? []" [usageComplete]="usage().complete" [usageError]="usageError()"
           [customProtocol]="state.customEntry(connection.id)?.lane ?? null"
-          [credentialsSetup]="credentialsSetup()" [credentialsCommit]="drawerCommit()"
-          [externalMessage]="state.externalAuth().data?.providerId === connection.id ? state.externalAuth().data?.message ?? null : null"
+          [credentialsSetup]="credentialsSetup()" [credentialsSetupError]="state.connectionSetup().status === 'error'"
+          [credentialsCommit]="drawerCommit()" [externalAuth]="drawerExternalAuth()"
           [verifyDraftConnection]="verifyDraftConnection" [cancelDraftVerification]="cancelDraftVerification"
           (closed)="closeDrawer()" (checkConnectionRequested)="state.checkConnection()" (retryUsageRequested)="state.refresh()"
           (setupRequested)="setupFromDrawer($event)" (replaceKeyRequested)="replaceKey($event)"
           (deleteKeyRequested)="deleteKey(connection.id)" (signOutRequested)="signOutCopilot()"
-          (externalActionRequested)="externalAction(connection.id, $event)" />
+          (externalActionRequested)="drawerExternalAction(connection.id, $event)" />
+        </div>
       }
     }
     @if (wizardOpen()) {
@@ -366,6 +372,18 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   });
   /** Outcome of the drawer's own last write; never an earlier save's (D15). */
   protected readonly drawerCommit = signal<CredentialsCommit | null>(null);
+  /** Bumped on every drawer open and close: a write that resolves later publishes to its own session only. */
+  private drawerSession = 0;
+  /** The connection whose sign-in the drawer started; only that one's progress shows in the drawer. */
+  private readonly drawerExternalFor = signal<string | null>(null);
+  /** The last loaded route's driver. Survives a save and a not-ready route (broken key), unlike `activeId`. */
+  protected readonly knownDriverId = signal<string | null>(null);
+  protected readonly drawerExternalAuth = computed<CredentialsExternalAuth>(() => {
+    const id = this.drawerId(), auth = this.state.externalAuth();
+    if (!id || this.drawerExternalFor() !== id) return { status: 'idle', message: null };
+    if (auth.status === 'loading' || auth.status === 'error') return { status: auth.status, message: null };
+    return { status: 'idle', message: auth.data?.providerId === id ? auth.data.message : null };
+  });
   /** Stored endpoint and main-agent tiers of the open connection (a Replace keeps the tiers as stored). */
   protected readonly credentialsSetup = computed(() => {
     const setup = this.state.connectionSetup();
@@ -398,6 +416,10 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   ]);
 
   constructor() {
+    effect(() => {
+      const route = this.state.route();
+      if (route.status === 'ready') untracked(() => this.knownDriverId.set(route.data?.driverProviderId ?? null));
+    });
     // A connection removed while its drawer is open closes the drawer for good: only a loaded list that
     // no longer holds the id clears it, so a refresh (data kept while loading) leaves the drawer open.
     effect(() => {
@@ -500,10 +522,19 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const active = this.element.nativeElement.ownerDocument.activeElement;
     this.drawerOpener = active instanceof HTMLElement ? active : null;
     this.drawerId.set(providerId);
-    this.drawerCommit.set(null);
+    this.resetDrawerSession();
     void this.state.refreshConnectionSetup(providerId);
   }
-  protected closeDrawer(): void { this.drawerId.set(null); this.drawerCommit.set(null); }
+  protected closeDrawer(): void { this.drawerId.set(null); this.resetDrawerSession(); }
+  private resetDrawerSession(): void {
+    this.drawerSession += 1;
+    this.drawerCommit.set(null);
+    this.drawerExternalFor.set(null);
+  }
+  protected drawerExternalAction(providerId: string, action: ProvidersExternalAuthAction): void {
+    this.drawerExternalFor.set(providerId);
+    this.externalAction(providerId, action);
+  }
   protected deleteKey(providerId: string): Promise<void> {
     return this.drawerWrite((context) => this.state.deleteStoredKey(providerId, context));
   }
@@ -514,21 +545,10 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected replaceKey(draft: ProvidersConnectionDraft): Promise<void> {
     return this.drawerWrite((context) => this.state.connectProvider(draft, context));
   }
-  /**
-   * Runs one drawer write and reports only ITS outcome: `saving` first, then `state.commit()` once the
-   * write resolved. `false` from the state means it was refused because another save is running.
-   */
-  protected async drawerWrite(write: (context: ProvidersEditContext) => Promise<boolean>): Promise<void> {
-    const context = this.state.reviewContext();
-    if (!context) {
-      this.drawerCommit.set({ status: 'blocked', message: 'Settings are still loading. Retry in a moment.' });
-      return;
-    }
-    this.drawerCommit.set({ status: 'saving', message: null });
-    const started = await write(context);
-    const commit = this.state.commit();
-    this.drawerCommit.set(started ? { status: commit.status, message: commit.message }
-      : { status: 'blocked', message: 'Another save is in progress. Retry when it finishes.' });
+  /** Runs one drawer write (`runDrawerWrite`); a result that lands after the drawer closed or reopened is dropped. */
+  protected drawerWrite(write: (context: ProvidersEditContext) => Promise<boolean>): Promise<void> {
+    const session = this.drawerSession;
+    return runDrawerWrite(this.state, write, (outcome) => { if (session === this.drawerSession) this.drawerCommit.set(outcome); });
   }
   /**
    * "Edit in setup" from a drawer tab: close the drawer, put focus back on the card that opened it,

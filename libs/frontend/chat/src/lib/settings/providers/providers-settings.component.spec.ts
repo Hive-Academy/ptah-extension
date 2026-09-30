@@ -264,6 +264,82 @@ describe('ProvidersSettingsComponent', () => {
         byId('credentials-delete-confirm-button')?.click(); await render(); await render();
         expect(byId('credentials-commit')?.textContent).toContain('Another save is in progress');
       });
+
+      // Batch 21 review, finding 3.
+      it('a rejected write is reported, never left at Saving…', async () => {
+        await credentialsTab('second');
+        byId('credentials-delete')?.click(); await render();
+        state.deleteStoredKey.mockImplementationOnce(async () => { throw new Error('host broke'); });
+        byId('credentials-delete-confirm-button')?.click(); await render(); await render();
+        expect(byId('credentials-commit')?.textContent).toContain('The save could not be completed. Retry.');
+        expect((byId('credentials-delete') as HTMLButtonElement).disabled).toBe(false);
+      });
+
+      // Batch 21 review, finding 4 (interleavings).
+      it('a write still running when the drawer closes never shows its outcome in the reopened drawer', async () => {
+        await credentialsTab('second');
+        byId('credentials-delete')?.click(); await render();
+        let finish: (value: boolean) => void = () => undefined;
+        state.deleteStoredKey.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+        byId('credentials-delete-confirm-button')?.click(); await render();
+        expect(byId('credentials-commit')?.textContent).toContain('Saving…');
+        byId('connection-drawer-close')?.click(); await render();
+        await credentialsTab('second');
+        state.commit.set({ ...idle, status: 'saved', saved: ['Stored key'] });
+        finish(true); await render(); await render();
+        expect(byId('credentials-commit')).toBeNull();
+      });
+
+      it('while a page save runs, the drawer\'s write controls are disabled', async () => {
+        await credentialsTab('second');
+        state.commit.set({ ...idle, status: 'saving' }); await render();
+        expect((byId('credentials-delete') as HTMLButtonElement).disabled).toBe(true);
+        expect((byId('credentials-replace') as HTMLButtonElement).disabled).toBe(true);
+      });
+
+      // Batch 21 review, finding 2.
+      it('"drives the main agent" holds for a driver whose route is not ready and while a save runs', async () => {
+        state.route.set(ready({ ...route, ready: false, driverProviderId: 'second' })); await render();
+        await openDrawer('second');
+        Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).find((tab) => tab.textContent?.trim() === 'Credentials')?.click();
+        await render();
+        byId('credentials-delete')?.click(); await render();
+        expect(byId('credentials-active-driver-warning')).not.toBeNull();
+        state.route.set({ status: 'loading', data: null, error: null });
+        state.commit.set({ ...idle, status: 'saving' }); await render();
+        expect(byId('credentials-active-driver-warning')).not.toBeNull();
+      });
+
+      // Batch 21 review, finding 5.
+      it('a failed setup read reaches the tab, whose Replace then cannot save', async () => {
+        await credentialsTab('second');
+        state.connectionSetup.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
+        await verifiedReplace('sk-second');
+        expect(byId('credentials-setup-missing')?.textContent).toContain('Could not read the stored models');
+        expect((byId('credentials-save') as HTMLButtonElement).disabled).toBe(true);
+      });
+
+      it('the drawer stacks above the page save toast, so the toast never covers its footer Close', async () => {
+        await credentialsTab('second');
+        expect(element.querySelector('ptah-connection-detail-drawer')?.parentElement?.className).toContain('z-[60]');
+      });
+
+      // Batch 21 review, finding 1.
+      it('a sign-in the drawer started shows its progress and failure in the drawer', async () => {
+        const codex: ProvidersConnection = { ...connection('openai-codex'), name: 'OpenAI Codex', authMode: 'oauth', hasKey: false };
+        state.connections.set(ready([connection('first'), connection('second'), codex]));
+        await credentialsTab('openai-codex');
+        byId('credentials-open-login')?.click(); await render();
+        expect(state.performExternalAuth).toHaveBeenCalledWith('openai-codex', 'sign-in');
+        state.externalAuth.set({ status: 'loading', data: { providerId: 'openai-codex', signInState: 'in-flight', accountLabel: null, cliInstalled: null, message: null }, error: null });
+        await render();
+        expect((byId('credentials-open-login') as HTMLButtonElement).disabled).toBe(true);
+        expect(byId('credentials-external-busy')).not.toBeNull();
+        state.externalAuth.set({ status: 'error', data: { providerId: 'openai-codex', signInState: 'idle', accountLabel: null, cliInstalled: null, message: 'Sign-in detected.' }, error: 'Could not load this section. Retry.' });
+        await render();
+        expect(byId('credentials-external-error')?.textContent).toContain('Sign-in could not be checked. Retry.');
+        expect(byId('credentials-external-message')).toBeNull();
+      });
     });
   });
 

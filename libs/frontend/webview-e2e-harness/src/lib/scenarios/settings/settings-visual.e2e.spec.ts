@@ -45,23 +45,34 @@ const TABS: readonly { readonly label: 'Providers' | 'Agent Orchestration'; read
  * and with the prototype's Credentials markup (`prototypes/final/index.html`, Batch 21). `tab` is the
  * drawer tab shown; Overview when absent.
  */
-const DRAWERS: readonly { readonly card: string; readonly name: string; readonly tab?: string }[] = [
+const DRAWERS: readonly { readonly card: string; readonly name: string; readonly tab?: string; readonly ready?: string }[] = [
   { card: 'Moonshot', name: 'drawer-moonshot' },
   { card: 'sovereigneg', name: 'drawer-sovereigneg' },
   { card: 'Moonshot', name: 'drawer-moonshot-credentials', tab: 'Credentials' },
   { card: 'Claude (Subscription)', name: 'drawer-claude-cli-credentials', tab: 'Credentials' },
+  // Batch 22. `ready`: the pickers' catalogue has loaded (their tool-use summary renders).
+  { card: 'Moonshot', name: 'drawer-moonshot-models', tab: 'Models & Tiers',
+    ready: '[data-tier="haiku"] [data-testid="provider-model-picker-tooluse-summary"]' },
+  { card: 'sovereigneg', name: 'drawer-sovereigneg-models', tab: 'Models & Tiers',
+    ready: '[data-tier="haiku"] [data-testid="provider-model-picker-tooluse-summary"]' },
+  { card: 'sovereigneg', name: 'drawer-sovereigneg-advanced', tab: 'Advanced', ready: '[data-testid="advanced-base-url"]' },
 ];
 
 /**
  * The drawer slides its panel in (translateX) and fades its backdrop in (`native-drawer.component.ts`
- * keyframes). Waits for those animations to finish, then asserts the panel sits fully inside the
+ * keyframes). Waits for those two animations to finish, then asserts the panel sits fully inside the
  * viewport against the trailing edge, so a mid-slide frame is never captured and a real layout clip
  * fails here instead of passing as a screenshot.
  */
 async function waitForDrawerOpened(page: Page): Promise<void> {
   const root = page.locator('[data-testid="native-drawer-root"]');
-  await root.evaluate((element) =>
-    Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished)));
+  // Only the drawer's own entry keyframes (`ptah-drawer-*`). Incidental tab colour transitions and
+  // button pops started by the tab click could leave `finished` unsettled when read at once (Batch 22:
+  // electron hung here intermittently; with a 5 s grace every animation had finished). The screenshot
+  // disables animations anyway, and the box check below still catches a mid-slide panel.
+  await root.evaluate((element) => Promise.all(element.getAnimations({ subtree: true })
+    .filter((animation) => animation instanceof CSSAnimation && animation.animationName.includes('ptah-drawer-'))
+    .map((animation) => animation.finished)));
   const box = await page.locator('[data-testid="native-drawer-panel"]').boundingBox();
   const viewport = page.viewportSize();
   expect(box).not.toBeNull();
@@ -91,6 +102,7 @@ for (const host of ['vscode', 'electron'] as const) {
           .locator('[data-testid="btn-manage"]').click();
         await expect(drawer).toBeVisible();
         if (entry.tab) await page.getByRole('tab', { name: entry.tab, exact: true }).click();
+        if (entry.ready) await expect(page.locator(entry.ready)).toBeVisible();
         await waitForSettled(page);
         await waitForDrawerOpened(page);
         await page.screenshot({ path: capturePath(entry.name, host, theme), animations: 'disabled' });

@@ -2,13 +2,14 @@ import {
   ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal, untracked,
 } from '@angular/core';
 import { Copy, Eye, EyeOff, LucideAngularModule } from 'lucide-angular';
-import type { ProvidersConnection, ProvidersConnectionDraft, ProvidersSettingsCommit } from '@ptah-extension/core';
+import type { ProvidersConnection, ProvidersConnectionDraft } from '@ptah-extension/core';
 import {
   getAnthropicProvider,
   type AuthCancelDraftVerificationParams, type AuthCancelDraftVerificationResult,
   type AuthVerifyDraftConnectionParams, type AuthVerifyDraftConnectionResult, type ProbeFailureReason,
 } from '@ptah-extension/shared';
 import type { ConnectionKind } from './connection-kind';
+import type { DrawerWriteOutcome } from './drawer-write';
 
 export type VerifyDraftFn = (params: AuthVerifyDraftConnectionParams) => Promise<AuthVerifyDraftConnectionResult>;
 export type CancelDraftFn = (params: AuthCancelDraftVerificationParams) => Promise<AuthCancelDraftVerificationResult>;
@@ -19,12 +20,15 @@ export interface ReplaceKeyRequest {
   readonly probeId: string;
 }
 
+/** The outcome of this tab's own last write (see `runDrawerWrite`): an earlier save never shows here. */
+export type CredentialsCommit = DrawerWriteOutcome;
+
 /**
- * The outcome of this tab's own last write. The parent sets `saving` when it starts the write and
- * copies `state.commit()` only after that write resolved, so an earlier save never shows here.
+ * The drawer-started sign-in for this connection (Open login / Check again). `loading` while the host
+ * RPC runs, `error` when it failed (fixed copy, never the host text), `message` once it settled.
  */
-export interface CredentialsCommit {
-  readonly status: ProvidersSettingsCommit['status'];
+export interface CredentialsExternalAuth {
+  readonly status: 'idle' | 'loading' | 'error';
   readonly message: string | null;
 }
 
@@ -98,6 +102,10 @@ let PROBE_COUNTER = 0;
         @case ('cli') {
           <div class="space-y-2 rounded border border-base-300 bg-base-200 p-3" data-testid="credentials-cli">
             <p class="font-semibold text-base-content">CLI subscription session</p>
+            <p class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-cli-detected">
+              <span [class]="connection().configured ? 'h-2 w-2 rounded-full bg-success' : 'h-2 w-2 rounded-full bg-warning'" aria-hidden="true"></span>
+              {{ connection().configured ? 'Claude CLI detected on this machine.' : 'Claude CLI not found. Install it, then choose Check again.' }}
+            </p>
             <p class="text-xs text-base-content-muted">Sign-in is managed by the Claude CLI. No API key is stored on this machine. Works with Claude Max, Pro and Team plans.</p>
             @for (command of commands; track command.text) {
               <div class="flex items-center justify-between gap-2 rounded border border-base-300 bg-base-100 px-2 py-1">
@@ -109,8 +117,8 @@ let PROBE_COUNTER = 0;
               </div>
             }
             <p class="text-xs text-base-content-muted">Run <code class="font-mono">claude login</code> in your terminal; if the CLI is missing, install it first.</p>
-            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy()" (click)="externalActionRequested.emit('cli-check')"
-              data-testid="credentials-cli-check">Check again</button>
+            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('cli-check')"
+              data-testid="credentials-cli-check">{{ externalBusy() ? 'Checking…' : 'Check again' }}</button>
           </div>
         }
         @case ('copilot') {
@@ -152,15 +160,15 @@ let PROBE_COUNTER = 0;
                 ? 'The token in ~/.codex/auth.json has expired. Open login to sign in again.'
                 : 'Ptah uses the Codex login stored in ~/.codex/auth.json. Open login to switch or refresh the account.' }}
             </p>
-            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy()" (click)="externalActionRequested.emit('sign-in')"
-              data-testid="credentials-open-login">Open login</button>
+            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('sign-in')"
+              data-testid="credentials-open-login">{{ externalBusy() ? 'Waiting for sign-in…' : 'Open login' }}</button>
           </div>
         }
         @case ('oauth') {
           <div class="space-y-2 rounded border border-base-300 bg-base-200 p-3" data-testid="credentials-oauth">
             <p class="text-xs text-base-content">Signed in with your provider account. Open login to switch or refresh it.</p>
-            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy()" (click)="externalActionRequested.emit('sign-in')"
-              data-testid="credentials-open-login">Open login</button>
+            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('sign-in')"
+              data-testid="credentials-open-login">{{ externalBusy() ? 'Waiting for sign-in…' : 'Open login' }}</button>
           </div>
         }
         @case ('local') {
@@ -217,6 +225,9 @@ let PROBE_COUNTER = 0;
               @if (connection().id === 'anthropic') {
                 <p class="text-xs text-base-content-muted">Saving updates the main agent's Claude API key and restarts running chat sessions.</p>
               }
+              @if (setupMissing(); as missing) {
+                <p class="text-xs text-base-content-muted" data-testid="credentials-setup-missing">{{ missing }}</p>
+              }
               <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-probe">
                 @if (probeState() !== 'idle') { <span [class]="probeDot()" aria-hidden="true"></span> }
                 {{ probeText() }}
@@ -255,8 +266,20 @@ let PROBE_COUNTER = 0;
         }
       }
 
-      @if (externalMessage(); as message) {
-        <p role="status" class="text-xs text-base-content" data-testid="credentials-external-message">{{ message }}</p>
+      @switch (externalAuth().status) {
+        @case ('loading') {
+          <p role="status" class="text-xs text-base-content-muted" data-testid="credentials-external-busy">Waiting for the sign-in to finish…</p>
+        }
+        @case ('error') {
+          <p role="alert" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="credentials-external-error">
+            <span class="h-2 w-2 shrink-0 rounded-full bg-error" aria-hidden="true"></span> Sign-in could not be checked. Retry.
+          </p>
+        }
+        @default {
+          @if (externalAuth().message; as message) {
+            <p role="status" class="text-xs text-base-content" data-testid="credentials-external-message">{{ message }}</p>
+          }
+        }
       }
       @if (copyMessage(); as message) {
         <p role="status" class="text-xs text-base-content-muted">{{ message }}</p>
@@ -278,9 +301,11 @@ export class CredentialsTabComponent {
   readonly saving = input(false);
   /** Stored endpoint and tiers (`state.connectionSetup()`); a custom key can be checked only with its endpoint. */
   readonly setup = input<CredentialsSetup | null>(null);
+  /** The setup read failed: a Replace draft cannot carry the stored tiers. */
+  readonly setupError = input(false);
   readonly commit = input<CredentialsCommit | null>(null);
-  /** The host's fixed sign-in message for this connection. */
-  readonly externalMessage = input<string | null>(null);
+  /** The drawer-started sign-in for this connection. */
+  readonly externalAuth = input<CredentialsExternalAuth>({ status: 'idle', message: null });
   readonly verifyDraftConnection = input.required<VerifyDraftFn>();
   readonly cancelDraftVerification = input.required<CancelDraftFn>();
   readonly replaceKeyRequested = output<ReplaceKeyRequest>();
@@ -335,8 +360,20 @@ export class CredentialsTabComponent {
   protected readonly canReplace = computed(() =>
     !this.anthropicGuidance() && (this.kind() !== 'custom' || !!this.setup()?.baseUrl));
   protected readonly busy = computed(() => this.saving() || this.commit()?.status === 'saving');
+  /** A sign-in RPC for this connection is running: its triggers wait (one login at a time). */
+  protected readonly externalBusy = computed(() => this.externalAuth().status === 'loading');
+  /**
+   * A Replace draft carries the stored tiers unchanged (`replaceKeyDraft`), so it waits for them. Native
+   * Claude API keys write no tiers. Without the read, Save stays disabled and the reason is shown.
+   */
+  protected readonly setupMissing = computed(() => {
+    if (this.connection().id === 'anthropic' || this.setup()) return null;
+    return this.setupError()
+      ? 'Could not read the stored models for this connection, so the key cannot be saved yet. Close and reopen this panel to retry.'
+      : 'Loading the stored models for this connection…';
+  });
   protected readonly canSave = computed(() => this.probeState() === 'verified' && !!this.keyDraft().trim() && !this.busy()
-    && this.probeResult()?.probeId === this.probeId);
+    && this.probeResult()?.probeId === this.probeId && this.setupMissing() === null);
   protected readonly probeText = computed(() => {
     const result = this.probeResult();
     const latency = result?.latencyMs !== null && result?.latencyMs !== undefined ? ` (${result.latencyMs}ms)` : '';

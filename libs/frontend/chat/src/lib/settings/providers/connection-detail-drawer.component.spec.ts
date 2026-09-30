@@ -1,5 +1,8 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { AppStateManager, type ProvidersConnection } from '@ptah-extension/core';
+import { AppStateManager, ProvidersSettingsStateService, type ProvidersConnection } from '@ptah-extension/core';
+import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { ConnectionDetailDrawerComponent, connectionInitials } from './connection-detail-drawer.component';
 
 const connection = (overrides: Partial<ProvidersConnection>): ProvidersConnection => ({
@@ -19,7 +22,20 @@ describe('ConnectionDetailDrawerComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [ConnectionDetailDrawerComponent],
-      providers: [{ provide: AppStateManager, useValue: { requestSettingsTab: jest.fn() } }],
+      providers: [
+        { provide: AppStateManager, useValue: { requestSettingsTab: jest.fn() } },
+        // Read by the Models & Tiers and Advanced tabs.
+        { provide: ProvidersSettingsStateService, useValue: {
+          tiers: signal({ status: 'unloaded', data: null, error: null }),
+          commit: signal({ status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null }),
+          reviewContext: () => ({ scopeKey: 'workspace', activePath: '/workspace' }),
+          refreshTiers: jest.fn(async () => undefined),
+          customEntry: () => ({ id: 'sovereigneg', name: 'sovereigneg', baseUrl: 'https://gateway.example/v1', lane: 'openai',
+            modelsEndpoint: null, helpUrl: '', pricing: null }),
+        } },
+        SettingsSaveFeedbackService,
+        { provide: PROVIDER_MODELS_LOADER, useValue: { listModels: jest.fn().mockResolvedValue({ models: [], totalCount: 0 }) } },
+      ],
     });
     fixture = TestBed.createComponent(ConnectionDetailDrawerComponent);
     fixture.componentRef.setInput('verifyDraftConnection', verify);
@@ -119,7 +135,8 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(byTestId('connection-drawer-close')).not.toBeNull();
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Save Changes');
 
-    // A custom endpoint's base URL is not in the Credentials tab yet (Advanced, Batch 22): setup stays (D14).
+    // A custom gateway keeps setup (D14) for what its tabs do not hold: its address on Credentials, its
+    // own default models on Models & Tiers, its name and protocol on Advanced.
     for (const label of ['Credentials', 'Models & Tiers', 'Advanced']) {
       selectTab(label);
       const buttons = Array.from(query('[drawer-footer]')?.querySelectorAll('button') ?? []);
@@ -152,17 +169,33 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(deleted).toHaveBeenCalledTimes(1);
   });
 
-  it('Edit in setup is disabled while setup cannot start', () => {
-    render({ connection: MOONSHOT, canEdit: false });
+  it.each([
+    ['an API-key connection', MOONSHOT],
+    ['the Claude CLI subscription', CLAUDE_CLI],
+  ])('Models & Tiers of %s holds every tier edit: the tab body, no setup fallback', (_name, value) => {
+    render({ connection: value, canEdit: true });
     selectTab('Models & Tiers');
+    expect(byTestId('connection-models')).not.toBeNull();
+    expect(byTestId('connection-edit-in-setup')).toBeNull();
+  });
+
+  it('mounts the Advanced tab for a custom gateway, with its driver state', () => {
+    render({ connection: SOVEREIGNEG, isDriver: true });
+    selectTab('Advanced');
+    expect(byTestId('connection-advanced')).not.toBeNull();
+    expect(byTestId('advanced-delete-blocked')?.textContent?.trim()).toBe('Switch the main agent first.');
+  });
+
+  it('Edit in setup is disabled while setup cannot start', () => {
+    render({ connection: SOVEREIGNEG, canEdit: false });
+    selectTab('Advanced');
     expect((byTestId('connection-edit-in-setup') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('shows a busy skeleton on a tab while loading', () => {
-    render({ connection: MOONSHOT, loading: true });
+  it('the Models & Tiers tab shows a busy skeleton until its tiers load', () => {
+    render({ connection: MOONSHOT });
     selectTab('Models & Tiers');
-    expect(byTestId('connection-tab-skeleton')?.getAttribute('aria-busy')).toBe('true');
-    expect(byTestId('connection-setup-copy')).toBeNull();
+    expect(byTestId('models-skeleton')?.getAttribute('aria-busy')).toBe('true');
   });
 
   it('Close, Esc and the header close button all request closure', () => {

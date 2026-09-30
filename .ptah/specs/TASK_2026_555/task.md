@@ -98,3 +98,7 @@ Gate 1.7 (user) → architect → team-leader → batches with cross-side review
   Gate G and captures before the team-leader commits it. The cross-side code review is combined: one over the whole
   Providers diff (21-28) at Gate V 28, one over the whole Orchestration diff (29-36) at Gate V 36, and one for the
   Advanced / Search & Voice batches at their Gate V.
+- Pattern map APPROVED (2026-09-30, user): `pattern-map-advanced-search-voice.md` (+ antigravity review APPROVED).
+  Gaps G1-G3, G5-G7, G11-G13 accepted as proposed; G9 resolved (same setting). Proposed Removals PR-1 (dead
+  "Default for new sessions" preset radios) and PR-2 ("Workflows require a paid plan." sentence) APPROVED. Batches
+  39-50 run after 36; the close-out (37) and the final visual review + live Electron pass (38) run after Batch 50.

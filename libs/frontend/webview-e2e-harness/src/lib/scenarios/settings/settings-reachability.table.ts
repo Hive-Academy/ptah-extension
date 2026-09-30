@@ -23,6 +23,10 @@ import {
 } from './settings.fixtures';
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
+import {
+  advancedTab, applyManualTierModel, card, closeConnectionDrawer, confirmWrite, credentialsOf, expectCall, inDrawerTab,
+  providersTab, setupThroughDrawer, visibleEnabled, withAuthStatus,
+} from './settings-drawer.reach';
 
 export type CapabilityStatus = 'present' | 'restored' | 'pending';
 
@@ -40,18 +44,7 @@ export interface ReachabilityEntry {
 // of every entry that happens to use it.
 // ---------------------------------------------------------------------------
 
-const providersTab = (page: Page) => gotoSettingsTab(page, 'Providers');
 const orchestrationTab = (page: Page) => gotoSettingsTab(page, 'Agent Orchestration');
-const advancedTab = (page: Page) => gotoSettingsTab(page, 'Advanced');
-
-/** A connection card by its visible provider name (today's flat card list). */
-const card = (page: Page, name: string): Locator =>
-  page.locator('[data-testid="provider-connection-card"]').filter({ hasText: name });
-
-async function visibleEnabled(locator: Locator): Promise<void> {
-  await expect(locator.first()).toBeVisible();
-  await expect(locator.first()).toBeEnabled();
-}
 
 /** Clicks a visible+enabled trigger, asserts the opened control, then closes it. */
 async function openThenClose(trigger: Locator, opened: Locator, closer: Locator): Promise<void> {
@@ -269,84 +262,6 @@ async function throughBlankWizardCustomOption(
   }
 }
 
-/**
- * Since Batch 20 the card's Manage opens the connection detail drawer. Asserts it is THIS
- * connection's drawer, then takes the Models & Tiers tab's one primary action, "Edit in setup", which
- * keeps the setup wizard path Manage used to open directly (D14) until Batch 22 builds that tab body.
- * (Since Batch 21 the Credentials tab of an API-key, sign-in or CLI connection holds its own actions
- * and no longer offers setup; Models & Tiers still does for every kind.)
- */
-async function setupThroughDrawer(page: Page, providerName: string): Promise<void> {
-  await expect(page.locator('[data-testid="connection-detail-drawer"]')).toBeVisible();
-  await expect(page.locator('[data-testid="connection-drawer-title"]')).toContainText(providerName);
-  await page.getByRole('tab', { name: 'Models & Tiers', exact: true }).click();
-  const setup = page.locator('[data-testid="connection-edit-in-setup"]');
-  await visibleEnabled(setup);
-  await setup.click();
-  await expect(page.locator('[data-testid="connection-detail-drawer"]')).toHaveCount(0);
-}
-
-/** Manage on a configured card, then the drawer's Credentials tab (Batch 21). */
-async function credentialsOf(page: Page, providerName: string): Promise<Locator> {
-  await providersTab(page);
-  const trigger = card(page, providerName).locator('[data-testid="btn-manage"]');
-  await visibleEnabled(trigger);
-  await trigger.click();
-  await expect(page.locator('[data-testid="connection-drawer-title"]')).toContainText(providerName);
-  await page.getByRole('tab', { name: 'Credentials', exact: true }).click();
-  const tab = page.locator('[data-testid="connection-credentials"]');
-  await expect(tab).toBeVisible();
-  return tab;
-}
-
-/** Closes the connection drawer through its footer Close. Best-effort: used from `finally`. */
-async function closeConnectionDrawer(page: Page): Promise<void> {
-  await page.locator('[data-testid="connection-drawer-close"]').click({ timeout: 5000 }).catch(() => undefined);
-  await expect(page.locator('[data-testid="connection-detail-drawer"]')).toHaveCount(0);
-}
-
-/**
- * Re-reads the Providers page: leaving the tab tears `ProvidersSettingsComponent` down and coming back
- * runs `state.open()` again, so a fixture auth change (a stored Claude API key, a Copilot sign-in) shows.
- */
-async function remountProviders(page: Page): Promise<void> {
-  await advancedTab(page);
-  await providersTab(page);
-}
-
-/**
- * Runs `body` with an auth fixture change that makes an extra card appear, then restores the fixture
- * and re-reads, so later entries see the BRIEF baseline.
- */
-async function withAuthStatus(page: Page, change: Partial<ReturnType<typeof getFixtureState>['authStatus']>,
-  body: () => Promise<void>): Promise<void> {
-  const state = getFixtureState(page);
-  const before = { ...state.authStatus };
-  Object.assign(state.authStatus, change);
-  try {
-    await remountProviders(page);
-    await body();
-  } finally {
-    await closeConnectionDrawer(page);
-    Object.assign(state.authStatus, before);
-    await remountProviders(page);
-  }
-}
-
-/** Confirms an inline two-step write in the Credentials tab and asserts its RPC went out. */
-async function confirmWrite(page: Page, trigger: string, confirm: string, method: string, params: unknown): Promise<void> {
-  const state = getFixtureState(page);
-  const before = state.calls.length;
-  const start = page.locator(`[data-testid="${trigger}"]`);
-  await visibleEnabled(start);
-  await start.click();
-  const confirmButton = page.locator(`[data-testid="${confirm}"]`);
-  await visibleEnabled(confirmButton);
-  await confirmButton.click();
-  await expect(page.locator('[data-testid="credentials-commit"]')).toBeVisible();
-  await expect.poll(() => state.calls.slice(before).find((call) => call.method === method)?.params).toEqual(params);
-}
-
 /** Opens the setup wizard from an already-configured card's action button, then closes it. */
 async function throughCard(
   page: Page,
@@ -425,7 +340,11 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#6', capability: 'Masked stored key with Replace', status: 'present',
-    reach: (page) => throughCard(page, 'Moonshot', 'btn-manage', async (p) => visibleEnabled(p.locator('[data-testid="wizard-key-stored"], [data-testid="wizard-replace-key"]'))),
+    // Since Batch 22 (D14): the drawer's Credentials tab, not the wizard.
+    reach: (page) => inDrawerTab(page, 'Moonshot', 'Credentials', 'connection-credentials', async (panel) => {
+      await expect(panel.locator('[data-testid="credentials-key-mask"]')).toBeVisible();
+      await visibleEnabled(panel.locator('[data-testid="credentials-replace"]'));
+    }),
   },
   {
     id: '#9', capability: 'Key help (prefix hint)', status: 'present',
@@ -438,7 +357,11 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#10', capability: 'Claude CLI detected / install and login state', status: 'present',
-    reach: (page) => throughCard(page, 'Claude (Subscription)', 'btn-manage', async (p) => visibleEnabled(p.locator('[data-testid="wizard-cli-signed-in"], [data-testid="wizard-cli-signed-out"], [data-testid="wizard-cli-not-installed"]'))),
+    // Since Batch 22 (D14): the drawer's Credentials tab shows detection, the commands and Check again.
+    reach: (page) => inDrawerTab(page, 'Claude (Subscription)', 'Credentials', 'connection-credentials', async (panel) => {
+      await expect(panel.locator('[data-testid="credentials-cli-detected"]')).toContainText('Claude CLI detected');
+      await visibleEnabled(panel.locator('[data-testid="credentials-cli-check"]'));
+    }),
   },
   {
     id: '#11', capability: 'GitHub Copilot sign-in (OAuth)', status: 'present',
@@ -448,7 +371,11 @@ const providersAuth: readonly ReachabilityEntry[] = [
     id: '#13', capability: 'Codex auth-file status / Open login', status: 'present',
     // The oauth branch's real controls (`provider-setup-wizard.component.ts:717-753`),
     // not the generic step heading every step shares.
-    reach: (page) => throughCard(page, 'OpenAI Codex', 'btn-manage', async (p) => visibleEnabled(p.locator('[data-testid="wizard-sign-in"], [data-testid="wizard-sign-in-waiting"], [data-testid="wizard-sign-in-ok"]'))),
+    // Since Batch 22 (D14): the drawer's Credentials tab (auth-file copy + Open login).
+    reach: (page) => inDrawerTab(page, 'OpenAI Codex', 'Credentials', 'connection-credentials', async (panel) => {
+      await expect(panel.locator('[data-testid="credentials-codex-copy"]')).toContainText('~/.codex/auth.json');
+      await visibleEnabled(panel.locator('[data-testid="credentials-open-login"]'));
+    }),
   },
   {
     id: '#14', capability: 'Local provider (no key needed) with editable endpoint', status: 'present',
@@ -561,33 +488,24 @@ const providersAuth: readonly ReachabilityEntry[] = [
 
 const mainAgentModel: readonly ReachabilityEntry[] = [
   {
-    id: '#32', capability: 'Model-mapping editor (inside Manage -> wizard Models step)', status: 'present',
-    // Actually reaches the Models step (Credential + a real Verify probe),
-    // not a step-1 Continue button every step shares.
-    reach: (page) => throughCard(page, 'Moonshot', 'btn-manage', async (p) => {
-      await advanceWizardTo(p, 'wizard-step-models');
-      await visibleEnabled(p.locator('[data-testid="wizard-step-models"]'));
-      await visibleEnabled(p.locator('[data-testid^="wizard-tier-"] ptah-provider-model-picker').first());
-    }, false),
+    id: '#32', capability: 'Model-mapping editor (Manage -> drawer Models & Tiers)', status: 'present',
+    // Since Batch 22 (D14): one picker per tier in the drawer, no billable re-verify.
+    reach: (page) => inDrawerTab(page, 'Moonshot', 'Models & Tiers', 'connection-models', async (panel) => {
+      for (const tier of ['sonnet', 'opus', 'haiku']) await expect(panel.locator(`[data-tier="${tier}"] ptah-provider-model-picker`)).toBeVisible();
+    }),
   },
   {
-    id: '#33', capability: 'Per-tier change saved via wizard commit', status: 'present',
-    // Reaches Models, types a manual model id into the "everyday" tier's
-    // picker and applies it, then asserts `tierSource()`
-    // (`provider-setup-wizard.component.ts:1843-1846`) actually flips from
-    // "Provider default" to "Set in this wizard" — a real per-tier change,
-    // not a step-1 Continue button.
-    reach: (page) => throughCard(page, 'Moonshot', 'btn-manage', async (p) => {
-      await advanceWizardTo(p, 'wizard-step-models');
-      const tier = p.locator('[data-testid="wizard-tier-everyday"]');
-      await visibleEnabled(tier);
-      await tier.getByText('Not listed? Enter a model ID').click();
-      const manualInput = tier.locator('[data-testid="provider-model-picker-manual-input"]');
-      await visibleEnabled(manualInput);
-      await manualInput.fill('moonshot/kimi-k2.7-code');
-      await tier.locator('[data-testid="provider-model-picker-manual-apply"]').click();
-      await expect(tier.locator('[data-testid="wizard-tier-source"]')).toContainText('Set in this wizard');
-    }, false),
+    id: '#33', capability: 'Per-tier change saved (drawer Models & Tiers, save on selection)', status: 'present',
+    // Since Batch 22 (D14): a real provider:setModelTier write, read back into the row, then restored by
+    // resetting the tier to the default so later entries see the BRIEF baseline.
+    reach: (page) => inDrawerTab(page, 'Moonshot', 'Models & Tiers', 'connection-models', async (panel) => {
+      const before = getFixtureState(page).calls.length;
+      await applyManualTierModel(panel, 'sonnet', 'moonshot/kimi-k2.7-code');
+      await expectCall(page, before, 'provider:setModelTier', { providerId: 'moonshot', tier: 'sonnet', modelId: 'moonshot/kimi-k2.7-code', scope: 'mainAgent' });
+      await expect(panel.locator('[data-testid="models-current-sonnet"]')).toContainText('moonshot/kimi-k2.7-code');
+      await panel.locator('[data-testid="models-default-sonnet"]').click();
+      await expect(panel.locator('[data-testid="models-current-sonnet"]')).toContainText('Provider default');
+    }),
   },
   {
     id: '#35', capability: 'Custom model ID per tier ("Not listed? Enter a model ID")', status: 'present',
@@ -598,19 +516,17 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
     },
   },
   {
-    id: '#36', capability: 'Clear a tier to provider default (wizard)', status: 'present',
-    // Reaches Models and uses "Use provider defaults"
-    // (`wizard-use-defaults`, only rendered when `defaultsResolvable()` —
-    // Moonshot has registry default tiers), then asserts every tier reads
-    // "Provider default" again — the real clear action, not a step-1
-    // Continue button.
-    reach: (page) => throughCard(page, 'Moonshot', 'btn-manage', async (p) => {
-      await advanceWizardTo(p, 'wizard-step-models');
-      const useDefaults = p.locator('[data-testid="wizard-use-defaults"]');
-      await visibleEnabled(useDefaults);
-      await useDefaults.click();
-      await expect(p.locator('[data-testid="wizard-tier-source"]').first()).toContainText('Provider default');
-    }, false),
+    id: '#36', capability: 'Clear a tier to provider default (drawer Default)', status: 'present',
+    // Since Batch 22 (D14): sets a tier, then "Default" sends provider:clearModelTier and the row reads
+    // "Provider default" again.
+    reach: (page) => inDrawerTab(page, 'Moonshot', 'Models & Tiers', 'connection-models', async (panel) => {
+      await applyManualTierModel(panel, 'haiku', 'kimi-lite');
+      await expect(panel.locator('[data-testid="models-current-haiku"]')).toContainText('kimi-lite');
+      const before = getFixtureState(page).calls.length;
+      await panel.locator('[data-testid="models-default-haiku"]').click();
+      await expectCall(page, before, 'provider:clearModelTier', { providerId: 'moonshot', tier: 'haiku', scope: 'mainAgent' });
+      await expect(panel.locator('[data-testid="models-current-haiku"]')).toContainText('Provider default');
+    }),
   },
   {
     id: '#37', capability: 'Current mapping / resolved model shown', status: 'present',
@@ -832,12 +748,60 @@ const restoredPending: readonly ReachabilityEntry[] = [
       await credentialsOf(page, 'GitHub Copilot');
       await confirmWrite(page, 'credentials-sign-out', 'credentials-sign-out-confirm-button', 'auth:copilotLogout', {});
     }) },
-  { id: '#25', capability: 'Delete a custom provider', status: 'pending', reach: notYetBuilt },
-  { id: '#27', capability: 'Custom provider models endpoint', status: 'pending', reach: notYetBuilt },
-  { id: '#28', capability: 'Custom provider help URL', status: 'pending', reach: notYetBuilt },
-  { id: '#30', capability: 'Custom provider pricing (input/output per 1M)', status: 'pending', reach: notYetBuilt },
-  { id: '#34', capability: 'Searchable model autocomplete for tier mapping', status: 'pending', reach: notYetBuilt },
-  { id: '#38', capability: 'Tool-use compatibility indicators', status: 'pending', reach: notYetBuilt },
+  { id: '#25', capability: 'Delete a custom provider', status: 'restored',
+    // Batch 22: Advanced -> Delete connection -> inline confirm -> provider:removeCustomEntry. The fixture
+    // does not remove the entry, so the card (and later entries) stay.
+    reach: (page) => inDrawerTab(page, 'sovereigneg', 'Advanced', 'connection-advanced', async (panel) => {
+      const before = getFixtureState(page).calls.length;
+      await panel.locator('[data-testid="advanced-delete"]').click();
+      await panel.locator('[data-testid="advanced-delete-confirm-button"]').click();
+      await expectCall(page, before, 'provider:removeCustomEntry', { id: 'sovereigneg' });
+      await expect(panel.locator('[data-testid="advanced-commit"]')).toBeVisible();
+    }) },
+  { id: '#27', capability: 'Custom provider models endpoint', status: 'restored',
+    // Batch 22 (D7): Save stays disabled until a check of the current address passes, then the write goes out.
+    reach: (page) => inDrawerTab(page, 'sovereigneg', 'Advanced', 'connection-advanced', async (panel) => {
+      const state = getFixtureState(page);
+      const entry = state.customEntries.find((candidate) => candidate.id === 'sovereigneg');
+      const stored = entry?.['modelsEndpoint'] ?? null;
+      const before = state.calls.length;
+      await panel.locator('[data-testid="advanced-models-endpoint"]').fill('/v2/models');
+      const save = panel.locator('[data-testid="advanced-save-endpoint"]');
+      await expect(save).toBeDisabled();
+      await panel.locator('[data-testid="advanced-check"]').click();
+      await expect(panel.locator('[data-testid="advanced-probe"]')).toContainText('Endpoint verified');
+      await save.click();
+      await expectCall(page, before, 'provider:updateCustomEntry', { id: 'sovereigneg', changes: { modelsEndpoint: '/v2/models' } });
+      await expect(panel.locator('[data-testid="advanced-commit"]')).toContainText('Endpoint saved.');
+      if (entry) entry['modelsEndpoint'] = stored;
+    }) },
+  { id: '#28', capability: 'Custom provider help URL', status: 'restored',
+    reach: (page) => inDrawerTab(page, 'sovereigneg', 'Advanced', 'connection-advanced', async (panel) => {
+      const before = getFixtureState(page).calls.length;
+      await panel.locator('[data-testid="advanced-help-url"]').fill('https://docs.example.internal/ai');
+      await panel.locator('[data-testid="advanced-save-help"]').click();
+      await expectCall(page, before, 'provider:updateCustomEntry', { id: 'sovereigneg', changes: { helpUrl: 'https://docs.example.internal/ai' } });
+      await expect(panel.locator('[data-testid="advanced-commit"]')).toContainText('Help URL saved.');
+    }) },
+  { id: '#30', capability: 'Custom provider pricing (input/output per 1M)', status: 'restored',
+    reach: (page) => inDrawerTab(page, 'sovereigneg', 'Advanced', 'connection-advanced', async (panel) => {
+      await expect(panel.locator('[data-testid="advanced-pricing-note"]'))
+        .toHaveText('Stored for your reference; Ptah does not use it for cost estimates yet.');
+      const before = getFixtureState(page).calls.length;
+      await panel.locator('[data-testid="advanced-price-input"]').fill('0.5');
+      await panel.locator('[data-testid="advanced-price-output"]').fill('1.5');
+      await panel.locator('[data-testid="advanced-save-pricing"]').click();
+      await expectCall(page, before, 'provider:updateCustomEntry', { id: 'sovereigneg', changes: { pricing: { inputPerMillion: 0.5, outputPerMillion: 1.5 } } });
+      await expect(panel.locator('[data-testid="advanced-commit"]')).toContainText('Pricing saved.');
+    }) },
+  { id: '#34', capability: 'Searchable model autocomplete for tier mapping', status: 'restored',
+    reach: (page) => inDrawerTab(page, 'Moonshot', 'Models & Tiers', 'connection-models', async (panel) => {
+      await visibleEnabled(panel.locator('[data-tier="opus"] [data-testid="provider-model-picker-search"]'));
+    }) },
+  { id: '#38', capability: 'Tool-use compatibility indicators', status: 'restored',
+    reach: (page) => inDrawerTab(page, 'Moonshot', 'Models & Tiers', 'connection-models', async (panel) => {
+      await expect(panel.locator('[data-tier="sonnet"] [data-testid="provider-model-picker-tooluse-summary"]')).toContainText('support tool use');
+    }) },
   { id: '#43', capability: 'Ptah CLI agent status (Ready/Error/Init/No Key)', status: 'pending', reach: notYetBuilt },
   { id: '#44', capability: 'Ptah CLI agent key status (Key set/No key/Cloud signin)', status: 'pending', reach: notYetBuilt },
   { id: '#47', capability: 'Inline GitHub login when adding a Copilot-backed CLI agent', status: 'pending', reach: notYetBuilt },
@@ -867,6 +831,18 @@ const restoredPending: readonly ReachabilityEntry[] = [
 // ---------------------------------------------------------------------------
 
 const regressedUx: readonly ReachabilityEntry[] = [
+  { id: 'RUX-2', capability: 'Tier model edited in place, saved on selection, with Undo (no wizard, no re-verify)', status: 'restored',
+    // Batch 22: the selection is one real write; Undo is a SECOND real write restoring the previous value.
+    reach: (page) => inDrawerTab(page, 'Moonshot', 'Models & Tiers', 'connection-models', async (panel) => {
+      const before = getFixtureState(page).calls.length;
+      await applyManualTierModel(panel, 'opus', 'kimi-k2.5');
+      await expectCall(page, before, 'provider:setModelTier', { providerId: 'moonshot', tier: 'opus', modelId: 'kimi-k2.5', scope: 'mainAgent' });
+      const undo = panel.locator('[data-testid="models-undo"]');
+      await visibleEnabled(undo);
+      await undo.click();
+      await expectCall(page, before, 'provider:clearModelTier', { providerId: 'moonshot', tier: 'opus', scope: 'mainAgent' });
+      await expect(panel.locator('[data-testid="models-current-opus"]')).toContainText('Provider default');
+    }) },
   { id: 'RUX-1', capability: 'Replace a stored key without the 5-step wizard (verify, then save)', status: 'restored',
     // Batch 21: a failed check keeps Save disabled; a passing one enables it. Nothing is saved here.
     reach: async (page) => {
@@ -947,9 +923,9 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
 
 /**
  * Guard constant (D14 rule 2): S4 set it to 81; later batches may only grow it. Batch 21 added the
- * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84.
+ * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84. Batch 22 added RUX-2: 85.
  */
-export const EXPECTED_CAPABILITY_COUNT = 84;
+export const EXPECTED_CAPABILITY_COUNT = 85;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS
