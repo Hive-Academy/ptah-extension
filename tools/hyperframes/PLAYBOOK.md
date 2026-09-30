@@ -11,7 +11,7 @@ How we compose advanced Ptah videos with the `ptah-ui` kit. It adapts the common
 | 3. Storyboard | `STORYBOARD.md`, one `## Frame N` per scene: time on the beat grid, hook type, kit components, camera, transition | `/general-video` with `storyboard: yes` | user approves on the live board (`review-loop.md`) |
 | 4. Scenes | one file per scene: `compositions/frames/NN-name.html`, mounting kit components | `/hyperframes-core`, `/hyperframes-keyframes` | `npx hyperframes check` + snapshot per scene, preview before the next scene |
 | 5. Assembly | `index.html`: frames on tracks, `HyperShader.init` transitions, music + SFX | `/hyperframes-animation` transitions, `/hyperframes-audio` | `check`, `animation-map.mjs`, draft render |
-| 6. Final | `npx hyperframes render --quality delivery --resolution 4k` | `/hyperframes-cli` | user approves the Studio preview first |
+| 6. Final | `node tools/hyperframes/render.mjs <project> <name> --4k` (writes `video-output/<project>/` in the main checkout) | `/hyperframes-cli` | user approves the Studio preview first |
 
 Never write a 2,000-line monolith (v1/v2 did; lint warns `composition_file_too_large`). One scene per file keeps each file under ~250 lines and lets a scene be fixed without touching the rest.
 

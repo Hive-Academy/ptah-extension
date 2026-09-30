@@ -15,15 +15,33 @@ Source only. Media is local and never committed (see `.gitignore`: deny by defau
 | `projects/agentic-factory-promo/` | Footage cut of the orchestration recording |
 | `projects/agent-lanes-explainer/` | Illustrated explainer v1 (SVG world) |
 | `projects/agent-lanes-v2/` | Illustrated explainer v2 (shader transitions + registry components) |
+| `render.mjs` | Render wrapper: output goes to `video-output/` in the main checkout |
 
-## Build and preview
+## Source vs output
+
+| Kind | Where | In git |
+| --- | --- | --- |
+| Source (compositions, kit, specs, briefs) | `tools/hyperframes/**` | yes (deny-by-default `.gitignore`) |
+| Input media (music, SFX, footage, stills) | `<project>/assets/**` | no, restore per "Media not in git" |
+| Scratch (snapshots, beats, `.hyperframes/`, `.media/`) | inside each project | no |
+| Finished videos | `video-output/<project>/` in the **main checkout** | no |
+
+`video-output/` is not under `dist/` on purpose: `npm run clean` runs `rm -rf dist`. It is also not inside a worktree, because removing a worktree deletes its ignored files.
+
+## Build, preview, render
 
 ```bash
 cd tools/hyperframes/kits/ptah-ui && node build.mjs     # build components
 cd gallery && npx hyperframes check                        # PowerShell on Windows (npx.cmd)
 npx hyperframes preview --background
-npx hyperframes render --quality delivery --output renders/ptah-ui-gallery.mp4
+
+# from the repo (or worktree) root: renders land in <main checkout>/video-output/<project>/
+node tools/hyperframes/render.mjs tools/hyperframes/kits/ptah-ui/gallery ptah-ui-gallery
+node tools/hyperframes/render.mjs tools/hyperframes/projects/agent-lanes-v2 ptah-lanes-v2 --4k
+node tools/hyperframes/render.mjs <project> <name> --draft      # fast review render
 ```
+
+Never pass `--output` inside a project folder: a render there is lost with the worktree.
 
 ## Media not in git
 
