@@ -729,6 +729,22 @@ P1 verification (team-leader, 2026-09-30) — PASSED:
 - Still open for the P1 PR (not batch work): the first real `git-real-git` run (R3), and the branch-protection
   suggestion to the user.
 
+P1 follow-up (orchestrator, 2026-09-30, after the Glm approval):
+
+- **Real-git suites split from the default test run.** The full vscode-core jest run (~15 workers) timed out
+  (60-120 s) in the `*.real-git.spec.ts` suites under moderate load on Windows; it reproduced on b0a9b6f28 itself,
+  so it is test infrastructure, not product code. No timeouts were raised. `jest.config.ts` now ignores
+  `*.real-git.spec.ts`; the new `test-real-git` target (`jest.real-git.config.ts`, `runInBand`,
+  `passWithNoTests: false`) runs them serially, and the `git-real-git` CI job calls it on all three OSes.
+  Evidence: `vscode-core:test --coverage` 43 suites, 771 passed, thresholds met; `test-real-git` 4 runs, 4 suites,
+  31 passed, 2 skipped. Author devops-engineer (in-process); review antigravity (CLI lane)
+  `reviews/p1-followup-test-split-review.md` APPROVE, 0 blocking/serious. Minor 1 (tsconfig.spec include) fixed.
+  Accepted, recorded: real-git specs no longer count toward the PR coverage gate (thresholds still pass), and
+  developers changing git services must run `nx run @ptah-extension/vscode-core:test-real-git` locally.
+- **Task images deleted at the user's request.** The 63 PNGs (`prototype/screenshots/` 24, `screenshots/b7/` 39)
+  are removed; the prototype html/css/js stay and can be re-rendered. The review files record what the B7 captures
+  showed. The user adds a `.gitignore` rule for images under `.ptah/specs/` in a separate PR.
+
 ---
 
 # P2 — Reliability hardening (RC9-RC14) — waits for P1 merge

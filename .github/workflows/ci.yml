@@ -349,12 +349,16 @@ jobs:
       # Batch 5 owns adding `[slow]` to that test's `it(...)` description; if
       # it does not, the case simply runs on all three OSes instead of being
       # skipped on two, which fails closed (extra coverage) rather than open.
+      # vscode-core: the default `test` target now ignores *.real-git.spec.ts
+      # (jest.config.ts); `test-real-git` runs only those, --runInBand
+      # (libs/backend/vscode-core/project.json, jest.real-git.config.ts).
+      # runInBand and passWithNoTests=false are set in the target options.
       - name: vscode-core real-git specs
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            npx nx test @ptah-extension/vscode-core --testPathPatterns=real-git --passWithNoTests=false
+            npx nx run @ptah-extension/vscode-core:test-real-git
           else
-            npx nx test @ptah-extension/vscode-core --testPathPatterns=real-git --passWithNoTests=false --testNamePattern='^(?!.*\[slow\]).*$'
+            npx nx run @ptah-extension/vscode-core:test-real-git --testNamePattern='^(?!.*\[slow\]).*$'
           fi
 
       - name: ptah-electron real-git specs

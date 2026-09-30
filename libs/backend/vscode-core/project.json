@@ -24,6 +24,15 @@
         "jestConfig": "libs/backend/vscode-core/jest.config.ts"
       }
     },
+    "test-real-git": {
+      "executor": "@nx/jest:jest",
+      "outputs": [],
+      "options": {
+        "jestConfig": "libs/backend/vscode-core/jest.real-git.config.ts",
+        "runInBand": true,
+        "passWithNoTests": false
+      }
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {

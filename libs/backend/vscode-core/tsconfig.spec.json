@@ -8,6 +8,7 @@
   },
   "include": [
     "jest.config.ts",
+    "jest.real-git.config.ts",
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
     "src/**/*.d.ts"
