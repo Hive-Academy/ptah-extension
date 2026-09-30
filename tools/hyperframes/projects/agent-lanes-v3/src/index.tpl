@@ -38,7 +38,9 @@
           bgColor: "#131317",
           accentColor: "#d4af37",
           scenes: [/*@scenes*/],
-          transitions: [],
+          transitions: [
+          /*@transitions*/
+        ],
         });
 /*@frames-js*/
         window.__timelines["main"] = tl;

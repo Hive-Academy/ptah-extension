@@ -49,16 +49,33 @@ const frames = readdirSync(framesDir)
       throw new Error(`${file}: root must be <div id="fNN" class="scene" data-composition-id="fNN" data-width="1920" data-height="1080" data-frame-start data-frame-duration>`);
     }
     const t0 = Number(s);
-    const kept = head[1].replace(/\s(data-composition-id|data-width|data-height|data-frame-start|data-frame-duration)="[^"]*"/g, "");
-    const html = markup
-      .replace(rootRe, `<div${kept}>`)
-      .replace(/data-start="([\d.]+)"/g, (_, v) => `data-start="${round(Number(v) + t0)}"`);
-    return { file, id, t0, dur: Number(d), css, js, html };
+    // data-seam-in="<shader> <seconds>" names the transition INTO this frame ("cut" = hard cut).
+    const seam = (attr("data-seam-in") || "").trim().split(/\s+/);
+    const kept = head[1].replace(/\s(data-composition-id|data-width|data-height|data-frame-start|data-frame-duration|data-seam-in)="[^"]*"/g, "");
+    return { file, id, t0, dur: Number(d), css, js, markup: markup.replace(rootRe, `<div${kept}>`), seam: { shader: seam[0] || "", dur: Number(seam[1] || 0) } };
   });
 
 for (let i = 1; i < frames.length; i++) {
   const prev = frames[i - 1];
   if (Math.abs(prev.t0 + prev.dur - frames[i].t0) > 0.002) throw new Error(`${frames[i].file}: starts at ${frames[i].t0}, previous frame ends at ${round(prev.t0 + prev.dur)}`);
+  if (!frames[i].seam.shader) throw new Error(`${frames[i].file}: missing data-seam-in="<shader> <seconds>" (or "cut")`);
+}
+
+// Seams are centered on the cut. HyperShader needs scenes.length === transitions.length + 1, so a hard cut
+// is a near-instant crossfade. The outgoing frame's mounts that run to the cut are extended by half a seam,
+// so the outgoing scene stays live while the transition shows it.
+const transitions = frames.slice(1).map((f) => {
+  if (f.seam.shader === "cut") return { time: f.t0, duration: 0.001 };
+  return { time: round(f.t0 - f.seam.dur / 2), shader: f.seam.shader, duration: f.seam.dur };
+});
+for (const [i, f] of frames.entries()) {
+  const pad = i + 1 < frames.length && frames[i + 1].seam.shader !== "cut" ? frames[i + 1].seam.dur / 2 : 0;
+  f.html = f.markup.replace(/data-start="([\d.]+)"(\s+)data-duration="([\d.]+)"/g, (_, st, sp, du) => {
+    const end = Number(st) + Number(du);
+    const extra = pad && Math.abs(end - f.dur) < 0.01 ? pad : 0;
+    return `data-start="${round(Number(st) + f.t0)}"${sp}data-duration="${round(Number(du) + extra)}"`;
+  });
+  if (/data-start="/.test(f.html.replace(/data-start="[\d.]+"\s+data-duration=/g, ""))) throw new Error(`${f.file}: every data-start must be followed by data-duration`);
 }
 const last = frames[frames.length - 1];
 const duration = round(last.t0 + last.dur);
@@ -68,6 +85,7 @@ out = out
   .replace("/*@frames-css*/", frames.map((f) => `/* ${f.file} */\n${f.css}`).join("\n"))
   .replace("<!--@frames-->", frames.map((f) => `<!-- ${f.file} (${f.t0}-${round(f.t0 + f.dur)}) -->\n${f.html}`).join("\n\n"))
   .replace("/*@scenes*/", frames.map((f) => JSON.stringify(f.id)).join(", "))
+  .replace("/*@transitions*/", transitions.map((t) => JSON.stringify(t)).join(",\n          "))
   .replace("/*@frames-js*/", frames.map((f) => `// ${f.file}\n(function (tl, T0) {${f.js}})(tl, ${f.t0});`).join("\n"))
   .replaceAll("@DURATION", String(duration));
 

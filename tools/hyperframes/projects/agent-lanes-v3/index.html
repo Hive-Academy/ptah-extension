@@ -23,11 +23,19 @@
         .f01-m { position: absolute; }
         #f01-fx { position: absolute; width: 0; height: 0; }
       
+/* 02-title-team.html */
+
+        #f02-vig { position: absolute; inset: 0; background: radial-gradient(ellipse 80% 70% at 50% 42%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.45) 100%); }
+        #f02-stage { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 160px; }
+        .f02-line { font-family: "Archivo Black", sans-serif; font-size: 130px; line-height: 1.02; letter-spacing: -0.01em; color: #e8e6e1; text-transform: uppercase; white-space: nowrap; }
+        #f02-l3 { color: #d4af37; align-self: flex-start; position: relative; }
+        #f02-rule { position: absolute; left: 0; right: 0; bottom: -14px; height: 10px; background: #d4af37; transform-origin: 0 50%; }
+      
     </style>
   </head>
   <body>
     <!-- Agent lanes v3. Grid: 134 BPM, beat 0.448 s, bar 1.791 s. Music offset 12.575 s puts the drop at 1.791 s. -->
-    <div id="root" data-composition-id="main" data-start="0" data-duration="3.582" data-width="1920" data-height="1080">
+    <div id="root" data-composition-id="main" data-start="0" data-duration="5.373" data-width="1920" data-height="1080">
 <!-- 01-hook.html (0-3.582) -->
 <div data-hf-id="hf-k13w" id="f01" class="scene">
         <div data-hf-id="hf-906g" id="f01-bg"></div>
@@ -48,35 +56,45 @@
 
         <div data-hf-id="hf-6ztx" id="f01-lens">
           <div data-hf-id="hf-80l9" id="f01-cam" data-layout-allow-overflow="">
-            <div data-hf-id="hf-xilm" id="f01-m1" class="clip f01-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html" data-start="0" data-duration="3.582" data-track-index="1" data-variable-values="{&quot;layout&quot;:&quot;2+2&quot;,&quot;activeTab&quot;:&quot;Chat&quot;,&quot;notifications&quot;:&quot;9+&quot;,&quot;cues&quot;:&quot;0,0.04,0.08,0.12,0.16&quot;,&quot;focus&quot;:&quot;slot-0&quot;,&quot;focusAt&quot;:3.134,&quot;dimOthers&quot;:1}" style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
+            <div data-hf-id="hf-xilm" id="f01-m1" class="clip f01-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html" data-start="0" data-duration="3.757" data-track-index="1" data-variable-values="{&quot;layout&quot;:&quot;2+2&quot;,&quot;activeTab&quot;:&quot;Chat&quot;,&quot;notifications&quot;:&quot;9+&quot;,&quot;cues&quot;:&quot;0,0.04,0.08,0.12,0.16&quot;,&quot;focus&quot;:&quot;slot-0&quot;,&quot;focusAt&quot;:3.134,&quot;dimOthers&quot;:1}" style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
 
             <!-- slot 0 (194,168) -->
-            <div data-hf-id="hf-lawi" id="f01-m2" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.582" data-track-index="2" data-variable-values="{&quot;title&quot;:&quot;fix review on 579&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;,&quot;agents&quot;:2,&quot;cost&quot;:&quot;$4.12&quot;,&quot;time&quot;:&quot;18m 04s&quot;}" style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
-            <div data-hf-id="hf-uo57" id="f01-m3" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.582" data-track-index="3" data-variable-values="{&quot;text&quot;:&quot;I read the review comments. Three are valid: I fix them, then run the build.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.3&quot;}" style="left: 280px; top: 275.5px; width: 602px; height: 163.4px"></div>
-            <div data-hf-id="hf-cx5e" id="f01-m4" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="4" data-variable-values="{&quot;tool&quot;:&quot;Read&quot;,&quot;label&quot;:&quot;.../pr-579/review-comments.md&quot;,&quot;cues&quot;:&quot;0.2,0.4,1.1&quot;,&quot;runFor&quot;:0.7,&quot;duration&quot;:&quot;0.4s&quot;}" style="left: 280px; top: 447.5px; width: 602px; height: 31px"></div>
-            <div data-hf-id="hf-rosd" id="f01-m5" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="5" data-variable-values="{&quot;tool&quot;:&quot;Edit&quot;,&quot;label&quot;:&quot;.../git/git-operations.ts&quot;,&quot;cues&quot;:&quot;1.791,2.02,2.92&quot;,&quot;runFor&quot;:0.9,&quot;duration&quot;:&quot;0.6s&quot;}" style="left: 280px; top: 484px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-lawi" id="f01-m2" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.757" data-track-index="2" data-variable-values="{&quot;title&quot;:&quot;fix review on 579&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;,&quot;agents&quot;:2,&quot;cost&quot;:&quot;$4.12&quot;,&quot;time&quot;:&quot;18m 04s&quot;}" style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
+            <div data-hf-id="hf-uo57" id="f01-m3" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.757" data-track-index="3" data-variable-values="{&quot;text&quot;:&quot;I read the review comments. Three are valid: I fix them, then run the build.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.3&quot;}" style="left: 280px; top: 275.5px; width: 602px; height: 163.4px"></div>
+            <div data-hf-id="hf-cx5e" id="f01-m4" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.757" data-track-index="4" data-variable-values="{&quot;tool&quot;:&quot;Read&quot;,&quot;label&quot;:&quot;.../pr-579/review-comments.md&quot;,&quot;cues&quot;:&quot;0.2,0.4,1.1&quot;,&quot;runFor&quot;:0.7,&quot;duration&quot;:&quot;0.4s&quot;}" style="left: 280px; top: 447.5px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-rosd" id="f01-m5" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.757" data-track-index="5" data-variable-values="{&quot;tool&quot;:&quot;Edit&quot;,&quot;label&quot;:&quot;.../git/git-operations.ts&quot;,&quot;cues&quot;:&quot;1.791,2.02,2.92&quot;,&quot;runFor&quot;:0.9,&quot;duration&quot;:&quot;0.6s&quot;}" style="left: 280px; top: 484px; width: 602px; height: 31px"></div>
 
             <!-- slot 1 (1000,168): the hook's macro target is row 1's badge -->
-            <div data-hf-id="hf-qbpd" id="f01-m6" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.582" data-track-index="6" data-variable-values="{&quot;title&quot;:&quot;continue editor upgrades&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;}" style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
-            <div data-hf-id="hf-scuz" id="f01-m7" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.582" data-track-index="7" data-variable-values="{&quot;text&quot;:&quot;The spec is sound. I now spot-check key contracts: the shared constants and the CI job.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.2&quot;}" style="left: 1086px; top: 275.5px; width: 602px; height: 163.4px"></div>
-            <div data-hf-id="hf-3bqc" id="f01-target" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="8" data-variable-values="{&quot;tool&quot;:&quot;Bash&quot;,&quot;label&quot;:&quot;Show git operation constants and the CI job&quot;,&quot;liveText&quot;:&quot;Executing Bash...&quot;,&quot;cues&quot;:&quot;0,0.15,1.343&quot;,&quot;runFor&quot;:1.19,&quot;duration&quot;:&quot;1.2s&quot;}" style="left: 1086px; top: 447.5px; width: 602px; height: 31px"></div>
-            <div data-hf-id="hf-2f9q" id="f01-m9" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="9" data-variable-values="{&quot;tool&quot;:&quot;Grep&quot;,&quot;label&quot;:&quot;EXPECTED_CAPABILITY_COUNT&quot;,&quot;cues&quot;:&quot;2.239,2.4,3.0&quot;,&quot;runFor&quot;:0.6,&quot;duration&quot;:&quot;0.2s&quot;}" style="left: 1086px; top: 484px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-qbpd" id="f01-m6" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.757" data-track-index="6" data-variable-values="{&quot;title&quot;:&quot;continue editor upgrades&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;}" style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
+            <div data-hf-id="hf-scuz" id="f01-m7" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.757" data-track-index="7" data-variable-values="{&quot;text&quot;:&quot;The spec is sound. I now spot-check key contracts: the shared constants and the CI job.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.2&quot;}" style="left: 1086px; top: 275.5px; width: 602px; height: 163.4px"></div>
+            <div data-hf-id="hf-3bqc" id="f01-target" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.757" data-track-index="8" data-variable-values="{&quot;tool&quot;:&quot;Bash&quot;,&quot;label&quot;:&quot;Show git operation constants and the CI job&quot;,&quot;liveText&quot;:&quot;Executing Bash...&quot;,&quot;cues&quot;:&quot;0,0.15,1.343&quot;,&quot;runFor&quot;:1.19,&quot;duration&quot;:&quot;1.2s&quot;}" style="left: 1086px; top: 447.5px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-2f9q" id="f01-m9" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.757" data-track-index="9" data-variable-values="{&quot;tool&quot;:&quot;Grep&quot;,&quot;label&quot;:&quot;EXPECTED_CAPABILITY_COUNT&quot;,&quot;cues&quot;:&quot;2.239,2.4,3.0&quot;,&quot;runFor&quot;:0.6,&quot;duration&quot;:&quot;0.2s&quot;}" style="left: 1086px; top: 484px; width: 602px; height: 31px"></div>
 
             <!-- slot 2 (194,630) -->
-            <div data-hf-id="hf-go89" id="f01-m10" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.582" data-track-index="10" data-variable-values="{&quot;title&quot;:&quot;providers UX audit&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;,&quot;agents&quot;:3,&quot;cost&quot;:&quot;$2.37&quot;,&quot;time&quot;:&quot;9m 51s&quot;}" style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
-            <div data-hf-id="hf-76ox" id="f01-m11" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.582" data-track-index="11" data-variable-values="{&quot;text&quot;:&quot;Two lanes audit the providers screen. I merge their findings when both report back.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.5&quot;}" style="left: 280px; top: 737.5px; width: 602px; height: 163.4px"></div>
-            <div data-hf-id="hf-jtq5" id="f01-m12" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="12" data-variable-values="{&quot;tool&quot;:&quot;Glob&quot;,&quot;label&quot;:&quot;libs/frontend/**/providers*.ts&quot;,&quot;cues&quot;:&quot;0.3,0.5,1.3&quot;,&quot;runFor&quot;:0.8,&quot;duration&quot;:&quot;0.3s&quot;}" style="left: 280px; top: 909.5px; width: 602px; height: 31px"></div>
-            <div data-hf-id="hf-9e1c" id="f01-m13" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="13" data-variable-values="{&quot;tool&quot;:&quot;Write&quot;,&quot;label&quot;:&quot;.../audit/providers-findings.md&quot;,&quot;cues&quot;:&quot;2.687,2.85,3.35&quot;,&quot;runFor&quot;:0.5,&quot;duration&quot;:&quot;0.2s&quot;}" style="left: 280px; top: 946px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-go89" id="f01-m10" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.757" data-track-index="10" data-variable-values="{&quot;title&quot;:&quot;providers UX audit&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;,&quot;agents&quot;:3,&quot;cost&quot;:&quot;$2.37&quot;,&quot;time&quot;:&quot;9m 51s&quot;}" style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
+            <div data-hf-id="hf-76ox" id="f01-m11" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.757" data-track-index="11" data-variable-values="{&quot;text&quot;:&quot;Two lanes audit the providers screen. I merge their findings when both report back.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.5&quot;}" style="left: 280px; top: 737.5px; width: 602px; height: 163.4px"></div>
+            <div data-hf-id="hf-jtq5" id="f01-m12" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.757" data-track-index="12" data-variable-values="{&quot;tool&quot;:&quot;Glob&quot;,&quot;label&quot;:&quot;libs/frontend/**/providers*.ts&quot;,&quot;cues&quot;:&quot;0.3,0.5,1.3&quot;,&quot;runFor&quot;:0.8,&quot;duration&quot;:&quot;0.3s&quot;}" style="left: 280px; top: 909.5px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-9e1c" id="f01-m13" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.757" data-track-index="13" data-variable-values="{&quot;tool&quot;:&quot;Write&quot;,&quot;label&quot;:&quot;.../audit/providers-findings.md&quot;,&quot;cues&quot;:&quot;2.687,2.85,3.35&quot;,&quot;runFor&quot;:0.5,&quot;duration&quot;:&quot;0.2s&quot;}" style="left: 280px; top: 946px; width: 602px; height: 31px"></div>
 
             <!-- slot 3 (1000,630) -->
-            <div data-hf-id="hf-c8bq" id="f01-m14" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.582" data-track-index="14" data-variable-values="{&quot;title&quot;:&quot;review memory work&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;,&quot;agents&quot;:1,&quot;cost&quot;:&quot;$1.08&quot;,&quot;time&quot;:&quot;6m 12s&quot;,&quot;models&quot;:1}" style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
-            <div data-hf-id="hf-c1fz" id="f01-m15" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.582" data-track-index="15" data-variable-values="{&quot;text&quot;:&quot;The memory curator looks right. The fallback path needs one more test.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.4&quot;}" style="left: 1086px; top: 737.5px; width: 602px; height: 163.4px"></div>
-            <div data-hf-id="hf-iprn" id="f01-m16" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="16" data-variable-values="{&quot;tool&quot;:&quot;Read&quot;,&quot;label&quot;:&quot;.../memory/memory-curator.service.ts&quot;,&quot;cues&quot;:&quot;1.343,1.5,2.2&quot;,&quot;runFor&quot;:0.7,&quot;duration&quot;:&quot;0.3s&quot;}" style="left: 1086px; top: 909.5px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-c8bq" id="f01-m14" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.757" data-track-index="14" data-variable-values="{&quot;title&quot;:&quot;review memory work&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;,&quot;agents&quot;:1,&quot;cost&quot;:&quot;$1.08&quot;,&quot;time&quot;:&quot;6m 12s&quot;,&quot;models&quot;:1}" style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
+            <div data-hf-id="hf-c1fz" id="f01-m15" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.757" data-track-index="15" data-variable-values="{&quot;text&quot;:&quot;The memory curator looks right. The fallback path needs one more test.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.4&quot;}" style="left: 1086px; top: 737.5px; width: 602px; height: 163.4px"></div>
+            <div data-hf-id="hf-iprn" id="f01-m16" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.757" data-track-index="16" data-variable-values="{&quot;tool&quot;:&quot;Read&quot;,&quot;label&quot;:&quot;.../memory/memory-curator.service.ts&quot;,&quot;cues&quot;:&quot;1.343,1.5,2.2&quot;,&quot;runFor&quot;:0.7,&quot;duration&quot;:&quot;0.3s&quot;}" style="left: 1086px; top: 909.5px; width: 602px; height: 31px"></div>
           </div>
         </div>
       </div>
 
-      <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="3.582" data-media-start="12.575" data-track-index="10" data-volume="0.6"></audio>
+<!-- 02-title-team.html (3.582-5.373) -->
+<div id="f02" class="scene">
+        <div id="f02-vig"></div>
+        <div id="f02-stage">
+          <div id="f02-l1" class="f02-line">One prompt.</div>
+          <div id="f02-l2" class="f02-line">A whole</div>
+          <div id="f02-l3" class="f02-line">AI team.<div id="f02-rule"></div></div>
+        </div>
+      </div>
+
+      <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="5.373" data-media-start="12.575" data-track-index="10" data-volume="0.6"></audio>
 
       <!-- SFX, Frame 1 -->
       <audio id="sx-f01-g1" src="assets/sfx/glitch-1.mp3" data-start="0" data-duration="0.6" data-track-index="20" data-volume="0.5"></audio>
@@ -91,8 +109,10 @@
         const tl = HyperShader.init({
           bgColor: "#131317",
           accentColor: "#d4af37",
-          scenes: ["f01"],
-          transitions: [],
+          scenes: ["f01", "f02"],
+          transitions: [
+          {"time":3.407,"shader":"glitch","duration":0.35}
+        ],
         });
 // 01-hook.html
 (function (tl, T0) {
@@ -143,6 +163,16 @@
           writeGlitch(0);
           tl.fromTo(drive, { p: 0 }, { p: 1, duration: DROP + 0.1, ease: "none", onUpdate: function () { writeGlitch(tl.time() - T0); } }, T0);
       })(tl, 0);
+// 02-title-team.html
+(function (tl, T0) {
+          // One beat array drives every hit (134 BPM). Distinct entrance per line; exactly one accent hue.
+          var B = 0.448, BEATS = [0, B, 2 * B];
+          tl.fromTo("#f02-l1", { scale: 1.45, filter: "blur(14px)", opacity: 0 }, { scale: 1, filter: "blur(0px)", opacity: 1, duration: 0.4, ease: "power4.out" }, T0 + BEATS[0]);
+          tl.fromTo("#f02-l2", { x: 360, opacity: 0 }, { x: 0, opacity: 1, duration: 0.36, ease: "expo.out" }, T0 + BEATS[1]);
+          tl.fromTo("#f02-l3", { y: 90, rotation: 5, opacity: 0 }, { y: 0, rotation: 0, opacity: 1, duration: 0.42, ease: "circ.out" }, T0 + BEATS[2]);
+          // Finale dressing on beat 4: the gold rule sweeps under "AI TEAM.", then the frame holds still.
+          tl.fromTo("#f02-rule", { scaleX: 0 }, { scaleX: 1, duration: 0.3, ease: "expo.out" }, T0 + 3 * B);
+      })(tl, 3.582);
         window.__timelines["main"] = tl;
       })();
     </script>
