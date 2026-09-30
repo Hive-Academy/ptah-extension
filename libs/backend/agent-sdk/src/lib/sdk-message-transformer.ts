@@ -386,14 +386,21 @@ export class SdkMessageTransformer implements TransformerState {
     this.toolCallIdByContextAndBlock.clear();
     this.backgroundTaskToolUseIds.clear();
     this.activeSkillToolUseIds.clear();
-    this.taskIdToParentToolUseId.clear();
-    this.taskStartedEmitted.clear();
     // backgroundAnnouncedToolUseIds is deliberately NOT cleared here: a
     // compact boundary can land while a background task is still settling,
     // and clearing the mark would lose its terminal
     // background_agent_completed/stopped event and leave the tray entry
     // `running` forever. Each mark is removed per id when that terminal
-    // event fires.
+    // event fires. For the same reason an announced task keeps its
+    // task → parent mapping: a task_notification may omit tool_use_id and
+    // then resolves its parent through this map (task_notification clears
+    // the entry per task, so nothing leaks).
+    for (const [taskId, parent] of this.taskIdToParentToolUseId) {
+      if (!this.backgroundAnnouncedToolUseIds.has(parent)) {
+        this.taskIdToParentToolUseId.delete(taskId);
+      }
+    }
+    this.taskStartedEmitted.clear();
     this.nonAgentTaskIds.clear();
     this.workflowRunByToolUseId.clear();
   }
