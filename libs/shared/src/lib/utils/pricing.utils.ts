@@ -202,8 +202,10 @@ export interface FindPricingOptions {
  * Find pricing for a model by ID.
  *
  * 1. Exact match (e.g., "claude-opus-4-5-20251101", "gpt-5.4", "kimi-k2.5")
- * 2. Partial match (e.g., "claude-opus-4-5" matches "claude-opus-4-5-20251101")
- * 3. Returns `null` — pricing genuinely unknown.
+ * 2. Exact match after dropping trailing variant tags
+ *    (e.g., "claude-opus-5-5[1m]" matches "claude-opus-5-5")
+ * 3. Date-snapshot match (e.g., "claude-opus-4-5-20251101" matches "claude-opus-4-5")
+ * 4. Returns `null` — pricing genuinely unknown.
  *
  * @param modelId - Model identifier from the SDK or third-party proxy.
  * @returns Pricing entry, or `null` when no match is found. Callers should
@@ -244,14 +246,60 @@ export function findModelPricing(modelId: string): ModelPricing | null {
  */
 const DATE_SNAPSHOT_SUFFIX = /^-(?:\d{4}-\d{2}-\d{2}|\d{8})$/;
 
+/** The same date snapshot, anchored at the end of a whole model id. */
+const TRAILING_DATE_SNAPSHOT = /-(?:\d{4}-\d{2}-\d{2}|\d{8})$/;
+
+/** One or more trailing bracketed variant tags, e.g. `[1m]` or `[1m][fast]`. */
+const TRAILING_VARIANT_TAGS = /(\[[^\]]*\])+$/;
+
+/**
+ * Drop trailing bracketed variant tags from a model id.
+ *
+ * The Claude CLI keys `modelUsage` by the raw model string it ran, so the
+ * 1M-context variant arrives as `claude-opus-5[1m]`; the tag is stripped before
+ * the API call and is not part of the model's identity.
+ *
+ * @example stripModelVariantTags('claude-opus-5-5[1m]'); // 'claude-opus-5-5'
+ */
+export function stripModelVariantTags(modelId: string): string {
+  return modelId.replace(TRAILING_VARIANT_TAGS, '');
+}
+
+/** Drop everything up to the last `/` (`anthropic/`, `openrouter/x/`, ...). */
+function stripProviderPrefix(modelId: string): string {
+  return modelId.slice(modelId.lastIndexOf('/') + 1);
+}
+
+/**
+ * Reduce a model id to the spelling every key space shares: trimmed,
+ * lowercase, without trailing `[..]` variant tags, without a `provider/`
+ * prefix and without a date snapshot suffix.
+ *
+ * This is a MATCHING key (e.g. pairing `modelUsage` rows with stream-tracked
+ * context). It is deliberately not how pricing is looked up: pricing tries the
+ * exact id first so a distinctly priced variant is never collapsed onto its
+ * base model (see {@link findModelPricing}).
+ *
+ * @example
+ * normalizeModelKey('Anthropic/Claude-Opus-5-5-20260101[1m]'); // 'claude-opus-5-5'
+ */
+export function normalizeModelKey(modelId: string): string {
+  const lower = stripModelVariantTags(modelId.trim().toLowerCase());
+  return stripProviderPrefix(lower).replace(TRAILING_DATE_SNAPSHOT, '');
+}
+
 /**
  * Exact-then-partial lookup against the runtime map. Silent: the "unknown
  * model" warning belongs to {@link findModelPricing}, which alone knows
  * whether a miss is actually a problem.
  *
  * Rules:
- * 1. Exact match against normalized modelId or prefix-stripped modelId.
- * 2. Forward partial match for date-snapshot ids:
+ * 1. Exact match, most specific spelling first: the lowercase id, then the
+ *    id without its provider prefix, then (when `stripVariantTags`) the id
+ *    without trailing `[..]` variant tags, then without both. A catalog that
+ *    publishes a distinct `claude-opus-5-5[1m]` entry therefore wins over the
+ *    base `claude-opus-5-5` entry.
+ * 2. Forward partial match for date-snapshot ids (over the tag-stripped id):
  *    Querying e.g. "gpt-4o-2024-08-06" resolves to "gpt-4o", and
  *    "claude-opus-4-5-20251101" resolves to "claude-opus-4-5".
  *    A partial match is ONLY accepted when the remainder after the registered
@@ -262,20 +310,35 @@ const DATE_SNAPSHOT_SUFFIX = /^-(?:\d{4}-\d{2}-\d{2}|\d{8})$/;
  *    deliberately removed: querying a shorter or generic model id (e.g. "supermodel")
  *    must never resolve to an arbitrary longer registered variant (such as
  *    "supermodel-2099-final-edition"), which would bill at the wrong rates.
+ *
+ * `stripVariantTags: false` keeps the pre-tag behaviour for the context-window
+ * lookup: a `[1m]` variant must not inherit its base model's `maxTokens`.
  */
-function lookupPricingEntry(modelId: string): ModelPricing | null {
-  const normalizedId = modelId.toLowerCase();
-  if (modelPricingMap[normalizedId]) {
-    return modelPricingMap[normalizedId];
+function lookupPricingEntry(
+  modelId: string,
+  stripVariantTags = true,
+): ModelPricing | null {
+  const lowerId = modelId.toLowerCase();
+  const untaggedId = stripVariantTags
+    ? stripModelVariantTags(lowerId)
+    : lowerId;
+  // Candidate spellings, most specific first; duplicates are harmless.
+  const exactIds = [
+    lowerId,
+    stripProviderPrefix(lowerId),
+    untaggedId,
+    stripProviderPrefix(untaggedId),
+  ];
+  for (const id of exactIds) {
+    // Own keys only: an id such as `x/constructor` or `__proto__` must not
+    // resolve to an inherited Object.prototype member and yield NaN costs.
+    if (id && Object.hasOwn(modelPricingMap, id) && modelPricingMap[id]) {
+      return modelPricingMap[id];
+    }
   }
 
-  const strippedId = normalizedId.includes('/')
-    ? normalizedId.slice(normalizedId.lastIndexOf('/') + 1)
-    : normalizedId;
-
-  if (strippedId !== normalizedId && modelPricingMap[strippedId]) {
-    return modelPricingMap[strippedId];
-  }
+  const normalizedId = untaggedId;
+  const strippedId = stripProviderPrefix(untaggedId);
 
   let bestMatch: ModelPricing | null = null;
   let bestMatchKeyLength = -1;
@@ -455,7 +518,7 @@ export function getModelContextWindow(modelId: string): number {
   if (!modelId) return 0;
   const discovered = discoveredContextWindows.get(contextWindowKey(modelId));
   if (discovered !== undefined) return discovered;
-  const pricing = lookupPricingEntry(modelId);
+  const pricing = lookupPricingEntry(modelId, false);
   if (pricing?.maxTokens) return pricing.maxTokens;
 
   const stripped = modelId

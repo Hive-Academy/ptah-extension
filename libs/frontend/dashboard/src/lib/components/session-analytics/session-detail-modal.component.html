@@ -79,7 +79,15 @@
           <div class="text-[10px] uppercase tracking-wider text-base-content-muted mb-1">
             Est. Total Cost
           </div>
-          <div class="text-lg font-semibold text-success tabular-nums">
+          <div
+            class="text-lg font-semibold tabular-nums"
+            [class]="costClass()"
+            data-testid="session-detail-cost"
+          >
+            @if (isLowerBound()) {
+              <span [title]="lowerBoundTitle" aria-hidden="true" data-testid="session-detail-lower-bound">&ge;</span>
+              <span class="sr-only">At least</span>
+            }
             {{ costText() }}
           </div>
         </div>
@@ -104,6 +112,10 @@
             Cost / Msg
           </div>
           <div class="text-lg font-semibold text-base-content-muted tabular-nums">
+            @if (isLowerBound() && costPerMessage() !== null) {
+              <span [title]="lowerBoundTitle" aria-hidden="true">&ge;</span>
+              <span class="sr-only">At least</span>
+            }
             {{ formatCost(costPerMessage()) }}
           </div>
         </div>
@@ -170,7 +182,7 @@
                 <span title="Input / Output tokens">
                   {{ formatTokenCount(m.inputTokens) }} / {{ formatTokenCount(m.outputTokens) }}
                 </span>
-                <span class="text-success font-medium">{{ formatEstimatedCost(m.costUSD) }}</span>
+                <span class="font-medium" [class]="costValueClass(m.costUSD !== null)">{{ formatEstimatedCost(m.costUSD) }}</span>
               </span>
             </div>
           }

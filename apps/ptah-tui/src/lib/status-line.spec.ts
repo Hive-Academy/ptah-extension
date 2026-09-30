@@ -104,6 +104,23 @@ describe('deriveStatusLine — derived fields', () => {
     expect(model.context).toBeNull();
   });
 
+  it('never renders an unknown session cost as $0', () => {
+    const model = deriveStatusLine({
+      ...base,
+      stats: { ...stats, costUSD: null },
+    });
+    expect(model.cost).toBeNull();
+    expect(model.tokens).toBe('12.4k/800');
+  });
+
+  it('marks a partially priced session cost as a lower bound', () => {
+    const model = deriveStatusLine({
+      ...base,
+      stats: { ...stats, costUSD: 0.5, costPartial: true },
+    });
+    expect(model.cost).toEqual({ label: '>=$0.500', tone: 'ok' });
+  });
+
   it('uses the fallback model only when stats carry none', () => {
     expect(deriveStatusLine({ ...base, fallbackModel: 'sonnet' }).model).toBe(
       'sonnet',

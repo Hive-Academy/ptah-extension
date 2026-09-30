@@ -19,6 +19,7 @@ import {
   FlatStreamEventUnion,
   ExecutionChatMessage,
   MessageStartEvent,
+  type ResultStatsPayload,
   SessionId,
   isTurnStateEvent,
 } from '@ptah-extension/shared';
@@ -39,6 +40,16 @@ import {
   type AccumulatorContext,
 } from './accumulator-core.service';
 import { TurnStateApplier } from './turn-state-applier.service';
+
+/**
+ * The per-turn footer fields of one `session:stats` result, taken from the
+ * shared wire type so a rename there fails typecheck here. `sessionId` is the
+ * raw wire string; it is parsed before any lookup.
+ */
+type SessionStatsFooter = Pick<
+  ResultStatsPayload,
+  'turnCost' | 'tokens' | 'duration'
+> & { readonly sessionId: string };
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
@@ -520,13 +531,16 @@ export class StreamingHandlerService {
    *     `pendingStats`; finalization consumes them onto the final message;
    *   - the tab is already finalized → merge them onto the last assistant
    *     message and report the queued content for dispatch.
+   *
+   * `turnCost` is that turn's own spend (TASK_2026_575) and becomes the
+   * message's `cost`. The backend publishes one payload per new turn, so it
+   * always belongs to the latest assistant message. `null` means unknown and
+   * is stored as `null` (the footer renders "cost unavailable"), never 0 and
+   * never a previous or session figure.
    */
-  handleSessionStats(stats: {
-    sessionId: string;
-    cost: number | null;
-    tokens: { input: number; output: number };
-    duration: number;
-  }): { tabId: string; queuedContent: string | null } | null {
+  handleSessionStats(
+    stats: SessionStatsFooter,
+  ): { tabId: string; queuedContent: string | null } | null {
     // Same non-throwing parse as `processStreamEvent`: this method has no
     // try/catch, so a `''` session id used to throw straight out of the
     // handler and abandon the whole turn-end stats merge.
@@ -548,7 +562,7 @@ export class StreamingHandlerService {
         const bgState = bgTab.streamingState;
         if (bgState) {
           bgState.pendingStats = {
-            cost: stats.cost,
+            cost: stats.turnCost,
             tokens: stats.tokens,
             duration: stats.duration,
           };
@@ -602,7 +616,7 @@ export class StreamingHandlerService {
         const state = t.streamingState;
         if (!state) continue;
         state.pendingStats = {
-          cost: stats.cost,
+          cost: stats.turnCost,
           tokens: stats.tokens,
           duration: stats.duration,
         };
@@ -626,11 +640,7 @@ export class StreamingHandlerService {
    */
   private mergeStatsOntoLastAssistant(
     tab: TabState,
-    stats: {
-      cost: number | null;
-      tokens: { input: number; output: number };
-      duration: number;
-    },
+    stats: SessionStatsFooter,
   ): void {
     const messages = tab.messages;
     let lastAssistantIndex = -1;
@@ -646,7 +656,7 @@ export class StreamingHandlerService {
     updatedMessages[lastAssistantIndex] = {
       ...messages[lastAssistantIndex],
       tokens: stats.tokens,
-      cost: stats.cost,
+      cost: stats.turnCost,
       duration: stats.duration,
     };
     this.tabManager.setMessages(tab.id, updatedMessages);
