@@ -5,8 +5,30 @@ import {
   registerClient,
   OAuthDiscoveryError,
   OAUTH_DISCOVERY_ERROR_NAME,
+  OAuthTimeoutError,
+  OAUTH_TIMEOUT_ERROR_NAME,
+  withRequestTimeout,
   type FetchLike,
 } from './mcp-oauth-metadata';
+
+/**
+ * A request that never answers on its own and settles only when its signal
+ * aborts, which is how the real `fetch` behaves against a silent server.
+ * `AbortSignal.timeout` runs on Node's internal timers, which Jest's fake
+ * timers do not drive, so the timeout specs use real timers with small bounds.
+ */
+function hangingFetch(seen: string[]): FetchLike {
+  return (url, init) => {
+    seen.push(url);
+    return new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () => reject(init.signal?.reason),
+        { once: true },
+      );
+    });
+  };
+}
 
 function jsonResp(body: unknown, ok = true, status = 200) {
   return {
@@ -400,5 +422,108 @@ describe('registerClient', () => {
         fetchImpl,
       ),
     ).rejects.toThrow(/Dynamic client registration failed/);
+  });
+});
+
+describe('withRequestTimeout', () => {
+  it('aborts a hanging request after the per-request timeout', async () => {
+    const timed = withRequestTimeout(hangingFetch([]), 30);
+    const started = Date.now();
+
+    const error = await timed('https://auth.example.com/token').catch(
+      (e: unknown) => e,
+    );
+
+    expect(error).toBeInstanceOf(OAuthTimeoutError);
+    expect(error).toMatchObject({
+      name: OAUTH_TIMEOUT_ERROR_NAME,
+      url: 'https://auth.example.com/token',
+      message: 'The authorization server did not respond in time.',
+    });
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeGreaterThanOrEqual(20);
+    expect(elapsed).toBeLessThan(5000);
+  });
+
+  it('honours a caller signal that fires before the per-request timeout', async () => {
+    const timed = withRequestTimeout(hangingFetch([]), 10_000);
+    await expect(
+      timed('https://auth.example.com/x', { signal: AbortSignal.timeout(20) }),
+    ).rejects.toBeInstanceOf(OAuthTimeoutError);
+  });
+
+  it('passes a normal response through and leaves other failures unchanged', async () => {
+    const ok = withRequestTimeout(async () => jsonResp({ a: 1 }), 1000);
+    const resp = await ok('https://auth.example.com/x');
+    expect(resp.ok).toBe(true);
+    expect(resp.status).toBe(200);
+    await expect(resp.json()).resolves.toEqual({ a: 1 });
+
+    const failing = withRequestTimeout(async () => {
+      throw new TypeError('fetch failed');
+    }, 1000);
+    await expect(failing('https://auth.example.com/x')).rejects.toThrow(
+      new TypeError('fetch failed'),
+    );
+  });
+});
+
+describe('discovery deadline', () => {
+  it('discoverAuthorizationServer stops trying candidates once the deadline passes', async () => {
+    const seen: string[] = [];
+    // Each request would wait 10 s; the phase deadline fires at 40 ms.
+    const timed = withRequestTimeout(hangingFetch(seen), 10_000);
+
+    await expect(
+      discoverAuthorizationServer(
+        'https://mcp.example.com/mcp',
+        timed,
+        AbortSignal.timeout(40),
+      ),
+    ).rejects.toBeInstanceOf(OAuthTimeoutError);
+    // Only the first of the path / root / 401-challenge candidates was tried.
+    expect(seen).toEqual([
+      'https://mcp.example.com/.well-known/oauth-protected-resource/mcp',
+    ]);
+  });
+
+  it('discoverAuthServerMetadata stops mid-way when per-request timeouts exhaust the deadline', async () => {
+    const seen: string[] = [];
+    // Each candidate times out after 30 ms; the deadline fires at 75 ms, so
+    // the candidate list (six forms for a path issuer) is not exhausted.
+    const timed = withRequestTimeout(hangingFetch(seen), 30);
+
+    await expect(
+      discoverAuthServerMetadata(
+        'https://auth.smithery.ai/hubspot',
+        timed,
+        AbortSignal.timeout(75),
+      ),
+    ).rejects.toBeInstanceOf(OAuthTimeoutError);
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen.length).toBeLessThan(6);
+  });
+
+  it('reports a passed deadline as a timeout, not as "no OAuth discovery"', async () => {
+    const seen: string[] = [];
+    await expect(
+      discoverAuthServerMetadata(
+        'https://auth.example.com',
+        smitheryFetch(seen),
+        AbortSignal.abort(),
+      ),
+    ).rejects.toMatchObject({ name: OAUTH_TIMEOUT_ERROR_NAME });
+    expect(seen).toEqual([]);
+  });
+
+  it('leaves discovery unchanged when the deadline has not passed', async () => {
+    const seen: string[] = [];
+    const meta = await discoverAuthServerMetadata(
+      'https://auth.smithery.ai/hubspot',
+      withRequestTimeout(smitheryFetch(seen), 1000),
+      AbortSignal.timeout(5000),
+    );
+    expect(meta.tokenEndpoint).toBe('https://auth.smithery.ai/hubspot/token');
+    expect(seen).toEqual([SMITHERY_AS_PATH_INSERT]);
   });
 });

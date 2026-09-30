@@ -8,6 +8,7 @@ import type {
   PtahConnector,
   SmitheryConnectionSummary,
 } from '@ptah-extension/shared';
+import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
 import { ConnectorLinksStore } from './connector-links.store';
 
 /**
@@ -554,6 +555,26 @@ describe('ConnectorLinksStore', () => {
       });
       expect(callsTo('mcpDirectory:listOAuthConnected').length).toBeGreaterThan(
         before,
+      );
+    });
+
+    it('gives connectOAuth the OAuth budget, not the 30s RPC default', async () => {
+      setResponder('mcpDirectory:connectOAuth', () =>
+        ok({ success: true, serverKey: 'oauth-mcp.sentry' }),
+      );
+      await createLoadedStore();
+
+      await store.connect(SENTRY);
+
+      const connect = rpcMock.call.mock.calls
+        .filter(([method]) => method === 'mcpDirectory:connectOAuth')
+        .at(-1) as unknown[] | undefined;
+      expect(connect?.[2]).toEqual({
+        timeout: MARKETPLACE_RPC_TIMEOUTS.OAUTH_CONNECT_MS,
+      });
+      // The backend waits up to 5 minutes for the browser callback alone.
+      expect(MARKETPLACE_RPC_TIMEOUTS.OAUTH_CONNECT_MS).toBeGreaterThan(
+        5 * 60 * 1000,
       );
     });
 

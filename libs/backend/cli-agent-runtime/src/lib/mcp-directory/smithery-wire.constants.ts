@@ -20,7 +20,7 @@ export const SMITHERY_API_KEY_QUERY_PARAM = 'api_key';
 export const SMITHERY_PROFILE_QUERY_PARAM = 'profile';
 export const SMITHERY_PREFER_HEADER_KEY = false;
 
-export const SMITHERY_REQUEST_TIMEOUT_MS = 15_000;
+export const SMITHERY_REQUEST_TIMEOUT_MS = 30_000;
 export const SMITHERY_CACHE_TTL_MS = 10 * 60 * 1000;
 export const SMITHERY_FIRST_PAGE = 1;
 export const SMITHERY_DEFAULT_PAGE_SIZE = 20;

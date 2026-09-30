@@ -31,7 +31,10 @@ import {
 import { PluginMarketplaceError } from '../errors';
 import { MarketplaceRegistryService } from '../registry/marketplace-registry.service';
 import { ExternalPluginStateStore } from './external-plugin-state.store';
-import { ExternalPluginInstallerService } from './external-plugin-installer.service';
+import {
+  ExternalPluginInstallerService,
+  PLUGIN_INSTALL_PLAN_DEADLINE_MS,
+} from './external-plugin-installer.service';
 
 const SOURCE = 'dotnet/skills';
 const PLUGIN = 'dotnet-test';
@@ -81,11 +84,32 @@ class FakeGitHub extends GitHubContentClient {
     ];
   }
 
+  /**
+   * How a download behaves: `instant` answers at once, `delayed` answers after
+   * `downloadDelayMs` of (fake) time, `hang` never answers until its signal
+   * aborts — a slow steady transfer no socket-idle timeout would ever cut.
+   */
+  downloadMode: 'instant' | 'delayed' | 'hang' = 'instant';
+  downloadDelayMs = 0;
+  /** Signal seen by each fetchRepoFile call, in call order. */
+  readonly downloadSignals: (AbortSignal | undefined)[] = [];
+
   override async fetchRepoFile(
     _owner: string,
     _repo: string,
     repoPath: string,
+    signal?: AbortSignal,
   ): Promise<FetchedBlob> {
+    this.downloadSignals.push(signal);
+    if (this.downloadMode === 'hang') {
+      await new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        });
+      });
+    } else if (this.downloadMode === 'delayed') {
+      await new Promise((resolve) => setTimeout(resolve, this.downloadDelayMs));
+    }
     const content = this.files[repoPath];
     if (content === undefined) throw new Error(`missing fixture: ${repoPath}`);
     const bytes = toBuffer(content);
@@ -486,6 +510,110 @@ describe('ExternalPluginInstallerService', () => {
 
       expect(fs.existsSync(targetDir())).toBe(false);
       expect(store.isInstalled(PLUGIN_ID)).toBe(false);
+    });
+  });
+
+  describe('the plan has an overall deadline', () => {
+    let logger: Logger;
+
+    /** 25 files: three download batches of at most 10. */
+    const manyRepoFiles = (): RepoFiles => {
+      const files = healthyRepoFiles();
+      for (let i = 0; i < 19; i += 1) {
+        files[`${SUBTREE}/skills/run-tests/notes-${i}.md`] = `note ${i}`;
+      }
+      return files;
+    };
+
+    beforeEach(() => {
+      // Only timers are faked: the temp-filesystem setup and teardown above
+      // still need real I/O callbacks.
+      jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+      logger = fakeLogger();
+      installer = new ExternalPluginInstallerService(
+        logger,
+        github,
+        registry,
+        store,
+      );
+      installer.initialize(pluginsBasePath);
+      github.files = manyRepoFiles();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('stops at the deadline: aborts in-flight downloads, schedules no further batch, remembers no plan', async () => {
+      github.downloadMode = 'hang';
+
+      const planned = installer.planInstall(SOURCE, PLUGIN);
+      const outcome = planned.then(
+        () => null,
+        (error: unknown) => error,
+      );
+
+      await jest.advanceTimersByTimeAsync(PLUGIN_INSTALL_PLAN_DEADLINE_MS - 1);
+      expect(github.downloadSignals).toHaveLength(10);
+      expect(github.downloadSignals.every((s) => s?.aborted === false)).toBe(
+        true,
+      );
+
+      await jest.advanceTimersByTimeAsync(1);
+      const error = await outcome;
+
+      expect(error).toBeInstanceOf(PluginMarketplaceError);
+      expect(error).toMatchObject({
+        code: 'timeout',
+        message: expect.stringContaining('longer than 3 minutes'),
+      });
+
+      // Every in-flight request was told to stop, and the second batch never
+      // started — not even after more time passes.
+      expect(github.downloadSignals.every((s) => s?.aborted === true)).toBe(
+        true,
+      );
+      await jest.advanceTimersByTimeAsync(PLUGIN_INSTALL_PLAN_DEADLINE_MS);
+      expect(github.downloadSignals).toHaveLength(10);
+
+      // Staging is in memory only: nothing on disk, nothing recorded, no timer
+      // left running.
+      expect(fs.existsSync(targetDir())).toBe(false);
+      expect(store.isInstalled(PLUGIN_ID)).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('timed out'),
+        expect.objectContaining({
+          source: SOURCE,
+          plugin: PLUGIN,
+          elapsedMs: PLUGIN_INSTALL_PLAN_DEADLINE_MS,
+        }),
+      );
+    });
+
+    it('returns an installable plan unchanged when it finishes under the deadline', async () => {
+      github.downloadMode = 'delayed';
+      github.downloadDelayMs = 1_000;
+
+      const planned = installer.planInstall(SOURCE, PLUGIN);
+      await jest.advanceTimersByTimeAsync(3 * 1_000);
+      const plan = await planned;
+
+      expect(plan.fileCount).toBe(25);
+      expect(plan.version).toBe('1.2.0');
+      expect(github.downloadSignals).toHaveLength(25);
+      expect(github.downloadSignals.every((s) => s?.aborted === false)).toBe(
+        true,
+      );
+      // The deadline timer is released with the plan.
+      expect(jest.getTimerCount()).toBe(0);
+      expect(logger.warn).not.toHaveBeenCalled();
+
+      jest.useRealTimers();
+      const result = await installer.confirmInstall(plan.consentToken);
+      expect(result.filesWritten).toBe(25);
+      expect(store.isInstalled(PLUGIN_ID)).toBe(true);
     });
   });
 });

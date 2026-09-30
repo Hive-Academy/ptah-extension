@@ -72,6 +72,18 @@ const MAX_FILE_COUNT = 1_000;
 /** Parallel raw.githubusercontent.com downloads, matching ContentDownloadService. */
 const MAX_CONCURRENCY = 10;
 
+/**
+ * Overall wall-clock budget for building one install plan: the manifest, the
+ * trees API call(s) and every download batch together.
+ *
+ * Per-request timeouts in `GitHubContentClient` bound socket silence only, so a
+ * slow but steady transfer is never cut by them. This bound is what guarantees
+ * `plugins:install-external` answers before the webview gives up
+ * (`MARKETPLACE_RPC_TIMEOUTS.PLUGIN_INSTALL_MS`, 210 s) — keep it below that,
+ * with room for the IPC round trip.
+ */
+export const PLUGIN_INSTALL_PLAN_DEADLINE_MS = 180_000;
+
 /** How long a pending plan (and its downloaded bytes) stays valid. */
 const PLAN_TTL_MS = 10 * 60 * 1000;
 
@@ -124,14 +136,58 @@ export class ExternalPluginInstallerService {
    * Build a plan for installing `plugin` from `source`.
    *
    * Downloads the subtree into memory; writes nothing.
+   *
+   * Bounded by {@link PLUGIN_INSTALL_PLAN_DEADLINE_MS}. On expiry every
+   * in-flight request is aborted, no further download batch starts, the bytes
+   * staged so far are dropped with no plan remembered, and the caller receives
+   * a `timeout` error. The plan stages in memory only, so there is nothing on
+   * disk to clean up.
    */
   async planInstall(
     source: string,
     plugin: string,
   ): Promise<ExternalInstallPlan> {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      PLUGIN_INSTALL_PLAN_DEADLINE_MS,
+    );
+
+    try {
+      // `untilAborted` guarantees the answer even if some collaborator ignores
+      // the signal; the signal is what actually stops the work.
+      return await untilAborted(
+        this.buildPlan(source, plugin, controller.signal),
+        controller.signal,
+      );
+    } catch (error: unknown) {
+      if (!controller.signal.aborted) throw error;
+
+      this.logger.warn('[ExternalPluginInstallerService] Install plan timed out', {
+        source,
+        plugin,
+        elapsedMs: Date.now() - startedAt,
+        deadlineMs: PLUGIN_INSTALL_PLAN_DEADLINE_MS,
+      });
+      throw new PluginMarketplaceError(
+        'timeout',
+        `The plugin download took longer than ${Math.round(PLUGIN_INSTALL_PLAN_DEADLINE_MS / 60_000)} minutes and was stopped. Try again, or install a smaller plugin.`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async buildPlan(
+    source: string,
+    plugin: string,
+    signal: AbortSignal,
+  ): Promise<ExternalInstallPlan> {
     const { resolved, entry } = await this.registry.resolvePlugin(
       source,
       plugin,
+      signal,
     );
     const coordinate: ExternalPluginCoordinate = {
       owner: resolved.owner,
@@ -140,7 +196,7 @@ export class ExternalPluginInstallerService {
     };
     const pluginId = buildExternalPluginId(coordinate);
 
-    const staged = await this.downloadSubtree(resolved, entry);
+    const staged = await this.downloadSubtree(resolved, entry, signal);
     const version = this.resolveVersion(entry, staged.files);
     const displayName = this.resolveDisplayName(entry, staged.files);
     const mcpServers = describeMcpServers(entry);
@@ -173,6 +229,10 @@ export class ExternalPluginInstallerService {
       collisions: [],
       consentToken,
     };
+
+    // A plan that finished after its deadline was already reported as a
+    // timeout; remembering it would leave a consent token nobody was shown.
+    throwIfAborted(signal);
 
     this.rememberPlan({
       plan,
@@ -311,8 +371,13 @@ export class ExternalPluginInstallerService {
   private async downloadSubtree(
     resolved: ResolvedManifest,
     entry: MarketplaceManifestPlugin,
+    signal: AbortSignal,
   ): Promise<{ files: StagedFile[]; skippedBinaryFiles: string[] }> {
-    const tree = await this.github.fetchRepoTree(resolved.owner, resolved.repo);
+    const tree = await this.github.fetchRepoTree(
+      resolved.owner,
+      resolved.repo,
+      signal,
+    );
     const prefix = `${entry.source}/`;
 
     const blobs = tree.filter(
@@ -349,6 +414,8 @@ export class ExternalPluginInstallerService {
     let totalBytes = 0;
 
     for (let i = 0; i < blobs.length; i += MAX_CONCURRENCY) {
+      // Past the deadline no new batch is scheduled.
+      throwIfAborted(signal);
       const chunk = blobs.slice(i, i + MAX_CONCURRENCY);
       const downloaded = await Promise.all(
         chunk.map(async (node) => {
@@ -368,6 +435,7 @@ export class ExternalPluginInstallerService {
             resolved.owner,
             resolved.repo,
             node.path,
+            signal,
           );
           return { relativePath, blob };
         }),
@@ -507,6 +575,42 @@ function mintConsentToken(
     hash.update(crypto.createHash('sha256').update(file.bytes).digest('hex'));
   }
   return hash.digest('hex');
+}
+
+/**
+ * Stop here once the plan's deadline has passed. What is thrown does not
+ * matter: `planInstall` sees the aborted signal and reports the timeout.
+ */
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new PluginMarketplaceError('timeout', 'Install plan aborted.');
+  }
+}
+
+/**
+ * Settle with `work`, or reject as soon as `signal` aborts — whichever comes
+ * first. The abort listener is released on either outcome.
+ */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void =>
+      reject(new PluginMarketplaceError('timeout', 'Install plan aborted.'));
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**

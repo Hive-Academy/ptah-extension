@@ -24,6 +24,8 @@ export type PluginMarketplaceErrorCode =
   | 'path-traversal'
   /** The plugin subtree exceeds the install size limits. */
   | 'too-large'
+  /** An install plan ran past its overall deadline and was stopped. */
+  | 'timeout'
   /** No valid consent token was presented for a write. */
   | 'consent-required';
 

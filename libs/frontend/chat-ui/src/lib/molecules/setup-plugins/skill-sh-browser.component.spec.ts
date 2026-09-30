@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { InstalledSkill, SkillShEntry } from '@ptah-extension/shared';
+import { MARKETPLACE_RPC_TIMEOUTS } from './marketplace-rpc-timeouts';
 import { SkillShBrowserComponent } from './skill-sh-browser.component';
 
 /** Minimal stand-in for the core `RpcResult` (`isSuccess()` + `.data`). */
@@ -256,6 +257,42 @@ describe('SkillShBrowserComponent', () => {
     expect(
       host(fixture).querySelector('[role="alert"]')?.textContent,
     ).toContain('npx exited with code 1');
+  });
+
+  // Regression: the install ran on the RPC default of 30s while a real
+  // `npx skills add` (a full GitHub clone) takes 11–46s, so the webview gave up
+  // on installs the backend went on to complete.
+  it('gives skillsSh:install the marketplace install budget, not the 30s default', async () => {
+    const fixture = await mount([entry()]);
+    responders.set('skillsSh:install', () => ok({ success: true }));
+
+    button(cards(fixture)[0], 'Install Find Skills').click();
+    await settle(fixture);
+
+    const installCall = rpcMock.call.mock.calls.find(
+      ([method]) => method === 'skillsSh:install',
+    ) as unknown[] | undefined;
+    expect(installCall?.[2]).toEqual({
+      timeout: MARKETPLACE_RPC_TIMEOUTS.SKILL_INSTALL_MS,
+    });
+    expect(MARKETPLACE_RPC_TIMEOUTS.SKILL_INSTALL_MS).toBeGreaterThan(120_000);
+  });
+
+  it('reports an install that fails at the RPC layer instead of going quiet', async () => {
+    const fixture = await mount([entry()]);
+    responders.set('skillsSh:install', () => ({
+      success: false,
+      data: undefined,
+      error: 'RPC timeout: skillsSh:install',
+      isSuccess: (): boolean => false,
+    }));
+
+    button(cards(fixture)[0], 'Install Find Skills').click();
+    await settle(fixture);
+
+    expect(
+      host(fixture).querySelector('[role="alert"]')?.textContent,
+    ).toContain('RPC timeout: skillsSh:install');
   });
 
   describe('Remove on an installed result card', () => {
