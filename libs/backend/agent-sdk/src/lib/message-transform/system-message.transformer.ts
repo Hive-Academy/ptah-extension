@@ -262,6 +262,26 @@ export class SystemMessageTransformer {
       toolUseId,
     });
 
+    // A task registered in the background from the start — notably a subagent
+    // resumed via SendMessage, which the SDK always backgrounds — never gets a
+    // task_updated is_backgrounded patch, so announce it here or the
+    // background tray never learns about it.
+    if (msg.is_backgrounded === true) {
+      const bgEvent = this.announceBackgrounded({
+        toolUseId,
+        taskId: msg.task_id,
+        description: msg.description,
+        fallbackAgentType: msg.subagent_type,
+        sessionId: resolvedSession,
+        messageId,
+        helpers,
+        origin: 'task_started',
+      });
+      if (bgEvent) {
+        return [event, bgEvent];
+      }
+    }
+
     return [event];
   }
 
@@ -378,45 +398,74 @@ export class SystemMessageTransformer {
     // isBackground) so getBackgroundAgents and the SubagentStop hook's
     // background_completed handling treat it the same.
     if (patch.is_backgrounded === true) {
-      const record = helpers.subagentRegistry.get(parentToolUseId);
-      const alreadyBackground =
-        record?.status === 'background' || record?.isBackground === true;
-
-      if (!alreadyBackground) {
-        helpers.subagentRegistry.update(parentToolUseId, {
-          status: 'background',
-          isBackground: true,
-          backgroundStartedAt: Date.now(),
-        });
-
-        const bgEvent: BackgroundAgentStartedEvent = {
-          id: generateEventId(),
-          eventType: 'background_agent_started',
-          timestamp: Date.now(),
-          sessionId: resolvedSession,
-          messageId,
-          parentToolUseId,
-          toolCallId: parentToolUseId,
-          agentType: record?.agentType ?? 'unknown',
-          agentId: record?.agentId,
-          teammateName: record?.teammateName,
-          agentDescription: patch.description,
-          outputFilePath: record?.outputFilePath,
-        };
+      const bgEvent = this.announceBackgrounded({
+        toolUseId: parentToolUseId,
+        taskId: msg.task_id,
+        description: patch.description,
+        sessionId: resolvedSession,
+        messageId,
+        helpers,
+        origin: 'task_updated',
+      });
+      if (bgEvent) {
         events.push(bgEvent);
-
-        helpers.logger.debug(
-          '[SdkMessageTransformer] task_updated → background_agent_started (mid-run backgrounding)',
-          {
-            taskId: msg.task_id,
-            toolCallId: parentToolUseId,
-            agentId: record?.agentId,
-          },
-        );
       }
     }
 
     return events;
+  }
+
+  /**
+   * Build the `background_agent_started` event for a task the SDK reports as
+   * backgrounded, and flip its SubagentRecord to background. The registry is
+   * the dedup source: returns null when the record is already background, so
+   * task_started and a later task_updated for the same task announce it once.
+   */
+  private announceBackgrounded(params: {
+    toolUseId: string;
+    taskId: string;
+    description?: string;
+    fallbackAgentType?: string;
+    sessionId?: TransformerSessionId;
+    messageId: string;
+    helpers: TransformerHelpers;
+    origin: 'task_started' | 'task_updated';
+  }): BackgroundAgentStartedEvent | null {
+    const { toolUseId, helpers } = params;
+    const record = helpers.subagentRegistry.get(toolUseId);
+    if (record?.status === 'background' || record?.isBackground === true) {
+      return null;
+    }
+
+    helpers.subagentRegistry.update(toolUseId, {
+      status: 'background',
+      isBackground: true,
+      backgroundStartedAt: Date.now(),
+    });
+
+    helpers.logger.debug(
+      `[SdkMessageTransformer] ${params.origin} → background_agent_started`,
+      {
+        taskId: params.taskId,
+        toolCallId: toolUseId,
+        agentId: record?.agentId,
+      },
+    );
+
+    return {
+      id: generateEventId(),
+      eventType: 'background_agent_started',
+      timestamp: Date.now(),
+      sessionId: params.sessionId,
+      messageId: params.messageId,
+      parentToolUseId: toolUseId,
+      toolCallId: toolUseId,
+      agentType: record?.agentType ?? params.fallbackAgentType ?? 'unknown',
+      agentId: record?.agentId,
+      teammateName: record?.teammateName,
+      agentDescription: params.description,
+      outputFilePath: record?.outputFilePath,
+    };
   }
 
   transformTaskNotification(

@@ -464,6 +464,99 @@ describe('SystemMessageTransformer', () => {
         helpers.subagentRegistry.peekPendingTeammateName,
       ).toHaveBeenCalledWith('tool-5');
     });
+
+    describe('is_backgrounded (SendMessage-resumed subagent)', () => {
+      const bgMsg = (isBackgrounded?: boolean) =>
+        ({
+          task_id: 'task-resumed',
+          tool_use_id: 'toolu_sendmsg',
+          skip_transcript: false,
+          task_type: 'local_agent',
+          subagent_type: 'code-reviewer',
+          description: 'Continue the review',
+          is_backgrounded: isBackgrounded,
+        }) as never;
+
+      it('emits agent_start AND background_agent_started when is_backgrounded is true', () => {
+        const helpers = makeHelpers();
+        const events = transformer.transformTaskStarted(
+          bgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(events.map((e) => e.eventType)).toEqual([
+          'agent_start',
+          'background_agent_started',
+        ]);
+        expect(events[1]).toMatchObject({
+          toolCallId: 'toolu_sendmsg',
+          parentToolUseId: 'toolu_sendmsg',
+          agentType: 'code-reviewer',
+          agentDescription: 'Continue the review',
+          sessionId: 'sess',
+        });
+        expect(helpers.subagentRegistry.update).toHaveBeenCalledWith(
+          'toolu_sendmsg',
+          expect.objectContaining({ status: 'background', isBackground: true }),
+        );
+      });
+
+      it.each([false, undefined])(
+        'emits only agent_start when is_backgrounded is %s',
+        (flag) => {
+          const helpers = makeHelpers();
+          const events = transformer.transformTaskStarted(
+            bgMsg(flag),
+            state,
+            helpers,
+            'sess' as never,
+          );
+
+          expect(events.map((e) => e.eventType)).toEqual(['agent_start']);
+          expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
+        },
+      );
+
+      it('a later task_updated backgrounding the same task emits no duplicate', () => {
+        const helpers = makeHelpers();
+        const records = new Map<string, Record<string, unknown>>([
+          ['toolu_sendmsg', { toolCallId: 'toolu_sendmsg', status: 'running' }],
+        ]);
+        (helpers.subagentRegistry.get as jest.Mock).mockImplementation(
+          (id: string) => records.get(id) ?? null,
+        );
+        (helpers.subagentRegistry.update as jest.Mock).mockImplementation(
+          (id: string, patch: Record<string, unknown>) => {
+            records.set(id, { ...records.get(id), ...patch });
+          },
+        );
+
+        const started = transformer.transformTaskStarted(
+          bgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+        expect(
+          started.filter((e) => e.eventType === 'background_agent_started'),
+        ).toHaveLength(1);
+
+        state.getTaskParentToolUseId.mockReturnValue('toolu_sendmsg');
+        const updated = transformer.transformTaskUpdated(
+          {
+            task_id: 'task-resumed',
+            patch: { status: 'running', is_backgrounded: true },
+          } as never,
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(updated.map((e) => e.eventType)).toEqual(['agent_status']);
+      });
+    });
   });
 
   describe('task_progress', () => {

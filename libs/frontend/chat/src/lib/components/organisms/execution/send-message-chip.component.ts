@@ -4,7 +4,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, Send } from 'lucide-angular';
+import { LucideAngularModule, Send, Check } from 'lucide-angular';
 import type { ExecutionNode } from '@ptah-extension/shared';
 
 /**
@@ -49,6 +49,37 @@ import type { ExecutionNode } from '@ptah-extension/shared';
           {{ p }}
         </span>
       }
+      @switch (resumedAgentStatus()) {
+        @case ('running') {
+          <span
+            class="badge badge-xs badge-info gap-1 shrink-0 ml-auto"
+            data-testid="resumed-agent-status"
+            data-status="running"
+            role="status"
+          >
+            <span
+              class="inline-block w-1.5 h-1.5 rounded-full bg-current animate-pulse"
+              aria-hidden="true"
+            ></span>
+            <span class="text-[9px]">running</span>
+          </span>
+        }
+        @case ('done') {
+          <span
+            class="badge badge-xs badge-success gap-1 shrink-0 ml-auto"
+            data-testid="resumed-agent-status"
+            data-status="done"
+            role="status"
+          >
+            <lucide-angular
+              [img]="CheckIcon"
+              class="w-2.5 h-2.5"
+              aria-hidden="true"
+            />
+            <span class="text-[9px]">done</span>
+          </span>
+        }
+      }
     </div>
   `,
 })
@@ -56,6 +87,7 @@ export class SendMessageChipComponent {
   readonly node = input.required<ExecutionNode>();
 
   readonly SendIcon = Send;
+  readonly CheckIcon = Check;
 
   private readonly toolInput = computed<Record<string, unknown>>(
     () => this.node().toolInput ?? {},
@@ -70,6 +102,24 @@ export class SendMessageChipComponent {
   readonly preview = computed<string | undefined>(() => {
     const input = this.toolInput();
     return readString(input['summary']) ?? readString(input['message']);
+  });
+
+  /**
+   * Status of the subagent this message resumed. The SDK streams a resumed
+   * subagent under the SendMessage tool_use id, so its agent node is a child
+   * of this tool node. `null` (no agent child, or an error/interrupted state
+   * the agent bubble already shows) renders no badge.
+   */
+  readonly resumedAgentStatus = computed<'running' | 'done' | null>(() => {
+    const agents = this.node().children.filter(
+      (child) => child.type === 'agent',
+    );
+    const latest = agents[agents.length - 1];
+    if (!latest) return null;
+    if (latest.status === 'pending' || latest.status === 'streaming') {
+      return 'running';
+    }
+    return latest.status === 'complete' ? 'done' : null;
   });
 }
 
