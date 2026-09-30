@@ -111,17 +111,18 @@ describe('ExecutionNodeComponent — SendMessage branch', () => {
   }
 
   it('renders the resumed agent child beneath the SendMessage chip', () => {
-    const el: HTMLElement = render(sendMessageNode([resumedAgent]))
-      .nativeElement;
+    const el: HTMLElement = render(
+      sendMessageNode([resumedAgent]),
+    ).nativeElement;
 
     expect(el.querySelector('ptah-send-message-chip')).not.toBeNull();
     const bubble = el.querySelector('[data-testid="agent-bubble-stub"]');
     expect(bubble?.textContent).toContain('agent-resumed');
     expect(bubble?.closest('.exec-children')).not.toBeNull();
     expect(
-      el.querySelector('[data-testid="resumed-agent-status"]')?.getAttribute(
-        'data-status',
-      ),
+      el
+        .querySelector('[data-testid="resumed-agent-status"]')
+        ?.getAttribute('data-status'),
     ).toBe('running');
   });
 

@@ -9,6 +9,8 @@ import {
   AgentStatusEvent,
   AgentCompletedEvent,
   BackgroundAgentStartedEvent,
+  BackgroundAgentCompletedEvent,
+  BackgroundAgentStoppedEvent,
   SessionId,
   isAgentTaskType,
 } from '@ptah-extension/shared';
@@ -268,6 +270,7 @@ export class SystemMessageTransformer {
     // background tray never learns about it.
     if (msg.is_backgrounded === true) {
       const bgEvent = this.announceBackgrounded({
+        state,
         toolUseId,
         taskId: msg.task_id,
         description: msg.description,
@@ -399,6 +402,7 @@ export class SystemMessageTransformer {
     // background_completed handling treat it the same.
     if (patch.is_backgrounded === true) {
       const bgEvent = this.announceBackgrounded({
+        state,
         toolUseId: parentToolUseId,
         taskId: msg.task_id,
         description: patch.description,
@@ -417,11 +421,22 @@ export class SystemMessageTransformer {
 
   /**
    * Build the `background_agent_started` event for a task the SDK reports as
-   * backgrounded, and flip its SubagentRecord to background. The registry is
-   * the dedup source: returns null when the record is already background, so
-   * task_started and a later task_updated for the same task announce it once.
+   * backgrounded, and flip its SubagentRecord to background. Dedup is twofold:
+   * the registry (the record is already background) and the per-stream
+   * `isBackgroundAnnounced` mark. The mark is what covers a subagent resumed
+   * via SendMessage — its registry record is keyed by the SubagentStart
+   * hook's tool_use id, not the SendMessage tool_use id this announcement
+   * carries, so the registry lookup misses and `update()` is a no-op; without
+   * the mark, a later task_updated `is_backgrounded` patch would announce it
+   * a second time. The mark also records WHICH system message announced the
+   * task: only a `task_started` announcement earns a transformer-produced
+   * terminal event (see `takeBackgroundTerminalEvent`), because a task
+   * backgrounded mid-run via `task_updated` has a registry record under the
+   * same tool_use id whose SubagentStop path already ends its tray entry.
+   * Returns null when either source says already announced.
    */
   private announceBackgrounded(params: {
+    state: TransformerState;
     toolUseId: string;
     taskId: string;
     description?: string;
@@ -431,11 +446,16 @@ export class SystemMessageTransformer {
     helpers: TransformerHelpers;
     origin: 'task_started' | 'task_updated';
   }): BackgroundAgentStartedEvent | null {
-    const { toolUseId, helpers } = params;
+    const { toolUseId, state, helpers } = params;
     const record = helpers.subagentRegistry.get(toolUseId);
-    if (record?.status === 'background' || record?.isBackground === true) {
+    if (
+      record?.status === 'background' ||
+      record?.isBackground === true ||
+      state.isBackgroundAnnounced(toolUseId)
+    ) {
       return null;
     }
+    state.markBackgroundAnnounced(toolUseId, params.origin);
 
     helpers.subagentRegistry.update(toolUseId, {
       status: 'background',
@@ -465,6 +485,94 @@ export class SystemMessageTransformer {
       teammateName: record?.teammateName,
       agentDescription: params.description,
       outputFilePath: record?.outputFilePath,
+    };
+  }
+
+  /**
+   * Build the terminal `background_agent_*` event for a task THIS transformer
+   * announced as background from `task_started` (see `announceBackgrounded`),
+   * and clear the announcement so a repeated notification never emits it
+   * twice.
+   *
+   * WHY THE ORIGIN GATE. Only the `task_started` path (a SendMessage-resumed
+   * subagent) is here: its started entry was filed under the SendMessage
+   * tool_use id with no agentId, so the frontend's other terminal signal —
+   * the SubagentStop hook — can never resolve it and the entry would stay
+   * `running` forever. A task backgrounded mid-run via `task_updated` has a
+   * registry record under the same tool_use id and its SubagentStop path
+   * already ends the entry, so a second terminal event here would insert a
+   * duplicate tray entry — those are left alone.
+   *
+   * WHY THE STATUS BRANCH. `task_notification.status` is
+   * 'completed' | 'failed' | 'stopped': a stopped task routes to
+   * `background_agent_stopped` (the frontend store renders `stopped`, not
+   * `completed`), and a failed one carries `status: 'failed'` on the
+   * completed event so the tray renders the failure. The `toolCallId` always
+   * matches the started event's, which is how the frontend store resolves
+   * the entry. Returns null for every task the transformer did not announce
+   * at `task_started`.
+   */
+  private takeBackgroundTerminalEvent(
+    msg: SDKTaskNotificationMessage,
+    parentToolUseId: string,
+    state: TransformerState,
+    helpers: TransformerHelpers,
+    sessionId?: TransformerSessionId,
+  ): BackgroundAgentCompletedEvent | BackgroundAgentStoppedEvent | null {
+    // The task is settled whatever its origin, so drop the mark either way —
+    // compaction no longer clears it, and a task_updated mark would leak.
+    const origin = state.getBackgroundAnnounceOrigin(parentToolUseId);
+    state.clearBackgroundAnnounced(parentToolUseId);
+    if (origin !== 'task_started') {
+      return null;
+    }
+
+    const record = helpers.subagentRegistry.get(parentToolUseId);
+    // `agentId` is required by both event types; an empty string is the
+    // "not known" encoding the frontend store understands — `resolveKey`
+    // treats a zero-length id as absent and falls back to `toolCallId`,
+    // which is the key the started entry was filed under.
+    const agentId = record?.agentId ?? '';
+    const agentType = record?.agentType ?? 'unknown';
+    const id = generateEventId();
+    const timestamp = Date.now();
+    const messageId = state.getMessageId('') ?? `task_${msg.task_id}`;
+
+    if (msg.status === 'stopped') {
+      helpers.logger.debug(
+        '[SdkMessageTransformer] task_notification → background_agent_stopped',
+        { taskId: msg.task_id, toolCallId: parentToolUseId },
+      );
+      return {
+        id,
+        eventType: 'background_agent_stopped',
+        timestamp,
+        sessionId,
+        messageId,
+        toolCallId: parentToolUseId,
+        agentId,
+        agentType,
+      };
+    }
+
+    helpers.logger.debug(
+      '[SdkMessageTransformer] task_notification → background_agent_completed',
+      { taskId: msg.task_id, toolCallId: parentToolUseId, status: msg.status },
+    );
+    return {
+      id,
+      eventType: 'background_agent_completed',
+      timestamp,
+      sessionId,
+      messageId,
+      toolCallId: parentToolUseId,
+      agentId,
+      agentType,
+      // Absent for 'completed' (the default); 'failed' renders the entry
+      // as failed in the tray instead of completed.
+      ...(msg.status === 'failed' && { status: 'failed' as const }),
+      result: msg.summary,
+      duration: msg.usage?.duration_ms,
     };
   }
 
@@ -547,11 +655,23 @@ export class SystemMessageTransformer {
       workflowName: workflowRun?.name,
     };
 
+    // The announcement mark is this transformer's own — a task it never
+    // announced as background at task_started (SubagentStop-hooked spawn,
+    // non-agent task, mid-run task_updated backgrounding) is untouched by
+    // this call.
+    const backgroundTerminal = this.takeBackgroundTerminalEvent(
+      msg,
+      parentToolUseId,
+      state,
+      helpers,
+      resolvedSession,
+    );
+
     helpers.logger.debug(
       '[SdkMessageTransformer] task_notification → agent_completed',
       { taskId: msg.task_id, status: msg.status },
     );
 
-    return [event];
+    return backgroundTerminal ? [event, backgroundTerminal] : [event];
   }
 }

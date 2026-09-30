@@ -74,6 +74,20 @@ describe('SendMessageChipComponent', () => {
     expect(badge?.textContent).toContain('done');
   });
 
+  it('shows "failed" when the resumed agent encounters an error', () => {
+    const badge = statusBadge(render(sendMessageNode([agentChild('error')])));
+    expect(badge?.dataset['status']).toBe('failed');
+    expect(badge?.textContent).toContain('failed');
+  });
+
+  it('shows "stopped" when the resumed agent is interrupted', () => {
+    const badge = statusBadge(
+      render(sendMessageNode([agentChild('interrupted')])),
+    );
+    expect(badge?.dataset['status']).toBe('stopped');
+    expect(badge?.textContent).toContain('stopped');
+  });
+
   it('updates from running to done when the child status changes', () => {
     const fixture = render(sendMessageNode([agentChild('streaming')]));
     expect(statusBadge(fixture)?.dataset['status']).toBe('running');
@@ -84,6 +98,18 @@ describe('SendMessageChipComponent', () => {
     );
     fixture.detectChanges();
     expect(statusBadge(fixture)?.dataset['status']).toBe('done');
+  });
+
+  it('updates from running to failed when the child status changes to error', () => {
+    const fixture = render(sendMessageNode([agentChild('streaming')]));
+    expect(statusBadge(fixture)?.dataset['status']).toBe('running');
+
+    fixture.componentRef.setInput(
+      'node',
+      sendMessageNode([agentChild('error')]),
+    );
+    fixture.detectChanges();
+    expect(statusBadge(fixture)?.dataset['status']).toBe('failed');
   });
 
   it('ignores non-agent children', () => {
