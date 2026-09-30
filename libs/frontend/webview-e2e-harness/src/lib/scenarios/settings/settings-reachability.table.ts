@@ -25,7 +25,7 @@ import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 import {
   advancedTab, applyManualTierModel, card, closeConnectionDrawer, confirmWrite, credentialsOf, expectCall, inDrawerTab,
-  providersTab, setupThroughDrawer, visibleEnabled, withAuthStatus,
+  openScopeBadge, providersTab, setupThroughDrawer, visibleEnabled, withAuthStatus,
 } from './settings-drawer.reach';
 
 export type CapabilityStatus = 'present' | 'restored' | 'pending';
@@ -394,21 +394,30 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#16', capability: 'Apply to: Global / App / Workspace save target', status: 'present',
+    // Since Batch 23 (D16): the scope strip's override link is gone; the save target is the "Save to" list of the
+    // provider review ("Save provider to…"), the model editor and the effort editor.
     reach: async (page) => {
       await providersTab(page);
-      const scopeRows = page.locator('[data-testid="setting-scope-row"]');
-      await visibleEnabled(scopeRows);
+      await openThenClose(page.locator('[data-testid="main-provider-save-to"]'), page.locator('#providers-route-target'),
+        page.getByRole('button', { name: 'Cancel provider change' }));
     },
   },
   {
     id: '#17', capability: 'Scope badge (Workspace/App override, Inherited)', status: 'present',
-    reach: async (page) => { await providersTab(page); await visibleEnabled(page.locator('[data-testid="scope-source-badge"]')); },
+    // Since Batch 23 (D16): a badge naming the field, shown only for an override (the fixture's effort key).
+    reach: async (page) => {
+      await providersTab(page);
+      const badge = page.locator('[data-testid="scope-badge"][data-field="Reasoning effort"]');
+      await visibleEnabled(badge);
+      await expect(badge).toContainText('Effort · Workspace');
+    },
   },
   {
     id: '#18', capability: 'Clear the workspace override', status: 'present',
+    // Since Batch 23: badge -> popover -> Clear override -> the page's review-then-confirm (not confirmed here).
     reach: async (page) => {
-      await providersTab(page);
-      const clear = page.locator('[data-testid="scope-clear-override"]').first();
+      await openScopeBadge(page, 'Reasoning effort');
+      const clear = page.locator('[data-testid="scope-clear-override"]');
       await openThenClose(clear, page.getByRole('button', { name: 'Confirm clear override' }), page.getByRole('button', { name: 'Cancel clear' }));
     },
   },
@@ -831,6 +840,32 @@ const restoredPending: readonly ReachabilityEntry[] = [
 // ---------------------------------------------------------------------------
 
 const regressedUx: readonly ReachabilityEntry[] = [
+  { id: 'RUX-5', capability: 'Workspace save target offered in a visible Save-to list, not behind an override link', status: 'restored',
+    // Batch 23: "Save provider to…" lists every write scope of the CURRENT provider, "This workspace" included
+    // (the fixture has an active workspace). Cancelled; nothing is written.
+    reach: async (page) => {
+      await providersTab(page);
+      await page.locator('[data-testid="main-provider-save-to"]').click();
+      const target = page.locator('#providers-route-target');
+      await visibleEnabled(target);
+      await expect(target.locator('option')).toHaveText(['Global · all apps', 'Desktop app', 'This workspace']);
+      await page.getByRole('button', { name: 'Cancel provider change' }).click();
+      await expect(target).toHaveCount(0);
+    } },
+  { id: 'RUX-6', capability: 'Main agent card shows scope only as badges for overridden fields (no 5 stacked rows)', status: 'restored',
+    // Batch 23 (D16): no scope strip; one badge, for the one overridden field, naming it; inherited fields show nothing.
+    reach: async (page) => {
+      await providersTab(page);
+      await expect(page.locator('[data-testid="setting-scope-row"]')).toHaveCount(0);
+      const badges = page.locator('[data-testid="main-scope-badges"] [data-testid="scope-badge"]');
+      await expect(badges).toHaveCount(1);
+      await expect(badges.first()).toHaveAttribute('data-field', 'Reasoning effort');
+      const popover = await openScopeBadge(page, 'Reasoning effort');
+      await expect(popover.locator('[data-layer="workspace"]')).toHaveAttribute('aria-current', 'true');
+      await page.keyboard.press('Escape');
+      await expect(popover).toHaveCount(0);
+      await expect(page.locator('[data-testid="scope-badge"][data-field="Reasoning effort"]')).toBeFocused();
+    } },
   { id: 'RUX-2', capability: 'Tier model edited in place, saved on selection, with Undo (no wizard, no re-verify)', status: 'restored',
     // Batch 22: the selection is one real write; Undo is a SECOND real write restoring the previous value.
     reach: (page) => inDrawerTab(page, 'Moonshot', 'Models & Tiers', 'connection-models', async (panel) => {
@@ -923,9 +958,10 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
 
 /**
  * Guard constant (D14 rule 2): S4 set it to 81; later batches may only grow it. Batch 21 added the
- * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84. Batch 22 added RUX-2: 85.
+ * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84. Batch 22 added RUX-2: 85. Batch 23 added
+ * RUX-5 and RUX-6: 87.
  */
-export const EXPECTED_CAPABILITY_COUNT = 85;
+export const EXPECTED_CAPABILITY_COUNT = 87;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

@@ -96,6 +96,19 @@ for (const host of ['vscode', 'electron'] as const) {
         await page.screenshot({ path: capturePath(tab.name, host, theme) });
       }
       await gotoSettingsTab(page, 'Providers');
+      // Batch 23 (D16): every scope badge names its field; the open popover is its own capture.
+      const badges = page.locator('[data-testid="scope-badge"]');
+      // The scopes read lands after the tab renders; the fixture overrides the effort key.
+      await expect(badges.first()).toBeVisible();
+      for (const field of await badges.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-field')))) {
+        expect(field?.trim()).toBeTruthy();
+      }
+      await badges.first().click();
+      await expect(page.locator('[data-testid="scope-popover"]')).toBeVisible();
+      await waitForSettled(page);
+      await page.screenshot({ path: capturePath('scope-popover', host, theme), animations: 'disabled' });
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[data-testid="scope-popover"]')).toHaveCount(0);
       const drawer = page.locator('[data-testid="connection-detail-drawer"]');
       for (const entry of DRAWERS) {
         await page.locator('[data-testid="provider-connection-card"]').filter({ hasText: entry.card })

@@ -654,40 +654,51 @@ describe('ProviderConnectionCardComponent', () => {
   });
 
   describe('Scope Row Embedding and Provenance', () => {
-    it('embeds SettingScopeRowComponent when scope input is provided', () => {
+    it('embeds the scope badge (D16) for an overridden scope, and nothing for an inherited one', () => {
       const fixture = createComponent({
         providerId: 'anthropic',
         providerName: 'Anthropic',
         scope: 'workspace' as SettingScopeDisplay,
+        hasOverride: true,
+        supportedTargets: ['global', 'workspace'],
         workspaceName: 'ptah-extension',
       });
 
-      const scopeWrapper = query(fixture, 'card-scope-wrapper');
-      expect(scopeWrapper).not.toBeNull();
-      const scopeBadge = query(fixture, 'scope-source-badge');
-      expect(scopeBadge?.textContent?.trim()).toContain(
-        'From Workspace · ptah-extension',
-      );
-    });
+      expect(query(fixture, 'card-scope-wrapper')).not.toBeNull();
+      const scopeBadge = query(fixture, 'scope-badge');
+      expect(scopeBadge?.getAttribute('data-field')).toBe('Anthropic');
+      expect(scopeBadge?.textContent).toContain('Anthropic · Workspace');
 
-    it('forwards scope actions to component outputs', () => {
-      const fixture = createComponent({
+      const inherited = createComponent({
         providerId: 'anthropic',
         providerName: 'Anthropic',
         scope: 'global' as SettingScopeDisplay,
-        supportedTargets: ['global', 'workspace'],
         hasOverride: false,
+        supportedTargets: ['global', 'workspace'],
+      });
+      expect(query(inherited, 'scope-badge')).toBeNull();
+    });
+
+    it('forwards the scope popover actions to component outputs', () => {
+      const fixture = createComponent({
+        providerId: 'anthropic',
+        providerName: 'Anthropic',
+        scope: 'workspace' as SettingScopeDisplay,
+        supportedTargets: ['global', 'workspace'],
+        hasOverride: true,
       });
 
-      let overrideEmitted = false;
-      fixture.componentInstance.scopeOverrideRequested.subscribe(() => {
-        overrideEmitted = true;
+      let clearEmitted = false;
+      fixture.componentInstance.scopeClearRequested.subscribe(() => {
+        clearEmitted = true;
       });
 
-      const overrideBtn = button(fixture, 'scope-override');
-      expect(overrideBtn).not.toBeNull();
-      overrideBtn?.click();
-      expect(overrideEmitted).toBe(true);
+      button(fixture, 'scope-badge')?.click();
+      fixture.detectChanges();
+      const clearBtn = button(fixture, 'scope-clear-override');
+      expect(clearBtn).not.toBeNull();
+      clearBtn?.click();
+      expect(clearEmitted).toBe(true);
     });
 
     it('renders simple source-strip when sourceLabel is supplied without scope', () => {

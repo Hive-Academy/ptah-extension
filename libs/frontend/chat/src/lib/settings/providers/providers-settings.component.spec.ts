@@ -102,7 +102,6 @@ class StateStub {
   readonly refreshOrchestration = jest.fn(async () => undefined);
   readonly reviewContext = jest.fn(() => ({ scopeKey: 'workspace', activePath: '/workspace' }));
   readonly scopeEntry = jest.fn(() => null);
-  readonly groupScope = jest.fn(() => null);
   readonly writeScopes = jest.fn((): SettingScope[] => ['global', 'app', 'workspace']);
   readonly saveSettings = jest.fn(async () => undefined);
   readonly clearScopeOverride = jest.fn(async () => undefined);
@@ -340,6 +339,64 @@ describe('ProvidersSettingsComponent', () => {
         expect(byId('credentials-external-error')?.textContent).toContain('Sign-in could not be checked. Retry.');
         expect(byId('credentials-external-message')).toBeNull();
       });
+    });
+  });
+
+  describe('scope badges (Batch 23, D16)', () => {
+    const effortKey = 'provider.first.reasoningEffort';
+    const entry = (key: string, overridden: boolean) => ({ key, effectiveKey: key, scope: overridden ? 'workspace' : 'global',
+      hasOverride: overridden, supportedTargets: ['global', 'app', 'workspace'],
+      fallbackPreview: overridden ? { scope: 'global', value: 'medium' } : null, credentialSource: 'not-a-secret' });
+    const badges = () => Array.from(element.querySelectorAll<HTMLElement>('[data-testid="scope-badge"]'));
+    beforeEach(() => {
+      state.route.set(ready(route));
+      state.mainSources.set(ready({ model: entry('provider.first.selectedModel', false), effort: entry(effortKey, true) }));
+      state.scopeEntry.mockImplementation(((key: string) => entry(key, key === 'anthropicProviderId')) as never);
+    });
+
+    it('shows one badge per overridden field, naming it, and nothing for the inherited ones (RUX-6)', async () => {
+      await render();
+      expect(element.querySelector('[data-testid="setting-scope-row"]')).toBeNull();
+      expect(badges().map((badge) => badge.getAttribute('data-field'))).toEqual(['Reasoning effort', 'Main agent provider']);
+      expect(badges()[0].textContent).toContain('Effort · Workspace');
+      expect(badges()[1].textContent).toContain('Provider · Workspace');
+      expect(element.textContent).not.toContain('Override for this workspace');
+      expect(element.textContent).not.toContain('Main agent configuration');
+    });
+
+    it.each([
+      ['a provider.* key', 0, effortKey],
+      ['anthropicProviderId', 1, 'anthropicProviderId'],
+    ])('clearing %s is reviewed with "ends running chat sessions" before it runs, with no Undo (D6)', async (_name, index, key) => {
+      await render();
+      badges()[index].click(); await render();
+      element.querySelector<HTMLButtonElement>('[data-testid="scope-clear-override"]')?.click(); await render();
+      expect(state.clearScopeOverride).not.toHaveBeenCalled();
+      expect(element.querySelector('[data-testid="clear-ends-sessions"]')?.textContent).toContain('ends running chat sessions');
+      expect(element.textContent).not.toContain('Undo');
+      button('Confirm clear override').click(); await render();
+      expect(state.clearScopeOverride).toHaveBeenCalledWith(key, 'nearest', { scopeKey: 'workspace', activePath: '/workspace' });
+    });
+
+    it('"Save provider to…" reviews the current provider with every write scope, workspace included (RUX-5)', async () => {
+      await render();
+      element.querySelector<HTMLButtonElement>('[data-testid="main-provider-save-to"]')?.click(); await render();
+      const target = element.querySelector<HTMLSelectElement>('#providers-route-target');
+      expect(Array.from(target?.options ?? []).map((option) => option.value)).toEqual(['global', 'app', 'workspace']);
+      if (!target) throw new Error('No Save-to select');
+      target.value = 'workspace'; target.dispatchEvent(new Event('change')); await render();
+      // The review's own confirm (a connected card also has a "Use for main agent" button).
+      const review = element.querySelector('[aria-label="Review main provider change"]');
+      expect(review?.querySelector('h3')?.textContent).toContain('Use first for new main-agent requests.');
+      Array.from(review?.querySelectorAll('button') ?? []).find((node) => node.textContent?.trim() === 'Use for main agent')?.click();
+      await render();
+      expect(state.activateConnection).toHaveBeenCalledWith('first', 'workspace', { scopeKey: 'workspace', activePath: '/workspace' });
+    });
+
+    it('"Save provider to…" is absent when only one write scope exists', async () => {
+      state.writeScopes.mockReturnValue(['global']);
+      await render();
+      expect(element.querySelector('[data-testid="main-provider-save-to"]')).toBeNull();
     });
   });
 

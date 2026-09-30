@@ -899,22 +899,23 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       );
     });
 
-    it('renders Mixed sources when the scope source is unknown', () => {
-      // memory keys have scope entries; the lane and timeout keys do not.
+    it('renders Mixed sources when the scope source is unknown, and nothing for an inherited global value (D16)', () => {
+      // memory keys have scope entries (global, inherited); the lane and timeout keys do not.
       const memoryBadge = query(fixture, 'scope-row-provider-memory-curator')?.querySelector(
-        '[data-testid="scope-source-badge"]',
+        '[data-testid="scope-badge"]',
       );
-      expect(memoryBadge?.textContent?.trim()).toBe('From Global · All Ptah apps');
+      expect(memoryBadge).toBeNull();
 
       const laneBadge = query(fixture, 'scope-row-provider-archaeologist')?.querySelector(
-        '[data-testid="scope-source-badge"]',
+        '[data-testid="scope-badge"]',
       );
-      expect(laneBadge?.textContent?.trim()).toBe('Mixed sources');
+      expect(laneBadge?.textContent).toContain('· Mixed sources');
+      expect(laneBadge?.getAttribute('data-field')).toBeTruthy();
 
       const timeoutBadge = query(fixture, 'scope-row-timeout')?.querySelector(
-        '[data-testid="scope-source-badge"]',
+        '[data-testid="scope-badge"]',
       );
-      expect(timeoutBadge?.textContent?.trim()).toBe('Mixed sources');
+      expect(timeoutBadge?.textContent).toContain('Enhancement time limit · Mixed sources');
     });
 
     it('applies the deep-link input reactively after mount', () => {

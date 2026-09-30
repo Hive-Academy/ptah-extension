@@ -112,6 +112,21 @@ export async function withAuthStatus(page: Page, change: Partial<ReturnType<type
   }
 }
 
+/**
+ * Providers tab, then the scope badge of `field` (its full name, `data-field`, D16); returns its open
+ * popover. Batch 23: the badge replaced the always-visible scope strip.
+ */
+export async function openScopeBadge(page: Page, field: string): Promise<Locator> {
+  await providersTab(page);
+  const badge = page.locator(`[data-testid="scope-badge"][data-field="${field}"]`);
+  await visibleEnabled(badge);
+  await badge.click();
+  const popover = page.locator('[data-testid="scope-popover"]');
+  await expect(popover).toBeVisible();
+  await expect(popover.locator('[data-testid="scope-popover-title"]')).toHaveText(field);
+  return popover;
+}
+
 /** Confirms an inline two-step write in the Credentials tab and asserts its RPC went out. */
 export async function confirmWrite(page: Page, trigger: string, confirm: string, method: string, params: unknown): Promise<void> {
   const state = getFixtureState(page);

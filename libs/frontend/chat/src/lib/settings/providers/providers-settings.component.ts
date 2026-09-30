@@ -93,6 +93,12 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
                 <button type="button" [class]="control" (click)="requestFocus('connections')">Change main provider</button>
                 <button type="button" [class]="control" (click)="editModel()" [disabled]="state.model().status !== 'ready' || state.mainSources().status !== 'ready' || saving()">Edit model</button>
                 <button type="button" [class]="control" (click)="state.checkConnection()" [disabled]="state.route().status === 'loading'">Check connection</button>
+                <!-- RUX-5 bridge until the Main Agent popover (Batch 26): the save target of the CURRENT provider, which the
+                     scope strip's "Override for this workspace" link used to be the only way to reach. -->
+                @if (mainRouteExists() && state.writeScopes('authMethod').length > 1) {
+                  <button type="button" [class]="control" (click)="beginActivation(state.route().data?.driverProviderId ?? '')"
+                    [disabled]="saving() || state.scopes().status !== 'ready'" data-testid="main-provider-save-to">Save provider to…</button>
+                }
               </div>
               @if (state.effort().status === 'ready') {
                 <div class="space-y-2" data-focus="main-effort" tabindex="-1">
@@ -113,30 +119,31 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
                   }
                 </div>
               }
-              @if (state.groupScope(mainGroupKeys()); as scope) {
-                <ptah-setting-scope-row fieldName="Main agent configuration" [scope]="scope" [disabled]="true" />
-              }
-              @for (fieldName of mainValueFields; track fieldName) {
-                @if (state.mainSources().data?.[fieldName]; as entry) {
-                  <ptah-setting-scope-row [fieldName]="fieldName === 'model' ? 'Main agent model' : 'Reasoning effort'" [scope]="entry.scope"
-                    [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(entry.key)" [workspaceName]="workspaceName()"
-                    [fallbackPreview]="entry.fallbackPreview" [disabled]="saving() || state.mainSources().status !== 'ready'"
-                    (overrideRequested)="overrideMainValue(fieldName)" (clearRequested)="reviewClear(entry.key)"
-                    [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'" (useGlobalRequested)="reviewClear(entry.key, 'all-above-global')" />
+              <!-- D16 scope badges: only overridden fields show one; an inherited field renders nothing (RUX-6). -->
+              <div class="flex flex-wrap items-center gap-1.5" data-testid="main-scope-badges">
+                @for (fieldName of mainValueFields; track fieldName) {
+                  @if (state.mainSources().data?.[fieldName]; as entry) {
+                    <ptah-setting-scope-row [fieldName]="fieldName === 'model' ? 'Main agent model' : 'Reasoning effort'"
+                      [shortFieldName]="fieldName === 'model' ? 'Model' : 'Effort'" [scope]="entry.scope"
+                      [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(entry.key)" [workspaceName]="workspaceName()"
+                      [fallbackPreview]="entry.fallbackPreview" [disabled]="saving() || state.mainSources().status !== 'ready'"
+                      (clearRequested)="reviewClear(entry.key)"
+                      [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'" (useGlobalRequested)="reviewClear(entry.key, 'all-above-global')" />
+                  }
                 }
-              }
-              @for (key of mainKeys; track key) {
-                @if (state.scopeEntry(key); as entry) {
-                  <ptah-setting-scope-row [fieldName]="key === 'authMethod' ? 'Authentication' : 'Provider'"
-                    [scope]="entry.scope" [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(key)"
-                    [workspaceName]="workspaceName()" [fallbackPreview]="entry.fallbackPreview" [credentialSource]="entry.credentialSource"
-                    [fallbackValueLabel]="key === 'authMethod' ? authenticationLabel(entry.fallbackPreview?.value) : null"
-                    [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'"
-                    [disabled]="saving() || state.scopes().status !== 'ready'"
-                    (overrideRequested)="beginActivation(state.route().data?.driverProviderId ?? '', 'workspace')"
-                    (clearRequested)="reviewClear(key)" (useGlobalRequested)="reviewClear(key, 'all-above-global')" />
+                @for (key of mainKeys; track key) {
+                  @if (state.scopeEntry(key); as entry) {
+                    <ptah-setting-scope-row [fieldName]="key === 'authMethod' ? 'Main agent authentication' : 'Main agent provider'"
+                      [shortFieldName]="key === 'authMethod' ? 'Authentication' : 'Provider'"
+                      [scope]="entry.scope" [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(key)"
+                      [workspaceName]="workspaceName()" [fallbackPreview]="entry.fallbackPreview" [credentialSource]="entry.credentialSource"
+                      [fallbackValueLabel]="key === 'authMethod' ? authenticationLabel(entry.fallbackPreview?.value) : null"
+                      [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'"
+                      [disabled]="saving() || state.scopes().status !== 'ready'"
+                      (clearRequested)="reviewClear(key)" (useGlobalRequested)="reviewClear(key, 'all-above-global')" />
+                  }
                 }
-              }
+              </div>
             </div>
           </ptah-native-card>
           @if (modelDraft() !== null) {
@@ -199,6 +206,9 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
             } @else {
               <p>Clear {{ settingLabel(key) }} override. The host will resolve the next stored source.</p>
               <p>Next source: {{ state.scopeEntry(key)?.fallbackPreview?.scope ?? 'App default' }}.</p>
+            }
+            @if (clearEndsSessions(key)) {
+              <p data-testid="clear-ends-sessions">Clearing this override ends running chat sessions. It cannot be undone from here.</p>
             }
             <button type="button" [class]="control" (click)="clearOverride()" [disabled]="saving()">Confirm clear override</button>
             <button type="button" [class]="control" (click)="clearKey.set(null)" [disabled]="saving()">Cancel clear</button>
@@ -341,9 +351,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   private deepLinkAwaitingAcceptance: string | null = null;
   protected readonly saving = computed(() => this.state.commit().status === 'saving');
   protected readonly workspaceName = computed(() => this.state.scopes().data?.activePath?.split(/[\\/]/).filter(Boolean).pop() ?? null);
-  protected readonly mainGroupKeys = computed(() => [...this.mainKeys,
-    this.state.mainSources().data?.model?.key ?? 'unloaded-model-source',
-    this.state.mainSources().data?.effort?.key ?? 'unloaded-effort-source']);
   protected readonly modelTargets = computed(() => this.state.mainSources().status === 'ready' ? this.state.writeScopes(this.state.mainSources().data?.model?.key ?? '') : []);
   protected readonly effortTargets = computed(() => this.state.mainSources().status === 'ready' ? this.state.writeScopes(this.state.mainSources().data?.effort?.key ?? '') : []);
   protected readonly canStartSetup = computed(() => this.state.connections().status === 'ready' && this.state.scopes().status === 'ready' && !this.saving());
@@ -652,17 +659,14 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const value = this.inputValue(event);
     if (value === 'global' || value === 'app' || value === 'workspace') this.effortTarget.set(value);
   }
-  protected overrideMainValue(field: 'model' | 'effort'): void {
-    if (field === 'model') { this.editModel(); this.saveTarget.set('workspace'); }
-    else {
-      this.effortContext = this.state.reviewContext(); this.effortDraft.set(this.state.effort().data?.effort ?? '');
-      this.effortTarget.set('workspace'); this.requestFocus('main-effort');
-    }
+  /** D6: clearing these keys resets the SDK on the host (`config-scope-rpc.handlers.ts:120-145`). */
+  protected clearEndsSessions(key: string): boolean {
+    return key === 'authMethod' || key === 'anthropicProviderId' || key.startsWith('provider.');
   }
-  protected beginActivation(id: string, scope?: SettingScope): void {
+  protected beginActivation(id: string): void {
     if (!id) return;
     this.draftContext = this.state.reviewContext(); this.activationId.set(id);
-    this.saveTarget.set(scope ?? this.state.writeScopes('authMethod')[0] ?? 'global');
+    this.saveTarget.set(this.state.writeScopes('authMethod')[0] ?? 'global');
   }
   protected async activate(): Promise<void> {
     const id = this.activationId();
