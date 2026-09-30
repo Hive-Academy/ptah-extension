@@ -269,6 +269,22 @@ async function throughBlankWizardCustomOption(
   }
 }
 
+/**
+ * Since Batch 20 the card's Manage opens the connection detail drawer. Asserts it is THIS
+ * connection's drawer, then takes the Credentials tab's one primary action, "Edit in setup", which
+ * keeps the setup wizard path Manage used to open directly (D14) until Batches 21/22 build the tab
+ * bodies.
+ */
+async function setupThroughDrawer(page: Page, providerName: string): Promise<void> {
+  await expect(page.locator('[data-testid="connection-detail-drawer"]')).toBeVisible();
+  await expect(page.locator('[data-testid="connection-drawer-title"]')).toContainText(providerName);
+  await page.getByRole('tab', { name: 'Credentials', exact: true }).click();
+  const setup = page.locator('[data-testid="connection-edit-in-setup"]');
+  await visibleEnabled(setup);
+  await setup.click();
+  await expect(page.locator('[data-testid="connection-detail-drawer"]')).toHaveCount(0);
+}
+
 /** Opens the setup wizard from an already-configured card's action button, then closes it. */
 async function throughCard(
   page: Page,
@@ -281,6 +297,7 @@ async function throughCard(
   const trigger = card(page, providerName).locator(`[data-testid="${buttonTestId}"]`);
   await visibleEnabled(trigger);
   await trigger.click();
+  if (buttonTestId === 'btn-manage') await setupThroughDrawer(page, providerName);
   await visibleEnabled(wizardBody(page));
   try {
     if (advance) await advancePastProviderStep(page);

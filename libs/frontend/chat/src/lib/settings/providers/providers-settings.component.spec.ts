@@ -69,6 +69,11 @@ class StateStub {
   readonly model = signal(ready({ model: 'model-a' }));
   readonly effort = signal(ready({ effort: undefined }));
   readonly connections = signal<ProvidersSettingsSection<readonly ProvidersConnection[]>>(ready([connection('first'), connection('second')]));
+  // Read by the connection drawer's Used-by list.
+  readonly memory = signal(ready({ curatorProvider: '' }));
+  readonly lanes = signal(ready({}));
+  readonly judging = signal(ready({ judgeProvider: '' }));
+  readonly customEntry = jest.fn(() => null);
   readonly cliAgents = signal(ready([]));
   readonly cliModels = signal(ready({}));
   readonly mainSources = signal(ready({}));
@@ -136,6 +141,69 @@ describe('ProvidersSettingsComponent', () => {
     return Array.from(element.querySelectorAll('[data-testid="status-badge"]')).filter((node) => node.textContent?.includes('Active for main agent'));
   }
   function wizard(): WizardStub { return fixture.debugElement.query(By.directive(WizardStub)).injector.get(WizardStub); }
+
+  describe('connection detail drawer', () => {
+    const drawer = () => element.querySelector('[data-testid="connection-detail-drawer"]');
+    const statusText = () => element.querySelector('[data-testid="connection-status"]')?.textContent?.trim();
+    const checkButton = () => element.querySelector<HTMLButtonElement>('[data-testid="connection-check"]');
+    async function openDrawer(id: string, opener?: HTMLElement) {
+      opener?.focus();
+      (fixture.componentInstance as unknown as { openDrawer(providerId: string): void }).openDrawer(id);
+      await render();
+    }
+
+    it('removal (a loaded list without the id) closes the drawer, clears it, and returns focus to the opener', async () => {
+      state.route.set(ready(route)); await render();
+      const opener = element.querySelector<HTMLElement>('h2[data-focus="connections"]') as HTMLElement;
+      await openDrawer('second', opener);
+      expect(drawer()).not.toBeNull();
+      (element.querySelector('[data-testid="connection-check"]') as HTMLElement).focus();
+
+      state.connections.set(ready([connection('first')])); await render();
+      expect(drawer()).toBeNull();
+      expect(document.activeElement).toBe(opener);
+      // Cleared, not parked: the connection coming back does not reopen the drawer by itself.
+      state.connections.set(ready([connection('first'), connection('second')])); await render();
+      expect(drawer()).toBeNull();
+    });
+
+    it('a refresh (list reloading with its data kept) leaves the drawer open', async () => {
+      state.route.set(ready(route)); await render();
+      await openDrawer('second');
+      state.connections.set({ status: 'loading', data: [connection('first'), connection('second')], error: null }); await render();
+      expect(drawer()).not.toBeNull();
+      state.connections.set(ready([connection('first'), connection('second')])); await render();
+      expect(drawer()).not.toBeNull();
+    });
+
+    it('during Check connection the status reads "Checking…" and the button is disabled', async () => {
+      state.route.set(ready(route)); await render();
+      await openDrawer('second');
+      expect(statusText()).toBe('Connected & verified');
+      state.route.set({ status: 'loading', data: route, error: null }); await render();
+      expect(element.querySelector('[data-testid="connection-status-skeleton"]')).toBeNull();
+      expect(statusText()).toBe('Checking…');
+      expect(checkButton()?.disabled).toBe(true);
+    });
+
+    it('a failed check reads "Check failed" with no host error text, and the check stays retryable', async () => {
+      state.route.set(ready(route)); await render();
+      await openDrawer('second');
+      state.route.set({ status: 'error', data: route, error: 'Could not load this section. Retry.' }); await render();
+      expect(statusText()).toBe('Check failed');
+      expect(element.querySelector('[data-testid="connection-overview"]')?.textContent).not.toContain('Could not load this section');
+      expect(checkButton()?.disabled).toBe(false);
+      checkButton()?.click();
+      expect(state.checkConnection).toHaveBeenCalledTimes(1);
+    });
+
+    it('Check connection is disabled while a save is in flight', async () => {
+      state.route.set(ready(route)); await render();
+      await openDrawer('second');
+      state.commit.set({ ...idle, status: 'saving' }); await render();
+      expect(checkButton()?.disabled).toBe(true);
+    });
+  });
 
   it('renders the real main model picker with the loader the Settings shell provides', async () => {
     state.route.set(ready(route));

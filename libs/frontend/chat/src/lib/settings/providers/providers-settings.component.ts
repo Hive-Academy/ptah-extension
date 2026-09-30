@@ -13,6 +13,9 @@ import { ProviderConnectionCardComponent, type ProviderConnectionCardStatus } fr
 import {
   ProviderSetupWizardComponent, type ProviderWizardCommit, type WizardCommitState,
 } from './provider-setup-wizard.component';
+import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
+import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
+import { connectionUsage } from './connection-usage';
 
 /** Deep-link sections the Providers tab owns. Background roles and CLI agents are on Orchestration. */
 export type ProvidersSettingsFocusTarget =
@@ -30,7 +33,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NativeCardComponent, ProviderModelPickerComponent, SettingScopeRowComponent,
-    ProviderConnectionCardComponent, ProviderSetupWizardComponent],
+    ProviderConnectionCardComponent, ProviderSetupWizardComponent, ConnectionDetailDrawerComponent],
   template: `
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
       <div class="max-w-4xl mx-auto px-3 py-3 md:px-6 lg:px-8 space-y-4">
@@ -160,7 +163,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
               [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
               [isBlocked]="isBlocked(connection.id)" [canActivateMain]="!saving() && state.route().status === 'ready'" [canManage]="canStartSetup() && connection.id !== 'anthropic'"
               (changeMainProviderRequested)="requestFocus('connections')" (activateMainRequested)="beginActivation(connection.id)"
-              (manageRequested)="openWizard(connection.id)" (setupRequested)="openWizard(connection.id)"
+              (manageRequested)="openDrawer(connection.id)" (setupRequested)="openWizard(connection.id)"
               (addKeyRequested)="openWizard(connection.id)" (replaceKeyRequested)="openWizard(connection.id)"
               (signInRequested)="externalAction(connection.id, 'sign-in')" (retryRequested)="state.checkConnection()"
               (editConnectionRequested)="openWizard(connection.id)" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
@@ -238,6 +241,20 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
         }
       </div>
     </div>
+    @if (drawerConnection(); as connection) {
+      <!-- Mounted only while open: the usage reads run only then, and the drawer restores focus on destroy.
+           Deferred into its own chunk: the settings route is eager and at its initial-bundle budget. -->
+      @defer (on immediate) {
+        <ptah-connection-detail-drawer [connection]="connection" [status]="drawerStatus(connection)"
+          [positiveProbeEvidence]="hasProbeEvidence(connection.id)" [isActive]="activeId() === connection.id"
+          [loading]="state.route().data === null && state.route().status !== 'error'"
+          [checking]="state.route().status === 'loading'" [saving]="saving()" [canEdit]="canStartSetup()"
+          [usedBy]="usage().byProvider[connection.id] ?? []" [usageComplete]="usage().complete" [usageError]="usageError()"
+          [customProtocol]="state.customEntry(connection.id)?.lane ?? null"
+          (closed)="closeDrawer()" (checkConnectionRequested)="state.checkConnection()" (retryUsageRequested)="state.refresh()"
+          (setupRequested)="setupFromDrawer($event)" />
+      }
+    }
     @if (wizardOpen()) {
       <!-- One wizard instance per setup session: a deep link applied right after a close must start fresh. -->
       @for (session of [wizardSession()]; track session) {
@@ -332,6 +349,30 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const configured = new Set(this.connections().map((entry) => entry.id));
     return (this.state.connections().data ?? []).filter((entry) => !configured.has(entry.id) && entry.name.toLowerCase().includes(this.search().toLowerCase()));
   });
+  /** The connection whose detail drawer is open (card Manage, until Batch 24's clickable card). */
+  private readonly drawerId = signal<string | null>(null);
+  /** The card button that opened the drawer; setup opened from the drawer returns focus here. */
+  private drawerOpener: HTMLElement | null = null;
+  protected readonly drawerConnection = computed(() => {
+    const id = this.drawerId();
+    return id ? this.state.connections().data?.find((entry) => entry.id === id) ?? null : null;
+  });
+  /** Who uses each connection. `undefined`/`null` sources mean "not loaded" (see connection-usage.ts). */
+  protected readonly usage = computed(() => {
+    const route = this.state.route(), memory = this.state.memory(), lanes = this.state.lanes();
+    const judging = this.state.judging(), agents = this.state.cliAgents();
+    return connectionUsage({
+      mainProviderId: route.status !== 'ready' ? undefined
+        : route.data?.route !== 'unresolved' ? route.data?.driverProviderId ?? null : null,
+      curatorProvider: memory.status === 'ready' ? memory.data?.curatorProvider ?? '' : null,
+      lanes: lanes.status === 'ready' ? lanes.data : null,
+      judgeProvider: judging.status === 'ready' ? judging.data?.judgeProvider ?? '' : null,
+      cliAgents: agents.status === 'ready' ? agents.data : null,
+    });
+  });
+  protected readonly usageError = computed(() =>
+    [this.state.route(), this.state.memory(), this.state.lanes(), this.state.judging(), this.state.cliAgents()]
+      .some((section) => section.status === 'error'));
   protected readonly readStates = computed(() => [
     { id: 'route', label: 'main-agent route', state: this.state.route(), retry: () => this.state.refreshRoute() },
     { id: 'scopes', label: 'setting sources', state: this.state.scopes(), retry: () => this.state.refreshScopes() },
@@ -342,6 +383,17 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   ]);
 
   constructor() {
+    // A connection removed while its drawer is open closes the drawer for good: only a loaded list that
+    // no longer holds the id clears it, so a refresh (data kept while loading) leaves the drawer open.
+    effect(() => {
+      const id = this.drawerId(), connections = this.state.connections();
+      if (!id || connections.status !== 'ready' || connections.data?.some((entry) => entry.id === id)) return;
+      untracked(() => {
+        this.drawerId.set(null);
+        if (this.drawerOpener?.isConnected) this.drawerOpener.focus();
+        this.drawerOpener = null;
+      });
+    });
     // Deep link (e.g. Tribunal "Configure"): open setup for that provider once setup can start.
     // - While the wizard is open (on any provider) a request stays PENDING and is applied when the
     //   wizard closes; an open draft is never switched away from under the user.
@@ -408,6 +460,10 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     if (this.state.route().status !== 'ready') return this.state.route().status === 'loading' ? 'checking' : 'check-unavailable';
     return this.state.route().data?.providers.find((provider) => provider.id === entry.id)?.status ?? 'not-checked';
   }
+  /** The drawer names a failed route read "Check failed" (retryable), not "Check unavailable". */
+  protected drawerStatus(entry: ProvidersConnection): OverviewConnectionStatus {
+    return this.state.route().status === 'error' ? 'check-failed' : this.connectionStatus(entry);
+  }
   /** Per-provider verdict from the effective route; null when the host cannot check it (skipped/unknown). */
   protected hasProbeEvidence(id: string): boolean | null {
     const route = this.state.route();
@@ -424,6 +480,21 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected requestFocus(target: ProvidersSettingsFocusTarget): void {
     this.focusedTarget = null; this.localFocus.set(target);
     this.element.nativeElement.querySelector<HTMLElement>(`[data-focus="${target}"]`)?.focus();
+  }
+  protected openDrawer(providerId: string): void {
+    const active = this.element.nativeElement.ownerDocument.activeElement;
+    this.drawerOpener = active instanceof HTMLElement ? active : null;
+    this.drawerId.set(providerId);
+  }
+  protected closeDrawer(): void { this.drawerId.set(null); }
+  /**
+   * "Edit in setup" from a drawer tab: close the drawer, put focus back on the card that opened it,
+   * then open the wizard, so closing the wizard returns focus to that card too.
+   */
+  protected setupFromDrawer(providerId: string): void {
+    this.closeDrawer();
+    if (this.drawerOpener?.isConnected) this.drawerOpener.focus();
+    this.openWizard(providerId);
   }
   protected openWizard(providerId: string): void {
     if (!this.canStartSetup()) return;

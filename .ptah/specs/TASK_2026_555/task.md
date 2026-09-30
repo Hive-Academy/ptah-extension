@@ -85,3 +85,7 @@ Gate 1.7 (user) → architect → team-leader → batches with cross-side review
   `ptahCli:update`. (3) Model search is Settings-only, via an opt-in `searchable` input. (4) Design-spec
   deviation 6 APPROVED: colour on icons/dots/badges, text stays `text-base-content`. Deviations 3-5
   accepted.
+- Lanes (2026-09-29, user): the Glm lane (Ollama Cloud) reached its usage limit; opencode is out of
+  quota. Cross-side reviews and small lane batches now use **codex + antigravity**.
+- Lanes (2026-09-30, user): continue with **Glm + antigravity** (codex limited until 2026-10-03 20:10;
+  opencode still excluded).
