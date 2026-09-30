@@ -3,7 +3,7 @@
  * against REAL git in throwaway repositories under the OS temp directory.
  *
  * Remotes are local bare repositories, so nothing touches the network. Like
- * `git-info.service.apply-hunks.spec.ts`, this file does not mock
+ * `git-info.service.apply-hunks.real-git.spec.ts`, this file does not mock
  * `cross-spawn`: the behaviour under test is git's own (upstream tracking,
  * fast-forward refusal, stash conflict handling).
  */
