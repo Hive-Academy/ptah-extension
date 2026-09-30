@@ -3,7 +3,8 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   ProvidersSettingsStateService, VSCodeService, type ProvidersEffectiveRoute, type ProvidersSettingsCommit, type ProvidersSettingsSection,
 } from '@ptah-extension/core';
-import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { By } from '@angular/platform-browser';
+import { PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent } from '@ptah-extension/ui';
 import type { ProviderListModelsResult, SettingScope } from '@ptah-extension/shared';
 import { MainAgentReassignPopoverComponent, type MainAgentFocus } from './main-agent-reassign-popover.component';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
@@ -72,14 +73,24 @@ describe('MainAgentReassignPopoverComponent', () => {
   const buttonNamed = (label: string) =>
     Array.from(document.querySelectorAll<HTMLButtonElement>('[data-testid="main-agent-popover"] button')).find((node) => node.textContent?.trim() === label);
   async function flush() { for (let i = 0; i < 8; i += 1) await Promise.resolve(); fixture.detectChanges(); }
+  /** The compact searchable model control (Batch 28b) and its combobox input. */
+  const modelField = () => fixture.debugElement.query(By.directive(ProviderModelSearchFieldComponent)).componentInstance as ProviderModelSearchFieldComponent;
+  const modelInput = () => query<HTMLInputElement>('main-agent-model')?.querySelector<HTMLInputElement>('input') ?? null;
+  /** A select's change; for the model control, the field's `modelSelected` (what a pick in its list emits). */
   function choose(id: string, value: string) {
+    if (id === 'main-agent-model') { modelField().modelSelected.emit(value); fixture.detectChanges(); return; }
     const select = query<HTMLSelectElement>(id);
     if (!select) throw new Error(`No select ${id}`);
     select.value = value; select.dispatchEvent(new Event('change')); fixture.detectChanges();
   }
+  function key(input: HTMLInputElement, name: string) {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true })); fixture.detectChanges();
+  }
   const options = (id: string) => Array.from(query<HTMLSelectElement>(id)?.options ?? []);
 
   beforeEach(async () => {
+    // jsdom has no scrollIntoView; the model list scrolls its active row into view (as in the ui field spec).
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { writable: true, configurable: true, value: jest.fn() });
     state = new StateStub();
     loader = { listModels: jest.fn(async (): Promise<ProviderListModelsResult> => CATALOGUE) };
     TestBed.configureTestingModule({
@@ -94,12 +105,16 @@ describe('MainAgentReassignPopoverComponent', () => {
   });
   afterEach(() => { feedback.dismiss(); TestBed.resetTestingModule(); });
 
-  it('is compact like the prototype: header, provider, one model select, segmented effort, a one-row Save to; no Apply', () => {
+  it('is compact like the prototype: header, provider, one compact model search, segmented effort, a one-row Save to; no Apply', () => {
     expect(query('main-agent-popover')?.getAttribute('role')).toBe('dialog');
     expect(query('main-agent-popover')?.className).not.toContain('overflow-y-auto');
     expect(document.getElementById('main-agent-popover-title')?.textContent?.trim()).toBe('Reassign main agent');
     expect(query('main-agent-provider')?.tagName).toBe('SELECT');
-    expect(query('main-agent-model')?.tagName).toBe('SELECT');
+    // Batch 28b: the one-row searchable model control from the ui barrel, never the whole picker card.
+    expect(query('main-agent-model')?.tagName).toBe('PTAH-PROVIDER-MODEL-SEARCH-FIELD');
+    expect(modelInput()?.getAttribute('role')).toBe('combobox');
+    expect(modelInput()?.id).toBe('main-agent-model');
+    expect(document.querySelector('label[for="main-agent-model"]')?.textContent?.trim()).toBe('Model selection');
     expect(document.querySelector('ptah-provider-model-picker')).toBeNull();
     expect(query('main-agent-effort')?.className).toContain('join');
     expect(query('main-agent-save-to')?.tagName).toBe('SELECT');
@@ -160,18 +175,49 @@ describe('MainAgentReassignPopoverComponent', () => {
     });
   });
 
-  describe('model (one select, saved on selection with Undo)', () => {
-    it('lists the driver\'s catalogue with the tool-use marker, loaded through the page loader', () => {
+  describe('model (compact search, saved on selection with Undo)', () => {
+    it('lists the driver\'s catalogue with the tool-use marker, "Enter a model ID…" last, loaded through the page loader', () => {
       expect(loader.listModels).toHaveBeenCalledWith('first');
-      expect(options('main-agent-model').map((option) => option.textContent?.trim()))
-        .toEqual(['Model A [Tool: Yes]', 'Model B [Tool: No]', 'Enter a model ID…']);
-      expect(query<HTMLSelectElement>('main-agent-model')?.value).toBe('model-a');
+      expect(modelField().options().map((option) => option.name)).toEqual(['Model A [Tool: Yes]', 'Model B [Tool: No]']);
+      expect(modelField().pinnedOption()?.name).toBe('Enter a model ID…');
+      expect(modelField().includeDefault()).toBe(false);
+      expect(modelInput()?.value).toBe('Model A [Tool: Yes]');
+    });
+
+    it('filters as the user types; arrows and Enter pick a model, which saves (keyboard, ARIA combobox)', async () => {
+      const input = modelInput();
+      if (!input) throw new Error('No model input');
+      input.dispatchEvent(new Event('focus')); fixture.detectChanges();
+      expect(input.getAttribute('aria-expanded')).toBe('true');
+      input.value = 'model b'; input.dispatchEvent(new Event('input')); fixture.detectChanges();
+      const listbox = document.getElementById(input.getAttribute('aria-controls') ?? '');
+      expect(Array.from(listbox?.querySelectorAll('[role="option"]') ?? []).map((row) => row.textContent?.trim()))
+        .toEqual(['Model B [Tool: No]', 'Enter a model ID…']);
+      key(input, 'Home');
+      const active = document.getElementById(input.getAttribute('aria-activedescendant') ?? '');
+      expect(active?.textContent?.trim()).toBe('Model B [Tool: No]');
+      key(input, 'ArrowDown');
+      expect(document.getElementById(input.getAttribute('aria-activedescendant') ?? '')?.textContent?.trim()).toBe('Enter a model ID…');
+      key(input, 'ArrowUp');
+      key(input, 'Enter'); await flush();
+      expect(state.saveSettings).toHaveBeenLastCalledWith({ model: { model: 'model-b', applyTo: 'global' } }, CONTEXT);
+    });
+
+    it('Esc closes the open model list first, and only the next Esc closes the popover', () => {
+      const input = modelInput();
+      if (!input) throw new Error('No model input');
+      input.dispatchEvent(new Event('focus')); fixture.detectChanges();
+      key(input, 'Escape');
+      expect(input.getAttribute('aria-expanded')).toBe('false');
+      expect(fixture.componentInstance.closed).toBe(0);
+      key(input, 'Escape');
+      expect(fixture.componentInstance.closed).toBe(1);
     });
 
     it('a stored model the catalogue lacks stays listed and selected', async () => {
       state.model.set(ready({ model: 'custom/x' })); fixture.detectChanges();
-      expect(options('main-agent-model')[0].textContent?.trim()).toBe('custom/x · not in current catalog');
-      expect(query<HTMLSelectElement>('main-agent-model')?.value).toBe('custom/x');
+      expect(modelField().options()[0].name).toBe('custom/x · not in current catalog');
+      expect(modelInput()?.value).toBe('custom/x · not in current catalog');
     });
 
     it('a selection saves at once to "Save to"; Undo is a second real write of the previous model', async () => {
@@ -194,8 +240,8 @@ describe('MainAgentReassignPopoverComponent', () => {
       buttonNamed('Use')?.click(); await flush();
       expect(state.saveSettings).toHaveBeenLastCalledWith({ model: { model: 'vendor/unlisted', applyTo: 'global' } }, CONTEXT);
       await flush();
-      expect(query('main-agent-model')?.tagName).toBe('SELECT');
-      expect(document.activeElement).toBe(query('main-agent-model'));
+      expect(query('main-agent-model')?.tagName).toBe('PTAH-PROVIDER-MODEL-SEARCH-FIELD');
+      expect(document.activeElement).toBe(modelInput());
     });
 
     it('a failed catalogue read says so and retries', async () => {
@@ -238,7 +284,7 @@ describe('MainAgentReassignPopoverComponent', () => {
     it('every trigger is disabled while a save runs (D3)', () => {
       state.commit.set({ ...idle, status: 'saving' }); fixture.detectChanges();
       expect(query<HTMLSelectElement>('main-agent-provider')?.disabled).toBe(true);
-      expect(query<HTMLSelectElement>('main-agent-model')?.disabled).toBe(true);
+      expect(modelInput()?.disabled).toBe(true);
       for (const button of Array.from(query('main-agent-effort')?.querySelectorAll('button') ?? [])) expect((button as HTMLButtonElement).disabled).toBe(true);
       expect(query<HTMLSelectElement>('main-agent-save-to')?.disabled).toBe(true);
     });
@@ -274,7 +320,7 @@ describe('MainAgentReassignPopoverComponent', () => {
 
     it('loading: model, effort and Save to are disabled, the reason is shown, and no write can start', async () => {
       state.mainSources.set({ status: 'loading', data: null, error: null } as never); fixture.detectChanges(); await flush();
-      expect(query<HTMLSelectElement>('main-agent-model')?.disabled).toBe(true);
+      expect(modelInput()?.disabled).toBe(true);
       expect(query<HTMLSelectElement>('main-agent-save-to')?.disabled).toBe(true);
       expect(effortButton('high')?.disabled).toBe(true);
       expect(query('main-agent-sources-loading')?.textContent).toContain('Loading where the model and effort are saved');

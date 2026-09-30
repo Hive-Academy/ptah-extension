@@ -134,14 +134,15 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
           <ng-container ngProjectAs="[node-badges]"><ng-content select="[main-agent-badges]" /></ng-container>
           <ng-container ngProjectAs="[node-popover]"><ng-content select="[main-agent-popover]" /></ng-container>
           @if (main().provider; as provider) {
-            <!-- Label + value on one line (prototype); a value too long for the node truncates, full text in the title. -->
+            <!-- Label + value start on one line (prototype); the whole value is always shown (Batch 28b): one too long for
+                 the node wraps inside its own column, beside the label, and is never truncated. -->
             <p class="flex min-w-0 items-baseline gap-x-1.5" data-testid="routing-main-provider-row">
               <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-base-content-muted">Provider:</span>
-              <span class="min-w-0 truncate text-sm font-semibold text-base-content" [attr.title]="provider" data-testid="routing-main-provider">{{ provider }}</span>
+              <span class="min-w-0 break-words text-sm font-semibold text-base-content" data-testid="routing-main-provider">{{ provider }}</span>
             </p>
             <p class="mt-0.5 flex min-w-0 items-baseline gap-x-1.5" data-testid="routing-main-model-row">
               <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-base-content-muted">Model:</span>
-              <span class="min-w-0 truncate font-mono text-xs font-medium text-base-content" [attr.title]="main().model" data-testid="routing-main-model">{{ main().model }}</span>
+              <span class="min-w-0 break-words font-mono text-xs font-medium text-base-content" data-testid="routing-main-model">{{ main().model }}</span>
             </p>
           } @else {
             <p class="text-base-content">Choose a provider to start the main agent.</p>

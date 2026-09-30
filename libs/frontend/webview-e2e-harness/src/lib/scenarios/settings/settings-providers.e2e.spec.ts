@@ -5,8 +5,8 @@
  * boots fresh, so the fixture state (`getFixtureState`) starts from the BRIEF baseline and every RPC a scene
  * asserts was sent by that scene's own clicks.
  *
- * Two validation-note scenes cannot run here and are `fixme` with the reason:
- * - the popover model search: FLAGGED for the user at Gate V 28 (the popover's model control is a plain select);
+ * One validation-note scene cannot run here and is `fixme` with the reason (the popover model search runs since
+ * Batch 28b, the compact searchable control):
  * - the `main-model` deep link: its only in-app trigger is the Setup Wizard's "Manage model in Providers", a
  *   separate webview surface this harness does not boot. `settings.component.spec.ts` (section routing) and
  *   `providers-settings.component.spec.ts` ("the %s deep link opens the popover focused on that control") cover it.
@@ -14,8 +14,9 @@
 import { test, expect } from '../../test-fixtures';
 import { bootSettings, getFixtureState, waitForSettled } from './settings.fixtures';
 import {
-  catalogDialog, closeConnectionDrawer, confirmWrite, connectProviderButton, credentialsOf, expectCall, expectCatalogOpen,
-  openCardDrawer, openCatalog, openMainAgentPopover, providersTab, visibleEnabled, withAuthStatus,
+  catalogDialog, chooseMainAgentModel, closeConnectionDrawer, confirmWrite, connectProviderButton, credentialsOf, expectCall,
+  expectCatalogOpen, mainAgentModelInput, openCardDrawer, openCatalog, openMainAgentPopover, providersTab, visibleEnabled,
+  withAuthStatus,
 } from './settings-drawer.reach';
 
 test.use({ useAppBuild: true });
@@ -91,26 +92,20 @@ for (const host of HOSTS) {
 
     test('popover model: a save shows a toast, and Undo sends a second config:model-switch with the previous model', async ({ page }) => {
       const popover = await openMainAgentPopover(page);
-      const select = popover.locator('[data-testid="main-agent-model"]');
-      await expect(select).toBeEnabled();
-      const models = (await select.locator('option').evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value)))
-        .filter((value) => value && value !== '__manual__');
-      expect(models.length).toBeGreaterThanOrEqual(2);
       const state = getFixtureState(page);
       // The fixture starts on the provider default (''), which has nothing to undo to: set a first model.
-      await select.selectOption(models[0]);
-      await expect.poll(() => state.model).toBe(models[0]);
+      await chooseMainAgentModel(page, popover, 'Kimi K2.5 [Tool: Yes]');
+      await expect.poll(() => state.model).toBe('kimi-k2.5');
       const before = state.calls.length;
-      await expect(select).toBeEnabled();
-      await select.selectOption(models[1]);
-      await expectCall(page, before, 'config:model-switch', expect.objectContaining({ model: models[1] }));
+      await chooseMainAgentModel(page, popover, 'Kimi Lite [Tool: No]');
+      await expectCall(page, before, 'config:model-switch', expect.objectContaining({ model: 'kimi-lite' }));
       const toast = page.locator('[data-testid="settings-toast"]');
       await expect(toast.locator('[data-testid="settings-toast-message"]')).toContainText('Saved main agent model');
       await visibleEnabled(toast.locator('[data-testid="settings-toast-undo"]'));
       await toast.locator('[data-testid="settings-toast-undo"]').click();
       await expect.poll(() => state.calls.slice(before).filter((call) => call.method === 'config:model-switch').length).toBe(2);
-      await expectCall(page, before, 'config:model-switch', expect.objectContaining({ model: models[0] }));
-      await expect.poll(() => state.model).toBe(models[0]);
+      await expectCall(page, before, 'config:model-switch', expect.objectContaining({ model: 'kimi-k2.5' }));
+      await expect.poll(() => state.model).toBe('kimi-k2.5');
     });
 
     test('popover provider: a change asks first (D6 copy) and writes nothing until confirmed', async ({ page }) => {
@@ -130,8 +125,45 @@ for (const host of HOSTS) {
       // No in-app trigger inside the settings harness (see the file header); covered by unit specs.
     });
 
-    test.fixme('popover model search filters the models', () => {
-      // FLAGGED at Gate V 28: the popover's model control is a plain select (no compact searchable picker).
+    test('popover model search filters the models; keys move, Enter picks, Esc closes the list before the popover', async ({ page }) => {
+      const popover = await openMainAgentPopover(page);
+      const input = mainAgentModelInput(popover);
+      await visibleEnabled(input);
+      await expect(input).toHaveAttribute('role', 'combobox');
+      await expect(input).toHaveAccessibleName('Main agent model');
+      await input.click();
+      await expect(input).toHaveAttribute('aria-expanded', 'true');
+      const listbox = page.locator(`[id="${await input.getAttribute('aria-controls')}"]`);
+      // Unfiltered: the catalogue (each with its tool-use marker), then the pinned "Enter a model ID…".
+      await expect(listbox.getByRole('option')).toHaveText(
+        ['Default (chosen by Claude)', 'Kimi K2.5 [Tool: Yes]', 'Kimi K2.7 Code [Tool: Yes]', 'Kimi Lite [Tool: No]', 'Enter a model ID…']);
+      await input.fill('lite');
+      await expect(listbox.getByRole('option')).toHaveText(['Kimi Lite [Tool: No]', 'Enter a model ID…']);
+      await input.fill('no-such-model');
+      await expect(listbox.getByRole('option')).toHaveText(['Enter a model ID…']);
+      // Esc closes the list only; the popover stays; the next Esc closes the popover.
+      await page.keyboard.press('Escape');
+      await expect(input).toHaveAttribute('aria-expanded', 'false');
+      await expect(popover).toBeVisible();
+      // Keyboard pick: filter, Home to the first row (aria-activedescendant follows), Enter saves it.
+      const before = getFixtureState(page).calls.length;
+      await input.fill('k2.7');
+      await page.keyboard.press('Home');
+      const active = await input.getAttribute('aria-activedescendant');
+      await expect(page.locator(`[id="${active}"]`)).toHaveText('Kimi K2.7 Code [Tool: Yes]');
+      await page.keyboard.press('Enter');
+      await expectCall(page, before, 'config:model-switch', expect.objectContaining({ model: 'kimi-k2.7-code' }));
+      await expect(input).toHaveValue('Kimi K2.7 Code [Tool: Yes]');
+      // The save disabled the field for a moment; back on it (focus opens the list), the first Esc closes the list
+      // and the second the popover.
+      await visibleEnabled(input);
+      await input.focus();
+      await expect(input).toHaveAttribute('aria-expanded', 'true');
+      await page.keyboard.press('Escape');
+      await expect(input).toHaveAttribute('aria-expanded', 'false');
+      await expect(popover).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(popover).toHaveCount(0);
     });
   });
 }

@@ -1,14 +1,16 @@
 /**
- * ProviderModelSearchFieldComponent — the type-to-filter model control that
- * {@link ProviderModelPickerComponent} renders in place of its model
- * `<select>` when the host opts in with `[searchable]="true"`.
+ * ProviderModelSearchFieldComponent — the one-row, type-to-filter model control. The picker
+ * ({@link ProviderModelPickerComponent}) renders it in place of its model `<select>` when the host opts in with
+ * `[searchable]="true"`; since TASK_2026_555 Batch 28b it is also exported from the barrel as the **compact**
+ * searchable model control (no card chrome, no provider row), used where a whole picker card does not fit (the
+ * Main Agent popover).
  *
- * INTERNAL TO THE PICKER. It is deliberately not exported from the barrel:
- * the picker owns the catalogue load, the pinned "not in current catalog"
- * entry and the default-tier sentinel label, and hands this field the
- * already-built option list. The field only filters, renders and reports the
- * chosen id — it injects nothing, so the picker's single-port boundary
- * (`PROVIDER_MODELS_LOADER`) is unchanged.
+ * The host owns the catalogue and hands this field the already-built option list (the picker: its load, the pinned
+ * "not in current catalog" entry and the default-tier label). The field only filters, renders and reports the
+ * chosen id — it injects nothing, so the picker's single-port boundary (`PROVIDER_MODELS_LOADER`) is unchanged.
+ * Optional, off by default (the picker's output is unchanged): `inputId` (a `<label for>` target),
+ * `includeDefault` (hide the `''` sentinel row) and `pinnedOption` (an action row always listed last, never
+ * filtered, e.g. "Enter a model ID…").
  *
  * Built on {@link NativeAutocompleteComponent}: the panel, Floating UI
  * positioning, arrow/Home/End/Enter/Escape handling and outside-click close
@@ -87,6 +89,7 @@ let nextPopupId = 0;
           autocomplete="off"
           class="input input-bordered input-sm w-full pl-7"
           data-testid="provider-model-picker-search"
+          [attr.id]="inputId()"
           [value]="displayValue()"
           [placeholder]="selectedLabel()"
           [disabled]="disabled()"
@@ -141,6 +144,15 @@ export class ProviderModelSearchFieldComponent {
   /** Accessible name of the combobox. */
   readonly ariaLabel = input<string>('Model');
 
+  /** `id` of the combobox input, for a host `<label for>`; none by default. */
+  readonly inputId = input<string | null>(null);
+
+  /** Lists the `''` sentinel row first (default). A host that cannot save `''` hides it. */
+  readonly includeDefault = input<boolean>(true);
+
+  /** An action row always listed last and never filtered out (e.g. "Enter a model ID…"); none by default. */
+  readonly pinnedOption = input<ProviderModelSearchOption | null>(null);
+
   /** Fires with the chosen id when the user picks a different entry. */
   readonly modelSelected = output<string>();
 
@@ -185,12 +197,17 @@ export class ProviderModelSearchFieldComponent {
   /** The sentinel first, then the catalogue — the same order as the select. */
   private readonly allOptions = computed<readonly ProviderModelSearchOption[]>(
     () => [
-      { id: '', name: this.defaultLabel(), supportsToolUse: null },
+      ...(this.includeDefault()
+        ? [{ id: '', name: this.defaultLabel(), supportsToolUse: null }]
+        : []),
       ...this.options(),
     ],
   );
 
-  /** Case-insensitive name/id match, capped at {@link MAX_MODEL_SUGGESTIONS}. */
+  /**
+   * Case-insensitive name/id match, capped at {@link MAX_MODEL_SUGGESTIONS};
+   * the pinned action row, if any, always follows.
+   */
   protected readonly suggestions = computed<ProviderModelSearchOption[]>(() => {
     const query = this._query().trim().toLowerCase();
     const all = this.allOptions();
@@ -201,7 +218,11 @@ export class ProviderModelSearchFieldComponent {
             (o.id !== '' && o.id.toLowerCase().includes(query)),
         )
       : all;
-    return matches.slice(0, MAX_MODEL_SUGGESTIONS);
+    const pinned = this.pinnedOption();
+    return [
+      ...matches.slice(0, MAX_MODEL_SUGGESTIONS),
+      ...(pinned ? [pinned] : []),
+    ];
   });
 
   /** What the closed field shows: the current selection's label. */
@@ -245,6 +266,9 @@ export class ProviderModelSearchFieldComponent {
       this.close();
       return;
     }
+    // Esc closes the open list only: it must not also reach an enclosing
+    // popover or drawer, which close on the same key (the next Esc does).
+    if (event.key === 'Escape') event.stopPropagation();
     if (autocomplete.onKeyDown(event)) event.preventDefault();
   }
 

@@ -4,7 +4,9 @@ import {
 } from '@angular/core';
 import { X, LucideAngularModule } from 'lucide-angular';
 import { ProvidersSettingsStateService, type ProvidersEditContext } from '@ptah-extension/core';
-import { NativePopoverComponent, PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import {
+  NativePopoverComponent, PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent, type ProviderModelSearchOption,
+} from '@ptah-extension/ui';
 import type { EffortLevel, ProviderModelInfo, SettingScope } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { runDrawerWrite, type DrawerWriteOutcome } from './connection-drawer/drawer-write';
@@ -37,8 +39,9 @@ interface ModelCatalogue {
  *   sessions."); "Use for main agent" calls `activateConnection` to the "Save to" scope, with no Undo and its
  *   own outcome only (`runDrawerWrite`, D15). "Save provider to {scope}…" re-saves the current provider there
  *   through the same confirm (the capability of the old override link, RUX-5).
- * - **Model** (one select over the driver's catalogue, loaded through the page's `PROVIDER_MODELS_LOADER`,
- *   with the tool-use marker; "Enter a model ID…" for an unlisted one) and **Effort** (segmented group) save
+ * - **Model** (the compact searchable `ProviderModelSearchFieldComponent` over the driver's catalogue, loaded
+ *   through the page's `PROVIDER_MODELS_LOADER`, with the tool-use marker; "Enter a model ID…" always last, for an
+ *   unlisted one; Batch 28b) and **Effort** (segmented group) save
  *   on selection through `SettingsSaveFeedbackService` with Undo (D2); every `write`/`undo` is
  *   `state.saveSettings` (Batch 17 constraint).
  * The edit context is taken on open; a write the host blocks because the workspace changed refreshes it, so
@@ -47,7 +50,7 @@ interface ModelCatalogue {
 @Component({
   selector: 'ptah-main-agent-reassign-popover',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent],
+  imports: [LucideAngularModule, NativePopoverComponent, ProviderModelSearchFieldComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Angular owns (and removes) this listener with the component.
   host: { '(window:resize)': 'open() && fitToViewport()' },
@@ -118,15 +121,12 @@ interface ModelCatalogue {
               <button type="button" [class]="'btn btn-ghost btn-xs min-h-8 text-base-content ' + focusRing" (click)="closeManual()">Cancel</button>
             </div>
           } @else {
-            <select id="main-agent-model" [class]="select + ' font-mono'" [disabled]="busy() || !targetReady() || !driverId() || catalogue().status === 'loading'"
-              (change)="onModel(value($event))" data-testid="main-agent-model">
-              @if (catalogue().status === 'loading') { <option selected>Loading models…</option> }
-              @if (!currentModel()) { <option value="" selected>{{ defaultModelLabel() }}</option> }
-              @for (model of modelOptions(); track model.id) {
-                <option [value]="model.id" [selected]="model.id === currentModel()">{{ model.label }}</option>
-              }
-              <option [value]="manualValue">Enter a model ID…</option>
-            </select>
+            <!-- Batch 28b: the compact searchable model control (ui barrel), filtering the popover's own options. Its list
+                 is position:fixed (Floating UI), so the body's scroll box never clips it; Esc closes the list first. -->
+            <ptah-provider-model-search-field data-testid="main-agent-model" inputId="main-agent-model" ariaLabel="Main agent model"
+              [options]="searchOptions()" [selectedId]="currentModel()" [includeDefault]="!currentModel()"
+              [defaultLabel]="catalogue().status === 'loading' ? 'Loading models…' : defaultModelLabel()" [pinnedOption]="manualOption"
+              [disabled]="busy() || !targetReady() || !driverId() || catalogue().status === 'loading'" (modelSelected)="onModel($event)" />
           }
           @if (catalogue().status === 'error') {
             <p role="alert" class="flex items-center gap-1.5 text-base-content" data-testid="main-agent-model-error">
@@ -182,7 +182,8 @@ export class MainAgentReassignPopoverComponent {
   private readonly scopeLabels = saveTargetLabels(injectAppScopeName());
   protected readonly select = SELECT;
   protected readonly focusRing = FOCUS;
-  protected readonly manualValue = MANUAL;
+  /** #35: always the last row of the model list, never filtered out; choosing it swaps in the model-ID field. */
+  protected readonly manualOption: ProviderModelSearchOption = { id: MANUAL, name: 'Enter a model ID…', supportsToolUse: null };
   protected readonly efforts: readonly { value: EffortLevel | ''; label: string }[] = [
     { value: '', label: 'default' }, ...EFFORT_LEVELS.map((value) => ({ value, label: value })),
   ];
@@ -281,6 +282,12 @@ export class MainAgentReassignPopoverComponent {
     return current && !models.some((model) => model.id === current)
       ? [{ id: current, label: `${current} · not in current catalog` }, ...models] : models;
   });
+  /**
+   * `modelOptions` as the compact field's options. The "[Tool: Yes|No]" marker is part of every label, so the field's
+   * own "Tool use" badge is left off (`supportsToolUse: null`) rather than shown twice.
+   */
+  protected readonly searchOptions = computed<readonly ProviderModelSearchOption[]>(() =>
+    this.modelOptions().map((option) => ({ id: option.id, name: option.label, supportsToolUse: null })));
   protected readonly currentEffort = computed<EffortLevel | ''>(() => (this.state.effort().data?.effort as EffortLevel | undefined) ?? '');
   /** Triggers wait while any save runs (D3). */
   protected readonly busy = computed(() => this.feedback.saving() || this.outcome()?.status === 'saving');
@@ -371,10 +378,10 @@ export class MainAgentReassignPopoverComponent {
     if (this.state.commit().status === 'saved') this.closeManual();
   }
 
-  /** Back to the select; the field leaves the DOM, so focus goes to the select once it has rendered. */
+  /** Back to the model search; the ID field leaves the DOM, so focus goes to the search once it has rendered. */
   protected closeManual(): void {
     this.manual.set(false);
-    afterNextRender(() => this.element.nativeElement.querySelector<HTMLSelectElement>('select#main-agent-model')?.focus(),
+    afterNextRender(() => this.element.nativeElement.querySelector<HTMLInputElement>('input#main-agent-model')?.focus(),
       { injector: this.injector });
   }
 

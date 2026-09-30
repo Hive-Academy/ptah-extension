@@ -125,6 +125,8 @@ describe('ProvidersSettingsComponent', () => {
   let element: HTMLElement;
   const listModels = jest.fn(async () => new RpcResult(true, { models: [{ id: 'catalog-model', name: 'Catalogue model' }] }));
   beforeEach(async () => {
+    // jsdom has no scrollIntoView; the popover's model list scrolls its active row into view.
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { writable: true, configurable: true, value: jest.fn() });
     state = new StateStub();
     listModels.mockClear();
     await TestBed.configureTestingModule({ imports: [ProvidersSettingsComponent], providers: [
@@ -442,13 +444,18 @@ describe('ProvidersSettingsComponent', () => {
     });
   });
 
-  it('the popover\'s model select lists the driver\'s catalogue through the loader the Settings shell provides', async () => {
+  it('the popover\'s model search lists the driver\'s catalogue through the loader the Settings shell provides', async () => {
     state.route.set(ready(route));
+    // A loaded Save-to target enables the model control (M1).
+    state.mainSources.set(ready({ model: { key: 'provider.first.selectedModel', scope: 'global' }, effort: { key: 'provider.first.reasoningEffort', scope: 'global' } }) as never);
     await render();
     element.querySelector<HTMLButtonElement>('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]')?.click();
     await render(); await render();
     expect(listModels).toHaveBeenCalledWith('provider:listModels', { providerId: 'first' });
-    const options = Array.from(element.querySelectorAll('[data-testid="main-agent-model"] option')).map((option) => option.textContent?.trim());
+    // Batch 28b: the compact searchable control; opening it lists the options.
+    const input = element.querySelector<HTMLInputElement>('[data-testid="main-agent-model"] input');
+    input?.dispatchEvent(new Event('focus')); await render();
+    const options = Array.from(element.querySelectorAll('[role="option"]')).map((option) => option.textContent?.trim());
     expect(options).toContain('Catalogue model [Tool: No]');
   });
 

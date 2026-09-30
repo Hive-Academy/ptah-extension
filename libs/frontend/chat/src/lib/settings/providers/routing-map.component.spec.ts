@@ -141,8 +141,11 @@ describe('RoutingMapComponent', () => {
       for (const row of ['routing-main-provider-row', 'routing-main-model-row']) {
         expect(within('main-agent', row)?.className).not.toContain('flex-wrap');
       }
-      expect(within('main-agent', 'routing-main-model')?.className).toContain('truncate');
-      expect(within('main-agent', 'routing-main-model')?.getAttribute('title')).toBe('Default (chosen by Claude)');
+      // Batch 28b: the full value, never truncated; a long one wraps in its own column.
+      for (const value of ['routing-main-provider', 'routing-main-model']) {
+        expect(within('main-agent', value)?.className).not.toMatch(/truncate|text-ellipsis|line-clamp/);
+        expect(within('main-agent', value)?.className).toContain('break-words');
+      }
     });
 
     it.each([

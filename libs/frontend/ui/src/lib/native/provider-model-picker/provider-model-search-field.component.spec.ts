@@ -317,4 +317,50 @@ describe('ProviderModelSearchFieldComponent', () => {
     expect(firstIds).toContain(active);
     expect(secondIds).not.toContain(active);
   });
+
+  describe('compact use outside the picker (Batch 28b, barrel export)', () => {
+    const MANUAL: ProviderModelSearchOption = { id: '__manual__', name: 'Enter a model ID…', supportsToolUse: null };
+
+    it('defaults keep the picker output: sentinel first, no id, no pinned row', () => {
+      create();
+      focus();
+      expect(input().hasAttribute('id')).toBe(false);
+      expect(optionLabels()).toEqual(['Default (haiku tier)', 'Claude Sonnet 4', 'GPT-5 mini', 'Kimi K2']);
+    });
+
+    it('inputId gives the combobox an id for a host <label for>', () => {
+      create({ inputId: 'main-agent-model' });
+      expect(input().id).toBe('main-agent-model');
+    });
+
+    it('includeDefault=false hides the sentinel row', () => {
+      create({ includeDefault: false, selectedId: 'kimi-k2' });
+      focus();
+      expect(optionLabels()).toEqual(['Claude Sonnet 4', 'GPT-5 mini', 'Kimi K2']);
+    });
+
+    it('a pinned option is always listed last, even when the filter matches nothing else, and emits its id', () => {
+      create({ pinnedOption: MANUAL });
+      focus();
+      expect(optionLabels().at(-1)).toBe('Enter a model ID…');
+      type('no-such-model');
+      expect(optionLabels()).toEqual(['Enter a model ID…']);
+      key('ArrowDown');
+      key('Enter');
+      expect(emitted).toEqual(['__manual__']);
+    });
+
+    it('Esc closes the open list without reaching an enclosing dialog; a closed field lets Esc through', () => {
+      create();
+      const reachedParent = jest.fn();
+      root().addEventListener('keydown', reachedParent);
+      focus();
+      input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      expect(input().getAttribute('aria-expanded')).toBe('false');
+      expect(reachedParent).not.toHaveBeenCalled();
+      input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(reachedParent).toHaveBeenCalledTimes(1);
+    });
+  });
 });

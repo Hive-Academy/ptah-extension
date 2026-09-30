@@ -5,7 +5,7 @@
  */
 import { expect, type Page } from '@playwright/test';
 import type { ReachabilityEntry } from './settings-reachability.table';
-import { closeMainAgentPopover, openMainAgentPopover, providersTab, visibleEnabled } from './settings-drawer.reach';
+import { closeMainAgentPopover, mainAgentModelInput, openMainAgentPopover, providersTab, visibleEnabled } from './settings-drawer.reach';
 
 /** Providers tab, then a routing-map node's footer action (`routing-node-action`). */
 async function activateNode(page: Page, node: 'background-roles' | 'cli-agents'): Promise<void> {
@@ -21,7 +21,7 @@ export const ROUTING_MAP_ENTRIES: readonly ReachabilityEntry[] = [
     reach: async (page) => {
       const popover = await openMainAgentPopover(page);
       await visibleEnabled(popover.locator('[data-testid="main-agent-provider"]'));
-      await visibleEnabled(popover.locator('[data-testid="main-agent-model"]'));
+      await visibleEnabled(mainAgentModelInput(popover));
       await expect(popover.locator('[data-testid="main-agent-effort"] button')).toHaveCount(6);
       await closeMainAgentPopover(page);
     } },

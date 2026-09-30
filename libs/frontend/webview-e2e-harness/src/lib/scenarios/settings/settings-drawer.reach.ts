@@ -183,6 +183,23 @@ export async function expectHostAppScope(page: Page, container: Locator, appEntr
   return label;
 }
 
+/** The Main Agent popover's model combobox (Batch 28b: the compact searchable control from the ui barrel). */
+export const mainAgentModelInput = (popover: Locator): Locator => popover.locator('[data-testid="main-agent-model"] input');
+
+/**
+ * Opens the popover's model list, optionally types a filter, and picks the row named `option` (an exact match of the
+ * row text, e.g. "Model B [Tool: No]" or "Enter a model ID…"). The list is the combobox's `aria-controls` listbox.
+ */
+export async function chooseMainAgentModel(page: Page, popover: Locator, option: string, filter = ''): Promise<void> {
+  const input = mainAgentModelInput(popover);
+  await visibleEnabled(input);
+  await input.click();
+  if (filter) await input.fill(filter);
+  const listbox = page.locator(`[id="${await input.getAttribute('aria-controls')}"]`);
+  await expect(listbox).toBeVisible();
+  await listbox.getByRole('option', { name: option, exact: true }).click();
+}
+
 /** Closes the Main Agent popover with Esc (focus returns to Reassign). */
 export async function closeMainAgentPopover(page: Page): Promise<void> {
   await page.keyboard.press('Escape');

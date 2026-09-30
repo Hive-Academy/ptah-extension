@@ -211,10 +211,19 @@ for (const host of ['vscode', 'electron'] as const) {
       // Every badge starts within the title's height: none drops to a row of its own under the header. In a 261 px
       // VS Code node the pill and one badge stack beside the two-line title; wider nodes hold them on one line.
       for (const top of titleRow.badges) expect(top).toBeLessThan(titleRow.title?.bottom ?? 0);
-      // "PROVIDER:" / "MODEL:" and their values share one line.
+      // "PROVIDER:" / "MODEL:" start on the value's first line, and the value is shown whole (Batch 28b: it may wrap in
+      // its own column, never truncate): nothing overflows its box and the text is the full route value.
       for (const row of ['routing-main-provider-row', 'routing-main-model-row']) {
-        expect(await page.locator(`[data-testid="${row}"]`).evaluate((node) => node.getBoundingClientRect().height)).toBeLessThanOrEqual(22);
+        const layout = await page.locator(`[data-testid="${row}"]`).evaluate((node) => {
+          const [label, value] = Array.from(node.children) as HTMLElement[];
+          return { labelTop: label.getBoundingClientRect().top, valueTop: value.getBoundingClientRect().top,
+            overflow: value.scrollWidth - value.clientWidth, lines: Math.round(value.getBoundingClientRect().height / 16) };
+        });
+        console.log(`B28b ${row} ${host}/${theme}: ${layout.lines} line(s), overflow ${layout.overflow}`);
+        expect(Math.abs(layout.labelTop - layout.valueTop)).toBeLessThanOrEqual(4);
+        expect(layout.overflow).toBeLessThanOrEqual(0);
       }
+      await expect(page.locator('[data-testid="routing-main-model"]')).toHaveText('Default (chosen by Claude)');
       // Gate V 28 defect 1: in light theme the popover trigger wrapper drew a square border around the scope badge.
       expect(await page.locator('[data-testid="routing-node-main-agent"] .popover-trigger').first()
         .evaluate((node) => getComputedStyle(node).borderTopWidth)).toBe('0px');
@@ -222,8 +231,9 @@ for (const host of ['vscode', 'electron'] as const) {
       await page.locator('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]').click();
       const mainPopover = page.locator('[data-testid="main-agent-popover"]');
       await expect(mainPopover).toBeVisible();
-      // The model catalogue has loaded (the select is enabled) and the whole popover is on screen (no inner scroll).
-      await expect(mainPopover.locator('[data-testid="main-agent-model"]')).toBeEnabled();
+      // The model catalogue has loaded (the model search is enabled) and the whole popover is on screen.
+      const modelInput = mainPopover.locator('[data-testid="main-agent-model"] input');
+      await expect(modelInput).toBeEnabled();
       const box = await mainPopover.boundingBox();
       const viewport = page.viewportSize();
       expect(box && viewport && box.y >= 0 && box.y + box.height <= viewport.height).toBe(true);
@@ -231,6 +241,36 @@ for (const host of ['vscode', 'electron'] as const) {
       await waitForSettled(page);
       await assertPopoverOnTop(page, '[data-testid="main-agent-popover"]', 'select, button');
       await page.screenshot({ path: capturePath('main-agent-popover', host, theme), animations: 'disabled' });
+      // Batch 28b: the compact model search with its list open and filtered. The list (position: fixed) is never
+      // clipped by the popover's scroll box: it is inside the viewport and on top at every row.
+      await modelInput.click();
+      await modelInput.fill('kimi');
+      const listboxId = await modelInput.getAttribute('aria-controls');
+      const listbox = page.locator(`[id="${listboxId}"]`);
+      await expect(listbox).toBeVisible();
+      await expect(listbox.getByRole('option')).toHaveCount(4);
+      const inView = (rect: { x: number; y: number; width: number; height: number } | null) => !!rect && !!viewport
+        && rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= viewport.width && rect.y + rect.height <= viewport.height;
+      const listRect = await listbox.boundingBox();
+      console.log(`B28b model list ${host}/${theme}: ${Math.round(listRect?.width ?? 0)}x${Math.round(listRect?.height ?? 0)} @ ${Math.round(listRect?.x ?? 0)},${Math.round(listRect?.y ?? 0)}`);
+      expect(inView(listRect)).toBe(true);
+      expect(inView(await mainPopover.boundingBox())).toBe(true);
+      await assertPopoverOnTop(page, `[id="${listboxId}"]`, '[role="option"]');
+      await page.screenshot({ path: capturePath('main-agent-model-search', host, theme), animations: 'disabled' });
+      // Esc closes the list only; the popover stays.
+      await page.keyboard.press('Escape');
+      await expect(modelInput).toHaveAttribute('aria-expanded', 'false');
+      await expect(mainPopover).toBeVisible();
+      // The manual model-ID state is fully visible too; Cancel returns to the search (whose list the focus opens).
+      await modelInput.click();
+      await listbox.getByRole('option', { name: 'Enter a model ID…', exact: true }).click();
+      await expect(mainPopover.locator('[data-testid="main-agent-model-manual"]')).toBeVisible();
+      expect(inView(await mainPopover.boundingBox())).toBe(true);
+      await mainPopover.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(modelInput).toBeFocused();
+      await expect(modelInput).toHaveAttribute('aria-expanded', 'true');
+      await page.keyboard.press('Escape');
+      await expect(modelInput).toHaveAttribute('aria-expanded', 'false');
       // Batch 27b: the "Save to" list with the App target chosen, named after the host, and the provider
       // re-save confirm that names it ("Saved to: VS Code." / "Saved to: Desktop app."); cancelled after.
       const appLabel = host === 'electron' ? 'Desktop app' : 'VS Code';

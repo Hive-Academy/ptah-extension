@@ -25,7 +25,7 @@ import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 import { ROUTING_MAP_ENTRIES } from './settings-routing-map.entries';
 import {
-  advancedTab, applyManualTierModel, card, expectHostAppScope, closeCatalog, closeConnectionDrawer, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
+  advancedTab, applyManualTierModel, card, chooseMainAgentModel, expectHostAppScope, closeCatalog, closeConnectionDrawer, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
   cliConfigSection, closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
   throughDelegatedEdit, setupThroughDrawer, visibleEnabled, withAuthStatus,
 } from './settings-drawer.reach';
@@ -483,12 +483,10 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
   },
   {
     id: '#35', capability: 'Custom model ID per tier ("Not listed? Enter a model ID")', status: 'present',
-    // Since Batch 26: the Main Agent popover's model select → "Enter a model ID…" (inline field on the same row).
+    // Since Batch 26 (Batch 28b: the compact model search): the list's last row "Enter a model ID…" → inline field.
     reach: async (page) => {
       const popover = await openMainAgentPopover(page);
-      const select = popover.locator('[data-testid="main-agent-model"]');
-      await visibleEnabled(select);
-      await select.selectOption('__manual__');
+      await chooseMainAgentModel(page, popover, 'Enter a model ID…');
       await visibleEnabled(popover.locator('[data-testid="main-agent-model-manual"]'));
       await closeMainAgentPopover(page);
     },
