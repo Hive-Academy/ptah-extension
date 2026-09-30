@@ -129,6 +129,16 @@ FEATURE. Complex. Full depth: software-architect → user gate → team-leader b
 7. Works in Electron and VS Code. CLI: RPCs work when SQLite is available.
 8. Reachability proof for each capture path: a spec fails if the production path does not call it.
 
+## Consumer: TASK_2026_584_5e7a (agent-started sessions)
+
+TASK_2026_584 lets a parent agent start child chat sessions, each in its own worktree, bound to the UI as normal tabs. Each child needs the same data this record holds (worktree, branch, workflow status, task link) plus one field this task does not plan: the **parent session id**. Keep room for it in the schema:
+
+- A nullable `parent_session_id` column on the organization record (or a `spawned_by` link kind), so the session list can group children under their parent.
+- A `started_by: 'user' | 'agent'` value, so the UI can mark agent-started tabs.
+- Worktree capture must also fire when a session is started by `ptah_session_start`, not only by the SDK hook or `ptah_git_worktree_add`.
+
+The 584 implementation plan decides whether its child-link registry is the first slice of this record or a temporary registry that this task absorbs. Either way, the two tasks share one schema.
+
 ## Related defects found during research (file separately)
 
 - The Electron gateway session lister checks `Array.isArray(raw)`
