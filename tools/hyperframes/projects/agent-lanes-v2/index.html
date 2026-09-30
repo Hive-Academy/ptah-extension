@@ -2,9 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <title>Agent lanes v2</title>
     <meta name="viewport" content="width=1920, height=1080" />
-    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@hyperframes/shader-transitions@0.8.97/dist/index.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@hyperframes/shader-transitions@0.8.97/dist/index.global.js" integrity="sha384-fliw84YWa1ZYRre1SODpFDr6Vtfko4jlDK7lOK7gLEl0SycYYteSsCcSlaTxOP6t" crossorigin="anonymous"></script>
     <style>
       * {
         margin: 0;
@@ -188,6 +189,7 @@
         position: absolute;
         border-radius: 50%;
         border: 4px solid rgba(245, 165, 36, 0.8);
+        opacity: 0;
       }
       .step {
         position: absolute;
@@ -275,6 +277,7 @@
         height: 90px;
         border-radius: 50%;
         border: 4px solid #f5a524;
+        opacity: 0;
       }
       .toast {
         position: absolute;
@@ -1026,7 +1029,7 @@
         tl.fromTo("#caret", { opacity: 1 }, { opacity: 0, duration: 0.224, yoyo: true, repeat: 11, ease: "steps(1)" }, 5.6);
         tl.fromTo("#send", { scale: 1 }, { scale: 0.8, duration: 0.1, yoyo: true, repeat: 1 }, 7.17);
         popIn("#hub2", 7.17, { scale: 0.2 });
-        tl.fromTo("#pr1", { opacity: 0.9, scale: 0.8 }, { opacity: 0, scale: 1.6, duration: 0.45, ease: "power2.out", repeat: 6, repeatDelay: 0 }, 7.17);
+        tl.fromTo("#pr1", { opacity: 0.9, scale: 0.8 }, { opacity: 0, scale: 1.6, duration: 0.45, ease: "power2.out", repeat: 6, repeatDelay: 0, immediateRender: false }, 7.17);
         popIn("#st1", 7.618, { x: -120 });
         popIn("#st2", 8.066, { x: -120 });
         popIn("#st3", 8.514, { x: -120 });
@@ -1044,7 +1047,7 @@
         tl.fromTo("#cursor", { x: 1500, y: 980, opacity: 0 }, { x: btn.x, y: btn.y, opacity: 1, duration: 0.7, ease: "power3.inOut" }, 13.6);
         tl.fromTo("#cursor", { scale: 1 }, { scale: 0.82, duration: 0.08, yoyo: true, repeat: 1, immediateRender: false }, 14.334);
         tl.set("#ripple", { x: btn.x - 38, y: btn.y - 38 }, 0);
-        tl.fromTo("#ripple", { opacity: 0.9, scale: 0.3 }, { opacity: 0, scale: 1.6, duration: 0.5, ease: "power2.out" }, 14.334);
+        tl.fromTo("#ripple", { opacity: 0.9, scale: 0.3 }, { opacity: 0, scale: 1.6, duration: 0.5, ease: "power2.out", immediateRender: false }, 14.334);
         popIn("#toast3", 14.78, { y: -40, scale: 0.8 });
         tl.fromTo("#ag1", { boxShadow: "0 0 0 0 rgba(245,165,36,0.9)" }, { boxShadow: "0 0 0 30px rgba(245,165,36,0)", duration: 0.6, immediateRender: false }, 14.78);
 

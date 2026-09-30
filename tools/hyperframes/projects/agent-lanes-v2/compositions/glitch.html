@@ -3,7 +3,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <title>Glitch</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Lato:wght@400;700&display=block");
       * {
@@ -217,7 +218,7 @@
           var origZ = scene.style.zIndex;
           scene.style.opacity = "1";
           scene.style.zIndex = "999";
-          scene.offsetHeight;
+          scene.getBoundingClientRect(); // force layout before measuring
           var c = document.createElement("canvas");
           c.width = 1200;
           c.height = 1080;
@@ -268,6 +269,7 @@
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+          if (sceneTextures[sceneId]) gl.deleteTexture(sceneTextures[sceneId]);
           sceneTextures[sceneId] = tex;
         }
 
@@ -361,6 +363,15 @@
         });
         tl.to({ v: 0 }, { v: 1, duration: 4, ease: "none" }, 0);
         window.__timelines["main"] = tl;
+        // The first capture can run before the @import fonts load; redraw the
+        // scene textures with the real glyphs once they are ready.
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(function () {
+            captureScene("s1");
+            captureScene("s2");
+            tl.eventCallback("onUpdate").call(tl);
+          });
+        }
       } // end if (gl)
     </script>
   </body>

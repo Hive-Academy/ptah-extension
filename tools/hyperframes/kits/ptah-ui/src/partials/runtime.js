@@ -167,9 +167,13 @@ function ptahKit(root, cfg) {
       });
       return t + units.length / rate;
     },
-    /* character typing: one tl.set of textContent per char (seek-safe) */
+    /* character typing: one tl.set of textContent per char (seek-safe).
+       GSAP treats an empty recorded start value as missing, so the first char's set
+       would not revert on a backward seek. The leading "" set at the same time
+       reverts after it and restores the empty field. */
     type: function (el, text, t, rate) {
       el.textContent = "";
+      tl.set(el, { textContent: "" }, t);
       for (var i = 1; i <= text.length; i++) tl.set(el, { textContent: text.slice(0, i) }, t + (i - 1) / rate);
       return t + text.length / rate;
     },

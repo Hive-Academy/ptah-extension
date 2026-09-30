@@ -225,7 +225,7 @@
           </div>
         </div>
 
-        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
         <script>
           (function () {
             "use strict";
@@ -335,6 +335,23 @@
             // count always renders the same colored string in either seek
             // direction. The caret is appended last, after node collection,
             // so empty trailing nodes keep it hugging the visible end.
+            // Collapse the whitespace from the HTML source indentation. Without
+            // this, pre-wrap renders it and the typing and sizing tables count it.
+            if (slot) {
+              slot.querySelectorAll("[data-terminal]").forEach(function (line) {
+                var lineWalker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT, null);
+                var nodes = [];
+                while (lineWalker.nextNode()) nodes.push(lineWalker.currentNode);
+                nodes.forEach(function (node) {
+                  node.data = node.data.replace(/\s+/g, " ");
+                });
+                if (nodes.length > 0) {
+                  nodes[0].data = nodes[0].data.replace(/^\s+/, "");
+                  var last = nodes[nodes.length - 1];
+                  last.data = last.data.replace(/\s+$/, "");
+                }
+              });
+            }
             var textNodes = [];
             if (commandElement) {
               var walker = document.createTreeWalker(commandElement, NodeFilter.SHOW_TEXT, null);
