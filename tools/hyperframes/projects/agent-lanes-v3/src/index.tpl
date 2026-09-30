@@ -22,7 +22,8 @@
     <div id="root" data-composition-id="main" data-start="0" data-duration="@DURATION" data-width="1920" data-height="1080">
 <!--@frames-->
 
-      <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="@DURATION" data-media-start="12.575" data-track-index="10" data-volume="0.6"></audio>
+      <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="@DURATION" data-media-start="12.575" data-track-index="10" data-volume="0.6"
+        data-automation='{"version":1,"lanes":[{"target":"volume","points":[{"t":0,"v":1},{"t":@FADE_START,"v":1},{"t":@DURATION,"v":0}]}]}'></audio>
     </div>
     <script>
       (function () {

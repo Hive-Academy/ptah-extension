@@ -87,6 +87,7 @@ out = out
   .replace("/*@scenes*/", frames.map((f) => JSON.stringify(f.id)).join(", "))
   .replace("/*@transitions*/", transitions.map((t) => JSON.stringify(t)).join(",\n          "))
   .replace("/*@frames-js*/", frames.map((f) => `// ${f.file}\n(function (tl, T0) {${f.js}})(tl, ${f.t0});`).join("\n"))
+  .replaceAll("@FADE_START", String(round(duration - 1.791)))
   .replaceAll("@DURATION", String(duration));
 
 writeFileSync(join(here, "index.html"), out);
