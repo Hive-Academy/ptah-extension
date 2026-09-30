@@ -43,42 +43,16 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
       <!-- No width or side padding of its own: the Settings shell (settings.component.html) already sets
            max-w-4xl and the page padding, which used to be applied twice (Batch 24, card grid width). -->
+      <!-- Prototype order (plan :580-583): routing map, then Connections (header, grid, tile), then the catalog hint.
+           No page title, no Refresh: the tab names the page, and every region retries its own read. -->
       <div class="py-3 space-y-4">
-        <header class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0 space-y-1">
-            <h1 class="text-lg font-semibold">Providers</h1>
-            @if (state.connections().status === 'ready') {
-              <p>{{ state.connections().data?.length }} providers · {{ connections().length }} configured</p>
-            }
-            @if (state.scopes().data; as scopes) {
-              @if (scopes.activePath) {
-                <p class="font-medium">Workspace: {{ workspaceName() }}</p>
-                <p class="break-all select-text bg-base-100 text-xs text-base-content-muted">{{ scopes.activePath }}</p>
-              } @else { <p>No workspace open. Workspace overrides are unavailable.</p> }
-            }
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button type="button" [class]="control" (click)="openCatalog()">Connect provider</button>
-            <button type="button" [class]="control" (click)="state.refresh()" [disabled]="saving()">Refresh settings</button>
-          </div>
-        </header>
-
-        @for (section of readStates(); track section.id) {
-          @if (section.state.status === 'error') {
-            <div role="alert" class="rounded-md border border-base-content-muted bg-base-100 p-3 space-y-2" [attr.data-read-error]="section.id">
-              <p>{{ section.label }} could not be loaded. Your saved settings have not changed.</p>
-              <button type="button" [class]="control" (click)="section.retry()">Retry {{ section.label }}</button>
-            </div>
-          } @else if (section.state.status === 'loading' || section.state.status === 'unloaded') {
-            <p role="status" aria-live="polite" [attr.data-read-loading]="section.id">Loading {{ section.label }}…</p>
-          }
-        }
-
+        <!-- Main-agent region. Loading shows as the nodes' skeletons (aria-busy here keeps captures waiting). -->
+        <div class="space-y-2" [attr.aria-busy]="mainReadsLoading()" data-testid="main-agent-region">
         <!-- The Main Agent node holds the D16 badges and opens the Main Agent popover (provider, model, effort).
              Deferred with the popover (eager route at its bundle budget) behind a same-footprint placeholder. -->
         @defer (on immediate) {
         <ptah-routing-map (nodeActivated)="$event === 'main-agent' && openMainPopover()">
-          <ptah-main-agent-reassign-popover main-agent-popover [open]="mainPopover() !== null" [requestedProvider]="mainPopover()?.provider ?? null"
+          <ptah-main-agent-reassign-popover main-agent-popover [open]="mainPopover() !== null"
             [initialFocus]="mainPopover()?.focus ?? null" (closed)="mainPopover.set(null)" />
           <div main-agent-badges class="contents" data-testid="main-scope-badges">
             @for (fieldName of mainValueFields; track fieldName) {
@@ -108,32 +82,13 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
         } @placeholder {
           <div class="min-h-[178px] rounded-xl border border-base-300 bg-base-200/40 p-3" aria-busy="true" data-testid="routing-map-placeholder"></div>
         }
-
-        <section aria-labelledby="providers-connections-heading" class="space-y-3" [attr.aria-busy]="state.connections().status === 'loading'">
-          <h2 id="providers-connections-heading" data-focus="connections" tabindex="-1" class="text-sm font-semibold scroll-mt-4">Your connections</h2>
-          @if (state.connections().status === 'ready' && connections().length === 0) { <p>No connections configured. Connect a provider to get started.</p> }
-          <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one. -->
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="connections-grid">
-            @for (connection of connections(); track connection.id) {
-              <ptah-provider-connection-card [providerId]="connection.id" [providerName]="connection.name" [authModality]="connection.authMode"
-                [sourceLabel]="connection.hasKey ? 'Key stored locally' : null" [authModalityText]="connection.custom ? 'Custom' : null"
-                [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
-                [isBlocked]="isBlocked(connection.id)" [canActivateMain]="!saving() && state.route().status === 'ready'"
-                [usedByCount]="usage().complete ? (usage().byProvider[connection.id]?.length ?? 0) : null"
-                (detailsRequested)="openDrawer(connection.id)" (activateMainRequested)="openMainPopover(connection.id)"
-                (setupRequested)="openWizard(connection.id)" (addKeyRequested)="openWizard(connection.id)"
-                (replaceKeyRequested)="openWizard(connection.id)" (signInRequested)="externalAction(connection.id, 'sign-in')"
-                (retryRequested)="state.checkConnection()" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
-                (checkConnectionRequested)="state.checkConnection()" />
-            }
-            <!-- Prototype tile: the catalog modal from inside the grid. -->
-            <button type="button" [class]="'flex min-h-[80px] items-center justify-center gap-2 rounded-xl border border-dashed border-base-300 p-3 text-xs font-medium text-base-content hover:border-primary ' + focusRing"
-              (click)="openCatalog()" data-testid="connect-another-provider">
-              <span class="h-2 w-2 rounded-full bg-primary" aria-hidden="true"></span> + Connect another provider
-            </button>
+        <!-- The route's own failure is shown (with Retry) inside the Main Agent node; these are its other reads. -->
+        @for (section of mainReadErrors(); track section.id) {
+          <div role="alert" [class]="readError" [attr.data-read-error]="section.id">
+            <p class="min-w-0">{{ section.title }} could not be loaded. Your saved settings have not changed.</p>
+            <button type="button" [class]="retryControl" (click)="section.retry()">Retry {{ section.label }}</button>
           </div>
-        </section>
-
+        }
         @if (clearKey(); as key) {
           <section class="rounded-md border border-base-content-muted p-3 space-y-3" aria-label="Review clear override">
             @if (clearTarget() === 'all-above-global') {
@@ -149,14 +104,69 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
             <button type="button" [class]="control" (click)="clearKey.set(null)" [disabled]="saving()">Cancel clear</button>
           </section>
         }
-
-        <!-- Catalog hint strip (prototype): the unconfigured providers, and Browse catalog → the catalog modal. -->
-        <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-base-300 bg-base-200 p-2.5 text-xs text-base-content-muted"
-          data-testid="catalog-hint">
-          <p class="min-w-0"><span class="font-semibold text-base-content">{{ catalogHint().lead }}</span> {{ catalogHint().names }}</p>
-          <button type="button" data-focus="more-providers" [class]="'btn btn-ghost btn-xs min-h-6 font-semibold text-base-content underline ' + focusRing"
-            (click)="openCatalog()">Browse catalog →</button>
         </div>
+
+        <section aria-labelledby="providers-connections-heading" class="space-y-3" [attr.aria-busy]="state.connections().status === 'loading'">
+          <!-- Header (prototype): title + count pill left; filter and the primary "Connect provider" right. -->
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+              <h2 id="providers-connections-heading" data-focus="connections" tabindex="-1" class="text-sm font-semibold scroll-mt-4">Connections</h2>
+              @if (state.connections().status === 'ready') {
+                <span class="rounded-full border border-base-300 bg-base-200 px-2 py-0.5 text-[11px] text-base-content" data-testid="connections-count">
+                  {{ connections().length }} configured · {{ catalog().length }} available in catalog</span>
+              }
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <input type="search" [class]="'input input-bordered input-sm h-9 min-h-9 w-44 border-base-content-muted bg-base-100 text-xs text-base-content ' + focusRing"
+                placeholder="Filter connections…" aria-label="Filter connections" data-testid="connections-filter"
+                [value]="filter()" (input)="filter.set(inputValue($event))" />
+              <button type="button" [class]="'btn btn-primary btn-sm min-h-9 gap-1 ' + focusRing" (click)="openCatalog()" data-testid="connect-provider">
+                <svg viewBox="0 0 16 16" class="h-3.5 w-3.5" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" /></svg>Connect provider
+              </button>
+            </div>
+          </div>
+          @if (state.connections().status === 'error') {
+            <div role="alert" [class]="readError" data-read-error="connections">
+              <p class="min-w-0">Providers could not be loaded. Your saved settings have not changed.</p>
+              <button type="button" [class]="retryControl" (click)="state.refreshConnections()">Retry providers</button>
+            </div>
+          }
+          @if (state.connections().status === 'ready' && connections().length === 0) { <p>No connections configured. Connect a provider to get started.</p> }
+          @if (filter() && connections().length && !shownConnections().length) {
+            <p role="status" data-testid="connections-filter-empty">No connections match “{{ filter() }}”.
+              <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 text-base-content underline ' + focusRing" (click)="filter.set('')">Clear filter</button></p>
+          }
+          <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one.
+               Columns come from the CONTAINER width (Q-extra-1): 3 in VS Code at 1024 px, 2 in the narrower Electron page. -->
+          <div class="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3" data-testid="connections-grid">
+            @for (connection of shownConnections(); track connection.id) {
+              <ptah-provider-connection-card [providerId]="connection.id" [providerName]="connection.name" [authModality]="connection.authMode"
+                [sourceLabel]="connection.hasKey ? 'Key stored locally' : null" [authModalityText]="connection.custom ? 'Custom' : null"
+                [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
+                [isBlocked]="isBlocked(connection.id)"
+                [usedByCount]="usage().complete ? (usage().byProvider[connection.id]?.length ?? 0) : null"
+                (detailsRequested)="openDrawer(connection.id)"
+                (setupRequested)="openWizard(connection.id)" (addKeyRequested)="openWizard(connection.id)"
+                (replaceKeyRequested)="openWizard(connection.id)" (signInRequested)="externalAction(connection.id, 'sign-in')"
+                (retryRequested)="state.checkConnection()" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
+                (checkConnectionRequested)="state.checkConnection()" />
+            }
+            <!-- Prototype tile: the catalog modal from inside the grid. -->
+            <button type="button" [class]="'flex min-h-[80px] items-center justify-center gap-2 rounded-xl border border-dashed border-base-300 p-3 text-xs font-medium text-base-content hover:border-primary ' + focusRing"
+              (click)="openCatalog()" data-testid="connect-another-provider">
+              <span class="h-2 w-2 rounded-full bg-primary" aria-hidden="true"></span> + Connect another provider
+            </button>
+          </div>
+          <!-- Catalog hint strip, directly under the grid (prototype): one row, the names truncate (full list in the
+               title), "Browse catalog →" right-aligned. -->
+          <div class="flex items-center gap-3 rounded-lg border border-base-300 bg-base-200 px-3 py-2 text-xs text-base-content-muted"
+            data-testid="catalog-hint">
+            <p class="min-w-0 flex-1 truncate" [attr.title]="catalogHint().names || null" data-testid="catalog-hint-text">
+              <span class="font-semibold text-base-content">{{ catalogHint().lead }}</span> {{ catalogHint().names }}</p>
+            <button type="button" data-focus="more-providers" [class]="'btn btn-ghost btn-xs ml-auto min-h-6 shrink-0 font-semibold text-base-content underline ' + focusRing"
+              (click)="openCatalog()">Browse catalog →</button>
+          </div>
+        </section>
         <!-- Catalog modal: deferred (eager route at its bundle budget); the native <dialog> traps focus and returns it. -->
         @defer (on immediate) {
           <ptah-provider-catalog-modal [open]="catalogOpen()" [providers]="catalog()" [status]="catalogStatus()" [canSetUp]="canStartSetup()"
@@ -237,7 +247,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly wizardSession = signal(0);
   protected readonly wizardCommitState = signal<WizardCommitState>('idle');
   /** The open Main Agent popover: a provider preselected by a card, and a deep-linked control to focus. */
-  protected readonly mainPopover = signal<{ provider: string | null; focus: MainAgentFocus | null } | null>(null);
+  protected readonly mainPopover = signal<{ focus: MainAgentFocus | null } | null>(null);
   protected readonly clearKey = signal<string | null>(null);
   protected readonly clearTarget = signal<'nearest' | 'all-above-global'>('nearest');
   protected readonly feedback = signal<string | null>(null);
@@ -346,14 +356,26 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly usageError = computed(() =>
     [this.state.route(), this.state.memory(), this.state.lanes(), this.state.judging(), this.state.cliAgents()]
       .some((section) => section.status === 'error'));
-  protected readonly readStates = computed(() => [
-    { id: 'route', label: 'main-agent route', state: this.state.route(), retry: () => this.state.refreshRoute() },
-    { id: 'scopes', label: 'setting sources', state: this.state.scopes(), retry: () => this.state.refreshScopes() },
-    { id: 'model', label: 'main-agent model', state: this.state.model(), retry: () => this.state.refreshModel() },
-    { id: 'main-sources', label: 'model and effort sources', state: this.state.mainSources(), retry: () => this.state.refreshMainSources() },
-    { id: 'effort', label: 'main-agent reasoning effort', state: this.state.effort(), retry: () => this.state.refreshEffort() },
-    { id: 'connections', label: 'providers', state: this.state.connections(), retry: () => this.state.refreshConnections() },
+  /** The Main Agent region's reads other than the route (whose error and Retry live in the Main Agent node). */
+  private readonly mainReads = computed(() => [
+    { id: 'scopes', title: 'Setting sources', label: 'setting sources', state: this.state.scopes(), retry: () => this.state.refreshScopes() },
+    { id: 'model', title: 'The main-agent model', label: 'main-agent model', state: this.state.model(), retry: () => this.state.refreshModel() },
+    { id: 'main-sources', title: 'Model and effort sources', label: 'model and effort sources', state: this.state.mainSources(), retry: () => this.state.refreshMainSources() },
+    { id: 'effort', title: 'The main-agent reasoning effort', label: 'main-agent reasoning effort', state: this.state.effort(), retry: () => this.state.refreshEffort() },
   ]);
+  /** Failed reads of the Main Agent region, each with its own "Retry {label}" right under the routing map. */
+  protected readonly mainReadErrors = computed(() => this.mainReads().filter((read) => read.state.status === 'error'));
+  protected readonly mainReadsLoading = computed(() => [this.state.route(), ...this.mainReads().map((read) => read.state)]
+    .some((section) => section.status === 'loading' || section.status === 'unloaded'));
+  protected readonly readError = 'flex flex-wrap items-center gap-2 rounded-md border border-base-content-muted bg-base-100 px-3 py-2 text-xs';
+  protected readonly retryControl = 'btn btn-outline btn-xs min-h-6 border-base-content-muted text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+  /** The Connections header filter: matches the connection name or id, case-insensitive. */
+  protected readonly filter = signal('');
+  protected readonly shownConnections = computed(() => {
+    const query = this.filter().trim().toLowerCase();
+    return query ? this.connections().filter((entry) => `${entry.name} ${entry.id}`.toLowerCase().includes(query)) : this.connections();
+  });
+  protected inputValue(event: Event): string { return (event.target as HTMLInputElement).value; }
 
   constructor() {
     effect(() => {
@@ -398,7 +420,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       // `main-*` rows land on the Main Agent popover, focused on that control (its own `data-focus`).
       if (target === 'main-agent' || target === 'main-model' || target === 'main-effort') {
         this.focusedTarget = target;
-        untracked(() => this.openMainPopover(null, target));
+        untracked(() => this.openMainPopover(target));
         return;
       }
       // `more-providers` lands on the catalog modal; focus returns to "Browse catalog →" when it closes.
@@ -516,6 +538,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const confirmed = this.state.commit().status === 'saved' &&
       [this.state.route(), this.state.connections(), this.state.scopes()].every((section) => section.status === 'ready');
     this.wizardCommitState.set(confirmed ? 'saved' : 'failed');
+    // m2 (Providers 21-28 review): a new or re-set connection must be visible; old filter text could hide it.
+    if (confirmed) this.filter.set('');
     this.feedback.set(confirmed ? 'Connection settings saved and refreshed.' : 'Some connection settings were not confirmed. Review the saved and unsaved fields below.');
   }
   protected selectWizardProvider(providerId: string): void {
@@ -571,9 +595,9 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.catalogOpen.set(false);
     this.externalAction(providerId, 'sign-in');
   }
-  /** Opens the Main Agent popover (node "Reassign", a card's "Use for main agent", a `main-*` deep link). */
-  protected openMainPopover(provider: string | null = null, focus: MainAgentFocus | null = null): void {
-    this.mainPopover.set({ provider, focus });
+  /** Opens the Main Agent popover (the node's "Reassign", a `main-*` deep link focused on that control). */
+  protected openMainPopover(focus: MainAgentFocus | null = null): void {
+    this.mainPopover.set({ focus });
   }
   /** D6: clearing these keys resets the SDK on the host (`config-scope-rpc.handlers.ts:120-145`). */
   protected clearEndsSessions(key: string): boolean {

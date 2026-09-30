@@ -41,7 +41,7 @@
       </div>
 
       <!-- Tab bar: 4 enabled tabs (D9); buttons keep their names (live-app scripts use getByRole('button')) -->
-      <nav class="tabs tabs-bordered mt-1.5" aria-label="Settings sections">
+      <nav class="tabs tabs-bordered mt-1.5" aria-label="Settings sections" data-testid="settings-tabs">
         <button
           type="button"
           class="tab flex-1 gap-1.5 text-[13px] text-base-content-muted"
@@ -109,16 +109,18 @@
         served through a translation proxy running on this machine — so the
         custom line names the host instead of making a promise about it.
       -->
+      <!-- D10: one text-[11px] line; the dot carries the tone, and the full sentence stays in the DOM and the title. -->
       @if (authState.isCustomProviderSelected()) {
         <div
-          class="flex items-start gap-1.5 p-2 rounded bg-warning/10 border border-warning/20 mb-3"
+          class="mb-2 flex min-w-0 items-center gap-1.5 text-[11px] text-base-content-muted"
           data-testid="custom-provider-security-copy"
+          [attr.title]="'Your own endpoint. Credentials and prompts go from this machine to ' + authState.selectedCustomHost() + ' — a host you added.'"
         >
-          <span class="text-warning text-[10px] shrink-0 mt-0.5">●</span>
-          <p class="text-[10px] text-base-content-muted leading-relaxed">
-            <strong class="text-base-content-muted">Your own endpoint.</strong>
+          <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-hidden="true"></span>
+          <p class="min-w-0 truncate">
+            <strong class="font-semibold text-base-content">Your own endpoint.</strong>
             Credentials and prompts go from this machine to
-            <code class="text-[10px] font-semibold">{{
+            <code class="font-semibold">{{
               authState.selectedCustomHost()
             }}</code>
             — a host you added. Ptah does not operate, vet, or monitor it, and
@@ -127,12 +129,12 @@
         </div>
       } @else {
         <div
-          class="flex items-start gap-1.5 p-2 rounded bg-success/10 border border-success/20 mb-3"
+          class="mb-2 flex min-w-0 items-center gap-1.5 text-[11px] text-base-content-muted"
           data-testid="builtin-provider-security-copy"
         >
-          <span class="text-success text-[10px] shrink-0 mt-0.5">●</span>
-          <p class="text-[10px] text-base-content-muted leading-relaxed">
-            <strong class="text-base-content-muted">Runs 100% locally.</strong>
+          <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-success" aria-hidden="true"></span>
+          <p class="min-w-0 truncate">
+            <strong class="font-semibold text-base-content">Runs 100% locally.</strong>
             Your credentials go directly from this machine to the AI provider —
             no proxies, no Ptah servers involved.
           </p>

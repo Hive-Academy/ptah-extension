@@ -29,14 +29,19 @@ const DOT: Readonly<Record<RoutingNodeTone, string>> = {
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="relative flex h-full min-h-[88px] flex-col justify-between gap-2 rounded-lg border border-base-300 bg-base-100 px-3.5 py-2.5 transition-colors hover:border-primary focus-within:border-primary"
+    <!-- has-[[role=dialog]]:z-30: a node holding an open popover (a scope badge's, or the Main Agent one; both are
+         role="dialog") rises above the other nodes' z-10 badge groups, so the popover is never painted over (Batch 28).
+         The class must not contain "popover": the light theme styles every [class*='popover'] (styles.css). -->
+    <div class="relative flex h-full min-h-[88px] flex-col justify-between gap-2 rounded-lg border border-base-300 bg-base-100 px-3.5 py-2.5 transition-colors hover:border-primary focus-within:border-primary has-[[role=dialog]]:z-30"
       [attr.data-testid]="'routing-node-' + nodeId()" [attr.aria-busy]="state() === 'loading'">
+      <!-- Prototype header: the status pill and the D16 badges stay on the title row; where the node is narrow the
+           title wraps (e.g. "MAIN / AGENT") instead of pushing the badges to a row of their own (Gate V 28). -->
       <div class="flex items-start justify-between gap-2">
-        <div class="flex shrink-0 items-center gap-1.5">
-          <span [class]="dotClass()" aria-hidden="true"></span>
-          <h3 class="whitespace-nowrap text-xs font-bold uppercase tracking-wide text-base-content">{{ title() }}</h3>
+        <div class="flex min-w-0 flex-1 items-start gap-1.5">
+          <span [class]="dotClass() + ' mt-1'" aria-hidden="true"></span>
+          <h3 class="min-w-0 break-words text-xs font-bold uppercase leading-4 tracking-wide text-base-content">{{ title() }}</h3>
         </div>
-        <div class="relative z-10 flex min-w-0 flex-wrap items-center justify-end gap-1">
+        <div class="relative z-10 flex max-w-[70%] flex-none flex-wrap items-center justify-end gap-1" data-testid="routing-node-badges">
           <!-- The dot's meaning in words (prototype header pill). -->
           <span class="whitespace-nowrap rounded bg-base-200 px-1.5 py-0.5 text-[11px] font-medium text-base-content"
             data-testid="routing-node-status">{{ statusText() }}</span>

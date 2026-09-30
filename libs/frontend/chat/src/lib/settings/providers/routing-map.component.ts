@@ -122,9 +122,11 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
         </span>
       </div>
 
-      <!-- Columns from the container width, not the viewport (the Q-extra-1 rule): three nodes of at least
-           15rem side by side where they fit (VS Code at 1024 px), two in the narrower Electron page. -->
-      <div class="grid grid-cols-[repeat(auto-fit,minmax(15rem,1fr))] gap-3" data-testid="routing-map-nodes">
+      <!-- Columns from the container width, not the viewport (the Q-extra-1 rule; styles below): three nodes side by
+           side where three 15rem nodes fit (VS Code at 1024 px); otherwise two, with the third node (CLI agents)
+           spanning the full row rather than leaving an empty half row (Electron; task.md "Gate V 28"); one when
+           even two do not fit. -->
+      <div class="routing-map-nodes gap-3" data-testid="routing-map-nodes">
         <ptah-routing-map-node nodeId="main-agent" title="Main agent" [tone]="main().tone" [statusText]="main().status"
           [state]="main().state" errorText="Main-agent route unavailable." [footer]="main().footer" actionLabel="Reassign"
           actionAriaLabel="Reassign the main agent: its provider, model and effort" (activated)="nodeActivated.emit('main-agent')"
@@ -132,13 +134,14 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
           <ng-container ngProjectAs="[node-badges]"><ng-content select="[main-agent-badges]" /></ng-container>
           <ng-container ngProjectAs="[node-popover]"><ng-content select="[main-agent-popover]" /></ng-container>
           @if (main().provider; as provider) {
-            <p class="flex flex-wrap items-baseline gap-x-1.5">
-              <span class="text-[11px] font-semibold uppercase tracking-wider text-base-content-muted">Provider:</span>
-              <span class="break-words text-sm font-semibold text-base-content" data-testid="routing-main-provider">{{ provider }}</span>
+            <!-- Label + value on one line (prototype); a value too long for the node truncates, full text in the title. -->
+            <p class="flex min-w-0 items-baseline gap-x-1.5" data-testid="routing-main-provider-row">
+              <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-base-content-muted">Provider:</span>
+              <span class="min-w-0 truncate text-sm font-semibold text-base-content" [attr.title]="provider" data-testid="routing-main-provider">{{ provider }}</span>
             </p>
-            <p class="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
-              <span class="text-[11px] font-semibold uppercase tracking-wider text-base-content-muted">Model:</span>
-              <span class="break-all font-mono text-xs font-medium text-base-content" data-testid="routing-main-model">{{ main().model }}</span>
+            <p class="mt-0.5 flex min-w-0 items-baseline gap-x-1.5" data-testid="routing-main-model-row">
+              <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-base-content-muted">Model:</span>
+              <span class="min-w-0 truncate font-mono text-xs font-medium text-base-content" [attr.title]="main().model" data-testid="routing-main-model">{{ main().model }}</span>
             </p>
           } @else {
             <p class="text-base-content">Choose a provider to start the main agent.</p>
@@ -194,6 +197,19 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
       </div>
     </section>
   `,
+  styles: [`
+    :host { display: block; container-type: inline-size; }
+    /* One column below two 15rem nodes; two with a full-width third node; three from three 15rem nodes + gaps. */
+    .routing-map-nodes { display: grid; grid-template-columns: minmax(0, 1fr); }
+    @container (min-width: 32rem) {
+      .routing-map-nodes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .routing-map-nodes > :nth-child(3) { grid-column: 1 / -1; }
+    }
+    @container (min-width: 48rem) {
+      .routing-map-nodes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .routing-map-nodes > :nth-child(3) { grid-column: auto; }
+    }
+  `],
 })
 export class RoutingMapComponent {
   protected readonly CompassIcon = Compass;

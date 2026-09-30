@@ -412,11 +412,18 @@ describe('ProvidersSettingsComponent', () => {
       expect(popover()?.closest('[data-testid="routing-node-main-agent"]')).not.toBeNull();
     });
 
-    it('a card\'s "Use for main agent" opens the popover with that provider in its D6 confirm (uncheckable note kept)', async () => {
+    it('the cards carry no "Use for main agent" (prototype, Gate V 28); Reassign → provider select reaches the D6 confirm (uncheckable note kept)', async () => {
       state.route.set(ready({ ...route, providers: [route.providers[0], { id: 'second', type: 'local-native', status: 'skipped' }] }));
+      // Loaded sources give the popover its "Save to" target (M1: no target, no write).
+      state.mainSources.set(ready({ model: { key: 'provider.first.selectedModel', scope: 'global' }, effort: { key: 'provider.first.reasoningEffort', scope: 'global' } }) as never);
       await render();
-      const second = Array.from(element.querySelectorAll('ptah-provider-connection-card')).find((card) => card.textContent?.includes('second'));
-      second?.querySelector<HTMLButtonElement>('[data-testid="btn-activate-main"]')?.click(); await render();
+      for (const card of Array.from(element.querySelectorAll('ptah-provider-connection-card'))) {
+        expect(card.textContent).not.toContain('Use for main agent');
+      }
+      await reassign();
+      const select = element.querySelector<HTMLSelectElement>('[data-testid="main-agent-provider"]');
+      if (!select) throw new Error('Missing provider select');
+      select.value = 'second'; select.dispatchEvent(new Event('change')); await render();
       const confirm = element.querySelector('[data-testid="main-agent-provider-confirm"]');
       expect(confirm?.textContent).toContain('New main-agent requests use second. Changing the provider ends running chat sessions.');
       expect(element.querySelector('[data-testid="activation-unchecked-note"]')?.textContent).toContain('cannot check this connection');
@@ -517,9 +524,71 @@ describe('ProvidersSettingsComponent', () => {
     await render();
     expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(2);
     expect(button('Connect provider').disabled).toBe(false);
-    button('Retry main-agent route').click(); await render();
+    // Batch 28: the route's failure and Retry live in the Main Agent node (its region), not in a page list.
+    element.querySelector<HTMLButtonElement>('[data-testid="routing-node-main-agent"] [data-testid="routing-node-retry"]')?.click(); await render();
     expect(state.refreshRoute).toHaveBeenCalledTimes(1);
     expect(state.refreshConnections).not.toHaveBeenCalled();
+  });
+  describe('page composition (Batch 28, prototype order)', () => {
+    it('has no page title, no "Refresh settings" and no Reload (#21); the map comes before Connections', async () => {
+      state.route.set(ready(route)); await render();
+      expect(element.querySelector('h1')).toBeNull();
+      const labels = Array.from(element.querySelectorAll('button')).map((node) => node.textContent?.trim() ?? '');
+      expect(labels).not.toContain('Refresh settings');
+      expect(labels.some((label) => /reload/i.test(label))).toBe(false);
+      const map = element.querySelector('[data-testid="routing-map"]');
+      const heading = element.querySelector('#providers-connections-heading');
+      expect(heading?.textContent?.trim()).toBe('Connections');
+      expect(map && heading && map.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(element.querySelector('[data-read-loading]')).toBeNull();
+    });
+    it('the header counts configured and catalog providers, and the primary "Connect provider" opens the catalog', async () => {
+      state.connections.set(ready([connection('first'), connection('second'), { ...connection('openrouter'), name: 'OpenRouter', configured: false, hasKey: false }]));
+      await render();
+      expect(element.querySelector('[data-testid="connections-count"]')?.textContent?.replace(/\s+/g, ' ').trim())
+        .toBe('2 configured · 1 available in catalog');
+      const connect = element.querySelector<HTMLButtonElement>('[data-testid="connect-provider"]');
+      expect(connect?.className).toContain('btn-primary');
+      expect(connect?.textContent?.trim()).toBe('Connect provider');
+      connect?.click(); await render();
+      expect(catalogDialog()?.hasAttribute('open')).toBe(true);
+    });
+    it('the filter narrows the cards by name, says when nothing matches, and Clear filter restores them', async () => {
+      state.connections.set(ready([connection('first'), { ...connection('second'), name: 'Moonshot' }])); await render();
+      const input = element.querySelector<HTMLInputElement>('[data-testid="connections-filter"]');
+      if (!input) throw new Error('Missing filter');
+      expect(input.getAttribute('aria-label')).toBe('Filter connections');
+      input.value = 'moon'; input.dispatchEvent(new Event('input')); await render();
+      expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(1);
+      input.value = 'zzz'; input.dispatchEvent(new Event('input')); await render();
+      expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(0);
+      expect(element.querySelector('[data-testid="connections-filter-empty"]')?.textContent).toContain('No connections match “zzz”.');
+      button('Clear filter').click(); await render();
+      expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(2);
+    });
+    it('the grid takes its columns from the container width, and the hint strip is one row directly under it', async () => {
+      await render();
+      expect(element.querySelector('[data-testid="connections-grid"]')?.className).toContain('grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]');
+      const hint = element.querySelector('[data-testid="catalog-hint"]');
+      expect(element.querySelector('[data-testid="connections-grid"]')?.nextElementSibling).toBe(hint);
+      expect(hint?.className).not.toContain('flex-wrap');
+      expect(element.querySelector('[data-testid="catalog-hint-text"]')?.className).toContain('truncate');
+      expect(element.querySelector('[data-focus="more-providers"]')?.className).toContain('ml-auto');
+    });
+    it('a failed read shows "Retry {label}" in its own region and retries only that read', async () => {
+      state.scopes.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
+      state.connections.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
+      await render();
+      const region = element.querySelector('[data-testid="main-agent-region"]');
+      expect(region?.querySelector('[data-read-error="scopes"]')?.textContent).toContain('Setting sources could not be loaded.');
+      const connections = element.querySelector('section[aria-labelledby="providers-connections-heading"]');
+      expect(connections?.querySelector('[data-read-error="connections"]')).not.toBeNull();
+      button('Retry setting sources').click(); await render();
+      expect(state.refreshScopes).toHaveBeenCalledTimes(1);
+      expect(state.refreshConnections).not.toHaveBeenCalled();
+      button('Retry providers').click(); await render();
+      expect(state.refreshConnections).toHaveBeenCalledTimes(1);
+    });
   });
   it('never renders raw stored authentication diagnostics', async () => {
     state.route.set(ready({ ...route, ...{ storedAuthMethodDiagnostic: 'secret-diagnostic-value' } }));
@@ -613,6 +682,30 @@ describe('ProvidersSettingsComponent', () => {
     await render(); await openWizardThroughCatalog(); wizard().commitRequested.emit(draft); await render();
     expect(wizard().commitState()).toBe('saved');
   });
+  it('m2: a connection saved through the wizard clears the filter, so the new card is never hidden by old filter text', async () => {
+    state.route.set(ready(route));
+    await render();
+    const input = element.querySelector<HTMLInputElement>('[data-testid="connections-filter"]');
+    if (!input) throw new Error('Missing filter');
+    input.value = 'first'; input.dispatchEvent(new Event('input')); await render();
+    state.connectProvider.mockImplementation(async () => {
+      state.commit.set({ ...idle, status: 'saved' });
+      state.connections.set(ready([connection('first'), connection('second'), connection('openrouter')]));
+    });
+    await openWizardThroughCatalog(); wizard().commitRequested.emit(draft); await render();
+    expect(wizard().commitState()).toBe('saved');
+    expect(input.value).toBe('');
+    expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(3);
+  });
+  it('m2: a failed wizard save keeps the filter as typed', async () => {
+    await render();
+    const input = element.querySelector<HTMLInputElement>('[data-testid="connections-filter"]');
+    if (!input) throw new Error('Missing filter');
+    input.value = 'first'; input.dispatchEvent(new Event('input')); await render();
+    state.connectProvider.mockImplementation(async () => { state.commit.set({ ...idle, status: 'failed', unsaved: ['Credential'] }); });
+    await openWizardThroughCatalog(); wizard().commitRequested.emit(draft); await render();
+    expect(input.value).toBe('first');
+  });
   it('honours a new parent focus target after an earlier one', async () => {
     fixture.componentRef.setInput('focusTarget', 'connections'); await render();
     expect(document.activeElement).toBe(element.querySelector('[data-focus="connections"]'));
@@ -631,14 +724,17 @@ describe('ProvidersSettingsComponent', () => {
     expect(state.performExternalAuth).toHaveBeenCalledWith('github-copilot', 'sign-in');
   });
   it('uses native controls with 36px height and a visible 2px focus outline', async () => {
-    state.route.set(ready(route));
+    // One card in a repair state, so the page shows a card's inline action (a connected card has none since Gate V 28).
+    state.route.set(ready({ ...route, providers: [route.providers[0], { id: 'second', type: 'apiKey', status: 'unreachable' }] }));
     await render();
     // The compact card's one inline action is `btn-xs` by plan (:631): 24px, the WCAG 2.2 AA target size.
     const cardAction = (node: Element) => node.closest('[data-testid="provider-connection-card"]') !== null;
     // A routing-map node's action is stretched over the whole node (≥ 88px): the node is its target.
     const nodeAction = (node: Element) => node.getAttribute('data-testid') === 'routing-node-action';
     // The hint strip's "Browse catalog →" is an inline `btn-xs` link-button (24px); the grid tile is an 80px card.
-    const compact = (node: Element) => cardAction(node) || node.getAttribute('data-focus') === 'more-providers';
+    // Batch 28: "Clear filter" is the same inline btn-xs link-button as "Browse catalog →".
+    const compact = (node: Element) => cardAction(node) || node.getAttribute('data-focus') === 'more-providers'
+      || node.textContent?.trim() === 'Clear filter';
     const tile = (node: Element) => node.getAttribute('data-testid') === 'connect-another-provider';
     // The catalog modal's controls are asserted in its own spec (closed here; the backdrop is the modal primitive's).
     const actions = Array.from(element.querySelectorAll('button')).filter((node) => !node.closest('ptah-provider-catalog-modal'));

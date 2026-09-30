@@ -102,3 +102,14 @@ Gate 1.7 (user) → architect → team-leader → batches with cross-side review
   Gaps G1-G3, G5-G7, G11-G13 accepted as proposed; G9 resolved (same setting). Proposed Removals PR-1 (dead
   "Default for new sessions" preset radios) and PR-2 ("Workflows require a paid plan." sentence) APPROVED. Batches
   39-50 run after 36; the close-out (37) and the final visual review + live Electron pass (38) run after Batch 50.
+- Gate V 28 (2026-10-01, user):
+  - Electron fold: the user asked for "the most visible and clean layout" and left the choice to the orchestrator.
+    Orchestrator choice: container-width grid, 2 columns of 80 px cards in Electron; when the routing map wraps, the
+    third node spans the full row. The Electron fold asserts tabs, routing map and Connections heading <= 660 px;
+    VS Code keeps the full budget (card 5 <= 660 px). Rejected: 3-column cards (100-111 px tall), a narrow 3-node map
+    (crowded, still over budget), collapsing the shell sidebar (outside scope).
+  - Main Agent popover: a compact searchable model picker in `libs/frontend/ui` (new Batch 28b).
+  - Accepted as a deviation: only the "VS Code" App-layer label (Batch 27b).
+  - NOT accepted, so they become work: the drawer key hint ("•••• 8f21"), the Overview per-connection latency, and
+    Codex CLI under "Used by" for OpenAI Codex (new follow-up batches after 28b).
+  - PR 611 Sonar (same session): the 3 `ci.yml` install-step findings were accepted on SonarCloud (user choice).

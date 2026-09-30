@@ -23,8 +23,9 @@ import {
 } from './settings.fixtures';
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
+import { ROUTING_MAP_ENTRIES } from './settings-routing-map.entries';
 import {
-  advancedTab, applyManualTierModel, card, expectHostAppScope, closeCatalog, closeConnectionDrawer, connectProviderButton, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
+  advancedTab, applyManualTierModel, card, expectHostAppScope, closeCatalog, closeConnectionDrawer, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
   cliConfigSection, closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
   throughDelegatedEdit, setupThroughDrawer, visibleEnabled, withAuthStatus,
 } from './settings-drawer.reach';
@@ -284,11 +285,12 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#3', capability: 'Switch main provider', status: 'present',
+    // Gate V 28: the card has no "Use for main agent" (prototype); Reassign -> the popover's provider select -> D6 confirm.
     reach: async (page) => {
-      await providersTab(page);
-      const activate = card(page, 'Moonshot').locator('[data-testid="btn-activate-main"]');
-      // Since Batch 26: the card opens the Main Agent popover straight into its D6 confirm for Moonshot.
-      await openThenClose(activate, page.getByRole('button', { name: 'Use for main agent' }), page.getByRole('button', { name: 'Cancel provider change' }));
+      const popover = await openMainAgentPopover(page);
+      await popover.locator('[data-testid="main-agent-provider"]').selectOption('moonshot');
+      await visibleEnabled(popover.getByRole('button', { name: 'Use for main agent' }));
+      await popover.getByRole('button', { name: 'Cancel provider change' }).click();
       await closeMainAgentPopover(page);
     },
   },
@@ -807,27 +809,19 @@ const restoredPending: readonly ReachabilityEntry[] = [
 
 const regressedUx: readonly ReachabilityEntry[] = [
   { id: 'RUX-3', capability: 'Unconfigured providers shown up front (hint strip + catalog modal), not in a collapsed disclosure', status: 'restored',
-    // Batch 27 (+ Batch 14 finding 3): the hint strip names them; the modal traps focus, Esc and the backdrop close it,
-    // and focus returns to the opener.
+    // Batch 27: the hint strip names them; the modal opens with its search focused and Esc returns focus to the
+    // opener (`openCatalog` / `closeCatalog`). Batch 28 moved the Tab-trap and backdrop checks (Batch 14 finding 3)
+    // to `settings-providers.e2e.spec.ts`.
     reach: async (page) => {
       await providersTab(page);
       await expect(page.locator('[data-testid="catalog-hint"]')).toContainText('OpenRouter');
       const dialog = await openCatalog(page);
       await expect(dialog.locator('[data-provider]')).not.toHaveCount(0);
-      for (let i = 0; i < 12; i += 1) {
-        await page.keyboard.press('Tab');
-        expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
-      }
       await dialog.locator('[data-testid="provider-catalog-search"]').fill('no-such-provider');
       await expect(dialog.locator('[data-testid="provider-catalog-empty"]')).toContainText('No matching providers.');
       await dialog.getByRole('button', { name: 'Clear search', exact: true }).click();
       await expect(dialog.locator('[data-provider]')).not.toHaveCount(0);
       await closeCatalog(page);
-      await openCatalog(page);
-      // The backdrop is the dialog's own ::backdrop area: a click outside the panel.
-      await page.mouse.click(5, 5);
-      await expectCatalogOpen(page, false);
-      await expect(connectProviderButton(page)).toBeFocused();
     } },
   { id: 'RUX-5', capability: 'Workspace save target offered in a visible Save-to list, not behind an override link', status: 'restored',
     // Batch 26: the popover's "Save to" lists every write scope, "This workspace" included, and re-saves the
@@ -939,21 +933,15 @@ export const KEPT_SELECTORS: readonly KeptSelector[] = [
 
 /** Every parity-inventory entry this baseline covers, frozen in S4 (D14 rule 2/3). */
 export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
-  ...providersAuth,
-  ...mainAgentModel,
-  ...cliAgents,
-  ...orchestrationPolicy,
-  ...other,
-  ...restoredPending,
-  ...regressedUx,
+  ...providersAuth, ...mainAgentModel, ...cliAgents, ...orchestrationPolicy, ...other, ...restoredPending, ...regressedUx, ...ROUTING_MAP_ENTRIES,
 ];
 
 /**
  * Guard constant (D14 rule 2): S4 set it to 81; later batches may only grow it. Batch 21 added the
  * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84. Batch 22 added RUX-2: 85. Batch 23 added
- * RUX-5 and RUX-6: 87. Batch 27 added RUX-3: 88.
+ * RUX-5 and RUX-6: 87. Batch 27 added RUX-3: 88. Batch 28 added the routing-map node actions RM-1..3: 91.
  */
-export const EXPECTED_CAPABILITY_COUNT = 88;
+export const EXPECTED_CAPABILITY_COUNT = 91;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

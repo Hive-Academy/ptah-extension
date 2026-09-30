@@ -96,10 +96,18 @@ export class SettingsSaveFeedbackService {
     this.show({ tone: 'alert', message: parts.join(' '), canUndo: false }, null);
   }
 
-  /** Runs the current toast's Undo as a real write through `save()` (with no Undo of its own). */
+  /**
+   * Runs the current toast's Undo as a real write through `save()` (with no Undo of its own). While another save is
+   * in flight the Undo is kept: the toast says so and still offers it, and it is dismissed only when the Undo write
+   * really starts (m1, Providers 21-28 review).
+   */
   async undo(): Promise<void> {
     const request = this.undoRequest;
     if (!request) return;
+    if (this.saving()) {
+      this.show({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: true }, request);
+      return;
+    }
     this.dismiss();
     await this.save(request);
   }

@@ -388,7 +388,11 @@ describe('SettingsComponent security copy', () => {
     expect(builtIn.textContent.replace(/\s+/g, ' ')).toContain(
       'Your credentials go directly from this machine to the AI provider — no proxies, no Ptah servers involved.',
     );
+    // D10 (Batch 28): one text-[11px] line, truncated rather than wrapped.
+    expect(builtIn.className).toContain('text-[11px]');
+    expect(builtIn.querySelector('p')?.className).toContain('truncate');
     expect(
+
       fixture.nativeElement.querySelector(
         '[data-testid="custom-provider-security-copy"]',
       ),

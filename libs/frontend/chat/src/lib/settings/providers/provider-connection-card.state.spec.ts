@@ -38,7 +38,7 @@ describe('resolveConnectionState: a status that is not a confirmed success is ne
 
 describe('state table: label, copy, tone, spine, dot (design-spec)', () => {
   const rows: readonly [ResolvedConnectionState, string, string, string, boolean, string][] = [
-    ['active', 'Active for main agent', 'Used for new main-agent requests.', 'secondary', true, 'bg-success'],
+    ['active', 'Active for main agent', 'Used for new main-agent requests.', 'primary', true, 'bg-success'],
     ['connected', 'Connected','Connected and available to use.', 'neutral', false, 'bg-success'],
     ['needs-key', 'Needs API key', 'Add an API key to connect Moonshot.', 'warning', true, 'bg-warning'],
     ['unauthenticated', 'Sign-in required', 'Your credential is missing or expired; authenticate again.', 'error', false, 'bg-error'],
@@ -68,12 +68,12 @@ describe('state table: label, copy, tone, spine, dot (design-spec)', () => {
 });
 
 describe('primaryConnectionAction: at most one inline action per state (plan :631)', () => {
-  const base = { canActivateMain: true, uncheckable: false, credentialRejected: false };
+  const base = { uncheckable: false, credentialRejected: false };
   it.each([
     ['active', base, null],
     ['checking', base, null],
-    ['connected', base, 'activate-main'],
-    ['connected', { ...base, canActivateMain: false }, null],
+    // Gate V 28: no "Use for main agent" on the card face (prototype); the Main Agent popover changes it.
+    ['connected', base, null],
     ['needs-key', base, 'add-key'],
     ['unauthenticated', base, 'sign-in'],
     ['unauthenticated', { ...base, credentialRejected: true }, 'replace-key'],
@@ -82,10 +82,9 @@ describe('primaryConnectionAction: at most one inline action per state (plan :63
     ['not-configured', base, 'set-up'],
     // RUX-7, unchanged by design: a checkable Not checked connection is checked first.
     ['not-checked', base, 'check-connection'],
-    ['not-checked', { ...base, uncheckable: true }, 'activate-main'],
-    ['not-checked', { ...base, uncheckable: true, canActivateMain: false }, 'check-connection'],
+    ['not-checked', { ...base, uncheckable: true }, null],
     ['check-unavailable', base, 'retry'],
-    ['check-unavailable', { ...base, uncheckable: true }, 'activate-main'],
+    ['check-unavailable', { ...base, uncheckable: true }, 'retry'],
   ] as const)('%s %j → %s', (state, options, expected) => {
     expect(primaryConnectionAction(state, options)).toBe(expected);
   });

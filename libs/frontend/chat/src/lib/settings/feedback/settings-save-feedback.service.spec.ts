@@ -116,6 +116,21 @@ describe('SettingsSaveFeedbackService', () => {
     expect(undo).toHaveBeenCalledTimes(1);
   });
 
+  it('m1: Undo while another save is in flight keeps the toast and its Undo, and says why; it runs once that save ends', async () => {
+    const undo = writeResolving({ status: 'saved', saved: ['model'] });
+    await service.save(request({ undo }));
+    commit.set({ ...EMPTY, status: 'saving' });
+
+    await service.undo();
+
+    expect(undo).not.toHaveBeenCalled();
+    expect(service.toast()).toEqual({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: true });
+    commit.set({ ...EMPTY, status: 'saved' });
+    await service.undo();
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(service.toast()?.canUndo).toBe(false);
+  });
+
   it('a failed Undo write reports failure and offers no Undo', async () => {
     const undo = writeResolving({ status: 'failed', unsaved: ['model'] });
     await service.save(request({ undo }));

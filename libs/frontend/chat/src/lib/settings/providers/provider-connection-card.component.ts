@@ -44,7 +44,8 @@ interface InlineAction {
  *   opens the connection drawer), via `NativeCardComponent`'s `activated`, which ignores clicks that
  *   land on the inline action.
  * - Two rows: avatar, name, provenance and the auth-modality badge; then the status dot and label, at
- *   most ONE inline action (the state's primary, `primaryConnectionAction`) and "Used by N".
+ *   most ONE inline repair action (the state's primary, `primaryConnectionAction`) and "Used by N". There is no
+ *   "Use for main agent" on the face (prototype, Gate V 28): the Main Agent popover changes the main agent.
  * - Every other per-state action lives in the drawer. The state table's one-line copy is the card's
  *   accessible name (with its status) and its tooltip; the drawer's Overview repeats it.
  * - A status that is not a confirmed success is never Connected; colour sits on the dot, avatar,
@@ -136,8 +137,6 @@ export class ProviderConnectionCardComponent {
   readonly isActive = input<boolean>(false);
   /** The active route is blocked and needs the user. */
   readonly isBlocked = input<boolean>(false);
-  /** Whether main-agent activation is offered (false while saving or for CLI-only integrations). */
-  readonly canActivateMain = input<boolean>(true);
   /** Kept for API stability: the card always opens the drawer; the drawer gates its own edits. */
   readonly canManage = input<boolean>(true);
   /** CLI name used in the not-installed copy (e.g. 'Claude CLI'). */
@@ -167,7 +166,6 @@ export class ProviderConnectionCardComponent {
   /** The card itself was activated: open this connection's details (the drawer). */
   readonly detailsRequested = output<void>();
   readonly changeMainProviderRequested = output<void>();
-  readonly activateMainRequested = output<void>();
   readonly manageRequested = output<void>();
   readonly addKeyRequested = output<void>();
   readonly signInRequested = output<void>();
@@ -227,7 +225,7 @@ export class ProviderConnectionCardComponent {
 
   protected readonly inlineAction = computed<InlineAction | null>(() => {
     const action = primaryConnectionAction(this.resolvedState(), {
-      canActivateMain: this.canActivateMain(), uncheckable: this.uncheckable(), credentialRejected: this.credentialRejected(),
+      uncheckable: this.uncheckable(), credentialRejected: this.credentialRejected(),
     });
     return action ? this.describe(action) : null;
   });
@@ -235,7 +233,6 @@ export class ProviderConnectionCardComponent {
   private describe(action: ConnectionCardAction): InlineAction {
     const name = this.displayName();
     switch (action) {
-      case 'activate-main': return { label: 'Use for main agent', testId: 'btn-activate-main', ariaLabel: `Use ${name} for main agent`, emit: this.activateMainRequested };
       case 'add-key': return { label: 'Add API key', testId: 'btn-add-key', ariaLabel: `Add API key for ${name}`, emit: this.addKeyRequested };
       case 'replace-key': return { label: 'Replace key', testId: 'btn-replace-key', ariaLabel: `Replace key for ${name}`, emit: this.replaceKeyRequested };
       case 'sign-in': return { label: 'Sign in', testId: 'btn-sign-in', ariaLabel: `Sign in to ${name}`, emit: this.signInRequested };

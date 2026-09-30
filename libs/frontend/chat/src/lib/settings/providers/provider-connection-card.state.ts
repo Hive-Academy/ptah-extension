@@ -33,7 +33,7 @@ export type ResolvedConnectionState =
   | 'not-checked'
   | 'check-unavailable';
 
-export type ConnectionCardTone = 'neutral' | 'secondary' | 'warning' | 'error';
+export type ConnectionCardTone = 'neutral' | 'primary' | 'warning' | 'error';
 
 /**
  * Only explicit positive probe evidence justifies Connected or Active. `unknown` → Not checked,
@@ -90,11 +90,14 @@ export function connectionStateCopy(state: ResolvedConnectionState, provider: st
   }
 }
 
-/** Card tone (spine and border): a blocked main route always warns. */
+/**
+ * Card tone (spine and border): a blocked main route always warns. The main agent's card uses the primary accent,
+ * as in the prototype (Gate V 28): a warm secondary spine read as a warning beside the unreachable one.
+ */
 export function connectionCardTone(state: ResolvedConnectionState, blockedMain: boolean): ConnectionCardTone {
   if (blockedMain) return 'warning';
   switch (state) {
-    case 'active': return 'secondary';
+    case 'active': return 'primary';
     case 'needs-key':
     case 'unreachable': return 'warning';
     case 'unauthenticated': return 'error';
@@ -125,7 +128,6 @@ export function connectionStateDot(state: ResolvedConnectionState): string {
 
 /** The one inline action a card keeps (plan :631); every other per-state action lives in the drawer. */
 export type ConnectionCardAction =
-  | 'activate-main'
   | 'add-key'
   | 'replace-key'
   | 'sign-in'
@@ -135,29 +137,27 @@ export type ConnectionCardAction =
   | 'check-connection';
 
 /**
- * The state's primary action:
- * - Active and Checking keep none (the whole card opens the drawer);
- * - Use for main agent where activation is offered (connected; a not-checkable Not checked / Check
- *   unavailable connection, since not checkable is not failed). A checkable Not checked connection is
- *   checked first (RUX-7, unchanged by design);
- * - otherwise the repair for the state: Add API key, Replace key / Sign in, Retry, Check again, Set up.
+ * The state's primary action, a repair only (prototype cards: status and "Used by", Gate V 28):
+ * - Active, Checking and Connected keep none: the whole card opens the drawer, and the main agent is changed in the
+ *   Main Agent popover (its provider select offers only connections that can be used, parity #3);
+ * - a checkable Not checked connection is checked first (RUX-7); a not-checkable one has nothing to repair;
+ * - otherwise: Add API key, Replace key / Sign in, Retry, Check again, Set up.
  */
 export function primaryConnectionAction(
   state: ResolvedConnectionState,
-  options: { readonly canActivateMain: boolean; readonly uncheckable: boolean; readonly credentialRejected: boolean },
+  options: { readonly uncheckable: boolean; readonly credentialRejected: boolean },
 ): ConnectionCardAction | null {
-  const activate = options.canActivateMain;
   switch (state) {
     case 'active':
-    case 'checking': return null;
-    case 'connected': return activate ? 'activate-main' : null;
+    case 'checking':
+    case 'connected': return null;
     case 'needs-key': return 'add-key';
     case 'unauthenticated': return options.credentialRejected ? 'replace-key' : 'sign-in';
     case 'unreachable': return 'retry';
     case 'not-installed': return 'check-again';
     case 'not-configured': return 'set-up';
-    case 'not-checked': return activate && options.uncheckable ? 'activate-main' : 'check-connection';
-    case 'check-unavailable': return activate && options.uncheckable ? 'activate-main' : 'retry';
+    case 'not-checked': return options.uncheckable ? null : 'check-connection';
+    case 'check-unavailable': return 'retry';
   }
 }
 

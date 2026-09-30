@@ -131,6 +131,20 @@ describe('RoutingMapComponent', () => {
       expect(within('main-agent', 'badge')).not.toBeNull();
     });
 
+    it('keeps the badges on the title row and each label with its value on one line (prototype; Gate V 28)', () => {
+      const badges = within('main-agent', 'routing-node-badges');
+      expect(badges?.contains(within('main-agent', 'routing-node-status') ?? null)).toBe(true);
+      expect(badges?.contains(within('main-agent', 'badge') ?? null)).toBe(true);
+      // The badge group never gives way; the title wraps instead of pushing the badges to their own row.
+      expect(badges?.className).toContain('flex-none');
+      expect(node('main-agent').querySelector('h3')?.className).not.toContain('whitespace-nowrap');
+      for (const row of ['routing-main-provider-row', 'routing-main-model-row']) {
+        expect(within('main-agent', row)?.className).not.toContain('flex-wrap');
+      }
+      expect(within('main-agent', 'routing-main-model')?.className).toContain('truncate');
+      expect(within('main-agent', 'routing-main-model')?.getAttribute('title')).toBe('Default (chosen by Claude)');
+    });
+
     it.each([
       [{ kind: 'model', id: 'claude-opus-4' }, 'claude-opus-4'],
       [{ kind: 'tier', tier: 'sonnet' }, 'sonnet tier'],

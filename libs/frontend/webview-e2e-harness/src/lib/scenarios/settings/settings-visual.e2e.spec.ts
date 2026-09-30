@@ -1,9 +1,9 @@
 /**
  * E2E: Settings smoke captures (TASK_2026_555 Batch 16, Task 16.1 — plan
- * Component 14, §6). Fold assertions are added in Batches 28/36 once the
- * redesigned tabs land (execution default 3) — this spec only captures the
- * page as it renders TODAY, both tabs, both hosts, both themes, at
- * 1024x768, so drift is visible at every later commit (execution default 9).
+ * Component 14, §6): both tabs, both hosts, both themes, at 1024x768, so
+ * drift is visible at every commit (execution default 9). Batch 28 added the
+ * Providers fold gate (`assertProvidersFold`) and the popover stacking check
+ * (`assertPopoverOnTop`); the Orchestration fold follows in Batch 36.
  *
  * Pattern followed: `../marketplace/marketplace-visual.e2e.spec.ts`
  * (`waitForSettled`, `useAppBuild: true`, captures written under
@@ -85,9 +85,91 @@ async function waitForDrawerOpened(page: Page): Promise<void> {
   expect(await tabs.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0);
 }
 
+/** Bottom edge (px from the viewport top) of the first element matching `selector`. */
+async function bottomOf(page: Page, selector: string): Promise<number> {
+  const box = await page.locator(selector).first().boundingBox();
+  expect(box, `${selector} is laid out`).not.toBeNull();
+  return Math.round((box?.y ?? 0) + (box?.height ?? 0));
+}
+
+type FoldRegion = 'tabs' | 'map' | 'heading' | 'card5';
+
+/**
+ * THE per-host Providers fold budget. Source: task.md "Gate V 28 (2026-10-01, user)" (the user asked for "the most
+ * visible and clean layout"; orchestrator choice recorded there).
+ * - VS Code keeps the full plan budget (plan §6 :1045-1048): the tabs, routing map, Connections heading and 5th card
+ *   end at or above 660 px; 3 columns at 1024 px; at least 2 at 800 px.
+ * - Electron's page is about 670 px wide beside the shell sidebar: 2 columns of 80 px cards, the routing map's third
+ *   node on a full row, and the tabs, routing map and Connections heading at or above 660 px (card 5 is below the
+ *   fold by that decision); at least 1 column at 800 px.
+ * Both hosts: nothing scrolled, every card at most 80 px, and no horizontal overflow at 800 px.
+ */
+const FOLD_BUDGET: Readonly<Record<'vscode' | 'electron', {
+  readonly maxBottom: number; readonly regions: readonly FoldRegion[]; readonly columnsAt1024: number; readonly minColumnsAt800: number;
+}>> = {
+  vscode: { maxBottom: 660, regions: ['tabs', 'map', 'heading', 'card5'], columnsAt1024: 3, minColumnsAt800: 2 },
+  electron: { maxBottom: 660, regions: ['tabs', 'map', 'heading'], columnsAt1024: 2, minColumnsAt800: 1 },
+};
+
+/** Batch 28 fold gate, per host (`FOLD_BUDGET`). The numbers are logged for the report. */
+async function assertProvidersFold(page: Page, host: 'vscode' | 'electron', theme: string): Promise<void> {
+  const budget = FOLD_BUDGET[host];
+  const cards = page.locator('[data-testid="provider-connection-card"]');
+  await expect(cards.nth(4)).toBeVisible();
+  const scroll = await page.evaluate(() => ({
+    window: window.scrollY,
+    page: document.querySelector('ptah-providers-settings > div')?.scrollTop ?? 0,
+  }));
+  const bottoms: Record<FoldRegion, number> = {
+    tabs: await bottomOf(page, '[data-testid="settings-tabs"]'),
+    map: await bottomOf(page, '[data-testid="routing-map"]'),
+    heading: await bottomOf(page, '#providers-connections-heading'),
+    card5: Math.round(await cards.nth(4).evaluate((node) => node.getBoundingClientRect().bottom)),
+  };
+  const heights = await cards.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
+  const widths = await cards.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
+  const columnsOf = () => page.locator('[data-testid="connections-grid"]').evaluate((grid) =>
+    getComputedStyle(grid).gridTemplateColumns.split(' ').length);
+  const columns = await columnsOf();
+  await page.setViewportSize({ width: 800, height: 768 });
+  const columnsAt800 = await columnsOf();
+  // Horizontal overflow at 800 px: neither the document nor the Providers scroll container is wider than its box.
+  const overflowAt800 = await page.evaluate(() => {
+    const pageBox = document.querySelector('ptah-providers-settings > div');
+    return Math.max(document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      pageBox ? pageBox.scrollWidth - pageBox.clientWidth : 0);
+  });
+  await page.setViewportSize({ width: 1024, height: 768 });
+  console.log(`B28 fold ${host}/${theme}: scroll ${scroll.window}/${scroll.page}; bottoms tabs ${bottoms.tabs}, map ${bottoms.map}, `
+    + `heading ${bottoms.heading}, card5 ${bottoms.card5}; card heights ${heights.join(',')}; widths ${widths.join(',')}; `
+    + `${columns} columns at 1024, ${columnsAt800} at 800 (overflow ${overflowAt800}px)`);
+  expect(scroll).toEqual({ window: 0, page: 0 });
+  expect(columns).toBe(budget.columnsAt1024);
+  expect(columnsAt800).toBeGreaterThanOrEqual(budget.minColumnsAt800);
+  expect(overflowAt800).toBeLessThanOrEqual(0);
+  for (const height of heights) expect(height).toBeLessThanOrEqual(80);
+  for (const region of budget.regions) expect(bottoms[region], `${region} bottom`).toBeLessThanOrEqual(budget.maxBottom);
+}
+
+/**
+ * Batch 27b deviation 6 / Batch 28: an open popover is painted above everything on the page, the routing-map
+ * node badges included. The top-most element at the centre of each popover row must belong to the popover.
+ */
+async function assertPopoverOnTop(page: Page, popover: string, rows: string): Promise<void> {
+  const covered = await page.locator(popover).evaluate((panel, rowSelector) => Array.from(panel.querySelectorAll(rowSelector))
+    .map((row) => {
+      const box = row.getBoundingClientRect();
+      const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return top && panel.contains(top) ? null : `${(row.textContent ?? '').trim()} is covered by ${top?.outerHTML.slice(0, 80)}`;
+    }).filter(Boolean), rows);
+  expect(covered).toEqual([]);
+}
+
 for (const host of ['vscode', 'electron'] as const) {
   for (const theme of ['anubis', 'anubis-light'] as const) {
     test(`baseline smoke — both tabs (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      // A fold failure is reported at the end, after every capture was still taken (a red fold must not hide them).
+      let foldFailure: unknown = null;
       await bootSettings(page, fixtureServer.url, host, theme);
       await page.setViewportSize({ width: 1024, height: 768 });
       for (const tab of TABS) {
@@ -96,19 +178,9 @@ for (const host of ['vscode', 'electron'] as const) {
         await page.screenshot({ path: capturePath(tab.name, host, theme) });
       }
       await gotoSettingsTab(page, 'Providers');
-      // Batch 24: compact cards (plan: ≤ 80 px each) in a 1 / 2 / 3 column grid; measured here, per host.
-      const cards = page.locator('[data-testid="provider-connection-card"]');
-      await expect(cards.first()).toBeVisible();
-      const heights = await cards.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
-      const widths = await cards.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
-      const columns = await page.locator('[data-testid="connections-grid"]').evaluate((grid) =>
-        getComputedStyle(grid).gridTemplateColumns.split(' ').length);
-      console.log(`B24 cards ${host}/${theme}: heights ${heights.join(',')} px, widths ${widths.join(',')} px, ${columns} columns`);
-      expect(columns).toBe(3);
-      // ≤ 80 px holds where the page is as wide as planned (VS Code: ~269 px cards). In Electron the shell's
-      // sidebar leaves ~215 px cards at the same `lg` breakpoint and rows wrap: escalated (Q-extra-1,
-      // batch-24-report.md), measured and logged here, asserted by the Batch 28 fold gate once decided.
-      if (host === 'vscode') for (const height of heights) expect(height).toBeLessThanOrEqual(80);
+      await waitForSettled(page);
+      // Batch 28: the fold gate, in both hosts (Q-extra-1: container-width columns, 80 px cards everywhere).
+      await test.step('fold', () => assertProvidersFold(page, host, theme)).catch((error: unknown) => { foldFailure = error; });
       // Batch 25: the routing map's three work nodes (deferred chunk; wait for it, not its placeholder).
       const nodes = page.locator('[data-testid^="routing-node-"][data-testid$="agent"], [data-testid="routing-node-background-roles"], [data-testid="routing-node-cli-agents"]');
       await expect(page.locator('[data-testid="routing-map"]')).toBeVisible();
@@ -120,12 +192,32 @@ for (const host of ['vscode', 'electron'] as const) {
       const nodeColumns = await page.locator('[data-testid="routing-map-nodes"]').evaluate((grid) =>
         getComputedStyle(grid).gridTemplateColumns.split(' ').length);
       console.log(`B25 nodes ${host}/${theme}: ${nodeBoxes.map((b) => `${b.w}x${b.h}@${b.top}`).join(', ')}, ${nodeColumns} columns`);
-      // Container-width columns (Q-extra-1 rule): 3 side by side in VS Code, 2 in Electron's narrower page.
+      // Container-width columns (Q-extra-1 rule): 3 side by side in VS Code, 2 in Electron's narrower page, where the
+      // third node spans the full row (task.md "Gate V 28"): no half-width node beside an empty half row.
       expect(nodeColumns).toBe(host === 'vscode' ? 3 : 2);
-      // Node titles never wrap (one line of 16px at text-xs leading).
+      const gridWidth = await page.locator('[data-testid="routing-map-nodes"]').evaluate((grid) => grid.getBoundingClientRect().width);
+      if (host === 'electron') expect(Math.abs(nodeBoxes[2].w - Math.round(gridWidth))).toBeLessThanOrEqual(1);
+      // Gate V 28 (prototype header): the status pill and badges sit on the title row; a title may wrap to at most two
+      // lines (16 px leading) rather than push the badges to a row of their own.
       for (const height of await page.locator('[data-testid="routing-map"] h3').evaluateAll((all) => all.map((h) => h.getBoundingClientRect().height))) {
-        expect(height).toBeLessThanOrEqual(20);
+        expect(height).toBeLessThanOrEqual(34);
       }
+      const titleRow = await page.locator('[data-testid="routing-node-main-agent"]').evaluate((node) => ({
+        title: node.querySelector('h3')?.getBoundingClientRect() ?? null,
+        badges: Array.from(node.querySelectorAll('[data-testid="routing-node-badges"] [data-testid="scope-badge"], [data-testid="routing-node-status"]'))
+          .map((badge) => badge.getBoundingClientRect().top),
+      }));
+      console.log(`B28 main node header ${host}/${theme}: title ${Math.round(titleRow.title?.top ?? 0)}-${Math.round(titleRow.title?.bottom ?? 0)}, badge tops ${titleRow.badges.map(Math.round).join(',')}`);
+      // Every badge starts within the title's height: none drops to a row of its own under the header. In a 261 px
+      // VS Code node the pill and one badge stack beside the two-line title; wider nodes hold them on one line.
+      for (const top of titleRow.badges) expect(top).toBeLessThan(titleRow.title?.bottom ?? 0);
+      // "PROVIDER:" / "MODEL:" and their values share one line.
+      for (const row of ['routing-main-provider-row', 'routing-main-model-row']) {
+        expect(await page.locator(`[data-testid="${row}"]`).evaluate((node) => node.getBoundingClientRect().height)).toBeLessThanOrEqual(22);
+      }
+      // Gate V 28 defect 1: in light theme the popover trigger wrapper drew a square border around the scope badge.
+      expect(await page.locator('[data-testid="routing-node-main-agent"] .popover-trigger').first()
+        .evaluate((node) => getComputedStyle(node).borderTopWidth)).toBe('0px');
       // Batch 26: the Main Agent popover (Reassign), captured open, then closed with Esc.
       await page.locator('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]').click();
       const mainPopover = page.locator('[data-testid="main-agent-popover"]');
@@ -135,8 +227,9 @@ for (const host of ['vscode', 'electron'] as const) {
       const box = await mainPopover.boundingBox();
       const viewport = page.viewportSize();
       expect(box && viewport && box.y >= 0 && box.y + box.height <= viewport.height).toBe(true);
-      console.log(`B26 popover ${host}/${theme}: ${Math.round(box?.width ?? 0)}x${Math.round(box?.height ?? 0)} @ ${Math.round(box?.y ?? 0)}`);
+      console.log(`B26 popover ${host}/${theme}: ${Math.round(box?.width ?? 0)}x${Math.round(box?.height ?? 0)} @ ${Math.round(box?.x ?? 0)},${Math.round(box?.y ?? 0)}`);
       await waitForSettled(page);
+      await assertPopoverOnTop(page, '[data-testid="main-agent-popover"]', 'select, button');
       await page.screenshot({ path: capturePath('main-agent-popover', host, theme), animations: 'disabled' });
       // Batch 27b: the "Save to" list with the App target chosen, named after the host, and the provider
       // re-save confirm that names it ("Saved to: VS Code." / "Saved to: Desktop app."); cancelled after.
@@ -149,6 +242,11 @@ for (const host of ['vscode', 'electron'] as const) {
       await mainPopover.locator('[data-testid="main-agent-provider-rescope"]').click();
       await expect(mainPopover.locator('[data-testid="main-agent-provider-confirm"]')).toContainText(`Saved to: ${appLabel}.`);
       await waitForSettled(page);
+      // Gate V 28 defect 4: the confirm state stays fully inside the viewport (the body scrolls, not the page).
+      const confirmBox = await mainPopover.boundingBox();
+      console.log(`B28 popover confirm ${host}/${theme}: ${Math.round(confirmBox?.width ?? 0)}x${Math.round(confirmBox?.height ?? 0)} @ ${Math.round(confirmBox?.x ?? 0)},${Math.round(confirmBox?.y ?? 0)}`);
+      expect(confirmBox && viewport && confirmBox.y >= 0 && confirmBox.y + confirmBox.height <= viewport.height).toBe(true);
+      await assertPopoverOnTop(page, '[data-testid="main-agent-popover"]', '[data-testid="main-agent-provider-confirm"] button');
       await page.screenshot({ path: capturePath('main-agent-save-to', host, theme), animations: 'disabled' });
       await mainPopover.getByRole('button', { name: 'Cancel provider change' }).click();
       await page.keyboard.press('Escape');
@@ -163,6 +261,10 @@ for (const host of ['vscode', 'electron'] as const) {
       await badges.first().click();
       await expect(page.locator('[data-testid="scope-popover"]')).toBeVisible();
       await waitForSettled(page);
+      // Batch 27b deviation 6: no routing-map node badge may paint over the open scope popover.
+      await assertPopoverOnTop(page, '[data-testid="scope-popover"]', 'li, button, p');
+      const scopeBox = await page.locator('[data-testid="scope-popover"]').boundingBox();
+      console.log(`B28 scope popover ${host}/${theme}: ${Math.round(scopeBox?.width ?? 0)}x${Math.round(scopeBox?.height ?? 0)} @ ${Math.round(scopeBox?.x ?? 0)},${Math.round(scopeBox?.y ?? 0)}`);
       await page.screenshot({ path: capturePath('scope-popover', host, theme), animations: 'disabled' });
       await page.keyboard.press('Escape');
       await expect(page.locator('[data-testid="scope-popover"]')).toHaveCount(0);
@@ -201,6 +303,7 @@ for (const host of ['vscode', 'electron'] as const) {
         await page.keyboard.press('Escape');
         await expect(drawer).toHaveCount(0);
       }
+      if (foldFailure) throw foldFailure;
     });
   }
 }

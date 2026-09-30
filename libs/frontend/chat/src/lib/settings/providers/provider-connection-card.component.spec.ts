@@ -76,13 +76,13 @@ describe('ProviderConnectionCardComponent', () => {
     });
 
     it('the inline action emits its own output, never detailsRequested', () => {
-      const fixture = createComponent({ ...MOONSHOT, status: 'connected', positiveProbeEvidence: true });
+      const fixture = createComponent({ ...MOONSHOT, status: 'unreachable' });
       const details = jest.fn();
-      const activate = jest.fn();
+      const retry = jest.fn();
       fixture.componentInstance.detailsRequested.subscribe(details);
-      fixture.componentInstance.activateMainRequested.subscribe(activate);
-      (query(fixture, 'btn-activate-main') as HTMLButtonElement).click();
-      expect(activate).toHaveBeenCalledTimes(1);
+      fixture.componentInstance.retryRequested.subscribe(retry);
+      (query(fixture, 'btn-retry') as HTMLButtonElement).click();
+      expect(retry).toHaveBeenCalledTimes(1);
       expect(details).not.toHaveBeenCalled();
     });
 
@@ -145,16 +145,14 @@ describe('ProviderConnectionCardComponent', () => {
 
   describe('one inline action per state (every other action lives in the drawer)', () => {
     it.each([
-      ['connected', { positiveProbeEvidence: true }, 'btn-activate-main', 'activateMainRequested', 'Use Moonshot (Kimi) for main agent'],
       ['needs-key', {}, 'btn-add-key', 'addKeyRequested', 'Add API key for Moonshot (Kimi)'],
       ['unauthenticated', {}, 'btn-replace-key', 'replaceKeyRequested', 'Replace key for Moonshot (Kimi)'],
       ['unauthenticated', { authModality: 'oauth' }, 'btn-sign-in', 'signInRequested', 'Sign in to Moonshot (Kimi)'],
       ['unreachable', {}, 'btn-retry', 'retryRequested', 'Retry connection to Moonshot (Kimi)'],
       ['not-installed', { cliName: 'Claude CLI' }, 'btn-check-again', 'checkAgainRequested', 'Check again for Claude CLI'],
       ['not-configured', {}, 'btn-setup', 'setupRequested', 'Set up Moonshot (Kimi)'],
-      ['unknown', { canActivateMain: false }, 'btn-check-connection', 'checkConnectionRequested', 'Check connection for Moonshot (Kimi)'],
-      ['unknown', {}, 'btn-activate-main', 'activateMainRequested', 'Use Moonshot (Kimi) for main agent'],
-      ['skipped', { canActivateMain: false }, 'btn-retry', 'retryRequested', 'Retry connection to Moonshot (Kimi)'],
+      ['connected', { positiveProbeEvidence: false }, 'btn-check-connection', 'checkConnectionRequested', 'Check connection for Moonshot (Kimi)'],
+      ['skipped', {}, 'btn-retry', 'retryRequested', 'Retry connection to Moonshot (Kimi)'],
     ] as const)('%s %j → %s', (status, extra, testId, outputName, ariaLabel) => {
       const fixture = createComponent({ ...MOONSHOT, status, ...extra });
       const card = fixture.componentInstance as unknown as Record<string, { subscribe(fn: () => void): unknown }>;
@@ -173,10 +171,14 @@ describe('ProviderConnectionCardComponent', () => {
       expect(buttons(createComponent({ ...MOONSHOT, status }))).toHaveLength(0);
     });
 
-    it('a checkable Not checked connection is checked first, not activated (RUX-7, unchanged)', () => {
-      const fixture = createComponent({ ...MOONSHOT, status: 'connected', positiveProbeEvidence: false });
-      expect(query(fixture, 'btn-activate-main')).toBeNull();
-      expect(query(fixture, 'btn-check-connection')).not.toBeNull();
+    // Gate V 28 (prototype cards): no "Use for main agent" on the face; the Main Agent popover changes the main
+    // agent, and its provider select offers the same usable connections (parity #3).
+    it('a connected card, or a not-checkable one, carries no inline action and no "Use for main agent"', () => {
+      for (const extra of [{ status: 'connected', positiveProbeEvidence: true }, { status: 'unknown' }] as const) {
+        const fixture = createComponent({ ...MOONSHOT, ...extra });
+        expect(buttons(fixture)).toHaveLength(0);
+        expect(fixture.nativeElement.textContent).not.toContain('Use for main agent');
+      }
     });
 
     it('no longer renders Manage, Change main provider, Edit connection or Installation instructions', () => {
@@ -205,11 +207,11 @@ describe('ProviderConnectionCardComponent', () => {
   });
 
   describe('main agent', () => {
-    it('the active card has the secondary spine and "Active for main agent"', () => {
+    it('the active card has the primary spine (prototype; Gate V 28) and "Active for main agent"', () => {
       const fixture = createComponent({ ...MOONSHOT, status: 'connected', positiveProbeEvidence: true, isActive: true });
       expect(query(fixture, 'status-copy')?.textContent?.trim()).toBe('Active for main agent');
       expect(query(fixture, 'native-card-spine')).not.toBeNull();
-      expect(fixture.nativeElement.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('secondary');
+      expect(fixture.nativeElement.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('primary');
     });
 
     it('a blocked main route says it needs attention, with a warning tone, never the healthy label', () => {

@@ -1,5 +1,6 @@
 import {
-  ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, output, signal, untracked,
+  ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, afterRenderEffect, computed, effect, inject, input, output,
+  signal, untracked,
 } from '@angular/core';
 import { X, LucideAngularModule } from 'lucide-angular';
 import { ProvidersSettingsStateService, type ProvidersEditContext } from '@ptah-extension/core';
@@ -29,7 +30,8 @@ interface ModelCatalogue {
 
 /**
  * Main Agent popover (plan :596-609, design-spec §2.1, prototype `#popoverMainAgent`), opened from the
- * routing map's Main Agent node, a card's "Use for main agent", or a `main-*` deep link. Compact, like the
+ * routing map's Main Agent node or a `main-*` deep link. It is the one place the main agent is changed (the card's
+ * "Use for main agent" was removed at Gate V 28, as in the prototype). Compact, like the
  * prototype: header, Provider connection, Model selection, Reasoning effort, Save to.
  * - **Provider** (D6): choosing another connection shows an inline confirm ("… ends running chat
  *   sessions."); "Use for main agent" calls `activateConnection` to the "Save to" scope, with no Undo and its
@@ -47,14 +49,18 @@ interface ModelCatalogue {
   standalone: true,
   imports: [LucideAngularModule, NativePopoverComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Angular owns (and removes) this listener with the component.
+  host: { '(window:resize)': 'open() && fitToViewport()' },
   template: `
     <ptah-native-popover [isOpen]="open()" placement="bottom-start" [hasBackdrop]="true" backdropClass="transparent"
       (closed)="closed.emit()" (opened)="focusRequested()">
       <!-- Zero-size anchor: the host sits at the Main Agent node's bottom-left edge. -->
       <span trigger class="block h-0 w-0" aria-hidden="true"></span>
-      <div content role="dialog" aria-labelledby="main-agent-popover-title" class="w-[19rem] max-w-[calc(100vw-2rem)] space-y-2.5 p-3 text-xs"
-        data-testid="main-agent-popover">
-        <div class="flex items-center justify-between gap-2 border-b border-base-300 pb-1.5">
+      <!-- Height capped at the space below its top edge (fitToViewport); only the body scrolls, so the popover is fully
+           visible in every state, the provider-change confirm included (Gate V 28). -->
+      <div content role="dialog" aria-labelledby="main-agent-popover-title" class="flex w-[19rem] max-w-[calc(100vw-2rem)] flex-col p-3 text-xs"
+        [style.max-height.px]="maxHeight()" data-testid="main-agent-popover">
+        <div class="mb-2.5 flex shrink-0 items-center justify-between gap-2 border-b border-base-300 pb-1.5">
           <h2 id="main-agent-popover-title" class="text-xs font-bold text-base-content">Reassign main agent</h2>
           <div class="flex items-center gap-1">
             <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 px-1.5 font-medium text-base-content underline ' + focusRing"
@@ -67,6 +73,7 @@ interface ModelCatalogue {
           </div>
         </div>
 
+        <div class="-mx-1 min-h-0 space-y-2.5 overflow-y-auto px-1" data-testid="main-agent-popover-body">
         <div class="space-y-1">
           <label for="main-agent-provider" class="block text-[11px] font-semibold text-base-content-muted">Provider connection</label>
           <select id="main-agent-provider" [class]="select" data-focus="main-agent" [disabled]="busy()"
@@ -84,7 +91,7 @@ interface ModelCatalogue {
             <div role="group" aria-label="Confirm main provider change" class="space-y-1.5 rounded border border-base-300 bg-base-200 p-2"
               data-testid="main-agent-provider-confirm">
               <p class="text-base-content" data-testid="main-agent-provider-copy">{{ pending.copy }}</p>
-              <p class="text-base-content-muted">Saved to: {{ pending.scope }}.</p>
+              <p class="text-base-content-muted">{{ pending.scope ? 'Saved to: ' + pending.scope + '.' : 'Where to save is not loaded yet.' }}</p>
               @if (pending.uncheckable) {
                 <p class="text-base-content-muted" data-testid="activation-unchecked-note">Ptah cannot check this connection before use. If new requests fail, check that {{ pending.name }} is running and reachable.</p>
               }
@@ -106,12 +113,12 @@ interface ModelCatalogue {
               <input id="main-agent-model" type="text" [class]="'input input-bordered input-sm min-h-8 min-w-0 flex-1 font-mono text-xs ' + focusRing"
                 placeholder="Model ID, e.g. vendor/model-name" [value]="manualDraft()" (input)="manualDraft.set(value($event))"
                 aria-label="Main agent model ID" data-testid="main-agent-model-manual" />
-              <button type="button" [class]="'btn btn-outline btn-xs min-h-8 text-base-content ' + focusRing" [disabled]="busy() || !manualDraft().trim()"
+              <button type="button" [class]="'btn btn-outline btn-xs min-h-8 text-base-content ' + focusRing" [disabled]="busy() || !targetReady() || !manualDraft().trim()"
                 (click)="applyManual()">Use</button>
               <button type="button" [class]="'btn btn-ghost btn-xs min-h-8 text-base-content ' + focusRing" (click)="closeManual()">Cancel</button>
             </div>
           } @else {
-            <select id="main-agent-model" [class]="select + ' font-mono'" [disabled]="busy() || !driverId() || catalogue().status === 'loading'"
+            <select id="main-agent-model" [class]="select + ' font-mono'" [disabled]="busy() || !targetReady() || !driverId() || catalogue().status === 'loading'"
               (change)="onModel(value($event))" data-testid="main-agent-model">
               @if (catalogue().status === 'loading') { <option selected>Loading models…</option> }
               @if (!currentModel()) { <option value="" selected>{{ defaultModelLabel() }}</option> }
@@ -135,19 +142,30 @@ interface ModelCatalogue {
             data-testid="main-agent-effort">
             @for (level of efforts; track level.value) {
               <button type="button" [class]="effortClass(level.value)" [attr.aria-pressed]="currentEffort() === level.value"
-                [disabled]="busy()" (click)="saveEffort(level.value)" [attr.data-effort]="level.value || 'default'">{{ level.label }}</button>
+                [disabled]="busy() || !targetReady()" (click)="saveEffort(level.value)" [attr.data-effort]="level.value || 'default'">{{ level.label }}</button>
             }
           </div>
         </div>
 
         <div class="flex items-center justify-between gap-2 border-t border-base-300 pt-2">
           <label for="main-agent-save-to" class="shrink-0 text-base-content-muted">Save to:</label>
-          <select id="main-agent-save-to" [class]="select + ' w-auto max-w-[11rem]'" [disabled]="busy()"
+          <select id="main-agent-save-to" [class]="select + ' w-auto max-w-[11rem]'" [disabled]="busy() || !targetReady()"
             (change)="targetChoice.set(asScope(value($event)))" data-testid="main-agent-save-to">
             @for (scope of targets(); track scope) {
               <option [value]="scope" [selected]="scope === target()">{{ scopeLabel(scope) }}</option>
             }
           </select>
+        </div>
+        <!-- M1 (Providers 21-28 review): no Save-to target, no write. Model, effort and Save-to wait for the sources. -->
+        @if (state.mainSources().status === 'error') {
+          <p role="alert" class="flex flex-wrap items-center gap-1.5 text-base-content" data-testid="main-agent-sources-error">
+            Where the model and effort are saved could not be loaded. Nothing was changed.
+            <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-base-content ' + focusRing"
+              (click)="state.refreshMainSources()">Retry model and effort sources</button>
+          </p>
+        } @else if (!targetReady()) {
+          <p role="status" class="text-base-content-muted" data-testid="main-agent-sources-loading">Loading where the model and effort are saved…</p>
+        }
         </div>
       </div>
     </ptah-native-popover>
@@ -170,8 +188,6 @@ export class MainAgentReassignPopoverComponent {
   ];
 
   readonly open = input(false);
-  /** Preselects this provider (a card's "Use for main agent"): the confirm shows at once. */
-  readonly requestedProvider = input<string | null>(null);
   /** Deep-linked control to focus once open. */
   readonly initialFocus = input<MainAgentFocus | null>(null);
   readonly closed = output<void>();
@@ -184,6 +200,8 @@ export class MainAgentReassignPopoverComponent {
   protected readonly manualDraft = signal('');
   protected readonly catalogue = signal<ModelCatalogue>({ status: 'loading', models: [] });
   private readonly outcome = signal<DrawerWriteOutcome | null>(null);
+  /** The popover's height cap in px (`fitToViewport`); `null` until it is positioned. */
+  protected readonly maxHeight = signal<number | null>(null);
   private context: ProvidersEditContext | null = null;
   private session = 0;
   private catalogueRequest = 0;
@@ -212,16 +230,22 @@ export class MainAgentReassignPopoverComponent {
     const effort = this.state.writeScopes(sources.effort.key);
     return this.state.writeScopes(sources.model.key).filter((target) => effort.includes(target));
   });
-  protected readonly target = computed<SettingScope>(() => {
+  /**
+   * The chosen "Save to" scope, else the model's source, else the first offered target. `null` while no target is
+   * offered (sources loading or failed): never a scope `writeScopes` did not offer (M1, Providers 21-28 review).
+   */
+  protected readonly target = computed<SettingScope | null>(() => {
     const chosen = this.targetChoice(), targets = this.targets();
     if (chosen && targets.includes(chosen)) return chosen;
     const source = this.state.mainSources().data?.model?.scope;
-    return source && targets.includes(source) ? source : targets[0] ?? 'global';
+    return source && targets.includes(source) ? source : targets[0] ?? null;
   });
+  /** Model, effort and Save-to accept input only once a target is offered. */
+  protected readonly targetReady = computed(() => this.target() !== null);
   /** Offered when the "Save to" scope is not where the current provider is stored, and the provider may go there. */
   protected readonly rescopeOffer = computed(() => {
     const target = this.target();
-    return this.driverId() && !this.providerChoice() && !this.rescope() && this.providerSource() !== target
+    return target && this.driverId() && !this.providerChoice() && !this.rescope() && this.providerSource() !== target
       && this.providerTargets().includes(target) ? this.scopeLabels[target] : null;
   });
   protected readonly pendingProvider = computed(() => {
@@ -229,10 +253,10 @@ export class MainAgentReassignPopoverComponent {
     const changing = !!id && id !== this.driverId();
     if (!changing && !(this.rescope() && id)) return null;
     const option = this.providers().find((entry) => entry.id === id);
-    const name = option?.name ?? id;
+    const name = option?.name ?? id, target = this.target();
     return {
-      id, name, uncheckable: option?.uncheckable ?? false, scope: this.scopeLabels[this.target()],
-      writable: this.providerTargets().includes(this.target()),
+      id, name, uncheckable: option?.uncheckable ?? false, scope: target ? this.scopeLabels[target] : null,
+      writable: target !== null && this.providerTargets().includes(target),
       copy: changing ? `New main-agent requests use ${name}. Changing the provider ends running chat sessions.`
         : `New main-agent requests keep using ${name}. Saving the provider ends running chat sessions.`,
     };
@@ -264,11 +288,10 @@ export class MainAgentReassignPopoverComponent {
   constructor() {
     effect(() => {
       if (!this.open()) return;
-      const requested = this.requestedProvider();
       untracked(() => {
         this.session += 1;
         this.context = this.state.reviewContext();
-        this.providerChoice.set(requested);
+        this.providerChoice.set(null);
         this.rescope.set(false);
         this.targetChoice.set(null);
         this.manual.set(false);
@@ -278,6 +301,12 @@ export class MainAgentReassignPopoverComponent {
     // The driver's catalogue, while open; a newer request supersedes an older one.
     effect(() => {
       if (this.open() && this.driverId()) untracked(() => this.loadModels());
+    });
+    // Re-fit after every state that changes the popover's height (Gate V 28: the confirm ran off screen).
+    afterRenderEffect(() => {
+      if (!this.open()) return;
+      this.pendingProvider(); this.providerOutcome(); this.manual(); this.catalogue(); this.targetReady();
+      untracked(() => this.fitToViewport());
     });
   }
 
@@ -314,7 +343,7 @@ export class MainAgentReassignPopoverComponent {
   /** D6: a confirmed provider change to the "Save to" scope; no Undo. */
   protected async activate(): Promise<void> {
     const pending = this.pendingProvider(), target = this.target(), session = this.session;
-    if (!pending || !pending.writable) return;
+    if (!pending || !pending.writable || !target) return;
     await runDrawerWrite(this.contextSource(), (context) => this.state.activateConnection(pending.id, target, context), (outcome) => {
       if (session !== this.session) return;
       this.outcome.set(outcome);
@@ -351,7 +380,7 @@ export class MainAgentReassignPopoverComponent {
 
   protected async saveModel(model: string): Promise<void> {
     const previous = this.currentModel(), applyTo = this.target(), context = this.context;
-    if (!model || model === previous || !context) return;
+    if (!model || model === previous || !context || !applyTo) return;
     await this.feedback.save({
       label: 'main agent model', scope: applyTo,
       write: () => this.state.saveSettings({ model: { model, applyTo } }, context),
@@ -362,7 +391,7 @@ export class MainAgentReassignPopoverComponent {
 
   protected async saveEffort(effort: EffortLevel | ''): Promise<void> {
     const previous = this.currentEffort(), applyTo = this.target(), context = this.context;
-    if (effort === previous || !context) return;
+    if (effort === previous || !context || !applyTo) return;
     await this.feedback.save({
       label: 'reasoning effort', scope: applyTo,
       write: () => this.state.saveSettings({ effort: { effort: effort || undefined, applyTo } }, context),
@@ -373,8 +402,21 @@ export class MainAgentReassignPopoverComponent {
 
   /** Focuses the deep-linked control once the panel is positioned (the panel takes focus first). */
   protected focusRequested(): void {
+    this.fitToViewport();
     const target = this.initialFocus();
     if (target) this.element.nativeElement.querySelector<HTMLElement>(`[data-focus="${target}"]`)?.focus();
+  }
+
+  /**
+   * Caps the popover at the space between its top edge and the viewport bottom (8 px margin, 10rem minimum), so a
+   * state that adds rows (the provider-change confirm, an outcome, the manual model field) scrolls its body instead
+   * of running off screen. Runs once the panel is positioned, after each such state change, and on window resize.
+   */
+  protected fitToViewport(): void {
+    const panel = this.element.nativeElement.querySelector<HTMLElement>('[data-testid="main-agent-popover"]');
+    const view = this.element.nativeElement.ownerDocument.defaultView;
+    if (!panel || !view) return;
+    this.maxHeight.set(Math.max(160, Math.floor(view.innerHeight - panel.getBoundingClientRect().top - 8)));
   }
 
   /** The runner reads `commit()` and the context this popover reviewed against (taken on open). */

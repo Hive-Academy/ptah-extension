@@ -49,16 +49,16 @@ class StateStub {
   readonly saveSettings = jest.fn(async (_patch: unknown, _context: unknown) => this.saved());
   readonly activateConnection = jest.fn(async (_id: string, _scope: SettingScope, _context: unknown) => this.saved());
   readonly checkConnection = jest.fn(async () => undefined);
+  readonly refreshMainSources = jest.fn(async () => undefined);
 }
 
 @Component({
   standalone: true,
   imports: [MainAgentReassignPopoverComponent],
-  template: `<ptah-main-agent-reassign-popover [open]="open()" [requestedProvider]="provider()" [initialFocus]="focus()" (closed)="closed = closed + 1" />`,
+  template: `<ptah-main-agent-reassign-popover [open]="open()" [initialFocus]="focus()" (closed)="closed = closed + 1" />`,
 })
 class Host {
   readonly open = signal(true);
-  readonly provider = signal<string | null>(null);
   readonly focus = signal<MainAgentFocus | null>(null);
   closed = 0;
 }
@@ -146,11 +146,6 @@ describe('MainAgentReassignPopoverComponent', () => {
       expect(query('main-agent-provider-confirm')).toBeNull();
       expect(state.activateConnection).not.toHaveBeenCalled();
       expect(document.activeElement).toBe(query('main-agent-provider'));
-    });
-
-    it('a card\'s requested provider opens straight into the confirm', () => {
-      fixture.componentInstance.provider.set('second'); fixture.detectChanges();
-      expect(query('main-agent-provider-copy')?.textContent).toContain('New main-agent requests use Second.');
     });
 
     it('a refused or failed activation is never reported as saved (D15)', async () => {
@@ -270,6 +265,35 @@ describe('MainAgentReassignPopoverComponent', () => {
     state.route.set({ status: 'loading', data: ROUTE, error: null }); fixture.detectChanges();
     expect(query<HTMLButtonElement>('main-agent-check')?.disabled).toBe(true);
     expect(query('main-agent-check')?.textContent?.trim()).toBe('Checking…');
+  });
+
+  // M1 (providers-21-28-code-logic-review.md): with no "Save to" target offered, nothing may be written, and never to
+  // a scope `writeScopes` did not offer (the old fallback was 'global').
+  describe('while the model and effort sources are not loaded (M1)', () => {
+    const effortButton = (value: string) => query('main-agent-effort')?.querySelector<HTMLButtonElement>(`[data-effort="${value}"]`);
+
+    it('loading: model, effort and Save to are disabled, the reason is shown, and no write can start', async () => {
+      state.mainSources.set({ status: 'loading', data: null, error: null } as never); fixture.detectChanges(); await flush();
+      expect(query<HTMLSelectElement>('main-agent-model')?.disabled).toBe(true);
+      expect(query<HTMLSelectElement>('main-agent-save-to')?.disabled).toBe(true);
+      expect(effortButton('high')?.disabled).toBe(true);
+      expect(query('main-agent-sources-loading')?.textContent).toContain('Loading where the model and effort are saved');
+      // Even an event that reaches a handler writes nothing.
+      effortButton('high')?.click(); choose('main-agent-model', 'model-b'); await flush();
+      expect(state.saveSettings).not.toHaveBeenCalled();
+    });
+
+    it('error: the region says so with "Retry model and effort sources", and a provider change cannot be confirmed', async () => {
+      state.mainSources.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' } as never);
+      fixture.detectChanges(); await flush();
+      expect(query('main-agent-sources-error')?.textContent).toContain('could not be loaded');
+      buttonNamed('Retry model and effort sources')?.click();
+      expect(state.refreshMainSources).toHaveBeenCalledTimes(1);
+      choose('main-agent-provider', 'second');
+      expect(query('main-agent-provider-confirm')?.textContent).toContain('Where to save is not loaded yet.');
+      expect(buttonNamed('Use for main agent')?.disabled).toBe(true);
+      expect(state.activateConnection).not.toHaveBeenCalled();
+    });
   });
 
   it('Close emits closed', () => {
