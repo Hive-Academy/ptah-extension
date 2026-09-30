@@ -2,7 +2,7 @@
 
 Total tasks: 87 | Batches: 69 | Complete: 8/69
 
-Branch: `feat/task-2026-576-git-review` (main checkout `D:/projects/ptah-extension`). Base: `main` 722d921ab.
+Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
 or `.claude/skills/ptah-cli-usage/references/internal-mcp.md`.
 
@@ -765,9 +765,11 @@ P1 follow-up (orchestrator, 2026-09-30, after the Glm approval):
 
 Recorded in `context.md`. One branch and one PR per phase, each based on the previous phase's branch.
 
-- P1 = `feat/task-2026-576-git-review`, frozen at b0a9b6f28 for its PR. P2 = `feat/task-2026-576-p2`, created from
-  b0a9b6f28 and worked in the main checkout (a fresh worktree has no `node_modules`). P3, P4, P5 and Cutover follow
-  the same pattern.
+- P1 = `feat/task-2026-576-git-review` (PR #611, HEAD 3346f60a6), worktree
+  `D:/projects/ptah-extension/.claude-worktrees/task-576-p1`. P2 = `feat/task-2026-576-p2`, rebased on 3346f60a6,
+  worktree `D:/projects/ptah-extension/.claude-worktrees/task-576-p2`. Worktrees live inside the workspace, so Node
+  resolves the main `node_modules` upward and CLI lanes accept them as `workingDirectory`. The main checkout stays on
+  `main`. P3, P4, P5 and Cutover follow the same pattern (`.claude-worktrees/task-576-p3`, …).
 - "Depends on: P1 merged" now reads "stacked on the P1 branch" (Batches 9, 18, 19 say `P1 branch (stacked)`).
 - P1 PR review fixes land on the P1 branch; P2 is then rebased on it. When P1 merges, P2 is rebased onto `main` and
   its PR targets `main`.
@@ -827,6 +829,23 @@ under "Execution defaults".
 - Quality requirements: `--output=/tmp/x` and `-b` refused, no file written; `validatePathSegment` comment corrected.
 - Validation notes: `stash@{N}` built internally stays allowed.
 - Implementation details: getLastCommit, checkout, addWorktree, removeWorktree (`-- <path>`).
+- State (2026-09-30, end of session): IMPLEMENTED, **not committed** (uncommitted in worktree
+  `.claude-worktrees/task-576-p2`). Files: the 4 above plus `git-info.service.spec.ts` (one expectation now includes
+  `--end-of-options`; approved fifth file). Passing: ref-guard specs 86/86; `git-info.service.spec.ts` 154/154;
+  vscode-core typecheck + lint; `degradation-audit:lint`. Deviation: `checkout -b` has no `--end-of-options` (`-b`
+  takes the branch as its value).
+- **Open gate before commit** (run with no lanes or agents active):
+  1. Default unit run (real-git ignored): 4 failures in `git-info.service.remote-stash.spec.ts` (push, pull/fetch).
+     That suite spawns real git but is not named `*.real-git.spec.ts`, so the P1 split (3346f60a6) misses it. Fix on
+     the **P1 branch** (PR #611): rename it to `*.real-git.spec.ts` (check for other real-git suites without the
+     suffix), then rebase P2.
+  2. Serial real-git run (`--runInBand`, 5 suites incl. Batch 9's): 1 failure, the kill-guard test "a cancel of
+     `commit -a` mid-hook kills the tree and Ptah removes the lock it left". It passes alone (14/14) and passed 10
+     times before; it failed once when all 5 suites ran in one process. Rule out an interaction with the new
+     ref-guard real-git suite: run `nx run @ptah-extension/vscode-core:test-real-git` 3 times; if it fails again,
+     capture the assertion and return Batch 9 to backend-developer.
+  3. Out of scope, noted: `libs/backend/rpc-handlers/src/lib/handlers/git-rpc.schema.ts:14` still names
+     `validatePathSegment` as the guard.
 
 ## Batch 10: Branch switching backend (RC9) — PENDING
 
@@ -982,7 +1001,7 @@ under "Execution defaults".
 - Validation notes: V11.
 - Implementation details: replace `container.ts:445-447`.
 
-## Batch 19: Scoped, queued diff refresh (RC11) — IN_PROGRESS
+## Batch 19: Scoped, queued diff refresh (RC11) — COMPLETE (0c3189fbc)
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
@@ -990,7 +1009,12 @@ under "Execution defaults".
 - Concurrency-eligible with: Batch 9 only (Wave 1); git-ui imports no backend lib
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`; `npx nx run degradation-audit:lint`
 
-### Task 19.1: Cause-scoped refresh with `rerunRequested` trailing run — IN_PROGRESS
+### Task 19.1: Cause-scoped refresh with `rerunRequested` trailing run — COMPLETE
+
+- Result (2026-09-30): executor Glm CLI lane (frontend-developer role); only the two listed files changed (+363/−8).
+  `nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui` passed (git-ui jest 486/486; diff-tabs spec 64 tests,
+  6 new RC11 cases); `degradation-audit:lint` passed (293 sites, unchanged). Committed as 39d0daffe, rebased to
+  0c3189fbc. Per-phase cadence: no per-batch review; covered by the P2 phase-end review.
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/diff-tabs.service.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/diff-tabs.service.spec.ts
 - Plan reference: implementation-plan.md:662-680
