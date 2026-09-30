@@ -1,5 +1,5 @@
 ---
-status: planned
+status: backlog
 type: feature
 title: 'Lane trajectories: run skill-synthesis archaeology and judging on CLI lane sessions'
 depends_on: [TASK_2026_535]
