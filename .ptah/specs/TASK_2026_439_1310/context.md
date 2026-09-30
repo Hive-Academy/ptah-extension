@@ -47,10 +47,10 @@ the new code or the scheduled job is not registered. Unit specs alone do not clo
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | -------------- |
 | 1   | Stop disk growth: daily retention job (processed observations after 7 days, stuck-row quarantine), pre-migration rotation 3 to 1, idle incremental vacuum, storage numbers in diagnostics | TASK_2026_440_834c                                  | done (PR #513) |
 | 2   | Memory age lifecycle (recall to archival after N days unused, delete after M more), salience for ranking only, per-workspace cap                                                          | TASK_2026_443_40ec                                  | done (PR #521) |
-| 3   | Skills unblock: manual promote path, delete the fake creation invocation, stricter prefilter, backlog cleanup, namer wired or deleted                                                     | [TASK_2026_461_639c](../TASK_2026_461_639c/task.md) | in_review      |
-| 4   | Activity feed correctness: newest-first, real event ids, grouping, remove the overlapping summary, tiles refresh                                                                          | not filed                                           | backlog        |
-| 5   | Skills evidence-first pipeline: archaeology before authoring, cross-session clustering, promotion from real `skill_invocation_events`                                                     | not filed                                           | backlog        |
-| 6   | Thoth Overview (Health / Needs attention / Recent outcomes) and a durable, bounded activity ledger                                                                                        | not filed                                           | backlog        |
+| 3   | Skills unblock: manual promote path, delete the fake creation invocation, stricter prefilter, backlog cleanup, namer wired or deleted                                                     | [TASK_2026_461_639c](../TASK_2026_461_639c/task.md) | done (PR #526) |
+| 4   | Activity feed correctness: newest-first, real event ids, grouping, remove the overlapping summary, tiles refresh                                                                          | [TASK_2026_586_2b3e](../TASK_2026_586_2b3e/task.md) | backlog        |
+| 5   | Skills evidence-first pipeline: archaeology before authoring, cross-session clustering, promotion from real `skill_invocation_events`                                                     | [TASK_2026_588_f4f8](../TASK_2026_588_f4f8/task.md) | backlog        |
+| 6   | Thoth Overview (Health / Needs attention / Recent outcomes) and a durable, bounded activity ledger                                                                                        | [TASK_2026_587_bffd](../TASK_2026_587_bffd/task.md) | backlog        |
 
 ## Already done outside the phases (2026-09-14)
 
@@ -90,3 +90,13 @@ nothing retires unused skills, and curation stalls when its one provider is rate
 - TASK_2026_579_f2e2 — curator provider fallback on rate limit or unreachable provider.
 
 Existing memory follow-ups from TASK_2026_563 stay open: 565, 566, 567, 568, 569, 572, 573.
+
+## Child tasks filed (2026-10-01)
+
+- Phase 4 — TASK_2026_586_2b3e (backlog): activity feed correctness.
+- Phase 5 — TASK_2026_588_f4f8 (backlog): archaeology before authoring and cross-session clustering. The user
+  decided phase 5 gets its own task, because TASK_2026_578_3b00 excludes the archaeology-first pipeline. 578 keeps
+  promotion, judge gate, umbrella merge and retirement; 588 depends on it.
+- Phase 6 — TASK_2026_587_bffd (backlog): Thoth Overview and the durable activity ledger. Depends on phase 4.
+
+The umbrella stays `in_progress` until phases 4-6 are merged, each with its reachability proof.
