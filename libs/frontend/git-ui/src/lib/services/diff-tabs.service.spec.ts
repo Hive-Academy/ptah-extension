@@ -14,6 +14,12 @@
  *   A1     - transport failure on refresh -> 'stale', content retained
  *   A1     - transport failure on initial open -> 'error' (nothing to retain)
  *   NFR-7  - bounded queueing: a refresh already in flight is not duplicated
+ *   RC11   - a request landing while a refresh runs is never dropped: it
+ *            queues, and exactly one trailing run follows the in-flight one
+ *   RC11   - git:status-update is cause-scoped: head/index/refs/initial (or
+ *            absent causes) revalidate every tab; a workspace-only cause
+ *            revalidates only tabs whose path, or origPath, is in the
+ *            payload's `files` or was in the previous file set
  *   A1     - stale-response protection: a superseded request's answer is dropped
  *   A1     - git:status-update revalidates every diff tab in the pushed
  *            workspace, debounced 250ms; a push for a different (background)
@@ -46,6 +52,7 @@ import type {
   GitApplyHunksResult,
   GitBlobRead,
   GitDiffFileResult,
+  GitFileStatus,
   GitHunkRef,
   GitReadErrorCode,
 } from '@ptah-extension/shared';
@@ -130,6 +137,14 @@ function ok(data: GitDiffFileResult): {
 }
 function fail(error = 'transport down'): { success: false; error: string } {
   return { success: false, error };
+}
+
+/** One entry of a `git:status-update` payload's `files` list (RC11). */
+function fileStatus(
+  path: string,
+  overrides: Partial<GitFileStatus> = {},
+): GitFileStatus {
+  return { path, status: 'M', staged: false, ...overrides };
 }
 
 /**
@@ -591,6 +606,189 @@ describe('DiffTabsService.onGitStatusUpdate', () => {
     await Promise.resolve();
 
     expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// RC11 — scoped, queued refresh. The `causes` set on a `git:status-update`
+// payload says WHICH kind of git move happened, so the service re-reads only
+// what that move can have touched; and a refresh requested while one runs is
+// queued, never dropped. The same logic moves verbatim into the canvas
+// `ReviewDiffService` (P4 Component 24), so these cases are the contract it
+// must keep.
+// ============================================================================
+
+describe('DiffTabsService — scoped, queued refresh (RC11)', () => {
+  async function openFresh(
+    service: DiffTabsService,
+    path = 'a.ts',
+  ): Promise<void> {
+    mockRpcCall.mockResolvedValueOnce(ok(makeResult({ path })));
+    await openDiff(service, { path, comparison: 'worktree' });
+    mockRpcCall.mockReset();
+  }
+
+  /** Drain the promise chain a debounced refresh runs on. */
+  async function drain(microtasks = 12): Promise<void> {
+    for (let i = 0; i < microtasks; i++) await Promise.resolve();
+  }
+
+  it('a workspace-only cause refreshes only the tab whose file changed (1 of 3)', async () => {
+    const { service } = makeService();
+    await openFresh(service, 'a.ts');
+    await openFresh(service, 'b.ts');
+    await openFresh(service, 'c.ts');
+
+    mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'b.ts' })));
+    service.onGitStatusUpdate('/ws', ['workspace'], [fileStatus('b.ts')]);
+
+    jest.advanceTimersByTime(250);
+    await drain();
+
+    // Only b.ts is re-read: a workspace edit cannot have moved a or c.
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+    expect(mockRpcCall.mock.calls[0][2]).toMatchObject({ path: 'b.ts' });
+  });
+
+  it('a workspace-only cause matches a renamed tab by its pre-rename path', async () => {
+    const { service } = makeService();
+    mockRpcCall.mockResolvedValueOnce(
+      ok(
+        makeResult({
+          path: 'new.ts',
+          originalPath: 'old.ts',
+          comparison: 'staged',
+        }),
+      ),
+    );
+    await openDiff(service, {
+      path: 'new.ts',
+      comparison: 'staged',
+      origPath: 'old.ts',
+    });
+    mockRpcCall.mockReset();
+    mockRpcCall.mockResolvedValue(
+      ok(
+        makeResult({
+          path: 'new.ts',
+          originalPath: 'old.ts',
+          comparison: 'staged',
+        }),
+      ),
+    );
+
+    // The payload lists the OLD name only; the tab's path is the NEW one, so
+    // only the tab's own originalPath can match it.
+    service.onGitStatusUpdate('/ws', ['workspace'], [fileStatus('old.ts')]);
+
+    jest.advanceTimersByTime(250);
+    await drain();
+
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+    expect(mockRpcCall.mock.calls[0][2]).toMatchObject({ path: 'new.ts' });
+  });
+
+  it('a workspace-only cause still refreshes a tab whose file left the status set', async () => {
+    const { service } = makeService();
+    await openFresh(service, 'a.ts');
+    await openFresh(service, 'b.ts');
+
+    // Window 1: an index move lists both files; every tab is re-read.
+    mockRpcCall.mockResolvedValue(ok(makeResult()));
+    service.onGitStatusUpdate(
+      '/ws',
+      ['index'],
+      [fileStatus('a.ts'), fileStatus('b.ts')],
+    );
+
+    jest.advanceTimersByTime(250);
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+
+    // Window 2: the user reverted both files to clean, so `files` no longer
+    // lists them — the open tabs must still be re-read against the PREVIOUS
+    // set. A current-files-only match would refresh nothing here.
+    mockRpcCall.mockClear();
+    service.onGitStatusUpdate('/ws', ['workspace'], []);
+
+    jest.advanceTimersByTime(250);
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+  });
+
+  it('an index cause refreshes every open tab', async () => {
+    const { service } = makeService();
+    await openFresh(service, 'a.ts');
+    await openFresh(service, 'b.ts');
+    await openFresh(service, 'c.ts');
+
+    mockRpcCall.mockResolvedValue(ok(makeResult()));
+    service.onGitStatusUpdate(
+      '/ws',
+      ['index'],
+      [fileStatus('a.ts', { staged: true })],
+    );
+
+    jest.advanceTimersByTime(250);
+    await drain();
+
+    // Staging one file rewrites the index every staged diff reads against.
+    expect(mockRpcCall).toHaveBeenCalledTimes(3);
+  });
+
+  it('requests landing while a refresh runs queue exactly ONE trailing run', async () => {
+    const { service } = makeService();
+    await openFresh(service);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    let resolveFirst!: (value: unknown) => void;
+    mockRpcCall.mockReturnValueOnce(
+      new Promise((resolve) => (resolveFirst = resolve)),
+    );
+    const first = service.refreshDiffTab(key);
+
+    // A burst of three requests while the read is in flight.
+    void service.refreshDiffTab(key);
+    void service.refreshDiffTab(key);
+    void service.refreshDiffTab(key);
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+
+    let resolveTrailing!: (value: unknown) => void;
+    mockRpcCall.mockReturnValueOnce(
+      new Promise((resolve) => (resolveTrailing = resolve)),
+    );
+    resolveFirst(ok(makeResult({ path: 'a.ts', modified: content('run-1') })));
+    await drain();
+
+    // One trailing run for the whole burst — not one per request.
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+
+    resolveTrailing(
+      ok(makeResult({ path: 'a.ts', modified: content('run-2') })),
+    );
+    await first;
+
+    // No further runs once the trailing one settles.
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+    expect(tabAt(service, key)?.diff?.modified).toBe('run-2');
+  });
+
+  it('a failed scoped refresh keeps the previous content', async () => {
+    const { service } = makeService();
+    await openFresh(service);
+
+    mockRpcCall.mockResolvedValue(fail());
+    service.onGitStatusUpdate('/ws', ['workspace'], [fileStatus('a.ts')]);
+
+    jest.advanceTimersByTime(250);
+    await drain();
+
+    const tab = tabAt(service, diffTabKey('worktree', 'a.ts'));
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+    expect(tab?.diff?.status).toBe('stale');
+    // Never blanked: the content the user was looking at survives the failure.
+    expect(tab?.diff?.modified).toBe('new');
+    expect(tab?.content).toBe('new');
   });
 });
 

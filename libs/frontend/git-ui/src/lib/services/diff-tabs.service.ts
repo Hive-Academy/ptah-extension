@@ -10,8 +10,10 @@ import type {
   FileContentChangedPayload,
   GitApplyHunksParams,
   GitApplyHunksResult,
+  GitChangeKind,
   GitDiffFileParams,
   GitDiffFileResult,
+  GitFileStatus,
   GitStatusUpdatePayload,
 } from '@ptah-extension/shared';
 import { GitStatusService } from './git-status.service';
@@ -88,6 +90,23 @@ function extractFileName(filePath: string): string {
 }
 
 /**
+ * Causes that can move ANY open diff, so every tab must be re-read (RC11):
+ * a HEAD move rewrites the base of every comparison, an index move re-stages
+ * any file, a refs move can change what a ref points at, and `initial` / an
+ * absent `causes` says "unknown — refresh everything" (the shared payload
+ * contract). `workspace` and `refs-stash` alone only touch listed paths.
+ */
+function causesRefreshEverything(causes: readonly GitChangeKind[]): boolean {
+  return causes.some(
+    (cause) =>
+      cause === 'head' ||
+      cause === 'index' ||
+      cause === 'refs' ||
+      cause === 'initial',
+  );
+}
+
+/**
  * DiffTabsService — the open set of git diff tabs and everything that keeps
  * them truthful.
  *
@@ -117,6 +136,33 @@ export class DiffTabsService implements MessageHandler {
    * git operations stacks refreshes faster than the backend can service them.
    */
   private readonly inFlightDiffRefreshes = new Set<string>();
+
+  /**
+   * Diff tab keys a caller asked to refresh while that key was already in
+   * {@link inFlightDiffRefreshes} (RC11). Each key gets exactly ONE trailing
+   * run when the in-flight read settles — a request is never dropped, and a
+   * burst of them never stacks runs either.
+   */
+  private readonly rerunRequestedDiffRefreshes = new Set<string>();
+
+  /**
+   * Scope of the debounced revalidation (RC11). `true` means "every open diff
+   * tab"; otherwise only tabs whose path, or pre-rename path, is in
+   * {@link pendingRefreshPaths}. Sticky for the window: an unscoped push
+   * widens a pending scoped one, never the reverse.
+   */
+  private pendingRefreshAllDiffs = false;
+
+  /** Paths collected for a scoped, not-yet-fired revalidation window (RC11). */
+  private readonly pendingRefreshPaths = new Set<string>();
+
+  /**
+   * `path`/`origPath` union of the most recent `git:status-update` file set.
+   * A workspace edit can REMOVE a file from `files` — reverting to clean —
+   * while its open tab still needs the re-read, so a scoped refresh also
+   * matches the PREVIOUS set (RC11).
+   */
+  private previousStatusPaths = new Set<string>();
 
   /** Debounce timers for diff revalidation, keyed by workspace root. */
   private readonly refreshDebounceTimers = new Map<
@@ -210,9 +256,12 @@ export class DiffTabsService implements MessageHandler {
         // every commit / stage / checkout / discard, which is exactly when an
         // open diff tab stops being true (A1).
         const payload = message.payload as
-          | Partial<GitStatusUpdatePayload>
-          | undefined;
-        this.onGitStatusUpdate(payload?.workspaceRoot);
+          Partial<GitStatusUpdatePayload> | undefined;
+        this.onGitStatusUpdate(
+          payload?.workspaceRoot,
+          payload?.causes,
+          payload?.files,
+        );
         return;
       }
       case MESSAGE_TYPES.FILE_CONTENT_CHANGED: {
@@ -386,18 +435,30 @@ export class DiffTabsService implements MessageHandler {
   // -------------------------------------------------------------------------
 
   /**
-   * Handle a `git:status-update` push: revalidate every diff tab belonging to
-   * the pushed workspace, coalesced over a short window.
+   * Handle a `git:status-update` push: revalidate the diff tabs the push's
+   * causes can have touched, coalesced over a short window.
    *
    * `workspaceRoot` is absent only on payloads from older backends, which the
    * shared payload contract says to treat as "the active workspace".
+   *
+   * RC11 scope: `causes` naming `head`, `index`, `refs` or `initial` — or no
+   * causes at all — can change any diff, so every open tab is revalidated.
+   * A workspace-only (or stash-only) cause re-reads just the tabs whose path,
+   * or pre-rename path, is in the payload's `files` or was in the previous
+   * file set.
    */
-  public onGitStatusUpdate(workspaceRoot?: string): void {
+  public onGitStatusUpdate(
+    workspaceRoot?: string,
+    causes?: readonly GitChangeKind[],
+    files?: readonly GitFileStatus[],
+  ): void {
     const active = this.activeWorkspacePath();
     const target = workspaceRoot ?? active ?? '';
     // diffTabs only ever holds the ACTIVE workspace's tabs, so a push for a
     // background workspace has nothing here to refresh.
     if (active !== null && target !== active) return;
+
+    this.mergePendingRefreshScope(causes, files);
 
     const existing = this.refreshDebounceTimers.get(target);
     if (existing) clearTimeout(existing);
@@ -405,7 +466,7 @@ export class DiffTabsService implements MessageHandler {
       target,
       setTimeout(() => {
         this.refreshDebounceTimers.delete(target);
-        void this.refreshAllDiffTabs();
+        void this.runPendingDiffRefresh();
         if (this.fileViewRevalidationPending) {
           this.fileViewRevalidationPending = false;
           this.refreshAllFileViews();
@@ -464,6 +525,69 @@ export class DiffTabsService implements MessageHandler {
     }
   }
 
+  /**
+   * Fold one push's causes and file set into the pending debounced scope
+   * (RC11). Deliberately free of component concerns so it can move verbatim
+   * into the canvas `ReviewDiffService` (P4 Component 24).
+   *
+   * A malformed `files` array is tolerated entry by entry, matching the
+   * `toFileContentChange` guard's stance: this payload's shape is the backend's
+   * to guarantee, but a bad entry must not lose the rest of the batch.
+   */
+  private mergePendingRefreshScope(
+    causes?: readonly GitChangeKind[],
+    files?: readonly GitFileStatus[],
+  ): void {
+    const currentPaths = new Set<string>();
+    if (Array.isArray(files)) {
+      for (const file of files) {
+        if (typeof file?.path === 'string' && file.path !== '') {
+          currentPaths.add(file.path);
+        }
+        if (typeof file?.origPath === 'string' && file.origPath !== '') {
+          currentPaths.add(file.origPath);
+        }
+      }
+    }
+
+    if (causes === undefined || causesRefreshEverything(causes)) {
+      this.pendingRefreshAllDiffs = true;
+    } else if (!this.pendingRefreshAllDiffs) {
+      for (const path of currentPaths) this.pendingRefreshPaths.add(path);
+      // The previous file set too: a file that just left `files` (reverted to
+      // clean, committed) still has an open tab that must be re-read.
+      for (const path of this.previousStatusPaths) {
+        this.pendingRefreshPaths.add(path);
+      }
+    }
+
+    if (Array.isArray(files)) this.previousStatusPaths = currentPaths;
+  }
+
+  /**
+   * Consume the pending scope (RC11): re-read every open diff tab, or only the
+   * tabs whose path, or pre-rename path, the window collected.
+   */
+  private async runPendingDiffRefresh(): Promise<void> {
+    const refreshAll = this.pendingRefreshAllDiffs;
+    const paths = new Set(this.pendingRefreshPaths);
+    this.pendingRefreshAllDiffs = false;
+    this.pendingRefreshPaths.clear();
+
+    if (refreshAll) {
+      await this.refreshAllDiffTabs();
+      return;
+    }
+    const keys = this._diffTabs()
+      .filter(
+        (tab) =>
+          tab.diff &&
+          (paths.has(tab.diff.path) || paths.has(tab.diff.originalPath)),
+      )
+      .map((tab) => tab.filePath);
+    await Promise.all(keys.map((key) => this.refreshDiffTab(key)));
+  }
+
   /** Revalidate every open diff tab in the active workspace. */
   public async refreshAllDiffTabs(): Promise<void> {
     const keys = this._diffTabs()
@@ -479,13 +603,46 @@ export class DiffTabsService implements MessageHandler {
    * stays on screen and only the status indicator moves (A1 AC6). A failed read
    * likewise retains the previous content and surfaces a persistent error
    * rather than pretending the file is empty (A1 AC7, A3).
+   *
+   * RC11: a request landing while this key is already refreshing is no longer
+   * dropped — it sets `rerunRequested`, and exactly one trailing run follows
+   * the in-flight one. The queueing lives in private helpers with no component
+   * concerns, so the same logic can move verbatim into the canvas
+   * `ReviewDiffService` (P4 Component 24).
    */
   public async refreshDiffTab(key: string): Promise<void> {
     const tab = this._diffTabs().find((t) => t.filePath === key);
     if (!tab?.diff) return;
     // Historical diffs read immutable commits and have no git:diffFile form.
     if (tab.diff.provenance?.kind === 'historical') return;
-    if (this.inFlightDiffRefreshes.has(key)) return;
+    if (this.inFlightDiffRefreshes.has(key)) {
+      // Queue, never drop — and collapse a burst into ONE trailing run.
+      this.rerunRequestedDiffRefreshes.add(key);
+      return;
+    }
+    await this.runDiffTabRefresh(key);
+  }
+
+  /**
+   * One refresh pass for one key, plus its trailing pass when requests arrived
+   * while that pass ran (RC11). The recursive call happens only after the
+   * previous response was fully applied (or dropped), so the trailing run
+   * reads the tab's UPDATED `requestId` and can never collide with the run
+   * it follows.
+   */
+  private async runDiffTabRefresh(key: string): Promise<void> {
+    await this.readDiffTabOnce(key);
+    if (this.rerunRequestedDiffRefreshes.delete(key)) {
+      await this.runDiffTabRefresh(key);
+    }
+  }
+
+  /** The single in-flight read behind {@link refreshDiffTab}. */
+  private async readDiffTabOnce(key: string): Promise<void> {
+    const tab = this._diffTabs().find((t) => t.filePath === key);
+    if (!tab?.diff) return;
+    // Historical diffs read immutable commits and have no git:diffFile form.
+    if (tab.diff.provenance?.kind === 'historical') return;
 
     const originWorkspace = this.activeWorkspacePath();
     const requestId = tab.diff.requestId + 1;
@@ -632,8 +789,9 @@ export class DiffTabsService implements MessageHandler {
     // AC8: refresh on the RPC RESPONSE in every host, success or failure. Only
     // Electron has a `.git/index` watcher to push `git:status-update`; VS Code
     // and the CLI have none, and a refused apply moves no watched file in any
-    // host. `refreshDiffTab` already bails on an in-flight key, so the watcher
-    // push that does arrive in Electron coalesces with this one.
+    // host. A refresh landing while one is already in flight queues ONE
+    // trailing run (RC11), so the watcher push that does arrive in Electron
+    // still collapses with this one rather than stacking.
     void this.refreshDiffTab(request.key);
 
     if (!call.success || !call.data) {
@@ -653,6 +811,9 @@ export class DiffTabsService implements MessageHandler {
     }
     this.refreshDebounceTimers.clear();
     this.fileViewRevalidationPending = false;
+    this.pendingRefreshAllDiffs = false;
+    this.pendingRefreshPaths.clear();
+    this.rerunRequestedDiffRefreshes.clear();
   }
 
   // -------------------------------------------------------------------------
