@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Frame 10 - title, sessions talk</title>
+    <!-- Frame 10: Title "SESSIONS / TALK TO / EACH OTHER." (STORYBOARD.md). 1.791 s = 1 bar; slams on beats 1-3, beat 4 holds.
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. Rule: kinetic-beat-slam. -->
+  </head>
+  <body>
+    <template>
+      <style>
+        #f10-vig { position: absolute; inset: 0; background: radial-gradient(ellipse 80% 70% at 50% 42%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.45) 100%); }
+        #f10-stage { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 160px; }
+        .f10-line { font-family: "Archivo Black", sans-serif; font-size: 130px; line-height: 1.02; letter-spacing: -0.01em; color: #e8e6e1; text-transform: uppercase; white-space: nowrap; }
+        #f10-l3 { color: #d4af37; }
+      </style>
+
+      <div id="f10" class="scene" data-composition-id="f10" data-width="1920" data-height="1080" data-frame-start="30.448" data-frame-duration="1.791" data-seam-in="whip-pan 0.3">
+        <div id="f10-vig"></div>
+        <div id="f10-stage">
+          <div id="f10-l1" class="f10-line">Sessions</div>
+          <div id="f10-l2" class="f10-line">talk to</div>
+          <div id="f10-l3" class="f10-line">each other.</div>
+        </div>
+        <audio id="sx-f10-hit" src="assets/sfx/impact-bass-2.mp3" data-start="0" data-duration="1.791" data-track-index="40" data-volume="0.6"></audio>
+        <audio id="sx-f10-c1" src="assets/sfx/click.mp3" data-start="0.448" data-duration="0.366" data-track-index="41" data-volume="0.5"></audio>
+        <audio id="sx-f10-c2" src="assets/sfx/click.mp3" data-start="0.896" data-duration="0.366" data-track-index="42" data-volume="0.5"></audio>
+      </div>
+
+      <script>
+          var B = 0.448;
+          tl.fromTo("#f10-l1", { y: -90, opacity: 0 }, { y: 0, opacity: 1, duration: 0.38, ease: "expo.out" }, T0);
+          tl.fromTo("#f10-l2", { x: 360, opacity: 0 }, { x: 0, opacity: 1, duration: 0.36, ease: "expo.out" }, T0 + B);
+          tl.fromTo("#f10-l3", { scale: 1.4, filter: "blur(12px)", opacity: 0, transformOrigin: "0% 50%" }, { scale: 1, filter: "blur(0px)", opacity: 1, duration: 0.42, ease: "power4.out" }, T0 + 2 * B);
+      </script>
+    </template>
+  </body>
+</html>

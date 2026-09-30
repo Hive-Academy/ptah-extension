@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Frame 11 - peer, accepted</title>
+    <!-- Frame 11: Peer, accepted (STORYBOARD.md). 5.373 s = 3 bars.
+         Slot 0's Peer chip opens "Message Peer Session", a message types to "review memory work", and the status reads Accepted.
+         The peer-send mount sits at the slot's scale (u 0.43) with its trigger over slot 0's footer Peer chip, so the dialog opens in place.
+         Copy rule (SPEC 4.10): "Accepted" only; never delivered / received / acknowledged.
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. -->
+  </head>
+  <body>
+    <template>
+      <style>
+        #f11-cam { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
+        .f11-m { position: absolute; }
+        #f11-body { position: absolute; left: 195px; top: 266px; width: 772px; height: 275px; overflow: hidden; }
+        #f11-col { position: absolute; left: 0; top: -44px; width: 772px; height: 330px; }
+      </style>
+
+      <div id="f11" class="scene" data-composition-id="f11" data-width="1920" data-height="1080" data-frame-start="32.239" data-frame-duration="5.373" data-seam-in="cinematic-zoom 0.4">
+        <div id="f11-cam" data-layout-allow-overflow>
+          <div id="f11-m1" class="clip f11-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html"
+            data-start="0" data-duration="5.373" data-track-index="1"
+            data-variable-values='{"layout":"2+2","activeTab":"Chat","notifications":"9+","preroll":3}'
+            style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
+
+          <!-- slot 0: Frame 9's end state under the dialog -->
+          <div id="f11-m2" class="clip f11-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="2"
+            data-variable-values='{"title":"fix review on 579","countUp":false,"agents":2,"cost":"$4.12","time":"18m 04s","peer":false,"preroll":3}'
+            style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f11-body" data-layout-ignore>
+            <div id="f11-col">
+              <div id="f11-m3" class="clip f11-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
+                data-start="0" data-duration="5.373" data-track-index="3"
+                data-variable-values='{"text":"I will hand the review fixes to a **backend-developer** and verify the build after.","footer":false,"preroll":10}'
+                style="left: 85px; top: 0; width: 602px; height: 163.4px"></div>
+              <div id="f11-m4" class="clip f11-m" data-composition-id="ptah-ui-subagent-bubble" data-composition-src="compositions/components/ptah-ui-subagent-bubble.html"
+                data-start="0" data-duration="5.373" data-track-index="4"
+                data-variable-values='{"agentType":"backend-developer","task":"Fix review on 579","state":"completed","showMessage":true,"message":"Also check the curator fallback path.","typeRate":30,"preroll":10}'
+                style="left: 85px; top: 169.4px; width: 602px; height: 141.9px"></div>
+            </div>
+          </div>
+          <div id="f11-m5" class="clip f11-m" data-layout-ignore data-composition-id="ptah-ui-lane-completion-toast" data-composition-src="compositions/components/ptah-ui-lane-completion-toast.html"
+            data-start="0" data-duration="5.373" data-track-index="5"
+            data-variable-values='{"preroll":10}'
+            style="left: 574px; top: 440px; width: 378px; height: 96.6px"></div>
+
+          <div id="f11-m6" class="clip f11-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="6"
+            data-variable-values='{"title":"continue editor upgrades","countUp":false,"preroll":3}'
+            style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f11-m7" class="clip f11-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="7"
+            data-variable-values='{"title":"providers UX audit","countUp":false,"agents":3,"cost":"$2.37","time":"9m 51s","preroll":3}'
+            style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
+          <div id="f11-m8" class="clip f11-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="8"
+            data-variable-values='{"title":"review memory work","countUp":false,"agents":1,"cost":"$1.08","time":"6m 12s","models":1,"preroll":3}'
+            style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
+
+          <!-- peer-send at u 0.43: trigger over slot 0's footer Peer chip (world 446, 574) -->
+          <div id="f11-m9" class="clip f11-m" data-composition-id="ptah-ui-peer-send" data-composition-src="compositions/components/ptah-ui-peer-send.html"
+            data-start="0" data-duration="5.373" data-track-index="9"
+            data-variable-values='{"target":"review memory work","workspace":"ptah-extension","message":"Batch 5 review is approved. Start P2.","outcome":"accepted","typeRate":22,"sendingFor":0.448,"cues":"0,0.448,0.896,1.343,3.134,3.582,4.03","focus":"outcome","focusAt":3.582,"dimOthers":1}'
+            style="left: 415px; top: 313.4px; width: 559px; height: 275.2px"></div>
+        </div>
+
+        <audio id="sx-f11-click" src="assets/sfx/click.mp3" data-start="0.448" data-duration="0.366" data-track-index="110" data-volume="0.5"></audio>
+        <audio id="sx-f11-whoosh" src="assets/sfx/whoosh-short.mp3" data-start="0.5" data-duration="0.575" data-track-index="111" data-volume="0.45"></audio>
+        <audio id="sx-f11-typing" src="assets/sfx/typing.mp3" data-start="1.343" data-duration="1.68" data-track-index="112" data-volume="0.35"></audio>
+        <audio id="sx-f11-key" src="assets/sfx/key-press.mp3" data-start="3.134" data-duration="0.2" data-track-index="113" data-volume="0.6"></audio>
+        <audio id="sx-f11-ping" src="assets/sfx/ping.mp3" data-start="3.582" data-duration="0.6" data-track-index="114" data-volume="0.5"></audio>
+      </div>
+
+      <script>
+          function pose(s, fx, fy) { return { scale: s, x: 960 - s * fx, y: 540 - s * fy }; }
+          // Peer chip (446, 574) -> the dialog over slot 0 (694, 440) -> punch on the outcome panel (660, 500).
+          var P0 = pose(2.6, 446, 560), P1 = pose(2.4, 694, 440), P2 = pose(2.45, 694, 445), P3 = pose(2.9, 660, 490);
+          tl.fromTo("#f11-cam", P0, {
+            keyframes: [
+              Object.assign({}, P0, { duration: 0.448, ease: "none" }),
+              Object.assign({}, P1, { duration: 0.6, ease: "expo.inOut" }),
+              Object.assign({}, P2, { duration: 2.534, ease: "none" }),
+              Object.assign({}, P3, { duration: 0.4, ease: "expo.out" }),
+              Object.assign({}, P3, { duration: 1.391, ease: "none" }),
+            ],
+            ease: "none",
+          }, T0);
+      </script>
+    </template>
+  </body>
+</html>
