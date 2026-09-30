@@ -1,0 +1,483 @@
+<!doctype html>
+<!--
+  ptah-ui/agents-panel: the Agents panel with lane tabs and two lane columns streaming tool rows (SPEC 4.7).
+  Mirrors libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:209-265 (header: "Agents" +
+  badge-sm badge-neutral count, layout / trash / close buttons), :375-420 (lane tabs: rounded-lg bordered chips, status dot,
+  selected = border-primary bg-primary/10 shadow-sm), organisms/agent-monitor/agent-lane-grid.component.ts:47-95
+  (lane column header: dot, name, close), and the tool-call-row (SPEC 4.3) in compact form for lane rows,
+  interleaved with flat thinking rows (thinking-block.component.ts:30-64).
+  Rows: `laneNRows` is `;`-separated; each row is `Tool|label`, or `Thinking` for a thinking row.
+  The follow-up placeholder is screenshot-sourced (SPEC 1.6 item 6).
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 panel settles with its header
+    c1 0.30 tabs spring (0.12 s stagger); running dots pulse (finite)
+    c2 0.80 lane columns settle
+    c3 1.10 rows enter every rowGap (lane 2 offset 0.2 s); each row runs pending -> running -> done in 0.6 s
+    c4 after the last row: lane1Text streams
+    c5 after the text: lanes flip to their final status (dot cross-fade, tab check/x spring)
+    focus (default c5 + 0.5): parts tabs | lane-1 | lane-2 | header
+  Design box 1500 x 900. Recommended mount 1500x900.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-agents-panel"
+  data-composition-duration="7"
+  data-composition-variables='[
+    { "id": "count", "type": "number", "label": "Agent count", "default": 2, "min": 0, "max": 99, "step": 1 },
+    { "id": "lane1Name", "type": "string", "label": "Lane 1 name", "default": "Glm" },
+    { "id": "lane1Status", "type": "enum", "label": "Lane 1 status", "default": "completed", "options": [{ "value": "running", "label": "Running" }, { "value": "completed", "label": "Completed" }, { "value": "failed", "label": "Failed" }] },
+    { "id": "lane2Name", "type": "string", "label": "Lane 2 name", "default": "Antigravity" },
+    { "id": "lane2Status", "type": "enum", "label": "Lane 2 status", "default": "failed", "options": [{ "value": "running", "label": "Running" }, { "value": "completed", "label": "Completed" }, { "value": "failed", "label": "Failed" }] },
+    { "id": "lane1Rows", "type": "string", "label": "Lane 1 rows (Tool|label;Thinking;...)", "default": "Read|.../git/run-stage-failure.spec.ts;Thinking;Bash|Show git operation constants;Thinking;Write|.../reviews/p1-approval.md" },
+    { "id": "lane1Text", "type": "string", "label": "Lane 1 text", "default": "All checks pass. I write the deliverable now." },
+    { "id": "lane2Rows", "type": "string", "label": "Lane 2 rows", "default": "view_file|view_file;write_to_file|write_to_file;call_mcp_tool|call_mcp_tool" },
+    { "id": "selected", "type": "number", "label": "Selected tab (1-based, 0 = none)", "default": 1, "min": 0, "max": 2, "step": 1 },
+    { "id": "rowGap", "type": "number", "label": "Seconds between rows", "default": 0.45, "min": 0.3, "max": 3, "step": 0.05 },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "tabs", "label": "Tabs" }, { "value": "lane-1", "label": "Lane 1" }, { "value": "lane-2", "label": "Lane 2" }, { "value": "header", "label": "Header" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui agents-panel</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-agents-panel" data-duration="7" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .ap-panel {
+            position: absolute;
+            inset: calc(12 * var(--u));
+            display: flex;
+            flex-direction: column;
+            background: #131317;
+            border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+            border-radius: calc(16 * var(--u));
+            overflow: hidden;
+          }
+          .ap-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: calc(76 * var(--u));
+            padding: 0 calc(20 * var(--u));
+            border-bottom: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+            flex: 0 0 auto;
+          }
+          .ap-title {
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+          }
+          .ap-count {
+            display: inline-flex;
+            align-items: center;
+            height: calc(40 * var(--u));
+            padding: 0 calc(14 * var(--u));
+            border-radius: calc(8 * var(--u));
+            background: #1e1e26;
+            color: #d1d5db;
+            font-size: calc(26 * var(--u));
+            font-weight: 600;
+          }
+          .ap-tools {
+            display: flex;
+            align-items: center;
+            gap: calc(20 * var(--u));
+            color: var(--muted);
+          }
+          .ap-tabs {
+            display: flex;
+            gap: calc(12 * var(--u));
+            padding: calc(12 * var(--u)) calc(20 * var(--u));
+            border-bottom: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.05);
+            flex: 0 0 auto;
+          }
+          .ap-tab {
+            display: flex;
+            align-items: center;
+            gap: calc(12 * var(--u));
+            height: calc(60 * var(--u));
+            padding: 0 calc(20 * var(--u));
+            border-radius: calc(16 * var(--u));
+            border: calc(2 * var(--u)) solid #242430;
+            background: #131317;
+            font-size: calc(28 * var(--u));
+            font-weight: 500;
+          }
+          .ap-tab.sel {
+            border-color: #2563eb;
+            background: rgba(37, 99, 235, 0.1);
+            box-shadow: 0 calc(2 * var(--u)) calc(4 * var(--u)) rgba(0, 0, 0, 0.3);
+          }
+          .ap-dot {
+            position: relative;
+            width: calc(16 * var(--u));
+            height: calc(16 * var(--u));
+            flex: 0 0 auto;
+          }
+          .ap-dot > i {
+            position: absolute;
+            left: 0;
+            top: 0;
+          }
+          .ap-glyph {
+            display: flex;
+            margin-left: calc(-4 * var(--u));
+          }
+          .ap-lanes {
+            display: flex;
+            flex: 1 1 auto;
+            min-height: 0;
+          }
+          .ap-lane {
+            display: flex;
+            flex-direction: column;
+            flex: 1 1 0;
+            min-width: 0;
+          }
+          .ap-lane:first-child {
+            flex-grow: 1.14;
+          }
+          .ap-lane + .ap-lane {
+            flex-grow: 0.86;
+            border-left: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+          }
+          .ap-lane-head {
+            display: flex;
+            align-items: center;
+            gap: calc(12 * var(--u));
+            height: calc(60 * var(--u));
+            padding: 0 calc(16 * var(--u));
+            border-bottom: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+            font-size: calc(28 * var(--u));
+            font-weight: 500;
+            flex: 0 0 auto;
+          }
+          .ap-lane-head .ap-name {
+            flex: 1 1 auto;
+            min-width: 0;
+          }
+          .ap-lane-head .pu-ico {
+            color: var(--muted);
+          }
+          .ap-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: hidden;
+            padding: calc(12 * var(--u)) calc(16 * var(--u));
+          }
+          .ap-row {
+            display: flex;
+            align-items: center;
+            gap: calc(10 * var(--u));
+            height: calc(60 * var(--u));
+            margin-bottom: calc(8 * var(--u));
+            padding: 0 calc(12 * var(--u));
+            border-radius: calc(8 * var(--u));
+            background: rgba(26, 26, 32, 0.6);
+            border: calc(2 * var(--u)) solid rgba(36, 36, 48, 0.6);
+          }
+          .ap-row.ptah {
+            border-color: rgba(212, 175, 55, 0.4);
+          }
+          .ap-row.think {
+            background: transparent;
+            border-color: transparent;
+          }
+          .ap-chev {
+            color: var(--muted);
+            transform: rotate(-90deg);
+          }
+          .ap-badges {
+            display: flex;
+            gap: calc(8 * var(--u));
+            flex: 0 0 auto;
+          }
+          .ap-badges .pu-badge {
+            color: var(--muted);
+          }
+          .ap-badges .pu-badge.gold {
+            color: var(--gold);
+          }
+          .ap-label {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-family: var(--mono);
+            font-size: calc(26 * var(--u));
+            color: var(--muted);
+          }
+          .ap-status {
+            position: relative;
+            width: calc(28 * var(--u));
+            height: calc(28 * var(--u));
+            flex: 0 0 auto;
+          }
+          .ap-status > * {
+            position: absolute;
+            left: 0;
+            top: 0;
+          }
+          .ap-brain {
+            width: calc(44 * var(--u));
+            height: calc(44 * var(--u));
+            border-radius: 50%;
+            background: #242430;
+            color: var(--gold);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+          }
+          .ap-think-lbl {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: calc(28 * var(--u));
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            color: var(--muted);
+          }
+          .ap-hint {
+            font-size: calc(26 * var(--u));
+            font-weight: 500;
+            color: var(--muted);
+            white-space: nowrap;
+          }
+          .ap-text {
+            margin-top: calc(8 * var(--u));
+            font-size: calc(32 * var(--u));
+            line-height: 1.6;
+            color: var(--fg);
+          }
+          .ap-follow {
+            padding: calc(12 * var(--u)) calc(20 * var(--u));
+            border-top: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+            flex: 0 0 auto;
+          }
+          .ap-input {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: calc(64 * var(--u));
+            padding: 0 calc(20 * var(--u));
+            border-radius: calc(12 * var(--u));
+            border: calc(2 * var(--u)) solid #242430;
+            background: rgba(26, 26, 32, 0.5);
+            font-size: calc(28 * var(--u));
+            color: var(--muted);
+          }
+        </style>
+
+        <div id="ap-clip" class="clip" data-start="0" data-duration="7" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="ap-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var K = ptahKit(root, { dw: 1500, dh: 900, id: "ptah-ui-agents-panel" });
+            var tl = K.tl;
+            K.vignette();
+
+            var STATES = ["running", "completed", "failed"];
+            var DOT = { running: "#3b82f6", completed: "#16a34a", failed: "#dc2626" };
+            var count = Math.round(K.num("count", 2, 0, 99));
+            var selected = Math.round(K.num("selected", 1, 0, 2));
+            var rowGap = K.num("rowGap", 0.45, 0.3, 3);
+            var lanes = [
+              {
+                name: K.str("lane1Name", "Glm"),
+                status: K.oneOf("lane1Status", STATES, "completed"),
+                rows: K.str("lane1Rows", "Read|.../git/run-stage-failure.spec.ts;Thinking;Bash|Show git operation constants;Thinking;Write|.../reviews/p1-approval.md"),
+                text: K.str("lane1Text", "All checks pass. I write the deliverable now."),
+              },
+              {
+                name: K.str("lane2Name", "Antigravity"),
+                status: K.oneOf("lane2Status", STATES, "failed"),
+                rows: K.str("lane2Rows", "view_file|view_file;write_to_file|write_to_file;call_mcp_tool|call_mcp_tool"),
+                text: "",
+              },
+            ];
+
+            // local copy of the tool-call-row markup (components cannot import each other), compact form
+            function row(tool, label) {
+              var ptah = /^mcp__ptah__/.test(tool);
+              var ic = ptahToolIcon(tool);
+              var badges = ptah
+                ? K.badgeHtml("Ptah Superpower", ["gold"], "gold") + K.badgeHtml(tool.replace(/^mcp__ptah__/, "").replace(/_/g, " "), ["gold"], "gold")
+                : K.badgeHtml(tool, ["ghost", "info", "success", "error"], "");
+              return (
+                '<div class="ap-row ap-tool' + (ptah ? " ptah" : "") + '">' +
+                '<span class="ap-chev">' + K.icon("chevron-down", 24) + "</span>" +
+                '<span class="ap-ic" style="color:' + ic.color + '">' + K.icon(ic.icon, 28) + "</span>" +
+                '<span class="ap-badges">' + badges + "</span>" +
+                '<span class="ap-label trunc">' + K.esc(label) + "</span>" +
+                '<span class="ap-status"><span class="ap-spin" style="color:#3b82f6">' + K.icon("loader", 28) + '</span><span class="ap-ok" style="color:#16a34a">' + K.icon("check", 28) + "</span></span>" +
+                "</div>"
+              );
+            }
+            function thinkRow() {
+              return (
+                '<div class="ap-row think">' +
+                '<span class="ap-chev">' + K.icon("chevron-down", 24) + "</span>" +
+                '<span class="ap-brain">' + K.icon("brain", 26) + "</span>" +
+                '<span class="ap-think-lbl trunc">Extended Thinking</span>' +
+                '<span class="ap-hint">click to expand</span>' +
+                "</div>"
+              );
+            }
+            function dot(status) {
+              return '<span class="ap-dot"><i class="pu-dot d-run" style="background:#3b82f6"></i><i class="pu-dot d-fin" style="background:' + DOT[status] + '"></i></span>';
+            }
+            function parseRows(s) {
+              return s
+                .split(";")
+                .map(function (r) {
+                  return r.trim();
+                })
+                .filter(Boolean)
+                .map(function (r) {
+                  if (r === "Thinking") return { think: true };
+                  var p = r.split("|");
+                  return { tool: p[0].trim(), label: (p[1] == null ? p[0] : p[1]).trim() };
+                });
+            }
+
+            var tabsHtml = lanes
+              .map(function (ln, i) {
+                var glyph = ln.status === "running" ? "" : '<span class="ap-glyph" style="color:' + DOT[ln.status] + '">' + K.icon(ln.status === "completed" ? "check" : "x", 24) + "</span>";
+                return '<div class="ap-tab' + (selected === i + 1 ? " sel" : "") + '">' + dot(ln.status) + '<span class="trunc">' + K.esc(ln.name) + "</span>" + glyph + "</div>";
+              })
+              .join("");
+            var lanesHtml = lanes
+              .map(function (ln, i) {
+                var rows = parseRows(ln.rows)
+                  .map(function (r) {
+                    return r.think ? thinkRow() : row(r.tool, r.label);
+                  })
+                  .join("");
+                return (
+                  '<section class="ap-lane" data-ptah-part="lane-' + (i + 1) + '">' +
+                  '<div class="ap-lane-head">' + dot(ln.status) + '<span class="ap-name trunc">' + K.esc(ln.name) + "</span>" + K.icon("x", 28) + "</div>" +
+                  '<div class="ap-body">' + rows + (ln.text ? '<div class="ap-text"></div>' : "") + "</div>" +
+                  "</section>"
+                );
+              })
+              .join("");
+
+            var stage = document.getElementById("ap-stage");
+            stage.innerHTML =
+              '<div class="ap-panel">' +
+              '<div class="ap-head" data-ptah-part="header"><div class="ap-title"><span class="t-lead" style="font-weight:600">Agents</span>' +
+              (count > 0 ? '<span class="ap-count tabular">' + count + "</span>" : "") +
+              '</div><div class="ap-tools">' + K.icon("layout", 28) + K.icon("trash", 28) + K.icon("x", 28) + "</div></div>" +
+              '<div class="ap-tabs" data-ptah-part="tabs">' + tabsHtml + "</div>" +
+              '<div class="ap-lanes">' + lanesHtml + "</div>" +
+              '<div class="ap-follow"><div class="ap-input"><span class="trunc">Send a follow-up — resumes the session</span>' + K.icon("send", 28) + "</div></div>" +
+              "</div>";
+
+            var laneEls = K.qa(".ap-lane");
+            var tabEls = K.qa(".ap-tab");
+            var textEl = K.q(".ap-text");
+
+            // text is laid out now (no reflow later); rate applied at c4
+            var textWords = textEl ? lanes[0].text.split(/\s+/).filter(Boolean).length : 0;
+            var rowCounts = laneEls.map(function (l) {
+              return l.querySelectorAll(".ap-row").length;
+            });
+            var LANE2_OFFSET = 0.2;
+            var lastRowStart = Math.max((rowCounts[0] || 1) - 1, 0) * rowGap;
+            lastRowStart = Math.max(lastRowStart, Math.max((rowCounts[1] || 1) - 1, 0) * rowGap + LANE2_OFFSET);
+
+            // cues: fixed slots first, derived slots follow the row count and text length
+            var c = K.cues([0, 0.3, 0.8, 1.1]);
+            var d4 = c[3] + lastRowStart + 0.7;
+            var d5 = d4 + textWords / 7 + 0.2;
+            c = K.cues([0, 0.3, 0.8, 1.1, d4, d5]);
+
+            // focus ring measured before any entrance transform
+            K.focusFromVars(c[5] + 0.5);
+
+            // c0: panel + header
+            K.settle(K.q(".ap-panel"), c[0]);
+            // c1: tabs spring
+            tabEls.forEach(function (t, i) {
+              K.spring(t, c[1] + i * 0.12);
+            });
+            // c2: lanes + follow-up
+            laneEls.forEach(function (l, i) {
+              K.settle(l, c[2] + i * 0.09);
+            });
+            K.settle(K.q(".ap-follow"), c[2] + 0.18);
+
+            // c3: rows enter, each pending -> running -> done in 0.6 s
+            laneEls.forEach(function (lane, li) {
+              var t0 = c[3] + (li === 1 ? LANE2_OFFSET : 0);
+              Array.prototype.slice.call(lane.querySelectorAll(".ap-row")).forEach(function (r, i) {
+                var t = t0 + i * rowGap;
+                K.settle(r, t, { dy: 16, dur: 0.35 });
+                if (r.classList.contains("think")) {
+                  K.spring(r.querySelector(".ap-brain"), t + 0.1);
+                  return;
+                }
+                var badge = r.querySelector(".pu-badge");
+                var spin = r.querySelector(".ap-spin");
+                var ok = r.querySelector(".ap-ok");
+                var ptah = r.classList.contains("ptah");
+                gsap.set([spin, ok], { opacity: 0 });
+                if (!ptah) {
+                  K.fill(badge, "ghost");
+                  K.fill(badge, "info", t + 0.15, 0.12);
+                  tl.set(badge, { color: "#131317" }, t + 0.2);
+                  K.fill(badge, "success", t + 0.6, 0.12);
+                }
+                K.fadeIn(spin, t + 0.15, 0.08);
+                K.spin(spin, t + 0.15, 0.45);
+                K.fadeOut(spin, t + 0.6, 0.08);
+                gsap.set(ok, { opacity: 0, scale: 0.6 });
+                tl.fromTo(ok, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.32, ease: "back.out(1.6)", immediateRender: false }, t + 0.6);
+              });
+            });
+
+            // c4: lane 1 text streams
+            if (textEl) K.stream(textEl, lanes[0].text, c[4], 7);
+
+            // dots: running pulse (finite, ends on full opacity) then cross-fade to the final colour at c5
+            function pulse(el, from, to) {
+              var cycles = Math.floor((to - from) / 0.5);
+              cycles -= cycles % 2;
+              if (cycles < 2) return;
+              tl.fromTo(el, { opacity: 1 }, { opacity: 0.45, duration: 0.5, ease: "power1.inOut", yoyo: true, repeat: cycles - 1, immediateRender: false }, from);
+            }
+            lanes.forEach(function (ln, i) {
+              var dots = [tabEls[i].querySelector(".ap-dot"), laneEls[i].querySelector(".ap-dot")];
+              var end = ln.status === "running" ? K.duration : c[5];
+              dots.forEach(function (d, k) {
+                var run = d.querySelector(".d-run");
+                var fin = d.querySelector(".d-fin");
+                gsap.set(fin, { opacity: 0 });
+                pulse(run, k === 0 ? c[1] + 0.35 : c[2] + 0.45, end);
+                if (ln.status !== "running") {
+                  K.fadeOut(run, c[5], 0.25);
+                  K.fadeIn(fin, c[5], 0.25);
+                }
+              });
+              var glyph = tabEls[i].querySelector(".ap-glyph");
+              if (glyph) K.spring(glyph, c[5] + 0.1);
+            });
+
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>

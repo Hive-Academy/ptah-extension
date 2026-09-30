@@ -1,0 +1,226 @@
+/* ptah-ui kit: shared tokens and parts (anubis theme, video scale). Inlined into every component by build.mjs. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+#root {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  container-type: size;
+  isolation: isolate;
+  pointer-events: none;
+  background: var(--bg, transparent);
+  color: #e8e6e1;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: calc(32 * var(--u));
+  line-height: 1.3;
+  --b100: #131317;
+  --b200: #1a1a20;
+  --b300: #242430;
+  --fg: #e8e6e1;
+  --muted: #8e8887;
+  --primary: #2563eb;
+  --gold: #d4af37;
+  --gold-strong: #f5d97d;
+  --accent: #fbbf24;
+  --neutral: #1e1e26;
+  --info: #3b82f6;
+  --success: #16a34a;
+  --warning: #f97316;
+  --error: #dc2626;
+  --mono: "JetBrains Mono", "Fira Code", Menlo, monospace;
+}
+.pu-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--dw) * var(--u));
+  height: calc(var(--dh) * var(--u));
+}
+.pu-abs {
+  position: absolute;
+}
+/* type roles (design px, multiplied by --u) */
+.t-micro {
+  font-size: calc(26 * var(--u));
+  font-weight: 700;
+  line-height: 1.3;
+}
+.t-small {
+  font-size: calc(28 * var(--u));
+  line-height: 1.3;
+}
+.t-ui {
+  font-size: calc(30 * var(--u));
+}
+.t-body {
+  font-size: calc(32 * var(--u));
+  line-height: 1.6;
+}
+.t-lead {
+  font-size: calc(34 * var(--u));
+  line-height: 1.5;
+}
+.t-h2 {
+  font-size: calc(36 * var(--u));
+  font-weight: 700;
+  line-height: 1.3;
+}
+.mono {
+  font-family: var(--mono);
+}
+.muted {
+  color: var(--muted);
+}
+.upper {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+.trunc {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* badges */
+.pu-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: calc(36 * var(--u));
+  padding: 0 calc(12 * var(--u));
+  border-radius: calc(8 * var(--u));
+  font-family: var(--mono);
+  font-size: calc(26 * var(--u));
+  font-weight: 400;
+  white-space: nowrap;
+}
+.pu-badge > .fills {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.pu-badge > .fills > i {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+}
+.pu-badge > .lbl {
+  position: relative;
+}
+.f-ghost {
+  background: rgba(232, 230, 225, 0.08);
+  border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.12);
+}
+.f-info {
+  background: #3b82f6;
+}
+.f-success {
+  background: #16a34a;
+}
+.f-error {
+  background: #dc2626;
+}
+.f-gold {
+  background: rgba(212, 175, 55, 0.12);
+  border: calc(2 * var(--u)) solid rgba(212, 175, 55, 0.4);
+}
+.pu-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8 * var(--u));
+  height: calc(40 * var(--u));
+  padding: 0 calc(14 * var(--u));
+  border-radius: 999px;
+  font-size: calc(26 * var(--u));
+  font-weight: 700;
+  white-space: nowrap;
+}
+.c-outline {
+  border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.3);
+  color: var(--fg);
+}
+.c-success {
+  background: #16a34a;
+  color: #131317;
+}
+.c-info {
+  background: #3b82f6;
+  color: #131317;
+}
+.c-ghost {
+  background: rgba(232, 230, 225, 0.08);
+  color: var(--muted);
+}
+.c-warning {
+  background: #f97316;
+  color: #131317;
+}
+.c-error {
+  background: #dc2626;
+  color: #e8e6e1;
+}
+.pu-dot {
+  display: inline-block;
+  width: calc(16 * var(--u));
+  height: calc(16 * var(--u));
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.pu-ico {
+  display: block;
+  flex: 0 0 auto;
+}
+/* status line (session-shell footer, composer) */
+.pu-status {
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--u));
+}
+.pu-status .pu-chip {
+  height: calc(48 * var(--u));
+  font-size: calc(28 * var(--u));
+  font-weight: 400;
+  color: var(--muted);
+}
+.pu-status .auth {
+  margin-left: auto;
+  font-size: calc(28 * var(--u));
+  color: var(--muted);
+}
+/* inline code in prose */
+.pu-code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  padding: calc(2 * var(--u)) calc(12 * var(--u));
+  border-radius: calc(8 * var(--u));
+  border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.08);
+  background: rgba(19, 19, 23, 0.6);
+  color: var(--gold);
+}
+/* focus ring (kit-wide, gold) */
+.pu-ring {
+  position: absolute;
+  border: calc(4 * var(--u)) solid #d4af37;
+  box-shadow: 0 0 calc(48 * var(--u)) rgba(212, 175, 55, 0.28);
+  opacity: 0;
+}
+/* optional background vignette (the only allowed background element) */
+.pu-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 70% at 50% 42%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.45) 100%);
+}
+.pu-caret {
+  display: inline-block;
+  width: calc(3 * var(--u));
+  height: 1.05em;
+  margin-left: calc(2 * var(--u));
+  vertical-align: -0.15em;
+  background: #e8e6e1;
+}

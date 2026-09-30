@@ -1,0 +1,33 @@
+# tools/hyperframes: HyperFrames video source. DENY BY DEFAULT.
+#
+# Only source file types are tracked. Media (mp4, mov, mp3, wav, png renders,
+# footage, snapshots) can never enter git from here, whatever folder a tool
+# invents next. That is the failure mode the tools/video-editor block in the
+# root .gitignore describes: one >100 MB blob makes a branch unpushable.
+*
+!*/
+!*.html
+!*.css
+!*.js
+!*.mjs
+!*.cjs
+!*.md
+!*.json
+!*.svg
+!.gitignore
+
+# Small UI reference frames the kit SPEC cites (kept deliberately, <1 MB total).
+!kits/*/reference/*.png
+
+# Derived or local-only, even when the extension is allowed.
+kits/*/components/
+kits/*/gallery/compositions/components/ptah-ui-*.html
+**/snapshots/
+**/renders/
+**/.hyperframes/
+**/.media/
+**/node_modules/
+**/beats/
+**/assets/footage/
+**/assets/stills/
+kits/*/scratch-*/

@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Agent lanes explainer</title>
+    <meta name="viewport" content="width=1920, height=1080">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #08090c;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: "JetBrains Mono", monospace;
+        color: #f4f1ea;
+        --amber: #f5a524;
+        --amber-lt: #ffbb4d;
+        --emerald: #34d399;
+        --ink: #08090c;
+        --panel: #10131a;
+        --line: rgba(245, 165, 36, 0.28);
+        --soft: rgba(244, 241, 234, 0.78);
+      }
+
+      /* ---------- background ---------- */
+      #bg {
+        position: absolute;
+        inset: 0;
+        background: #08090c;
+      }
+      #bg-dots {
+        position: absolute;
+        left: -60px;
+        top: -60px;
+        width: 2040px;
+        height: 1200px;
+        background-image: radial-gradient(rgba(245, 165, 36, 0.22) 2px, transparent 2.5px);
+        background-size: 60px 60px;
+      }
+      #bg-glow {
+        position: absolute;
+        left: -300px;
+        top: -200px;
+        width: 1500px;
+        height: 1500px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(245, 165, 36, 0.2) 0%, rgba(245, 165, 36, 0.05) 40%, rgba(8, 9, 12, 0) 68%);
+      }
+
+      /* ---------- world (camera target) ---------- */
+      #world {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+        transform-origin: 0 0;
+      }
+      #world svg.wires {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: visible;
+      }
+      .hub {
+        position: absolute;
+        left: 320px;
+        top: 440px;
+        width: 200px;
+        height: 200px;
+        border-radius: 50%;
+        border: 5px solid var(--amber);
+        background: radial-gradient(circle, #2a1d08 0%, #0d0f14 70%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 60px 10px rgba(245, 165, 36, 0.35);
+      }
+      .hub img {
+        display: block;
+        width: 104px;
+        height: 104px;
+      }
+      #hub-ring {
+        position: absolute;
+        left: 290px;
+        top: 410px;
+        width: 260px;
+        height: 260px;
+        border-radius: 50%;
+        border: 3px solid rgba(245, 165, 36, 0.55);
+      }
+      .hub-label {
+        position: absolute;
+        left: 270px;
+        top: 660px;
+        width: 300px;
+        text-align: center;
+      }
+      .hub-label b {
+        display: block;
+        font-size: 26px;
+        letter-spacing: 0.12em;
+        color: var(--amber);
+      }
+      .hub-label span {
+        display: block;
+        margin-top: 4px;
+        font-size: 20px;
+        color: var(--soft);
+      }
+      .you {
+        position: absolute;
+        left: 40px;
+        top: 250px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .you i {
+        display: block;
+        width: 54px;
+        height: 54px;
+        border-radius: 50%;
+        background: #f4f1ea;
+        border: 4px solid var(--amber);
+      }
+      .you b {
+        font-size: 24px;
+        letter-spacing: 0.12em;
+      }
+      .bubble {
+        position: absolute;
+        left: 40px;
+        top: 322px;
+        width: 330px;
+        padding: 16px 20px;
+        border-radius: 4px 22px 22px 22px;
+        background: #f4f1ea;
+        color: #0b0b0d;
+        font-size: 22px;
+        font-weight: 700;
+        line-height: 1.3;
+        transform-origin: 0 0;
+      }
+      .pcard {
+        position: absolute;
+        left: 580px;
+        width: 400px;
+        padding: 16px 20px;
+        background: var(--panel);
+        border: 3px solid rgba(245, 165, 36, 0.5);
+        transform-origin: 0 50%;
+      }
+      .pcard b {
+        display: block;
+        font-family: "Archivo Black", sans-serif;
+        font-weight: 400;
+        font-size: 30px;
+        color: var(--amber);
+      }
+      .pcard span {
+        display: block;
+        margin-top: 4px;
+        font-size: 20px;
+        color: var(--soft);
+      }
+      .sub {
+        position: absolute;
+        width: 250px;
+        height: 60px;
+        margin-left: -125px;
+        margin-top: -30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: var(--panel);
+        border: 3px solid var(--emerald);
+        border-radius: 30px;
+        font-size: 19px;
+        font-weight: 700;
+        color: #f4f1ea;
+      }
+      .sub i {
+        display: block;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--emerald);
+      }
+      #inproc {
+        position: absolute;
+        left: 270px;
+        top: 866px;
+        width: 300px;
+        text-align: center;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        color: var(--emerald);
+      }
+      .grp {
+        position: absolute;
+        left: 1010px;
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        color: var(--amber);
+      }
+      .badge {
+        position: absolute;
+        left: 1490px;
+        width: 380px;
+        height: 54px;
+        margin-top: -27px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding-left: 6px;
+        background: var(--panel);
+        border: 3px solid rgba(244, 241, 234, 0.2);
+        border-radius: 30px;
+        transform-origin: 0 50%;
+      }
+      .badge .disc {
+        flex: 0 0 42px;
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: #1b1f28;
+      }
+      .badge .disc.light {
+        background: #f4f1ea;
+      }
+      .badge .disc img {
+        display: block;
+        width: 28px;
+        height: 28px;
+        object-fit: contain;
+      }
+      .badge .disc em {
+        font-style: normal;
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--amber);
+      }
+      .badge b {
+        font-size: 22px;
+        color: #f4f1ea;
+        white-space: nowrap;
+      }
+      .badge small {
+        font-size: 18px;
+        color: rgba(244, 241, 234, 0.72);
+        white-space: nowrap;
+      }
+      .pk {
+        position: absolute;
+        left: -13px;
+        top: -13px;
+        width: 26px;
+        height: 26px;
+      }
+      .pk i {
+        display: block;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--amber-lt);
+        box-shadow: 0 0 22px 8px rgba(245, 165, 36, 0.6);
+      }
+      .pk.green i {
+        background: #6ee7b7;
+        box-shadow: 0 0 22px 8px rgba(52, 211, 153, 0.6);
+      }
+      .pk.white i {
+        background: #ffffff;
+        box-shadow: 0 0 22px 8px rgba(255, 255, 255, 0.5);
+      }
+      .bar {
+        position: absolute;
+        left: 1100px;
+        width: 360px;
+        height: 8px;
+        margin-top: 14px;
+        background: rgba(244, 241, 234, 0.12);
+      }
+      .bar i {
+        display: block;
+        width: 360px;
+        height: 8px;
+        background: var(--amber);
+        transform-origin: 0 50%;
+      }
+      .wtag {
+        position: absolute;
+        padding: 8px 14px;
+        background: var(--amber);
+        color: #0b0b0d;
+        font-size: 20px;
+        font-weight: 700;
+        white-space: nowrap;
+        transform-origin: 0 100%;
+      }
+      .wtag.green {
+        background: var(--emerald);
+      }
+      .file {
+        position: absolute;
+        left: 1300px;
+        top: 168px;
+        width: 58px;
+        height: 70px;
+        background: #f4f1ea;
+        border-radius: 4px 18px 4px 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 34px;
+        font-weight: 700;
+        color: #0f7a55;
+        transform-origin: 50% 100%;
+      }
+
+      /* ---------- screen overlays ---------- */
+      .scene {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+      }
+      .title {
+        position: absolute;
+        left: 72px;
+        top: 50px;
+        max-width: 1500px;
+      }
+      .title .chap {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        color: var(--amber);
+      }
+      .title h2 {
+        margin-top: 8px;
+        font-family: "Archivo Black", sans-serif;
+        font-weight: 400;
+        font-size: 62px;
+        line-height: 1.02;
+        letter-spacing: -0.02em;
+        color: #f4f1ea;
+        white-space: nowrap;
+      }
+      .title h2 em {
+        font-style: normal;
+        color: var(--amber);
+      }
+      .title p {
+        margin-top: 10px;
+        font-size: 24px;
+        color: var(--soft);
+      }
+      .code {
+        position: absolute;
+        left: 72px;
+        padding: 20px 26px;
+        background: rgba(16, 19, 26, 0.96);
+        border: 3px solid rgba(245, 165, 36, 0.55);
+        font-size: 24px;
+        line-height: 1.45;
+        color: #f4f1ea;
+        white-space: pre;
+      }
+      .code .k {
+        color: var(--amber-lt);
+      }
+      .code .s {
+        color: #6ee7b7;
+      }
+      .chipsrow {
+        position: absolute;
+        left: 72px;
+        display: flex;
+        gap: 14px;
+      }
+      .chip {
+        display: block;
+        padding: 10px 18px;
+        border: 3px solid rgba(244, 241, 234, 0.35);
+        background: rgba(16, 19, 26, 0.96);
+        font-size: 22px;
+        font-weight: 700;
+        color: rgba(244, 241, 234, 0.75);
+      }
+      .chip.on {
+        border-color: var(--emerald);
+        color: #0b0b0d;
+        background: var(--emerald);
+      }
+      .chip.amber {
+        border-color: var(--amber);
+        color: #0b0b0d;
+        background: var(--amber);
+      }
+      .note {
+        position: absolute;
+        left: 72px;
+        padding: 12px 18px;
+        background: rgba(16, 19, 26, 0.96);
+        border: 3px solid var(--amber);
+        font-size: 22px;
+        color: #f4f1ea;
+        white-space: nowrap;
+      }
+      .note b {
+        color: var(--amber-lt);
+      }
+
+      /* hook */
+      .hk {
+        position: absolute;
+        left: 120px;
+        font-family: "Archivo Black", sans-serif;
+        font-size: 100px;
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+        white-space: nowrap;
+        color: #f4f1ea;
+      }
+      .hk em {
+        font-style: normal;
+        color: var(--amber);
+      }
+      #hk-net {
+        position: absolute;
+        left: 1180px;
+        top: 190px;
+        width: 700px;
+        height: 700px;
+      }
+      #hk-core {
+        position: absolute;
+        left: 322px;
+        top: 322px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: var(--amber);
+        box-shadow: 0 0 50px 16px rgba(245, 165, 36, 0.55);
+      }
+      .hk-node {
+        position: absolute;
+        width: 30px;
+        height: 30px;
+        margin: -15px 0 0 -15px;
+        border-radius: 50%;
+        border: 4px solid var(--amber);
+        background: #0d0f14;
+      }
+      .lock {
+        position: absolute;
+        left: 120px;
+        top: 330px;
+        display: flex;
+        align-items: center;
+        gap: 44px;
+      }
+      .lock img {
+        display: block;
+        width: 210px;
+        height: 210px;
+      }
+      .lock .w {
+        font-family: "Archivo Black", sans-serif;
+        font-size: 130px;
+        line-height: 1;
+        letter-spacing: -0.03em;
+        color: #f4f1ea;
+        white-space: nowrap;
+      }
+      .lock .w em {
+        font-style: normal;
+        color: var(--amber);
+      }
+      .lock .s {
+        margin-top: 16px;
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        color: var(--amber);
+      }
+
+      /* sessions */
+      .station {
+        position: absolute;
+        width: 420px;
+        height: 300px;
+      }
+      .station svg {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 420px;
+        height: 300px;
+      }
+      .station .shub {
+        position: absolute;
+        left: 60px;
+        top: 110px;
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        border: 4px solid var(--amber);
+        background: #0d0f14;
+        box-shadow: 0 0 30px 6px rgba(245, 165, 36, 0.3);
+      }
+      .slabel {
+        position: absolute;
+        padding: 8px 14px;
+        background: rgba(16, 19, 26, 0.96);
+        border: 3px solid rgba(244, 241, 234, 0.35);
+        font-size: 20px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      #peer-svg {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+      }
+
+      /* review */
+      .side {
+        position: absolute;
+        top: 360px;
+        width: 560px;
+        height: 340px;
+        padding: 34px 36px;
+        background: rgba(16, 19, 26, 0.96);
+        border: 4px solid var(--emerald);
+      }
+      .side.cli {
+        border-color: var(--amber);
+      }
+      .side h3 {
+        font-family: "Archivo Black", sans-serif;
+        font-weight: 400;
+        font-size: 44px;
+        color: var(--emerald);
+      }
+      .side.cli h3 {
+        color: var(--amber);
+      }
+      .side p {
+        margin-top: 10px;
+        font-size: 23px;
+        line-height: 1.4;
+        color: var(--soft);
+      }
+      .side .logos {
+        margin-top: 26px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .side .logos span {
+        display: block;
+        padding: 8px 14px;
+        border: 2px solid rgba(244, 241, 234, 0.3);
+        font-size: 19px;
+        font-weight: 700;
+      }
+      .arrow {
+        position: absolute;
+        left: 700px;
+        width: 520px;
+        height: 90px;
+      }
+      .arrow svg {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 520px;
+        height: 90px;
+      }
+      .arrow span {
+        position: absolute;
+        left: 0;
+        top: -34px;
+        width: 520px;
+        text-align: center;
+        font-size: 22px;
+        font-weight: 700;
+        color: #f4f1ea;
+      }
+
+      /* outro */
+      #orbit-wrap {
+        position: absolute;
+        left: 1060px;
+        top: 150px;
+        width: 780px;
+        height: 780px;
+      }
+      #orbit-ring {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 780px;
+        height: 780px;
+      }
+      .orb {
+        position: absolute;
+        width: 76px;
+        height: 76px;
+        margin: -38px 0 0 -38px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #1b1f28;
+        border: 3px solid rgba(245, 165, 36, 0.55);
+      }
+      .orb.light {
+        background: #f4f1ea;
+      }
+      .orb img {
+        display: block;
+        width: 44px;
+        height: 44px;
+        object-fit: contain;
+      }
+      .orb em {
+        font-style: normal;
+        font-size: 38px;
+        font-weight: 700;
+        color: var(--amber);
+      }
+      #o-core {
+        position: absolute;
+        left: 290px;
+        top: 290px;
+        width: 200px;
+        height: 200px;
+        border-radius: 50%;
+        border: 5px solid var(--amber);
+        background: radial-gradient(circle, #2a1d08 0%, #0d0f14 70%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 70px 14px rgba(245, 165, 36, 0.4);
+      }
+      #o-core img {
+        display: block;
+        width: 150px;
+        height: 150px;
+      }
+      .cta {
+        position: absolute;
+        left: 120px;
+        top: 700px;
+        display: flex;
+        gap: 22px;
+      }
+      .cta .url {
+        padding: 16px 28px;
+        background: var(--amber);
+        color: #0b0b0d;
+        font-size: 40px;
+        font-weight: 700;
+      }
+      .cta .free {
+        padding: 13px 26px;
+        border: 3px solid var(--amber);
+        font-size: 36px;
+        font-weight: 700;
+      }
+      #flash {
+        position: absolute;
+        inset: 0;
+        background: #ffe2a8;
+      }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-dy4d" id="root" data-composition-id="main" data-start="0" data-duration="90" data-width="1920" data-height="1080">
+      <div data-hf-id="hf-2xc0" id="bg">
+        <div data-hf-id="hf-iv9t" id="bg-dots"></div>
+        <div data-hf-id="hf-isbq" id="bg-glow"></div>
+      </div>
+
+      <!-- ================= WORLD: hub, subagents, lanes ================= -->
+      <div data-hf-id="hf-j427" id="world">
+        <svg data-hf-id="hf-3a15" class="wires" id="wires" viewBox="0 0 1920 1080">
+          <circle data-hf-id="hf-g4nc" id="ring" cx="420" cy="540" r="270" fill="none" stroke="rgba(52,211,153,0.55)" stroke-width="3" stroke-dasharray="10 12" />
+          <g data-hf-id="hf-h09l" id="spokes" stroke="rgba(52,211,153,0.6)" stroke-width="3" />
+          <path data-hf-id="hf-sbo3" id="trunk" d="M 520 540 L 790 540" fill="none" stroke="#f5a524" stroke-width="6" />
+          <g data-hf-id="hf-ig9q" id="lanes" fill="none" stroke-width="4" />
+          <path data-hf-id="hf-v0dh" id="msgpath" d="M 150 320 C 300 150, 560 180, 640 385" fill="none" stroke="none" />
+        </svg>
+        <div data-hf-id="hf-jd4l" id="hub-ring"></div>
+        <div data-hf-id="hf-kr5w" id="hub" class="hub"><img data-hf-id="hf-va45" src="assets/logos/claude.svg" alt=""></div>
+        <div data-hf-id="hf-dg42" id="hub-label" class="hub-label"><b data-hf-id="hf-e3a1">MAIN AGENT</b><span data-hf-id="hf-52hs">your chat session</span></div>
+        <div data-hf-id="hf-d1j4" id="you" class="you"><i data-hf-id="hf-wt6k"></i><b data-hf-id="hf-o63g">YOU</b></div>
+        <div data-hf-id="hf-u4dc" id="bubble" class="bubble">"Fix the review comments on PR #606"</div>
+        <div data-hf-id="hf-xsgc" id="pc1" class="pcard" style="top: 360px"><b data-hf-id="hf-nsc2">PLAN</b><span data-hf-id="hf-ov41">split the work into batches</span></div>
+        <div data-hf-id="hf-a0a8" id="pc2" class="pcard" style="top: 480px"><b data-hf-id="hf-wbuy">DELEGATE</b><span data-hf-id="hf-1had">send each batch to the right agent</span></div>
+        <div data-hf-id="hf-e5e1" id="pc3" class="pcard" style="top: 600px"><b data-hf-id="hf-p6f8">VERIFY</b><span data-hf-id="hf-bqd6">check every result it gets back</span></div>
+        <div data-hf-id="hf-zdog" id="subs"></div>
+        <div data-hf-id="hf-at0n" id="inproc">IN-PROCESS</div>
+        <div data-hf-id="hf-0kul" id="grpA" class="grp" style="top: 196px">SYSTEM CLIs · cli</div>
+        <div data-hf-id="hf-nf9r" id="grpB" class="grp" style="top: 606px">PTAH CLI PROVIDERS · ptahCliId</div>
+        <div data-hf-id="hf-2pwd" id="badges"></div>
+        <div data-hf-id="hf-rcbn" id="bars"></div>
+        <div data-hf-id="hf-hptv" id="file" class="file">✓</div>
+        <div data-hf-id="hf-mcyn" id="wt-msg" class="wtag" style="left: 1100px; top: 724px">ptah_agent_message</div>
+        <div data-hf-id="hf-zjy2" id="wt-rep" class="wtag green" style="left: 1100px; top: 376px">ptah_agent_report</div>
+        <div data-hf-id="hf-evyh" id="wt-sm" class="wtag green" style="left: 520px; top: 318px">SendMessage</div>
+        <div data-hf-id="hf-adqw" id="packets"></div>
+      </div>
+
+      <!-- ================= OVERLAYS ================= -->
+
+      <!-- S1 hook -->
+      <div data-hf-id="hf-2b1k" id="o-hook" class="clip scene" data-start="0" data-duration="16.156" data-track-index="2">
+        <div data-hf-id="hf-6i2i" id="hk1" class="hk" style="top: 360px">YOU TYPE INTO</div>
+        <div data-hf-id="hf-tlz2" id="hk2" class="hk" style="top: 490px"><em data-hf-id="hf-noct">ONE CHAT.</em></div>
+        <div data-hf-id="hf-iivg" id="hk3" class="hk" style="top: 290px">BEHIND IT,</div>
+        <div data-hf-id="hf-jv3g" id="hk4" class="hk" style="top: 420px">A WHOLE TEAM</div>
+        <div data-hf-id="hf-t4ae" id="hk5" class="hk" style="top: 550px"><em data-hf-id="hf-5ukz">GOES TO WORK.</em></div>
+        <div data-hf-id="hf-1ms0" id="hk-net">
+          <svg data-hf-id="hf-ss4o" id="hk-svg" viewBox="0 0 700 700" style="position: absolute; left: 0; top: 0; width: 700px; height: 700px" />
+          <div data-hf-id="hf-0oji" id="hk-nodes"></div>
+          <div data-hf-id="hf-nc56" id="hk-core"></div>
+        </div>
+        <div data-hf-id="hf-zp84" id="hk-lock" class="lock">
+          <img data-hf-id="hf-omvr" id="hk-icon" src="assets/brand/ptah-icon.png" alt="">
+          <div data-hf-id="hf-yeow">
+            <div data-hf-id="hf-37vp" id="hk-w" class="w">HOW <em data-hf-id="hf-8c96">LANES</em> WORK</div>
+            <div data-hf-id="hf-je5r" id="hk-s" class="s">MAIN AGENT · SUBAGENTS · CLI LANES · SESSIONS</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- S2 main agent -->
+      <div data-hf-id="hf-nrmi" id="o-s2" class="clip scene" data-start="16.156" data-duration="7.164" data-track-index="2">
+        <div data-hf-id="hf-cj5i" id="t2" class="title">
+          <div data-hf-id="hf-d9xd" class="chap">01 · THE MAIN AGENT</div>
+          <h2 data-hf-id="hf-x3t5">IT PLANS. IT DELEGATES. <em data-hf-id="hf-xrgb">IT VERIFIES.</em></h2>
+        </div>
+      </div>
+
+      <!-- S3 subagents -->
+      <div data-hf-id="hf-i3pb" id="o-s3" class="clip scene" data-start="23.32" data-duration="8.955" data-track-index="2">
+        <div data-hf-id="hf-gh9j" id="t3" class="title">
+          <div data-hf-id="hf-ubx5" class="chap">02 · SUBAGENTS</div>
+          <h2 data-hf-id="hf-mug3">SPECIALISTS <em data-hf-id="hf-q2ei">INSIDE THE SESSION.</em></h2>
+          <p data-hf-id="hf-w3ar">Spawned with the Task tool. Reach any of them with "Message agent".</p>
+        </div>
+      </div>
+
+      <!-- S4 lanes -->
+      <div data-hf-id="hf-jaom" id="o-s4" class="clip scene" data-start="32.275" data-duration="10.746" data-track-index="2">
+        <div data-hf-id="hf-kfdk" id="t4" class="title">
+          <div data-hf-id="hf-g3m3" class="chap">03 · CLI LANES</div>
+          <h2 data-hf-id="hf-7fuc">ANY MODEL FAMILY. <em data-hf-id="hf-yyps">ONE INTERFACE.</em></h2>
+        </div>
+        <div data-hf-id="hf-m9tv" id="n4a" class="note" style="top: 900px"><b data-hf-id="hf-lkmb">ptah_agent_list</b> shows only what is installed</div>
+        <div data-hf-id="hf-ddzh" id="n4b" class="note" style="top: 972px"><b data-hf-id="hf-is7m">modelTier</b> opus · sonnet · haiku, mapped by each provider</div>
+      </div>
+
+      <!-- S5 spawn -->
+      <div data-hf-id="hf-rt2a" id="o-s5" class="clip scene" data-start="43.021" data-duration="7.164" data-track-index="2">
+        <div data-hf-id="hf-l71d" id="t5" class="title">
+          <div data-hf-id="hf-dr44" class="chap">04 · SPAWN</div>
+          <h2 data-hf-id="hf-zgo4">HAND WORK TO <em data-hf-id="hf-fs43">ANY LANE.</em></h2>
+        </div>
+        <div data-hf-id="hf-z7xm" id="c5" class="code" style="top: 790px"><span data-hf-id="hf-o453" class="k">ptah_agent_spawn</span>({ task, deliverables,
+  cli: <span data-hf-id="hf-9ubx" class="s">"codex"</span> })</div>
+        <div data-hf-id="hf-v1t0" id="n5" class="note" style="top: 972px">up to <b data-hf-id="hf-h4ed">3 lanes</b> in flight, each on its own task</div>
+      </div>
+
+      <!-- S6 two-way -->
+      <div data-hf-id="hf-qtch" id="o-s6" class="clip scene" data-start="50.185" data-duration="8.955" data-track-index="2">
+        <div data-hf-id="hf-p55e" id="t6" class="title">
+          <div data-hf-id="hf-vh30" class="chap">05 · TWO-WAY</div>
+          <h2 data-hf-id="hf-7gnw">TALK TO ANY LANE. <em data-hf-id="hf-pj9y">IT TALKS BACK.</em></h2>
+        </div>
+        <div data-hf-id="hf-wf17" id="c6" class="code" style="top: 820px"><span data-hf-id="hf-da9r" class="k">ptah_agent_message</span>({ agentId, message })</div>
+        <div data-hf-id="hf-mwel" id="m6" class="chipsrow" style="top: 930px">
+          <span data-hf-id="hf-qdyw" id="md1" class="chip">steer</span><span data-hf-id="hf-idll" id="md2" class="chip">queue-next-turn</span><span data-hf-id="hf-bzig" id="md3" class="chip">interrupt-resume</span>
+        </div>
+      </div>
+
+      <!-- S7 completion -->
+      <div data-hf-id="hf-3lm3" id="o-s7" class="clip scene" data-start="59.14" data-duration="5.373" data-track-index="2">
+        <div data-hf-id="hf-t39f" id="t7" class="title">
+          <div data-hf-id="hf-4apl" class="chap">06 · DONE SIGNAL</div>
+          <h2 data-hf-id="hf-ph5v">NO POLLING. <em data-hf-id="hf-5m2s">PTAH PUSHES THE RESULT.</em></h2>
+        </div>
+        <div data-hf-id="hf-871w" id="c7" class="code" style="top: 820px">&lt;<span data-hf-id="hf-pq4a" class="k">agent-lane-completed</span> verdict=<span data-hf-id="hf-88hg" class="s">"delivered"</span>&gt;</div>
+        <div data-hf-id="hf-qjyp" id="v7" class="chipsrow" style="top: 930px">
+          <span data-hf-id="hf-k3ew" id="vd1" class="chip">delivered</span><span data-hf-id="hf-ge0o" class="chip">no-deliverable</span><span data-hf-id="hf-6fky" class="chip">failed</span><span data-hf-id="hf-5qp8" class="chip">unverified</span>
+        </div>
+      </div>
+
+      <!-- S8 sessions -->
+      <div data-hf-id="hf-2g4u" id="o-s8" class="clip scene" data-start="64.513" data-duration="7.164" data-track-index="2">
+        <div data-hf-id="hf-e66c" id="t8" class="title">
+          <div data-hf-id="hf-oi1z" class="chap">07 · SESSIONS</div>
+          <h2 data-hf-id="hf-sg7i">SESSIONS <em data-hf-id="hf-w99x">TALK TO EACH OTHER.</em></h2>
+          <p data-hf-id="hf-jw6d">Peer sends a message into another live session.</p>
+        </div>
+        <svg data-hf-id="hf-n171" id="peer-svg" viewBox="0 0 1920 1080">
+          <path data-hf-id="hf-xbzn" id="peer1" d="M 380 610 C 700 360, 1000 330, 1370 420" fill="none" stroke="#f5a524" stroke-width="4" stroke-dasharray="14 12" />
+          <path data-hf-id="hf-i7oy" id="peer2" d="M 380 640 C 700 860, 1000 900, 1370 900" fill="none" stroke="#f5a524" stroke-width="4" stroke-dasharray="14 12" />
+          <path data-hf-id="hf-3eq9" id="peer3" d="M 1420 480 C 1480 620, 1480 720, 1420 850" fill="none" stroke="#f5a524" stroke-width="4" stroke-dasharray="14 12" />
+        </svg>
+        <div data-hf-id="hf-xgyl" id="st1" class="station" style="left: 1310px; top: 270px">
+          <svg data-hf-id="hf-1d7o" viewBox="0 0 420 300"><g data-hf-id="hf-xhw9" fill="none" stroke-width="4"><path data-hf-id="hf-w1sc" d="M 140 150 C 200 150, 200 60, 260 60 L 400 60" stroke="#4285f4" /><path data-hf-id="hf-1giw" d="M 140 150 L 400 150" stroke="#10a37f" /><path data-hf-id="hf-6uxc" d="M 140 150 C 200 150, 200 240, 260 240 L 400 240" stroke="#d97757" /></g></svg>
+          <div data-hf-id="hf-jehk" class="shub"></div>
+        </div>
+        <div data-hf-id="hf-id4b" id="st2" class="station" style="left: 1310px; top: 750px">
+          <svg data-hf-id="hf-x9ek" viewBox="0 0 420 300"><g data-hf-id="hf-wtd9" fill="none" stroke-width="4"><path data-hf-id="hf-a117" d="M 140 150 C 200 150, 200 60, 260 60 L 400 60" stroke="#3b6cff" /><path data-hf-id="hf-f1of" d="M 140 150 L 400 150" stroke="#8957e5" /><path data-hf-id="hf-2cb0" d="M 140 150 C 200 150, 200 240, 260 240 L 400 240" stroke="#f4f1ea" /></g></svg>
+          <div data-hf-id="hf-kt4g" class="shub"></div>
+        </div>
+        <div data-hf-id="hf-xph9" id="sl0" class="slabel" style="left: 200px; top: 850px">session · fix PR #606</div>
+        <div data-hf-id="hf-b980" id="sl1" class="slabel" style="left: 1310px; top: 236px">session · settings refactor</div>
+        <div data-hf-id="hf-ssie" id="sl2" class="slabel" style="left: 1310px; top: 716px">session · memory review</div>
+        <div data-hf-id="hf-z3we" id="pp1" class="pk"><i data-hf-id="hf-zeb8"></i></div>
+        <div data-hf-id="hf-v5sd" id="pp2" class="pk"><i data-hf-id="hf-y7e5"></i></div>
+        <div data-hf-id="hf-ue4k" id="pp3" class="pk"><i data-hf-id="hf-ylp6"></i></div>
+      </div>
+
+      <!-- S9 review -->
+      <div data-hf-id="hf-zr0m" id="o-s9" class="clip scene" data-start="71.677" data-duration="5.373" data-track-index="2">
+        <div data-hf-id="hf-exu5" id="t9" class="title">
+          <div data-hf-id="hf-fcav" class="chap">08 · INDEPENDENT REVIEW</div>
+          <h2 data-hf-id="hf-4uen">THE AUTHOR NEVER <em data-hf-id="hf-febb">REVIEWS ITS OWN WORK.</em></h2>
+        </div>
+        <div data-hf-id="hf-p6hf" id="sd1" class="side" style="left: 90px">
+          <h3 data-hf-id="hf-k6y7">IN-PROCESS</h3>
+          <p data-hf-id="hf-z9dp">The main agent and its subagents.</p>
+          <div data-hf-id="hf-qc8k" class="logos"><span data-hf-id="hf-xdk5">code-logic-reviewer</span><span data-hf-id="hf-ff44">code-style-reviewer</span><span data-hf-id="hf-penj">senior-tester</span></div>
+        </div>
+        <div data-hf-id="hf-lkvn" id="sd2" class="side cli" style="left: 1270px">
+          <h3 data-hf-id="hf-uw3s">CLI LANE</h3>
+          <p data-hf-id="hf-wuu7">Any installed family.</p>
+          <div data-hf-id="hf-s8ss" class="logos"><span data-hf-id="hf-1vio">Codex</span><span data-hf-id="hf-nf09">Antigravity</span><span data-hf-id="hf-051x">GLM</span><span data-hf-id="hf-sheb">Kimi</span><span data-hf-id="hf-ovl7">Cursor</span></div>
+        </div>
+        <div data-hf-id="hf-delm" id="ar1" class="arrow" style="top: 440px">
+          <span data-hf-id="hf-tm7r">author → reviewer</span>
+          <svg data-hf-id="hf-urqh" viewBox="0 0 520 90"><path data-hf-id="hf-8xly" id="ar1p" d="M 20 45 L 480 45" stroke="#f5a524" stroke-width="6" fill="none" /><path data-hf-id="hf-kj5u" d="M 470 20 L 505 45 L 470 70" stroke="#f5a524" stroke-width="6" fill="none" /></svg>
+        </div>
+        <div data-hf-id="hf-kw1l" id="ar2" class="arrow" style="top: 600px">
+          <span data-hf-id="hf-13st">reviewer ← author</span>
+          <svg data-hf-id="hf-9f4t" viewBox="0 0 520 90"><path data-hf-id="hf-9i1l" id="ar2p" d="M 500 45 L 40 45" stroke="#34d399" stroke-width="6" fill="none" /><path data-hf-id="hf-tl85" d="M 50 20 L 15 45 L 50 70" stroke="#34d399" stroke-width="6" fill="none" /></svg>
+        </div>
+      </div>
+
+      <!-- S10 outro -->
+      <div data-hf-id="hf-qxiy" id="o-s10" class="clip scene" data-start="77.05" data-duration="12.95" data-track-index="2">
+        <div data-hf-id="hf-lmqe" id="e-lock" class="lock" style="top: 300px">
+          <div data-hf-id="hf-y7yw">
+            <div data-hf-id="hf-a65r" id="e-w" class="w">PTAH</div>
+            <div data-hf-id="hf-jgpq" id="e-s" class="s">THE AGENTIC FACTORY</div>
+          </div>
+        </div>
+        <div data-hf-id="hf-k198" id="e-cta" class="cta">
+          <div data-hf-id="hf-n079" id="e-url" class="url">ptah.live</div>
+          <div data-hf-id="hf-jnph" id="e-free" class="free">Get Ptah free</div>
+        </div>
+        <div data-hf-id="hf-y54o" id="orbit-wrap">
+          <div data-hf-id="hf-z8du" id="orbit-ring"></div>
+          <div data-hf-id="hf-a5w4" id="o-core"><img data-hf-id="hf-qyce" src="assets/brand/ptah-icon.png" alt=""></div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-hmg5" id="flash"></div>
+
+      <!-- ================= AUDIO ================= -->
+      <audio data-hf-id="hf-e19z" id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="90" data-track-index="10" data-volume="0.6" data-automation="{&quot;version&quot;:1,&quot;lanes&quot;:[{&quot;target&quot;:&quot;volume&quot;,&quot;points&quot;:[{&quot;t&quot;:0,&quot;v&quot;:1},{&quot;t&quot;:87.5,&quot;v&quot;:1},{&quot;t&quot;:90,&quot;v&quot;:0}]}]}"></audio>
+      <audio data-hf-id="hf-lqz6" id="sfx-01" src="assets/sfx/pop.mp3" data-start="0.6" data-duration="0.72" data-track-index="101" data-volume="0.4"></audio>
+      <audio data-hf-id="hf-fcxl" id="sfx-02" src="assets/sfx/click.mp3" data-start="1.381" data-duration="0.366" data-track-index="102" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-vgyc" id="sfx-03" src="assets/sfx/whoosh-short.mp3" data-start="5.3" data-duration="0.575" data-track-index="103" data-volume="0.4"></audio>
+      <audio data-hf-id="hf-kfia" id="sfx-04" src="assets/sfx/click.mp3" data-start="7.201" data-duration="0.366" data-track-index="104" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-8sge" id="sfx-05" src="assets/sfx/click.mp3" data-start="8.992" data-duration="0.366" data-track-index="105" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-51pd" id="sfx-06" src="assets/sfx/riser.mp3" data-start="10.2" data-duration="2.374" data-media-start="7.66" data-track-index="106" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-wkgj" id="sfx-07" src="assets/sfx/impact-bass-1.mp3" data-start="12.574" data-duration="2.116" data-track-index="107" data-volume="0.8"></audio>
+      <audio data-hf-id="hf-b5mg" id="sfx-08" src="assets/sfx/sparkle.mp3" data-start="12.7" data-duration="1.802" data-track-index="108" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-yg8o" id="sfx-09" src="assets/sfx/whoosh.mp3" data-start="16.1" data-duration="0.575" data-track-index="109" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-ty2y" id="sfx-10" src="assets/sfx/pop.mp3" data-start="17.05" data-duration="0.72" data-track-index="110" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-1vzu" id="sfx-11" src="assets/sfx/click-soft.mp3" data-start="18.843" data-duration="0.366" data-track-index="111" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-egt9" id="sfx-12" src="assets/sfx/click-soft.mp3" data-start="19.739" data-duration="0.366" data-track-index="112" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-0p4l" id="sfx-13" src="assets/sfx/click-soft.mp3" data-start="20.634" data-duration="0.366" data-track-index="113" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-dolq" id="sfx-14" src="assets/sfx/whoosh.mp3" data-start="23.3" data-duration="0.575" data-track-index="114" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-a00d" id="sfx-15" src="assets/sfx/pop.mp3" data-start="24.216" data-duration="0.72" data-track-index="115" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-mb9i" id="sfx-16" src="assets/sfx/pop.mp3" data-start="24.664" data-duration="0.72" data-track-index="116" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-2l3z" id="sfx-17" src="assets/sfx/pop.mp3" data-start="25.112" data-duration="0.72" data-track-index="117" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-oqi6" id="sfx-18" src="assets/sfx/pop.mp3" data-start="25.56" data-duration="0.72" data-track-index="118" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-lezq" id="sfx-19" src="assets/sfx/pop.mp3" data-start="26.008" data-duration="0.72" data-track-index="119" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-mt8x" id="sfx-20" src="assets/sfx/pop.mp3" data-start="26.456" data-duration="0.72" data-track-index="120" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-ev8k" id="sfx-21" src="assets/sfx/whoosh-short.mp3" data-start="28.1" data-duration="0.575" data-track-index="121" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-5q9i" id="sfx-22" src="assets/sfx/ping.mp3" data-start="29.1" data-duration="1.32" data-track-index="122" data-volume="0.55"></audio>
+      <audio data-hf-id="hf-ux45" id="sfx-23" src="assets/sfx/whoosh-cinematic.mp3" data-start="32.2" data-duration="2.2" data-track-index="123" data-volume="0.4"></audio>
+      <audio data-hf-id="hf-dmo9" id="sfx-24" src="assets/sfx/typing.mp3" data-start="33.7" data-duration="1.5" data-track-index="124" data-volume="0.3"></audio>
+      <audio data-hf-id="hf-adaf" id="sfx-25" src="assets/sfx/typing.mp3" data-start="36.4" data-duration="1.5" data-track-index="125" data-volume="0.3"></audio>
+      <audio data-hf-id="hf-qp3p" id="sfx-26" src="assets/sfx/notification.mp3" data-start="39.5" data-duration="2.456" data-track-index="126" data-volume="0.35"></audio>
+      <audio data-hf-id="hf-yx5n" id="sfx-27" src="assets/sfx/whoosh-short.mp3" data-start="43.5" data-duration="0.575" data-track-index="127" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-klgl" id="sfx-28" src="assets/sfx/whoosh-short.mp3" data-start="44.4" data-duration="0.575" data-track-index="128" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-f9kz" id="sfx-29" src="assets/sfx/whoosh-short.mp3" data-start="45.3" data-duration="0.575" data-track-index="129" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-2ll3" id="sfx-30" src="assets/sfx/whoosh-short.mp3" data-start="51.0" data-duration="0.575" data-track-index="130" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-glz1" id="sfx-31" src="assets/sfx/click-soft.mp3" data-start="52.0" data-duration="0.366" data-track-index="131" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-5s2u" id="sfx-32" src="assets/sfx/click-soft.mp3" data-start="52.9" data-duration="0.366" data-track-index="132" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-i4v2" id="sfx-33" src="assets/sfx/click-soft.mp3" data-start="53.8" data-duration="0.366" data-track-index="133" data-volume="0.6"></audio>
+      <audio data-hf-id="hf-pdd9" id="sfx-34" src="assets/sfx/whoosh-short.mp3" data-start="55.2" data-duration="0.575" data-track-index="134" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-ixx6" id="sfx-35" src="assets/sfx/ping.mp3" data-start="56.3" data-duration="1.32" data-track-index="135" data-volume="0.55"></audio>
+      <audio data-hf-id="hf-40wf" id="sfx-36" src="assets/sfx/pop.mp3" data-start="59.6" data-duration="0.72" data-track-index="136" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-2o7d" id="sfx-37" src="assets/sfx/whoosh-short.mp3" data-start="60.2" data-duration="0.575" data-track-index="137" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-7lzf" id="sfx-38" src="assets/sfx/chime.mp3" data-start="61.3" data-duration="2.5" data-track-index="138" data-volume="0.55"></audio>
+      <audio data-hf-id="hf-pgps" id="sfx-39" src="assets/sfx/whoosh-cinematic.mp3" data-start="64.4" data-duration="2.2" data-track-index="139" data-volume="0.4"></audio>
+      <audio data-hf-id="hf-7297" id="sfx-40" src="assets/sfx/notification.mp3" data-start="67.4" data-duration="2.456" data-track-index="140" data-volume="0.4"></audio>
+      <audio data-hf-id="hf-3zj8" id="sfx-41" src="assets/sfx/ping.mp3" data-start="69.6" data-duration="1.32" data-track-index="141" data-volume="0.45"></audio>
+      <audio data-hf-id="hf-v0o2" id="sfx-42" src="assets/sfx/whoosh.mp3" data-start="71.6" data-duration="0.575" data-track-index="142" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-okrv" id="sfx-43" src="assets/sfx/click.mp3" data-start="73.1" data-duration="0.366" data-track-index="143" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-sm88" id="sfx-44" src="assets/sfx/click.mp3" data-start="74.9" data-duration="0.366" data-track-index="144" data-volume="0.5"></audio>
+      <audio data-hf-id="hf-qxe7" id="sfx-45" src="assets/sfx/impact-bass-2.mp3" data-start="77.05" data-duration="2.592" data-track-index="145" data-volume="0.7"></audio>
+      <audio data-hf-id="hf-rz15" id="sfx-46" src="assets/sfx/sparkle.mp3" data-start="78.2" data-duration="1.802" data-track-index="146" data-volume="0.5"></audio>
+    </div>
+
+    <script>
+      (function () {
+        const tl = gsap.timeline({ paused: true });
+        const $ = (id) => document.getElementById(id);
+        const NS = "http://www.w3.org/2000/svg";
+
+        // ---------------- data (facts from the Ptah codebase) ----------------
+        const HUB = [420, 540];
+        const SUBS = [
+          { n: "software-architect", x: 420, y: 270 },
+          { n: "backend-developer", x: 654, y: 405 },
+          { n: "frontend-developer", x: 654, y: 675 },
+          { n: "senior-tester", x: 420, y: 810 },
+          { n: "code-logic-reviewer", x: 186, y: 675 },
+          { n: "researcher-expert", x: 186, y: 405 },
+        ];
+        const ROWS_A = [250, 312, 374, 436, 498, 560];
+        const ROWS_B = [660, 722, 784, 846, 908, 970];
+        const FAM = [
+          { k: "codex", n: "Codex", s: "cli", logo: "openai", c: "#10a37f", y: ROWS_A[0] },
+          { k: "copilot", n: "Copilot", s: "cli", logo: "copilot", c: "#8957e5", y: ROWS_A[1] },
+          { k: "cursor", n: "Cursor", s: "cli", logo: "cursor", c: "#c9ccd4", y: ROWS_A[2] },
+          { k: "antigravity", n: "Antigravity", s: "cli", logo: "antigravity", c: "#4285f4", y: ROWS_A[3] },
+          { k: "opencode", n: "OpenCode", s: "cli", logo: "opencode", light: true, c: "#f4f1ea", y: ROWS_A[4] },
+          { k: "pi", n: "Pi", s: "cli", mono: "π", c: "#f5a524", y: ROWS_A[5] },
+          { k: "claude", n: "Claude", s: "provider", logo: "claude", c: "#d97757", y: ROWS_B[0] },
+          { k: "ollama", n: "Ollama", s: "provider", logo: "ollama", c: "#e8e8e8", y: ROWS_B[1] },
+          { k: "glm", n: "Z.AI · GLM", s: "provider", logo: "zai", light: true, c: "#3b6cff", y: ROWS_B[2] },
+          { k: "kimi", n: "Moonshot · Kimi", s: "provider", logo: "kimi", c: "#1783ff", y: ROWS_B[3] },
+          { k: "openrouter", n: "OpenRouter", s: "provider", logo: "openrouter", c: "#7c8cff", y: ROWS_B[4] },
+          { k: "lmstudio", n: "LM Studio", s: "provider", logo: "lmstudio", light: true, c: "#8b5cf6", y: ROWS_B[5] },
+        ];
+        const byK = {};
+        FAM.forEach((f) => (byK[f.k] = f));
+
+        // ---------------- build world DOM ----------------
+        const subsEl = $("subs");
+        const spokes = $("spokes");
+        SUBS.forEach((s, i) => {
+          const d = document.createElement("div");
+          d.className = "sub";
+          d.id = "sub" + i;
+          d.style.left = s.x + "px";
+          d.style.top = s.y + "px";
+          d.innerHTML = "<i></i>" + s.n;
+          subsEl.appendChild(d);
+          const l = document.createElementNS(NS, "line");
+          l.setAttribute("x1", HUB[0]);
+          l.setAttribute("y1", HUB[1]);
+          l.setAttribute("x2", s.x);
+          l.setAttribute("y2", s.y);
+          l.id = "sp" + i;
+          spokes.appendChild(l);
+        });
+
+        const lanesG = $("lanes");
+        const badges = $("badges");
+        const bars = $("bars");
+        FAM.forEach((f) => {
+          const p = document.createElementNS(NS, "path");
+          p.setAttribute("d", "M 790 540 C 900 540, 900 " + f.y + ", 1010 " + f.y + " L 1470 " + f.y);
+          p.setAttribute("stroke", f.c);
+          p.id = "ln-" + f.k;
+          lanesG.appendChild(p);
+          const b = document.createElement("div");
+          b.className = "badge";
+          b.id = "bd-" + f.k;
+          b.style.top = f.y + "px";
+          const disc = f.mono
+            ? '<span class="disc"><em>' + f.mono + "</em></span>"
+            : '<span class="disc' + (f.light ? " light" : "") + '"><img src="assets/logos/' + f.logo + '.svg" alt="" /></span>';
+          b.innerHTML = disc + "<b>" + f.n + "</b><small>" + f.s + "</small>";
+          badges.appendChild(b);
+          const bar = document.createElement("div");
+          bar.className = "bar";
+          bar.id = "br-" + f.k;
+          bar.style.top = f.y + "px";
+          bar.innerHTML = '<i id="bi-' + f.k + '"></i>';
+          bars.appendChild(bar);
+        });
+
+        const packets = $("packets");
+        function mkPacket(id, cls) {
+          const d = document.createElement("div");
+          d.className = "pk" + (cls ? " " + cls : "");
+          d.id = id;
+          d.innerHTML = "<i></i>";
+          packets.appendChild(d);
+          return d;
+        }
+        ["pk-sm", "pk-s1", "pk-s2", "pk-s3", "pk-m", "pk-r", "pk-done"].forEach((id) =>
+          mkPacket(id, id === "pk-r" || id === "pk-done" ? "green" : id === "pk-sm" ? "white" : "")
+        );
+
+        // outro orbit
+        const ORB = ["claude", "codex", "antigravity", "glm", "kimi", "cursor", "copilot", "ollama", "openrouter", "opencode", "lmstudio", "pi"];
+        const orbRing = $("orbit-ring");
+        ORB.forEach((k, i) => {
+          const f = byK[k];
+          const a = (i / ORB.length) * Math.PI * 2 - Math.PI / 2;
+          const o = document.createElement("div");
+          o.className = "orb" + (f.light ? " light" : "");
+          o.id = "orb" + i;
+          o.style.left = Math.round(390 + Math.cos(a) * 330) + "px";
+          o.style.top = Math.round(390 + Math.sin(a) * 330) + "px";
+          o.innerHTML = f.mono ? "<em>" + f.mono + "</em>" : '<img src="assets/logos/' + f.logo + '.svg" alt="" />';
+          orbRing.appendChild(o);
+        });
+
+        // hook network
+        const hkSvg = $("hk-svg");
+        const hkNodes = $("hk-nodes");
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+          const r = i % 2 ? 250 : 310;
+          const x = 350 + Math.cos(a) * r;
+          const y = 350 + Math.sin(a) * r;
+          const l = document.createElementNS(NS, "line");
+          l.setAttribute("x1", 350);
+          l.setAttribute("y1", 350);
+          l.setAttribute("x2", x);
+          l.setAttribute("y2", y);
+          l.setAttribute("stroke", "rgba(245,165,36,0.6)");
+          l.setAttribute("stroke-width", "3");
+          l.id = "hkl" + i;
+          hkSvg.appendChild(l);
+          const n = document.createElement("div");
+          n.className = "hk-node";
+          n.id = "hkn" + i;
+          n.style.left = Math.round(x) + "px";
+          n.style.top = Math.round(y) + "px";
+          hkNodes.appendChild(n);
+        }
+
+        // ---------------- helpers ----------------
+        function draw(el, t, d, ease) {
+          const len = el.getTotalLength ? el.getTotalLength() : 1000;
+          gsap.set(el, { strokeDasharray: len + " " + len, strokeDashoffset: len });
+          tl.fromTo(el, { strokeDashoffset: len }, { strokeDashoffset: 0, duration: d, ease: ease || "power2.out", immediateRender: false }, t);
+        }
+        function lineDraw(el, t, d) {
+          const x1 = +el.getAttribute("x1"), y1 = +el.getAttribute("y1"), x2 = +el.getAttribute("x2"), y2 = +el.getAttribute("y2");
+          const len = Math.hypot(x2 - x1, y2 - y1);
+          gsap.set(el, { strokeDasharray: len + " " + len, strokeDashoffset: len });
+          tl.fromTo(el, { strokeDashoffset: len }, { strokeDashoffset: 0, duration: d, ease: "power2.out", immediateRender: false }, t);
+        }
+        // packet travels along an SVG path (sampled once at build → keyframed x/y, seek-safe)
+        function travel(pk, path, t, d, reverse, easeName) {
+          const len = path.getTotalLength();
+          const ez = gsap.parseEase(easeName || "power2.inOut");
+          const N = 28;
+          const pts = [];
+          for (let i = 0; i <= N; i++) {
+            let u = ez(i / N);
+            if (reverse) u = 1 - u;
+            const p = path.getPointAtLength(u * len);
+            pts.push({ x: p.x, y: p.y });
+          }
+          gsap.set(pk, { x: pts[0].x, y: pts[0].y, opacity: 0 });
+          tl.set(pk, { x: pts[0].x, y: pts[0].y }, t);
+          tl.fromTo(pk, { opacity: 0 }, { opacity: 1, duration: 0.12, immediateRender: false }, t);
+          tl.to(pk, { keyframes: pts.slice(1).map((p) => ({ x: p.x, y: p.y, duration: d / N, ease: "none" })) }, t);
+          tl.to(pk, { opacity: 0, duration: 0.15 }, t + d);
+        }
+        function pop(sel, t, from) {
+          tl.fromTo(sel, Object.assign({ opacity: 0, scale: 0.3 }, from || {}), { opacity: 1, scale: 1, x: 0, y: 0, duration: 0.45, ease: "back.out(2)" }, t);
+        }
+        function fadeIn(sel, t, d) {
+          tl.fromTo(sel, { opacity: 0 }, { opacity: 1, duration: d || 0.4 }, t);
+        }
+        function fadeOut(sel, t, d) {
+          tl.to(sel, { opacity: 0, duration: d || 0.3 }, t);
+        }
+        function titleIn(id, t) {
+          tl.fromTo("#" + id + " .chap", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.35, ease: "expo.out" }, t);
+          tl.fromTo("#" + id + " h2", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, t + 0.12);
+          const p = document.querySelector("#" + id + " p");
+          if (p) tl.fromTo(p, { opacity: 0 }, { opacity: 1, duration: 0.4 }, t + 0.5);
+        }
+        function camera(t, d, cx, cy, S, ease) {
+          const st = { x: 960 - cx * S, y: 540 - cy * S, scale: S };
+          if (d === 0) tl.set("#world", st, t);
+          else tl.to("#world", Object.assign({ duration: d, ease: ease || "power3.inOut" }, st), t);
+          return st;
+        }
+        function flash(t) {
+          tl.fromTo("#flash", { opacity: 0.35 }, { opacity: 0, duration: 0.35, ease: "power2.out", immediateRender: false }, t);
+        }
+
+        // ---------------- initial states ----------------
+        gsap.set("#flash", { opacity: 0 });
+        gsap.set("#world", { opacity: 0, x: 960 - 580 * 1.75, y: 540 - 470 * 1.75, scale: 1.75 });
+        gsap.set(["#hub", "#hub-ring", "#hub-label", "#you", "#bubble", "#pc1", "#pc2", "#pc3", "#inproc", "#grpA", "#grpB", "#file", "#wt-msg", "#wt-rep", "#wt-sm", "#ring", "#trunk"], { opacity: 0 });
+        gsap.set(".sub, .badge, .bar", { opacity: 0 });
+        gsap.set(".bar i", { scaleX: 0 });
+        gsap.set(["#hk1", "#hk2", "#hk3", "#hk4", "#hk5", "#hk-icon", "#hk-w", "#hk-s"], { opacity: 0 });
+        gsap.set(".hk-node", { opacity: 0 });
+
+        // ambience
+        tl.fromTo("#bg-glow", { x: 0, scale: 0.95 }, { x: 900, scale: 1.1, duration: 90, ease: "sine.inOut" }, 0);
+        tl.fromTo("#bg-dots", { x: 0, y: 0 }, { x: 60, y: 60, duration: 90, ease: "none" }, 0);
+
+        // ================= S1 hook (0 – 16.156) =================
+        tl.fromTo("#hk-core", { scale: 0.6 }, { scale: 1.15, duration: 0.448, ease: "sine.inOut", yoyo: true, repeat: 23 }, 0.037);
+        tl.set("#hk1", { opacity: 1 }, 0.6);
+        tl.fromTo("#hk1", { y: 60 }, { y: 0, duration: 0.4, ease: "expo.out", immediateRender: false }, 0.6);
+        tl.set("#hk2", { opacity: 1 }, 1.381);
+        tl.fromTo("#hk2", { scale: 1.4 }, { scale: 1, duration: 0.35, ease: "expo.out", immediateRender: false }, 1.381);
+        fadeOut(["#hk1", "#hk2"], 5.0);
+        tl.set("#hk3", { opacity: 1 }, 5.41);
+        tl.fromTo("#hk3", { x: -120 }, { x: 0, duration: 0.4, ease: "expo.out", immediateRender: false }, 5.41);
+        tl.set("#hk4", { opacity: 1 }, 7.201);
+        tl.fromTo("#hk4", { y: 60 }, { y: 0, duration: 0.4, ease: "expo.out", immediateRender: false }, 7.201);
+        tl.set("#hk5", { opacity: 1 }, 8.992);
+        tl.fromTo("#hk5", { scale: 1.4 }, { scale: 1, duration: 0.35, ease: "expo.out", immediateRender: false }, 8.992);
+        for (let i = 0; i < 10; i++) {
+          lineDraw($("hkl" + i), 7.2 + i * 0.224, 0.5);
+          pop("#hkn" + i, 7.6 + i * 0.224);
+        }
+        fadeOut(["#hk3", "#hk4", "#hk5", "#hk-net"], 12.2, 0.35);
+        flash(12.574);
+        tl.fromTo("#hk-icon", { opacity: 0, scale: 0.2, rotation: -60 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.6, ease: "back.out(1.7)", immediateRender: false }, 12.574);
+        tl.fromTo("#hk-w", { opacity: 0, x: -80 }, { opacity: 1, x: 0, duration: 0.45, ease: "expo.out", immediateRender: false }, 12.75);
+        tl.fromTo("#hk-s", { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 13.0);
+        tl.fromTo("#hk-lock", { scale: 1 }, { scale: 1.04, duration: 3.4, ease: "none" }, 12.574);
+        fadeOut("#hk-lock", 15.75, 0.35);
+
+        // ================= S2 main agent (16.156 – 23.32) =================
+        tl.set("#world", { opacity: 1 }, 16.156);
+        tl.fromTo("#world", { x: 960 - 580 * 1.75, y: 540 - 470 * 1.75, scale: 1.75 }, { x: 960 - 580 * 1.55, y: 540 - 470 * 1.55, scale: 1.55, duration: 7.0, ease: "none", immediateRender: false }, 16.156);
+        pop("#hub", 16.2);
+        tl.fromTo("#hub-ring", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.6, ease: "power3.out", immediateRender: false }, 16.35);
+        tl.fromTo("#hub-ring", { scale: 1 }, { scale: 1.12, duration: 0.448, ease: "sine.inOut", yoyo: true, repeat: 13, immediateRender: false }, 17.0);
+        fadeIn("#hub-label", 16.6);
+        titleIn("t2", 16.5);
+        pop("#you", 16.8, { x: -40 });
+        tl.fromTo("#bubble", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)", immediateRender: false }, 17.05);
+        pop("#pc1", 18.843, { x: -60, scale: 0.9 });
+        pop("#pc2", 19.739, { x: -60, scale: 0.9 });
+        pop("#pc3", 20.634, { x: -60, scale: 0.9 });
+        fadeOut(["#pc1", "#pc2", "#pc3", "#bubble"], 22.9);
+
+        // ================= S3 subagents (23.32 – 32.275) =================
+        fadeOut("#hub-label span", 23.2);
+        camera(23.32, 1.1, 520, 540, 1.0);
+        tl.fromTo("#ring", { opacity: 0 }, { opacity: 1, duration: 0.5, immediateRender: false }, 23.5);
+        tl.fromTo("#ring", { rotation: 0, svgOrigin: "420 540" }, { rotation: 90, svgOrigin: "420 540", duration: 8.7, ease: "none", immediateRender: false }, 23.5);
+        SUBS.forEach((s, i) => {
+          const t = 24.216 + i * 0.448;
+          lineDraw($("sp" + i), t - 0.15, 0.35);
+          pop("#sub" + i, t, { x: (HUB[0] - s.x) * 0.6, y: (HUB[1] - s.y) * 0.6, scale: 0.2 });
+        });
+        fadeIn("#inproc", 26.9);
+        titleIn("t3", 23.6);
+        travel($("pk-sm"), $("msgpath"), 28.1, 1.0, false, "power2.inOut");
+        pop("#wt-sm", 29.1);
+        tl.fromTo("#sub1", { boxShadow: "0 0 0 0 rgba(52,211,153,0.9)" }, { boxShadow: "0 0 0 26px rgba(52,211,153,0)", duration: 0.7, ease: "power2.out", immediateRender: false }, 29.1);
+        fadeOut("#wt-sm", 31.6);
+
+        // ================= S4 CLI lanes (32.275 – 43.021) =================
+        camera(32.275, 1.3, 960, 560, 1.0);
+        tl.to(["#ring", "#subs", "#spokes", "#inproc", "#you"], { opacity: 0.3, duration: 0.6 }, 32.5);
+        tl.fromTo("#trunk", { opacity: 0 }, { opacity: 1, duration: 0.2, immediateRender: false }, 33.0);
+        draw($("trunk"), 33.0, 0.5);
+        titleIn("t4", 32.6);
+        fadeIn("#grpA", 33.4);
+        fadeIn("#grpB", 36.1);
+        FAM.forEach((f, i) => {
+          const t = i < 6 ? 33.62 + i * 0.448 : 36.31 + (i - 6) * 0.448;
+          draw($("ln-" + f.k), t, 0.55);
+          pop("#bd-" + f.k, t + 0.35, { x: -40, scale: 0.6 });
+        });
+        pop("#n4a", 39.5, { x: -40, scale: 0.9 });
+        pop("#n4b", 40.4, { x: -40, scale: 0.9 });
+
+        // ================= S5 spawn (43.021 – 50.185) =================
+        tl.to(["#ring", "#subs", "#spokes", "#inproc", "#you"], { opacity: 0, duration: 0.4 }, 43.0);
+        titleIn("t5", 43.1);
+        pop("#c5", 43.3, { y: 30, scale: 0.95 });
+        pop("#n5", 46.2, { x: -40, scale: 0.9 });
+        const RUN = [
+          { k: "codex", pk: "pk-s1", t: 43.5 },
+          { k: "glm", pk: "pk-s2", t: 44.4 },
+          { k: "antigravity", pk: "pk-s3", t: 45.3 },
+        ];
+        RUN.forEach((r) => {
+          const T = r.t;
+          tl.fromTo("#hub", { scale: 1 }, { scale: 1.1, duration: 0.15, yoyo: true, repeat: 1, ease: "power1.inOut", immediateRender: false }, T);
+          travel($(r.pk), $("ln-" + r.k), T, 0.85, false, "power2.in");
+          tl.fromTo("#bd-" + r.k, { borderColor: "rgba(244,241,234,0.2)" }, { borderColor: byK[r.k].c, duration: 0.2, immediateRender: false }, T + 0.85);
+          tl.fromTo("#bd-" + r.k, { scale: 1 }, { scale: 1.08, duration: 0.18, yoyo: true, repeat: 1, immediateRender: false }, T + 0.85);
+          fadeIn("#br-" + r.k, T + 0.9, 0.2);
+        });
+        // progress bars run until each lane finishes
+        tl.fromTo("#bi-codex", { scaleX: 0 }, { scaleX: 1, duration: 59.6 - 44.4, ease: "none", immediateRender: false }, 44.4);
+        tl.fromTo("#bi-glm", { scaleX: 0 }, { scaleX: 0.8, duration: 64.5 - 45.3, ease: "none", immediateRender: false }, 45.3);
+        tl.fromTo("#bi-antigravity", { scaleX: 0 }, { scaleX: 0.9, duration: 56.2 - 46.2, ease: "none", immediateRender: false }, 46.2);
+        const DIM = FAM.filter((f) => !RUN.find((r) => r.k === f.k)).map((f) => "#ln-" + f.k + ", #bd-" + f.k).join(", ");
+        tl.to(DIM, { opacity: 0.28, duration: 0.5 }, 46.0);
+
+        // ================= S6 two-way (50.185 – 59.14) =================
+        camera(50.185, 1.0, 1080, 520, 1.08);
+        titleIn("t6", 50.3);
+        pop("#c6", 50.6, { y: 30, scale: 0.95 });
+        travel($("pk-m"), $("ln-glm"), 51.0, 0.9, false, "power2.inOut");
+        pop("#wt-msg", 51.8);
+        pop("#md1", 52.0, { y: 20 });
+        pop("#md2", 52.9, { y: 20 });
+        pop("#md3", 53.8, { y: 20 });
+        tl.fromTo("#md1", { backgroundColor: "rgba(16,19,26,0.96)", color: "rgba(244,241,234,0.75)", borderColor: "rgba(244,241,234,0.35)" }, { backgroundColor: "#f5a524", color: "#0b0b0d", borderColor: "#f5a524", duration: 0.2, immediateRender: false }, 54.5);
+        fadeOut("#wt-msg", 54.9);
+        travel($("pk-r"), $("ln-antigravity"), 55.2, 1.0, true, "power2.inOut");
+        pop("#wt-rep", 56.2);
+        tl.fromTo("#hub", { boxShadow: "0 0 60px 10px rgba(52,211,153,0.2)" }, { boxShadow: "0 0 90px 30px rgba(52,211,153,0.7)", duration: 0.25, yoyo: true, repeat: 1, immediateRender: false }, 56.2);
+        fadeOut("#wt-rep", 58.8);
+
+        // ================= S7 completion (59.14 – 64.513) =================
+        camera(59.14, 0.9, 1000, 520, 1.0);
+        titleIn("t7", 59.2);
+        tl.fromTo("#file", { opacity: 0, scale: 0.2, y: 40 }, { opacity: 1, scale: 1, y: 0, duration: 0.45, ease: "back.out(2)", immediateRender: false }, 59.6);
+        travel($("pk-done"), $("ln-codex"), 60.2, 1.1, true, "power2.inOut");
+        pop("#c7", 61.3, { y: 30, scale: 0.95 });
+        pop("#v7", 61.6, { y: 20 });
+        tl.fromTo("#vd1", { backgroundColor: "rgba(16,19,26,0.96)", color: "rgba(244,241,234,0.75)", borderColor: "rgba(244,241,234,0.35)" }, { backgroundColor: "#34d399", color: "#0b0b0d", borderColor: "#34d399", duration: 0.2, immediateRender: false }, 62.1);
+        tl.fromTo("#hub", { borderColor: "#f5a524" }, { borderColor: "#34d399", duration: 0.3, immediateRender: false }, 61.3);
+
+        // ================= S8 sessions (64.513 – 71.677) =================
+        tl.to("#world", { x: 600 - 960 * 0.42, y: 620 - 560 * 0.42, scale: 0.42, duration: 1.2, ease: "power3.inOut" }, 64.513);
+        titleIn("t8", 64.8);
+        pop("#st1", 65.4, { x: 60, scale: 0.6 });
+        pop("#st2", 65.8, { x: 60, scale: 0.6 });
+        pop("#sl0", 66.0, { y: 20 });
+        pop("#sl1", 66.1, { y: 20 });
+        pop("#sl2", 66.3, { y: 20 });
+        draw($("peer1"), 66.4, 0.8);
+        draw($("peer2"), 66.7, 0.8);
+        draw($("peer3"), 67.0, 0.6);
+        travel($("pp1"), $("peer1"), 67.4, 1.2, false, "power2.inOut");
+        travel($("pp2"), $("peer3"), 68.6, 0.8, false, "power2.inOut");
+        travel($("pp3"), $("peer2"), 69.4, 1.2, true, "power2.inOut");
+
+        // ================= S9 review (71.677 – 77.05) =================
+        tl.to("#world", { opacity: 0, duration: 0.4 }, 71.6);
+        titleIn("t9", 71.8);
+        pop("#sd1", 72.1, { x: -80, scale: 0.9 });
+        pop("#sd2", 72.4, { x: 80, scale: 0.9 });
+        fadeIn("#ar1", 73.1, 0.2);
+        draw($("ar1p"), 73.1, 0.6);
+        fadeIn("#ar2", 74.9, 0.2);
+        draw($("ar2p"), 74.9, 0.6);
+
+        // ================= S10 outro (77.05 – 90) =================
+        flash(77.05);
+        tl.fromTo("#e-w", { opacity: 0, x: -80 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out" }, 77.2);
+        tl.fromTo("#e-s", { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, 77.5);
+        tl.fromTo("#e-url", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.45, ease: "back.out(2)" }, 78.4);
+        tl.fromTo("#e-free", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.45, ease: "back.out(2)" }, 78.7);
+        tl.fromTo("#o-core", { opacity: 0, scale: 0.2 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.8)" }, 77.1);
+        ORB.forEach((k, i) => pop("#orb" + i, 77.5 + i * 0.112));
+        tl.fromTo("#orbit-ring", { rotation: 0 }, { rotation: 60, duration: 12.5, ease: "none" }, 77.5);
+        ORB.forEach((k, i) => tl.fromTo("#orb" + i, { rotation: 0 }, { rotation: -60, duration: 12.5, ease: "none", immediateRender: false }, 77.5));
+        tl.to(["#e-lock", "#e-cta", "#orbit-wrap"], { opacity: 0, duration: 0.9, ease: "power1.in" }, 89.0);
+
+        window.__timelines = window.__timelines || {};
+
+        window.__timelines["main"] = tl;
+      })();
+    </script>
+  </body>
+</html>
