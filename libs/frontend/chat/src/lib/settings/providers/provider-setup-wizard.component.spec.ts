@@ -21,6 +21,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { VSCodeService } from '@ptah-extension/core';
 import type {
   AuthCancelDraftVerificationParams,
   AuthCancelDraftVerificationResult,
@@ -968,6 +969,19 @@ describe('ProviderSetupWizardComponent', () => {
       expect(fixture.nativeElement.textContent).toContain(
         'Open a workspace to save an override.',
       );
+    });
+
+    // Batch 27b: the App target is the running host's own layer, named after the host.
+    it.each([
+      { host: 'VS Code', isElectron: false, app: 'VS Code' },
+      { host: 'Electron', isElectron: true, app: 'Desktop app' },
+    ])('names the Save to targets for the $host host', async ({ isElectron, app }) => {
+      TestBed.overrideProvider(VSCodeService, { useValue: { isElectron } });
+      const fixture = createComponent({ supportedSaveTargets: ['global', 'app', 'workspace'] }, verifyEcho());
+      await reachScope(fixture);
+      const labels = Array.from(fixture.nativeElement.querySelectorAll('[data-testid="wizard-save-to"] label') as NodeListOf<HTMLElement>)
+        .map((label) => label.querySelector('span span')?.textContent?.trim());
+      expect(labels).toEqual(['Global · all apps', app, 'This workspace']);
     });
 
     it('lists the affected consumers under Use for main agent', async () => {

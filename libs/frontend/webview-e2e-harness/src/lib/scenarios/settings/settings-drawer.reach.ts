@@ -170,6 +170,19 @@ export async function openMainAgentPopover(page: Page): Promise<Locator> {
   return popover;
 }
 
+/**
+ * Batch 27b: the App scope is the running host's own layer (`app.vscode.*` / `app.electron.*`), offered in
+ * both hosts and named after the host ("VS Code" or "Desktop app"). Asserts `appEntry` reads the host's name
+ * and `container` never shows the other host's; returns the host's name.
+ */
+export async function expectHostAppScope(page: Page, container: Locator, appEntry: Locator): Promise<string> {
+  const electron = (await page.locator('ptah-electron-shell').count()) > 0;
+  const [label, other] = electron ? ['Desktop app', 'VS Code'] : ['VS Code', 'Desktop app'];
+  await expect(appEntry).toHaveText(label);
+  await expect(container).not.toContainText(other);
+  return label;
+}
+
 /** Closes the Main Agent popover with Esc (focus returns to Reassign). */
 export async function closeMainAgentPopover(page: Page): Promise<void> {
   await page.keyboard.press('Escape');

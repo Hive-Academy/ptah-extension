@@ -138,6 +138,19 @@ for (const host of ['vscode', 'electron'] as const) {
       console.log(`B26 popover ${host}/${theme}: ${Math.round(box?.width ?? 0)}x${Math.round(box?.height ?? 0)} @ ${Math.round(box?.y ?? 0)}`);
       await waitForSettled(page);
       await page.screenshot({ path: capturePath('main-agent-popover', host, theme), animations: 'disabled' });
+      // Batch 27b: the "Save to" list with the App target chosen, named after the host, and the provider
+      // re-save confirm that names it ("Saved to: VS Code." / "Saved to: Desktop app."); cancelled after.
+      const appLabel = host === 'electron' ? 'Desktop app' : 'VS Code';
+      const saveTo = mainPopover.locator('[data-testid="main-agent-save-to"]');
+      const saveToOptions = await saveTo.locator('option').allTextContents();
+      console.log(`B27b save-to ${host}/${theme}: ${saveToOptions.map((text) => text.trim()).join(' | ')}`);
+      expect(saveToOptions.map((text) => text.trim())).toEqual(['Global · all apps', appLabel, 'This workspace']);
+      await saveTo.selectOption('app');
+      await mainPopover.locator('[data-testid="main-agent-provider-rescope"]').click();
+      await expect(mainPopover.locator('[data-testid="main-agent-provider-confirm"]')).toContainText(`Saved to: ${appLabel}.`);
+      await waitForSettled(page);
+      await page.screenshot({ path: capturePath('main-agent-save-to', host, theme), animations: 'disabled' });
+      await mainPopover.getByRole('button', { name: 'Cancel provider change' }).click();
       await page.keyboard.press('Escape');
       await expect(mainPopover).toHaveCount(0);
       // Batch 23 (D16): every scope badge names its field; the open popover is its own capture.

@@ -7,6 +7,7 @@ import { NativePopoverComponent, PROVIDER_MODELS_LOADER } from '@ptah-extension/
 import type { EffortLevel, ProviderModelInfo, SettingScope } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { runDrawerWrite, type DrawerWriteOutcome } from './connection-drawer/drawer-write';
+import { injectAppScopeName, saveTargetLabels } from './app-scope-label';
 
 export type MainAgentFocus = 'main-agent' | 'main-model' | 'main-effort';
 
@@ -16,7 +17,6 @@ export const EFFORT_LEVELS: readonly EffortLevel[] = ['low', 'medium', 'high', '
 const MODALITY: Readonly<Record<string, string>> = {
   apiKey: 'API key', cli: 'CLI login', oauth: 'OAuth', 'local-native': 'Local server', 'local-proxy': 'Local server', custom: 'Custom endpoint',
 };
-const SCOPE_LABEL: Readonly<Record<SettingScope, string>> = { global: 'Global · all apps', app: 'Desktop app', workspace: 'This workspace' };
 /** Model select value that swaps the select for an inline model-ID field (#35). */
 const MANUAL = '__manual__';
 const SELECT = 'select select-bordered select-sm min-h-8 w-full border-base-content-muted bg-base-100 text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
@@ -160,6 +160,8 @@ export class MainAgentReassignPopoverComponent {
   private readonly loader = inject(PROVIDER_MODELS_LOADER);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
+  /** "Save to" labels; the App target is the running host's own layer ("VS Code" or "Desktop app"). */
+  private readonly scopeLabels = saveTargetLabels(injectAppScopeName());
   protected readonly select = SELECT;
   protected readonly focusRing = FOCUS;
   protected readonly manualValue = MANUAL;
@@ -220,7 +222,7 @@ export class MainAgentReassignPopoverComponent {
   protected readonly rescopeOffer = computed(() => {
     const target = this.target();
     return this.driverId() && !this.providerChoice() && !this.rescope() && this.providerSource() !== target
-      && this.providerTargets().includes(target) ? SCOPE_LABEL[target] : null;
+      && this.providerTargets().includes(target) ? this.scopeLabels[target] : null;
   });
   protected readonly pendingProvider = computed(() => {
     const id = this.providerId();
@@ -229,7 +231,7 @@ export class MainAgentReassignPopoverComponent {
     const option = this.providers().find((entry) => entry.id === id);
     const name = option?.name ?? id;
     return {
-      id, name, uncheckable: option?.uncheckable ?? false, scope: SCOPE_LABEL[this.target()],
+      id, name, uncheckable: option?.uncheckable ?? false, scope: this.scopeLabels[this.target()],
       writable: this.providerTargets().includes(this.target()),
       copy: changing ? `New main-agent requests use ${name}. Changing the provider ends running chat sessions.`
         : `New main-agent requests keep using ${name}. Saving the provider ends running chat sessions.`,
@@ -281,7 +283,7 @@ export class MainAgentReassignPopoverComponent {
 
   protected value(event: Event): string { return (event.target as HTMLSelectElement).value; }
   protected asScope(value: string): SettingScope | null { return value === 'global' || value === 'app' || value === 'workspace' ? value : null; }
-  protected scopeLabel(scope: SettingScope): string { return SCOPE_LABEL[scope]; }
+  protected scopeLabel(scope: SettingScope): string { return this.scopeLabels[scope]; }
   protected effortClass(value: EffortLevel | ''): string {
     const selected = this.currentEffort() === value;
     return `btn join-item btn-xs min-h-7 flex-1 px-1 text-[11px] ${selected ? 'btn-primary' : 'btn-outline border-base-content-muted text-base-content'} ${FOCUS}`;

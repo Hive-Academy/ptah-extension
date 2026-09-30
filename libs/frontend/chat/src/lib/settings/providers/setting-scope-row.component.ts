@@ -10,6 +10,7 @@ import { LucideAngularModule, Cpu, Folder } from 'lucide-angular';
 import type { LucideIconData } from 'lucide-angular';
 import type { SettingScope } from '@ptah-extension/shared';
 import { NativePopoverComponent } from '@ptah-extension/ui';
+import { injectAppScopeName, type AppScopeName } from './app-scope-label';
 
 /**
  * Source of one setting's effective value. `'mixed'` marks a group of fields that does not share one
@@ -58,7 +59,8 @@ const ACTION =
  *   when the source is mixed or unknown (never a guessed scope);
  * - a popover (`NativePopoverComponent`, transparent backdrop) headed by the full field name, with the
  *   Global / App / Workspace layers and the existing Clear override / Use global value / Copy global
- *   actions, which still only emit: the host owns the review-then-confirm and every write.
+ *   actions, which still only emit: the host owns the review-then-confirm and every write. The App
+ *   layer is named after the running host ("VS Code" or "Desktop app", `app-scope-label.ts`).
  *
  * Colour sits on the badge border, fill and icon only; text stays `text-base-content` (deviation 6).
  * `overrideRequested` and `defaultLabel` stay in the API, but an inherited value renders no control:
@@ -134,6 +136,8 @@ const ACTION =
 })
 export class SettingScopeRowComponent {
   protected readonly action = ACTION;
+  /** The running host's App layer: its own `app.<platform>` keys, never another app's. */
+  private readonly appScope = injectAppScopeName();
 
   /** Full field name: the popover header, `data-field`, and every action's accessible name (D16). */
   readonly fieldName = input<string>('');
@@ -244,7 +248,7 @@ export class SettingScopeRowComponent {
     const preview = this.fallbackPreview();
     if (!preview || !this.canClear()) return null;
     const value = this.fallbackValueLabel() ?? formatFallbackValue(preview.value);
-    return `Will use ${value} from ${fallbackSourceLabel(preview.scope, this.workspaceName())}.`;
+    return `Will use ${value} from ${fallbackSourceLabel(preview.scope, this.workspaceName(), this.appScope)}.`;
   });
 
   protected readonly credentialLine = computed<string | null>(() => {
@@ -266,7 +270,7 @@ export class SettingScopeRowComponent {
 
   private layerLabel(layer: SettingScope): string {
     if (layer === 'global') return 'Global · all Ptah apps';
-    if (layer === 'app') return 'Desktop app';
+    if (layer === 'app') return this.appScope.label;
     const name = this.workspaceName();
     if (!name) return 'This workspace';
     return `Workspace · ${name}${this.workspaceCrossApp() ? ' (All Ptah apps)' : ''}`;
@@ -285,8 +289,9 @@ function formatFallbackValue(value: unknown): string {
 function fallbackSourceLabel(
   scope: SettingScope,
   workspaceName: string | null,
+  app: AppScopeName,
 ): string {
   if (scope === 'global') return 'Global';
-  if (scope === 'app') return 'the Desktop app';
+  if (scope === 'app') return app.inSentence;
   return workspaceName ? `Workspace ${workspaceName}` : 'Workspace';
 }

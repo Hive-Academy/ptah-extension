@@ -2,6 +2,7 @@ import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   ProvidersSettingsStateService,
+  VSCodeService,
   type ProvidersSettingsCommit,
 } from '@ptah-extension/core';
 import {
@@ -71,11 +72,25 @@ describe('SettingsSaveFeedbackService', () => {
     });
   });
 
-  it('labels each scope as the Save-to choice does', async () => {
+  // Batch 27b: the App scope is the running host's own layer, named after the host.
+  it.each([
+    { host: 'VS Code', isElectron: false, app: 'VS Code' },
+    { host: 'Electron', isElectron: true, app: 'Desktop app' },
+  ])('labels each scope as the Save-to choice does ($host host)', async ({ isElectron, app }) => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        SettingsSaveFeedbackService,
+        { provide: ProvidersSettingsStateService, useValue: { commit } },
+        { provide: VSCodeService, useValue: { isElectron } },
+      ],
+    });
+    service = TestBed.inject(SettingsSaveFeedbackService);
     await service.save(request({ scope: 'app' }));
-    expect(service.toast()?.message).toBe('Saved main agent model to Desktop app.');
+    expect(service.toast()?.message).toBe(`Saved main agent model to ${app}.`);
     await service.save(request({ scope: 'global' }));
     expect(service.toast()?.message).toBe('Saved main agent model to All Ptah apps.');
+    service.dismiss();
   });
 
   it('offers no Undo when the request has none', async () => {

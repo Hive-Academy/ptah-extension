@@ -24,7 +24,7 @@ import {
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 import {
-  advancedTab, applyManualTierModel, card, closeCatalog, closeConnectionDrawer, connectProviderButton, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
+  advancedTab, applyManualTierModel, card, expectHostAppScope, closeCatalog, closeConnectionDrawer, connectProviderButton, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
   cliConfigSection, closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
   throughDelegatedEdit, setupThroughDrawer, visibleEnabled, withAuthStatus,
 } from './settings-drawer.reach';
@@ -354,6 +354,7 @@ const providersAuth: readonly ReachabilityEntry[] = [
   {
     id: '#16', capability: 'Apply to: Global / App / Workspace save target', status: 'present',
     // Since Batch 26: the Main Agent popover's "Save to"; the workspace target's provider D6 confirm is cancelled.
+    // Batch 27b: 3 targets in both hosts (the App target is the host's own layer); RUX-5 pins their names per host.
     reach: async (page) => {
       const popover = await openMainAgentPopover(page);
       await expect(popover.locator('[data-testid="main-agent-save-to"] option')).toHaveCount(3);
@@ -375,9 +376,10 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#18', capability: 'Clear the workspace override', status: 'present',
-    // Since Batch 23: badge -> popover -> Clear override -> the page's review-then-confirm (not confirmed here).
+    // Since Batch 23: badge -> popover (App layer named after the host, Batch 27b) -> Clear override -> review.
     reach: async (page) => {
-      await openScopeBadge(page, 'Reasoning effort');
+      const scopePopover = await openScopeBadge(page, 'Reasoning effort');
+      await expectHostAppScope(page, scopePopover, scopePopover.locator('[data-layer="app"]'));
       const clear = page.locator('[data-testid="scope-clear-override"]');
       await openThenClose(clear, page.getByRole('button', { name: 'Confirm clear override' }), page.getByRole('button', { name: 'Cancel clear' }));
     },
@@ -829,11 +831,12 @@ const regressedUx: readonly ReachabilityEntry[] = [
     } },
   { id: 'RUX-5', capability: 'Workspace save target offered in a visible Save-to list, not behind an override link', status: 'restored',
     // Batch 26: the popover's "Save to" lists every write scope, "This workspace" included, and re-saves the
-    // current provider there through the D6 confirm (cancelled here).
+    // current provider there through the D6 confirm (cancelled here). Batch 27b: App is named after the host.
     reach: async (page) => {
       const popover = await openMainAgentPopover(page);
       const target = popover.locator('[data-testid="main-agent-save-to"]');
-      await expect(target.locator('option')).toHaveText(['Global · all apps', 'Desktop app', 'This workspace']);
+      const label = await expectHostAppScope(page, popover, target.locator('option[value="app"]'));
+      await expect(target.locator('option')).toHaveText(['Global · all apps', label, 'This workspace']);
       await target.selectOption('workspace');
       await popover.locator('[data-testid="main-agent-provider-rescope"]').click();
       await expect(popover.locator('[data-testid="main-agent-provider-confirm"]')).toContainText('Saved to: This workspace.');

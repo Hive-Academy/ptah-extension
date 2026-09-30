@@ -13,6 +13,7 @@ import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
 import { ProvidersSettingsStateService, type ProvidersConnectionDraft } from './providers-settings-state.service';
 import { EffortStateService } from './effort-state.service';
 import { WorkspaceScopeService } from './workspace-scope.service';
+import { VSCodeService } from './vscode.service';
 
 const success = <T>(data: T) => new RpcResult(true, data);
 function deferred<T>() {
@@ -791,6 +792,35 @@ describe('ProvidersSettingsStateService', () => {
     expect(service.groupScope(['missing'])).toBeNull();
     expect(service.writeScopes('memory.curatorProvider')).toEqual(['global']);
     expect(service.writeScopes('authMethod')).toEqual(['global', 'app']);
+  });
+
+  // Batch 27b: every host writes and reads its own App layer (`app.vscode.*` in VS Code,
+  // `app.electron.*` in the desktop app; backend `resolveAppPrefix`), so `writeScopes` passes the
+  // host's `app` target through in both hosts. Only the label differs, and the chat components own it.
+  it.each([
+    { host: 'VS Code', isElectron: false },
+    { host: 'Electron', isElectron: true },
+  ])('keeps the App target the host reports ($host host)', async ({ isElectron }) => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        ProvidersSettingsStateService,
+        WorkspaceScopeService,
+        { provide: ClaudeRpcService, useValue: { call } },
+        { provide: VSCodeService, useValue: { isElectron } },
+      ],
+    });
+    TestBed.inject(WorkspaceScopeService).switchTo('/workspace');
+    service = TestBed.inject(ProvidersSettingsStateService);
+    scopeResponse = {
+      activePath: '/workspace',
+      entries: [entry('authMethod', { scope: 'app', hasOverride: true }), entry('provider.apiKey.selectedModel')],
+    };
+    await service.refreshScopes();
+    expect(service.writeScopes('authMethod')).toEqual(['global', 'app', 'workspace']);
+    expect(service.writeScopes('provider.apiKey.selectedModel')).toEqual(['global', 'app', 'workspace']);
+    // A value already stored at App keeps its provenance, so the page can show it.
+    expect(service.scopeEntry('authMethod')).toMatchObject({ scope: 'app', hasOverride: true });
   });
 
   it('requests concrete scope keys and preserves host fallback provenance', async () => {

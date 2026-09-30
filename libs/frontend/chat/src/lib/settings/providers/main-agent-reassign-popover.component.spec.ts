@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
-  ProvidersSettingsStateService, type ProvidersEffectiveRoute, type ProvidersSettingsCommit, type ProvidersSettingsSection,
+  ProvidersSettingsStateService, VSCodeService, type ProvidersEffectiveRoute, type ProvidersSettingsCommit, type ProvidersSettingsSection,
 } from '@ptah-extension/core';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import type { ProviderListModelsResult, SettingScope } from '@ptah-extension/shared';
@@ -275,5 +275,47 @@ describe('MainAgentReassignPopoverComponent', () => {
   it('Close emits closed', () => {
     document.querySelector<HTMLButtonElement>('[data-testid="main-agent-popover"] button[aria-label="Close"]')?.click();
     expect(fixture.componentInstance.closed).toBe(1);
+  });
+
+  // Batch 27b: the App target is the running host's own layer (`app.vscode.*` in VS Code,
+  // `app.electron.*` in the desktop app), so it stays offered in both hosts and is named after the host.
+  describe.each([
+    { host: 'VS Code', isElectron: false, label: 'VS Code', other: 'Desktop app' },
+    { host: 'Electron', isElectron: true, label: 'Desktop app', other: 'VS Code' },
+  ])('Save to in the $host host', ({ isElectron, label, other }) => {
+    beforeEach(async () => {
+      feedback.dismiss();
+      TestBed.resetTestingModule();
+      state = new StateStub();
+      state.writeScopes.mockImplementation((): SettingScope[] => ['global', 'app', 'workspace']);
+      TestBed.configureTestingModule({
+        imports: [Host],
+        providers: [{ provide: ProvidersSettingsStateService, useValue: state }, { provide: PROVIDER_MODELS_LOADER, useValue: loader },
+          SettingsSaveFeedbackService, { provide: VSCodeService, useValue: { isElectron } }],
+      });
+      fixture = TestBed.createComponent(Host);
+      feedback = TestBed.inject(SettingsSaveFeedbackService);
+      fixture.detectChanges();
+      await flush();
+    });
+
+    it(`lists "Global · all apps", "${label}", "This workspace"; never "${other}"`, () => {
+      expect(options('main-agent-save-to').map((option) => [option.value, option.textContent?.trim()])).toEqual([
+        ['global', 'Global · all apps'], ['app', label], ['workspace', 'This workspace'],
+      ]);
+      expect(query('main-agent-popover')?.textContent).not.toContain(other);
+    });
+
+    it(`the App target re-saves the provider "to ${label}" and saves the model there, with a "${label}" toast`, async () => {
+      choose('main-agent-save-to', 'app');
+      expect(query('main-agent-provider-rescope')?.textContent?.trim()).toBe(`Save provider to ${label}…`);
+      query<HTMLButtonElement>('main-agent-provider-rescope')?.click(); fixture.detectChanges();
+      expect(query('main-agent-provider-confirm')?.textContent).toContain(`Saved to: ${label}.`);
+      buttonNamed('Cancel provider change')?.click(); fixture.detectChanges();
+      expect(query('main-agent-provider-confirm')).toBeNull();
+      choose('main-agent-model', 'model-b'); await flush();
+      expect(state.saveSettings).toHaveBeenLastCalledWith({ model: { model: 'model-b', applyTo: 'app' } }, CONTEXT);
+      expect(feedback.toast()?.message).toBe(`Saved main agent model to ${label}.`);
+    });
   });
 });

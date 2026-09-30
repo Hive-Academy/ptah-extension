@@ -1,6 +1,7 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import type { SettingScope } from '@ptah-extension/shared';
+import { injectAppScopeName } from '../providers/app-scope-label';
 
 /** One save-on-selection request (D2). */
 export interface SettingsSaveRequest {
@@ -23,11 +24,6 @@ export interface SettingsToast {
 export const SETTINGS_TOAST_TIMEOUT_MS = 8000;
 export const SAVE_REFUSED_MESSAGE = 'Another change is still saving.';
 
-const SCOPE_LABELS: Readonly<Record<SettingScope, string>> = {
-  workspace: 'This workspace',
-  app: 'Desktop app',
-  global: 'All Ptah apps',
-};
 
 /**
  * The one path for save-on-selection feedback and Undo (plan Component 11, D2/D3/D15).
@@ -41,6 +37,12 @@ const SCOPE_LABELS: Readonly<Record<SettingScope, string>> = {
 @Injectable()
 export class SettingsSaveFeedbackService {
   private readonly state = inject(ProvidersSettingsStateService);
+  /** The App scope is the running host's own layer ("VS Code" or "Desktop app"). */
+  private readonly scopeLabels: Readonly<Record<SettingScope, string>> = {
+    workspace: 'This workspace',
+    app: injectAppScopeName().label,
+    global: 'All Ptah apps',
+  };
   private readonly toastState = signal<SettingsToast | null>(null);
   private undoRequest: SettingsSaveRequest | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -80,7 +82,7 @@ export class SettingsSaveFeedbackService {
       this.show(
         {
           tone: 'status',
-          message: `Saved ${request.label} to ${SCOPE_LABELS[request.scope]}.`,
+          message: `Saved ${request.label} to ${this.scopeLabels[request.scope]}.`,
           canUndo: undo !== null,
         },
         undo ? { ...request, write: undo, undo: null } : null,

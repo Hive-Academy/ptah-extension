@@ -12,11 +12,13 @@
  *   - each action closes the popover and emits its intent (the host owns review and writes)
  *   - global-only keys offer no action; a disabled host keeps the badge, disables the actions and
  *     keeps its reason visible
+ *   - the App layer is named after the running host (Batch 27b), per host, and an App value stays shown
  *   - the credential line stays separate from scope
  *   - accessible names include the field name; popover actions keep 36 px and the focus outline
  */
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { VSCodeService } from '@ptah-extension/core';
 import { SettingScopeRowComponent } from './setting-scope-row.component';
 
 type RowInputs = {
@@ -191,9 +193,9 @@ describe('SettingScopeRowComponent', () => {
       openPopover(labelled);
       expect(query(labelled, 'scope-clear-preview')?.textContent?.trim()).toBe('Will use CLI subscription from Global.');
 
-      const nested = createComponent({ ...WORKSPACE_OVERRIDE, fallbackPreview: { scope: 'app', value: { nested: true } } });
+      const nested = createComponent({ ...WORKSPACE_OVERRIDE, fallbackPreview: { scope: 'global', value: { nested: true } } });
       openPopover(nested);
-      expect(query(nested, 'scope-clear-preview')?.textContent?.trim()).toBe('Will use the previous value from the Desktop app.');
+      expect(query(nested, 'scope-clear-preview')?.textContent?.trim()).toBe('Will use the previous value from Global.');
     });
 
     it('Use global value appears only above an App layer; Copy global only when offered; each emits', () => {
@@ -231,6 +233,45 @@ describe('SettingScopeRowComponent', () => {
       expect(button(fixture, 'scope-clear-override')?.disabled).toBe(true);
       expect(button(fixture, 'scope-use-global')?.disabled).toBe(true);
       expect(query(fixture, 'scope-disabled-reason')?.textContent?.trim()).toBe('Saving…');
+    });
+  });
+
+  // Batch 27b: the App layer is the running host's own (`app.vscode.*` / `app.electron.*`), so it is
+  // listed in both hosts and named after the host; it never reads "Desktop app" in VS Code.
+  describe.each([
+    { host: 'VS Code', isElectron: false, label: 'VS Code', sentence: 'VS Code' },
+    { host: 'Electron', isElectron: true, label: 'Desktop app', sentence: 'the Desktop app' },
+  ])('App layer in the $host host', ({ isElectron, label, sentence }) => {
+    beforeEach(() => {
+      TestBed.overrideProvider(VSCodeService, { useValue: { isElectron } });
+    });
+
+    it(`lists Global, "${label}" and the workspace, in that order`, () => {
+      const fixture = createComponent(WORKSPACE_OVERRIDE);
+      openPopover(fixture);
+      const layers = Array.from(fixture.nativeElement.querySelectorAll('[data-layer]')) as HTMLElement[];
+      expect(layers.map((layer) => layer.querySelector('span')?.textContent?.trim()))
+        .toEqual(['Global · all Ptah apps', label, 'Workspace · ptah-extension']);
+      expect(fixture.nativeElement.querySelector('[data-testid="scope-popover"]')?.textContent)
+        .not.toContain(isElectron ? 'VS Code' : 'Desktop app');
+    });
+
+    it('a value stored at App stays visible: an "App" badge, and the host layer marked In use', () => {
+      const fixture = createComponent({ ...WORKSPACE_OVERRIDE, fieldName: 'Main agent model', shortFieldName: 'Model',
+        scope: 'app', fallbackPreview: { scope: 'global', value: 'claude-sonnet-4' } });
+      expect(badgeText(fixture)).toBe('Model · App');
+      openPopover(fixture);
+      const app = fixture.nativeElement.querySelector('[data-layer="app"]') as HTMLElement;
+      expect(app.textContent).toContain(label);
+      expect(app.getAttribute('aria-current')).toBe('true');
+      expect(app.textContent).toContain('In use');
+      expect(button(fixture, 'scope-clear-override')).not.toBeNull();
+    });
+
+    it(`the clear preview names the App layer as "${sentence}"`, () => {
+      const fixture = createComponent({ ...WORKSPACE_OVERRIDE, fallbackPreview: { scope: 'app', value: 'high' } });
+      openPopover(fixture);
+      expect(query(fixture, 'scope-clear-preview')?.textContent?.trim()).toBe(`Will use high from ${sentence}.`);
     });
   });
 
