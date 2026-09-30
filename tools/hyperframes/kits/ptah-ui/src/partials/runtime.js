@@ -15,6 +15,9 @@ function ptahKit(root, cfg) {
   // The template's own data-duration is a default; a mounted instance takes its length from the host element.
   var host = root.parentElement && root.parentElement.closest ? root.parentElement.closest("[data-duration]") : null;
   var duration = Math.max(0.001, parseFloat((host && host.getAttribute("data-duration")) || root.dataset.duration || cfg.duration || "4"));
+  // The template's inner .clip carries the template default length; a longer mount would blank when it ends.
+  var innerClip = root.querySelector(".clip[data-duration]");
+  if (innerClip && host) innerClip.setAttribute("data-duration", String(duration));
 
   function has(name) {
     return vars[name] != null && String(vars[name]).trim() !== "";
