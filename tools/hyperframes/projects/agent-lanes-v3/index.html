@@ -36,11 +36,26 @@
         #f03-cam { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
         .f03-m { position: absolute; }
       
+/* 04-title-delegates.html */
+
+        #f04-vig { position: absolute; inset: 0; background: radial-gradient(ellipse 80% 70% at 50% 42%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.45) 100%); }
+        #f04-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 44px; }
+        .f04-word { font-family: "Archivo Black", sans-serif; font-size: 140px; line-height: 1; letter-spacing: -0.01em; color: #e8e6e1; text-transform: uppercase; white-space: nowrap; }
+        #f04-w2 { color: #d4af37; }
+      
+/* 05-delegate.html */
+
+        #f05-cam { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
+        .f05-m { position: absolute; }
+        /* slot 0 body (session-shell body rect x 0 y 228 w 1800 h 640 at u 0.43): the transcript scrolls inside it */
+        #f05-body { position: absolute; left: 195px; top: 266px; width: 772px; height: 275px; overflow: hidden; }
+        #f05-col { position: absolute; left: 0; top: 0; width: 772px; height: 330px; }
+      
     </style>
   </head>
   <body>
     <!-- Agent lanes v3. Grid: 134 BPM, beat 0.448 s, bar 1.791 s. Music offset 12.575 s puts the drop at 1.791 s. -->
-    <div id="root" data-composition-id="main" data-start="0" data-duration="8.955" data-width="1920" data-height="1080">
+    <div id="root" data-composition-id="main" data-start="0" data-duration="16.119" data-width="1920" data-height="1080">
 <!-- 01-hook.html (0-3.582) -->
 <div data-hf-id="hf-k13w" id="f01" class="scene">
         <div data-hf-id="hf-906g" id="f01-bg"></div>
@@ -104,57 +119,60 @@
           <div id="f02-l2" class="f02-line">A whole</div>
           <div id="f02-l3" class="f02-line">AI team.<div id="f02-rule"></div></div>
         </div>
+              <audio id="sx-f02-hit" src="assets/sfx/impact-bass-2.mp3" data-start="3.582" data-duration="1.991" data-track-index="40" data-volume="0.6"></audio>
+        <audio id="sx-f02-c1" src="assets/sfx/click.mp3" data-start="4.03" data-duration="0.366" data-track-index="41" data-volume="0.5"></audio>
+        <audio id="sx-f02-c2" src="assets/sfx/click.mp3" data-start="4.478" data-duration="0.366" data-track-index="42" data-volume="0.5"></audio>
       </div>
 
 <!-- 03-ask.html (5.373-8.955) -->
 <div id="f03" class="scene">
         <div id="f03-cam" data-layout-allow-overflow>
           <div id="f03-m1" class="clip f03-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html"
-            data-start="5.373" data-duration="3.582" data-track-index="1"
+            data-start="5.373" data-duration="3.732" data-track-index="1"
             data-variable-values='{"layout":"2+2","activeTab":"Chat","notifications":"9+","preroll":3}'
             style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
 
           <!-- slot 0 (194,168): the composer replaces the footer status line -->
           <div id="f03-m2" class="clip f03-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
-            data-start="5.373" data-duration="3.582" data-track-index="2"
+            data-start="5.373" data-duration="3.732" data-track-index="2"
             data-variable-values='{"title":"fix review on 579","countUp":false,"footer":false,"agents":2,"cost":"$4.12","time":"18m 04s","preroll":3}'
             style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
           <div id="f03-m3" class="clip f03-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
-            data-start="5.373" data-duration="3.582" data-track-index="3"
+            data-start="5.373" data-duration="3.732" data-track-index="3"
             data-variable-values='{"text":"Merged the editor upgrade. The build on main is green.","footer":false,"preroll":10}'
             style="left: 280px; top: 275.5px; width: 602px; height: 163.4px"></div>
           <div id="f03-m4" class="clip f03-m" data-composition-id="ptah-ui-composer" data-composition-src="compositions/components/ptah-ui-composer.html"
-            data-start="5.373" data-duration="3.582" data-track-index="4"
+            data-start="5.373" data-duration="3.732" data-track-index="4"
             data-variable-values='{"prompt":"fix the review on 579 and verify it","typeRate":16,"mode":"autopilot","cues":"0,0.3,0.448,2.687,2.937","busyFor":1.0,"focus":"send","focusAt":2.687}'
             style="left: 258.5px; top: 443.2px; width: 645px; height: 137.6px"></div>
 
           <!-- slots 1-3: Frame 1's end state -->
           <div id="f03-m5" class="clip f03-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
-            data-start="5.373" data-duration="3.582" data-track-index="5"
+            data-start="5.373" data-duration="3.732" data-track-index="5"
             data-variable-values='{"title":"continue editor upgrades","countUp":false,"preroll":3}'
             style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
           <div id="f03-m6" class="clip f03-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
-            data-start="5.373" data-duration="3.582" data-track-index="6"
+            data-start="5.373" data-duration="3.732" data-track-index="6"
             data-variable-values='{"text":"The spec is sound. I now spot-check key contracts: the shared constants and the CI job.","footer":false,"preroll":10}'
             style="left: 1086px; top: 275.5px; width: 602px; height: 163.4px"></div>
           <div id="f03-m7" class="clip f03-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html"
-            data-start="5.373" data-duration="3.582" data-track-index="7"
+            data-start="5.373" data-duration="3.732" data-track-index="7"
             data-variable-values='{"tool":"Bash","label":"Show git operation constants and the CI job","duration":"1.2s","preroll":3}'
             style="left: 1086px; top: 447.5px; width: 602px; height: 31px"></div>
           <div id="f03-m8" class="clip f03-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
-            data-start="5.373" data-duration="3.582" data-track-index="8"
+            data-start="5.373" data-duration="3.732" data-track-index="8"
             data-variable-values='{"title":"providers UX audit","countUp":false,"agents":3,"cost":"$2.37","time":"9m 51s","preroll":3}'
             style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
           <div id="f03-m9" class="clip f03-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
-            data-start="5.373" data-duration="3.582" data-track-index="9"
+            data-start="5.373" data-duration="3.732" data-track-index="9"
             data-variable-values='{"text":"Two lanes audit the providers screen. I merge their findings when both report back.","footer":false,"preroll":10}'
             style="left: 280px; top: 737.5px; width: 602px; height: 163.4px"></div>
           <div id="f03-m10" class="clip f03-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
-            data-start="5.373" data-duration="3.582" data-track-index="10"
+            data-start="5.373" data-duration="3.732" data-track-index="10"
             data-variable-values='{"title":"review memory work","countUp":false,"agents":1,"cost":"$1.08","time":"6m 12s","models":1,"preroll":3}'
             style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
           <div id="f03-m11" class="clip f03-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
-            data-start="5.373" data-duration="3.582" data-track-index="11"
+            data-start="5.373" data-duration="3.732" data-track-index="11"
             data-variable-values='{"text":"The memory curator looks right. The fallback path needs one more test.","footer":false,"preroll":10}'
             style="left: 1086px; top: 737.5px; width: 602px; height: 163.4px"></div>
         </div>
@@ -165,17 +183,83 @@
         <audio id="sx-f03-pop" src="assets/sfx/pop.mp3" data-start="8.173" data-duration="0.5" data-track-index="33" data-volume="0.45"></audio>
       </div>
 
-      <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="8.955" data-media-start="12.575" data-track-index="10" data-volume="0.6"></audio>
+<!-- 04-title-delegates.html (8.955-10.746) -->
+<div id="f04" class="scene">
+        <div id="f04-vig"></div>
+        <div id="f04-stage">
+          <div id="f04-w1" class="f04-word">It</div>
+          <div id="f04-w2" class="f04-word">delegates.</div>
+        </div>
+        <audio id="sx-f04-hit" src="assets/sfx/impact-bass-1.mp3" data-start="8.955" data-duration="1.991" data-track-index="40" data-volume="0.6"></audio>
+        <audio id="sx-f04-click" src="assets/sfx/click.mp3" data-start="9.403" data-duration="0.366" data-track-index="41" data-volume="0.5"></audio>
+      </div>
+
+<!-- 05-delegate.html (10.746-16.119) -->
+<div id="f05" class="scene">
+        <div id="f05-cam" data-layout-allow-overflow>
+          <div id="f05-m1" class="clip f05-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html"
+            data-start="10.746" data-duration="5.373" data-track-index="1"
+            data-variable-values='{"layout":"2+2","activeTab":"Chat","notifications":"9+","preroll":3}'
+            style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
+
+          <!-- slot 0 (194,168) -->
+          <div id="f05-m2" class="clip f05-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="10.746" data-duration="5.373" data-track-index="2"
+            data-variable-values='{"title":"fix review on 579","countUp":false,"agents":2,"cost":"$4.12","time":"18m 04s","preroll":3}'
+            style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f05-body" data-layout-allow-overflow>
+            <div id="f05-col">
+              <div id="f05-m3" class="clip f05-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
+                data-start="10.746" data-duration="5.373" data-track-index="3"
+                data-variable-values='{"text":"I will hand the review fixes to a **backend-developer** and verify the build after.","streamRate":8,"footer":false,"cues":"0,0.2"}'
+                style="left: 85px; top: 0; width: 602px; height: 163.4px"></div>
+              <div id="f05-m4" class="clip f05-m" data-composition-id="ptah-ui-subagent-bubble" data-composition-src="compositions/components/ptah-ui-subagent-bubble.html"
+                data-start="11.642" data-duration="4.477" data-track-index="4"
+                data-variable-values='{"agentType":"backend-developer","task":"Fix review on 579","state":"completed","showMessage":true,"message":"Also check the curator fallback path.","typeRate":30,"cues":"0,0.4,0.8,0.895,1.445,2.9,3.8","focus":"message-agent","focusAt":0.895,"dimOthers":1}'
+                style="left: 85px; top: 169.4px; width: 602px; height: 141.9px"></div>
+            </div>
+          </div>
+
+          <!-- slots 1-3: Frame 1's end state -->
+          <div id="f05-m5" class="clip f05-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="10.746" data-duration="5.373" data-track-index="5"
+            data-variable-values='{"title":"continue editor upgrades","countUp":false,"preroll":3}'
+            style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f05-m6" class="clip f05-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
+            data-start="10.746" data-duration="5.373" data-track-index="6"
+            data-variable-values='{"text":"The spec is sound. I now spot-check key contracts: the shared constants and the CI job.","footer":false,"preroll":10}'
+            style="left: 1086px; top: 275.5px; width: 602px; height: 163.4px"></div>
+          <div id="f05-m7" class="clip f05-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="10.746" data-duration="5.373" data-track-index="7"
+            data-variable-values='{"title":"providers UX audit","countUp":false,"agents":3,"cost":"$2.37","time":"9m 51s","preroll":3}'
+            style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
+          <div id="f05-m8" class="clip f05-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="10.746" data-duration="5.373" data-track-index="8"
+            data-variable-values='{"title":"review memory work","countUp":false,"agents":1,"cost":"$1.08","time":"6m 12s","models":1,"preroll":3}'
+            style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
+        </div>
+
+        <audio id="sx-f05-whoosh" src="assets/sfx/whoosh-short.mp3" data-start="10.746" data-duration="0.575" data-track-index="50" data-volume="0.45"></audio>
+        <audio id="sx-f05-pop" src="assets/sfx/pop.mp3" data-start="11.642" data-duration="0.5" data-track-index="51" data-volume="0.45"></audio>
+        <audio id="sx-f05-click" src="assets/sfx/click.mp3" data-start="12.537" data-duration="0.366" data-track-index="52" data-volume="0.55"></audio>
+        <audio id="sx-f05-typing" src="assets/sfx/typing.mp3" data-start="13.087" data-duration="1.25" data-track-index="53" data-volume="0.35"></audio>
+        <audio id="sx-f05-key" src="assets/sfx/key-press.mp3" data-start="14.542" data-duration="0.2" data-track-index="54" data-volume="0.6"></audio>
+        <audio id="sx-f05-chime" src="assets/sfx/chime.mp3" data-start="15.442" data-duration="0.677" data-track-index="55" data-volume="0.45"></audio>
+      </div>
+
+      <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="16.119" data-media-start="12.575" data-track-index="10" data-volume="0.6"></audio>
     </div>
     <script>
       (function () {
         const tl = HyperShader.init({
           bgColor: "#131317",
           accentColor: "#d4af37",
-          scenes: ["f01", "f02", "f03"],
+          scenes: ["f01", "f02", "f03", "f04", "f05"],
           transitions: [
           {"time":3.407,"shader":"glitch","duration":0.35},
-          {"time":5.173,"shader":"cinematic-zoom","duration":0.4}
+          {"time":5.173,"shader":"cinematic-zoom","duration":0.4},
+          {"time":8.805,"shader":"whip-pan","duration":0.3},
+          {"time":10.546,"shader":"cinematic-zoom","duration":0.4}
         ],
         });
 // 01-hook.html
@@ -253,6 +337,31 @@
             ease: "none",
           }, T0);
       })(tl, 5.373);
+// 04-title-delegates.html
+(function (tl, T0) {
+          var B = 0.448;
+          tl.fromTo("#f04-w1", { scale: 1.5, filter: "blur(14px)", opacity: 0 }, { scale: 1, filter: "blur(0px)", opacity: 1, duration: 0.36, ease: "power4.out" }, T0);
+          tl.fromTo("#f04-w2", { x: 420, opacity: 0 }, { x: 0, opacity: 1, duration: 0.38, ease: "expo.out" }, T0 + B);
+      })(tl, 8.955);
+// 05-delegate.html
+(function (tl, T0) {
+          function pose(s, fx, fy) { return { scale: s, x: 960 - s * fx, y: 540 - s * fy }; }
+          // Body centre (581, 404); Message agent button (~700, 460 after the scroll); stats footer (~581, 470).
+          var P0 = pose(2.0, 581, 404), P1 = pose(2.5, 581, 404), P2 = pose(3.0, 700, 460), P3 = pose(2.6, 581, 470);
+          tl.fromTo("#f05-cam", P0, {
+            keyframes: [
+              Object.assign({}, P1, { duration: 0.448, ease: "expo.out" }),
+              Object.assign({}, P1, { duration: 1.343, ease: "none" }),
+              Object.assign({}, P2, { duration: 0.4, ease: "expo.out" }),
+              Object.assign({}, P2, { duration: 1.391, ease: "none" }),
+              Object.assign({}, P3, { duration: 0.6, ease: "power3.inOut" }),
+              Object.assign({}, P3, { duration: 1.191, ease: "none" }),
+            ],
+            ease: "none",
+          }, T0);
+          // The transcript scrolls up as the subagent bubble arrives (beat 3), like the app's chat column.
+          tl.fromTo("#f05-col", { y: 0 }, { y: -44, duration: 0.45, ease: "power3.out" }, T0 + 0.896);
+      })(tl, 10.746);
         window.__timelines["main"] = tl;
       })();
     </script>
