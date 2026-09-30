@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Frame 9 - report delivered, pushed back</title>
+    <!-- Frame 9: Report delivered, pushed back (STORYBOARD.md). 5.373 s = 3 bars.
+         Lane Glm's ptah_agent_report row expands to "Report Delivered"; the camera swoops to slot 0 where the lane toast lands.
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. -->
+  </head>
+  <body>
+    <template>
+      <style>
+        #f09-cam { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
+        .f09-m { position: absolute; }
+        #f09-body { position: absolute; left: 195px; top: 266px; width: 772px; height: 275px; overflow: hidden; }
+        #f09-col { position: absolute; left: 0; top: -44px; width: 772px; height: 330px; }
+        #f09-drawer { position: absolute; left: 962px; top: 160px; width: 910px; height: 550px; box-shadow: -24px 0 48px rgba(0, 0, 0, 0.5); }
+      </style>
+
+      <div id="f09" class="scene" data-composition-id="f09" data-width="1920" data-height="1080" data-frame-start="25.074" data-frame-duration="5.373" data-seam-in="chromatic-split 0.35">
+        <div id="f09-cam" data-layout-allow-overflow>
+          <div id="f09-m1" class="clip f09-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html"
+            data-start="0" data-duration="5.373" data-track-index="1"
+            data-variable-values='{"layout":"2+2","activeTab":"Chat","notifications":"9+","preroll":3}'
+            style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
+
+          <!-- slot 0 (194,168): Frame 5's end state; the toast lands here -->
+          <div id="f09-m2" class="clip f09-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="2"
+            data-variable-values='{"title":"fix review on 579","countUp":false,"agents":2,"cost":"$4.12","time":"18m 04s","preroll":3}'
+            style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f09-body" data-layout-allow-overflow>
+            <div id="f09-col">
+              <div id="f09-m3" data-layout-ignore class="clip f09-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
+                data-start="0" data-duration="5.373" data-track-index="3"
+                data-variable-values='{"text":"I will hand the review fixes to a **backend-developer** and verify the build after.","footer":false,"preroll":10}'
+                style="left: 85px; top: 0; width: 602px; height: 163.4px"></div>
+              <div id="f09-m4" class="clip f09-m" data-composition-id="ptah-ui-subagent-bubble" data-composition-src="compositions/components/ptah-ui-subagent-bubble.html"
+                data-start="0" data-duration="5.373" data-track-index="4"
+                data-variable-values='{"agentType":"backend-developer","task":"Fix review on 579","state":"completed","showMessage":true,"message":"Also check the curator fallback path.","typeRate":30,"preroll":10}'
+                style="left: 85px; top: 169.4px; width: 602px; height: 141.9px"></div>
+            </div>
+          </div>
+
+          <div id="f09-m5" class="clip f09-m" data-layout-ignore data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="5"
+            data-variable-values='{"title":"continue editor upgrades","countUp":false,"preroll":3}'
+            style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f09-m6" class="clip f09-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="6"
+            data-variable-values='{"title":"providers UX audit","countUp":false,"agents":3,"cost":"$2.37","time":"9m 51s","preroll":3}'
+            style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
+          <div id="f09-m7" class="clip f09-m" data-layout-ignore data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="7"
+            data-variable-values='{"title":"review memory work","countUp":false,"agents":1,"cost":"$1.08","time":"6m 12s","models":1,"preroll":3}'
+            style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
+
+          <!-- Agents panel held in its completed state (Frame 7); the report row sits in lane Glm below its rows -->
+          <div id="f09-drawer" data-layout-allow-overflow>
+            <div id="f09-m8" data-layout-ignore class="clip f09-m" data-composition-id="ptah-ui-agents-panel" data-composition-src="compositions/components/ptah-ui-agents-panel.html"
+              data-start="0" data-duration="5.373" data-track-index="8"
+              data-variable-values='{"count":2,"lane1Name":"Glm","lane1Status":"completed","lane2Name":"Antigravity","lane2Status":"completed","rowGap":0.448,"preroll":10}'
+              style="left: 0; top: 0; width: 910px; height: 546px"></div>
+          </div>
+          <div id="f09-m9" class="clip f09-m" data-composition-id="ptah-ui-agent-report-card" data-composition-src="compositions/components/ptah-ui-agent-report-card.html"
+            data-start="0" data-duration="5.373" data-track-index="9"
+            data-variable-values='{"runFor":0.6,"cues":"0,0.3,0.9,1.25,1.6,1.8,9","focus":"heading","focusAt":1.343,"dimOthers":1}'
+            style="left: 980px; top: 500px; width: 488px; height: 153.4px; --bg: #131317"></div>
+
+          <!-- the lane toast lands bottom-right of slot 0, above its footer -->
+          <div id="f09-m10" class="clip f09-m" data-composition-id="ptah-ui-lane-completion-toast" data-composition-src="compositions/components/ptah-ui-lane-completion-toast.html"
+            data-start="3.582" data-duration="1.791" data-track-index="10"
+            data-variable-values='{"focus":"chip-verdict","focusAt":0.448,"dimOthers":1}'
+            style="left: 574px; top: 440px; width: 378px; height: 96.6px"></div>
+        </div>
+
+        <audio id="sx-f09-click" src="assets/sfx/click.mp3" data-start="0" data-duration="0.366" data-track-index="90" data-volume="0.5"></audio>
+        <audio id="sx-f09-sparkle" src="assets/sfx/sparkle.mp3" data-start="1.343" data-duration="0.9" data-track-index="91" data-volume="0.45"></audio>
+        <audio id="sx-f09-swoop" src="assets/sfx/whoosh-cinematic.mp3" data-start="2.687" data-duration="0.895" data-track-index="92" data-volume="0.5"></audio>
+        <audio id="sx-f09-note" src="assets/sfx/notification.mp3" data-start="3.582" data-duration="1.2" data-track-index="93" data-volume="0.5"></audio>
+        <audio id="sx-f09-pop" src="assets/sfx/pop.mp3" data-start="4.030" data-duration="0.5" data-track-index="94" data-volume="0.4"></audio>
+      </div>
+
+      <script>
+          function pose(s, fx, fy) { return { scale: s, x: 960 - s * fx, y: 540 - s * fy }; }
+          // Report card in lane Glm (centre 1224, 577) -> punch on its heading -> swoop to the toast in slot 0 (763, 488) -> punch on the verdict chip.
+          var P0 = pose(2.4, 1224, 560), P1 = pose(2.8, 1224, 570), P2 = pose(2.4, 740, 470), P3 = pose(2.9, 763, 490);
+          tl.fromTo("#f09-cam", P0, {
+            keyframes: [
+              Object.assign({}, P0, { duration: 1.343, ease: "none" }),
+              Object.assign({}, P1, { duration: 0.35, ease: "expo.out" }),
+              Object.assign({}, P1, { duration: 0.994, ease: "none" }),
+              Object.assign({}, P2, { duration: 0.895, ease: "expo.inOut" }),
+              Object.assign({}, P2, { duration: 0.448, ease: "none" }),
+              Object.assign({}, P3, { duration: 0.35, ease: "expo.out" }),
+              Object.assign({}, P3, { duration: 0.993, ease: "none" }),
+            ],
+            ease: "none",
+          }, T0);
+      </script>
+    </template>
+  </body>
+</html>
