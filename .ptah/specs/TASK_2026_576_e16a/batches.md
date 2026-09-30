@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 8/69
+Total tasks: 87 | Batches: 69 | Complete: 10/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -811,7 +811,7 @@ under "Execution defaults".
 - Each batch's "Reviewer" line below names the scope the phase-end review must cover for that batch; it is not a
   per-batch gate.
 
-## Batch 9: Ref guard (RC14) — IN_PROGRESS
+## Batch 9: Ref guard (RC14) — COMPLETE (7800dde50)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Rationale: guard + call-site edits in the hot-spot facade.
@@ -821,7 +821,7 @@ under "Execution defaults".
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`; real-git specs
   (`--testPathPatterns=real-git --passWithNoTests=false`); `npx nx run degradation-audit:lint`
 
-### Task 9.1: `assertSafeRef`/`assertSafeRevision` and `--end-of-options` at call sites — IN_PROGRESS
+### Task 9.1: `assertSafeRef`/`assertSafeRevision` and `--end-of-options` at call sites — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-ref-guard.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-ref-guard.spec.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ref-guard.real-git.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts
 - Plan reference: implementation-plan.md:497-525
@@ -846,6 +846,16 @@ under "Execution defaults".
      capture the assertion and return Batch 9 to backend-developer.
   3. Out of scope, noted: `libs/backend/rpc-handlers/src/lib/handlers/git-rpc.schema.ts:14` still names
      `validatePathSegment` as the guard.
+- Gate closed (orchestrator, 2026-09-30):
+  1. P1 fix e22402369 on the P1 branch (pushed, PR #611): `remote-stash`, `review` and `apply-hunks` specs spawn
+     real git and are renamed to `*.real-git.spec.ts` (the only three without the suffix; `main-loop-watchdog.spec.ts`
+     uses `mkdtempSync` but no git). P1 evidence: `vscode-core:test --coverage` 40 suites, 716 passed, thresholds
+     met; `test-real-git` 3 runs, 7 suites, 86 passed, 2 skipped. P2 rebased on e22402369.
+  2. The first P1 real-git attempt failed 2 tests (hooks, remote-stash; suites 220 s / 342 s) because an orphaned
+     `grep` from another session (7 GB, scan of `claude.exe`) loaded the machine; it was stopped with the user's
+     approval and the runs were repeated on a quiet machine.
+  3. P2 with Batch 9: `vscode-core:test --coverage` 41 suites, 793 passed, thresholds met; `test-real-git` 3 runs,
+     8 suites, 95 passed, 2 skipped. The kill-guard test passed in all three runs. Committed as 7800dde50.
 
 ## Batch 10: Branch switching backend (RC9) — PENDING
 
