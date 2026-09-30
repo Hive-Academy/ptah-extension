@@ -576,3 +576,57 @@ Acceptance for the gallery: every component animates exactly once; smallest text
 6. **Cursor.** Should button presses be accompanied by a synthetic mouse pointer (the screenshots show one)? Default is no pointer (press = scale and brighten only).
 7. **Frame rate.** 30 fps leaves the 128 BPM beat at 14.06 frames. Is 60 fps acceptable for the gallery (beat = 28.125 frames) or should the soundtrack be 125 BPM (beat = 14.4 frames) or 120 BPM (15 frames) for an exact grid?
 8. **Window chrome.** The screenshots show the Electron title bar and top nav (Chat / Apps / Tasks / Tribunal / Analytics). I did not read that source. Include a `frame = window` variant of `session-shell` (needs a read of `CH/templates/electron-shell.component.ts`), or keep tile-only?
+
+---
+
+### 4.11 `app-window`
+
+(Component 11 of section 4, appended after sections 5-6 so the existing sections stay unchanged.)
+
+Purpose: the wrapping Ptah desktop app frame, so a video can show several live sessions inside the real app (`REF/app-window-multi-session.png`). Components cannot nest, so the window draws only the chrome and EMPTY slot placeholders; hosts mount `ptah-ui-session-shell` instances on top of the slots at the rectangles below.
+Mirrors: `CH/templates/electron-shell.component.ts:100-118` (navbar `h-10 px-3 bg-base-200 border-b border-base-content/10`, logo `w-5 h-5` + "Ptah" `text-sm font-semibold text-base-content-muted`), `:124-182` (tabs-lifted: Chat LayoutGrid, Apps AppWindow, Tasks ClipboardList, Tribunal Scale, Analytics BarChart3, icons `w-3.5`), `:187-215` (global actions: config menu, theme toggle, notification center), `:233-240` (Workspaces rail), `CH/templates/app-shell.component.html:350` (Sessions rail), `CU/atoms/sidebar-tab.component.ts:30-75` (rail `w-6`/`w-8`, `writing-mode: vertical-rl`, left rails `rotate(180deg)`, `tracking-widest uppercase`), `CV/orchestra-canvas.component.ts:86` (dock row `px-3 py-1.5 border-b bg-base-200/50`), `:129-135` (New Session `btn-xs btn-primary`, Plus `w-3.5`, `text-xs font-medium`), `CV/canvas-layout-controls.component.ts:67` (Layout button `btn-xs btn-ghost border-base-content/10 bg-base-100/90`), `CV/canvas-workspace-grid.component.ts:197` (grid margin 8 = 16 app gutter, 32 kit), `CV/canvas-tile.component.ts:114-134` (tile border base-300, radius, focused `border-primary ring-2 ring-primary`), `libs/frontend/notification-center/src/lib/notification-center.component.ts:252` ("9+" cap).
+Design box: DW 1920 x DH 1080 (full frame, u = 1 at 1920x1080). Recommended mount 1920x1080 at 0,0.
+
+Anatomy (design px, `titleBar` false; `titleBar` true pushes everything below it down by `TB` = 56):
+- `titlebar` (optional): y 0 h 56, bg `#0e0e12`, 2px bottom rule base-content/6; 28px logo, menus File Edit View Window Help (26 muted), centered caption "Ptah - Coding Orchestra", window controls minus / square / x (80 wide each). Electron's native frame, not in the Angular source; drawn for OS-context shots only.
+- `top` bar: y TB, h 80, bg base-200, 2px bottom rule base-content/10. `brand` at x 24: logo 40 (variable `logo`) + "Ptah" 30/600 muted.
+- `nav` (focus part): tablist centered on x 960, top 10, h 70; tabs px 28, gap 12, icon 28 + label 30/500 muted; the active tab has label base-content and a lifted box behind it (bg base-100, 2px border base-content/16 without bottom edge, radius 12 12 0 0, bottom -2 so it cuts the bar rule).
+- `actions`: right 20; three 56 square icon buttons (sliders, palette, bell, 32 icons, muted); bell carries the `notifications` badge (error fill, base-content 26/700, pill h 34, min-w 36; hidden when empty).
+- `rails` (focus part = the left pair): Workspaces x 0 and Sessions x 48, each w 48 (`w-6` x2), bg base-100, 2px right rule base-content/10, from y TB+80 to 1080; label 26/600 uppercase, tracking .1em, muted, vertical, rotated 180 (reads bottom-to-top). The Agents rail (x 1872, w 48, 2px left rule) reads top-to-bottom.
+- `toolbar` (focus part, the canvas dock): x 96 to 1872, y TB+80, h 72, bg base-200/50, 2px bottom rule; right-aligned, gap 16, px 24: `Layout` (ghost: bg base-100/90, 2px border base-content/10, radius 12, h 48, px 18, layout-grid 28 + 28/500 base-content) and `New Session` (primary `#2563eb`, text `#f8f7f4`, same metrics, plus icon).
+- `slot-N` (focus parts `slot-0`..`slot-3`): placeholders bg base-100, 2px base-300 border, radius 16, empty. Every slot is 9:5 (the session-shell design aspect 1800:1000), so a session-shell mounted at the slot rectangle fills it edge to edge. Slots top-align at body top + 16 and centre horizontally on the content column (x 96-1872, centre 984); gaps 32 (30 between the stacked right slots of `1+2`).
+- `fring`: product focus ring on `focusedSlot`: 6px primary band at inset -4, radius 20. Its outer 4px stays visible around a session-shell mounted on top (the shell covers the inner 2px, exactly like the tile's `border-primary` + `ring-2`). Blue = product state; the kit focus beat stays gold (3.3).
+- `nring`: New Session highlight on the new slot: 4px dashed primary/85 at inset -4, fill primary/8.
+
+Slot rectangles (x, y, w, h in design px; equal to frame px at a 1920x1080 mount):
+
+| layout | slot | `titleBar` false | `titleBar` true |
+| ------ | ---- | ---------------- | --------------- |
+| `1` | 0 | 183, 168, 1602, 890 | 228, 224, 1512, 840 |
+| `2` | 0 | 113, 168, 855, 475 | 113, 224, 855, 475 |
+| `2` | 1 | 1000, 168, 855, 475 | 1000, 224, 855, 475 |
+| `1+2` | 0 | 117, 168, 1152, 640 | 117, 224, 1152, 640 |
+| `1+2` | 1 | 1301, 168, 549, 305 | 1301, 224, 549, 305 |
+| `1+2` | 2 | 1301, 503, 549, 305 | 1301, 559, 549, 305 |
+| `2+2` | 0 | 194, 168, 774, 430 | 248, 224, 720, 400 |
+| `2+2` | 1 | 1000, 168, 774, 430 | 1000, 224, 720, 400 |
+| `2+2` | 2 | 194, 630, 774, 430 | 248, 656, 720, 400 |
+| `2+2` | 3 | 1000, 630, 774, 430 | 1000, 656, 720, 400 |
+
+Scale note: a session-shell in a 2+2 slot renders at u = 0.43, below the 26 px floor (1.4). That is inherent to showing four live sessions in one frame (the reference screenshot has the same density); push the camera onto one slot (scale >= 2.3) when its text must be read.
+
+States: `activeTab` (which tab is lifted); `focusedSlot` ring on/off; `newSessionPress` (last slot held back, then springs in with the highlight); `titleBar` on/off; `notifications` badge shown/hidden.
+
+Variables:
+
+| id | type | default |
+| -- | ---- | ------- |
+| `layout` | enum `1` / `2` / `1+2` / `2+2` | `2+2` |
+| `activeTab` | enum Chat/Apps/Tasks/Tribunal/Analytics | `Chat` |
+| `notifications` | string | `9+` (empty hides the badge) |
+| `focusedSlot` | number | `-1` (none; 0-based slot index) |
+| `titleBar` | boolean | `false` |
+| `newSessionPress` | number | `-1` (seconds; none) |
+| `logo` | string | `assets/brand/ptah-icon.png` (host-relative) |
+
+Beats: c0 0.00 frame fades in 0.3s, title bar and top bar settle 16px from above, logo and action icons spring (0.09s stagger), badge springs at +0.55; c1 0.30 nav tabs spring with 0.09s stagger, then the active tab box slides 48px in from the left (`settle` ease 0.45s); c2 0.85 rails fade in (0.09s stagger); c3 1.10 dock row fades, Layout then New Session spring; c4 1.45 slots draw in (scale .96 to 1, opacity, `power3.out` 0.45s) 0.09s stagger; c5 = c4 + n x 0.09 + 0.35 `focusedSlot` ring fades in (`focus` ease 0.5s); `newSessionPress` t (clamped to >= c3 + 0.5): New Session `press`, at t + 0.2 the last slot springs in (scale .9 to 1, `back.out(1.6)`) with the highlight, which fades at t + 1.2. Suggested session-shell mount starts: c4 + 0.35 + i x 0.15. Focus parts: `nav`, `toolbar`, `rails`, `slot-0`..`slot-3` (dimming affects the window only, not the mounted shells).
