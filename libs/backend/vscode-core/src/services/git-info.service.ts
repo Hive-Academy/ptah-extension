@@ -45,6 +45,7 @@ import {
   type GitStashFileEntry,
   type BranchRef,
   type GitBranchesResult,
+  type GitCheckoutParams,
   type GitCheckoutResult,
   type StashEntry,
   type GitStashListResult,
@@ -250,6 +251,28 @@ function isStashIndex(index: number): boolean {
 
 function stashRef(index: number): string {
   return `stash@{${index}}`;
+}
+
+/**
+ * Paths git lists when it refuses a switch because local changes would be
+ * overwritten. Both refusals (tracked "Your local changes to the following
+ * files…" and "The following untracked working tree files…") end their header
+ * with "would be overwritten by <op>:" and list one tab-indented path per line.
+ * `execGit` pins `LC_ALL=C`, so the English text is stable.
+ */
+function parseOverwrittenPaths(stderr: string): string[] {
+  const paths: string[] = [];
+  let inList = false;
+  for (const line of stderr.split(/\r?\n/)) {
+    if (/would be overwritten by \S+:$/.test(line)) {
+      inList = true;
+    } else if (inList && line.startsWith('\t')) {
+      paths.push(line.slice(1));
+    } else {
+      inList = false;
+    }
+  }
+  return paths;
 }
 
 /**
@@ -2448,18 +2471,31 @@ export class GitInfoService {
   }
 
   /**
-   * Checkout a branch, creating it if requested.
+   * Switch branches with `git switch` semantics (TASK_2026_576 RC9).
+   *
+   * - `createNew`: `switch -c <branch>` — local changes, untracked files
+   *   included, are carried onto the new branch.
+   * - otherwise git itself decides whether local changes block the switch
+   *   (no `status --porcelain` pre-check). A refusal is reported as
+   *   `{ dirty: true, conflictingPaths }` parsed from git's own list.
+   * - `force`: `switch --discard-changes` (takes precedence over `stash`).
+   * - `options.stash`: `stash push --include-untracked`, then switch. On
+   *   success the entry's SHA is returned as `stashRef`; if the switch fails
+   *   the entry is popped back, and if that pop fails too both errors are
+   *   reported and the entry is kept.
+   * - `options.track` with a remote-tracking ref `origin/x`: switch to local
+   *   `x` when it exists, else `switch --track origin/x`. `git switch` never
+   *   detaches HEAD without `--detach`, which is never passed.
    *
    * Security: `assertSafeRef(branch)` runs before any git operation, and the
-   * branch is either `-b`'s bound value or follows `--end-of-options`.
-   * Dirty-tree guard: if `force` is not set and the working tree has changes,
-   * returns `{ success: false, dirty: true }` without running checkout.
+   * branch is either `-c`'s bound value or follows `--end-of-options`.
    */
   async checkout(
     workspacePath: string,
     branch: string,
     createNew?: boolean,
     force?: boolean,
+    options: Pick<GitCheckoutParams, 'stash' | 'track'> = {},
   ): Promise<GitCheckoutResult> {
     try {
       try {
@@ -2468,27 +2504,24 @@ export class GitInfoService {
         return { success: false, error: 'Invalid branch name' };
       }
 
-      const args = ['checkout'];
-      if (force) args.push('--force');
-      if (createNew) args.push('-b', branch);
-      else args.push('--end-of-options', branch);
-
       return await this.writeLock.run(workspacePath, async () => {
-        if (!force) {
-          const status = await this.execGit(
-            ['status', '--porcelain'],
-            workspacePath,
-          );
-          if (status.exitCode === 0 && status.stdout.trim()) {
-            return { success: false, dirty: true };
-          }
+        if (createNew) {
+          return this.runSwitch(workspacePath, ['switch', '-c', branch]);
         }
-        return writeOutcome(
-          await this.writeLock.execWrite(args, workspacePath, {
-            timeoutMs: GIT_HOOK_TIMEOUT_MS,
-          }),
-          'checkout failed',
-        );
+        const target = options.track
+          ? await this.resolveTrackTarget(workspacePath, branch)
+          : ['--end-of-options', branch];
+        if (force) {
+          return this.runSwitch(workspacePath, [
+            'switch',
+            '--discard-changes',
+            ...target,
+          ]);
+        }
+        if (options.stash) {
+          return this.stashAndSwitch(workspacePath, branch, target);
+        }
+        return this.runSwitch(workspacePath, ['switch', ...target]);
       });
     } catch (error) {
       const outcome = thrownOutcome(error);
@@ -2499,6 +2532,144 @@ export class GitInfoService {
       } as unknown as Error);
       return outcome;
     }
+  }
+
+  /** One `git switch`; an overwrite refusal becomes `dirty` + paths. */
+  private async runSwitch(
+    workspacePath: string,
+    args: string[],
+  ): Promise<GitCheckoutResult> {
+    const run = await this.writeLock.execWrite(args, workspacePath, {
+      timeoutMs: GIT_HOOK_TIMEOUT_MS,
+    });
+    const outcome: GitCheckoutResult = writeOutcome(run, 'git switch failed');
+    if (outcome.success || run.code !== 'COMPLETED') return outcome;
+    const conflictingPaths = parseOverwrittenPaths(run.stderr);
+    return conflictingPaths.length > 0
+      ? { ...outcome, dirty: true, conflictingPaths }
+      : outcome;
+  }
+
+  /**
+   * The `switch` arguments for `track`: a remote-tracking ref `origin/x`
+   * becomes local `x` when that branch exists, otherwise `--track origin/x`
+   * (git names the new branch `x`). Anything else is switched to as given,
+   * which `git switch` refuses for a remote ref rather than detaching.
+   */
+  private async resolveTrackTarget(
+    workspacePath: string,
+    branch: string,
+  ): Promise<string[]> {
+    const slash = branch.indexOf('/');
+    const remote = await this.execGit(
+      ['rev-parse', '--verify', '--quiet', `refs/remotes/${branch}`],
+      workspacePath,
+    );
+    if (slash <= 0 || remote.exitCode !== 0) {
+      return ['--end-of-options', branch];
+    }
+    const local = branch.slice(slash + 1);
+    const existing = await this.execGit(
+      ['rev-parse', '--verify', '--quiet', `refs/heads/${local}`],
+      workspacePath,
+    );
+    return existing.exitCode === 0
+      ? ['--end-of-options', local]
+      : ['--track', '--end-of-options', branch];
+  }
+
+  /**
+   * `stash push --include-untracked`, then switch. A clean tree creates no
+   * entry (git exits 0 with "No local changes to save"), so the entry is
+   * recognised by `refs/stash` moving, never by parsing git's message.
+   */
+  private async stashAndSwitch(
+    workspacePath: string,
+    branch: string,
+    target: string[],
+  ): Promise<GitCheckoutResult> {
+    const before = await this.readStashTip(workspacePath);
+    const pushed = writeOutcome(
+      await this.writeLock.execWrite(
+        [
+          'stash',
+          'push',
+          '--include-untracked',
+          '-m',
+          `ptah: before switching to ${branch}`,
+        ],
+        workspacePath,
+        { timeoutMs: GIT_HOOK_TIMEOUT_MS },
+      ),
+      'git stash push failed',
+    );
+    if (!pushed.success) return pushed;
+    const after = await this.readStashTip(workspacePath);
+    const saved = after !== undefined && after !== before ? after : undefined;
+
+    const switched = await this.runSwitch(workspacePath, ['switch', ...target]);
+    if (switched.success) {
+      return saved ? { ...switched, stashRef: saved } : switched;
+    }
+    if (!saved) return switched;
+
+    const restored = await this.popStashEntry(workspacePath, saved);
+    if (restored.success) return switched;
+    this.logger.warn(
+      '[GitInfoService] switch failed and the stash could not be restored',
+      {
+        workspacePath,
+        branch,
+        stash: saved,
+        error: restored.error,
+      } as unknown as Error,
+    );
+    return {
+      ...switched,
+      error:
+        `${switched.error ?? 'git switch failed'}\n` +
+        `Restoring your stashed changes also failed: ${restored.error ?? 'git stash pop failed'}\n` +
+        `Your changes are kept in the stash (${saved.slice(0, 7)}).`,
+      stashRef: saved,
+    };
+  }
+
+  /** SHA of `refs/stash`, or undefined when there is no stash. */
+  private async readStashTip(
+    workspacePath: string,
+  ): Promise<string | undefined> {
+    const tip = await this.execGit(
+      ['rev-parse', '--verify', '--quiet', 'refs/stash'],
+      workspacePath,
+    );
+    const sha = tip.stdout.trim();
+    return tip.exitCode === 0 && sha ? sha : undefined;
+  }
+
+  /**
+   * Pop the entry whose commit is `sha`, found by position at pop time: the
+   * stash stack is shared with every other git client of this repository.
+   */
+  private async popStashEntry(
+    workspacePath: string,
+    sha: string,
+  ): Promise<GitCheckoutResult> {
+    const list = await this.execGit(
+      ['stash', 'list', '--format=%H'],
+      workspacePath,
+    );
+    const index = list.stdout.split(/\r?\n/).indexOf(sha);
+    if (list.exitCode !== 0 || index < 0) {
+      return { success: false, error: 'The stash entry was not found' };
+    }
+    return writeOutcome(
+      await this.writeLock.execWrite(
+        ['stash', 'pop', stashRef(index)],
+        workspacePath,
+        { timeoutMs: GIT_HOOK_TIMEOUT_MS },
+      ),
+      'git stash pop failed',
+    );
   }
 
   /**

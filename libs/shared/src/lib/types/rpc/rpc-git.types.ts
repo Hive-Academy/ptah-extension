@@ -631,8 +631,19 @@ export interface GitCheckoutParams extends GitWorkspaceScopedParams {
   branch: string;
   /** Whether to create a new branch (-b flag) */
   createNew?: boolean;
-  /** Force checkout even with a dirty working tree (--force flag) */
+  /** Discard local changes that would block the switch (`--discard-changes`) */
   force?: boolean;
+  /**
+   * Stash local changes (untracked files included) before switching. On
+   * success the result carries `stashRef`; if the switch fails the stash is
+   * popped back.
+   */
+  stash?: boolean;
+  /**
+   * `branch` names a remote-tracking ref (`origin/x`): switch to local `x`
+   * when it exists, otherwise create it tracking the remote. Never detaches.
+   */
+  track?: boolean;
 }
 
 /** Result from git:checkout RPC method */
@@ -641,8 +652,16 @@ export interface GitCheckoutResult {
   error?: string;
   /** Machine-readable failure reason; present only when `success` is false. */
   code?: GitMutationFailureCode;
-  /** True when working tree had uncommitted changes and force=false caused the checkout to abort */
+  /** True when git refused the switch because local changes would be overwritten */
   dirty?: boolean;
+  /** With `dirty`: the paths git listed as would-be-overwritten */
+  conflictingPaths?: string[];
+  /**
+   * Commit SHA of the stash entry holding the changes set aside by
+   * `stash: true`. Present on success, and on failure when popping the stash
+   * back also failed (the entry is kept so nothing is lost).
+   */
+  stashRef?: string;
 }
 
 /** Single git stash entry */

@@ -623,8 +623,8 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       await service.getBranches(WS, false);
       expect(mockSpawn).toHaveBeenCalledTimes(1);
 
-      // force=true skips the dirty-tree probe and goes straight to the
-      // `checkout` spawn, which `isMutatingGitCommand` recognises.
+      // force=true is a single `switch --discard-changes` spawn, which
+      // `isMutatingGitCommand` recognises.
       await service.checkout(WS, 'other', false, true);
       await service.getBranches(WS, false);
 
@@ -669,21 +669,35 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   // ==========================================================================
 
   describe('checkout()', () => {
-    it('returns { success: false, dirty: true } when status --porcelain has output and force=false', async () => {
-      // First call: status --porcelain (returns dirty output)
+    it('reports dirty + conflictingPaths when git refuses the switch (no status pre-check)', async () => {
       mockSpawn.mockImplementationOnce(() =>
-        makeSpawnResult({ stdout: ' M src/index.ts\n', exitCode: 0 }),
+        makeSpawnResult({
+          stdout: '',
+          stderr:
+            'error: Your local changes to the following files would be overwritten by checkout:\n' +
+            '\tsrc/index.ts\n' +
+            'Please commit your changes or stash them before you switch branches.\n' +
+            'Aborting\n',
+          exitCode: 1,
+        }),
       );
 
       const result = await service.checkout(WS, 'feat/x', false, false);
 
-      expect(result).toEqual({ success: false, dirty: true });
-      // Checkout itself should NOT have been called
+      expect(result).toMatchObject({
+        success: false,
+        dirty: true,
+        conflictingPaths: ['src/index.ts'],
+      });
       expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'switch',
+        '--end-of-options',
+        'feat/x',
+      ]);
     });
 
-    it('proceeds with checkout when force=true even if status shows dirty tree', async () => {
-      // Only the checkout call — status is skipped when force=true
+    it('runs switch --discard-changes when force=true', async () => {
       mockSpawn.mockImplementationOnce(() =>
         makeSpawnResult({ stdout: '', exitCode: 0 }),
       );
@@ -691,11 +705,13 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       const result = await service.checkout(WS, 'feat/x', false, true);
 
       expect(result).toEqual({ success: true });
-      // Only 1 call: the checkout; status was skipped
       expect(mockSpawn).toHaveBeenCalledTimes(1);
-      const args: string[] = mockSpawn.mock.calls[0][1] as string[];
-      expect(args).toContain('--force');
-      expect(args).toContain('feat/x');
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'switch',
+        '--discard-changes',
+        '--end-of-options',
+        'feat/x',
+      ]);
     });
 
     it('returns { success: false, error: "Invalid branch name" } for path traversal attempt', async () => {
@@ -706,21 +722,15 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       expect(mockSpawn).not.toHaveBeenCalled();
     });
 
-    it('returns { success: true } for clean tree when force=false', async () => {
-      let callIdx = 0;
-      mockSpawn.mockImplementation(() => {
-        callIdx++;
-        if (callIdx === 1) {
-          // status --porcelain: clean
-          return makeSpawnResult({ stdout: '', exitCode: 0 });
-        }
-        // checkout call
-        return makeSpawnResult({ stdout: '', exitCode: 0 });
-      });
+    it('returns { success: true } when git switch succeeds', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: '', exitCode: 0 }),
+      );
 
       const result = await service.checkout(WS, 'main', false, false);
 
       expect(result).toEqual({ success: true });
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
     });
   });
 
