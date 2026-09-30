@@ -77,3 +77,16 @@ Scope item 3, path C, moved to TASK_2026_564_87a6 (backlog).
 Open (phase 3): decide the reasoning carry-over policy (`phase-3-options.md`: `reasoning.encrypted_content` include/replay, `previous_response_id`, `store`). This needs a live probe of the ChatGPT subscription endpoint, which the user must authorize first (probe plan in `phase-3-options.md`; it also resolves the overflow-pattern assumption, probe P7).
 
 Known limits: an overflow reported after partial streamed output is retried, not compacted; `[DONE]`-only streams end as `end_turn`. See `ownership.md`.
+
+## Phase 3 decision (2026-10-01) - CLOSED
+
+The user accepted Option A from `phase-3-options.md`:
+
+- The translation proxy stays stateless: `store: false`, no `previous_response_id`, no `include: ["reasoning.encrypted_content"]`, no reasoning carry-over between turns.
+- No code change. PR #602 shipped all code for this task.
+- The live probe (P1-P7) is not authorized and is not part of this task. If someone wants Option B later, file the probe as a separate spike. Probe P7 (real overflow message shape) goes with that spike.
+- Options C and D stay rejected for the translation proxy. The native Codex adapter remains the stateful path.
+
+Deferred scope stays with its follow-up tasks: model-window and compaction policy in TASK_2026_561_9e57, prompt-cache efficiency in TASK_2026_562_4b1d, CLI workspace proxy path C in TASK_2026_564_87a6.
+
+Status: `done`. The `partial` label is removed.
