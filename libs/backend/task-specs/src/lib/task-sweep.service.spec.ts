@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import type { TaskSpecSummary } from '@ptah-extension/shared';
-import { TaskSweepService, type ISweepGitProbe } from './task-sweep.service';
+import { TaskSweepService, trackedCarrierFolders } from './task-sweep.service';
 
 const ROOT = 'D:\\ws';
 const NOW = Date.parse('2026-08-11T12:00:00.000Z');
@@ -36,10 +36,21 @@ interface Harness {
   service: TaskSweepService;
   deleted: string[];
   deleteMock: jest.Mock;
-  showFile: jest.Mock;
+  exec: jest.Mock;
 }
 
-function build(committed: (taskId: string) => boolean = () => true): Harness {
+/** `committed` answers for the ids named in the tasks a test sweeps. */
+function build(
+  committed: (taskId: string) => boolean = () => true,
+  ids: readonly string[] = [
+    'TASK_A',
+    'TASK_B',
+    'TASK_C',
+    'TASK_OLD',
+    'TASK_NEW',
+    'TASK_MID',
+  ],
+): Harness {
   const deleted: string[] = [];
   const deleteMock = jest.fn(async (p: string) => {
     deleted.push(p);
@@ -50,16 +61,19 @@ function build(committed: (taskId: string) => boolean = () => true): Harness {
     info: jest.fn(),
     error: jest.fn(),
   } as never;
-  const showFile = jest.fn(async (_root: string, relative: string) => {
-    const id = relative.split('/')[2] ?? '';
-    return { content: committed(id) ? 'id: x\n' : '' };
-  });
-  const git: ISweepGitProbe = { showFile };
+  const exec = jest.fn(async () => ({
+    stdout: ids
+      .filter(committed)
+      .map((id) => `.ptah/specs/${id}/task.md\0`)
+      .join(''),
+    stderr: '',
+    exitCode: 0,
+  }));
   return {
-    service: new TaskSweepService(fs, logger, git),
+    service: new TaskSweepService(fs, logger, exec),
     deleted,
     deleteMock,
-    showFile: showFile as unknown as jest.Mock,
+    exec,
   };
 }
 
@@ -246,9 +260,15 @@ describe('TaskSweepService', () => {
    * Outside a repo, or with git unavailable, NOTHING is committed and therefore
    * nothing is deletable. Failing closed is the only safe direction here.
    */
-  it('deletes nothing when the git probe throws', async () => {
+  it.each([
+    ['throws', () => Promise.reject(new Error('not a git repository'))],
+    [
+      'exits non-zero',
+      () => Promise.resolve({ stdout: '', stderr: 'fatal', exitCode: 128 }),
+    ],
+  ])('deletes nothing when the git probe %s', async (_l, failure) => {
     const h = build();
-    h.showFile.mockRejectedValue(new Error('not a git repository'));
+    h.exec.mockImplementation(failure);
     const result = await h.service.sweep(
       ROOT,
       [task('TASK_A', 'done', daysAgo(30))],
@@ -262,18 +282,57 @@ describe('TaskSweepService', () => {
     ]);
   });
 
-  it('probes git with a POSIX pathspec, never a Windows path', async () => {
+  /**
+   * One spawn per candidate cost seconds each on Windows, and ninety of them
+   * timed the preview out. The probe must not scale with the candidate count.
+   */
+  it('runs one git process for the whole run, with a POSIX pathspec', async () => {
     const h = build();
     await h.service.sweep(
       ROOT,
-      [task('TASK_A', 'done', daysAgo(30))],
+      [
+        task('TASK_A', 'done', daysAgo(30)),
+        task('TASK_B', 'done', daysAgo(31)),
+        task('TASK_C', 'cancelled', daysAgo(32)),
+      ],
       7,
       false,
       NOW,
     );
-    const [, relative] = h.showFile.mock.calls[0];
-    expect(relative).toBe('.ptah/specs/TASK_A/task.md');
-    expect(String(relative)).not.toContain('\\');
+    expect(h.exec).toHaveBeenCalledTimes(1);
+    const [args] = h.exec.mock.calls[0] as unknown as [string[]];
+    expect(args).toEqual([
+      'ls-tree',
+      '-r',
+      '--name-only',
+      '-z',
+      'HEAD',
+      '--',
+      '.ptah/specs/',
+    ]);
+  });
+
+  it('runs no git process when nothing is a candidate', async () => {
+    const h = build();
+    await h.service.sweep(
+      ROOT,
+      [task('TASK_A', 'in_progress', daysAgo(30))],
+      7,
+      false,
+      NOW,
+    );
+    expect(h.exec).not.toHaveBeenCalled();
+  });
+
+  it('counts a folder as committed only when git holds its carrier', () => {
+    const stdout = [
+      '.ptah/specs/TASK_A/task.md',
+      '.ptah/specs/TASK_B/review.md',
+      '.ptah/specs/TASK_C/nested/task.md',
+      '.ptah/specs/registry.md',
+      '',
+    ].join('\0');
+    expect([...trackedCarrierFolders(stdout)]).toEqual(['TASK_A']);
   });
 
   // ---------------------------------------------------------------------------

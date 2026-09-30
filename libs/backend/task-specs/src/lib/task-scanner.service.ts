@@ -15,6 +15,7 @@ import {
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { parseTaskFile } from './task-frontmatter';
+import { isResidueFolder } from './task-folder-residue';
 
 /** A scanned, included task — summary plus its markdown body. */
 export type ScannedTask = TaskSpecSummary & { body: string };
@@ -63,7 +64,9 @@ export interface TaskScanResult {
 
 type FolderScanResult =
   | { task: ScannedTask; excluded?: never }
-  | { task?: never; excluded: ExcludedTaskFolder };
+  | { task?: never; excluded: ExcludedTaskFolder }
+  /** Residue of a removed task — neither a task nor worth reporting. */
+  | { task?: never; excluded?: never };
 
 /** Keep filesystem pressure bounded while still overlapping independent reads. */
 const SCAN_CONCURRENCY = 8;
@@ -155,7 +158,7 @@ export class TaskScannerService {
     const excluded: ExcludedTaskFolder[] = [];
     for (const result of results) {
       if (result.task) tasks.push(result.task);
-      else excluded.push(result.excluded);
+      else if (result.excluded) excluded.push(result.excluded);
     }
 
     this.mergeCrossFileIssues(tasks);
@@ -216,6 +219,7 @@ export class TaskScannerService {
       raw = await this.fs.readFile(carrier);
     } catch (error: unknown) {
       if (isMissingFileError(error)) {
+        if (await this.isResidue(path.join(specsDir, folderName))) return {};
         return { excluded: { folderName, reason: 'no_carrier' } };
       }
       this.logger.warn('[task-specs] folder unreadable', {
@@ -230,5 +234,15 @@ export class TaskScannerService {
       return { excluded: result.excluded };
     }
     return { task: { ...result.task, body: result.body } };
+  }
+
+  /** An unreadable folder is NOT residue: it stays reported as `no_carrier`. */
+  private async isResidue(folderPath: string): Promise<boolean> {
+    try {
+      const entries = await this.fs.readDirectory(folderPath);
+      return isResidueFolder(entries.map((e) => e.name));
+    } catch {
+      return false;
+    }
   }
 }
