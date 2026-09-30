@@ -16,6 +16,28 @@ import {
 } from '../services/member-theme.service';
 import { AccountPage } from './account-page';
 
+import {
+  loadScopeTranslations,
+  provideI18nTesting,
+  type I18nTestingOptions,
+} from '@ptah-extension/i18n/testing';
+import { PANEL_UI_I18N_SCOPE } from '@ptah-web/panel-ui';
+import { UI_I18N_SCOPE } from '@ptah-web/ui';
+
+/**
+ * The panel-ui chrome this spec renders (and the shell's language switch,
+ * `ui`) reads translation keys, so the i18n runtime is provided with the real
+ * `panelUi` and `ui` scopes (libs/frontend/i18n/CLAUDE.md, spec recipe).
+ */
+let panelI18n: I18nTestingOptions['translations'];
+beforeAll(async () => {
+  const [panelUi, ui] = await Promise.all([
+    loadScopeTranslations(PANEL_UI_I18N_SCOPE),
+    loadScopeTranslations(UI_I18N_SCOPE),
+  ]);
+  panelI18n = { en: { panelUi: panelUi.en, ui: ui.en } };
+});
+
 const ME = '/api/v1/auth/me';
 const LOGOUT = '/api/v1/auth/logout';
 
@@ -81,6 +103,7 @@ describe('AccountPage (R9.6, R9.7, NFR-U1–U5)', () => {
     TestBed.configureTestingModule({
       imports: [AccountPage],
       providers: [
+        provideI18nTesting({ translations: panelI18n }),
         provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),

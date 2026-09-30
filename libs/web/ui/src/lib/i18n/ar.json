@@ -1,0 +1,72 @@
+{
+  "common": {
+    "language": "اللغة",
+    "logoAlt": "شعار Ptah"
+  },
+  "nav": {
+    "ariaLabel": "التنقل الرئيسي",
+    "homeAriaLabel": "الصفحة الرئيسية لـ Ptah",
+    "toggleMenu": "فتح قائمة التنقل أو إغلاقها",
+    "mobileMenuAriaLabel": "قائمة التنقل على الجوال",
+    "product": "المنتج",
+    "features": "المزايا",
+    "builders": "برنامج Builders",
+    "pricing": "الأسعار",
+    "pricingAriaLabel": "عرض خطط الأسعار",
+    "docs": "الوثائق",
+    "docsAriaLabel": "عرض الوثائق",
+    "community": "المجتمع",
+    "login": "تسجيل الدخول",
+    "loginAriaLabel": "سجّل الدخول إلى حسابك",
+    "signUp": "إنشاء حساب",
+    "signUpAriaLabel": "أنشئ حسابًا",
+    "download": "تنزيل Ptah",
+    "downloadAriaLabel": "تنزيل تطبيق Ptah لسطح المكتب",
+    "accountMenu": "قائمة الحساب",
+    "account": "الحساب",
+    "members": "الأعضاء",
+    "profile": "الملف الشخصي",
+    "logout": "تسجيل الخروج"
+  },
+  "footer": {
+    "tagline": "Ptah تطبيق سطح مكتب للبرمجة بالذكاء الاصطناعي، دائم ومتعدد الوكلاء. اختر النموذج الذي تريده — دون تقييد.",
+    "poweredBy": "مدعوم بواسطة Claude Agent SDK",
+    "columnAriaLabel": "روابط {{ title }}",
+    "columns": {
+      "product": "المنتج",
+      "community": "المجتمع",
+      "legal": "قانوني"
+    },
+    "links": {
+      "download": "التنزيل",
+      "pricing": "الأسعار",
+      "vsCodeExtension": "إضافة VS Code",
+      "cliDocs": "وثائق CLI",
+      "documentation": "الوثائق",
+      "privacy": "الخصوصية",
+      "terms": "الشروط",
+      "refundPolicy": "سياسة الاسترداد"
+    },
+    "social": {
+      "discord": "انضم إلى خادم Discord",
+      "github": "عرض على GitHub",
+      "reddit": "انضم إلى مجتمع Reddit",
+      "linkedin": "تابعنا على LinkedIn"
+    },
+    "copyright": "© 2026 Ptah Extension. جميع الحقوق محفوظة.",
+    "strapline": "وكيل برمجة دائم بالذكاء الاصطناعي للمطورين."
+  },
+  "countdown": {
+    "closing": "باب التقديم يُغلَق",
+    "days": "أيام",
+    "hours": "ساعات",
+    "minutes": "دقائق",
+    "seconds": "ثوانٍ",
+    "ariaLabel": "متبقٍّ {{ days }} يوم، و{{ hours }} ساعة، و{{ minutes }} دقيقة، و{{ seconds }} ثانية"
+  },
+  "sessionCalendar": {
+    "hasMeetLink": "يتضمن رابط Meet",
+    "guestsInvited": "ضيوف مدعوون",
+    "loading": "جارٍ تحميل الجلسات"
+  }
+}

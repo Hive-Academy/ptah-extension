@@ -2,6 +2,8 @@ import {
   afterNextRender,
   ChangeDetectionStrategy,
   Component,
+  computed,
+  DestroyRef,
   inject,
   signal,
 } from '@angular/core';
@@ -20,6 +22,7 @@ import { NavigationComponent } from '@ptah-web/ui';
 import { FooterComponent } from '@ptah-web/ui';
 import { GitHubReleaseService } from '@ptah-web/core';
 import { SeoService } from '@ptah-web/core';
+import { I18nService, TranslocoPipe } from '@ptah-extension/i18n';
 import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 
 @Component({
@@ -32,6 +35,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
     ViewportAnimationDirective,
     LucideAngularModule,
     ConsoleGridBackgroundComponent,
+    TranslocoPipe,
   ],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
@@ -49,15 +53,14 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
             [viewportConfig]="headlineConfig"
             class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-tight mb-4"
           >
-            Downloads
+            {{ 'app.download.hero.title' | transloco }}
           </h1>
           <p
             viewportAnimation
             [viewportConfig]="subheadlineConfig"
             class="text-lg sm:text-xl text-ink-400 max-w-2xl leading-relaxed"
           >
-            Download the Ptah Desktop app for Windows, macOS, or Linux.
-            Auto-updates keep you on the latest version.
+            {{ 'app.download.hero.subtitle' | transloco }}
           </p>
         </div>
       </div>
@@ -70,19 +73,24 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
             <div
               class="w-10 h-10 border-2 border-secondary/30 border-t-secondary rounded-full animate-spin"
             ></div>
-            <p class="text-neutral-content text-sm">Loading releases...</p>
+            <!-- The inner span keeps the prerendered text free of the
+                 surrounding whitespace (prerender baseline: "...Ptah"). -->
+            <p class="text-neutral-content text-sm">
+              <span>{{ 'app.download.loading' | transloco }}</span>
+            </p>
           </div>
-        } @else if (error()) {
+        } @else if (error(); as msg) {
           <!-- Error State -->
           <div
             class="rounded-2xl border border-error/20 bg-error/5 p-8 text-center"
           >
-            <p class="text-error mb-4">{{ error() }}</p>
+            <!-- i18n-keys: core.releases.* -->
+            <p class="text-error mb-4">{{ msg.key | transloco: msg.params }}</p>
             <button
               (click)="retry()"
               class="btn btn-sm btn-outline border-secondary/30 text-secondary hover:bg-secondary hover:text-base-100"
             >
-              Try Again
+              {{ 'app.download.retry' | transloco }}
             </button>
           </div>
         } @else {
@@ -108,11 +116,11 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                   "
                 >
                   <div class="flex items-center gap-4">
-                    <span class="text-sm text-neutral-content font-medium"
-                      >Version</span
-                    >
+                    <span class="text-sm text-neutral-content font-medium">{{
+                      'app.download.release.version' | transloco
+                    }}</span>
                     <span
-                      class="text-lg font-display font-bold"
+                      class="ltr-island text-lg font-display font-bold"
                       [class]="i === 0 ? 'text-secondary' : 'text-base-content'"
                     >
                       {{ release.version }}
@@ -121,7 +129,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                       <span
                         class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-secondary/15 text-secondary border border-secondary/20"
                       >
-                        Latest
+                        {{ 'app.download.release.latest' | transloco }}
                       </span>
                     }
                     <span
@@ -148,7 +156,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                   class="mt-2 rounded-2xl border border-secondary/10 bg-base-200/30 overflow-hidden"
                 >
                   <div
-                    class="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-secondary/10"
+                    class="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x md:rtl:divide-x-reverse divide-secondary/10"
                   >
                     <!-- macOS -->
                     <div class="p-6">
@@ -181,16 +189,16 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                             <p
                               class="text-sm text-neutral-content group-hover/dl:text-secondary transition-colors"
                             >
-                              {{ asset.label }}
+                              <span class="ltr-island">{{ asset.label }}</span>
                             </p>
                             <p class="text-xs text-neutral-content/40">
-                              {{ asset.size }}
+                              <span class="ltr-island">{{ asset.size }}</span>
                             </p>
                           </div>
                         </a>
                       } @empty {
                         <p class="text-sm text-neutral-content/40 italic px-2">
-                          No macOS builds
+                          {{ 'app.download.platforms.macosEmpty' | transloco }}
                         </p>
                       }
                     </div>
@@ -226,16 +234,18 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                             <p
                               class="text-sm text-neutral-content group-hover/dl:text-secondary transition-colors"
                             >
-                              {{ asset.label }}
+                              <span class="ltr-island">{{ asset.label }}</span>
                             </p>
                             <p class="text-xs text-neutral-content/40">
-                              {{ asset.size }}
+                              <span class="ltr-island">{{ asset.size }}</span>
                             </p>
                           </div>
                         </a>
                       } @empty {
                         <p class="text-sm text-neutral-content/40 italic px-2">
-                          No Windows builds
+                          {{
+                            'app.download.platforms.windowsEmpty' | transloco
+                          }}
                         </p>
                       }
                     </div>
@@ -271,16 +281,16 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                             <p
                               class="text-sm text-neutral-content group-hover/dl:text-secondary transition-colors"
                             >
-                              {{ asset.label }}
+                              <span class="ltr-island">{{ asset.label }}</span>
                             </p>
                             <p class="text-xs text-neutral-content/40">
-                              {{ asset.size }}
+                              <span class="ltr-island">{{ asset.size }}</span>
                             </p>
                           </div>
                         </a>
                       } @empty {
                         <p class="text-sm text-neutral-content/40 italic px-2">
-                          No Linux builds
+                          {{ 'app.download.platforms.linuxEmpty' | transloco }}
                         </p>
                       }
                     </div>
@@ -296,7 +306,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                       rel="noopener noreferrer"
                       class="inline-flex items-center gap-1.5 text-xs text-neutral-content/40 hover:text-secondary transition-colors"
                     >
-                      View release notes
+                      {{ 'app.download.release.notes' | transloco }}
                       <lucide-angular
                         [img]="ExternalLinkIcon"
                         class="w-3 h-3"
@@ -329,22 +339,21 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
                 />
               </svg>
             </div>
-            <div class="flex-1 text-center sm:text-left">
+            <div class="flex-1 text-center sm:text-start">
               <h3 class="font-display font-bold text-base-content text-lg mb-1">
-                Looking for the VS Code Extension?
+                {{ 'app.download.vsCode.title' | transloco }}
               </h3>
               <p class="text-neutral-content text-sm">
-                Install directly from the VS Code Marketplace for seamless IDE
-                integration with automatic updates.
+                {{ 'app.download.vsCode.body' | transloco }}
               </p>
             </div>
             <a
               href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
               target="_blank"
               rel="noopener noreferrer"
-              class="btn bg-gradient-to-r from-secondary to-accent text-base-100 border-0 font-semibold shadow-lg shadow-secondary/20 hover:shadow-secondary/40 hover:scale-105 transition-all shrink-0"
+              class="btn bg-gradient-to-r rtl:bg-gradient-to-l from-secondary to-accent text-base-100 border-0 font-semibold shadow-lg shadow-secondary/20 hover:shadow-secondary/40 hover:scale-105 transition-all shrink-0"
             >
-              VS Code Marketplace
+              {{ 'app.download.vsCode.cta' | transloco }}
             </a>
           </div>
         }
@@ -363,6 +372,7 @@ import { ConsoleGridBackgroundComponent } from '@ptah-web/ui';
 })
 export class DownloadPageComponent {
   private readonly releaseService = inject(GitHubReleaseService);
+  private readonly i18n = inject(I18nService);
 
   readonly DownloadIcon = Download;
   readonly ChevronDownIcon = ChevronDown;
@@ -401,15 +411,14 @@ export class DownloadPageComponent {
 
   constructor() {
     inject(SeoService).setPage({
-      title: 'Download Ptah — AI Coding Agent for Windows, macOS & Linux',
-      description:
-        'Download Ptah for Windows, macOS, or Linux. Persistent memory, sub-agent orchestration, scheduled agents. Free and open source, no credit card.',
+      titleKey: 'app.seo.download.title',
+      descriptionKey: 'app.seo.download.description',
       url: 'https://ptah.live/download',
-      ogTitle: 'Download Ptah — Windows, macOS & Linux',
-      ogDescription:
-        "The desktop AI coding agent that remembers your codebase and works while you're away. Free and open source, no credit card.",
+      ogTitleKey: 'app.seo.download.ogTitle',
+      ogDescriptionKey: 'app.seo.download.ogDescription',
     });
 
+    const destroyRef = inject(DestroyRef);
     afterNextRender(() => {
       this.releaseService.fetchReleases(3);
       const checkExpand = setInterval(() => {
@@ -423,6 +432,7 @@ export class DownloadPageComponent {
           clearInterval(checkExpand);
         }
       }, 100);
+      destroyRef.onDestroy(() => clearInterval(checkExpand));
     });
   }
 
@@ -452,12 +462,29 @@ export class DownloadPageComponent {
     };
   }
 
+  /**
+   * Release date formatter for the active language. Recomputed when the
+   * language changes, so a switch re-renders every date; on the server the
+   * language is `en`, whose Intl locale is `en-US` (same output as before).
+   */
+  private readonly dateFormat = computed(
+    () =>
+      new Intl.DateTimeFormat(this.i18n.intlLocale(), {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }),
+  );
+
+  /**
+   * `publishedAt` comes unvalidated from the GitHub API. An unparsable value
+   * renders no date (the version row stays usable) instead of letting
+   * `Intl.DateTimeFormat.format` throw a RangeError during change detection.
+   */
   formatDate(isoDate: string): string {
-    return new Date(isoDate).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    const date = new Date(isoDate);
+    if (Number.isNaN(date.getTime())) return '';
+    return this.dateFormat().format(date);
   }
 
   retry(): void {

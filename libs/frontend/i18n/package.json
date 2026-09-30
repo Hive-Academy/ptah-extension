@@ -1,0 +1,13 @@
+{
+  "name": "@ptah-extension/i18n",
+  "version": "0.0.1",
+  "private": true,
+  "peerDependencies": {
+    "@angular/common": "22.1.7",
+    "@angular/core": "22.1.7",
+    "@angular/router": "22.1.7",
+    "@jsverse/transloco": "8.4.0",
+    "rxjs": "7.8.2"
+  },
+  "sideEffects": false
+}

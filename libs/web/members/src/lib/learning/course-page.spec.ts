@@ -19,6 +19,28 @@ import {
   moduleSummary,
 } from './learning-fixtures';
 
+import {
+  loadScopeTranslations,
+  provideI18nTesting,
+  type I18nTestingOptions,
+} from '@ptah-extension/i18n/testing';
+import { PANEL_UI_I18N_SCOPE } from '@ptah-web/panel-ui';
+import { UI_I18N_SCOPE } from '@ptah-web/ui';
+
+/**
+ * The panel-ui chrome this spec renders (and the shell's language switch,
+ * `ui`) reads translation keys, so the i18n runtime is provided with the real
+ * `panelUi` and `ui` scopes (libs/frontend/i18n/CLAUDE.md, spec recipe).
+ */
+let panelI18n: I18nTestingOptions['translations'];
+beforeAll(async () => {
+  const [panelUi, ui] = await Promise.all([
+    loadScopeTranslations(PANEL_UI_I18N_SCOPE),
+    loadScopeTranslations(UI_I18N_SCOPE),
+  ]);
+  panelI18n = { en: { panelUi: panelUi.en, ui: ui.en } };
+});
+
 const COURSES = '/api/v1/members/courses';
 
 /** The three words a 404 screen may never contain (R1.1.3). */
@@ -52,6 +74,7 @@ describe('CoursePage (R2.1.3, R2.3.6, R2.4.4, R6.4)', () => {
     await TestBed.configureTestingModule({
       imports: [CoursePage],
       providers: [
+        provideI18nTesting({ translations: panelI18n }),
         provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),

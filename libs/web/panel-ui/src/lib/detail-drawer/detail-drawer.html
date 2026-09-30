@@ -36,27 +36,35 @@
     aria-hidden="true"
   ></div>
 
-  <!-- Panel -->
+  <!--
+    Panel. Anchored to the inline-end edge (`end-0`, `border-s`), so it slides
+    in from the right in LTR and from the left in RTL. The closed offset is a
+    paired transform: `translate-x-full` pushes it off the right edge, and its
+    `rtl:-translate-x-full` partner pushes it off the left edge instead.
+  -->
   <aside
     #panel
     role="dialog"
     aria-modal="true"
-    [attr.aria-label]="title()"
+    [attr.aria-label]="title() ?? ('panelUi.detailDrawer.title' | transloco)"
     tabindex="-1"
     (keydown)="onKeydown($event)"
-    class="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col border-l border-hairline bg-base-200 shadow-2xl transition-transform duration-200 ease-out focus:outline-none"
+    class="absolute inset-y-0 end-0 flex w-full max-w-lg flex-col border-s border-hairline bg-base-200 shadow-2xl transition-transform duration-200 ease-out focus:outline-none"
     [class.translate-x-0]="open()"
     [class.translate-x-full]="!open()"
+    [class.rtl:-translate-x-full]="!open()"
   >
     <header
       class="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3"
     >
-      <h2 class="text-sm font-semibold text-base-content">{{ title() }}</h2>
+      <h2 class="text-sm font-semibold text-base-content">
+        {{ title() ?? ('panelUi.detailDrawer.title' | transloco) }}
+      </h2>
       <button
         type="button"
         class="btn btn-square btn-ghost btn-sm"
         (click)="close()"
-        aria-label="Close panel"
+        [attr.aria-label]="'panelUi.detailDrawer.close' | transloco"
       >
         <lucide-angular [img]="CloseIcon" class="h-4 w-4" aria-hidden="true" />
       </button>

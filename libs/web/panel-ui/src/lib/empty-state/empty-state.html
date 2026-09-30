@@ -4,7 +4,9 @@
     class="h-10 w-10 text-base-content/40"
     aria-hidden="true"
   />
-  <p class="text-sm text-base-content-muted">{{ message() }}</p>
+  <p class="text-sm text-base-content-muted">
+    {{ message() ?? ('panelUi.emptyState.message' | transloco) }}
+  </p>
   @if (hint(); as h) {
     <!--
       🔴 THE TOKEN, NOT AN ALPHA. Batch 13's axe pass measured this exact

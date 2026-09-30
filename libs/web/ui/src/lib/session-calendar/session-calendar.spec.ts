@@ -9,7 +9,11 @@ import {
   EventDropInfo,
   FullCalendarComponent,
 } from '@fullcalendar/angular';
+import { I18nService } from '@ptah-extension/i18n';
+import { provideI18nTesting } from '@ptah-extension/i18n/testing';
 
+import uiAr from '../i18n/ar.json';
+import uiEn from '../i18n/en.json';
 import {
   CalendarSession,
   SessionRangeSelection,
@@ -43,6 +47,18 @@ describe('SessionCalendar', () => {
     return fixture;
   };
 
+  /**
+   * Flushes macrotasks and change detection until `done()` holds. The
+   * calendar's now-indicator keeps a timer pending, so `whenStable()` never
+   * settles; the lazy locale is a chunk import that resolves in a few ticks.
+   */
+  const until = async (done: () => boolean): Promise<void> => {
+    for (let i = 0; i < 50 && !done(); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+    }
+  };
+
   const api = (): CalendarApi =>
     fixture.debugElement
       .query(By.directive(FullCalendarComponent))
@@ -62,7 +78,72 @@ describe('SessionCalendar', () => {
   };
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [SessionCalendar] });
+    TestBed.configureTestingModule({
+      imports: [SessionCalendar],
+      providers: [
+        provideI18nTesting({
+          translations: { en: { ui: uiEn }, ar: { ui: uiAr } },
+        }),
+      ],
+    });
+  });
+
+  afterEach(() => {
+    document.documentElement.lang = 'en';
+    document.documentElement.dir = 'ltr';
+  });
+
+  describe('language', () => {
+    it('lays the grid out left-to-right in English', () => {
+      create([], false);
+
+      expect(api().getOption('locale')).toBe('en-US');
+      expect(api().getOption('direction')).toBe('ltr');
+      // English never fetches the Arabic locale chunk.
+      expect(api().getOption('locales')).toEqual([]);
+    });
+
+    it('follows a switch to Arabic, keeping Western digits', async () => {
+      create([], false);
+
+      await TestBed.inject(I18nService).setLanguage('ar');
+      fixture.detectChanges();
+
+      expect(api().getOption('locale')).toBe('ar-u-nu-latn');
+      expect(api().getOption('direction')).toBe('rtl');
+    });
+
+    it('loads the Arabic strings lazily and drops them again in English', async () => {
+      create([], false);
+      const i18n = TestBed.inject(I18nService);
+      const localeCodes = (): string[] =>
+        (api().getOption('locales') ?? []).map((l) => l.code);
+
+      await i18n.setLanguage('ar');
+      await until(() => localeCodes().length > 0);
+
+      expect(localeCodes()).toEqual(['ar']);
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+        'اليوم',
+      );
+
+      await i18n.setLanguage('en');
+      await until(() => localeCodes().length === 0);
+
+      expect(localeCodes()).toEqual([]);
+    });
+
+    it('announces the loading state in the active language', async () => {
+      create([], false);
+      fixture.componentRef.setInput('loading', true);
+      await TestBed.inject(I18nService).setLanguage('ar');
+      fixture.detectChanges();
+
+      const status = (fixture.nativeElement as HTMLElement).querySelector(
+        '[role="status"]',
+      );
+      expect(status?.textContent?.trim()).toBe('جارٍ تحميل الجلسات');
+    });
   });
 
   it('renders one calendar event per session, carrying the session itself', () => {

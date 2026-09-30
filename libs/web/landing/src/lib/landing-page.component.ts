@@ -88,13 +88,9 @@ import { AlsoAvailableComponent } from './sections/also-available/also-available
 export class LandingPageComponent {
   constructor() {
     inject(SeoService).setPage({
-      title: 'Ptah — It Knows Your Architecture. It Ships the SaaS.',
-      description:
-        'The AI dev team that ships production-shaped SaaS — multi-tenant, billing-integrated, security-reviewed, and architecturally consistent from the first commit. Free and open source.',
+      titleKey: 'landing.seo.title',
+      descriptionKey: 'landing.seo.description',
       url: 'https://ptah.live',
-      ogTitle: 'Ptah — It Knows Your Architecture. It Ships the SaaS.',
-      ogDescription:
-        'The AI dev team that ships production-shaped SaaS — multi-tenant, billing-integrated, security-reviewed, and architecturally consistent from the first commit. Free and open source.',
     });
   }
 }

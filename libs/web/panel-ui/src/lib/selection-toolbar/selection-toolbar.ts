@@ -1,10 +1,18 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  computed,
   input,
   output,
 } from '@angular/core';
+import { TranslocoPipe } from '@ptah-extension/i18n';
+
+import { pluralCategory, type PluralI18nKeys } from '../i18n/plural';
+
+/** "1 user selected" / "3 users selected". */
+const SELECTION_COUNT_I18N_KEYS = {
+  one: 'panelUi.selectionToolbar.countOne',
+  other: 'panelUi.selectionToolbar.countOther',
+} as const satisfies PluralI18nKeys;
 
 /**
  * SelectionToolbar — contextual bulk-action bar (design spec §6.1, §8.6).
@@ -27,6 +35,7 @@ import {
   selector: 'ptah-selection-toolbar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [TranslocoPipe],
   templateUrl: './selection-toolbar.html',
   styleUrls: ['./selection-toolbar.css'],
 })
@@ -34,15 +43,18 @@ export class SelectionToolbar {
   /** Number of selected items — the bar is hidden entirely when 0. */
   public readonly count = input<number>(0);
 
-  /** Singular noun for the count label ("user" → "3 users selected"). */
-  public readonly itemNoun = input<string>('item');
+  /**
+   * Singular noun for the count label ("user" → "3 users selected"), already
+   * translated by the caller. `null` uses the shared default
+   * (`panelUi.selectionToolbar.item`). Pluralisation lives in the
+   * translation values (`countOne` / `countOther`), not in code: English
+   * appends "s", Arabic names the noun without plural agreement.
+   */
+  public readonly itemNoun = input<string | null>(null);
 
   /** Emitted when the Clear link is pressed. */
   public readonly cleared = output<void>();
 
-  protected readonly countLabel = computed<string>(() => {
-    const n = this.count();
-    const noun = n === 1 ? this.itemNoun() : `${this.itemNoun()}s`;
-    return `${n} ${noun} selected`;
-  });
+  protected readonly countI18nKeys = SELECTION_COUNT_I18N_KEYS;
+  protected readonly pluralCategory = pluralCategory;
 }

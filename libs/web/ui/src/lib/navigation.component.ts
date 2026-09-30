@@ -21,9 +21,22 @@ import {
   ChevronDown,
   Download,
   MessagesSquare,
+  Globe,
+  Check,
 } from 'lucide-angular';
+import {
+  I18nService,
+  LANG_DIRECTION,
+  LANG_NATIVE_NAME,
+  SUPPORTED_LANGS,
+  TranslocoPipe,
+  type SupportedLang,
+} from '@ptah-extension/i18n';
 import { AuthService } from '@ptah-web/core';
 import { SubscriptionStateService } from '@ptah-web/core';
+
+/** The desktop disclosure menus; each trigger's id is `<menu>-menu-trigger`. */
+type NavMenu = 'product' | 'community' | 'lang' | 'user';
 
 /**
  * NavigationComponent - Fixed navigation bar with branding and CTAs
@@ -34,9 +47,15 @@ import { SubscriptionStateService } from '@ptah-web/core';
  *   Download Ptah CTA, and — authenticated only — a User ▾ avatar menu
  *   (Members, Profile, divider, Logout). Unauthenticated keeps Login + Sign Up
  *   inline before the CTA.
- * - Three disclosure menus are driven by a single tri-state `openMenu` signal
- *   guaranteeing mutual exclusion. Escape closes the open menu (and returns
- *   focus to its trigger); outside-click closes it (host listeners).
+ * - Four disclosure menus (Product, Community, Language, User) are driven by a
+ *   single `openMenu` signal guaranteeing mutual exclusion. Escape closes the
+ *   open menu (and returns focus to its trigger); outside-click closes it
+ *   (host listeners).
+ * - Language switcher (TASK_2026_575, design-spec §2.2-2.3): a menu after
+ *   Community on desktop and a two-button row in the mobile panel. Option
+ *   labels name each language in itself, with its own `lang`/`dir`; the
+ *   switcher wrappers carry `data-i18n-switcher` so the prerender text check
+ *   ignores them.
  * - Fully transparent at top, solid on scroll; backdrop blur; auth-aware.
  */
 @Component({
@@ -47,6 +66,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
     RouterLink,
     RouterLinkActive,
     LucideAngularModule,
+    TranslocoPipe,
   ],
   host: {
     '(window:scroll)': 'onScroll()',
@@ -55,25 +75,25 @@ import { SubscriptionStateService } from '@ptah-web/core';
   },
   template: `
     <nav
-      class="fixed top-0 left-0 right-0 z-50 h-16 px-4 sm:px-6 lg:px-16 flex items-center justify-between transition-all duration-300"
+      class="fixed top-0 inset-x-0 z-50 h-16 px-4 sm:px-6 md:px-4 lg:px-8 xl:px-16 flex items-center justify-between transition-all duration-300"
       [ngClass]="{
         'bg-transparent': !scrolled() && !mobileMenuOpen(),
         'bg-ink-900/90 backdrop-blur-md shadow-lg border-b border-ink-700':
           scrolled() || mobileMenuOpen(),
       }"
       role="navigation"
-      aria-label="Main navigation"
+      [attr.aria-label]="'ui.nav.ariaLabel' | transloco"
     >
       <!-- Logo and Branding -->
       <a
         routerLink="/"
-        class="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
-        aria-label="Ptah home"
+        class="flex shrink-0 items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
+        [attr.aria-label]="'ui.nav.homeAriaLabel' | transloco"
         (click)="closeMobileMenu()"
       >
         <img
           ngSrc="/assets/icons/ptah-icon.png"
-          alt="Ptah logo"
+          [alt]="'ui.common.logoAlt' | transloco"
           width="96"
           height="96"
           class="w-11 h-11"
@@ -86,7 +106,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
         class="md:hidden flex items-center justify-center w-11 h-11 rounded-lg text-white/80 hover:text-amber-500 hover:bg-white/5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
         [attr.aria-expanded]="mobileMenuOpen()"
         aria-controls="mobile-menu"
-        aria-label="Toggle navigation menu"
+        [attr.aria-label]="'ui.nav.toggleMenu' | transloco"
         (click)="toggleMobileMenu()"
       >
         @if (mobileMenuOpen()) {
@@ -97,13 +117,13 @@ import { SubscriptionStateService } from '@ptah-web/core';
       </button>
 
       <!-- Desktop Navigation Links + CTAs -->
-      <div class="hidden md:flex items-center gap-6">
+      <div class="hidden md:flex min-w-0 items-center gap-1 lg:gap-6">
         <!-- Product Disclosure Menu (Features, Builders) -->
         <div class="relative">
           <button
             type="button"
             id="product-menu-trigger"
-            class="flex items-center gap-1 text-sm font-medium transition-colors rounded-md px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+            class="flex items-center gap-1 whitespace-nowrap text-sm font-medium transition-colors rounded-md px-1 lg:px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
             [ngClass]="
               openMenu() === 'product'
                 ? 'text-amber-500'
@@ -114,7 +134,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
             aria-controls="product-menu"
             (click)="toggleMenu('product')"
           >
-            Product
+            {{ 'ui.nav.product' | transloco }}
             <lucide-angular
               [img]="ChevronDownIcon"
               class="w-4 h-4 transition-transform duration-200"
@@ -126,7 +146,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
           @if (openMenu() === 'product') {
             <div
               id="product-menu"
-              class="absolute left-0 top-full mt-2 w-40 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
+              class="absolute start-0 top-full mt-2 w-40 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
               role="menu"
               aria-labelledby="product-menu-trigger"
             >
@@ -137,7 +157,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
                 role="menuitem"
                 (click)="closeMenu()"
               >
-                Features
+                {{ 'ui.nav.features' | transloco }}
               </a>
               <a
                 routerLink="/"
@@ -146,7 +166,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
                 role="menuitem"
                 (click)="closeMenu()"
               >
-                Builders
+                {{ 'ui.nav.builders' | transloco }}
               </a>
             </div>
           }
@@ -157,10 +177,10 @@ import { SubscriptionStateService } from '@ptah-web/core';
           routerLink="/pricing"
           routerLinkActive="text-amber-500"
           [routerLinkActiveOptions]="{ exact: true }"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
-          aria-label="View pricing plans"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 whitespace-nowrap rounded-md px-1 lg:px-2 py-1"
+          [attr.aria-label]="'ui.nav.pricingAriaLabel' | transloco"
         >
-          Pricing
+          {{ 'ui.nav.pricing' | transloco }}
         </a>
 
         <!-- Docs Link -->
@@ -168,10 +188,10 @@ import { SubscriptionStateService } from '@ptah-web/core';
           href="https://docs.ptah.live"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
-          aria-label="View documentation"
+          class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 whitespace-nowrap rounded-md px-1 lg:px-2 py-1"
+          [attr.aria-label]="'ui.nav.docsAriaLabel' | transloco"
         >
-          Docs
+          {{ 'ui.nav.docs' | transloco }}
         </a>
 
         <!-- Community Disclosure Menu (Community, Discord, GitHub, Reddit, LinkedIn) -->
@@ -179,7 +199,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
           <button
             type="button"
             id="community-menu-trigger"
-            class="flex items-center gap-1 text-sm font-medium transition-colors rounded-md px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+            class="flex items-center gap-1 whitespace-nowrap text-sm font-medium transition-colors rounded-md px-1 lg:px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
             [ngClass]="
               openMenu() === 'community'
                 ? 'text-amber-500'
@@ -190,7 +210,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
             aria-controls="community-menu"
             (click)="toggleMenu('community')"
           >
-            Community
+            {{ 'ui.nav.community' | transloco }}
             <lucide-angular
               [img]="ChevronDownIcon"
               class="w-4 h-4 transition-transform duration-200"
@@ -202,7 +222,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
           @if (openMenu() === 'community') {
             <div
               id="community-menu"
-              class="absolute right-0 top-full mt-2 w-48 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
+              class="absolute end-0 top-full mt-2 w-48 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
               role="menu"
               aria-labelledby="community-menu-trigger"
             >
@@ -219,7 +239,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
                     class="w-4 h-4"
                     aria-hidden="true"
                   />
-                  Community
+                  {{ 'ui.nav.community' | transloco }}
                 </a>
               }
 
@@ -314,23 +334,96 @@ import { SubscriptionStateService } from '@ptah-web/core';
           }
         </div>
 
+        <!-- Language Disclosure Menu (English, العربية) -->
+        <div class="relative" data-i18n-switcher>
+          <button
+            type="button"
+            id="lang-menu-trigger"
+            class="flex items-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors rounded-md px-1 lg:px-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+            [ngClass]="
+              openMenu() === 'lang'
+                ? 'text-amber-500'
+                : 'text-white/80 hover:text-amber-500'
+            "
+            aria-haspopup="menu"
+            [attr.aria-expanded]="openMenu() === 'lang'"
+            aria-controls="lang-menu"
+            [attr.aria-label]="
+              languageCode() +
+              ' — ' +
+              ('ui.common.language' | transloco) +
+              ': ' +
+              languageNativeName()
+            "
+            (click)="toggleMenu('lang')"
+          >
+            <lucide-angular
+              [img]="GlobeIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            {{ languageCode() }}
+            <lucide-angular
+              [img]="ChevronDownIcon"
+              class="w-4 h-4 transition-transform duration-200"
+              [class.rotate-180]="openMenu() === 'lang'"
+              aria-hidden="true"
+            />
+          </button>
+
+          @if (openMenu() === 'lang') {
+            <div
+              id="lang-menu"
+              class="absolute start-0 top-full mt-2 w-40 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
+              role="menu"
+              aria-labelledby="lang-menu-trigger"
+            >
+              @for (lang of languages; track lang) {
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  [attr.lang]="lang"
+                  [attr.dir]="LANG_DIRECTION[lang]"
+                  [attr.aria-checked]="activeLang() === lang"
+                  class="flex w-full items-center justify-between px-4 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                  [ngClass]="
+                    activeLang() === lang
+                      ? 'text-amber-500'
+                      : 'text-white/70 hover:text-white hover:bg-white/5'
+                  "
+                  (click)="selectLanguage(lang)"
+                >
+                  {{ LANG_NATIVE_NAME[lang] }}
+                  @if (activeLang() === lang) {
+                    <lucide-angular
+                      [img]="CheckIcon"
+                      class="w-4 h-4"
+                      aria-hidden="true"
+                    />
+                  }
+                </button>
+              }
+            </div>
+          }
+        </div>
+
         @if (!isAuthenticated()) {
           <!-- Login Link (Not Authenticated) -->
           <a
             routerLink="/login"
-            class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
-            aria-label="Sign in to your account"
+            class="text-white/80 hover:text-amber-500 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 whitespace-nowrap rounded-md px-1 lg:px-2 py-1"
+            [attr.aria-label]="'ui.nav.loginAriaLabel' | transloco"
           >
-            Login
+            {{ 'ui.nav.login' | transloco }}
           </a>
 
           <!-- Sign Up CTA (Not Authenticated) -->
           <a
             routerLink="/signup"
-            class="text-amber-500 hover:text-amber-400 border border-ink-600 hover:border-amber-500/40 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-            aria-label="Create an account"
+            class="text-amber-500 hover:text-amber-400 border border-ink-600 hover:border-amber-500/40 whitespace-nowrap px-2.5 lg:px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+            [attr.aria-label]="'ui.nav.signUpAriaLabel' | transloco"
           >
-            Sign Up
+            {{ 'ui.nav.signUp' | transloco }}
           </a>
         }
 
@@ -338,15 +431,15 @@ import { SubscriptionStateService } from '@ptah-web/core';
         <a
           routerLink="/download"
           routerLinkActive="bg-amber-400"
-          class="inline-flex items-center justify-center gap-2 bg-amber-500 text-ink-950 px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
-          aria-label="Download the Ptah desktop app"
+          class="inline-flex shrink-0 items-center justify-center gap-1.5 lg:gap-2 whitespace-nowrap bg-amber-500 text-ink-950 px-2.5 lg:px-5 py-2 rounded-lg font-semibold text-sm transition-all duration-200 hover:bg-amber-400 hover:-translate-y-0.5 hover:shadow-glow-amber focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+          [attr.aria-label]="'ui.nav.downloadAriaLabel' | transloco"
         >
           <lucide-angular
             [img]="DownloadIcon"
             class="w-4 h-4"
             aria-hidden="true"
           />
-          Download Ptah
+          {{ 'ui.nav.download' | transloco }}
         </a>
 
         @if (isAuthenticated()) {
@@ -355,11 +448,11 @@ import { SubscriptionStateService } from '@ptah-web/core';
             <button
               type="button"
               id="user-menu-trigger"
-              class="flex items-center gap-1 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+              class="flex shrink-0 items-center gap-1 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
               aria-haspopup="menu"
               [attr.aria-expanded]="openMenu() === 'user'"
               aria-controls="user-menu"
-              aria-label="Account menu"
+              [attr.aria-label]="'ui.nav.accountMenu' | transloco"
               (click)="toggleMenu('user')"
             >
               <!--
@@ -394,7 +487,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
             @if (openMenu() === 'user') {
               <div
                 id="user-menu"
-                class="absolute right-0 top-full mt-2 w-48 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
+                class="absolute end-0 top-full mt-2 w-48 rounded-lg border border-amber-500/10 bg-slate-950/95 backdrop-blur-md shadow-lg py-1.5 z-50"
                 role="menu"
                 aria-labelledby="user-menu-trigger"
               >
@@ -410,7 +503,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
                     class="w-4 h-4"
                     aria-hidden="true"
                   />
-                  Members
+                  {{ 'ui.nav.members' | transloco }}
                 </a>
 
                 <!-- Profile Link -->
@@ -425,7 +518,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
                     class="w-4 h-4"
                     aria-hidden="true"
                   />
-                  Profile
+                  {{ 'ui.nav.profile' | transloco }}
                 </a>
 
                 <!-- Divider -->
@@ -434,16 +527,22 @@ import { SubscriptionStateService } from '@ptah-web/core';
                 <!-- Logout Button -->
                 <button
                   type="button"
-                  class="flex items-center gap-2.5 px-4 py-2 w-full text-left text-white/70 hover:text-red-400 hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                  class="flex items-center gap-2.5 px-4 py-2 w-full text-start text-white/70 hover:text-red-400 hover:bg-white/5 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
                   role="menuitem"
                   (click)="handleLogout(); closeMenu()"
                 >
-                  <lucide-angular
-                    [img]="LogOutIcon"
-                    class="w-4 h-4"
+                  <!-- Mirror on the wrapper, never on lucide-angular (it copies host classes to its svg, so a host flip cancels). -->
+                  <span
+                    class="inline-flex shrink-0 rtl:scale-x-[-1]"
                     aria-hidden="true"
-                  />
-                  Logout
+                  >
+                    <lucide-angular
+                      [img]="LogOutIcon"
+                      class="w-4 h-4"
+                      aria-hidden="true"
+                    />
+                  </span>
+                  {{ 'ui.nav.logout' | transloco }}
                 </button>
               </div>
             }
@@ -464,9 +563,9 @@ import { SubscriptionStateService } from '@ptah-web/core';
       <!-- Mobile Menu Panel -->
       <div
         id="mobile-menu"
-        class="fixed top-16 left-0 right-0 z-50 bg-ink-900/95 backdrop-blur-md border-b border-ink-700 md:hidden animate-slide-down"
+        class="fixed top-16 inset-x-0 z-50 bg-ink-900/95 backdrop-blur-md border-b border-ink-700 md:hidden animate-slide-down"
         role="menu"
-        aria-label="Mobile navigation menu"
+        [attr.aria-label]="'ui.nav.mobileMenuAriaLabel' | transloco"
       >
         <div class="flex flex-col py-4 px-4 space-y-1">
           <!-- Primary nav (ungrouped) -->
@@ -478,7 +577,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
             role="menuitem"
             (click)="closeMobileMenu()"
           >
-            Features
+            {{ 'ui.nav.features' | transloco }}
           </a>
 
           <!-- Builders Anchor -->
@@ -489,7 +588,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
             role="menuitem"
             (click)="closeMobileMenu()"
           >
-            Builders
+            {{ 'ui.nav.builders' | transloco }}
           </a>
 
           <!-- Pricing Link -->
@@ -499,7 +598,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
             role="menuitem"
             (click)="closeMobileMenu()"
           >
-            Pricing
+            {{ 'ui.nav.pricing' | transloco }}
           </a>
 
           <!-- Docs Link -->
@@ -511,8 +610,35 @@ import { SubscriptionStateService } from '@ptah-web/core';
             role="menuitem"
             (click)="closeMobileMenu()"
           >
-            Docs
+            {{ 'ui.nav.docs' | transloco }}
           </a>
+
+          <!-- Language row (segmented; menuitemradio inside a group, a valid child of the menu) -->
+          <div
+            role="group"
+            [attr.aria-label]="'ui.common.language' | transloco"
+            class="mx-4 mt-1 mb-2 flex rounded-lg border border-ink-700 bg-ink-950/60 p-1"
+            data-i18n-switcher
+          >
+            @for (lang of languages; track lang) {
+              <button
+                type="button"
+                role="menuitemradio"
+                [attr.lang]="lang"
+                [attr.dir]="LANG_DIRECTION[lang]"
+                [attr.aria-checked]="activeLang() === lang"
+                class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
+                [ngClass]="
+                  activeLang() === lang
+                    ? 'bg-amber-500 text-ink-950'
+                    : 'text-white/70 hover:text-white'
+                "
+                (click)="setLanguage(lang)"
+              >
+                {{ LANG_NATIVE_NAME[lang] }}
+              </button>
+            }
+          </div>
 
           <!-- Divider -->
           <div class="h-px bg-white/10 my-2" aria-hidden="true"></div>
@@ -522,7 +648,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
             <div
               class="px-4 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide text-white/40"
             >
-              Account
+              {{ 'ui.nav.account' | transloco }}
             </div>
 
             <!-- Members Link -->
@@ -537,7 +663,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
                 class="w-5 h-5"
                 aria-hidden="true"
               />
-              Members
+              {{ 'ui.nav.members' | transloco }}
             </a>
 
             <!-- Profile Link -->
@@ -552,22 +678,28 @@ import { SubscriptionStateService } from '@ptah-web/core';
                 class="w-5 h-5"
                 aria-hidden="true"
               />
-              Profile
+              {{ 'ui.nav.profile' | transloco }}
             </a>
 
             <!-- Logout Button -->
             <button
               type="button"
-              class="flex items-center gap-2 px-4 py-3 text-white/60 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium w-full text-left"
+              class="flex items-center gap-2 px-4 py-3 text-white/60 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium w-full text-start"
               role="menuitem"
               (click)="handleLogout(); closeMobileMenu()"
             >
-              <lucide-angular
-                [img]="LogOutIcon"
-                class="w-5 h-5"
+              <!-- Mirror on the wrapper, never on lucide-angular (it copies host classes to its svg, so a host flip cancels). -->
+              <span
+                class="inline-flex shrink-0 rtl:scale-x-[-1]"
                 aria-hidden="true"
-              />
-              Logout
+              >
+                <lucide-angular
+                  [img]="LogOutIcon"
+                  class="w-5 h-5"
+                  aria-hidden="true"
+                />
+              </span>
+              {{ 'ui.nav.logout' | transloco }}
             </button>
           } @else {
             <!-- Login Link (Not Authenticated) -->
@@ -577,7 +709,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
               role="menuitem"
               (click)="closeMobileMenu()"
             >
-              Login
+              {{ 'ui.nav.login' | transloco }}
             </a>
 
             <!-- Sign Up Link (Not Authenticated) -->
@@ -587,7 +719,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
               role="menuitem"
               (click)="closeMobileMenu()"
             >
-              Sign Up
+              {{ 'ui.nav.signUp' | transloco }}
             </a>
           }
 
@@ -598,7 +730,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
           <div
             class="px-4 pt-1 pb-1 text-xs font-semibold uppercase tracking-wide text-white/40"
           >
-            Community
+            {{ 'ui.nav.community' | transloco }}
           </div>
 
           <!-- Community Link (Authenticated, in-product) -->
@@ -614,7 +746,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
                 class="w-5 h-5"
                 aria-hidden="true"
               />
-              Community
+              {{ 'ui.nav.community' | transloco }}
             </a>
           }
 
@@ -721,7 +853,7 @@ import { SubscriptionStateService } from '@ptah-web/core';
               class="w-5 h-5"
               aria-hidden="true"
             />
-            Download Ptah
+            {{ 'ui.nav.download' | transloco }}
           </a>
         </div>
       </div>
@@ -761,7 +893,15 @@ export class NavigationComponent {
   public readonly ChevronDownIcon = ChevronDown;
   public readonly DownloadIcon = Download;
   public readonly MessagesSquareIcon = MessagesSquare;
+  public readonly GlobeIcon = Globe;
+  public readonly CheckIcon = Check;
 
+  /** Switcher options, and each language's own name and direction. */
+  public readonly languages = SUPPORTED_LANGS;
+  public readonly LANG_NATIVE_NAME = LANG_NATIVE_NAME;
+  public readonly LANG_DIRECTION = LANG_DIRECTION;
+
+  private readonly i18n = inject(I18nService);
   private readonly authService = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly subscriptionState = inject(SubscriptionStateService);
@@ -799,12 +939,21 @@ export class NavigationComponent {
   public readonly mobileMenuOpen = signal(false);
 
   /**
-   * Single tri-state signal driving all three desktop disclosure menus
-   * (Product / Community / User). Only one may be open at a time — mutual
-   * exclusion is guaranteed for free by a single source of truth.
+   * Single signal driving all four desktop disclosure menus
+   * (Product / Community / Language / User). Only one may be open at a time —
+   * mutual exclusion is guaranteed for free by a single source of truth.
    */
-  public readonly openMenu = signal<'product' | 'community' | 'user' | null>(
-    null,
+  public readonly openMenu = signal<NavMenu | null>(null);
+
+  /** The active language, which the switcher options mark as checked. */
+  public readonly activeLang = this.i18n.lang;
+
+  /** Visible switcher caption: `EN` / `AR`. */
+  public readonly languageCode = computed(() => this.i18n.lang().toUpperCase());
+
+  /** The active language's name in that language, for the trigger's name. */
+  public readonly languageNativeName = computed(
+    () => LANG_NATIVE_NAME[this.i18n.lang()],
   );
 
   /**
@@ -895,10 +1044,36 @@ export class NavigationComponent {
 
   /**
    * Toggle a desktop disclosure menu. Opening a menu implicitly closes any
-   * other open menu (mutual exclusion via the single tri-state signal).
+   * other open menu (mutual exclusion via the single `openMenu` signal).
    */
-  public toggleMenu(menu: 'product' | 'community' | 'user'): void {
+  public toggleMenu(menu: NavMenu): void {
     this.openMenu.update((current) => (current === menu ? null : menu));
+  }
+
+  /**
+   * Language menu item: switch, close the menu and return focus to the
+   * trigger. Unlike the other menus' items, choosing a language neither
+   * navigates nor opens a tab, so focus would otherwise fall to `<body>` when
+   * the item is removed. When loading the language fails, `setLanguage`
+   * resolves `false` with nothing changed, and `aria-checked` keeps showing
+   * the language that is actually active.
+   */
+  public selectLanguage(lang: SupportedLang): void {
+    this.setLanguage(lang);
+    this.openMenu.set(null);
+    const trigger = this.elementRef.nativeElement.querySelector(
+      '#lang-menu-trigger',
+    ) as HTMLElement | null;
+    trigger?.focus();
+  }
+
+  /**
+   * Switch the language (mobile row, and the desktop menu via
+   * `selectLanguage`). `I18nService.setLanguage` never rejects: a failed load
+   * resolves `false` and leaves the active language unchanged.
+   */
+  public setLanguage(lang: SupportedLang): void {
+    void this.i18n.setLanguage(lang);
   }
 
   /**

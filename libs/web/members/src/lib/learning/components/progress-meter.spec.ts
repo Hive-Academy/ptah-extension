@@ -113,7 +113,7 @@ describe('ProgressMeter (R2.3.5, RISK-O, NFR-U2, NFR-U3)', () => {
         ...source.matchAll(/public readonly (\w+) = input/g),
       ].map((m) => m[1]);
 
-      expect(declarations.sort()).toEqual([
+      expect(declarations.sort((a, b) => a.localeCompare(b))).toEqual([
         'completed',
         'label',
         'total',
@@ -197,7 +197,9 @@ describe('ProgressMeter (R2.3.5, RISK-O, NFR-U2, NFR-U3)', () => {
         join(__dirname, '..', '..', '..', 'index.ts'),
         'utf8',
       );
-      // `libs/web/members/src/index.ts` exports MEMBER_ROUTES and nothing else.
+      // `libs/web/members/src/index.ts` stays narrow: everything it exports
+      // must be usable inside the app's `import()` callback (MEMBER_ROUTES and
+      // the translation scopes), never a member component like this one.
       expect(barrel).not.toContain('progress-meter');
     });
 

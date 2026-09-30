@@ -1,0 +1,28 @@
+/* i18n-check self-test fixture (data only), F2b plants. */
+
+/* PLANT (rtl-physical): a physical margin. */
+.plan-card {
+  margin-left: 1rem;
+}
+
+/* PASS: a centring pair in one block. */
+.plan-badge {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* rtl-exempt: fixed 38% seam of an LTR meter */
+.plan-seam {
+  right: 38%;
+}
+
+/* PLANT (rtl-physical): a four-value shorthand with different sides. */
+.plan-note {
+  padding: 0 8px 0 16px;
+}
+
+/* PASS: shorthands with symmetric sides. */
+.plan-footer {
+  margin: 0 auto;
+  inset: 0 1rem 2rem 1rem;
+}

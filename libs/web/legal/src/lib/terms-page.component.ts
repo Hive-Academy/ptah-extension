@@ -398,9 +398,8 @@ import { FallingCubesBackgroundComponent } from './components/falling-cubes-back
 export class TermsPageComponent {
   constructor() {
     inject(SeoService).setPage({
-      title: 'Terms and Conditions — Ptah',
-      description:
-        'Terms of service for the Ptah AI coding agent desktop app, VS Code extension, and CLI.',
+      titleKey: 'legal.seo.terms.title',
+      descriptionKey: 'legal.seo.terms.description',
       url: 'https://ptah.live/terms-and-conditions',
     });
   }

@@ -1,0 +1,25 @@
+<!-- i18n-check self-test fixture (data only). -->
+<footer>
+  <!-- PASS: real copy that looks like a key path, but not in the project scope. -->
+  <a href="https://ptah.live">ptah.live</a>
+  <!-- PASS: an allowed global scope. -->
+  <p>{{ 'ui.nav.home' | transloco }}</p>
+  <!-- PASS: a wrapped element; the pipe sits two lines below its marker. -->
+  <!-- i18n-keys: core.checkout.* -->
+  <p class="checkout-message" data-testid="checkout-message">
+    {{ checkoutNotice.key | transloco }}
+  </p>
+  <!-- PASS: a wrapped element; the text sits two lines below its marker. -->
+  <!-- i18n-ignore: documentation sample of a key path, not a real key -->
+  <code class="key-sample" data-testid="key-sample">
+    pricing.sample.key.path
+  </code>
+  <!-- i18n-keys: core.checkout.* -->
+  <hr />
+  <!-- PLANT (unannotated-computed-key): the marker above covers the hr only. -->
+  <p>{{ detachedHtmlNotice.key | transloco }}</p>
+  <!-- i18n-ignore: covers the hr below only -->
+  <hr />
+  <!-- PLANT (unknown-key via the literal scan): not covered by the marker above. -->
+  <p>pricing.detached.html.path</p>
+</footer>

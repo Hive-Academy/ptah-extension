@@ -54,18 +54,50 @@ jobs:
 
       # Fail loudly if the SSG build silently degraded to an empty CSR shell.
       # Asserts the prerendered routes shipped real content instead of an empty
-      # <app-root>. Copy-specific greps are structural for now (old design) and
-      # get tightened to the repositioned headlines when Batch F copy lands.
+      # <app-root>, in English (TASK_2026_575, requirement 3.5): <html lang="en"
+      # dir="ltr">, each route's known English headline, and no raw translation
+      # key path rendered as text. The full-text comparison against the
+      # committed baselines is tools/i18n-check/src/prerender/check-prerender.ts.
+      # The dir="ltr" grep holds since the i18n app wiring (TASK_2026_575
+      # Batch 9) renders <html lang="en" dir="ltr"> statically in index.html.
       - name: Assert prerendered content
         run: |
           set -euo pipefail
           DIST="dist/ptah-landing-page/browser"
           fail() { echo "::error::prerender assertion failed: $1"; exit 1; }
 
+          # The start of each route's "h1" in
+          # apps/ptah-landing-page/prerender-baseline/<slug>.json. Home's h1 is
+          # "It ships<br><span>the SaaS.</span>", so the text before the <br>.
+          declare -A HEADLINE=(
+            [index.html]="It ships"
+            [download/index.html]="Downloads"
+            [pricing/index.html]="Ptah Is Free"
+            [terms-and-conditions/index.html]="Terms of Service"
+            [privacy/index.html]="Privacy Policy"
+            [refund/index.html]="Refund Policy"
+          )
+          # A text node that is a key path of a known i18n scope (anchored on
+          # the scope names, because ">ptah.live<" is real copy).
+          # NOT DOM-aware: this greps raw bytes, so text inside <script> or
+          # JSON-LD blocks can match falsely. On a failure here, trust
+          # tools/i18n-check/src/prerender/check-prerender.ts, which walks the
+          # parsed DOM and skips script/style/template content.
+          KEY_PATH='>[[:space:]]*(app|ui|core|landing|legal|pricing|auth|account|members|admin|panelUi)\.[A-Za-z0-9_.-]+[[:space:]]*<'
+
           for route in "index.html" "download/index.html" "pricing/index.html" \
             "terms-and-conditions/index.html" "privacy/index.html" "refund/index.html"; do
             [ -f "$DIST/$route" ] || fail "$route missing from build output"
             grep -qi "<h1" "$DIST/$route" || fail "$route has no <h1> (empty prerender?)"
+            grep -Eq '<html[^>]*\blang="en"' "$DIST/$route" || fail "$route <html> is not lang=\"en\""
+            grep -Eq '<html[^>]*\bdir="ltr"' "$DIST/$route" || fail "$route <html> is not dir=\"ltr\""
+            # Headlines are copy, not patterns: escape ERE metacharacters.
+            headline_re=$(printf '%s' "${HEADLINE[$route]}" | sed 's/[][\.*^$+?(){}|]/\\&/g')
+            grep -Eq "<h1[^>]*>[[:space:]]*${headline_re}" "$DIST/$route" \
+              || fail "$route <h1> does not start with \"${HEADLINE[$route]}\""
+            if grep -Eq "$KEY_PATH" "$DIST/$route"; then
+              fail "$route renders a translation key path: $(grep -Eo "$KEY_PATH" "$DIST/$route" | head -1)"
+            fi
             grep -q "<app-root></app-root>" "$DIST/$route" && fail "$route is an empty CSR shell"
           done
 

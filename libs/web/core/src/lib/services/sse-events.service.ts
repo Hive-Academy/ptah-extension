@@ -8,6 +8,7 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Observable, Subject, filter, firstValueFrom } from 'rxjs';
+import type { I18nMessage } from '@ptah-extension/i18n';
 import { API_BASE_URL } from '../config/api-base-url.token';
 
 /**
@@ -84,10 +85,7 @@ export type SSEEvent =
  * SSE connection state
  */
 export type ConnectionState =
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | 'error';
+  'disconnected' | 'connecting' | 'connected' | 'error';
 
 /**
  * SSEEventsService - Real-time updates from backend via Server-Sent Events
@@ -132,8 +130,8 @@ export class SSEEventsService implements OnDestroy {
   /** Current connection state as a signal for reactive UI updates */
   public readonly connectionState = signal<ConnectionState>('disconnected');
 
-  /** Error message if connection failed */
-  public readonly errorMessage = signal<string | null>(null);
+  /** Why the connection failed, for the UI to translate; null when it did not. */
+  public readonly errorMessage = signal<I18nMessage | null>(null);
 
   /**
    * All events stream - use for debugging or custom event handling
@@ -213,6 +211,11 @@ export class SSEEventsService implements OnDestroy {
 
     try {
       const ticket = await this.getTicket();
+      if (ticket === null) {
+        this.connectionState.set('error');
+        this.errorMessage.set({ key: 'core.realtime.authRequired' });
+        return;
+      }
       const url = `${this.apiBaseUrl}${
         this.sseBaseUrl
       }/subscribe?ticket=${encodeURIComponent(ticket)}`;
@@ -239,9 +242,7 @@ export class SSEEventsService implements OnDestroy {
     } catch (error) {
       console.error('[SSE] Failed to establish connection:', error);
       this.connectionState.set('error');
-      this.errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to connect',
-      );
+      this.errorMessage.set({ key: 'core.realtime.connectFailed' });
     }
   }
 
@@ -270,9 +271,9 @@ export class SSEEventsService implements OnDestroy {
   /**
    * Get a short-lived ticket for SSE authentication
    *
-   * @throws Error if ticket request fails (user not authenticated)
+   * @returns the ticket, or null when the request fails (user not authenticated)
    */
-  private async getTicket(): Promise<string> {
+  private async getTicket(): Promise<string | null> {
     try {
       const response = await firstValueFrom(
         this.http.post<{ ticket: string }>(
@@ -282,8 +283,10 @@ export class SSEEventsService implements OnDestroy {
       );
       return response.ticket;
     } catch (error) {
+      // degradation-audit: reported - logged here; connect() turns the null
+      // into the `core.realtime.authRequired` message and the error state.
       console.error('[SSE] Failed to get ticket:', error);
-      throw new Error('Authentication required. Please log in first.');
+      return null;
     }
   }
 
@@ -302,9 +305,7 @@ export class SSEEventsService implements OnDestroy {
         `[SSE] Max reconnect attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`,
       );
       this.connectionState.set('error');
-      this.errorMessage.set(
-        'Unable to establish real-time connection. Please refresh the page.',
-      );
+      this.errorMessage.set({ key: 'core.realtime.reconnectFailed' });
       return;
     }
 

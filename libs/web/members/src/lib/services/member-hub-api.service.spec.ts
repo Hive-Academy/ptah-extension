@@ -12,6 +12,28 @@ import type { MemberHubResponse } from '@ptah-contracts/community';
 import { HubPage } from '../hub/hub-page';
 import { MemberHubApiService } from './member-hub-api.service';
 
+import {
+  loadScopeTranslations,
+  provideI18nTesting,
+  type I18nTestingOptions,
+} from '@ptah-extension/i18n/testing';
+import { PANEL_UI_I18N_SCOPE } from '@ptah-web/panel-ui';
+import { UI_I18N_SCOPE } from '@ptah-web/ui';
+
+/**
+ * The panel-ui chrome this spec renders (and the shell's language switch,
+ * `ui`) reads translation keys, so the i18n runtime is provided with the real
+ * `panelUi` and `ui` scopes (libs/frontend/i18n/CLAUDE.md, spec recipe).
+ */
+let panelI18n: I18nTestingOptions['translations'];
+beforeAll(async () => {
+  const [panelUi, ui] = await Promise.all([
+    loadScopeTranslations(PANEL_UI_I18N_SCOPE),
+    loadScopeTranslations(UI_I18N_SCOPE),
+  ]);
+  panelI18n = { en: { panelUi: panelUi.en, ui: ui.en } };
+});
+
 const HUB_URL = '/api/v1/members/hub';
 
 /**
@@ -57,7 +79,11 @@ describe('MemberHubApiService', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(withXhr()), provideHttpClientTesting()],
+      providers: [
+        provideI18nTesting({ translations: panelI18n }),
+        provideHttpClient(withXhr()),
+        provideHttpClientTesting(),
+      ],
     });
     httpMock = TestBed.inject(HttpTestingController);
     api = TestBed.inject(MemberHubApiService);
@@ -123,6 +149,7 @@ describe('HubPage — exactly one data request on initial render (R6.2)', () => 
       // does not instantiate without it. An empty route table is enough — this
       // spec never navigates.
       providers: [
+        provideI18nTesting({ translations: panelI18n }),
         provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),

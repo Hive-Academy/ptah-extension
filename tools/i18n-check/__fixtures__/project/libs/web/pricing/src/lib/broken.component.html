@@ -1,0 +1,8 @@
+<!-- i18n-check self-test fixture. PLANT (parse-error): the @if block below is
+     never closed, so this template does not parse. A file that fails to parse
+     is a failure, never skipped. HTML on purpose: lint-staged formats only
+     ts/js/json/md, so a broken template cannot fail the pre-commit hook. -->
+<section>
+  @if (open {
+  <p>{{ 'pricing.page.title' | transloco }}</p>
+</section>

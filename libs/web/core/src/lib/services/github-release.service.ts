@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
+import type { I18nMessage } from '@ptah-extension/i18n';
 
 export interface ReleaseAsset {
   name: string;
@@ -42,7 +43,7 @@ export class GitHubReleaseService {
 
   readonly releases = signal<ParsedRelease[]>([]);
   readonly loading = signal(true);
-  readonly error = signal<string | null>(null);
+  readonly error = signal<I18nMessage | null>(null);
 
   fetchReleases(count = 3): void {
     this.loading.set(true);
@@ -58,11 +59,12 @@ export class GitHubReleaseService {
           this.loading.set(false);
         },
         error: (err) => {
-          this.error.set(
-            err.status === 403
-              ? 'GitHub API rate limit reached. Please try again later.'
-              : 'Failed to load releases. Please try again.',
-          );
+          this.error.set({
+            key:
+              err.status === 403
+                ? 'core.releases.rateLimited'
+                : 'core.releases.loadFailed',
+          });
           this.loading.set(false);
         },
       });

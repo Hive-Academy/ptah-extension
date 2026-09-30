@@ -16,15 +16,26 @@
 
 <ng-template #body>
   <div class="flex items-center justify-between gap-2">
-    <span class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">
+    <span
+      class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
+    >
       {{ label() }}
     </span>
     @if (link()) {
-      <lucide-angular
-        [img]="ChevronRightIcon"
-        class="h-4 w-4 shrink-0 text-base-content-muted transition-transform group-hover:translate-x-0.5"
-        aria-hidden="true"
-      />
+      <!--
+        The RTL mirror sits on this wrapper, never on <lucide-angular>:
+        lucide-angular copies the host's static classes onto its inner <svg>,
+        so a host flip is applied twice and cancels (batches.md, "Icon
+        mirroring mechanism").
+      -->
+      <span class="inline-flex shrink-0 rtl:scale-x-[-1]" aria-hidden="true">
+        <!-- rtl-exempt: the parent wrapper's rtl:scale-x-[-1] flips this icon's x axis, so the positive hover nudge already points to reading-end in RTL; an rtl:-translate-x variant here would point it back to reading-start -->
+        <lucide-angular
+          [img]="ChevronRightIcon"
+          class="h-4 w-4 shrink-0 text-base-content-muted transition-transform group-hover:translate-x-0.5"
+          aria-hidden="true"
+        />
+      </span>
     }
   </div>
 

@@ -56,13 +56,11 @@ import { PricingGridComponent } from './components/pricing-grid.component';
 export class PricingPageComponent {
   constructor() {
     inject(SeoService).setPage({
-      title: 'Ptah Pricing — Free, Open Source, Plus Ptah Builders Membership',
-      description:
-        'Ptah is free and open source — download the full desktop suite today. Join Ptah Builders for live training, a PRD-to-production curriculum, and member skill packs.',
+      titleKey: 'pricing.seo.title',
+      descriptionKey: 'pricing.seo.description',
       url: 'https://ptah.live/pricing',
-      ogTitle: 'Ptah Pricing — Free and Open Source, Plus Ptah Builders',
-      ogDescription:
-        'The Ptah desktop app — Memory, Skills, Cron, and Gateways — is free and open source. Ptah Builders adds live training, curriculum, and member skill packs.',
+      ogTitleKey: 'pricing.seo.ogTitle',
+      ogDescriptionKey: 'pricing.seo.ogDescription',
     });
   }
 }

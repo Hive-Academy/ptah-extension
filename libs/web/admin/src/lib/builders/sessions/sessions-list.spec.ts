@@ -12,7 +12,11 @@ import {
   type MemberGroup,
 } from '../../services/admin-api.service';
 import { SessionTemplatePalette } from './components/session-template-palette/session-template-palette';
-import { SessionCalendar } from '@ptah-web/ui';
+import {
+  loadScopeTranslations,
+  provideI18nTesting,
+} from '@ptah-extension/i18n/testing';
+import { SessionCalendar, UI_I18N_SCOPE } from '@ptah-web/ui';
 import { SessionsList } from './sessions-list';
 
 function cohort(overrides: Partial<MemberGroup> = {}): MemberGroup {
@@ -96,7 +100,9 @@ describe('SessionsList', () => {
   const detailsDialog = (): HTMLElement | null =>
     fixture.nativeElement.querySelector('.modal-open');
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The shared calendar renders `ui` keys (its sr-only and loading text).
+    const ui = await loadScopeTranslations(UI_I18N_SCOPE);
     api = {
       listSessions: jest.fn().mockReturnValue(of(response())),
       updateSession: jest.fn().mockReturnValue(of(session())),
@@ -109,6 +115,7 @@ describe('SessionsList', () => {
       providers: [
         { provide: AdminBuildersApiService, useValue: api },
         { provide: AdminApiService, useValue: adminApi },
+        provideI18nTesting({ translations: { en: { ui: ui.en } } }),
       ],
     });
   });

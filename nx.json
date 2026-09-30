@@ -59,6 +59,17 @@
       "cache": true,
       "dependsOn": ["^build"],
       "inputs": ["production", "^production"]
+    },
+    "i18n-check": {
+      "cache": true,
+      "inputs": [
+        "{projectRoot}/src/**/*",
+        "{workspaceRoot}/tools/i18n-check/src/**/*",
+        "{workspaceRoot}/tools/i18n-check/glossary.json",
+        "{workspaceRoot}/libs/web/ui/src/lib/i18n/**/*",
+        "{workspaceRoot}/libs/web/core/src/lib/i18n/**/*",
+        "{workspaceRoot}/apps/ptah-landing-page/src/app/i18n/**/*"
+      ]
     }
   },
   "generators": {

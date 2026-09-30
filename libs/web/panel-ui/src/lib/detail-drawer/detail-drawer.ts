@@ -7,13 +7,14 @@ import {
   output,
   viewChild,
 } from '@angular/core';
+import { TranslocoPipe } from '@ptah-extension/i18n';
 import { LucideAngularModule, X } from 'lucide-angular';
 
 /**
- * DetailDrawer — reusable right-side slide-over shell (design spec §4.5, §8.5).
+ * DetailDrawer — reusable end-side slide-over shell (design spec §4.5, §8.5).
  *
  * A dumb chrome component: a fixed backdrop + a `max-w-lg` panel that slides in
- * from the right. Body content is projected via `<ng-content>`; footer actions
+ * from the inline-end edge (the right in LTR, the left in RTL). Body content is projected via `<ng-content>`; footer actions
  * via `<ng-content select="[drawerFooter]">`. Open/close is fully controlled by
  * the parent (`[open]` in, `(closed)` out) so it stays reusable beyond the
  * Failed-Webhooks triage view that first consumes it.
@@ -25,15 +26,19 @@ import { LucideAngularModule, X } from 'lucide-angular';
   selector: 'ptah-detail-drawer',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, TranslocoPipe],
   templateUrl: './detail-drawer.html',
 })
 export class DetailDrawer {
   /** Whether the drawer is currently open. */
   public readonly open = input<boolean>(false);
 
-  /** Accessible title shown in the header and used as the dialog label. */
-  public readonly title = input<string>('Details');
+  /**
+   * Accessible title shown in the header and used as the dialog label,
+   * already translated by the caller. `null` shows the shared default
+   * (`panelUi.detailDrawer.title`).
+   */
+  public readonly title = input<string | null>(null);
 
   /** Emitted on Escape, backdrop click, or the close button. */
   public readonly closed = output<void>();

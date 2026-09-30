@@ -1,9 +1,5 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  input,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { TranslocoPipe } from '@ptah-extension/i18n';
 import {
   CheckCircle2,
   Lock,
@@ -11,6 +7,20 @@ import {
   MessageSquare,
   Pin,
 } from 'lucide-angular';
+
+import { pluralCategory, type PluralI18nKeys } from '../i18n/plural';
+
+/** "1 reply" / "0 replies" on the metadata line. */
+const THREAD_ROW_REPLY_I18N_KEYS = {
+  one: 'panelUi.threadRow.replyOne',
+  other: 'panelUi.threadRow.replyOther',
+} as const satisfies PluralI18nKeys;
+
+/** "3 unread replies": the accessible name of the "3 new" chip. */
+const THREAD_ROW_UNREAD_I18N_KEYS = {
+  one: 'panelUi.threadRow.unreadOne',
+  other: 'panelUi.threadRow.unreadOther',
+} as const satisfies PluralI18nKeys;
 
 /**
  * ThreadRow — one discussion topic as a list row, shared by the member feed and
@@ -58,11 +68,14 @@ import {
   selector: 'ptah-thread-row',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, TranslocoPipe],
   templateUrl: './thread-row.html',
 })
 export class ThreadRow {
-  /** The topic title. The one input with no sensible default. */
+  /**
+   * The topic title. The one input with no sensible default. User content:
+   * rendered as data, never translated.
+   */
   public readonly title = input.required<string>();
 
   /**
@@ -100,28 +113,21 @@ export class ThreadRow {
   protected readonly CheckIcon = CheckCircle2;
   protected readonly MessageSquareIcon = MessageSquare;
 
-  /** "1 reply" / "0 replies" — a template cannot pluralise without this. */
-  protected readonly replyLabel = computed<string>(() =>
-    this.replyCount() === 1 ? '1 reply' : `${this.replyCount()} replies`,
-  );
+  protected readonly replyI18nKeys = THREAD_ROW_REPLY_I18N_KEYS;
+  protected readonly unreadI18nKeys = THREAD_ROW_UNREAD_I18N_KEYS;
+  protected readonly pluralCategory = pluralCategory;
 
-  /** `null` collapses to a stated unknown, never to a blank gap. */
-  protected readonly authorLabel = computed<string>(
-    () => this.author() ?? 'Unknown',
-  );
-
-  /**
-   * "3 unread replies" for a screen reader. The visible chip reads "3 new",
-   * which is meaningless out of context.
-   *
-   * ⚠️ ALWAYS "replies" — a ROW's unread count is posts within one topic. The
-   * member panel also has a `UnreadPill` whose noun is configurable, because the
-   * CATEGORY rail counts topics with unread activity instead. The two chips look
-   * identical and count different things; this label is where a row commits to
-   * which one it is.
+  /*
+   * Labels live in the template as `panelUi.threadRow.*` keys:
+   * - `replyOne` / `replyOther` — "1 reply" / "0 replies", chosen by
+   *   `pluralCategory` (`../i18n/plural`).
+   * - `unknownAuthor` — a `null` author collapses to a stated unknown, never
+   *   to a blank gap.
+   * - `unreadOne` / `unreadOther` — "3 unread replies" for a screen reader;
+   *   the visible chip (`newBadge`) reads "3 new", meaningless out of context.
+   *   ⚠️ ALWAYS "replies": a ROW's unread count is posts within one topic. The
+   *   member panel's `UnreadPill` has a configurable noun because the CATEGORY
+   *   rail counts topics instead; this label is where a row commits to which
+   *   one it is.
    */
-  protected readonly unreadLabel = computed<string>(() => {
-    const count = this.unreadCount();
-    return `${count} unread ${count === 1 ? 'reply' : 'replies'}`;
-  });
 }

@@ -32,6 +32,7 @@ import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
 } from '@hive-academy/angular-gsap';
+import { TranslocoPipe } from '@ptah-extension/i18n';
 import { PaddleCheckoutService } from '@ptah-web/core';
 import { AuthService } from '@ptah-web/core';
 import { SubscriptionStateService } from '@ptah-web/core';
@@ -76,19 +77,21 @@ import {
     ViewportAnimationDirective,
     LucideAngularModule,
     CountdownTimerComponent,
+    TranslocoPipe,
   ],
   template: `
     <div
       class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16 -mt-8 sm:-mt-10 lg:-mt-16"
     >
-      @if (paddleError()) {
+      @if (paddleError(); as paddleMsg) {
         <div class="alert alert-warning mb-8 max-w-xl mx-auto">
           <lucide-angular
             [img]="TriangleAlertIcon"
             class="stroke-current shrink-0 h-6 w-6"
             aria-hidden="true"
           />
-          <span>{{ paddleError() }}</span>
+          <!-- i18n-keys: core.checkout.* -->
+          <span>{{ paddleMsg.key | transloco: paddleMsg.params }}</span>
           <button class="btn btn-sm btn-secondary" (click)="retryPaddleInit()">
             Retry
           </button>
@@ -133,7 +136,7 @@ import {
           </button>
         </div>
       }
-      @if (validationError()) {
+      @if (validationError(); as validationMsg) {
         <div class="alert alert-error mb-8 max-w-xl mx-auto shadow-lg">
           <lucide-angular
             [img]="CircleXIcon"
@@ -141,7 +144,10 @@ import {
             aria-hidden="true"
           />
           <div class="flex flex-col gap-2">
-            <span class="font-medium">{{ validationError() }}</span>
+            <!-- i18n-keys: core.checkout.* core.common.serverMessage -->
+            <span class="font-medium">{{
+              validationMsg.key | transloco: validationMsg.params
+            }}</span>
             @if (customerPortalUrl()) {
               <a
                 [href]="customerPortalUrl()"

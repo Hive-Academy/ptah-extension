@@ -99,6 +99,10 @@
       ],
       "@ptah-extension/dashboard": ["./libs/frontend/dashboard/src/index.ts"],
       "@ptah-extension/git-ui": ["./libs/frontend/git-ui/src/index.ts"],
+      "@ptah-extension/i18n": ["./libs/frontend/i18n/src/index.ts"],
+      "@ptah-extension/i18n/testing": [
+        "./libs/frontend/i18n/src/testing/index.ts"
+      ],
       "@ptah-extension/platform-cli": [
         "./libs/backend/platform-cli/src/index.ts"
       ],

@@ -29,8 +29,15 @@ module.exports = {
   // the renderer. Mocking it would leave NFR-S2's single-chokepoint claim
   // asserted only against source text and never against the path a browser
   // actually takes.
+  //
+  // `@jsverse/*` (Transloco, behind `@ptah-extension/i18n`) and
+  // `@angular/common/locales/*` (registered by the i18n runtime) ship plain
+  // `.js` ESM for the same reason as `marked`. FullCalendar v7 and its
+  // preact/temporal deps do too: specs that render the panel shell load the
+  // `ui` scope through `@ptah-web/ui`, whose barrel re-exports SessionCalendar
+  // (same list as libs/web/admin and libs/web/panel-ui).
   transformIgnorePatterns: [
-    'node_modules/(?!(?:.*\\.mjs$|jest-preset-angular|marked|ngx-markdown))',
+    'node_modules/(?!(?:.*\\.mjs$|jest-preset-angular|marked|ngx-markdown|@fullcalendar|fullcalendar|@full-ui|preact|temporal-polyfill|temporal-spec|temporal-utils|@jsverse|@angular/common/locales))',
   ],
   snapshotSerializers: [
     'jest-preset-angular/build/serializers/no-ng-attributes',

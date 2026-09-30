@@ -143,6 +143,26 @@ jobs:
           node_modules/.bin/nx run degradation-audit:self-test
           node_modules/.bin/nx run degradation-audit:lint
 
+      # i18n gate (TASK_2026_575, plan Component 11). The tool's self-test runs
+      # first against its planted fixture (a broken checker must not silently
+      # pass), then every affected project's `i18n-check` target. `affected`
+      # maps changed files to projects, so a change to the tool or its glossary
+      # alone would re-check nothing but the tool: in that case every project
+      # is re-checked. NX_BASE/NX_HEAD come from the nx-set-shas step above.
+      # The diff is captured, not piped into `grep -q`: under the runner's
+      # `bash -e -o pipefail`, grep exiting early can kill `git diff` with
+      # SIGPIPE and silently take the wrong branch. A failing `git diff` fails
+      # the step instead of falling back to `affected`.
+      - name: i18n-check (translation parity, key references, RTL and formatting patterns)
+        run: |
+          node_modules/.bin/nx run i18n-check:self-test
+          tool_changes="$(git diff --name-only "$NX_BASE" "$NX_HEAD" -- tools/i18n-check/)"
+          if [ -n "$tool_changes" ]; then
+            node_modules/.bin/nx run-many -t i18n-check
+          else
+            node_modules/.bin/nx affected -t i18n-check
+          fi
+
       # Required coverage gate (TASK_2025_294 W8.B1). Per-project
       # `coverageThreshold` stanzas in each `jest.config.ts` are ratcheted
       # to the current baseline rounded down to the nearest 5. A drop below

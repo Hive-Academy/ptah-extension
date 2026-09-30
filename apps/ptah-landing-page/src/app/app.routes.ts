@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
+import { i18nScopesResolver } from '@ptah-extension/i18n';
 import { provideMarkdownRendering } from '@ptah-extension/markdown';
-import { LandingPageComponent } from '@ptah-web/landing';
+import { LANDING_I18N_SCOPE, LandingPageComponent } from '@ptah-web/landing';
 import { AdminAuthGuard } from '@ptah-web/core';
 import { AuthGuard } from '@ptah-web/core';
 import { GuestGuard } from '@ptah-web/core';
@@ -19,11 +20,27 @@ import { MemberGuard } from '@ptah-web/core';
  * Guards:
  * - AuthGuard: Protects authenticated routes, redirects guests to /login
  * - GuestGuard: Protects guest-only routes, redirects authenticated users to /profile
+ *
+ * i18n: each page route resolves its own translation scope before navigation
+ * ends, so the prerender and the first client render show resolved text (the
+ * global `app`, `ui` and `core` scopes load in `provideI18n`). A lazy library's
+ * scope is reached through the same dynamic `import()` as its component: a
+ * static import would pull the library into the initial bundle and break the
+ * "static imports of lazy-loaded libraries" lint. `download` needs no resolver;
+ * its strings live in the global `app` scope.
  */
+const authScopes = i18nScopesResolver(() =>
+  import('@ptah-web/auth').then((m) => m.AUTH_I18N_SCOPE),
+);
+const legalScopes = i18nScopesResolver(() =>
+  import('@ptah-web/legal').then((m) => m.LEGAL_I18N_SCOPE),
+);
+
 export const routes: Routes = [
   {
     path: '',
     component: LandingPageComponent,
+    resolve: { i18n: i18nScopesResolver(LANDING_I18N_SCOPE) },
   },
   {
     path: 'docs',
@@ -48,24 +65,36 @@ export const routes: Routes = [
     path: 'pricing',
     loadComponent: () =>
       import('@ptah-web/pricing').then((m) => m.PricingPageComponent),
+    resolve: {
+      i18n: i18nScopesResolver(() =>
+        import('@ptah-web/pricing').then((m) => m.PRICING_I18N_SCOPE),
+      ),
+    },
   },
   {
     path: 'login',
     loadComponent: () =>
       import('@ptah-web/auth').then((m) => m.AuthPageComponent),
     canActivate: [GuestGuard],
+    resolve: { i18n: authScopes },
   },
   {
     path: 'signup',
     loadComponent: () =>
       import('@ptah-web/auth').then((m) => m.AuthPageComponent),
     canActivate: [GuestGuard],
+    resolve: { i18n: authScopes },
   },
   {
     path: 'profile',
     loadComponent: () =>
       import('@ptah-web/account').then((m) => m.ProfilePageComponent),
     canActivate: [AuthGuard],
+    resolve: {
+      i18n: i18nScopesResolver(() =>
+        import('@ptah-web/account').then((m) => m.ACCOUNT_I18N_SCOPE),
+      ),
+    },
   },
   {
     /**
@@ -102,6 +131,11 @@ export const routes: Routes = [
     canActivate: [MemberGuard],
     loadChildren: () =>
       import('@ptah-web/members').then((m) => m.MEMBER_ROUTES),
+    resolve: {
+      i18n: i18nScopesResolver(() =>
+        import('@ptah-web/members').then((m) => m.MEMBERS_I18N_SCOPES),
+      ),
+    },
     providers: [provideMarkdownRendering({ extensions: 'member' })],
     data: { hideFromNav: true },
   },
@@ -117,21 +151,29 @@ export const routes: Routes = [
     path: 'terms-and-conditions',
     loadComponent: () =>
       import('@ptah-web/legal').then((m) => m.TermsPageComponent),
+    resolve: { i18n: legalScopes },
   },
   {
     path: 'privacy',
     loadComponent: () =>
       import('@ptah-web/legal').then((m) => m.PrivacyPageComponent),
+    resolve: { i18n: legalScopes },
   },
   {
     path: 'refund',
     loadComponent: () =>
       import('@ptah-web/legal').then((m) => m.RefundPageComponent),
+    resolve: { i18n: legalScopes },
   },
   {
     path: 'admin',
     canActivate: [AdminAuthGuard],
     loadChildren: () => import('@ptah-web/admin').then((m) => m.ADMIN_ROUTES),
+    resolve: {
+      i18n: i18nScopesResolver(() =>
+        import('@ptah-web/admin').then((m) => m.ADMIN_I18N_SCOPES),
+      ),
+    },
     data: { hideFromNav: true },
   },
   {

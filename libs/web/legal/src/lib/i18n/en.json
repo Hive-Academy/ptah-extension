@@ -1,0 +1,16 @@
+{
+  "seo": {
+    "terms": {
+      "title": "Terms and Conditions — Ptah",
+      "description": "Terms of service for the Ptah AI coding agent desktop app, VS Code extension, and CLI."
+    },
+    "privacy": {
+      "title": "Privacy Policy — Ptah",
+      "description": "How Ptah collects, stores, and protects your data across the desktop app, VS Code extension, and CLI."
+    },
+    "refund": {
+      "title": "Refund Policy — Ptah",
+      "description": "Refund terms for Ptah Builders membership billing: a 30-day money-back guarantee on your first charge, processed through Paddle."
+    }
+  }
+}

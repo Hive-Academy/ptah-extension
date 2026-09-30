@@ -62,3 +62,41 @@ html.lenis body {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+
+/* LTR islands (TASK_2026_575, design-spec §3.3): code, CLI snippets, emails,
+   URLs, file paths, license keys and versions stay left-to-right inside an
+   Arabic page. Applied at the element rendering the value, so the sentence
+   around it keeps flowing right-to-left. It sets no `display` on purpose:
+   `inline-block` would change the layout of `<pre>` blocks. */
+.ltr-island {
+  direction: ltr;
+  unicode-bidi: isolate;
+  /* rtl-exempt: an LTR island is left-aligned in both directions by definition (design-spec §3.3) */
+  text-align: left;
+}
+
+/* Arabic typography (design-spec §3.6): metrics only. The font family is not
+   overridden; `fontFamily.sans` in tailwind.config.js lists Inter first, so
+   Latin runs keep Inter and Arabic glyphs fall through to IBM Plex Sans
+   Arabic. */
+[lang='ar'] {
+  line-height: 1.75;
+  /* Plex Arabic has no 800 cut: an 800 request resolves to the real 700 face
+     instead of a synthesised bold, while Latin runs keep Inter's true 800. */
+  font-synthesis-weight: none;
+}
+
+/* Tracking breaks connected Arabic letterforms. Targets the utilities that
+   carry it (a root rule cannot reach them); technical Latin text keeps its
+   own metrics. */
+[lang='ar']
+  :where([class*='tracking-'], .text-8xl, .text-9xl):not(.font-mono):not(
+    .ltr-island
+  ) {
+  letter-spacing: normal;
+}
+
+/* Arabic has no case. */
+[lang='ar'] .uppercase:not(.font-mono):not(.ltr-island) {
+  text-transform: none;
+}

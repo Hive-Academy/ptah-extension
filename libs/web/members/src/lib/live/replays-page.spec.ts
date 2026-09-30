@@ -22,6 +22,28 @@ import {
 } from './live-fixtures';
 import { ReplaysPage } from './replays-page';
 
+import {
+  loadScopeTranslations,
+  provideI18nTesting,
+  type I18nTestingOptions,
+} from '@ptah-extension/i18n/testing';
+import { PANEL_UI_I18N_SCOPE } from '@ptah-web/panel-ui';
+import { UI_I18N_SCOPE } from '@ptah-web/ui';
+
+/**
+ * The panel-ui chrome this spec renders (and the shell's language switch,
+ * `ui`) reads translation keys, so the i18n runtime is provided with the real
+ * `panelUi` and `ui` scopes (libs/frontend/i18n/CLAUDE.md, spec recipe).
+ */
+let panelI18n: I18nTestingOptions['translations'];
+beforeAll(async () => {
+  const [panelUi, ui] = await Promise.all([
+    loadScopeTranslations(PANEL_UI_I18N_SCOPE),
+    loadScopeTranslations(UI_I18N_SCOPE),
+  ]);
+  panelI18n = { en: { panelUi: panelUi.en, ui: ui.en } };
+});
+
 const LIVE = '/api/v1/members/live';
 
 /** A replay page envelope with sensible echoes. */
@@ -45,6 +67,7 @@ describe('ReplaysPage', () => {
     await TestBed.configureTestingModule({
       imports: [ReplaysPage],
       providers: [
+        provideI18nTesting({ translations: panelI18n }),
         provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),

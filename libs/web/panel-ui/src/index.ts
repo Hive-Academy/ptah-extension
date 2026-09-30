@@ -1,16 +1,18 @@
 /**
  * `@ptah-web/panel-ui` — the shared operator/member panel primitives.
  *
- * ⚠️ **10 EXPORT LINES / 11 SYMBOLS. THIS COMMENT IS THE AUTHORITATIVE COUNT.**
+ * ⚠️ **11 EXPORT LINES / 12 SYMBOLS. THIS COMMENT IS THE AUTHORITATIVE COUNT.**
  * TASK_2026_177 PRE-3 recorded "nine symbols / 8 export lines" and that literal
  * went stale the moment Batch 7 promoted `ThreadRow` and `TagChip` (RISK-M).
  * Later batches read THIS file, not the precondition. Update the numbers here in
  * the same edit that changes the list below, so there is exactly one place a
  * reader has to trust.
  *
- * The eleven symbols: `PanelNavItem` + `PanelNavGroup` (types), `BadgeVariant`
+ * The twelve symbols: `PanelNavItem` + `PanelNavGroup` (types), `BadgeVariant`
  * (type), `PanelLayout`, `StatTile`, `StatusBadge`, `EmptyState`,
- * `DetailDrawer`, `SelectionToolbar`, `ThreadRow`, `TagChip`.
+ * `DetailDrawer`, `SelectionToolbar`, `ThreadRow`, `TagChip`, and the
+ * `PANEL_UI_I18N_SCOPE` translation scope (TASK_2026_575, not a primitive: the
+ * promotion rule below does not apply to it).
  *
  * ⚠️ THE PROMOTION RULE (§5.3): a primitive earns a place here when a SECOND
  * panel ACTUALLY RENDERS IT — not when it looks reusable. `ThreadRow` and
@@ -33,3 +35,4 @@ export * from './lib/detail-drawer/detail-drawer';
 export * from './lib/selection-toolbar/selection-toolbar';
 export * from './lib/thread-row/thread-row';
 export * from './lib/tag-chip/tag-chip';
+export * from './lib/i18n/panel-ui.i18n-scope';

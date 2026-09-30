@@ -18,3 +18,4 @@ export * from './lib/sections/pillars/pillars-spine.component';
 export * from './lib/sections/problem/problem-section.component';
 export * from './lib/sections/provider-strip/provider-strip.component';
 export * from './lib/sections/video-showcase/video-showcase.component';
+export * from './lib/i18n/landing.i18n-scope';

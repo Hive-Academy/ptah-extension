@@ -1,5 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
+import type { I18nMessage } from '@ptah-extension/i18n';
 import { catchError, Observable, of, switchMap, tap } from 'rxjs';
 import { LicenseData } from '../models/license-data.interface';
 import { AuthService } from './auth.service';
@@ -27,7 +28,7 @@ export class SubscriptionStateService {
   private readonly authService = inject(AuthService);
   private readonly _licenseData = signal<LicenseData | null>(null);
   private readonly _isLoading = signal(false);
-  private readonly _error = signal<string | null>(null);
+  private readonly _error = signal<I18nMessage | null>(null);
   private readonly _isFetched = signal(false);
   public readonly licenseData = this._licenseData.asReadonly();
   public readonly isLoading = this._isLoading.asReadonly();
@@ -175,7 +176,7 @@ export class SubscriptionStateService {
               err.message || err,
               err.status ? `(HTTP ${err.status})` : '',
             );
-            this._error.set('Unable to load subscription status');
+            this._error.set({ key: 'core.subscription.loadFailed' });
             this._isLoading.set(false);
             this._isFetched.set(true);
             return of(null);

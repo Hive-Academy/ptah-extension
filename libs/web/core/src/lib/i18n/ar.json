@@ -1,0 +1,30 @@
+{
+  "common": {
+    "serverMessage": "{{ text }}"
+  },
+  "checkout": {
+    "unavailable": "نظام الدفع غير متاح مؤقتًا. يُرجى المحاولة لاحقًا.",
+    "notReady": "Paddle SDK غير جاهزة. يُرجى المحاولة مرة أخرى.",
+    "timedOut": "انتهت مهلة الدفع بعد 5 دقائق من عدم النشاط. يُرجى المحاولة مرة أخرى.",
+    "activePlanExists": "لديك بالفعل اشتراك {{ plan }} نشط. يُرجى إدارة اشتراكك الحالي أولًا.",
+    "activeSubscriptionExists": "لديك بالفعل اشتراك نشط. يُرجى إدارة اشتراكك الحالي أولًا.",
+    "config": {
+      "invalidEnvironment": "إعداد بيئة Paddle غير صالح",
+      "tokenMissing": "لم يُضبط رمز Paddle من جهة العميل. يُرجى التحقق من إعداد البيئة.",
+      "tokenMismatch": "رمز Paddle غير متطابق: بيئة {{ environment }} تتطلب رمزًا يبدأ بـ {{ prefix }}",
+      "priceIdsMissing": "لم تُضبط معرّفات أسعار Paddle. يُرجى التحقق من إعداد البيئة."
+    }
+  },
+  "releases": {
+    "rateLimited": "تم بلوغ حد معدل طلبات GitHub API. يُرجى المحاولة لاحقًا.",
+    "loadFailed": "تعذّر تحميل الإصدارات. يُرجى المحاولة مرة أخرى."
+  },
+  "subscription": {
+    "loadFailed": "تعذّر تحميل حالة الاشتراك"
+  },
+  "realtime": {
+    "authRequired": "المصادقة مطلوبة. يُرجى تسجيل الدخول أولًا.",
+    "connectFailed": "تعذّر الاتصال",
+    "reconnectFailed": "تعذّر إنشاء اتصال فوري. يُرجى تحديث الصفحة."
+  }
+}

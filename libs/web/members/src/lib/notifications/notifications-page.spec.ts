@@ -14,6 +14,28 @@ import {
   notificationPage,
 } from './notification-fixtures';
 
+import {
+  loadScopeTranslations,
+  provideI18nTesting,
+  type I18nTestingOptions,
+} from '@ptah-extension/i18n/testing';
+import { PANEL_UI_I18N_SCOPE } from '@ptah-web/panel-ui';
+import { UI_I18N_SCOPE } from '@ptah-web/ui';
+
+/**
+ * The panel-ui chrome this spec renders (and the shell's language switch,
+ * `ui`) reads translation keys, so the i18n runtime is provided with the real
+ * `panelUi` and `ui` scopes (libs/frontend/i18n/CLAUDE.md, spec recipe).
+ */
+let panelI18n: I18nTestingOptions['translations'];
+beforeAll(async () => {
+  const [panelUi, ui] = await Promise.all([
+    loadScopeTranslations(PANEL_UI_I18N_SCOPE),
+    loadScopeTranslations(UI_I18N_SCOPE),
+  ]);
+  panelI18n = { en: { panelUi: panelUi.en, ui: ui.en } };
+});
+
 const NOTIFICATIONS = '/api/v1/members/notifications';
 const UNREAD_COUNT = `${NOTIFICATIONS}/unread-count`;
 const READ_ALL = `${NOTIFICATIONS}/read-all`;
@@ -42,6 +64,7 @@ describe('NotificationsPage (R10.3, R10.4, R9.7, NFR-S2, ASSUMPTION-28)', () => 
     await TestBed.configureTestingModule({
       imports: [NotificationsPage],
       providers: [
+        provideI18nTesting({ translations: panelI18n }),
         provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),
@@ -274,7 +297,7 @@ describe('NotificationsPage (R10.3, R10.4, R9.7, NFR-S2, ASSUMPTION-28)', () => 
     it('the page source contains no IntersectionObserver', () => {
       const { readFileSync } = require('node:fs') as typeof import('node:fs');
       const source = readFileSync(`${__dirname}/notifications-page.ts`, 'utf8');
-      const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+      const code = source.replace(/(?:\/\*[\s\S]*?\*\/)|(?:\/\/.*$)/gm, '');
 
       expect(code).not.toContain('IntersectionObserver');
       expect(code).not.toContain('scroll');
@@ -603,7 +626,7 @@ describe('NotificationsPage (R10.3, R10.4, R9.7, NFR-S2, ASSUMPTION-28)', () => 
     it('the page source names no bypass or innerHTML binding', () => {
       const { readFileSync } = require('node:fs') as typeof import('node:fs');
       const source = readFileSync(`${__dirname}/notifications-page.ts`, 'utf8');
-      const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+      const code = source.replace(/(?:\/\*[\s\S]*?\*\/)|(?:\/\/.*$)/gm, '');
 
       expect(code).not.toContain('innerHTML');
       expect(code).not.toContain('bypassSecurityTrust');
@@ -734,7 +757,7 @@ describe('NotificationsPage (R10.3, R10.4, R9.7, NFR-S2, ASSUMPTION-28)', () => 
     // creates the second source of truth R9.3 forbids.
     const { readFileSync } = require('node:fs') as typeof import('node:fs');
     const source = readFileSync(`${__dirname}/notifications-page.ts`, 'utf8');
-    const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    const code = source.replace(/(?:\/\*[\s\S]*?\*\/)|(?:\/\/.*$)/gm, '');
 
     expect(code).not.toContain('unreadCount');
 

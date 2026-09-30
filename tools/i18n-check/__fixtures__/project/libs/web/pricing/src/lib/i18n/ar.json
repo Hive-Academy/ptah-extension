@@ -1,0 +1,15 @@
+{
+  "page": {
+    "title": "الأسعار",
+    "subtitle": "خطط لعدد {{ count }} من المقاعد",
+    "brand": "Ptah"
+  },
+  "status": {
+    "active": "نشط",
+    "paused": "متوقف مؤقتًا"
+  },
+  "card": {
+    "heading": "الخطة",
+    "note": "تُحتسب شهريًا"
+  }
+}

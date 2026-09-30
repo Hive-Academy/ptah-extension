@@ -1,5 +1,6 @@
 import { provideHttpClient, withXhr } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { type WritableSignal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
@@ -8,6 +9,28 @@ import { MemberSessionStore } from '@ptah-web/core';
 
 import { AdminLayout } from './admin-layout';
 import { ADMIN_MEMBER_NAV_GROUP, ADMIN_NAV_GROUPS } from './admin-nav.config';
+
+import {
+  loadScopeTranslations,
+  provideI18nTesting,
+  type I18nTestingOptions,
+} from '@ptah-extension/i18n/testing';
+import { PANEL_UI_I18N_SCOPE } from '@ptah-web/panel-ui';
+import { UI_I18N_SCOPE } from '@ptah-web/ui';
+
+/**
+ * The panel-ui chrome this spec renders (and the shell's language switch,
+ * `ui`) reads translation keys, so the i18n runtime is provided with the real
+ * `panelUi` and `ui` scopes (libs/frontend/i18n/CLAUDE.md, spec recipe).
+ */
+let panelI18n: I18nTestingOptions['translations'];
+beforeAll(async () => {
+  const [panelUi, ui] = await Promise.all([
+    loadScopeTranslations(PANEL_UI_I18N_SCOPE),
+    loadScopeTranslations(UI_I18N_SCOPE),
+  ]);
+  panelI18n = { en: { panelUi: panelUi.en, ui: ui.en } };
+});
 
 /**
  * The admin panel's cross-panel Member Panel link.
@@ -30,6 +53,7 @@ describe('AdminLayout — the Member Panel nav item', () => {
 
     TestBed.configureTestingModule({
       providers: [
+        provideI18nTesting({ translations: panelI18n }),
         provideHttpClient(withXhr()),
         provideHttpClientTesting(),
         provideRouter([]),
@@ -51,6 +75,23 @@ describe('AdminLayout — the Member Panel nav item', () => {
       .queryAll(By.css('nav ul a[href]'))
       .map((el) => el.nativeElement.getAttribute('href') as string);
   }
+
+  it('gives the truncated top-bar email its full address as a title (N23)', () => {
+    render();
+    const email = 'abdallah.longername.staffing@miramarstaffingcompany.com';
+    (
+      fixture.componentInstance as unknown as {
+        currentEmail: WritableSignal<string | null>;
+      }
+    ).currentEmail.set(email);
+    fixture.detectChanges();
+
+    const span = fixture.debugElement.query(
+      By.css('header .font-mono.truncate'),
+    );
+    expect(span.nativeElement.textContent.trim()).toBe(email);
+    expect(span.nativeElement.getAttribute('title')).toBe(email);
+  });
 
   it('is NOT baked into ADMIN_NAV_GROUPS — the config stays unconditional data', () => {
     const routes = ADMIN_NAV_GROUPS.flatMap((g) => g.items.map((i) => i.route));

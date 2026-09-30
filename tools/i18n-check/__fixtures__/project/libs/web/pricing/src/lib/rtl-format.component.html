@@ -1,0 +1,27 @@
+<!-- i18n-check self-test fixture (data only), F2b plants. Planted violations
+     are marked PLANT; PASS sites must not be reported. -->
+<section class="pricing-rtl">
+  <!-- PLANT (rtl-physical): a physical margin utility. -->
+  <p class="ml-4">{{ 'pricing.page.title' | transloco }}</p>
+  <!-- PLANT (locale-format-pipe): Angular's date pipe. -->
+  <p>{{ renewedAt | date: 'MMM d, y' }}</p>
+  <!-- PLANT (rtl-physical): an rtl: margin beside a physical one does not
+       mirror it; both apply under RTL. -->
+  <p class="ml-6 rtl:mr-8"></p>
+  <!-- PASS: translate-x has no logical form, so an rtl: pair mirrors it. -->
+  <span class="translate-x-1 rtl:-translate-x-1"></span>
+  <!-- PASS: a centring pair on one element. -->
+  <span class="absolute left-1/2 -translate-x-1/2"></span>
+  <!-- rtl-exempt: decorative glow, placed by the design on the physical right -->
+  <div class="glow pr-6"></div>
+  <!-- i18n-format-exempt: an English-only audit amount -->
+  <p>{{ auditedAmount | currency }}</p>
+  <!-- PASS: physical utilities inside an LTR island keep their meaning. -->
+  <div dir="ltr" class="relative h-2">
+    <span class="absolute left-0 h-2"></span>
+    <!-- PLANT (rtl-variant-in-island): rtl: still fires inside the island. -->
+    <span class="rtl:rotate-180"></span>
+  </div>
+  <!-- PASS: the ltr-island class makes an island too. -->
+  <code class="font-mono ltr-island ml-1">npm i ptah</code>
+</section>

@@ -9,3 +9,4 @@ export * from './lib/sessions/components/session-registration-modal.component';
 export * from './lib/sessions/components/sessions-grid.component';
 export * from './lib/sessions/components/sessions-hero.component';
 export * from './lib/sessions/sessions-page.component';
+export * from './lib/i18n/account.i18n-scope';

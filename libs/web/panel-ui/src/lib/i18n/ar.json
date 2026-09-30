@@ -1,0 +1,34 @@
+{
+  "layout": {
+    "openMenu": "افتح قائمة {{ title }}",
+    "openMenuUntitled": "افتح قائمة اللوحة",
+    "closeMenu": "أغلق القائمة",
+    "readOnly": "للقراءة فقط",
+    "readOnlyBadge": "قراءة"
+  },
+  "emptyState": {
+    "message": "لا يوجد شيء هنا بعد."
+  },
+  "detailDrawer": {
+    "title": "التفاصيل",
+    "close": "أغلق اللوحة"
+  },
+  "selectionToolbar": {
+    "region": "إجراءات جماعية",
+    "item": "عنصر",
+    "countOne": "تم تحديد {{ count }} ({{ noun }})",
+    "countOther": "تم تحديد {{ count }} ({{ noun }})",
+    "clear": "مسح"
+  },
+  "threadRow": {
+    "pinned": "مثبّت",
+    "locked": "مقفل",
+    "accepted": "يتضمن إجابة مقبولة",
+    "unknownAuthor": "غير معروف",
+    "replyOne": "ردّ: {{ count }}",
+    "replyOther": "الردود: {{ count }}",
+    "unreadOne": "ردّ غير مقروء: {{ count }}",
+    "unreadOther": "ردود غير مقروءة: {{ count }}",
+    "newBadge": "{{ count }} جديد"
+  }
+}

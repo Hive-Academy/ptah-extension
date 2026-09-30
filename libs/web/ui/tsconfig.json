@@ -9,6 +9,7 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "module": "preserve",
+    "resolveJsonModule": true,
     "ignoreDeprecations": "6.0"
   },
   "angularCompilerOptions": {
