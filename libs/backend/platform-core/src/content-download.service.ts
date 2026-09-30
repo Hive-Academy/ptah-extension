@@ -576,7 +576,7 @@ export class ContentDownloadService {
       });
 
       req.on('error', reject);
-      req.setTimeout(30_000, () => {
+      req.setTimeout(60_000, () => {
         req.destroy(new Error(`Request timeout for ${url}`));
       });
     });

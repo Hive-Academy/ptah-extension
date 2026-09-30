@@ -23,8 +23,11 @@ import { injectable } from 'tsyringe';
 import { z } from 'zod';
 import { PluginMarketplaceError } from '../errors';
 
-/** Per-request timeout. Matches `ContentDownloadService`. */
-const REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * Per-request socket-idle timeout. Matches `ContentDownloadService`. Sized for
+ * slow links: it bounds silence on the socket, not total transfer time.
+ */
+const REQUEST_TIMEOUT_MS = 60_000;
 
 /** Redirect budget, matching `ContentDownloadService`. */
 const MAX_REDIRECTS = 5;
@@ -120,9 +123,13 @@ export class GitHubContentClient {
    * Uses `HEAD` as the ref so the marketplace tracks the repo's default branch
    * without an extra API call to discover its name.
    */
-  async fetchMarketplaceManifest(owner: string, repo: string): Promise<string> {
+  async fetchMarketplaceManifest(
+    owner: string,
+    repo: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const url = `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/.claude-plugin/marketplace.json`;
-    const blob = await this.fetchBlob(url);
+    const blob = await this.fetchBlob(url, {}, signal);
     if (blob.text === null) {
       throw new PluginMarketplaceError(
         'manifest-invalid',
@@ -142,6 +149,7 @@ export class GitHubContentClient {
     owner: string,
     repo: string,
     repoPath: string,
+    signal?: AbortSignal,
   ): Promise<FetchedBlob> {
     const encoded = repoPath
       .split('/')
@@ -149,6 +157,8 @@ export class GitHubContentClient {
       .join('/');
     return this.fetchBlob(
       `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${encoded}`,
+      {},
+      signal,
     );
   }
 
@@ -159,9 +169,13 @@ export class GitHubContentClient {
    * spend one extra call resolving `default_branch` and retry — a fallback,
    * never the default, because of the 60/hour budget.
    */
-  async fetchRepoTree(owner: string, repo: string): Promise<GitTreeEntry[]> {
+  async fetchRepoTree(
+    owner: string,
+    repo: string,
+    signal?: AbortSignal,
+  ): Promise<GitTreeEntry[]> {
     try {
-      return await this.fetchTreeAtRef(owner, repo, 'HEAD');
+      return await this.fetchTreeAtRef(owner, repo, 'HEAD', signal);
     } catch (error: unknown) {
       if (
         !(error instanceof PluginMarketplaceError) ||
@@ -173,6 +187,7 @@ export class GitHubContentClient {
 
     const metaRaw = await this.fetchApiJson(
       `https://api.github.com/repos/${owner}/${repo}`,
+      signal,
     );
     const meta = RepoMetadataSchema.safeParse(metaRaw);
     if (!meta.success) {
@@ -182,16 +197,18 @@ export class GitHubContentClient {
       );
     }
 
-    return this.fetchTreeAtRef(owner, repo, meta.data.default_branch);
+    return this.fetchTreeAtRef(owner, repo, meta.data.default_branch, signal);
   }
 
   private async fetchTreeAtRef(
     owner: string,
     repo: string,
     ref: string,
+    signal: AbortSignal | undefined,
   ): Promise<GitTreeEntry[]> {
     const raw = await this.fetchApiJson(
       `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+      signal,
     );
 
     const parsed = GitTreeResponseSchema.safeParse(raw);
@@ -216,11 +233,18 @@ export class GitHubContentClient {
     }));
   }
 
-  private async fetchApiJson(url: string): Promise<unknown> {
-    const blob = await this.fetchBlob(url, {
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    });
+  private async fetchApiJson(
+    url: string,
+    signal: AbortSignal | undefined,
+  ): Promise<unknown> {
+    const blob = await this.fetchBlob(
+      url,
+      {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      signal,
+    );
 
     if (blob.text === null) {
       throw new PluginMarketplaceError(
@@ -246,10 +270,16 @@ export class GitHubContentClient {
    * Bytes are collected as `Buffer` rather than through `setEncoding('utf8')`
    * precisely so the caller can distinguish text from binary. Decoding first
    * and asking questions later is how you silently corrupt a file.
+   *
+   * `signal` bounds the whole transfer, not just socket silence: aborting it
+   * destroys the in-flight request (and any redirect hop it has started) and
+   * rejects with a `network` error. The caller that owns the signal decides
+   * what an abort means to the user.
    */
   fetchBlob(
     url: string,
     headers: Record<string, string> = {},
+    signal?: AbortSignal,
     redirectsLeft = MAX_REDIRECTS,
   ): Promise<FetchedBlob> {
     return new Promise<FetchedBlob>((resolve, reject) => {
@@ -260,6 +290,14 @@ export class GitHubContentClient {
             `Too many redirects for ${url}`,
           ),
         );
+        return;
+      }
+
+      const abortedError = (): PluginMarketplaceError =>
+        new PluginMarketplaceError('network', `Request aborted for ${url}`);
+
+      if (signal?.aborted) {
+        reject(abortedError());
         return;
       }
 
@@ -281,10 +319,12 @@ export class GitHubContentClient {
               );
               return;
             }
-            this.fetchBlob(next.toString(), headers, redirectsLeft - 1).then(
-              resolve,
-              reject,
-            );
+            this.fetchBlob(
+              next.toString(),
+              headers,
+              signal,
+              redirectsLeft - 1,
+            ).then(resolve, reject);
             return;
           }
 
@@ -354,6 +394,22 @@ export class GitHubContentClient {
           new PluginMarketplaceError('network', `Request timeout for ${url}`),
         );
       });
+
+      if (signal) {
+        // Reject directly as well as destroying: once a response is streaming,
+        // destroying the request is not guaranteed to surface as an `error`
+        // on either side, and a caller waiting on an aborted signal must not
+        // be left hanging. The listener is released when the socket closes.
+        const onAbort = (): void => {
+          const error = abortedError();
+          request.destroy(error);
+          reject(error);
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        request.once('close', () =>
+          signal.removeEventListener('abort', onAbort),
+        );
+      }
     });
   }
 
