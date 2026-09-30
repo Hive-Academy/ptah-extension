@@ -7,7 +7,7 @@ Then `kits/ptah-ui/SPEC.md` before touching a component.
 
 | What | Where |
 | --- | --- |
-| Worktree / branch | `D:\projects\ptah-extension\.claude-worktrees\ptah-ui-motion-kit`, branch `feat/ptah-ui-motion-kit` (from `main` 722d921ab). Not pushed, no PR |
+| Worktree / branch | `D:\projects\ptah-extension\.claude-worktrees\ptah-ui-motion-kit`, branch `feat/ptah-ui-motion-kit` (from `main` 722d921ab). Pushed, PR #614 |
 | Source (tracked) | `tools/hyperframes/` in the worktree |
 | Finished videos | `D:\projects\ptah-extension\video-output\<project>\` (main checkout, gitignored, outside `dist/`) |
 | Input media (not tracked) | each project's `assets/` in the worktree (music, SFX, footage, logos). Restore steps in `README.md` |

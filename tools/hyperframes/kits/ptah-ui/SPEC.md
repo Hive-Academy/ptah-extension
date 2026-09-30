@@ -1,6 +1,6 @@
 # Ptah UI motion kit: component specification
 
-Status: specification only. No HTML yet. Target: HyperFrames (GSAP 3.14.2, one paused timeline per component), 1920x1080, 30 fps.
+Status: implemented. Sources in `src/`, built by `build.mjs`. Target: HyperFrames (GSAP 3.14.2, one paused timeline per component), 1920x1080, 30 fps.
 Purpose: ten mountable components that recreate the real Ptah chat UI at video scale, so marketing videos animate authentic product UI instead of generic cards or tiny screen recordings.
 
 Source path prefixes used for `file:line` citations:
@@ -12,7 +12,7 @@ Source path prefixes used for `file:line` citations:
 | `CV`   | `libs/frontend/canvas/src/lib` |
 | `WV`   | `apps/ptah-extension-webview` |
 | `BE`   | `libs/backend` |
-| `REF`  | `tools/video-editor/kits/ptah-ui/reference` |
+| `REF`  | `tools/hyperframes/kits/ptah-ui/reference` |
 
 Rule for conflicts: the real source wins over screenshots. Every conflict found is listed in section 1.6 so nobody "fixes" the kit back to the screenshot.
 
@@ -142,7 +142,7 @@ Follows `REF/contract-example-notification-stack.html`.
 | `vignette` | boolean | `false` | draws the kit's single allowed background element (see 3.4); default off so mounts stay transparent |
 
 - Shared partials (badges, status glyphs, tool row, status line) are written once in the kit source and inlined into each composition at build; mounted components cannot import each other (Open question 2).
-- Planned files: `tools/video-editor/kits/ptah-ui/components/<name>.html`, gallery at `gallery/index.html`. Not created by this task.
+- Files: `tools/hyperframes/kits/ptah-ui/src/<name>.html` (source), built to `components/<name>.html` by `build.mjs`; gallery at `gallery/index.html`.
 
 ---
 
@@ -310,7 +310,6 @@ Variables:
 | `runFor` | number | `1.2` (seconds in running state) |
 | `expanded` | boolean | `false` |
 | `output` | string | `""` (mono text shown in expanded body) |
-| `startPending` | boolean | `false` (show a ghost pending beat first) |
 
 Beats: c0 0.00 container slide-settle; chevron, icon, badge spring in 0.09s stagger; c1 0.45 pending to running: badge fill cross-fade to info, spinner starts (linear rotation, 1 turn/s over `runFor`), `label` swaps to `live`; c2 = c1 + `runFor` running to done: spinner out, badge fill cross-fades to success, `status` check springs, `label` returns, `duration` chip pops; c3 (only if `expanded`) c2 + 0.5 chevron rotates, body expands 0.55s, output appears line by line 0.06s each. Failure path: same as c2 with error badge and X. Focus parts: `badge`, `status`, `label`, `container`.
 
@@ -429,9 +428,9 @@ Variables:
 | `lane1Status` | enum running/completed/failed | `completed` |
 | `lane2Name` | string | `Antigravity` |
 | `lane2Status` | enum running/completed/failed | `failed` |
-| `lane1Rows` | string | `Read|.../git/run-stage-failure.spec.ts;Thinking;Bash|Show git operation constants;Thinking;Write|.../reviews/p1-approval.md` (semicolon rows, pipe = tool|label, `Thinking` = thinking row) |
+| `lane1Rows` | string | `Read\|.../git/run-stage-failure.spec.ts;Thinking;Bash\|Show git operation constants;Thinking;Write\|.../reviews/p1-approval.md` (semicolon rows, pipe = `tool\|label`, `Thinking` = thinking row) |
 | `lane1Text` | string | `All checks pass. I write the deliverable now.` |
-| `lane2Rows` | string | `view_file|view_file;write_to_file|write_to_file;call_mcp_tool|call_mcp_tool` |
+| `lane2Rows` | string | `view_file\|view_file;write_to_file\|write_to_file;call_mcp_tool\|call_mcp_tool` |
 | `selected` | number | `1` |
 | `rowGap` | number | `0.45` (seconds between rows, floor 0.3) |
 

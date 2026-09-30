@@ -19,7 +19,7 @@ Never write a 2,000-line monolith (v1/v2 did; lint warns `composition_file_too_l
 
 - Pick the track first, run `npx hyperframes beats`, and put every cut on a bar and every entrance on a beat. Offset the music with `data-media-start` so the drop lands at 1-2 s, never after a quiet intro.
 - Cadence Fast-Slow-Fast: hook 0-4 s (a slam per beat), feature deep dives (one idea per 4-6 s, slow camera drift, UI states playing out), outro (slams + lockup on the last bars).
-- HyperFrames timing is `data-start` / `data-duration` on clips plus ONE paused GSAP timeline per composition. There is no `data-time` attribute. Kit components take `cues` (seconds from mount start) so their internal beats lock to the grid.
+- HyperFrames timing is `data-start` / `data-duration` on clips plus ONE paused GSAP timeline per composition. Give every timed visual element `class="clip"` (the shared `.clip` CSS supplies its full-frame box). Register the root timeline with `window.__timelines = window.__timelines || {}; window.__timelines["<composition-id>"] = tl;` so the runtime can seek it; scene timelines added to that root must not be paused, or they will not advance when the root is seeked. There is no `data-time` attribute. Kit components take `cues` (seconds from mount start) so their internal beats lock to the grid.
 
 ## 3. Layers (per scene)
 
