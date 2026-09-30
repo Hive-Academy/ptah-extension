@@ -2463,10 +2463,23 @@ export class GitInfoService {
       return await this.writeLock.run(workspacePath, async () => {
         if (!force) {
           const status = await this.execGit(
-            ['status', '--porcelain'],
+            [...STATUS_Z, '--untracked-files=all'],
             workspacePath,
           );
-          if (status.exitCode === 0 && status.stdout.trim()) {
+          if (status.exitCode !== 0) {
+            return isIndexLockFailure(status.stderr)
+              ? {
+                  success: false,
+                  code: 'LOCKED' as const,
+                  error: GIT_LOCKED_MESSAGE,
+                }
+              : {
+                  success: false,
+                  code: 'GIT_ERROR' as const,
+                  error: 'Could not read file status; checkout was not run.',
+                };
+          }
+          if (status.stdout.length > 0) {
             return { success: false, dirty: true };
           }
         }

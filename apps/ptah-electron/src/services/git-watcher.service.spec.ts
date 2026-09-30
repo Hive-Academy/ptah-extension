@@ -1109,6 +1109,32 @@ describe('GitWatcherService', () => {
       expect(gitInfo.refreshGitInfo).toHaveBeenCalledWith(worktree);
     });
 
+    it('resolves commondir relative to the canonical own gitdir when gitdir is symlinked', async () => {
+      const common = gitDir;
+      const ownGitDir = path.join(common, 'worktrees', 'wt-sym');
+      fs.mkdirSync(ownGitDir, { recursive: true });
+      fs.writeFileSync(path.join(ownGitDir, 'commondir'), '../..\n');
+      fs.writeFileSync(path.join(ownGitDir, 'HEAD'), 'ref: refs/heads/sym\n');
+
+      const linkParent = tempDir('gw-link-parent-');
+      const symlinkedGitDir = path.join(linkParent, 'extra-depth', 'wt-sym');
+      fs.mkdirSync(path.dirname(symlinkedGitDir), { recursive: true });
+      fs.symlinkSync(
+        ownGitDir,
+        symlinkedGitDir,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+
+      const worktree = tempDir('gw-worktree-sym-');
+      fs.writeFileSync(
+        path.join(worktree, '.git'),
+        `gitdir: ${symlinkedGitDir.replace(/\\/g, '/')}\n`,
+      );
+
+      const sub = await arm(worktree);
+      expect(sub.root).toBe(common);
+    });
+
     it('without a commondir file the gitdir is the subscription root', async () => {
       const sub = await arm();
       expect(sub.root).toBe(gitDir);

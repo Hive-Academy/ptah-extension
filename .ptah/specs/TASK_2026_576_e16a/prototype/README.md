@@ -17,18 +17,20 @@ dock at a realistic size inside a mock Electron window instead of a small center
 
 ## How to Open
 
-Open `index.html` directly in any web browser:
+Open `index.html` from your own checkout (`<repository-root>/` paths below are relative
+to the repository root) directly in any web browser:
 
 ```bash
-# Via browser or system launcher
-file:///D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/prototype/index.html
+# Via browser or system launcher, from the repository root
+.ptah/specs/TASK_2026_576_e16a/prototype/index.html
 ```
 
 Automated browser captures used a local static server because the browser tool accepts
 only HTTP/HTTPS:
 
 ```bash
-npx http-server D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/prototype -p 4599
+# Run from the repository root
+npx http-server .ptah/specs/TASK_2026_576_e16a/prototype -p 4599
 # Open http://localhost:4599/index.html (localhost access was enabled for this capture)
 ```
 

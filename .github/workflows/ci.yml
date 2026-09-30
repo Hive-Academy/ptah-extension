@@ -17,10 +17,6 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-permissions:
-  actions: read
-  contents: read
-
 env:
   # 24, not 22: node 22 ships npm 10, which cannot resolve our npm-11 lockfile
   # and silently degrades `npm ci` into an unpinned `npm install` fallback.
@@ -34,6 +30,12 @@ env:
 jobs:
   main:
     runs-on: ubuntu-latest
+    # Minimal job-level permissions (githubactions:S8264: permissions moved
+    # from workflow level to jobs): `contents: read` for the checkout,
+    # `actions: read` for nrwl/nx-set-shas to read prior workflow-run SHAs.
+    permissions:
+      actions: read
+      contents: read
     # 60, not 30: every run before 2026-08-19 died at the test step and never
     # reached "nx affected -t build", so 30 was only ever measured against a
     # failing job. The first fully-passing run was cut off mid-build at 30m.
@@ -205,6 +207,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Minimal job-level permissions (githubactions:S8264): `contents: read`
+    # for the checkout; this job reads no workflow-run metadata.
+    permissions:
+      contents: read
     # 30 min covers a from-scratch npm ci plus a native rebuild on the
     # slowest runner (windows-latest); the main job budgets 60 for the full
     # affected graph, this job only ever runs two projects' real-git specs.
@@ -287,7 +293,10 @@ jobs:
 
       - name: Install Linux platform binaries
         if: matrix.os == 'ubuntu-latest'
-        run: npm install @rollup/rollup-linux-x64-gnu @unrs/resolver-binding-linux-x64-gnu --no-save --force
+        # Pure binary packages with no lifecycle scripts, so --ignore-scripts
+        # is safe. Versions pinned to the package-lock.json resolution -- bump
+        # them together with rollup / unrs-resolver.
+        run: npm install @rollup/rollup-linux-x64-gnu@4.63.4 @unrs/resolver-binding-linux-x64-gnu@1.12.2 --no-save --force --ignore-scripts
 
       # better-sqlite3 ships a prebuilt binary per Node ABI/OS; rebuilding is
       # cheap and idempotent, and guards a cache hit populated for a
@@ -353,18 +362,23 @@ jobs:
       # (jest.config.ts); `test-real-git` runs only those, --runInBand
       # (libs/backend/vscode-core/project.json, jest.real-git.config.ts).
       # runInBand and passWithNoTests=false are set in the target options.
+      # Use npm's local binary shim rather than `npx`, which can install a
+      # package on demand and run its lifecycle scripts (githubactions:S6505,
+      # S8543 -- cwe:494, cwe:829), matching the main job's degradation-audit
+      # and test steps. The sh shim works under this job's forced bash on all
+      # three runners.
       - name: vscode-core real-git specs
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            npx nx run @ptah-extension/vscode-core:test-real-git
+            node_modules/.bin/nx run @ptah-extension/vscode-core:test-real-git
           else
-            npx nx run @ptah-extension/vscode-core:test-real-git --testNamePattern='^(?!.*\[slow\]).*$'
+            node_modules/.bin/nx run @ptah-extension/vscode-core:test-real-git --testNamePattern='^(?!.*\[slow\]).*$'
           fi
 
       - name: ptah-electron real-git specs
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            npx nx test ptah-electron --testPathPatterns=real-git --passWithNoTests=false
+            node_modules/.bin/nx test ptah-electron --testPathPatterns=real-git --passWithNoTests=false
           else
-            npx nx test ptah-electron --testPathPatterns=real-git --passWithNoTests=false --testNamePattern='^(?!.*\[slow\]).*$'
+            node_modules/.bin/nx test ptah-electron --testPathPatterns=real-git --passWithNoTests=false --testNamePattern='^(?!.*\[slow\]).*$'
           fi

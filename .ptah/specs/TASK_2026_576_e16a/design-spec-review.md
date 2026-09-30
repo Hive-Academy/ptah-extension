@@ -244,7 +244,7 @@ Spot-check of 8+ tokens cited in `design-spec.md` against [`apps/ptah-extension-
    - Icon-only navigation buttons in the review canvas hunk toolbar have explicit `aria-label="Previous hunk"` and `aria-label="Next hunk"` (`review-canvas.html:113-114`).
    - Purely decorative Unicode glyphs carry `aria-hidden="true"` throughout (`review-canvas.html:144, 152, 160, 168`).
 4. **Contrast**:
-   - In `anubis` dark mode, contrast across cards, tabs, and diff rows passes WCAG AA (>= 4.5:1).
+   - In `anubis` dark mode, contrast across cards, tabs, and diff rows passes WCAG AA (>= 4.5:1) for the pairs that passed verification; the single-letter status badges remain documented exceptions ("A" and "M" fail in dark mode, "R" fails in light mode) — see `design-spec.md` §13a and "Unresolved items" below.
    - In `anubis-light`, previously failing pairs in the conflict banner and diff addition texts were remediated in Round 1 using verified color substitutes (`.err-solid-text`, `.diff-add-text`, `.diff-del-text`, bordered chip for stale warning).
 
 ---

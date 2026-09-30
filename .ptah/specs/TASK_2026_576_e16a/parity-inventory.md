@@ -218,8 +218,9 @@ in edit mode or view mode by default is for the ui-ux-designer to decide.
 
 ## Proposed Removals
 
-These need explicit user approval at Gate 1. Anything not approved becomes
-`keep` or `move`.
+These four `remove-proposed` rows are approved at Gate 1 (recorded in
+`prototype/README.md`, Parity Mapping: "the four Gate-1-approved `remove-proposed`
+rows ... as approved"). All four remain in scope for removal.
 
 - **Several file views open at once as tabs** (`git-dock/git-dock.component.ts:127-191`
   for file-view tabs). The spot editor holds one file (Requirement 7.4), and

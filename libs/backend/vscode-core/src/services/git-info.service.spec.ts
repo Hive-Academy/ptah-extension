@@ -71,6 +71,7 @@ jest.mock('os', () => ({
 
 import { GitInfoService, isMutatingGitCommand } from './git-info.service';
 import { GitOutputLimitError } from '../utils/exec-git';
+import { GIT_LOCKED_MESSAGE } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Minimal logger double
@@ -668,16 +669,59 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   // ==========================================================================
 
   describe('checkout()', () => {
-    it('returns { success: false, dirty: true } when status --porcelain has output and force=false', async () => {
-      // First call: status --porcelain (returns dirty output)
+    it('returns { success: false, dirty: true } when status check has output and force=false', async () => {
+      // First call: status --porcelain=v2 -z (returns dirty output)
       mockSpawn.mockImplementationOnce(() =>
-        makeSpawnResult({ stdout: ' M src/index.ts\n', exitCode: 0 }),
+        makeSpawnResult({ stdout: '1 .M... \0', exitCode: 0 }),
       );
 
       const result = await service.checkout(WS, 'feat/x', false, false);
 
       expect(result).toEqual({ success: false, dirty: true });
       // Checkout itself should NOT have been called
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      const args: string[] = mockSpawn.mock.calls[0][1] as string[];
+      expect(args).toContain('--porcelain=v2');
+      expect(args).toContain('-z');
+      expect(args).toContain('--untracked-files=all');
+    });
+
+    it('returns LOCKED failure when status check encounters index.lock contention and force=false', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr:
+            "fatal: Unable to create '/repo/.git/index.lock': File exists.",
+          exitCode: 128,
+        }),
+      );
+
+      const result = await service.checkout(WS, 'feat/x', false, false);
+
+      expect(result).toEqual({
+        success: false,
+        code: 'LOCKED',
+        error: GIT_LOCKED_MESSAGE,
+      });
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns GIT_ERROR failure when status check fails and force=false', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr: 'error: bad index file',
+          exitCode: 1,
+        }),
+      );
+
+      const result = await service.checkout(WS, 'feat/x', false, false);
+
+      expect(result).toEqual({
+        success: false,
+        code: 'GIT_ERROR',
+        error: 'Could not read file status; checkout was not run.',
+      });
       expect(mockSpawn).toHaveBeenCalledTimes(1);
     });
 
@@ -2330,6 +2374,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
       const pushCall = mockSpawn.mock.calls[1];
       expect(pushCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
+      expect(pushCall[2]?.env?.GIT_ASKPASS).toBe('');
     });
 
     it('pull passes GIT_TERMINAL_PROMPT=0 and translates auth failures', async () => {
@@ -2351,6 +2396,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
       const pullCall = mockSpawn.mock.calls[0];
       expect(pullCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
+      expect(pullCall[2]?.env?.GIT_ASKPASS).toBe('');
     });
 
     it('fetch passes GIT_TERMINAL_PROMPT=0 and translates auth failures', async () => {
@@ -2372,6 +2418,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
       const fetchCall = mockSpawn.mock.calls[0];
       expect(fetchCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
+      expect(fetchCall[2]?.env?.GIT_ASKPASS).toBe('');
     });
   });
 });
