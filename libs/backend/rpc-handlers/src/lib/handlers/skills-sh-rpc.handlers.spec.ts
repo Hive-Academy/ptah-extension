@@ -341,6 +341,25 @@ describe('SkillsShRpcHandlers — install lands in the source root and propagate
     expect(result).toEqual({ success: false, error: 'network down' });
     expect(h.propagation.propagate).not.toHaveBeenCalled();
   });
+
+  it('logs the failure reason, so a failed install is diagnosable from the log', async () => {
+    const h = makeHarness({ workspaceRoot: '/repo' });
+    h.sourceRoots.install.mockResolvedValue({
+      success: false,
+      error: 'CLI timed out after 120000ms',
+    } as unknown as never);
+
+    await h.rpc.call('skillsSh:install', {
+      source: 'anthropics/skills',
+      skillId: 'webapp-testing',
+    });
+
+    expect(h.logger.warn).toHaveBeenCalledWith('RPC: skillsSh:install failed', {
+      source: 'anthropics/skills',
+      skillId: 'webapp-testing',
+      error: 'CLI timed out after 120000ms',
+    });
+  });
 });
 
 describe('SkillsShRpcHandlers — uninstall reaps', () => {
