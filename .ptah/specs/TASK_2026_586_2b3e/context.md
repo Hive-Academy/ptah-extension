@@ -39,4 +39,8 @@ BUGFIX (webview Thoth page + skill-synthesis activity backend).
 
 - Reachability proof (umbrella rule): a spec that fails if the production feed path does not render the newest
   event first, and one that fails if repeated same-kind events are not grouped.
+- Stable row identity: a spec with two events of the same kind in the same millisecond asserts two distinct rows,
+  each tracked by its real event id (not `timestamp + kind`).
+- Tile refresh: a spec that switches tabs and then workspaces asserts that the shell tiles reload, and that the
+  Skills tile counts only the current workspace.
 - UI change: visual-reviewer before/after screenshots, dark and light.

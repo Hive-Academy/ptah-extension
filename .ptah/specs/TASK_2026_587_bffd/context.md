@@ -39,4 +39,6 @@ FEATURE (Thoth page + a persisted activity ledger).
 
 - Reachability proof (umbrella rule): a spec that fails if production subsystems do not write to the ledger, and one
   that fails if retention does not bound it.
+- Durability: an integration spec writes events through the production path, closes and reopens the SQLite
+  database, and asserts that the rows persist, every id is a valid ULID, and reads return newest-first.
 - UI: visual-reviewer screenshots, dark and light, against an approved prototype.

@@ -33,5 +33,6 @@ Measure the archaeology queue before and after on the live DB, and plan a throug
 
 ## Acceptance
 
-- Reachability proof (verdict B): an integration spec in which a real (fake-lane) session that is eligible twice
-  across contexts ends `promoted`, and a conversation-only session produces nothing.
+- Reachability proof (verdict B): an integration spec in which routines from at least two distinct sessions are
+  clustered before authoring, a real (fake-lane) session that is eligible twice across contexts ends `promoted`,
+  and a conversation-only session produces nothing. A single session seen twice must not satisfy the cluster gate.
