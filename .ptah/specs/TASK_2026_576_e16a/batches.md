@@ -8,8 +8,9 @@ or `.claude/skills/ptah-cli-usage/references/internal-mcp.md`.
 
 ## Execution defaults (recorded by team-leader)
 
-- **Phase gates.** P1 (Batches 1-8) ships as its own PR. **Batches 9-69 wait until the user has merged the P1 PR**
-  (context.md Gate decisions; implementation-plan.md:1518). At the P1 boundary the team-leader runs a P1 verification
+- **Phase gates.** P1 (Batches 1-8) ships as its own PR. ~~Batches 9-69 wait until the user has merged the P1 PR~~
+  (context.md Gate decisions; implementation-plan.md:1518) — superseded 2026-09-30 by "Stacked phase branches" (top
+  of P2): each phase is stacked on the previous phase's branch. At the P1 boundary the team-leader runs a P1 verification
   (every P1 batch COMPLETE with a SHA, OS-matrix job defined, B7 before/after screenshots present) and the
   orchestrator hands the branch to the user for the PR. The user opens and merges PRs; nobody here pushes or opens one.
   Default for P2 onward: work continues on a branch cut from the updated `main` after the P1 merge (or this branch
@@ -711,8 +712,9 @@ P1 boundary checklist additions (from Batch 8):
 
 After Batch 8 is COMPLETE the team-leader verifies P1 (all eight SHAs resolve, B7 screenshots present, `git diff main --stat`
 touches only P1 files), confirms the Batch 5 e2e gate (`commit-hook-failure.spec.ts` pass) and the Batch 7
-follow-up (deterministic row-error e2e, senior-tester) are closed, and returns. The orchestrator reports to the user for the P1 PR. **Batches 9-69 stay PENDING until
-the user confirms the P1 PR is merged.**
+follow-up (deterministic row-error e2e, senior-tester) are closed, and returns. The orchestrator reports to the user
+for the P1 PR. ~~Batches 9-69 stay PENDING until the user confirms the P1 PR is merged.~~ Superseded 2026-09-30 by
+"Stacked phase branches" (top of P2): P2 starts now, stacked on the P1 branch.
 
 P1 verification (team-leader, 2026-09-30) — PASSED:
 
@@ -728,6 +730,16 @@ P1 verification (team-leader, 2026-09-30) — PASSED:
 - Batch 5 e2e gate closed (`commit-hook-failure.spec.ts` `1 passed`); Batch 7 row-error follow-up closed (above).
 - Still open for the P1 PR (not batch work): the first real `git-real-git` run (R3), and the branch-protection
   suggestion to the user.
+
+P1 handover (2026-09-30):
+
+- P1 approval: `reviews/p1-approval.md` — independent Glm lane, APPROVED; committed as b0a9b6f28
+  (`docs(vscode-core): p1 approval by an independent lane`).
+- The follow-up below landed on the P1 branch as 3346f60a6. The branch was pushed and **PR #611** opened against
+  `main` (https://github.com/Hive-Academy/ptah-extension/pull/611). P1 PR review fixes land on the P1 branch
+  (worktree `.claude-worktrees/task-576-p1`) and P2 is rebased on top.
+- Open items on the P1 PR: R3 — the first `git-real-git` run on the PR, all three OS legs green (record the run URL
+  here); recommend to the user that `git-real-git` (all three legs) become a required status check on `main`.
 
 P1 follow-up (orchestrator, 2026-09-30, after the Glm approval):
 
@@ -747,7 +759,40 @@ P1 follow-up (orchestrator, 2026-09-30, after the Glm approval):
 
 ---
 
-# P2 — Reliability hardening (RC9-RC14) — waits for P1 merge
+# P2 — Reliability hardening (RC9-RC14) — stacked on the P1 branch
+
+## Stacked phase branches (user decision 2026-09-30)
+
+Recorded in `context.md`. One branch and one PR per phase, each based on the previous phase's branch.
+
+- P1 = `feat/task-2026-576-git-review`, frozen at b0a9b6f28 for its PR. P2 = `feat/task-2026-576-p2`, created from
+  b0a9b6f28 and worked in the main checkout (a fresh worktree has no `node_modules`). P3, P4, P5 and Cutover follow
+  the same pattern.
+- "Depends on: P1 merged" now reads "stacked on the P1 branch" (Batches 9, 18, 19 say `P1 branch (stacked)`).
+- P1 PR review fixes land on the P1 branch; P2 is then rebased on it. When P1 merges, P2 is rebased onto `main` and
+  its PR targets `main`.
+- The team-leader checks `git branch --show-current` = the phase branch before every commit.
+
+## P2 execution waves (team-leader, 2026-09-30)
+
+One checkout, no extra worktrees. A wave holds more than one batch only when the batches are file-disjoint AND
+neither batch's typecheck/test scope compiles the other's files, so one executor's half-done edits cannot break the
+other's checks. `git-info.service.ts` batches stay serial. Each batch is committed on its own once its checks pass;
+in a two-batch wave the team-leader commits each batch separately by explicit path.
+
+| Wave | Batches             | Why                                                                                                                                                                                                                    |
+| ---- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | 9 ∥ 19              | 9 = `vscode-core` only (hot spot); 19 = `git-ui` only. git-ui imports no backend lib (grep of `libs/frontend/git-ui/src`: 0 hits for vscode-core/rpc-handlers/agent-sdk), so neither scope compiles the other's files. |
+| 2    | 18                  | `ptah-extension-vscode` and `cli-engine` both import `@ptah-extension/vscode-core` (`container.ts`), so 18 cannot run beside any vscode-core/shared batch; alone, after 9 is committed.                                |
+| 3    | 10                  | `shared` + `git-info.service.ts`; shared is in every backend and git-ui scope.                                                                                                                                         |
+| 4    | 11                  | rpc-handlers + git-ui; needs 10's params.                                                                                                                                                                              |
+| 5    | 12                  | `shared` + `git-info.service.ts`.                                                                                                                                                                                      |
+| 6    | 13                  | agent-sdk + rpc-handlers; needs 12.                                                                                                                                                                                    |
+| 7    | 14                  | ptah-electron + git-ui; needs 13 (and 3).                                                                                                                                                                              |
+| 8    | 15                  | `shared` union growth + git-ui; shared reaches every scope, so not beside 13/14.                                                                                                                                       |
+| 9    | 16                  | `git-info.service.ts` + status parser; needs 15.                                                                                                                                                                       |
+| 10   | 17                  | vscode-core review reader; needs 16.                                                                                                                                                                                   |
+| end  | P2 phase-end review | per Review cadence.                                                                                                                                                                                                    |
 
 ## Review cadence (user decision 2026-09-30)
 
@@ -764,15 +809,17 @@ under "Execution defaults".
 - Each batch's "Reviewer" line below names the scope the phase-end review must cover for that batch; it is not a
   per-batch gate.
 
-## Batch 9: Ref guard (RC14) — PENDING
+## Batch 9: Ref guard (RC14) — IN_PROGRESS
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Rationale: guard + call-site edits in the hot-spot facade.
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
-- Tasks: 1 | Depends on: P1 merged
-- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
+- Tasks: 1 | Depends on: P1 branch (stacked)
+- Wave: 1 (with Batch 19)
+- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`; real-git specs
+  (`--testPathPatterns=real-git --passWithNoTests=false`); `npx nx run degradation-audit:lint`
 
-### Task 9.1: `assertSafeRef`/`assertSafeRevision` and `--end-of-options` at call sites — PENDING
+### Task 9.1: `assertSafeRef`/`assertSafeRevision` and `--end-of-options` at call sites — IN_PROGRESS
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-ref-guard.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-ref-guard.spec.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ref-guard.real-git.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts
 - Plan reference: implementation-plan.md:497-525
@@ -913,8 +960,8 @@ under "Execution defaults".
 
 - Recommended executor: CLI lane | Fallback: backend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
-- Tasks: 2 | Depends on: P1 merged
-- Concurrency-eligible with: Batches 9-17
+- Tasks: 2 | Depends on: P1 branch (stacked)
+- Concurrency-eligible with: none in the single checkout (its scope compiles vscode-core); Wave 2
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-extension-vscode @ptah-extension/cli-engine`
 
 ### Task 18.1: VS Code singleton registration — PENDING
@@ -935,15 +982,15 @@ under "Execution defaults".
 - Validation notes: V11.
 - Implementation details: replace `container.ts:445-447`.
 
-## Batch 19: Scoped, queued diff refresh (RC11) — PENDING
+## Batch 19: Scoped, queued diff refresh (RC11) — IN_PROGRESS
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
-- Tasks: 1 | Depends on: P1 merged
-- Concurrency-eligible with: Batches 9-18
-- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
+- Tasks: 1 | Depends on: P1 branch (stacked)
+- Concurrency-eligible with: Batch 9 only (Wave 1); git-ui imports no backend lib
+- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`; `npx nx run degradation-audit:lint`
 
-### Task 19.1: Cause-scoped refresh with `rerunRequested` trailing run — PENDING
+### Task 19.1: Cause-scoped refresh with `rerunRequested` trailing run — IN_PROGRESS
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/diff-tabs.service.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/diff-tabs.service.spec.ts
 - Plan reference: implementation-plan.md:662-680
