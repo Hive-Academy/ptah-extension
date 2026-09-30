@@ -1,37 +1,224 @@
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import type { BranchRef, GitCheckoutResult } from '@ptah-extension/shared';
 import { BranchPickerDropdownComponent } from './branch-picker-dropdown.component';
 import { GitBranchesService } from '../services/git-branches.service';
+
+const localBranch = (name: string): BranchRef => ({
+  name,
+  isCurrent: false,
+  isRemote: false,
+  ahead: 0,
+  behind: 0,
+});
+
+async function setup(options: {
+  local?: BranchRef[];
+  remote?: BranchRef[];
+  checkout?: jest.Mock<Promise<GitCheckoutResult>>;
+}) {
+  const branches = {
+    localBranches: signal(options.local ?? []),
+    remoteBranches: signal(options.remote ?? []),
+    recentBranches: signal<string[]>([]),
+    checkout: options.checkout ?? jest.fn().mockResolvedValue({ success: true }),
+    recordVisitedBranch: jest.fn(),
+  };
+  await TestBed.configureTestingModule({
+    imports: [BranchPickerDropdownComponent],
+    providers: [{ provide: GitBranchesService, useValue: branches }],
+  }).compileComponents();
+  const fixture = TestBed.createComponent(BranchPickerDropdownComponent);
+  fixture.componentRef.setInput('isOpen', true);
+  const checkedOut: string[] = [];
+  fixture.componentInstance.branchCheckedOut.subscribe((name) =>
+    checkedOut.push(name),
+  );
+  fixture.detectChanges();
+  return { fixture, branches, checkedOut };
+}
+
+async function click(
+  fixture: ComponentFixture<BranchPickerDropdownComponent>,
+  selector: string,
+): Promise<void> {
+  const button = fixture.nativeElement.querySelector(
+    selector,
+  ) as HTMLButtonElement | null;
+  if (!button) throw new Error(`No element for ${selector}`);
+  button.click();
+  await fixture.whenStable();
+  fixture.detectChanges();
+}
+
+const query = (
+  fixture: ComponentFixture<BranchPickerDropdownComponent>,
+  selector: string,
+): HTMLElement | null => fixture.nativeElement.querySelector(selector);
+
 describe('BranchPickerDropdownComponent', () => {
-  it('clicks a clean branch once without force', async () => {
-    const checkout = jest.fn().mockResolvedValue({ success: true });
-    const branches = {
-      localBranches: signal([
-        {
-          name: 'feature',
-          isCurrent: false,
-          isRemote: false,
-          ahead: 0,
-          behind: 0,
-        },
-      ]),
-      remoteBranches: signal([]),
-      recentBranches: signal([]),
+  it('switches to a clean branch once, without stash or force', async () => {
+    const { fixture, branches, checkedOut } = await setup({
+      local: [localBranch('feature')],
+    });
+
+    await click(fixture, '.max-h-72 > button');
+
+    expect(branches.checkout).toHaveBeenCalledTimes(1);
+    expect(branches.checkout).toHaveBeenCalledWith({ branch: 'feature' });
+    expect(checkedOut).toEqual(['feature']);
+  });
+
+  it('offers Stash & switch as the primary action on a dirty refusal and lists the paths', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        dirty: true,
+        conflictingPaths: ['src/a.ts', 'README.md'],
+      })
+      .mockResolvedValueOnce({ success: true, stashRef: 'abc123' });
+    const { fixture, branches, checkedOut } = await setup({
+      local: [localBranch('feature')],
       checkout,
-      recordVisitedBranch: jest.fn(),
-    };
-    await TestBed.configureTestingModule({
-      imports: [BranchPickerDropdownComponent],
-      providers: [{ provide: GitBranchesService, useValue: branches }],
-    }).compileComponents();
-    const fixture = TestBed.createComponent(BranchPickerDropdownComponent);
-    fixture.componentRef.setInput('isOpen', true);
-    fixture.detectChanges();
-    (
-      fixture.nativeElement.querySelector('button') as HTMLButtonElement
-    ).click();
+    });
+
+    await click(fixture, '.max-h-72 > button');
+
+    const stash = query(fixture, '[data-testid="stash-switch"]');
+    expect(stash?.textContent?.trim()).toBe('Stash & switch');
+    expect(stash?.classList).toContain('btn-primary');
+    expect(document.activeElement).toBe(stash);
+    const paths = [
+      ...(query(fixture, '[data-testid="conflicting-paths"]')?.querySelectorAll(
+        'li',
+      ) ?? []),
+    ].map((item) => item.textContent?.trim());
+    expect(paths).toEqual(['src/a.ts', 'README.md']);
+
+    await click(fixture, '[data-testid="stash-switch"]');
+
+    expect(checkout).toHaveBeenLastCalledWith({
+      branch: 'feature',
+      stash: true,
+    });
+    expect(branches.recordVisitedBranch).toHaveBeenCalledWith('feature');
+    expect(checkedOut).toEqual(['feature']);
+  });
+
+  it('keeps Discard & switch behind a second confirmation', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, dirty: true })
+      .mockResolvedValueOnce({ success: true });
+    const { fixture } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    await click(fixture, '.max-h-72 > button');
+    expect(query(fixture, '[data-testid="conflicting-paths"]')).toBeNull();
+
+    await click(fixture, '[data-testid="discard-switch"]');
+
+    expect(checkout).toHaveBeenCalledTimes(1);
+    const confirm = query(fixture, '[data-testid="confirm-discard"]');
+    expect(confirm?.textContent?.trim()).toBe('Discard changes');
+    expect(document.activeElement).toBe(confirm);
+    expect(query(fixture, '[data-testid="stash-switch"]')).toBeNull();
+
+    await click(fixture, '[data-testid="confirm-discard"]');
+
+    expect(checkout).toHaveBeenLastCalledWith({
+      branch: 'feature',
+      force: true,
+    });
+  });
+
+  it('Cancel dismisses the dirty prompt without switching', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValue({ success: false, dirty: true });
+    const { fixture } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    await click(fixture, '.max-h-72 > button');
+
+    const cancel = [
+      ...fixture.nativeElement.querySelectorAll(
+        '[data-testid="blocked-switch"] button',
+      ),
+    ].find((button) => button.textContent?.trim() === 'Cancel') as
+      | HTMLButtonElement
+      | undefined;
+    cancel?.click();
     await fixture.whenStable();
-    expect(checkout).toHaveBeenCalledWith({ branch: 'feature', force: false });
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="blocked-switch"]')).toBeNull();
+    expect(checkout).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the error when a stash & switch fails', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, dirty: true })
+      .mockResolvedValueOnce({
+        success: false,
+        error: 'pathspec did not match',
+      });
+    const { fixture, checkedOut } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    await click(fixture, '.max-h-72 > button');
+    await click(fixture, '[data-testid="stash-switch"]');
+
+    expect(query(fixture, '[data-testid="blocked-switch"]')).toBeNull();
+    expect(query(fixture, '[role="alert"]')?.textContent?.trim()).toBe(
+      'pathspec did not match',
+    );
+    expect(checkedOut).toEqual([]);
+  });
+
+  it('passes track:true for a remote row and records the local branch name', async () => {
+    const { fixture, branches, checkedOut } = await setup({
+      remote: [
+        { ...localBranch('origin/feature/x'), isRemote: true, remote: 'origin' },
+      ],
+    });
+
+    await click(fixture, '.max-h-72 > button');
+
+    expect(branches.checkout).toHaveBeenCalledWith({
+      branch: 'origin/feature/x',
+      track: true,
+    });
+    expect(branches.recordVisitedBranch).toHaveBeenCalledWith('feature/x');
+    expect(checkedOut).toEqual(['feature/x']);
+  });
+
+  it('shows the reason when creating a branch fails', async () => {
+    const checkout = jest.fn().mockResolvedValue({
+      success: false,
+      error: "a branch named 'topic' already exists",
+    });
+    const { fixture } = await setup({ checkout });
+    const input = query(
+      fixture,
+      '[aria-label="New branch name"]',
+    ) as HTMLInputElement;
+    input.value = 'topic';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    await click(fixture, '.border-t > button');
+
+    expect(checkout).toHaveBeenCalledWith({ branch: 'topic', createNew: true });
+    expect(query(fixture, '[role="alert"]')?.textContent?.trim()).toBe(
+      "Could not create branch topic: a branch named 'topic' already exists",
+    );
   });
 
   it('renders the ten most recent branches per group until search is used', async () => {
@@ -44,20 +231,10 @@ describe('BranchPickerDropdownComponent', () => {
         behind: 0,
         lastCommitTime: index,
       }));
-    const branches = {
-      localBranches: signal(makeBranches('local', false)),
-      remoteBranches: signal(makeBranches('remote', true)),
-      recentBranches: signal([]),
-      checkout: jest.fn(),
-      recordVisitedBranch: jest.fn(),
-    };
-    await TestBed.configureTestingModule({
-      imports: [BranchPickerDropdownComponent],
-      providers: [{ provide: GitBranchesService, useValue: branches }],
-    }).compileComponents();
-    const fixture = TestBed.createComponent(BranchPickerDropdownComponent);
-    fixture.componentRef.setInput('isOpen', true);
-    fixture.detectChanges();
+    const { fixture } = await setup({
+      local: makeBranches('local', false),
+      remote: makeBranches('remote', true),
+    });
 
     const branchButtons = () =>
       [

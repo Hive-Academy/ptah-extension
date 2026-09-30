@@ -915,9 +915,10 @@ export class GitRpcHandlers {
   }
 
   /**
-   * git:checkout - Checkout a branch, optionally creating it.
-   * Returns { success: false, dirty: true } when working tree is dirty and force=false.
-   * Validates that branch param is non-empty before delegating.
+   * git:checkout - Switch branches (`git switch` semantics), optionally creating one.
+   * Returns { success: false, dirty: true, conflictingPaths } when git refuses
+   * because local changes would be overwritten. `stash` and `track` are passed
+   * through to GitInfoService. Validates that branch param is non-empty before delegating.
    */
   private registerGitCheckout(): void {
     this.rpcHandler.registerMethod<GitCheckoutParams, GitCheckoutResult>(
@@ -936,6 +937,8 @@ export class GitRpcHandlers {
           branch: params.branch,
           createNew: params.createNew,
           force: params.force,
+          stash: params.stash,
+          track: params.track,
         } as unknown as Error);
 
         return this.gitInfo.checkout(
@@ -943,6 +946,7 @@ export class GitRpcHandlers {
           params.branch,
           params.createNew,
           params.force,
+          { stash: params.stash, track: params.track },
         );
       },
     );

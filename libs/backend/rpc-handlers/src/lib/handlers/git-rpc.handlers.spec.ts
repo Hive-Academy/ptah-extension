@@ -816,7 +816,43 @@ describe('git:checkout handler', () => {
       'feat/x',
       undefined,
       true,
+      { stash: undefined, track: undefined },
     );
+  });
+
+  it('passes stash and track through to gitInfo.checkout', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:checkout');
+
+    await handler({ branch: 'origin/feat', stash: true, track: true });
+
+    expect(gitInfo.checkout).toHaveBeenCalledWith(
+      '/workspace',
+      'origin/feat',
+      undefined,
+      undefined,
+      { stash: true, track: true },
+    );
+  });
+
+  it('returns a dirty refusal with conflictingPaths unchanged', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:checkout');
+    gitInfo.checkout.mockResolvedValueOnce({
+      success: false,
+      dirty: true,
+      conflictingPaths: ['src/a.ts'],
+    });
+
+    const result = await handler({ branch: 'feat/x' });
+
+    expect(result).toEqual({
+      success: false,
+      dirty: true,
+      conflictingPaths: ['src/a.ts'],
+    });
   });
 });
 
