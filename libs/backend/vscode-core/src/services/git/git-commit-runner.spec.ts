@@ -78,7 +78,10 @@ describe('GitCommitRunner', () => {
     const ws = tempDir('runner-hook-');
     const hooksDir = path.join(ws, '.git', 'hooks');
     fs.mkdirSync(hooksDir, { recursive: true });
-    fs.writeFileSync(path.join(hooksDir, 'pre-commit'), '#!/bin/sh\nexit 1\n');
+    // Executable, because git runs a POSIX hook only when it has the x bit.
+    fs.writeFileSync(path.join(hooksDir, 'pre-commit'), '#!/bin/sh\nexit 1\n', {
+      mode: 0o755,
+    });
 
     const execMock = jest.fn(async (args: string[]): Promise<ExecGitResult> => {
       if (args[0] === 'rev-parse' && args[2] === 'index.lock') {
