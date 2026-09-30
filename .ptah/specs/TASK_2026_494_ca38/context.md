@@ -139,3 +139,20 @@ Mode: enabled
     - node_modules\monaco-editor -> D:\projects\ptah-extension\node_modules\monaco-editor
     - node_modules\prismjs -> D:\projects\ptah-extension\node_modules\prismjs
 - 2026-09-26: B17 committed 9cc979b06. B19 ACCEPTED after round 2 + bounded one-word fix (9.1/R8/9.3 PASS, 9.2 open manual QA); committed. All 20 batches committed.
+
+## Closure (2026-10-01)
+
+The user split the four open manual QA items (`completion-validation.md` "Remaining work" 1-4):
+
+- Req 9.2: **PASS**, recorded by visual-reviewer in the real Electron app from `origin/main` `a90c086d7`. The Apps
+  chunk for that build (`chunk-bnRXTPxc.js`) is not requested at cold start on the chat view and is requested for
+  the first time on the Apps tab click. Evidence: `req-9-2-evidence.md`, `visual/req-9-2/`.
+- A2 permission prompt, tool-result rendering in the Apps transcript, and the `ptah_surface_get_state`
+  follow-through need a live, authenticated agent turn. They moved to TASK_2026_585_3704 (backlog).
+- TASK_2026_539_67f5 (render surfaces in the coding chat, `surface:release` on chat-tab close) is now filed as
+  backlog under the id this task already referenced.
+- The light-theme muted-text contrast (4.48:1) stays with the contrast audit in TASK_2026_529_b482.
+- The local branch `backup/task-494-pre-rebase` was deleted with the user's approval. All 22 of its commits are on
+  `main` under rebased hashes.
+
+Status: `done`.
