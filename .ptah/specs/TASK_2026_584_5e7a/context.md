@@ -27,6 +27,13 @@ The same day, the orchestrator validated four in-progress tasks with CLI lanes (
 - Coordinate with TASK_2026_358 (fleet runner) and TASK_2026_386 (worktree per task). Reuse what fits. Keep 584 separate.
 - Orchestrator defaults (not asked, user may override): max 3 concurrent children, depth 1 (children cannot start children), the user owns merge / PR / worktree cleanup.
 
+## User decisions (2026-10-01, on the architect's four disagreements)
+
+- Children may call Ptah MCP tools (`mcp__ptah__*`) without a prompt: ACCEPTED.
+- Parent end: the proposed 30 s grace stop is REJECTED. Children keep running when the parent ends or goes inactive; only the user stops them (`ptah_session_stop` or the child tab's Stop). The parent link is kept so a resumed parent can still steer its children. While the parent is not live, the architect's plan refuses child reports back to the child (counted in status) and holds the latest completion per child, returned on the parent's next `ptah_session_*` call.
+- Child tabs do not take focus when they open: ACCEPTED.
+- No permission argument on `ptah_session_start`: ACCEPTED.
+
 ## Phases
 
 1. Feasibility research -> `research-report.md` (researcher-expert).
