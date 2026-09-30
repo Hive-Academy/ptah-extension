@@ -126,6 +126,20 @@ for (const host of ['vscode', 'electron'] as const) {
       for (const height of await page.locator('[data-testid="routing-map"] h3').evaluateAll((all) => all.map((h) => h.getBoundingClientRect().height))) {
         expect(height).toBeLessThanOrEqual(20);
       }
+      // Batch 26: the Main Agent popover (Reassign), captured open, then closed with Esc.
+      await page.locator('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]').click();
+      const mainPopover = page.locator('[data-testid="main-agent-popover"]');
+      await expect(mainPopover).toBeVisible();
+      // The model catalogue has loaded (the select is enabled) and the whole popover is on screen (no inner scroll).
+      await expect(mainPopover.locator('[data-testid="main-agent-model"]')).toBeEnabled();
+      const box = await mainPopover.boundingBox();
+      const viewport = page.viewportSize();
+      expect(box && viewport && box.y >= 0 && box.y + box.height <= viewport.height).toBe(true);
+      console.log(`B26 popover ${host}/${theme}: ${Math.round(box?.width ?? 0)}x${Math.round(box?.height ?? 0)} @ ${Math.round(box?.y ?? 0)}`);
+      await waitForSettled(page);
+      await page.screenshot({ path: capturePath('main-agent-popover', host, theme), animations: 'disabled' });
+      await page.keyboard.press('Escape');
+      await expect(mainPopover).toHaveCount(0);
       // Batch 23 (D16): every scope badge names its field; the open popover is its own capture.
       const badges = page.locator('[data-testid="scope-badge"]');
       // The scopes read lands after the tab renders; the fixture overrides the effort key.

@@ -18,14 +18,15 @@
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 import {
-  AGENT_CONFIG_FIXTURE, baseSettingsFixtures, getFixtureState, gotoSettingsTab, installHost,
+  AGENT_CONFIG_FIXTURE, baseSettingsFixtures, getFixtureState, installHost,
   installRpcAutoResponder, INVALID_PROBE_KEY, SETTINGS_TAB_LABELS,
 } from './settings.fixtures';
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 import {
   advancedTab, applyManualTierModel, card, closeConnectionDrawer, confirmWrite, credentialsOf, expectCall, inDrawerTab,
-  openCardDrawer, openScopeBadge, providersTab, setupThroughDrawer, visibleEnabled, withAuthStatus,
+  cliConfigSection, closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
+  throughDelegatedEdit, setupThroughDrawer, visibleEnabled, withAuthStatus,
 } from './settings-drawer.reach';
 
 export type CapabilityStatus = 'present' | 'restored' | 'pending';
@@ -44,7 +45,6 @@ export interface ReachabilityEntry {
 // of every entry that happens to use it.
 // ---------------------------------------------------------------------------
 
-const orchestrationTab = (page: Page) => gotoSettingsTab(page, 'Agent Orchestration');
 
 /** Clicks a visible+enabled trigger, asserts the opened control, then closes it. */
 async function openThenClose(trigger: Locator, opened: Locator, closer: Locator): Promise<void> {
@@ -284,26 +284,6 @@ async function throughCard(
   }
 }
 
-/**
- * The Ptah CLI instance manager. Batch 18 (D14) moved it, unchanged, from Providers to the interim
- * Orchestration container, together with its read states and the commit feedback (#56).
- */
-async function cliConfigSection(page: Page): Promise<Locator> {
-  await orchestrationTab(page);
-  const heading = page.locator('#providers-cli-heading');
-  await visibleEnabled(heading);
-  return heading;
-}
-
-async function throughDelegatedEdit(page: Page, choiceLabel: string): Promise<void> {
-  await cliConfigSection(page);
-  const editButton = page.getByRole('button', { name: `Edit ${choiceLabel}` });
-  await visibleEnabled(editButton);
-  await editButton.click();
-  const cancelButton = page.getByRole('button', { name: `Cancel ${choiceLabel} edit` });
-  await visibleEnabled(cancelButton);
-  await cancelButton.click();
-}
 
 // ---------------------------------------------------------------------------
 // Table 1: Providers / auth (parity-inventory.md #1-31)
@@ -327,7 +307,9 @@ const providersAuth: readonly ReachabilityEntry[] = [
     reach: async (page) => {
       await providersTab(page);
       const activate = card(page, 'Moonshot').locator('[data-testid="btn-activate-main"]');
+      // Since Batch 26: the card opens the Main Agent popover straight into its D6 confirm for Moonshot.
       await openThenClose(activate, page.getByRole('button', { name: 'Use for main agent' }), page.getByRole('button', { name: 'Cancel provider change' }));
+      await closeMainAgentPopover(page);
     },
   },
   {
@@ -383,9 +365,7 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#15', capability: 'Ollama Cloud optional key', status: 'present',
-    // BRIEF status is "Check failed (Retry)": the compact card keeps Retry inline; "Edit connection"
-    // moved to the drawer (Batch 24, D14). `ollama-cloud` is an api-key connection (`isLocal: false`,
-    // `local-provider-entry.ts:122`), so its Credentials tab holds the optional-key copy and the key.
+    // Since Batch 24 (D14): an api-key connection's drawer Credentials tab (optional-key copy + the key).
     reach: (page) => inDrawerTab(page, 'Ollama Cloud', 'Credentials', 'connection-credentials', async (panel) => {
       await expect(panel.locator('[data-testid="credentials-optional-key"]')).toContainText('The key is optional');
       await visibleEnabled(panel.locator('[data-testid="credentials-replace"]'));
@@ -393,12 +373,14 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#16', capability: 'Apply to: Global / App / Workspace save target', status: 'present',
-    // Since Batch 23 (D16): the scope strip's override link is gone; the save target is the "Save to" list of the
-    // provider review ("Save provider to…"), the model editor and the effort editor.
+    // Since Batch 26: the Main Agent popover's "Save to"; the workspace target's provider D6 confirm is cancelled.
     reach: async (page) => {
-      await providersTab(page);
-      await openThenClose(page.locator('[data-testid="main-provider-save-to"]'), page.locator('#providers-route-target'),
-        page.getByRole('button', { name: 'Cancel provider change' }));
+      const popover = await openMainAgentPopover(page);
+      await expect(popover.locator('[data-testid="main-agent-save-to"] option')).toHaveCount(3);
+      await popover.locator('[data-testid="main-agent-save-to"]').selectOption('workspace');
+      await openThenClose(popover.locator('[data-testid="main-agent-provider-rescope"]'),
+        popover.getByRole('button', { name: 'Use for main agent' }), popover.getByRole('button', { name: 'Cancel provider change' }));
+      await closeMainAgentPopover(page);
     },
   },
   {
@@ -517,10 +499,14 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
   },
   {
     id: '#35', capability: 'Custom model ID per tier ("Not listed? Enter a model ID")', status: 'present',
+    // Since Batch 26: the Main Agent popover's model select → "Enter a model ID…" (inline field on the same row).
     reach: async (page) => {
-      await providersTab(page);
-      const editModel = page.getByRole('button', { name: 'Edit model' });
-      await openThenClose(editModel, page.locator('ptah-provider-model-picker'), page.getByRole('button', { name: 'Cancel model edit' }));
+      const popover = await openMainAgentPopover(page);
+      const select = popover.locator('[data-testid="main-agent-model"]');
+      await visibleEnabled(select);
+      await select.selectOption('__manual__');
+      await visibleEnabled(popover.locator('[data-testid="main-agent-model-manual"]'));
+      await closeMainAgentPopover(page);
     },
   },
   {
@@ -538,11 +524,10 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
   },
   {
     id: '#37', capability: 'Current mapping / resolved model shown', status: 'present',
-    // The real resolved-model text on the main-agent card
-    // (`providers-settings.component.ts:80-84`), not the section heading.
+    // Since Batch 26: the resolved model on the routing map's Main Agent node (the old main-agent block is gone).
     reach: async (page) => {
       await providersTab(page);
-      await visibleEnabled(page.getByText('Default model (chosen by Claude)'));
+      await expect(page.locator('[data-testid="routing-main-model"]')).toHaveText('Default (chosen by Claude)');
     },
   },
   {
@@ -840,16 +825,18 @@ const restoredPending: readonly ReachabilityEntry[] = [
 
 const regressedUx: readonly ReachabilityEntry[] = [
   { id: 'RUX-5', capability: 'Workspace save target offered in a visible Save-to list, not behind an override link', status: 'restored',
-    // Batch 23: "Save provider to…" lists every write scope of the CURRENT provider, "This workspace" included
-    // (the fixture has an active workspace). Cancelled; nothing is written.
+    // Batch 26: the popover's "Save to" lists every write scope, "This workspace" included, and re-saves the
+    // current provider there through the D6 confirm (cancelled here).
     reach: async (page) => {
-      await providersTab(page);
-      await page.locator('[data-testid="main-provider-save-to"]').click();
-      const target = page.locator('#providers-route-target');
-      await visibleEnabled(target);
+      const popover = await openMainAgentPopover(page);
+      const target = popover.locator('[data-testid="main-agent-save-to"]');
       await expect(target.locator('option')).toHaveText(['Global · all apps', 'Desktop app', 'This workspace']);
-      await page.getByRole('button', { name: 'Cancel provider change' }).click();
-      await expect(target).toHaveCount(0);
+      await target.selectOption('workspace');
+      await popover.locator('[data-testid="main-agent-provider-rescope"]').click();
+      await expect(popover.locator('[data-testid="main-agent-provider-confirm"]')).toContainText('Saved to: This workspace.');
+      await popover.getByRole('button', { name: 'Cancel provider change' }).click();
+      await expect(popover.locator('[data-testid="main-agent-provider-confirm"]')).toHaveCount(0);
+      await closeMainAgentPopover(page);
     } },
   { id: 'RUX-6', capability: 'Main agent card shows scope only as badges for overridden fields (no 5 stacked rows)', status: 'restored',
     // Batch 23 (D16): no scope strip; one badge, for the one overridden field, naming it; inherited fields show nothing.

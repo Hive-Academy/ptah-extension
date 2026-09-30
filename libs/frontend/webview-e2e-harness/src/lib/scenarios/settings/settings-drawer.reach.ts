@@ -7,6 +7,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 import { getFixtureState, gotoSettingsTab } from './settings.fixtures';
 
 export const providersTab = (page: Page) => gotoSettingsTab(page, 'Providers');
+export const orchestrationTab = (page: Page) => gotoSettingsTab(page, 'Agent Orchestration');
 export const advancedTab = (page: Page) => gotoSettingsTab(page, 'Advanced');
 
 /** A connection card by its visible provider name (today's flat card list). */
@@ -134,6 +135,45 @@ export async function openScopeBadge(page: Page, field: string): Promise<Locator
   await expect(popover).toBeVisible();
   await expect(popover.locator('[data-testid="scope-popover-title"]')).toHaveText(field);
   return popover;
+}
+
+/**
+ * The Ptah CLI instance manager. Batch 18 (D14) moved it, unchanged, from Providers to the interim
+ * Orchestration container, together with its read states and the commit feedback (#56).
+ */
+export async function cliConfigSection(page: Page): Promise<Locator> {
+  await orchestrationTab(page);
+  const heading = page.locator('#providers-cli-heading');
+  await visibleEnabled(heading);
+  return heading;
+}
+
+/** Opens one delegated CLI's Edit on the CLI manager, then cancels it. */
+export async function throughDelegatedEdit(page: Page, choiceLabel: string): Promise<void> {
+  await cliConfigSection(page);
+  const editButton = page.getByRole('button', { name: `Edit ${choiceLabel}` });
+  await visibleEnabled(editButton);
+  await editButton.click();
+  const cancelButton = page.getByRole('button', { name: `Cancel ${choiceLabel} edit` });
+  await visibleEnabled(cancelButton);
+  await cancelButton.click();
+}
+
+/** Providers tab, then the routing map's Main Agent "Reassign": returns the open Main Agent popover (Batch 26). */
+export async function openMainAgentPopover(page: Page): Promise<Locator> {
+  await providersTab(page);
+  const reassign = page.locator('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]');
+  await visibleEnabled(reassign);
+  await reassign.click();
+  const popover = page.locator('[data-testid="main-agent-popover"]');
+  await expect(popover).toBeVisible();
+  return popover;
+}
+
+/** Closes the Main Agent popover with Esc (focus returns to Reassign). */
+export async function closeMainAgentPopover(page: Page): Promise<void> {
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-testid="main-agent-popover"]')).toHaveCount(0);
 }
 
 /** Confirms an inline two-step write in the Credentials tab and asserts its RPC went out. */

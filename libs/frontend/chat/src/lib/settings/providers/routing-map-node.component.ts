@@ -72,6 +72,8 @@ const DOT: Readonly<Record<RoutingNodeTone, string>> = {
           <lucide-angular [img]="actionIcon() === 'down' ? ChevronDownIcon : ChevronRightIcon" class="h-3 w-3 text-base-content-muted" aria-hidden="true" />
         </button>
       </div>
+      <!-- Anchor for a popover opened from this node (placement bottom-start = the node's bottom-left edge). -->
+      <div class="absolute bottom-0 left-0 h-0 w-0"><ng-content select="[node-popover]" /></div>
     </div>
   `,
 })

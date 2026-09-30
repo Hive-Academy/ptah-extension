@@ -6,8 +6,7 @@ import {
   ProvidersSettingsStateService, type ProvidersConnection, type ProvidersConnectionDraft, type ProvidersEditContext,
   type ProvidersExternalAuthAction,
 } from '@ptah-extension/core';
-import { NativeCardComponent, ProviderModelPickerComponent } from '@ptah-extension/ui';
-import type { SettingScope, EffortLevel, AuthVerifyDraftConnectionParams, AuthCancelDraftVerificationParams } from '@ptah-extension/shared';
+import type { SettingScope, AuthVerifyDraftConnectionParams, AuthCancelDraftVerificationParams } from '@ptah-extension/shared';
 import { SettingScopeRowComponent } from './setting-scope-row.component';
 import { ProviderConnectionCardComponent } from './provider-connection-card.component';
 import type { ProviderConnectionCardStatus } from './provider-connection-card.state';
@@ -16,6 +15,7 @@ import {
 } from './provider-setup-wizard.component';
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
 import { RoutingMapComponent } from './routing-map.component';
+import { MainAgentReassignPopoverComponent, type MainAgentFocus } from './main-agent-reassign-popover.component';
 import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
 // Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk (the write runner is tiny).
 import type { CredentialsCommit, CredentialsExternalAuth } from './connection-drawer/credentials-tab.component';
@@ -37,8 +37,8 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
   selector: 'ptah-providers-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NativeCardComponent, ProviderModelPickerComponent, SettingScopeRowComponent,
-    ProviderConnectionCardComponent, ProviderSetupWizardComponent, ConnectionDetailDrawerComponent, RoutingMapComponent],
+  imports: [SettingScopeRowComponent, ProviderConnectionCardComponent, ProviderSetupWizardComponent,
+    ConnectionDetailDrawerComponent, RoutingMapComponent, MainAgentReassignPopoverComponent],
   template: `
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
       <!-- No width or side padding of its own: the Settings shell (settings.component.html) already sets
@@ -74,10 +74,12 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
           }
         }
 
-        <!-- Main Agent node → the main-agent block below until the Batch 26 popover (D14); D16 badges in its header.
-             Deferred (eager route at its bundle budget) behind a same-footprint placeholder. -->
+        <!-- The Main Agent node holds the D16 badges and opens the Main Agent popover (provider, model, effort).
+             Deferred with the popover (eager route at its bundle budget) behind a same-footprint placeholder. -->
         @defer (on immediate) {
-        <ptah-routing-map (nodeActivated)="$event === 'main-agent' && requestFocus('main-agent')">
+        <ptah-routing-map (nodeActivated)="$event === 'main-agent' && openMainPopover()">
+          <ptah-main-agent-reassign-popover main-agent-popover [open]="mainPopover() !== null" [requestedProvider]="mainPopover()?.provider ?? null"
+            [initialFocus]="mainPopover()?.focus ?? null" (closed)="mainPopover.set(null)" />
           <div main-agent-badges class="contents" data-testid="main-scope-badges">
             @for (fieldName of mainValueFields; track fieldName) {
               @if (state.mainSources().data?.[fieldName]; as entry) {
@@ -107,75 +109,6 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
           <div class="min-h-[178px] rounded-xl border border-base-300 bg-base-200/40 p-3" aria-busy="true" data-testid="routing-map-placeholder"></div>
         }
 
-        <section aria-labelledby="providers-main-heading" class="space-y-3" [attr.aria-busy]="state.route().status === 'loading'">
-          <h2 id="providers-main-heading" data-focus="main-agent" tabindex="-1" class="text-sm font-semibold scroll-mt-4 outline-offset-2">Main agent</h2>
-          <ptah-native-card density="compact" tone="secondary" [spine]="true" [clickable]="false">
-            <div class="space-y-3 min-w-0">
-              @if (state.route().status === 'ready') {
-                @if (state.route().data; as route) {
-                  @if (route.driverProviderId && route.route !== 'unresolved') {
-                    <p class="font-semibold break-words">Next request uses: {{ providerName(route.driverProviderId) }} · {{ modalityLabel(route.resolvedAuthModality) }}</p>
-                    @if (!route.ready) { <p>Main agent · Needs attention</p> }
-                    @switch (route.resolvedModel.kind) {
-                      @case ('model') { <p class="break-all">Model: {{ route.resolvedModel.id }}</p> }
-                      @case ('tier') { <p>Model tier: {{ route.resolvedModel.tier }}</p> }
-                      @case ('unresolved') { <p>Default model (chosen by Claude)</p> }
-                    }
-                  } @else { <p>Choose a provider to start the main agent.</p> }
-                }
-              } @else if (state.route().status === 'error') {
-                <p>Main-agent route unavailable. Check connection to refresh.</p>
-              } @else { <p>Loading providers…</p> }
-              <div class="flex flex-wrap items-center gap-2">
-                <button type="button" [class]="control" (click)="requestFocus('connections')">Change main provider</button>
-                <button type="button" [class]="control" (click)="editModel()" [disabled]="state.model().status !== 'ready' || state.mainSources().status !== 'ready' || saving()">Edit model</button>
-                <button type="button" [class]="control" (click)="state.checkConnection()" [disabled]="state.route().status === 'loading'">Check connection</button>
-                <!-- RUX-5 bridge until the Main Agent popover (Batch 26): the save target of the CURRENT provider, which the
-                     scope strip's "Override for this workspace" link used to be the only way to reach. -->
-                @if (mainRouteExists() && state.writeScopes('authMethod').length > 1) {
-                  <button type="button" [class]="control" (click)="beginActivation(state.route().data?.driverProviderId ?? '')"
-                    [disabled]="saving() || state.scopes().status !== 'ready'" data-testid="main-provider-save-to">Save provider to…</button>
-                }
-              </div>
-              @if (state.effort().status === 'ready') {
-                <div class="space-y-2" data-focus="main-effort" tabindex="-1">
-                  <p>Reasoning effort: {{ state.effort().data?.effort ?? 'Provider default' }}</p>
-                  <label for="providers-effort">Reasoning effort for new requests</label>
-                  <select id="providers-effort" [class]="field" [value]="effortDraft() ?? state.effort().data?.effort ?? ''" (change)="editEffort($event)" [disabled]="saving()">
-                    <option value="">Provider default</option>
-                    @for (level of effortLevels; track level) { <option [value]="level">{{ level }}</option> }
-                  </select>
-                  @if (effortDraft() !== null) {
-                    <label for="providers-effort-target">Save reasoning effort to</label>
-                    <select id="providers-effort-target" [class]="field" [value]="effortTarget()" (change)="setEffortTarget($event)">
-                      @for (target of effortTargets(); track target) { <option [value]="target">{{ scopeLabel(target) }}</option> }
-                    </select>
-                    <p>Broader saves can clear narrower effort overrides.</p>
-                    <button type="button" [class]="control" (click)="saveEffort()" [disabled]="saving() || !effortTargets().includes(effortTarget())">Save reasoning effort</button>
-                    <button type="button" [class]="control" (click)="effortDraft.set(null)" [disabled]="saving()">Cancel reasoning effort edit</button>
-                  }
-                </div>
-              }
-            </div>
-          </ptah-native-card>
-          @if (modelDraft() !== null) {
-            <div class="rounded-md border border-base-content-muted p-3 space-y-3" data-focus="main-model" tabindex="-1">
-              <h3 class="font-semibold">Main agent model</h3>
-              <ptah-provider-model-picker [fixedProvider]="state.route().data?.driverProviderId ?? ''" [model]="modelDraft() ?? ''"
-                label="Main agent model" [disabled]="saving()" (selectionChange)="modelDraft.set($event.model)" />
-              <label for="providers-model-target">Save to</label>
-              <select id="providers-model-target" [class]="field" [value]="saveTarget()" (change)="setTarget($event)">
-                @for (target of modelTargets(); track target) { <option [value]="target">{{ scopeLabel(target) }}</option> }
-              </select>
-              <p>Broader saves can clear more-specific model overrides. Review the destination before saving.</p>
-              <div class="flex flex-wrap gap-2">
-                <button type="button" [class]="control" (click)="saveModel()" [disabled]="saving() || !modelDraft() || !modelTargets().includes(saveTarget())">Save main agent model</button>
-                <button type="button" [class]="control" (click)="modelDraft.set(null)" [disabled]="saving()">Cancel model edit</button>
-              </div>
-            </div>
-          }
-        </section>
-
         <section aria-labelledby="providers-connections-heading" class="space-y-3" [attr.aria-busy]="state.connections().status === 'loading'">
           <h2 id="providers-connections-heading" data-focus="connections" tabindex="-1" class="text-sm font-semibold scroll-mt-4">Your connections</h2>
           @if (state.connections().status === 'ready' && connections().length === 0) { <p>No connections configured. Connect a provider to get started.</p> }
@@ -187,7 +120,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
                 [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
                 [isBlocked]="isBlocked(connection.id)" [canActivateMain]="!saving() && state.route().status === 'ready'"
                 [usedByCount]="usage().complete ? (usage().byProvider[connection.id]?.length ?? 0) : null"
-                (detailsRequested)="openDrawer(connection.id)" (activateMainRequested)="beginActivation(connection.id)"
+                (detailsRequested)="openDrawer(connection.id)" (activateMainRequested)="openMainPopover(connection.id)"
                 (setupRequested)="openWizard(connection.id)" (addKeyRequested)="openWizard(connection.id)"
                 (replaceKeyRequested)="openWizard(connection.id)" (signInRequested)="externalAction(connection.id, 'sign-in')"
                 (retryRequested)="state.checkConnection()" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
@@ -196,24 +129,6 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
           </div>
         </section>
 
-        @if (activationId(); as id) {
-          <section class="rounded-md border border-base-content-muted p-3 space-y-3" aria-label="Review main provider change">
-            <h3 class="font-semibold">Use {{ providerName(id) }} for new main-agent requests.</h3>
-            <p>Background consumers that inherit the main provider will follow this route. Existing requests keep their current route.</p>
-            @if (isUncheckable(id)) {
-              <p data-testid="activation-unchecked-note">Ptah cannot check this connection before use. If new requests fail, check that {{ providerName(id) }} is running and reachable.</p>
-            }
-            <label for="providers-route-target">Save to</label>
-            <select id="providers-route-target" [class]="field" [value]="saveTarget()" (change)="setTarget($event)">
-              @for (target of state.writeScopes('authMethod'); track target) { <option [value]="target">{{ scopeLabel(target) }}</option> }
-            </select>
-            <p>Saving to a broader scope can remove narrower authentication overrides.</p>
-            <div class="flex flex-wrap gap-2">
-              <button type="button" [class]="control" (click)="activate()" [disabled]="saving() || !state.writeScopes('authMethod').includes(saveTarget())">Use for main agent</button>
-              <button type="button" [class]="control" (click)="activationId.set(null)" [disabled]="saving()">Cancel provider change</button>
-            </div>
-          </section>
-        }
         @if (clearKey(); as key) {
           <section class="rounded-md border border-base-content-muted p-3 space-y-3" aria-label="Review clear override">
             @if (clearTarget() === 'all-above-global') {
@@ -326,21 +241,13 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   /** Incremented per openWizard: keys the wizard instance so every setup session starts from a clean draft. */
   protected readonly wizardSession = signal(0);
   protected readonly wizardCommitState = signal<WizardCommitState>('idle');
-  protected readonly modelDraft = signal<string | null>(null);
-  protected readonly effortDraft = signal<EffortLevel | '' | null>(null);
-  protected readonly effortTarget = signal<SettingScope>('global');
-  protected readonly effortLevels: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-  protected readonly saveTarget = signal<SettingScope>('global');
-  protected readonly activationId = signal<string | null>(null);
+  /** The open Main Agent popover: a provider preselected by a card, and a deep-linked control to focus. */
+  protected readonly mainPopover = signal<{ provider: string | null; focus: MainAgentFocus | null } | null>(null);
   protected readonly clearKey = signal<string | null>(null);
   protected readonly clearTarget = signal<'nearest' | 'all-above-global'>('nearest');
   protected readonly feedback = signal<string | null>(null);
-  private readonly localFocus = signal<ProvidersSettingsFocusTarget | null>(null);
   private focusedTarget: ProvidersSettingsFocusTarget | null = null;
   private lastInputFocus: ProvidersSettingsFocusTarget | null = null;
-  private draftContext: ProvidersEditContext | null = null;
-  private modelContext: ProvidersEditContext | null = null;
-  private effortContext: ProvidersEditContext | null = null;
   private clearContext: ProvidersEditContext | null = null;
   private readonly wizardContext = signal<ProvidersEditContext | null>(null);
   private readonly selectedWizardProvider = signal('');
@@ -366,8 +273,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   private deepLinkAwaitingAcceptance: string | null = null;
   protected readonly saving = computed(() => this.state.commit().status === 'saving');
   protected readonly workspaceName = computed(() => this.state.scopes().data?.activePath?.split(/[\\/]/).filter(Boolean).pop() ?? null);
-  protected readonly modelTargets = computed(() => this.state.mainSources().status === 'ready' ? this.state.writeScopes(this.state.mainSources().data?.model?.key ?? '') : []);
-  protected readonly effortTargets = computed(() => this.state.mainSources().status === 'ready' ? this.state.writeScopes(this.state.mainSources().data?.effort?.key ?? '') : []);
   protected readonly canStartSetup = computed(() => this.state.connections().status === 'ready' && this.state.scopes().status === 'ready' && !this.saving());
   protected readonly mainRouteExists = computed(() => this.state.route().status === 'ready' && !!this.state.route().data?.driverProviderId && this.state.route().data?.route !== 'unresolved');
   protected readonly activeId = computed(() => {
@@ -473,17 +378,17 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     });
     afterRenderEffect(() => {
       if (this.focusTarget() !== this.lastInputFocus) {
-        this.lastInputFocus = this.focusTarget(); this.localFocus.set(null); this.focusedTarget = null;
+        this.lastInputFocus = this.focusTarget(); this.focusedTarget = null;
       }
-      const target = this.localFocus() ?? this.focusTarget();
+      const target = this.focusTarget();
       if (!target || target === this.focusedTarget) return;
-      if (target === 'main-effort' && this.state.effort().status !== 'ready') return;
-      if (target === 'more-providers') this.catalogOpen.set(true);
-      if (target === 'main-model' && this.modelDraft() === null) {
-        if (this.state.model().status !== 'ready') return;
-        this.editModel();
+      // `main-*` rows land on the Main Agent popover, focused on that control (its own `data-focus`).
+      if (target === 'main-agent' || target === 'main-model' || target === 'main-effort') {
+        this.focusedTarget = target;
+        untracked(() => this.openMainPopover(null, target));
         return;
       }
+      if (target === 'more-providers') this.catalogOpen.set(true);
       const node = this.element.nativeElement.querySelector<HTMLElement>(`[data-focus="${target}"]`);
       if (node) { node.focus(); this.focusedTarget = target; }
     });
@@ -498,11 +403,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     }
   }
   protected inputValue(event: Event): string { return (event.target as HTMLInputElement).value; }
-  protected setTarget(event: Event): void {
-    const value = this.inputValue(event);
-    if (value === 'global' || value === 'app' || value === 'workspace') this.saveTarget.set(value);
-  }
-  protected scopeLabel(scope: SettingScope): string { return scope === 'global' ? 'Global · all apps' : scope === 'app' ? 'Desktop app' : 'This workspace'; }
   protected authenticationLabel(value: unknown): string {
     return value === 'apiKey' ? 'API key' : value === 'claudeCli' ? 'CLI subscription' : value === 'thirdParty' ? 'Provider connection' : 'Host-resolved authentication';
   }
@@ -510,7 +410,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     return key === 'authMethod' ? 'authentication' : key === this.state.mainSources().data?.model?.key ? 'main agent model'
       : key === this.state.mainSources().data?.effort?.key ? 'reasoning effort' : 'provider';
   }
-  protected providerName(id: string): string { return this.state.connections().data?.find((entry) => entry.id === id)?.name ?? id; }
   protected modalityLabel(mode: string): string {
     return ({ apiKey: 'API key', 'api-key': 'API key', oauth: 'Provider sign-in', cli: 'CLI subscription', local: 'Local server', 'local-native': 'Local server', 'local-proxy': 'Local server (proxy)', custom: 'Custom endpoint' } as Record<string, string>)[mode] ?? 'Connection not checked';
   }
@@ -536,10 +435,6 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     return status === 'skipped' || status === 'unknown';
   }
   protected isBlocked(id: string): boolean { return this.state.route().status === 'ready' && this.state.route().data?.driverProviderId === id && !this.state.route().data?.ready; }
-  protected requestFocus(target: ProvidersSettingsFocusTarget): void {
-    this.focusedTarget = null; this.localFocus.set(target);
-    this.element.nativeElement.querySelector<HTMLElement>(`[data-focus="${target}"]`)?.focus();
-  }
   protected openDrawer(providerId: string): void {
     const active = this.element.nativeElement.ownerDocument.activeElement;
     this.drawerOpener = active instanceof HTMLElement ? active : null;
@@ -641,53 +536,13 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.returnFocus?.focus();
   }
   protected externalAction(providerId: string | null, action: ProvidersExternalAuthAction): void { void this.state.performExternalAuth(providerId, action); }
-  protected editModel(): void {
-    if (this.state.model().status !== 'ready') return;
-    this.modelContext = this.state.reviewContext();
-    const source = this.state.mainSources().data?.model?.scope;
-    this.saveTarget.set(source && this.modelTargets().includes(source) ? source : this.modelTargets()[0] ?? 'global');
-    this.modelDraft.set(this.state.model().data?.model ?? '');
-    this.requestFocus('main-model');
-  }
-  protected async saveModel(): Promise<void> {
-    const model = this.modelDraft();
-    if (!model || !this.modelContext || !this.modelTargets().includes(this.saveTarget())) return;
-    await this.state.saveSettings({ model: { model, applyTo: this.saveTarget() } }, this.modelContext);
-    if (this.state.commit().status === 'saved') this.modelDraft.set(null);
-  }
-  protected editEffort(event: Event): void {
-    const value = this.inputValue(event);
-    if (value !== '' && !this.effortLevels.includes(value as EffortLevel)) return;
-    if (this.effortDraft() === null) {
-      this.effortContext = this.state.reviewContext();
-      const source = this.state.mainSources().data?.effort?.scope;
-      this.effortTarget.set(source && this.effortTargets().includes(source) ? source : this.effortTargets()[0] ?? 'global');
-    }
-    this.effortDraft.set(value as EffortLevel | '');
-  }
-  protected async saveEffort(): Promise<void> {
-    const effort = this.effortDraft(); if (effort === null || !this.effortContext || !this.effortTargets().includes(this.effortTarget())) return;
-    await this.state.saveSettings({ effort: { effort: effort || undefined, applyTo: this.effortTarget() } }, this.effortContext);
-    if (this.state.commit().status === 'saved') this.effortDraft.set(null);
-  }
-  protected setEffortTarget(event: Event): void {
-    const value = this.inputValue(event);
-    if (value === 'global' || value === 'app' || value === 'workspace') this.effortTarget.set(value);
+  /** Opens the Main Agent popover (node "Reassign", a card's "Use for main agent", a `main-*` deep link). */
+  protected openMainPopover(provider: string | null = null, focus: MainAgentFocus | null = null): void {
+    this.mainPopover.set({ provider, focus });
   }
   /** D6: clearing these keys resets the SDK on the host (`config-scope-rpc.handlers.ts:120-145`). */
   protected clearEndsSessions(key: string): boolean {
     return key === 'authMethod' || key === 'anthropicProviderId' || key.startsWith('provider.');
-  }
-  protected beginActivation(id: string): void {
-    if (!id) return;
-    this.draftContext = this.state.reviewContext(); this.activationId.set(id);
-    this.saveTarget.set(this.state.writeScopes('authMethod')[0] ?? 'global');
-  }
-  protected async activate(): Promise<void> {
-    const id = this.activationId();
-    if (!id || !this.draftContext) return;
-    await this.state.activateConnection(id, this.saveTarget(), this.draftContext);
-    if (this.state.commit().status === 'saved') this.activationId.set(null);
   }
   protected reviewClear(key: string, target: 'nearest' | 'all-above-global' = 'nearest'): void {
     this.clearContext = this.state.reviewContext(); this.clearKey.set(key); this.clearTarget.set(target);

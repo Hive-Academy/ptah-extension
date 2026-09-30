@@ -6,9 +6,10 @@ import {
   type ProvidersSettingsCommit, type ProvidersConnection, type ProvidersExternalAuth,
 } from '@ptah-extension/core';
 import type { AuthVerifyDraftConnectionResult, ConfigGetScopesResult, SettingScope } from '@ptah-extension/shared';
-import { PROVIDER_MODELS_LOADER, ProviderModelPickerComponent } from '@ptah-extension/ui';
+import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { ProvidersSettingsComponent } from './providers-settings.component';
 import { ProvidersModelsLoader } from './providers-models-loader.service';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import {
   ProviderSetupWizardComponent, type DraftVerifyConnectionFn, type DraftCancelVerificationFn,
   type ProviderWizardCommit, type WizardCommitState, type WizardExternalAction,
@@ -123,7 +124,7 @@ describe('ProvidersSettingsComponent', () => {
     await TestBed.configureTestingModule({ imports: [ProvidersSettingsComponent], providers: [
       { provide: ProvidersSettingsStateService, useValue: state },
       { provide: ClaudeRpcService, useValue: { call: listModels } },
-      SHELL_LOADER,
+      SHELL_LOADER, SettingsSaveFeedbackService,
     ] }).overrideComponent(ProvidersSettingsComponent, {
       remove: { imports: [ProviderSetupWizardComponent] },
       add: { imports: [WizardStub] },
@@ -378,38 +379,58 @@ describe('ProvidersSettingsComponent', () => {
       expect(state.clearScopeOverride).toHaveBeenCalledWith(key, 'nearest', { scopeKey: 'workspace', activePath: '/workspace' });
     });
 
-    it('"Save provider to…" reviews the current provider with every write scope, workspace included (RUX-5)', async () => {
+  });
+
+  describe('Main Agent popover (Batch 26)', () => {
+    const popover = () => element.querySelector<HTMLElement>('[data-testid="main-agent-popover"]');
+    async function reassign() {
+      element.querySelector<HTMLButtonElement>('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]')?.click();
       await render();
-      element.querySelector<HTMLButtonElement>('[data-testid="main-provider-save-to"]')?.click(); await render();
-      const target = element.querySelector<HTMLSelectElement>('#providers-route-target');
-      expect(Array.from(target?.options ?? []).map((option) => option.value)).toEqual(['global', 'app', 'workspace']);
-      if (!target) throw new Error('No Save-to select');
-      target.value = 'workspace'; target.dispatchEvent(new Event('change')); await render();
-      // The review's own confirm (a connected card also has a "Use for main agent" button).
-      const review = element.querySelector('[aria-label="Review main provider change"]');
-      expect(review?.querySelector('h3')?.textContent).toContain('Use first for new main-agent requests.');
-      Array.from(review?.querySelectorAll('button') ?? []).find((node) => node.textContent?.trim() === 'Use for main agent')?.click();
+    }
+
+    it('the old main-agent block is gone; the Main Agent node\'s Reassign opens the popover, anchored in that node', async () => {
+      state.route.set(ready(route));
       await render();
-      expect(state.activateConnection).toHaveBeenCalledWith('first', 'workspace', { scopeKey: 'workspace', activePath: '/workspace' });
+      for (const gone of ['Edit model', 'Change main provider', 'Save reasoning effort', 'Save provider to…']) {
+        expect(Array.from(element.querySelectorAll('button')).some((node) => node.textContent?.trim() === gone)).toBe(false);
+      }
+      expect(element.querySelector('#providers-main-heading')).toBeNull();
+      expect(popover()).toBeNull();
+      await reassign();
+      expect(popover()?.closest('[data-testid="routing-node-main-agent"]')).not.toBeNull();
     });
 
-    it('"Save provider to…" is absent when only one write scope exists', async () => {
-      state.writeScopes.mockReturnValue(['global']);
+    it('a card\'s "Use for main agent" opens the popover with that provider in its D6 confirm (uncheckable note kept)', async () => {
+      state.route.set(ready({ ...route, providers: [route.providers[0], { id: 'second', type: 'local-native', status: 'skipped' }] }));
       await render();
-      expect(element.querySelector('[data-testid="main-provider-save-to"]')).toBeNull();
+      const second = Array.from(element.querySelectorAll('ptah-provider-connection-card')).find((card) => card.textContent?.includes('second'));
+      second?.querySelector<HTMLButtonElement>('[data-testid="btn-activate-main"]')?.click(); await render();
+      const confirm = element.querySelector('[data-testid="main-agent-provider-confirm"]');
+      expect(confirm?.textContent).toContain('New main-agent requests use second. Changing the provider ends running chat sessions.');
+      expect(element.querySelector('[data-testid="activation-unchecked-note"]')?.textContent).toContain('cannot check this connection');
+      Array.from(confirm?.querySelectorAll('button') ?? []).find((node) => node.textContent?.trim() === 'Use for main agent')?.click();
+      await render();
+      expect(state.activateConnection).toHaveBeenCalledWith('second', 'global', { scopeKey: 'workspace', activePath: '/workspace' });
+    });
+
+    it.each(['main-agent', 'main-model', 'main-effort'] as const)('the %s deep link opens the popover focused on that control', async (target) => {
+      state.route.set(ready(route));
+      fixture.componentRef.setInput('focusTarget', target); await render();
+      // The popover positions itself (Floating UI, async), takes focus, then hands it to the requested control.
+      await new Promise((resolve) => setTimeout(resolve)); await render();
+      expect(popover()).not.toBeNull();
+      expect(document.activeElement).toBe(popover()?.querySelector(`[data-focus="${target}"]`));
     });
   });
 
-  it('renders the real main model picker with the loader the Settings shell provides', async () => {
+  it('the popover\'s model select lists the driver\'s catalogue through the loader the Settings shell provides', async () => {
     state.route.set(ready(route));
     await render();
-    button('Edit model').click();
-    await render();
-    const picker = fixture.debugElement.query(By.directive(ProviderModelPickerComponent));
-    expect(picker).not.toBeNull();
-    expect(picker.injector.get(PROVIDER_MODELS_LOADER)).toBe(TestBed.inject(PROVIDER_MODELS_LOADER));
+    element.querySelector<HTMLButtonElement>('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]')?.click();
+    await render(); await render();
     expect(listModels).toHaveBeenCalledWith('provider:listModels', { providerId: 'first' });
-    expect(picker.nativeElement.textContent).toContain('Catalogue model');
+    const options = Array.from(element.querySelectorAll('[data-testid="main-agent-model"] option')).map((option) => option.textContent?.trim());
+    expect(options).toContain('Catalogue model [Tool: No]');
   });
 
   it('does not render an active provider while the route is unloaded or loading', async () => {
@@ -427,32 +448,23 @@ describe('ProvidersSettingsComponent', () => {
     expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(2);
     state.commit.set({ ...idle, status: 'saving' }); await render(); expect(activeBadges()).toHaveLength(0);
   });
-  it('distinguishes a loaded empty route from an unloaded route', async () => {
-    await render(); expect(element.textContent).toContain('Loading providers…');
+  it('distinguishes a loaded empty route from an unloaded route (Main Agent node)', async () => {
+    await render();
+    expect(element.querySelector('[data-testid="routing-node-main-agent"] [data-testid="routing-node-skeleton"]')).not.toBeNull();
     state.route.set(ready({ ...route, driverProviderId: null, route: 'unresolved', ready: false }));
     state.activeProviderId.set(null); state.connections.set(ready([])); await render();
     expect(element.textContent).toContain('Choose a provider to start the main agent.');
     expect(element.textContent).toContain('No connections configured.');
   });
-  it('renders each resolvedModel arm of the route switch', async () => {
-    // The model arm is the default fixture: a concrete model id.
-    state.route.set(ready(route));
-    await render();
-    expect(element.textContent).toContain('Model: model-a');
-    expect(element.textContent).not.toContain('Model tier:');
-
-    // The tier arm: a tier that only names an entry of the provider's catalogue.
-    state.route.set(ready({ ...route, resolvedModel: { kind: 'tier', tier: 'haiku' } }));
-    await render();
-    expect(element.textContent).toContain('Model tier: haiku');
-    expect(element.textContent).not.toContain('Model: model-a');
-
+  it('renders each resolvedModel arm of the route (Main Agent node)', async () => {
+    const model = () => element.querySelector('[data-testid="routing-main-model"]')?.textContent?.trim();
+    state.route.set(ready(route)); await render();
+    expect(model()).toBe('model-a');
+    state.route.set(ready({ ...route, resolvedModel: { kind: 'tier', tier: 'haiku' } })); await render();
+    expect(model()).toBe('haiku tier');
     // The unresolved arm on a resolved route: the SDK's own `default` model, not an error.
-    state.route.set(ready({ ...route, resolvedModel: { kind: 'unresolved' } }));
-    await render();
-    expect(element.textContent).toContain('Default model (chosen by Claude)');
-    expect(element.textContent).not.toContain('Model has not been resolved.');
-    expect(element.textContent).not.toContain('Model tier: haiku');
+    state.route.set(ready({ ...route, resolvedModel: { kind: 'unresolved' } })); await render();
+    expect(model()).toBe('Default (chosen by Claude)');
   });
   it('renders no duplicate sign-in row between connection cards', async () => {
     state.route.set(ready({ ...route, providers: [...route.providers, { id: 'github-copilot', type: 'oauth', status: 'unauthenticated' }] }));
@@ -487,18 +499,6 @@ describe('ProvidersSettingsComponent', () => {
     // Not reopened by an unrelated render.
     state.refresh(); await render();
     expect(element.querySelector('ptah-provider-setup-wizard')).toBeNull();
-  });
-  it('offers main-agent activation for an uncheckable local provider with a note', async () => {
-    state.route.set(ready({ ...route, providers: [route.providers[0], { id: 'second', type: 'local-native', status: 'skipped' }] }));
-    await render();
-    const cards = Array.from(element.querySelectorAll('ptah-provider-connection-card'));
-    const second = cards.find((card) => card.textContent?.includes('second'));
-    const activate = second?.querySelector<HTMLButtonElement>('[data-testid="btn-activate-main"]');
-    expect(activate).toBeTruthy();
-    activate?.click(); await render();
-    expect(element.querySelector('[data-testid="activation-unchecked-note"]')?.textContent).toContain('cannot check this connection');
-    element.querySelector<HTMLButtonElement>('section[aria-label="Review main provider change"] button')?.click(); await render();
-    expect(state.activateConnection).toHaveBeenCalledWith('second', 'global', { scopeKey: 'workspace', activePath: '/workspace' });
   });
   it('keeps successful sections usable when another read fails and retries only that read', async () => {
     state.route.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
@@ -562,10 +562,11 @@ describe('ProvidersSettingsComponent', () => {
     await render(); button('Connect provider').click(); await render(); wizard().commitRequested.emit(draft); await render();
     expect(wizard().commitState()).toBe('saved');
   });
-  it('honours a new parent focus target after a local focus action', async () => {
-    await render(); button('Change main provider').click(); await render();
-    fixture.componentRef.setInput('focusTarget', 'main-agent'); await render();
-    expect(document.activeElement).toBe(element.querySelector('[data-focus="main-agent"]'));
+  it('honours a new parent focus target after an earlier one', async () => {
+    fixture.componentRef.setInput('focusTarget', 'connections'); await render();
+    expect(document.activeElement).toBe(element.querySelector('[data-focus="connections"]'));
+    fixture.componentRef.setInput('focusTarget', 'more-providers'); await render();
+    expect(document.activeElement).toBe(element.querySelector('[data-focus="more-providers"]'));
   });
   it('cancels without committing and restores the invoking control', async () => {
     await render(); const trigger = button('Connect provider'); trigger.focus(); trigger.click(); await render();
@@ -621,7 +622,7 @@ describe('ProvidersSettingsComponent deep links with the real wizard', () => {
     await TestBed.configureTestingModule({ imports: [Host], providers: [
       { provide: ProvidersSettingsStateService, useValue: state },
       { provide: ClaudeRpcService, useValue: { call: jest.fn(async () => new RpcResult(true, { models: [] })) } },
-      SHELL_LOADER,
+      SHELL_LOADER, SettingsSaveFeedbackService,
     ] }).compileComponents();
     fixture = TestBed.createComponent(Host);
     host = fixture.componentInstance;

@@ -96,10 +96,9 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
 /**
  * Routing map (plan :585-595, design-spec §2.1/§3.1, prototype "Routing Map"): which model does what, in
  * three work nodes. Reads `ProvidersSettingsStateService` directly.
- * - Main Agent: provider, model and effort of the next request; its D16 scope badges are projected in
- *   (`[main-agent-badges]`, owned by the page, which owns their review-then-confirm). Activation is
- *   emitted (`nodeActivated('main-agent')`): the page focuses its main-agent controls until the Main
- *   Agent popover replaces them (Batch 26, D14).
+ * - Main Agent: provider, model and effort of the next request; its D16 scope badges (`[main-agent-badges]`)
+ *   and the Main Agent popover (`[main-agent-popover]`, anchored at the node) are projected in by the page,
+ *   which owns them. "Reassign" emits `nodeActivated('main-agent')`; the page opens the popover.
  * - Background Roles and CLI Agents go to Agent Orchestration (`requestSettingsTab`, routed as in Batch 18).
  * Colour sits on dots and pills; all text stays base-content (deviation 6).
  */
@@ -131,6 +130,7 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
           actionAriaLabel="Reassign the main agent: its provider, model and effort" (activated)="nodeActivated.emit('main-agent')"
           (retryRequested)="state.refreshRoute()">
           <ng-container ngProjectAs="[node-badges]"><ng-content select="[main-agent-badges]" /></ng-container>
+          <ng-container ngProjectAs="[node-popover]"><ng-content select="[main-agent-popover]" /></ng-container>
           @if (main().provider; as provider) {
             <p class="flex flex-wrap items-baseline gap-x-1.5">
               <span class="text-[11px] font-semibold uppercase tracking-wider text-base-content-muted">Provider:</span>
