@@ -5,6 +5,7 @@ export {
   userMessageHasToolResult,
 } from './message-transform-helpers';
 export type {
+  BackgroundAnnounceOrigin,
   BackgroundTaskInfo,
   TransformerState,
   TransformerSessionId,

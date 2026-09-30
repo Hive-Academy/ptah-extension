@@ -53,6 +53,7 @@ import type {
 } from '@ptah-extension/shared';
 import {
   AgentMonitorStore,
+  agentVisibleInSession,
   type MonitoredAgent,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
@@ -97,10 +98,22 @@ interface WorkflowTileVM {
   readonly permissionCount: number;
 }
 
+/** Helper to check whether a subagent record is in a terminal state. */
+function isTerminalSubagent(r: SubagentRecord): boolean {
+  return (
+    r.status === 'completed' ||
+    r.status === 'failed' ||
+    r.status === 'killed' ||
+    r.status === 'stopped'
+  );
+}
+
 /** Map a raw lifecycle status onto the tile's status-dot bucket. */
 function statusDot(status: string): WorkflowTileVM['dot'] {
   switch (status) {
     case 'running':
+    case 'pending':
+    case 'background':
       return 'running';
     case 'completed':
       return 'completed';
@@ -109,6 +122,7 @@ function statusDot(status: string): WorkflowTileVM['dot'] {
     case 'killed':
       return 'failed';
     case 'stopped':
+    case 'paused':
       return 'stopped';
     default:
       return 'neutral';
@@ -136,10 +150,10 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
   return {
     key: r.parentToolUseId,
     kind: 'subagent',
-    name: r.teammateName || r.description || 'Subagent',
+    name: r.teammateName || r.description || r.agentType || 'Subagent',
     status: r.status,
     dot: statusDot(r.status),
-    workflowRunId: r.workflowRunId as string,
+    workflowRunId: r.workflowRunId ?? '',
     workflowName: r.workflowName,
     totalTokens: r.totalTokens,
     permissionCount: 0,
@@ -371,8 +385,10 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
             </div>
           }
 
-          <!-- Standalone agents (unchanged flat tile bar) -->
-          @if (standaloneAgents().length > 0) {
+          <!-- Standalone agents & subagents (flat tile bar) -->
+          @if (
+            standaloneAgents().length > 0 || sessionSubagentTiles().length > 0
+          ) {
             <div class="flex gap-1.5 px-2 py-1.5 overflow-x-auto">
               @for (agent of standaloneAgents(); track agent.agentId) {
                 <button
@@ -416,6 +432,38 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                   @if (agent.permissionQueue.length > 0) {
                     <span class="badge badge-xs badge-warning animate-pulse">
                       {{ agent.permissionQueue.length }}
+                    </span>
+                  }
+                </button>
+              }
+              @for (tile of sessionSubagentTiles(); track tile.key) {
+                <button
+                  type="button"
+                  class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all shrink-0 cursor-pointer"
+                  [ngClass]="
+                    tile.key === selectedAgentId()
+                      ? 'border-primary bg-primary/10 shadow-sm'
+                      : 'border-base-300 bg-base-100 hover:border-primary/30 hover:bg-primary/5'
+                  "
+                  (click)="selectAgent(tile.key)"
+                  [title]="tile.name"
+                >
+                  <span
+                    class="w-2 h-2 rounded-full shrink-0"
+                    [class.bg-info]="tile.dot === 'running'"
+                    [class.bg-success]="tile.dot === 'completed'"
+                    [class.bg-error]="tile.dot === 'failed'"
+                    [class.bg-warning]="tile.dot === 'stopped'"
+                    [class.bg-base-content]="tile.dot === 'neutral'"
+                    [class.opacity-40]="tile.dot === 'neutral'"
+                    [class.animate-pulse]="tile.dot === 'running'"
+                  ></span>
+                  <span class="text-xs font-medium truncate max-w-[120px]">
+                    {{ tile.name }}
+                  </span>
+                  @if (tile.totalTokens !== undefined) {
+                    <span class="text-[10px] text-base-content-muted font-mono">
+                      {{ tile.totalTokens }}
                     </span>
                   }
                 </button>
@@ -512,22 +560,42 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
                  has no MonitoredAgent shape (no card / permissions / continue),
                  so we render the shared transcript viewer instead. -->
                 <div class="p-1.5">
-                  <ptah-subagent-transcript-viewer
-                    [agentName]="
-                      sub.teammateName || sub.description || 'Subagent'
-                    "
-                    [messages]="transcriptMessages()"
-                    [loading]="transcriptLoading()"
-                    [error]="transcriptError()"
-                    (refresh)="reloadTranscript()"
-                    (closed)="deselect()"
-                  />
+                  @if (
+                    sub.workflowRunId || (sub.agentId && sub.parentSessionId)
+                  ) {
+                    <ptah-subagent-transcript-viewer
+                      [agentName]="
+                        sub.teammateName || sub.description || 'Subagent'
+                      "
+                      [messages]="transcriptMessages()"
+                      [loading]="transcriptLoading()"
+                      [error]="transcriptError()"
+                      (refresh)="reloadTranscript()"
+                      (closed)="deselect()"
+                    />
+                  } @else {
+                    <div
+                      class="flex flex-col items-center justify-center h-32 text-center"
+                    >
+                      <span class="text-sm text-base-content-muted"
+                        >Transcript is not available yet</span
+                      >
+                    </div>
+                  }
                 </div>
               } @else if (effectiveSelectedAgent(); as agent) {
                 <ng-container
                   [ngTemplateOutlet]="agentDetail"
                   [ngTemplateOutletContext]="{ $implicit: agent }"
                 />
+              } @else if (totalCount() > 0) {
+                <div
+                  class="flex flex-col items-center justify-center h-32 text-center"
+                >
+                  <span class="text-sm text-base-content-muted"
+                    >Select an agent to view details</span
+                  >
+                </div>
               } @else {
                 <div
                   class="flex flex-col items-center justify-center h-32 text-center"
@@ -673,6 +741,66 @@ export class AgentMonitorPanelComponent {
   });
 
   /**
+   * Non-workflow active subagents (SDK `SubagentRecord`s with no run id) for the
+   * panel's scope. Embedded/canvas panels scope by their `sessionId` input; the
+   * global panel falls back to the active-tab selector.
+   */
+  readonly effectiveSessionSubagents = computed<SubagentRecord[]>(() => {
+    const sid = this.sessionId();
+    if (sid === null) return this.store.activeSessionSubagents();
+    return this.store.sessionSubagentsForSession(sid);
+  });
+
+  /**
+   * Session subagents filtered to avoid duplicating any record that may already
+   * appear in workflow subagents, and deduplicated by parentToolUseId.
+   * If the currently selected agent is a session subagent that has transitioned to
+   * a terminal state (completed, failed, etc.), it is preserved here so its tile
+   * and transcript detail remain visible until the user selects another agent
+   * or clicks clear completed.
+   */
+  readonly sessionSubagents = computed<SubagentRecord[]>(() => {
+    const workflowIds = new Set(
+      this.effectiveWorkflowSubagents().map((r) => r.parentToolUseId),
+    );
+    const seen = new Set<string>();
+    const result: SubagentRecord[] = [];
+    for (const r of this.effectiveSessionSubagents()) {
+      if (!workflowIds.has(r.parentToolUseId) && !seen.has(r.parentToolUseId)) {
+        seen.add(r.parentToolUseId);
+        result.push(r);
+      }
+    }
+    const selectedId = this.selectedAgentId();
+    if (selectedId && !seen.has(selectedId) && !workflowIds.has(selectedId)) {
+      const selectedRec = this.store.getSubagent(selectedId);
+      if (selectedRec && !selectedRec.workflowRunId) {
+        const sid = this.sessionId();
+        const activeSessionId = this.tabManager.activeTabSessionId?.();
+        const isVisible =
+          sid === null
+            ? activeSessionId
+              ? agentVisibleInSession(
+                  selectedRec.parentSessionId,
+                  activeSessionId,
+                )
+              : true
+            : agentVisibleInSession(selectedRec.parentSessionId, sid);
+        if (isVisible) {
+          result.push(selectedRec);
+          seen.add(selectedId);
+        }
+      }
+    }
+    return result;
+  });
+
+  /** Normalized tiles for standalone session subagents. */
+  readonly sessionSubagentTiles = computed<WorkflowTileVM[]>(() =>
+    this.sessionSubagents().map(subagentToTile),
+  );
+
+  /**
    * Normalized workflow tiles from BOTH sources — CLI MonitoredAgents that
    * carry a run id AND SDK workflow SubagentRecords — fed to the pure grouping.
    */
@@ -694,17 +822,36 @@ export class AgentMonitorPanelComponent {
     this.effectiveAgents().filter((a) => !a.workflowRunId),
   );
 
-  /** Combined count across CLI agents + workflow subagents. */
+  /** Combined count across CLI agents + workflow subagents + session subagents. */
   readonly totalCount = computed(
     () =>
-      this.effectiveAgents().length + this.effectiveWorkflowSubagents().length,
+      this.effectiveAgents().length +
+      this.effectiveWorkflowSubagents().length +
+      this.sessionSubagents().length,
   );
 
-  /** Union of selectable keys (MonitoredAgent ids + workflow subagent ids). */
-  private readonly _selectableKeys = computed<string[]>(() => [
-    ...this.effectiveAgents().map((a) => a.agentId),
-    ...this.effectiveWorkflowSubagents().map((r) => r.parentToolUseId),
-  ]);
+  /** Union of selectable keys (MonitoredAgent ids + workflow subagent ids + session subagent ids). */
+  private readonly _selectableKeys = computed<string[]>(() => {
+    const keys = new Set<string>();
+    for (const a of this.effectiveAgents()) keys.add(a.agentId);
+    for (const r of this.effectiveWorkflowSubagents())
+      keys.add(r.parentToolUseId);
+    for (const s of this.sessionSubagents()) keys.add(s.parentToolUseId);
+    return Array.from(keys);
+  });
+
+  /**
+   * Keys that can trigger auto-selection (CLI agents + workflow subagents only).
+   * Session-level subagents must NEVER trigger auto-selection; they are selected
+   * only upon explicit user click.
+   */
+  private readonly _autoSelectableKeys = computed<string[]>(() => {
+    const keys = new Set<string>();
+    for (const a of this.effectiveAgents()) keys.add(a.agentId);
+    for (const r of this.effectiveWorkflowSubagents())
+      keys.add(r.parentToolUseId);
+    return Array.from(keys);
+  });
 
   /** Run ids the user has collapsed. Runs default to expanded. */
   private readonly _collapsedRuns = signal<ReadonlySet<string>>(new Set());
@@ -723,8 +870,8 @@ export class AgentMonitorPanelComponent {
   }
 
   /**
-   * The selected workflow SubagentRecord, when the current selection key points
-   * at one. Drives the transcript detail view (vs the MonitoredAgent card).
+   * The selected SubagentRecord (workflow or session-level), when the current selection
+   * key points at one. Drives the transcript detail view (vs the MonitoredAgent card).
    */
   readonly selectedWorkflowSubagent = computed<SubagentRecord | null>(() => {
     const key = this.selectedAgentId();
@@ -732,7 +879,9 @@ export class AgentMonitorPanelComponent {
     return (
       this.effectiveWorkflowSubagents().find(
         (r) => r.parentToolUseId === key,
-      ) ?? null
+      ) ??
+      this.sessionSubagents().find((r) => r.parentToolUseId === key) ??
+      null
     );
   });
 
@@ -796,30 +945,31 @@ export class AgentMonitorPanelComponent {
     });
 
     effect(() => {
-      const keys = this._selectableKeys();
-      const currentIds = new Set(keys);
+      const autoKeys = this._autoSelectableKeys();
+      const currentAutoIds = new Set(autoKeys);
+      const allSelectable = new Set(this._selectableKeys());
       const selectedId = untracked(() => this.selectedAgentId());
 
       if (untracked(() => this.lanesMode())) {
-        this.prevAgentIds = currentIds;
+        this.prevAgentIds = currentAutoIds;
         return;
       }
 
-      const newIds = keys.filter((id) => !this.prevAgentIds.has(id));
+      const newIds = autoKeys.filter((id) => !this.prevAgentIds.has(id));
 
       if (newIds.length > 0) {
         this.autoSelectAgent(newIds[0]);
-      } else if (selectedId && !currentIds.has(selectedId)) {
-        if (keys.length > 0) {
-          this.autoSelectAgent(keys[0]);
+      } else if (selectedId && !allSelectable.has(selectedId)) {
+        if (autoKeys.length > 0) {
+          this.autoSelectAgent(autoKeys[0]);
         } else {
           this.selectedAgentId.set(null);
         }
-      } else if (!selectedId && keys.length > 0) {
-        this.autoSelectAgent(keys[0]);
+      } else if (!selectedId && autoKeys.length > 0) {
+        this.autoSelectAgent(autoKeys[0]);
       }
 
-      this.prevAgentIds = currentIds;
+      this.prevAgentIds = currentAutoIds;
     });
     effect(() => {
       const perms = this.effectivePermissions();
@@ -1022,6 +1172,13 @@ export class AgentMonitorPanelComponent {
   }
 
   onClearCompleted(): void {
+    const selectedId = this.selectedAgentId();
+    if (selectedId) {
+      const sub = this.store.getSubagent(selectedId);
+      if (sub && isTerminalSubagent(sub)) {
+        this.deselect();
+      }
+    }
     const sid = this.sessionId();
     if (sid === null) {
       this.store.clearCompleted();

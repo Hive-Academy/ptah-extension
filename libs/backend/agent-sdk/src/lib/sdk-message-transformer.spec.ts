@@ -229,12 +229,12 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
     );
 
     expect(events).toHaveLength(1);
-    expect(
-      (events[0] as { eventType: string }).eventType,
-    ).toBe('compaction_complete');
-    expect(
-      boundaryRegistry.capturePendingExpectation('resolved-sess'),
-    ).toEqual({ kind: 'unverified' });
+    expect((events[0] as { eventType: string }).eventType).toBe(
+      'compaction_complete',
+    );
+    expect(boundaryRegistry.capturePendingExpectation('resolved-sess')).toEqual(
+      { kind: 'unverified' },
+    );
   });
 });
 
@@ -314,7 +314,24 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
     expect(registry.setTaskId).not.toHaveBeenCalled();
   });
 
-  it('Fix 2 — emits only one agent_start when task_started precedes the legacy assistant path for same tool_use_id', () => {
+  it('keeps the task → parent mapping of a background-announced task across compaction', () => {
+    transformer = build();
+    transformer.setTaskParent('task-bg', 'toolu_sendmessage');
+    transformer.markBackgroundAnnounced('toolu_sendmessage', 'task_started');
+    transformer.setTaskParent('task-fg', 'toolu_task');
+
+    transformer.clearStreamingState();
+
+    // A later task_notification without tool_use_id must still find its
+    // parent, or the announced tray entry never ends.
+    expect(transformer.getTaskParentToolUseId('task-bg')).toBe(
+      'toolu_sendmessage',
+    );
+    expect(transformer.isBackgroundAnnounced('toolu_sendmessage')).toBe(true);
+    expect(transformer.getTaskParentToolUseId('task-fg')).toBeUndefined();
+  });
+
+  it('Fix 2 —emits only one agent_start when task_started precedes the legacy assistant path for same tool_use_id', () => {
     transformer = build();
 
     // SDK path fires first

@@ -320,6 +320,11 @@ describe('pricing.utils', () => {
       ['anthropic/claude-opus-5-5[1m]', 'anthropic/claude-opus-5-5'],
       ['claude-opus-5-5', 'claude-opus-5-5'],
       ['claude-[1m]-opus', 'claude-[1m]-opus'],
+      ['model[a]b[c]', 'model[a]b'],
+      ['model[a[b]', 'model'],
+      ['model[]', 'model'],
+      ['model]', 'model]'],
+      ['[[[[', '[[[['],
     ])('%s -> %s', (input, expected) => {
       expect(stripModelVariantTags(input)).toBe(expected);
     });

@@ -7,6 +7,16 @@ import type {
 export type TransformerSessionId = SessionId | HarnessStreamId | WizardPhaseId;
 
 /**
+ * Which system message announced a task as background. Only `task_started`
+ * announcements (the SendMessage-resume path) earn a transformer-produced
+ * terminal event: a task backgrounded mid-run via `task_updated` has a
+ * registry record under the same tool_use id, so the `SubagentStop` hook
+ * path already ends its tray entry — a second terminal event would insert
+ * a duplicate entry.
+ */
+export type BackgroundAnnounceOrigin = 'task_started' | 'task_updated';
+
+/**
  * Correlation record for a single `Workflow` tool run.
  *
  * `runId` is the `Workflow` tool_use id (stable across the run root and every
@@ -54,6 +64,27 @@ export interface TransformerState {
   getTaskParentToolUseId(taskId: string): string | undefined;
   isTaskStartedEmitted(toolUseId: string): boolean;
   /**
+   * True when this transformer already emitted `background_agent_started`
+   * for `toolUseId`. The transformer-level dedup for a task the SDK reports
+   * as backgrounded whose subagent registry record does not exist — a
+   * subagent resumed via SendMessage: the registry record is keyed by the
+   * `SubagentStart` hook's tool_use id, not the SendMessage tool_use id the
+   * task lifecycle carries, so the registry cannot dedup and its `update()`
+   * is a no-op. NOT cleared by `clearStreamingState` — a compact boundary
+   * can land mid-run, and clearing the mark there would lose the terminal
+   * event and leave the tray entry `running` forever. Cleared per id, when
+   * the terminal event is emitted.
+   */
+  isBackgroundAnnounced(toolUseId: string): boolean;
+  /**
+   * The system message that announced `toolUseId` as background; undefined
+   * when it was never announced. Only `task_started` announcements get a
+   * transformer-produced terminal event (see {@link BackgroundAnnounceOrigin}).
+   */
+  getBackgroundAnnounceOrigin(
+    toolUseId: string,
+  ): BackgroundAnnounceOrigin | undefined;
+  /**
    * True for a task whose `task_started` was rejected as non-agent (see
    * `isAgentTaskType`). Keyed by task id because the later lifecycle messages
    * (`task_progress` / `task_updated` / `task_notification`) carry the task id
@@ -88,6 +119,17 @@ export interface TransformerState {
   clearTaskParent(taskId: string): void;
   markNonAgentTask(taskId: string): void;
   markTaskStartedEmitted(toolUseId: string): void;
+  /**
+   * Records that `background_agent_started` was emitted for `toolUseId`,
+   * and from which system message, so `getBackgroundAnnounceOrigin` can
+   * later decide whether the transformer owns the terminal event.
+   */
+  markBackgroundAnnounced(
+    toolUseId: string,
+    origin: BackgroundAnnounceOrigin,
+  ): void;
+  /** Removes the announcement mark for `toolUseId` (task settled). */
+  clearBackgroundAnnounced(toolUseId: string): void;
   addActiveSkillToolUseId(toolUseId: string): void;
   clearActiveSkillToolUseIds(): void;
   /**
