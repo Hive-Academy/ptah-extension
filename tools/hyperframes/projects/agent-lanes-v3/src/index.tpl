@@ -23,14 +23,6 @@
 <!--@frames-->
 
       <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="@DURATION" data-media-start="12.575" data-track-index="10" data-volume="0.6"></audio>
-
-      <!-- SFX, Frame 1 -->
-      <audio id="sx-f01-g1" src="assets/sfx/glitch-1.mp3" data-start="0" data-duration="0.6" data-track-index="20" data-volume="0.5"></audio>
-      <audio id="sx-f01-g2" src="assets/sfx/glitch-2.mp3" data-start="0.448" data-duration="0.6" data-track-index="21" data-volume="0.45"></audio>
-      <audio id="sx-f01-g3" src="assets/sfx/glitch-3.mp3" data-start="0.896" data-duration="0.6" data-track-index="22" data-volume="0.4"></audio>
-      <audio id="sx-f01-rise" src="assets/sfx/riser.mp3" data-start="0.3" data-duration="1.491" data-track-index="23" data-volume="0.45"></audio>
-      <audio id="sx-f01-drop" src="assets/sfx/impact-bass-1.mp3" data-start="1.791" data-duration="1.791" data-track-index="24" data-volume="0.75"></audio>
-      <audio id="sx-f01-tick" src="assets/sfx/click-soft.mp3" data-start="2.687" data-duration="0.366" data-track-index="25" data-volume="0.4"></audio>
     </div>
     <script>
       (function () {
