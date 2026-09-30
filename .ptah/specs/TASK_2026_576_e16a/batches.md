@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 7/69
+Total tasks: 87 | Batches: 69 | Complete: 8/69
 
 Branch: `feat/task-2026-576-git-review` (main checkout `D:/projects/ptah-extension`). Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -33,7 +33,8 @@ or `.claude/skills/ptah-cli-usage/references/internal-mcp.md`.
   never route visual review or screenshot work to it). Run `ptah_agent_list` before spawning.
 - **Review routing (agent-lanes §6).** Subagent-authored code → reviewed by a CLI lane. Lane-authored code → reviewed
   by a subagent reviewer (code-logic-reviewer or code-style-reviewer). Rendered UI → visual-reviewer subagent (dark +
-  light) in addition. Every batch needs an accepting verdict before its commit.
+  light) in addition. Every P1 batch needs an accepting verdict before its commit. From P2 onward this per-batch
+  review is replaced by the per-phase cadence (see "Review cadence (user decision 2026-09-30)" at the top of P2).
 - **Visual evidence.** B7 changes the existing dock without a new design: before screenshots come from base
   722d921ab (a temporary worktree), after from the batch, dark + light. P3 card (B29-B31) is checked against
   `prototype/`. P4/P5 surfaces are unmounted until cutover; their visual review against `prototype/` happens at
@@ -362,7 +363,7 @@ Edge cases:
 - Out of scope, noted: `stashShow` does not use `DIFF_FLAGS` (read-only); checkout's dirty check still uses plain
   porcelain.
 
-## Batch 5: GitInfoService facade B — RC1 commit result, RC2 timeouts and lock recovery, RC6 write lock; handler pass-through — COMPLETE
+## Batch 5: GitInfoService facade B — RC1 commit result, RC2 timeouts and lock recovery, RC6 write lock; handler pass-through — COMPLETE (a925edcc2)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -621,6 +622,14 @@ ptah-electron-e2e ptah-extension-webview --skip-nx-cache` → pass (8 targets).
   run rendered it correctly. **Owner: senior-tester at the P1 QA step (before the P1 handover)** — add a
   deterministic Electron e2e for a failing row stage (error visible, dismissible, button re-enabled) next to
   `commit-hook-failure.spec.ts`. If it reproduces, it goes back to frontend-developer against Task 7.1.
+  **Closed (2026-09-30, senior-tester; no production code touched):**
+  `apps/ptah-electron-e2e/src/specs/git/row-stage-failure.spec.ts` holds a real `.git/index.lock`, observes the
+  `git:stage` RPC answer `LOCKED` with `GIT_LOCKED_MESSAGE` from the main process, then asserts `git-row-error`
+  visible within Playwright's default 5 s (no sleep), exact lock text, no raw stderr, Stage button enabled and not
+  `aria-busy`, 24×24 dismiss clears it; the lock is removed in `finally`; a control stage then succeeds. Pass lines: fresh
+  build `1 passed (2.7m)`, 4 further runs without rebuild each `1 passed`, `commit-hook-failure.spec.ts` `1 passed
+(2.6m)`, `ptah-electron-e2e:typecheck` pass. The timing issue did not reproduce (consistent with the Batch 5
+  git-dock `isLoading` fix). Report: `test-report-p1-row-error.md`.
 - Carried, pre-existing (reproduce on 722d921ab, not Batch 7): rail-width squeeze after a narrow resize; focus-ring
   legibility re-capture. Both belong to the cutover visual review (Batches 58-61).
 
@@ -705,15 +714,45 @@ touches only P1 files), confirms the Batch 5 e2e gate (`commit-hook-failure.spec
 follow-up (deterministic row-error e2e, senior-tester) are closed, and returns. The orchestrator reports to the user for the P1 PR. **Batches 9-69 stay PENDING until
 the user confirms the P1 PR is merged.**
 
+P1 verification (team-leader, 2026-09-30) — PASSED:
+
+- All eight P1 SHAs resolve on the branch: 74e50a10b (B1), 5ceb04e19 (B2), e4cadb68d (B3), d0e585e24 (B4),
+  a925edcc2 (B5), 53e48e6ce (B6), 104dced82 (B7), 7447d68b4 (B8).
+- B7 visual evidence is tracked: 39 files in `screenshots/b7/` (before from 722d921ab, after, after-r1; dark + light)
+  and 6 `screenshots/b7-*.json` measurement files.
+- `git diff --name-only main...HEAD` (merge-base 722d921ab) touches only P1 paths: `libs/shared` git contracts (B1),
+  `libs/backend/vscode-core` git services/exec-git (B1, B2, B4, B5), `apps/ptah-electron` git watcher (B3),
+  `libs/backend/rpc-handlers` git handler spec (B5), `libs/frontend/git-ui` (B5, B6, B7),
+  `apps/ptah-extension-webview` contrast spec (B7, accepted addition), `apps/ptah-electron-e2e` git specs (B7, P1 QA),
+  `.github/workflows/ci.yml` (B8), and this task's `.ptah/specs/TASK_2026_576_e16a/**` docs. Nothing out of scope.
+- Batch 5 e2e gate closed (`commit-hook-failure.spec.ts` `1 passed`); Batch 7 row-error follow-up closed (above).
+- Still open for the P1 PR (not batch work): the first real `git-real-git` run (R3), and the branch-protection
+  suggestion to the user.
+
 ---
 
 # P2 — Reliability hardening (RC9-RC14) — waits for P1 merge
+
+## Review cadence (user decision 2026-09-30)
+
+Applies to P2, P3, P4, P5 and Cutover (Batches 9-69); recorded in `context.md`. It replaces the per-batch review rule
+under "Execution defaults".
+
+- **Per batch:** typecheck, lint and scoped unit tests for the batch's projects (plus the `*.real-git.spec.ts`
+  suites when git behaviour changes), then the husky pre-commit hook (format, `nx affected -t lint` including
+  `degradation-audit`, `ptah-electron:validate-deps`, commitlint), then the team-leader verifies on disk and
+  commits. No per-batch lane review and no per-batch e2e.
+- **Per phase end (P2, P3, P4, P5, Cutover):** one cross-side review lane on the whole phase diff, the full e2e set,
+  and a visual review for UI phases. Findings are fixed in follow-up commits before the next phase starts.
+- New UI stays unmounted until Batch 58.
+- Each batch's "Reviewer" line below names the scope the phase-end review must cover for that batch; it is not a
+  per-batch gate.
 
 ## Batch 9: Ref guard (RC14) — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Rationale: guard + call-site edits in the hot-spot facade.
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P1 merged
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
 
@@ -729,7 +768,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 10: Branch switching backend (RC9) — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 9
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core @ptah-extension/shared`
 
@@ -745,7 +784,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 11: Branch switching handler and picker UI (RC9) — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
-- Reviewer: CLI lane, logic scope; visual-reviewer (before/after picker, dark + light)
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope; visual-reviewer (before/after picker, dark + light)
 - Tasks: 1 | Depends on: Batch 10
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers @ptah-extension/git-ui`
 
@@ -761,7 +800,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 12: Worktree admin core (RC10) — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 11
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core @ptah-extension/shared`
 
@@ -777,7 +816,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 13: Worktree remove hook and RPC scoping (RC10) — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 12
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk @ptah-extension/rpc-handlers`
 
@@ -793,7 +832,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 14: Worktree removal detection and frontend scoping (RC10) — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 3, 13
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-electron @ptah-extension/git-ui`
 
@@ -809,7 +848,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 15: Status union growth and frontend consumers (RC12, V10) — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 12
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/git-ui`
 
@@ -825,7 +864,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 16: Repo operation, conflict kinds, size limit and LFS in the facade (RC12) — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 15
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
 
@@ -841,7 +880,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 17: Review reader size limit (RC12) — PENDING
 
 - Recommended executor: CLI lane | Fallback: backend-developer | Mode: sequential
-- Reviewer: code-logic-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 16
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
 
@@ -857,7 +896,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 18: One `GitInfoService` per host (RC13) — PENDING
 
 - Recommended executor: CLI lane | Fallback: backend-developer | Mode: sequential
-- Reviewer: code-logic-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 2 | Depends on: P1 merged
 - Concurrency-eligible with: Batches 9-17
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-extension-vscode @ptah-extension/cli-engine`
@@ -883,7 +922,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 19: Scoped, queued diff refresh (RC11) — PENDING
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
-- Reviewer: code-logic-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: P1 merged
 - Concurrency-eligible with: Batches 9-18
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
@@ -897,6 +936,10 @@ the user confirms the P1 PR is merged.**
 - Validation notes: failed refresh keeps previous content (parity §7).
 - Implementation details: replaces the drop at `:488`; logic written so it can be moved verbatim to `ReviewDiffService` (Task 35.1).
 
+### P2 phase-end review
+
+- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P2 phase diff, the full e2e set; findings fixed in follow-up commits before the next phase starts.
+
 ---
 
 # P3 — Foundation
@@ -904,7 +947,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 20: Eager-bundle guard script and baseline measurements — PENDING
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P2 complete. Must run before Batch 21 changes `app.config.ts` (baseline).
 - Verification: `npx nx run ptah-extension-webview:verify-eager-bundle` in report-only mode on the base build
 
@@ -920,7 +963,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 21: `@ptah-extension/git-ui/services` narrow entry — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 20
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui ptah-extension-webview` then `verify-eager-bundle` (assert mode passes; `main.js` gz ≤ baseline)
 
@@ -936,7 +979,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 22: Pierre renderer host and hunk mapping (A1, A2 gate) — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 21
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -962,7 +1005,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 23: `diff-renderer` secondary entry and `TextDiffViewComponent` — PENDING
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
-- Reviewer: code-logic-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 22
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui` + lazy-size row via the Batch 20 script
 
@@ -978,7 +1021,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 24: `FileStatusBadgeComponent` with AA contrast — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
-- Reviewer: CLI lane, style scope; visual-reviewer (badge in anubis + anubis-light)
+- Reviewer (phase-end scope, see Review cadence): CLI lane, style scope; visual-reviewer (badge in anubis + anubis-light)
 - Tasks: 1 | Depends on: P2 complete
 - Concurrency-eligible with: Batches 20-23, 25-28
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/ui ptah-extension-webview`
@@ -995,7 +1038,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 25: Change-set shared types and facade delegates — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P2 complete
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core`
 
@@ -1011,7 +1054,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 26: Turn change-set recorder and store — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 18, 25
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers`
 
@@ -1027,7 +1070,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 27: Change-set RPC and registration — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 26
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers ptah-electron ptah-extension-vscode @ptah-extension/cli-engine` (host surface specs; exception (a))
 
@@ -1043,7 +1086,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 28: VS Code `ptah.review.*` commands and HEAD content provider — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 18, 25
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-extension-vscode`
 
@@ -1059,7 +1102,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 29: Change-set card component — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
-- Reviewer: CLI lane, style scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, style scope
 - Tasks: 1 | Depends on: Batches 24, 25
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
 
@@ -1075,7 +1118,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 30: Change-set store, actions and push routing — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 27, 28, 29
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-extension-webview`
 
@@ -1091,7 +1134,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 31: Transcript insertion and Electron card e2e — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
-- Reviewer: CLI lane, logic scope; visual-reviewer against `prototype/` (dark + light)
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope; visual-reviewer against `prototype/` (dark + light)
 - Tasks: 1 | Depends on: Batch 30
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-electron-e2e`
 
@@ -1107,7 +1150,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 32: VS Code e2e — card to native diff views — PENDING
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 31
 - Verification: `npx nx run-many -t lint,typecheck -p ptah-extension-vscode-e2e` + the suite run command used by `apps/ptah-extension-vscode-e2e/runner.mjs`
 
@@ -1124,6 +1167,10 @@ the user confirms the P1 PR is merged.**
 
 `bundle-measurements.md` rows for Batches 20, 21, 23 present; card visual review done.
 
+### P3 phase-end review
+
+- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P3 phase diff, the full e2e set, visual review of the change-set card against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
+
 ---
 
 # P4 — Review canvas, spot editor (built unmounted; see "Cutover moved after P5")
@@ -1131,7 +1178,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 33: Agent-feedback port token and confirm dialog — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: P3 complete
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core @ptah-extension/git-ui`
 
@@ -1156,7 +1203,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 34: Chat feedback sender — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 33
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-extension-webview`
 
@@ -1172,7 +1219,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 35: `ReviewDiffService` and `ReviewNavigationService` — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batches 22, 34
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui ptah-extension-webview`
 
@@ -1197,7 +1244,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 36: Draft comments and hunk toolbar — PENDING
 
 - Recommended executor: CLI lanes x 3 (one per component pair) | Fallback: frontend-developer, sequential | Mode: parallel
-- Reviewer: code-logic-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 3 | Depends on: Batch 35
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -1231,7 +1278,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 37: Changed-file tree, comparison bar, stash routing — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batches 24, 33, 35
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -1256,7 +1303,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 38: File diff section and review canvas (A9 spike) — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 36, 37
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -1272,7 +1319,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 39: `file:viewContent` sha256/bom and save contract types — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P3 complete
 - Concurrency-eligible with: Batches 33-38
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers`
@@ -1289,7 +1336,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 40: `FileEditRpcHandlers` — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 39
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers`
 
@@ -1305,7 +1352,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 41: `file:saveContent` registration and `fileEditor` capability — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 40
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers ptah-electron ptah-extension-vscode @ptah-extension/cli-engine` (exception (a))
 
@@ -1321,7 +1368,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 42: Spot editor (CodeMirror 6) — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 33, 41
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -1337,7 +1384,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 43: Review shell (Changes tab + header) — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 38, 42
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -1353,7 +1400,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 44: Skills drawer on `TextDiffViewComponent` — PENDING
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
-- Reviewer: code-logic-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 23
 - Concurrency-eligible with: Batches 33-43
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/skill-synthesis-ui`
@@ -1367,6 +1414,10 @@ the user confirms the P1 PR is merged.**
 - Validation notes: parity §11 last row.
 - Implementation details: unified only.
 
+### P4 phase-end review
+
+- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P4 phase diff, the full e2e set (surfaces are unmounted; their visual review happens at Batches 58-61); findings fixed in follow-up commits before the next phase starts.
+
 ---
 
 # P5 — Workflow surfaces (built unmounted until cutover)
@@ -1374,7 +1425,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 45: Commit streaming backend — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P4 complete
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core`
 
@@ -1390,7 +1441,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 46: Commit-message generator — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 45
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk`
 
@@ -1406,7 +1457,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 47: `GitWorkflowRpcHandlers` — commit stream, cancel, generate — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 46
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers ptah-electron ptah-extension-vscode @ptah-extension/cli-engine`
 
@@ -1422,7 +1473,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 48: Commit composer UI + shell Commit tab — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 43, 47
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -1438,7 +1489,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 49: PR status reader and `git:prStatus` — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 47
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core @ptah-extension/rpc-handlers` (3 libs: registry must ship with the handler, V5 — exception (a))
 
@@ -1463,7 +1514,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 50: Worktree/PR task view UI + shell Task tab — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 49
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -1479,7 +1530,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 51: Conflict operation backend — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 49
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core`
 
@@ -1495,7 +1546,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 52: Editor merge launcher — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 51
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/platform-core @ptah-extension/platform-electron`
 
@@ -1511,7 +1562,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 53: Conflict and history RPCs — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 52
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/cli-engine ptah-extension-vscode` (exception (a))
 
@@ -1537,7 +1588,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 54: Conflict banner UI + shell banner slot — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 50, 53
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -1553,7 +1604,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 55: History reader and `git:log` — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 53
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core @ptah-extension/rpc-handlers` (registry with handler, V5 — exception (a))
 
@@ -1578,7 +1629,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 56: History timeline UI + shell History tab — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 54, 55
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
@@ -1594,7 +1645,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 57: CI — editor merge spec in the OS matrix — PENDING
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 52
 - Verification: workflow lint as in Batch 8
 
@@ -1607,6 +1658,10 @@ the user confirms the P1 PR is merged.**
 - Validation notes: project name `@ptah-extension/platform-electron`.
 - Implementation details: `--testPathPattern=editor-merge.real`.
 
+### P5 phase-end review
+
+- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P5 phase diff, the full e2e set (surfaces are unmounted; their visual review happens at Batches 58-61); findings fixed in follow-up commits before the next phase starts.
+
 ---
 
 # Cutover — mount, parity, deletion, Monaco removal (runs after P5; V3)
@@ -1614,7 +1669,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 58: Mount switch and file-link routing — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope; visual-reviewer on every new surface against `prototype/` (dark + light)
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope; visual-reviewer on every new surface against `prototype/` (dark + light)
 - Tasks: 2 | Depends on: Batches 44, 48, 50, 54, 56
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-extension-webview`
 
@@ -1639,7 +1694,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 59: E2E successors I — PENDING
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 58
 - Verification: `npx nx run-many -t lint,typecheck -p ptah-electron-e2e` + `npx nx e2e ptah-electron-e2e --grep "git"` scoped to these specs (tail)
 
@@ -1655,7 +1710,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 60: E2E successors II — PENDING
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 59
 - Verification: as Batch 59
 
@@ -1671,7 +1726,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 61: E2E successors III — PENDING
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 60
 - Verification: as Batch 59
 
@@ -1687,7 +1742,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 62: Parity matrix — PENDING
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
-- Reviewer: code-logic-reviewer (subagent) — cross-check rows against `parity-inventory.md` and the OLD surface at 722d921ab
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent) — cross-check rows against `parity-inventory.md` and the OLD surface at 722d921ab
 - Tasks: 1 | Depends on: Batch 61
 - Verification: every `keep`/`move` row maps to a passing test (file:line); the 4 approved removals listed
 
@@ -1703,7 +1758,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 63: WorkspaceCoordinator swap — PENDING
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
-- Reviewer: code-logic-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 62
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
 
@@ -1719,7 +1774,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 64: Old-surface deletion and barrel rewrite — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 63
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui ptah-extension-webview @ptah-extension/chat`
 
@@ -1735,7 +1790,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 65: Monaco dependency and provider removal — PENDING
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 64
 - Verification: `npx nx run-many -t typecheck,test,lint,build -p ptah-extension-webview` + `verify-eager-bundle`
 
@@ -1751,7 +1806,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 66: Packaging — PENDING
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
-- Reviewer: CLI lane, logic scope
+- Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 65
 - Verification: `npx nx run-many -t test -p ptah-electron` (packaged-deps spec) + VSIX package listing
 
@@ -1767,7 +1822,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 67: Final bundle, TTI and VSIX evidence — PENDING
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
-- Reviewer: code-logic-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 66
 - Verification: the rows below recorded
 
@@ -1783,7 +1838,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 68: Axe sweep on VS Code card and review surfaces — PENDING
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
-- Reviewer: visual-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): visual-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 67
 - Verification: axe report dark + light for shell, canvas, spot editor, composer, task view, banner, history, card
 
@@ -1799,7 +1854,7 @@ the user confirms the P1 PR is merged.**
 ## Batch 69: Task-wide scoped verification — PENDING
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
-- Reviewer: code-logic-reviewer (subagent)
+- Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 68
 - Verification: `npx nx run-many -t typecheck,test,lint -p <projects changed on the branch>` (list from `git diff --name-only main`), tailed
 
@@ -1811,3 +1866,7 @@ the user confirms the P1 PR is merged.**
 - Quality requirements: `command:execute` allowlist unchanged (diff of `command-rpc.handlers.ts:29, 35-40`); manifest invariant green.
 - Validation notes: all risks above have a recorded resolution.
 - Implementation details: n/a
+
+### Cutover phase-end review
+
+- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the Cutover phase diff, the full e2e set, visual review of every mounted surface against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
