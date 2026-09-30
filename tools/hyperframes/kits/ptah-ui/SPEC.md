@@ -144,6 +144,7 @@ Follows `REF/contract-example-notification-stack.html`.
 | `focusAt` | number | `-1` | focus cue in seconds; `-1` = default (last beat + 0.5s) |
 | `dimOthers` | number | `0.38` | opacity of non-focus parts during focus (0.38 is the floor that keeps the text legible: muted on dimmed stays above 3:1) |
 | `vignette` | boolean | `false` | draws the kit's single allowed background element (see 3.4); default off so mounts stay transparent |
+| `preroll` | number | `0` | seconds already played at mount start: the mount opens in the state it would reach after N s (use a value past the last beat for a settled world at a scene cut). Implemented as a wrapper timeline that scrubs the built one from N, so seeking stays pure |
 
 - Shared partials (badges, status glyphs, tool row, status line) are written once in the kit source and inlined into each composition at build; mounted components cannot import each other (Open question 2).
 - Files: `tools/hyperframes/kits/ptah-ui/src/<name>.html` (source), built to `components/<name>.html` by `build.mjs`; gallery at `gallery/index.html`.

@@ -235,7 +235,15 @@ function ptahKit(root, cfg) {
         var out = Math.min(0.45, duration * 0.25);
         tl.to(stage, { opacity: 0, y: exit === "up" ? -12 * U : 0, duration: out, ease: "power2.in" }, duration - out);
       }
-      window.__timelines[cfg.id] = tl;
+      // preroll: start the mount as if it had already played for N seconds (a settled world at a scene cut).
+      // A wrapper timeline scrubs the built one from N onward, so seeking stays a pure function of time.
+      var pre = K.num("preroll", 0, 0, 60);
+      var reg = tl;
+      if (pre > 0) {
+        reg = gsap.timeline({ paused: true });
+        reg.add(tl.tweenFromTo(pre, Math.max(pre, tl.duration()), { ease: "none" }), 0);
+      }
+      window.__timelines[cfg.id] = reg;
     },
     icon: function (name, size, color, extra) {
       var p = PU_ICONS[name] || PU_ICONS.terminal;
