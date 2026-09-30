@@ -579,9 +579,14 @@ describe('ProvidersSettingsComponent', () => {
     expect(state.performExternalAuth).toHaveBeenCalledWith('github-copilot', 'sign-in');
   });
   it('uses native controls with 36px height and a visible 2px focus outline', async () => {
+    state.route.set(ready(route));
     await render();
-    for (const node of element.querySelectorAll('button')) {
-      expect(node.classList.contains('min-h-9')).toBe(true);
+    // The compact card's one inline action is `btn-xs` by plan (:631): 24px, the WCAG 2.2 AA target size.
+    const cardAction = (node: Element) => node.closest('[data-testid="provider-connection-card"]') !== null;
+    const actions = Array.from(element.querySelectorAll('button'));
+    expect(actions.some(cardAction)).toBe(true);
+    for (const node of actions) {
+      expect(node.classList.contains(cardAction(node) ? 'min-h-6' : 'min-h-9')).toBe(true);
       expect(node.classList.contains('focus-visible:outline-2')).toBe(true);
     }
   });

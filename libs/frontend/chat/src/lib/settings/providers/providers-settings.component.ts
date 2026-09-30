@@ -9,7 +9,8 @@ import {
 import { NativeCardComponent, ProviderModelPickerComponent } from '@ptah-extension/ui';
 import type { SettingScope, EffortLevel, AuthVerifyDraftConnectionParams, AuthCancelDraftVerificationParams } from '@ptah-extension/shared';
 import { SettingScopeRowComponent } from './setting-scope-row.component';
-import { ProviderConnectionCardComponent, type ProviderConnectionCardStatus } from './provider-connection-card.component';
+import { ProviderConnectionCardComponent } from './provider-connection-card.component';
+import type { ProviderConnectionCardStatus } from './provider-connection-card.state';
 import {
   ProviderSetupWizardComponent, type ProviderWizardCommit, type WizardCommitState,
 } from './provider-setup-wizard.component';
@@ -39,7 +40,9 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
     ProviderConnectionCardComponent, ProviderSetupWizardComponent, ConnectionDetailDrawerComponent],
   template: `
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
-      <div class="max-w-4xl mx-auto px-3 py-3 md:px-6 lg:px-8 space-y-4">
+      <!-- No width or side padding of its own: the Settings shell (settings.component.html) already sets
+           max-w-4xl and the page padding, which used to be applied twice (Batch 24, card grid width). -->
+      <div class="py-3 space-y-4">
         <header class="flex flex-wrap items-start justify-between gap-3">
           <div class="min-w-0 space-y-1">
             <h1 class="text-lg font-semibold">Providers</h1>
@@ -167,18 +170,21 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
         <section aria-labelledby="providers-connections-heading" class="space-y-3" [attr.aria-busy]="state.connections().status === 'loading'">
           <h2 id="providers-connections-heading" data-focus="connections" tabindex="-1" class="text-sm font-semibold scroll-mt-4">Your connections</h2>
           @if (state.connections().status === 'ready' && connections().length === 0) { <p>No connections configured. Connect a provider to get started.</p> }
-          @for (connection of connections(); track connection.id) {
-            <ptah-provider-connection-card [providerId]="connection.id" [providerName]="connection.name" [authModality]="connection.authMode"
-              [sourceLabel]="connection.hasKey ? 'Credential: stored on this machine' : null"
-              [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
-              [isBlocked]="isBlocked(connection.id)" [canActivateMain]="!saving() && state.route().status === 'ready'" [canManage]="canStartSetup()"
-              (changeMainProviderRequested)="requestFocus('connections')" (activateMainRequested)="beginActivation(connection.id)"
-              (manageRequested)="openDrawer(connection.id)" (setupRequested)="openWizard(connection.id)"
-              (addKeyRequested)="openWizard(connection.id)" (replaceKeyRequested)="openWizard(connection.id)"
-              (signInRequested)="externalAction(connection.id, 'sign-in')" (retryRequested)="state.checkConnection()"
-              (editConnectionRequested)="openWizard(connection.id)" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
-              (installInstructionsRequested)="externalAction(connection.id, 'cli-login')" (checkConnectionRequested)="state.checkConnection()" />
-          }
+          <!-- Compact cards (≤ 80 px): the whole card opens the drawer, which holds every per-state action but one. -->
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="connections-grid">
+            @for (connection of connections(); track connection.id) {
+              <ptah-provider-connection-card [providerId]="connection.id" [providerName]="connection.name" [authModality]="connection.authMode"
+                [sourceLabel]="connection.hasKey ? 'Key stored locally' : null" [authModalityText]="connection.custom ? 'Custom' : null"
+                [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
+                [isBlocked]="isBlocked(connection.id)" [canActivateMain]="!saving() && state.route().status === 'ready'"
+                [usedByCount]="usage().complete ? (usage().byProvider[connection.id]?.length ?? 0) : null"
+                (detailsRequested)="openDrawer(connection.id)" (activateMainRequested)="beginActivation(connection.id)"
+                (setupRequested)="openWizard(connection.id)" (addKeyRequested)="openWizard(connection.id)"
+                (replaceKeyRequested)="openWizard(connection.id)" (signInRequested)="externalAction(connection.id, 'sign-in')"
+                (retryRequested)="state.checkConnection()" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
+                (checkConnectionRequested)="state.checkConnection()" />
+            }
+          </div>
         </section>
 
         @if (activationId(); as id) {
@@ -369,7 +375,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const configured = new Set(this.connections().map((entry) => entry.id));
     return (this.state.connections().data ?? []).filter((entry) => !configured.has(entry.id) && entry.name.toLowerCase().includes(this.search().toLowerCase()));
   });
-  /** The connection whose detail drawer is open (card Manage, until Batch 24's clickable card). */
+  /** The connection whose detail drawer is open (the clicked card, `detailsRequested`). */
   private readonly drawerId = signal<string | null>(null);
   /** The card button that opened the drawer; setup opened from the drawer returns focus here. */
   private drawerOpener: HTMLElement | null = null;

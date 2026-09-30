@@ -25,7 +25,7 @@ import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 import {
   advancedTab, applyManualTierModel, card, closeConnectionDrawer, confirmWrite, credentialsOf, expectCall, inDrawerTab,
-  openScopeBadge, providersTab, setupThroughDrawer, visibleEnabled, withAuthStatus,
+  openCardDrawer, openScopeBadge, providersTab, setupThroughDrawer, visibleEnabled, withAuthStatus,
 } from './settings-drawer.reach';
 
 export type CapabilityStatus = 'present' | 'restored' | 'pending';
@@ -262,19 +262,19 @@ async function throughBlankWizardCustomOption(
   }
 }
 
-/** Opens the setup wizard from an already-configured card's action button, then closes it. */
+/**
+ * Opens the setup wizard for an already-configured custom gateway: its card (Batch 24: the card itself
+ * opens the drawer), then the drawer's "Edit in setup" (D14), then closes the wizard.
+ */
 async function throughCard(
   page: Page,
   providerName: string,
-  buttonTestId: string,
   assertion: (page: Page) => Promise<void>,
   advance = true,
 ): Promise<void> {
   await providersTab(page);
-  const trigger = card(page, providerName).locator(`[data-testid="${buttonTestId}"]`);
-  await visibleEnabled(trigger);
-  await trigger.click();
-  if (buttonTestId === 'btn-manage') await setupThroughDrawer(page, providerName);
+  await openCardDrawer(page, providerName);
+  await setupThroughDrawer(page, providerName);
   await visibleEnabled(wizardBody(page));
   try {
     if (advance) await advancePastProviderStep(page);
@@ -383,14 +383,13 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#15', capability: 'Ollama Cloud optional key', status: 'present',
-    // BRIEF status is "Check failed (Retry)" -> the card's 'unreachable' case
-    // (`provider-connection-card.component.ts:290-309`), which offers Retry
-    // and Edit connection, not Manage. `ollama-cloud`'s registry entry has
-    // `isLocal: false` (`local-provider-entry.ts:122`, cloud inference), so
-    // `deriveAuthMode` (`provider-setup-wizard.component.ts:251-256`) resolves
-    // it to the plain `apiKey` branch, not `local-native`/`local-proxy` —
-    // stored-key controls are what is actually reachable today.
-    reach: (page) => throughCard(page, 'Ollama Cloud', 'btn-edit-connection', async (p) => visibleEnabled(p.locator('[data-testid="wizard-key-stored"], [data-testid="wizard-api-key"]'))),
+    // BRIEF status is "Check failed (Retry)": the compact card keeps Retry inline; "Edit connection"
+    // moved to the drawer (Batch 24, D14). `ollama-cloud` is an api-key connection (`isLocal: false`,
+    // `local-provider-entry.ts:122`), so its Credentials tab holds the optional-key copy and the key.
+    reach: (page) => inDrawerTab(page, 'Ollama Cloud', 'Credentials', 'connection-credentials', async (panel) => {
+      await expect(panel.locator('[data-testid="credentials-optional-key"]')).toContainText('The key is optional');
+      await visibleEnabled(panel.locator('[data-testid="credentials-replace"]'));
+    }),
   },
   {
     id: '#16', capability: 'Apply to: Global / App / Workspace save target', status: 'present',
@@ -460,7 +459,7 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#24', capability: 'Edit custom provider', status: 'present',
-    reach: (page) => throughCard(page, 'sovereigneg', 'btn-manage', async (p) => visibleEnabled(p.locator('[data-testid="wizard-custom-name"], [data-testid="wizard-base-url"]'))),
+    reach: (page) => throughCard(page, 'sovereigneg', async (p) => visibleEnabled(p.locator('[data-testid="wizard-custom-name"], [data-testid="wizard-base-url"]'))),
   },
   {
     id: '#26', capability: 'Test custom provider (verify)', status: 'present',
@@ -469,7 +468,7 @@ const providersAuth: readonly ReachabilityEntry[] = [
     // surface #24 pins, one Continue away from Credential and one more from
     // Verify. Actually runs the probe and asserts success — not a
     // step-1-Continue-is-visible check.
-    reach: (page) => throughCard(page, 'sovereigneg', 'btn-manage', async (p) => {
+    reach: (page) => throughCard(page, 'sovereigneg', async (p) => {
       await advanceWizardTo(p, 'wizard-step-verify');
       await p.locator('[data-testid="wizard-verify-start"]').click();
       await visibleEnabled(p.locator('[data-testid="wizard-verify-success"]'));
@@ -479,7 +478,7 @@ const providersAuth: readonly ReachabilityEntry[] = [
     id: '#29', capability: 'Custom provider tier model mapping (Models step)', status: 'present',
     // Actually reaches the Models step (through Credential + a real Verify
     // probe) and asserts a tier picker, not a step-1 Continue button.
-    reach: (page) => throughCard(page, 'sovereigneg', 'btn-manage', async (p) => {
+    reach: (page) => throughCard(page, 'sovereigneg', async (p) => {
       await advanceWizardTo(p, 'wizard-step-models');
       await visibleEnabled(p.locator('[data-testid="wizard-step-models"]'));
       await visibleEnabled(p.locator('[data-testid^="wizard-tier-"] ptah-provider-model-picker').first());

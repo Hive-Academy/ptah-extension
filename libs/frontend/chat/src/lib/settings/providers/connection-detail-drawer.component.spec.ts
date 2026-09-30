@@ -3,7 +3,8 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { AppStateManager, ProvidersSettingsStateService, type ProvidersConnection } from '@ptah-extension/core';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
-import { ConnectionDetailDrawerComponent, connectionInitials } from './connection-detail-drawer.component';
+import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
+import { connectionInitials } from './provider-connection-card.state';
 
 const connection = (overrides: Partial<ProvidersConnection>): ProvidersConnection => ({
   id: 'moonshot', name: 'Moonshot (Kimi)', authMode: 'apiKey', hasKey: true, configured: true, custom: false,

@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { CheckCircle, LucideAngularModule } from 'lucide-angular';
 import { AppStateManager } from '@ptah-extension/core';
-import type { ProviderConnectionCardStatus } from '../provider-connection-card.component';
+import type { ProviderConnectionCardStatus } from '../provider-connection-card.state';
 import type { UsedBy } from '../connection-usage';
 import type { ConnectionKind } from './connection-kind';
 

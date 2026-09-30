@@ -12,6 +12,8 @@ import {
 } from './connection-drawer/credentials-tab.component';
 import { ModelsTiersTabComponent } from './connection-drawer/models-tiers-tab.component';
 import { AdvancedTabComponent } from './connection-drawer/advanced-tab.component';
+// The card uses the same avatar, so a connection looks the same on the card and in its drawer.
+import { connectionAvatarTone, connectionInitials } from './provider-connection-card.state';
 
 const AUTH_MODE_LABELS: Readonly<Record<ConnectionKind, string>> = {
   'claude-cli': 'CLI subscription',
@@ -27,31 +29,6 @@ const PROTOCOL_LABELS: Readonly<Record<CustomProtocol, string>> = {
   openai: 'OpenAI-compatible',
   anthropic: 'Anthropic-compatible',
 };
-
-/**
- * Avatar surfaces (prototype `iconClass`). Colour sits on the avatar only; its initials stay
- * `text-base-content` (deviation 6). Picked from the connection id so a connection keeps its tone.
- */
-const AVATAR_TONES: readonly string[] = [
-  'border-primary/30 bg-primary/10',
-  'border-secondary/30 bg-secondary/10',
-  'border-info/40 bg-info/10',
-];
-
-/** Two-letter avatar text: the first letters of the first two words, else the first two letters. */
-export function connectionInitials(name: string): string {
-  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  // Code points, not UTF-16 units, so an astral first letter is never split in half.
-  const [first = ['?'], second = ['']] = words.map((word) => Array.from(word));
-  const initials = words.length > 1 ? first[0] + second[0] : first.slice(0, 2).join('');
-  return initials.toUpperCase();
-}
-
-function avatarTone(id: string): string {
-  let hash = 0;
-  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return AVATAR_TONES[hash % AVATAR_TONES.length];
-}
 
 /**
  * "Edit in setup" (D14) stays on a tab only for the edits its body does not hold yet, which the setup
@@ -207,7 +184,7 @@ export class ConnectionDetailDrawerComponent {
     this.kind() === 'custom' && this.connection()?.hasKey ? 'API key (custom endpoint)' : this.authModeLabel());
   protected readonly initials = computed(() => connectionInitials(this.connection()?.name ?? ''));
   protected readonly avatarClass = computed(() =>
-    `flex h-8 w-8 shrink-0 items-center justify-center rounded border text-xs font-bold text-base-content ${avatarTone(this.connection()?.id ?? '')}`);
+    `flex h-8 w-8 shrink-0 items-center justify-center rounded border text-xs font-bold text-base-content ${connectionAvatarTone(this.connection()?.id ?? '')}`);
   /**
    * Header subtitle (prototype "API key · Stored locally", "Custom gateway · OpenAI-compatible").
    * Built only from non-secret connection metadata; a part the state does not know is left out.

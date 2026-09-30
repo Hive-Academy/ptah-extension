@@ -96,6 +96,19 @@ for (const host of ['vscode', 'electron'] as const) {
         await page.screenshot({ path: capturePath(tab.name, host, theme) });
       }
       await gotoSettingsTab(page, 'Providers');
+      // Batch 24: compact cards (plan: ≤ 80 px each) in a 1 / 2 / 3 column grid; measured here, per host.
+      const cards = page.locator('[data-testid="provider-connection-card"]');
+      await expect(cards.first()).toBeVisible();
+      const heights = await cards.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
+      const widths = await cards.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
+      const columns = await page.locator('[data-testid="connections-grid"]').evaluate((grid) =>
+        getComputedStyle(grid).gridTemplateColumns.split(' ').length);
+      console.log(`B24 cards ${host}/${theme}: heights ${heights.join(',')} px, widths ${widths.join(',')} px, ${columns} columns`);
+      expect(columns).toBe(3);
+      // ≤ 80 px holds where the page is as wide as planned (VS Code: ~269 px cards). In Electron the shell's
+      // sidebar leaves ~215 px cards at the same `lg` breakpoint and rows wrap: escalated (Q-extra-1,
+      // batch-24-report.md), measured and logged here, asserted by the Batch 28 fold gate once decided.
+      if (host === 'vscode') for (const height of heights) expect(height).toBeLessThanOrEqual(80);
       // Batch 23 (D16): every scope badge names its field; the open popover is its own capture.
       const badges = page.locator('[data-testid="scope-badge"]');
       // The scopes read lands after the tab renders; the fixture overrides the effort key.
@@ -111,8 +124,9 @@ for (const host of ['vscode', 'electron'] as const) {
       await expect(page.locator('[data-testid="scope-popover"]')).toHaveCount(0);
       const drawer = page.locator('[data-testid="connection-detail-drawer"]');
       for (const entry of DRAWERS) {
+        // Batch 24: the card itself opens the drawer (a click on its name, clear of the inline action).
         await page.locator('[data-testid="provider-connection-card"]').filter({ hasText: entry.card })
-          .locator('[data-testid="btn-manage"]').click();
+          .locator('[data-testid="provider-name"]').click();
         await expect(drawer).toBeVisible();
         if (entry.tab) await page.getByRole('tab', { name: entry.tab, exact: true }).click();
         if (entry.ready) await expect(page.locator(entry.ready)).toBeVisible();

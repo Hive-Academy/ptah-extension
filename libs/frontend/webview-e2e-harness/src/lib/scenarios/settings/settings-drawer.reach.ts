@@ -34,12 +34,21 @@ export async function setupThroughDrawer(page: Page, providerName: string): Prom
   await expect(page.locator('[data-testid="connection-detail-drawer"]')).toHaveCount(0);
 }
 
-/** Manage on a configured card, then the drawer tab named `tab`; returns the tab body `body`. */
+/**
+ * Opens a connection's drawer the way a user does since Batch 24: a click on the card itself (the
+ * provider name, clear of the card's one inline action).
+ */
+export async function openCardDrawer(page: Page, providerName: string): Promise<void> {
+  const name = card(page, providerName).locator('[data-testid="provider-name"]');
+  await expect(name).toBeVisible();
+  await name.click();
+  await expect(page.locator('[data-testid="connection-detail-drawer"]')).toBeVisible();
+}
+
+/** A click on a configured card, then the drawer tab named `tab`; returns the tab body `body`. */
 export async function drawerTabOf(page: Page, providerName: string, tab: string, body: string): Promise<Locator> {
   await providersTab(page);
-  const trigger = card(page, providerName).locator('[data-testid="btn-manage"]');
-  await visibleEnabled(trigger);
-  await trigger.click();
+  await openCardDrawer(page, providerName);
   await expect(page.locator('[data-testid="connection-drawer-title"]')).toContainText(providerName);
   await page.getByRole('tab', { name: tab, exact: true }).click();
   const panel = page.locator(`[data-testid="${body}"]`);
