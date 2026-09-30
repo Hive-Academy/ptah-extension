@@ -13,17 +13,9 @@
 
 name: VS Code E2E
 
+# Paused: manual dispatch only. The VS Code extension is being retired, and the
+# suite fails on @vscode/test-electron's release lookup, not on our code.
 on:
-  pull_request:
-    branches:
-      - main
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '.vscode/**'
-      - '.claude/**'
-      - 'LICENSE.md'
-      - '.do/**'
   workflow_dispatch:
 
 concurrency:
