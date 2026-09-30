@@ -78,3 +78,15 @@ Remaining targets:
 - [ ] Phase 6 — Thoth Overview (Health, Needs attention, Recent outcomes, bounded activity ledger). File a child task.
 
 Close the umbrella when phases 4-6 are merged, each with its reachability proof.
+
+## Curation follow-ups (filed 2026-09-30)
+
+Filed after a review of the live database and the 2026-09-30 log. Merge today runs only at write time,
+nothing retires unused skills, and curation stalls when its one provider is rate-limited.
+
+- TASK_2026_577_cbfb — scheduled, reversible merge of near-duplicate memories already in the corpus.
+- TASK_2026_578_3b00 — skill lifecycle: umbrella merge, deciding judge gate, promote on accept, usage-based
+  retirement. Covers the "promotion from real invocation events" part of phase 5.
+- TASK_2026_579_f2e2 — curator provider fallback on rate limit or unreachable provider.
+
+Existing memory follow-ups from TASK_2026_563 stay open: 565, 566, 567, 568, 569, 572, 573.
