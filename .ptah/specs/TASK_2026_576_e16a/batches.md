@@ -362,7 +362,7 @@ Edge cases:
 - Out of scope, noted: `stashShow` does not use `DIFF_FLAGS` (read-only); checkout's dirty check still uses plain
   porcelain.
 
-## Batch 5: GitInfoService facade B — RC1 commit result, RC2 timeouts and lock recovery, RC6 write lock; handler pass-through — IN_PROGRESS
+## Batch 5: GitInfoService facade B — RC1 commit result, RC2 timeouts and lock recovery, RC6 write lock; handler pass-through — COMPLETE
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: CLI lane (single sequential lane)
@@ -372,7 +372,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batch 4
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core @ptah-extension/rpc-handlers`
 
-### Task 5.1: Wrap locked operations in `GitRepoWriteLock` (RC6) — IN_PROGRESS
+### Task 5.1: Wrap locked operations in `GitRepoWriteLock` (RC6) — COMPLETE
 
 - File: MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts
 - Plan reference: implementation-plan.md:252-289, 356
@@ -387,7 +387,7 @@ Edge cases:
   reviewer must confirm this lock scope.
 - Implementation details: stage, unstage, discard, commit, checkout, applyHunks (whole ladder `:1559-1892`), stash apply/pop/drop, pull run inside one `run()`; mutating spawns go through `execWrite`.
 
-### Task 5.2: Commit hook result, hook timeouts, own-lock recovery (RC1, RC2) — IN_PROGRESS
+### Task 5.2: Commit hook result, hook timeouts, own-lock recovery (RC1, RC2) — COMPLETE
 
 - Depends on: Task 5.1
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.hooks.real-git.spec.ts
@@ -397,7 +397,7 @@ Edge cases:
 - Validation notes: V7 — lock fingerprint = `mtimeMs` + `size`, plus `ino` from `fs.statSync(p, { bigint: true })` only when non-zero; recovery after tree exit only, commit only, logged. R6 — record commit start delay; >1 s → note it for an explicit `lane` option. 60 s hook case tagged `slow`.
 - Implementation details: `GIT_HOOK_TIMEOUT_MS` for commit, checkout, stash apply/pop, pull, push; `GIT_FETCH_TIMEOUT_MS` for fetch; gitdir cached per workspace via `rev-parse --git-dir`; `TIMEOUT`/`CANCELLED` codes.
 
-### Task 5.3: Write-lock real-git spec and handler pass-through (Component 8) — IN_PROGRESS
+### Task 5.3: Write-lock real-git spec and handler pass-through (Component 8) — COMPLETE
 
 - Depends on: Task 5.1
 - Files:
@@ -427,6 +427,51 @@ Edge cases:
   reaches the renderer through the handler. Report the exact command and the pass line. A failure here is a Batch 5
   defect (producer side) unless the evidence points at the panel, in which case it returns to frontend-developer
   against Task 7.1.
+
+### Batch 5 result (team-leader)
+
+- Verified on disk: `discardChanges` runs `classifyForDiscard` (both status reads) and every write inside one
+  `writeLock.run()` (`git-info.service.ts:950-979`); `git-write-lock.ts` imports `'node:async_hooks'`. Commit, remote
+  sync and outcome mapping extracted into `git/git-commit-runner.ts`, `git/git-remote-sync.ts`,
+  `git/git-mutation-outcome.ts`; `git-info.service.ts` net delta +221 / -293 (-72). Handler spec asserts `hookOutput`
+  and `code` reach the RPC result; no handler reshapes the result, so `git-rpc.handlers.ts` is unchanged. rpc-handlers
+  does not import `GitTimeoutError`/`GitCancelledError`/`isIndexLockFailure`, so the Batch 1 barrel carry is not
+  needed. No TODO/STUB/PLACEHOLDER markers under `vscode-core/src/services`.
+- Round 0 fixes also touched `utils/exec-git.ts` + spec (Windows: `killProcessTree` before `child.kill`, `onExit`
+  with 6 spec cases) and `git-ui` `git-dock.component.ts` + spec (rail no longer unmounts while status is loading);
+  the e2e spec sets repo-local `user.name`/`user.email`.
+- V7: lock fingerprint in `git-commit-runner.ts:39-69` — `statSync(p, { bigint: true })`, `mtimeMs` + `size` always
+  compared, `ino` only when both sides are non-zero; recovery is commit-only, after tree exit, logged.
+- R6: commit start delay measured ~198-206 ms (< 1 s); no explicit `lane` option needed.
+- Extra edit (orchestrator): `jest.setTimeout(30_000)` in `git-info.service.review.spec.ts` — it hit the 5 s default
+  under full-suite load (2 of 2 runs) and passed alone; full suite passes after the edit.
+- Gate evidence (Windows 11, working tree):
+  - `npx nx run-many -t typecheck,lint -p @ptah-extension/vscode-core @ptah-extension/rpc-handlers
+@ptah-extension/git-ui --skip-nx-cache` → 6 targets pass.
+  - Tests: vscode-core 47 suites, 801 passed / 2 skipped; git-ui pass; rpc-handlers 3389 passed, 1 failed = known
+    unrelated `harness-skill-selection-rpc.service.spec.ts` "never writes state.json" (HANDOFF.md §3.5 ignore list).
+  - `npx nx test @ptah-extension/vscode-core --testPathPatterns=real-git --passWithNoTests=false` → 4 suites, 31
+    passed, 2 skipped (`[slow]` 60 s hook case runs in the Batch 8 CI job; one POSIX-only case). Hooks real-git spec
+    3 runs in a row: 14 passed / 2 skipped each, no EPERM.
+  - `npx nx run ptah-electron:validate-deps --skip-nx-cache` → pass.
+  - `npx nx run ptah-electron-e2e:e2e --skip-nx-cache -- src/specs/git/commit-hook-failure.spec.ts --reporter=list`
+    (fresh `ptah-electron:build-dev`) → `1 passed (2.5m)` (one test covers failing and passing hook).
+- Review: `reviews/batch-5-code-logic-review.md`, antigravity CLI lane, logic scope, cross-side (author was in-process
+  backend-developer/frontend-developer). Round 0 CHANGES_REQUIRED (BLK-1, BLK-2, SER-1, SER-2, MOD-1, MOD-2). Round 1
+  APPROVED 9/10, all findings resolved, 0 new defects.
+  The Round 1 lane process later exited with code 1 from a CLI error after it had written its section and its WROTE
+  line; the result stands.
+- Pre-commit blocker (resolved): the first commit attempt failed the husky hook on `degradation-audit:lint` —
+  `libs/backend/vscode-core: 1 FAIL (baseline 0)`, `exec-git.ts:782 [promise-catch-sentinel]` (the BLK-1 Windows
+  `terminate()` branch ended in `.catch(() => undefined)`). Fix (backend-developer, `exec-git.ts:782-797`): the win32
+  branch now does `try { await killProcessTree(pid) } finally { if (!exitNotified) child.kill('SIGTERM') }`, so a
+  rejected tree kill still sends SIGTERM; the `.catch` carries a `// degradation-audit: reported - ...` marker naming
+  `armReleaseGrace` SIGKILL and the caller's timeout/cancel error as where the failure is surfaced. `baseline.json`
+  unchanged. New spec case `git process supervision › cancellation › still sends SIGTERM on Windows when the tree kill
+rejects`. Evidence (orchestrator): `npx nx run degradation-audit:lint --skip-nx-cache` → Successfully ran
+  (vscode-core not listed); exec-git spec 76 passed; vscode-core typecheck + lint pass; hooks real-git spec 3 more
+  runs in a row, 14 passed / 2 skipped each, no EPERM.
+- Round 2 (antigravity, bounded post-approval hunk, final): APPROVED 10/10, 0 findings (`## Round 2 recheck`).
 
 ## Batch 6: Frontend services — RC3 stale-keep, RC8 renderer timeouts — COMPLETE (53e48e6ce)
 
@@ -579,7 +624,7 @@ ptah-electron-e2e ptah-extension-webview --skip-nx-cache` → pass (8 targets).
 - Carried, pre-existing (reproduce on 722d921ab, not Batch 7): rail-width squeeze after a narrow resize; focus-ring
   legibility re-capture. Both belong to the cutover visual review (Batches 58-61).
 
-## Batch 8: Cross-platform real-git CI job — COMPLETE
+## Batch 8: Cross-platform real-git CI job — COMPLETE (7447d68b4)
 
 - Recommended executor: devops-engineer (sub-agent)
 - Fallback executor: CLI lane

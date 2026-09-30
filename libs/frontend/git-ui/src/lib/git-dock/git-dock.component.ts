@@ -72,11 +72,13 @@ import { FileViewComponent } from '../file-view/file-view.component';
         />
       } @else {
         <div class="flex-1 min-h-0 flex overflow-hidden">
-          @if (
-            !gitStatus.isLoading() &&
-            gitStatus.isGitRepo() &&
-            !layout.gitRailCollapsed()
-          ) {
+          <!-- Not gated on isLoading(): a re-read (the panel refreshes after
+               every mutation) keeps the last repo state in place, and
+               unmounting here would destroy the panel mid-commit and drop
+               its message draft and commit result (TASK_2026_576 B7). A
+               first load or a switch to an uncached workspace still shows
+               "Loading…", because isGitRepo() is false until data arrives. -->
+          @if (gitStatus.isGitRepo() && !layout.gitRailCollapsed()) {
             <div
               id="git-source-control-rail"
               class="flex-shrink-0 border-r border-base-content/10 overflow-hidden"

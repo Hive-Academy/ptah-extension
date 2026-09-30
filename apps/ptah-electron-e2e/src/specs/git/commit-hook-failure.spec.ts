@@ -85,6 +85,14 @@ test.describe('commit rejected by a git hook, end to end in Electron (TASK_2026_
     void rpcBridge;
     const page = ui.page;
 
+    // The app's own git runs under the fixture's isolated home, which has no
+    // global identity; the scratch repo's `-c user.*` only reaches the spec's
+    // git. Without a repo-local identity git refuses before any hook runs
+    // ("Author identity unknown"), which is not the failure under test.
+    repo.git('config', 'user.name', 'Ptah E2E');
+    repo.git('config', 'user.email', 'e2e@ptah.invalid');
+    repo.git('config', 'commit.gpgsign', 'false');
+
     repo.git('add', THREE_HUNK_FILE);
     installPreCommitHook(repo, 1);
 

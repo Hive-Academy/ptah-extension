@@ -30,6 +30,7 @@ import {
   type GitStatusUnavailableReason,
   type GitMutationFailureCode,
   GIT_LOCKED_MESSAGE,
+  GIT_HOOK_TIMEOUT_MS,
   type GitWorktreeInfo,
   type GitStageResult,
   type GitUnstageResult,
@@ -69,6 +70,10 @@ import {
   type ReviewFileRequest,
 } from './git-review-reader.service';
 import { parseStatusV2Z } from './git/git-status-parser';
+import { GitRepoWriteLock } from './git/git-write-lock';
+import { GitCommitRunner } from './git/git-commit-runner';
+import { GitRemoteSync } from './git/git-remote-sync';
+import { thrownOutcome, writeOutcome } from './git/git-mutation-outcome';
 
 /** Working-tree status: NUL-terminated, verbatim paths, no C-quoting. */
 const STATUS_Z = ['status', '--porcelain=v2', '-z'] as const;
@@ -99,6 +104,9 @@ function statusUnavailable(reason: GitStatusUnavailableReason): GitInfoResult {
 /** Client-facing discard failure when git status could not be read. */
 const DISCARD_STATUS_FAILED =
   'Could not read file status; nothing was discarded.';
+
+/** `index.lock` stayed held by another process through every retry. */
+class IndexLockedError extends Error {}
 
 /** `probeRepo`'s answer: definite, or unknown with the reason git gave none. */
 type RepoProbe =
@@ -285,19 +293,6 @@ export function parseStashNameStatus(output: string): GitStashFileEntry[] {
 }
 
 /**
- * Detect whether git stderr or error message indicates an authentication failure.
- *
- * When GIT_TERMINAL_PROMPT=0 is passed, git fails fast with "terminal prompts disabled"
- * or "could not read Username/Password". Other failures report "Authentication failed"
- * or "Permission denied".
- */
-export function isGitAuthFailure(text: string): boolean {
-  return /terminal prompts disabled|authentication failed|could not read (?:username|password)|permission denied.*publickey|permission denied \(|logon failed|invalid credentials/i.test(
-    text,
-  );
-}
-
-/**
  * Read `%(upstream:track)` — the same field `git branch -vv` prints.
  *
  * git emits `[ahead 3, behind 2]`, `[ahead 3]`, `[behind 2]`, `[gone]`, or
@@ -406,9 +401,27 @@ interface ReadFlight {
  * Removing the assumption (rather than stating it) means resolving the top
  * level once via `git rev-parse --show-toplevel` and using it as the cwd for
  * every invocation. That is a larger change and is deliberately not made here.
+ *
+ * **Write lock (TASK_2026_576 RC6).** Stage, unstage, discard, commit,
+ * checkout, applyHunks, stash apply/pop/drop and pull each run as ONE
+ * `writeLock.run()` body per repository — its reads, its writes and its
+ * rollback. Push, fetch and worktree commands are not locked. Two invariants
+ * every locked body keeps:
+ * - it calls only private helpers and read methods, never another locked
+ *   public method (a nested `run` throws `GitReentrantLockError`);
+ * - it awaits everything it starts before returning — no `void` promise,
+ *   timer or event callback that spawns git — or that work would run outside
+ *   the FIFO while still carrying the lock's reentrance context.
+ * Mutating spawns go through `writeLock.execWrite`, which absorbs a short
+ * `index.lock` held by another process and otherwise reports `LOCKED`.
  */
 export class GitInfoService {
   private readonly reviewReader: GitReviewReaderService;
+  private readonly writeLock = new GitRepoWriteLock({
+    exec: (args, cwd, options) => this.execGit(args, cwd, options),
+  });
+  private readonly commitRunner: GitCommitRunner;
+  private readonly remoteSync: GitRemoteSync;
 
   /**
    * @param spawner Optional `IProcessSpawner`. When a host supplies one, every
@@ -426,6 +439,14 @@ export class GitInfoService {
   ) {
     this.reviewReader =
       reviewReader ?? new GitReviewReaderService(logger, spawner);
+    const deps = {
+      exec: (args: string[], cwd: string, options?: ExecGitOptions) =>
+        this.execGit(args, cwd, options),
+      writeLock: this.writeLock,
+      logger,
+    };
+    this.commitRunner = new GitCommitRunner(deps);
+    this.remoteSync = new GitRemoteSync(deps);
   }
 
   /**
@@ -867,28 +888,23 @@ export class GitInfoService {
   ): Promise<GitStageResult> {
     try {
       this.validatePaths(paths);
-
-      const { exitCode, stderr } = await this.execGit(
-        ['add', '--', ...paths],
-        workspacePath,
+      return await this.writeLock.run(workspacePath, async () =>
+        writeOutcome(
+          await this.writeLock.execWrite(
+            ['add', '--', ...paths],
+            workspacePath,
+          ),
+          'Failed to stage files',
+        ),
       );
-
-      if (exitCode !== 0) {
-        return {
-          success: false,
-          error: stderr.trim() || 'Failed to stage files',
-        };
-      }
-
-      return { success: true };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const outcome = thrownOutcome(error);
       this.logger.error('[GitInfoService] stageFiles failed', {
         workspacePath,
         paths,
-        error: message,
+        error: outcome.error,
       } as unknown as Error);
-      return { success: false, error: message };
+      return outcome;
     }
   }
 
@@ -902,28 +918,23 @@ export class GitInfoService {
   ): Promise<GitUnstageResult> {
     try {
       this.validatePaths(paths);
-
-      const { exitCode, stderr } = await this.execGit(
-        ['reset', 'HEAD', '--', ...paths],
-        workspacePath,
+      return await this.writeLock.run(workspacePath, async () =>
+        writeOutcome(
+          await this.writeLock.execWrite(
+            ['reset', 'HEAD', '--', ...paths],
+            workspacePath,
+          ),
+          'Failed to unstage files',
+        ),
       );
-
-      if (exitCode !== 0) {
-        return {
-          success: false,
-          error: stderr.trim() || 'Failed to unstage files',
-        };
-      }
-
-      return { success: true };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const outcome = thrownOutcome(error);
       this.logger.error('[GitInfoService] unstageFiles failed', {
         workspacePath,
         paths,
-        error: message,
+        error: outcome.error,
       } as unknown as Error);
-      return { success: false, error: message };
+      return outcome;
     }
   }
 
@@ -942,46 +953,58 @@ export class GitInfoService {
   ): Promise<GitDiscardResult> {
     try {
       this.validatePaths(paths);
-      const classified = await this.classifyForDiscard(workspacePath, paths);
-      if ('error' in classified) return { success: false, ...classified };
-      const { trackedPaths, renamePaths, untrackedPaths } = classified;
-
-      const steps: Array<[string[], string[], string]> = [
-        [['checkout'], trackedPaths, 'Failed to discard tracked file changes'],
-        [
-          ['restore', '--staged', '--worktree', '--source=HEAD'],
-          renamePaths,
-          'Failed to discard staged renames',
-        ],
-        [['clean', '-f'], untrackedPaths, 'Failed to remove untracked files'],
-      ];
-      if (untrackedPaths.length > 0) {
-        this.logger.warn(
-          '[GitInfoService] Removing untracked files via git clean (irreversible)',
-          { workspacePath, paths: untrackedPaths } as unknown as Error,
-        );
-      }
-      for (const [command, stepPaths, fallback] of steps) {
-        if (stepPaths.length === 0) continue;
-        const { exitCode, stderr } = await this.execGit(
-          [...command, '--', ...stepPaths],
-          workspacePath,
-        );
-        if (exitCode !== 0) {
-          return { success: false, error: stderr.trim() || fallback };
-        }
-      }
-
-      return { success: true };
+      // One lock scope for the two status reads AND the writes: a write
+      // landing between classification and discard would be discarded blind.
+      return await this.writeLock.run(workspacePath, () =>
+        this.discardClassified(workspacePath, paths),
+      );
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const outcome = thrownOutcome(error);
       this.logger.error('[GitInfoService] discardChanges failed', {
         workspacePath,
         paths,
-        error: message,
+        error: outcome.error,
       } as unknown as Error);
-      return { success: false, error: message };
+      return outcome;
     }
+  }
+
+  /** `discardChanges`' locked body: classify, then checkout/restore/clean. */
+  private async discardClassified(
+    workspacePath: string,
+    paths: string[],
+  ): Promise<GitDiscardResult> {
+    const classified = await this.classifyForDiscard(workspacePath, paths);
+    if ('error' in classified) return { success: false, ...classified };
+    const { trackedPaths, renamePaths, untrackedPaths } = classified;
+
+    const steps: Array<[string[], string[], string]> = [
+      [['checkout'], trackedPaths, 'Failed to discard tracked file changes'],
+      [
+        ['restore', '--staged', '--worktree', '--source=HEAD'],
+        renamePaths,
+        'Failed to discard staged renames',
+      ],
+      [['clean', '-f'], untrackedPaths, 'Failed to remove untracked files'],
+    ];
+    if (untrackedPaths.length > 0) {
+      this.logger.warn(
+        '[GitInfoService] Removing untracked files via git clean (irreversible)',
+        { workspacePath, paths: untrackedPaths } as unknown as Error,
+      );
+    }
+    for (const [command, stepPaths, fallback] of steps) {
+      if (stepPaths.length === 0) continue;
+      const outcome = writeOutcome(
+        await this.writeLock.execWrite(
+          [...command, '--', ...stepPaths],
+          workspacePath,
+        ),
+        fallback,
+      );
+      if (!outcome.success) return outcome;
+    }
+    return { success: true };
   }
 
   /**
@@ -1059,187 +1082,50 @@ export class GitInfoService {
   }
 
   /**
-   * Create a commit with the given message.
-   * Runs: git commit -m "<message>"
-   * Parses the commit hash from the output.
+   * Create a commit: `git commit -m <message>`, hooks included, with
+   * {@link GIT_HOOK_TIMEOUT_MS} to finish. A non-zero exit with a commit hook
+   * installed is `HOOK_FAILED` carrying the hook's output verbatim; a commit
+   * Ptah stopped is `TIMEOUT` / `CANCELLED`, after which its own leftover
+   * `index.lock` is recovered (see `GitCommitRunner`). The hash and
+   * subject are read back from git, never parsed from its chatter.
    */
   async commit(
     workspacePath: string,
     message: string,
+    options: { signal?: AbortSignal } = {},
   ): Promise<GitCommitResult> {
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage) {
+      return { success: false, error: 'Commit message cannot be empty' };
+    }
+    if (options.signal?.aborted) {
+      return { success: false, code: 'CANCELLED', error: 'Commit cancelled.' };
+    }
     try {
-      const trimmedMessage = message.trim();
-      if (!trimmedMessage) {
-        return { success: false, error: 'Commit message cannot be empty' };
-      }
-
-      const { stdout, exitCode, stderr } = await this.execGit(
-        ['commit', '-m', trimmedMessage],
-        workspacePath,
+      return await this.writeLock.run(workspacePath, () =>
+        this.commitRunner.run(workspacePath, trimmedMessage, options.signal),
       );
-
-      if (exitCode !== 0) {
-        return {
-          success: false,
-          error: stderr.trim() || 'Failed to create commit',
-        };
-      }
-      const hashMatch = stdout.match(/\[[\w/.-]+ ([0-9a-f]+)\]/);
-      const commitHash = hashMatch?.[1];
-
-      return { success: true, commitHash };
     } catch (error) {
-      const message_ = error instanceof Error ? error.message : String(error);
+      const outcome = thrownOutcome(error);
       this.logger.error('[GitInfoService] commit failed', {
         workspacePath,
-        error: message_,
+        error: outcome.error,
       } as unknown as Error);
-      return { success: false, error: message_ };
+      return outcome;
     }
   }
 
-  /**
-   * Push the current branch.
-   *
-   * With an upstream configured: `git push`. Without one: `git push -u
-   * <remote> HEAD`, where `<remote>` is `origin` when it exists, otherwise the
-   * repository's only remote. `HEAD` rather than the branch name keeps a
-   * user-controlled string out of the argv. Uses the longer worktree timeout
-   * since push is a network operation.
-   */
-  async push(workspacePath: string): Promise<GitPushResult> {
-    try {
-      const upstream = await this.execGit(
-        ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
-        workspacePath,
-      );
-
-      let args: string[] = ['push'];
-      if (upstream.exitCode !== 0) {
-        const target = await this.resolvePushRemote(workspacePath);
-        if ('error' in target) return { success: false, error: target.error };
-        args = ['push', '-u', target.remote, 'HEAD'];
-      }
-
-      const { exitCode, stderr } = await this.execGit(args, workspacePath, {
-        timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
-        env: { GIT_TERMINAL_PROMPT: '0' },
-      });
-
-      if (exitCode !== 0) {
-        if (isGitAuthFailure(stderr)) {
-          return {
-            success: false,
-            error: 'Authentication is required for this remote.',
-          };
-        }
-        return { success: false, error: stderr.trim() || 'git push failed' };
-      }
-
-      return { success: true };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (isGitAuthFailure(message)) {
-        return {
-          success: false,
-          error: 'Authentication is required for this remote.',
-        };
-      }
-      this.logger.error('[GitInfoService] push failed', {
-        workspacePath,
-        error: message,
-      } as unknown as Error);
-      return { success: false, error: message };
-    }
+  /** Push, pull and fetch: see {@link GitRemoteSync} (pull is locked). */
+  push(workspacePath: string): Promise<GitPushResult> {
+    return this.remoteSync.push(workspacePath);
   }
 
-  /**
-   * The remote a first push of an upstream-less branch goes to, or why there
-   * is none. A detached HEAD has no branch to track, so it is refused.
-   */
-  private async resolvePushRemote(
-    workspacePath: string,
-  ): Promise<{ remote: string } | { error: string }> {
-    const head = await this.execGit(
-      ['symbolic-ref', '--quiet', '--short', 'HEAD'],
-      workspacePath,
-    );
-    if (head.exitCode !== 0) {
-      return {
-        error: 'Cannot push a detached HEAD. Check out a branch first.',
-      };
-    }
-
-    const listed = await this.execGit(['remote'], workspacePath);
-    const remotes =
-      listed.exitCode === 0
-        ? listed.stdout
-            .split('\n')
-            .map((line) => line.trim())
-            .filter((name) => name.length > 0 && !name.startsWith('-'))
-        : [];
-    if (remotes.includes('origin')) return { remote: 'origin' };
-    if (remotes.length === 1) return { remote: remotes[0] };
-    return remotes.length === 0
-      ? { error: 'No remote is configured for this repository.' }
-      : {
-          error:
-            'This branch has no upstream and no "origin" remote exists to push to.',
-        };
+  pull(workspacePath: string): Promise<GitPullResult> {
+    return this.remoteSync.pull(workspacePath);
   }
 
-  /**
-   * Fast-forward the current branch from its upstream.
-   * Runs: git pull --ff-only
-   * Refuses to create a merge commit; a diverged branch fails with git's own
-   * explanation. Network operation, so the longer timeout applies.
-   */
-  async pull(workspacePath: string): Promise<GitPullResult> {
-    return this.runRemoteSync(workspacePath, ['pull', '--ff-only'], 'pull');
-  }
-
-  /**
-   * Update remote-tracking refs and drop the ones deleted upstream.
-   * Runs: git fetch --prune
-   */
-  async fetch(workspacePath: string): Promise<GitFetchResult> {
-    return this.runRemoteSync(workspacePath, ['fetch', '--prune'], 'fetch');
-  }
-
-  private async runRemoteSync(
-    workspacePath: string,
-    args: string[],
-    verb: 'pull' | 'fetch',
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const { exitCode, stderr } = await this.execGit(args, workspacePath, {
-        timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
-        env: { GIT_TERMINAL_PROMPT: '0' },
-      });
-      if (exitCode !== 0) {
-        if (isGitAuthFailure(stderr)) {
-          return {
-            success: false,
-            error: 'Authentication is required for this remote.',
-          };
-        }
-        return { success: false, error: stderr.trim() || `git ${verb} failed` };
-      }
-      return { success: true };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (isGitAuthFailure(message)) {
-        return {
-          success: false,
-          error: 'Authentication is required for this remote.',
-        };
-      }
-      this.logger.error(`[GitInfoService] ${verb} failed`, {
-        workspacePath,
-        error: message,
-      } as unknown as Error);
-      return { success: false, error: message };
-    }
+  fetch(workspacePath: string): Promise<GitFetchResult> {
+    return this.remoteSync.fetch(workspacePath);
   }
 
   /**
@@ -1682,6 +1568,29 @@ export class GitInfoService {
     request: ApplyHunksRequest,
     fileSystem: WorktreeFileAccess,
   ): Promise<GitApplyHunksResult> {
+    try {
+      // The whole ladder — snapshot, restore point, check, apply, verify,
+      // rollback — is one lock scope; every step is awaited inside it.
+      return await this.writeLock.run(workspacePath, () =>
+        this.applyHunksLocked(workspacePath, request, fileSystem),
+      );
+    } catch (error: unknown) {
+      this.logger.error('[GitInfoService] applyHunks could not take the lock', {
+        workspaceRoot: workspacePath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return this.applyFailure(
+        'UNKNOWN',
+        'The selected changes could not be applied.',
+      );
+    }
+  }
+
+  private async applyHunksLocked(
+    workspacePath: string,
+    request: ApplyHunksRequest,
+    fileSystem: WorktreeFileAccess,
+  ): Promise<GitApplyHunksResult> {
     const modifiedPath = request.path;
     const originalPath = request.originalPath ?? request.path;
     const { comparison, operation } = request;
@@ -1898,7 +1807,7 @@ export class GitInfoService {
         );
       }
 
-      const applied = await this.execGit(
+      const applied = await this.applyWrite(
         [...applyArgs, '--verbose', '-'],
         workspacePath,
         { stdin: patch },
@@ -1996,6 +1905,12 @@ export class GitInfoService {
 
       return { success: true, snapshotToken: after.snapshotToken };
     } catch (error: unknown) {
+      if (error instanceof IndexLockedError) {
+        return this.applyFailure(
+          'APPLY_FAILED',
+          `${GIT_LOCKED_MESSAGE} Nothing was changed.`,
+        );
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error('[GitInfoService] applyHunks threw', {
         workspaceRoot: workspacePath,
@@ -2010,6 +1925,22 @@ export class GitInfoService {
         'The selected changes could not be applied.',
       );
     }
+  }
+
+  /**
+   * One index write of the applyHunks ladder. A lock another process kept
+   * past every retry throws {@link IndexLockedError}: git took no lock, so
+   * that write changed nothing (a rollback's `read-tree` reports it as a
+   * failed restore instead).
+   */
+  private async applyWrite(
+    args: string[],
+    workspacePath: string,
+    options?: ExecGitOptions,
+  ): Promise<ExecGitResult> {
+    const run = await this.writeLock.execWrite(args, workspacePath, options);
+    if (run.code === 'LOCKED') throw new IndexLockedError(run.message);
+    return run;
   }
 
   /** A refusal. Never carries a snapshot token — see {@link GitApplyHunksResult}. */
@@ -2064,7 +1995,7 @@ export class GitInfoService {
    * is the case where a rollback could not be honoured anyway.
    */
   private async writeIndexTree(workspacePath: string): Promise<string | null> {
-    const { stdout, stderr, exitCode } = await this.execGit(
+    const { stdout, stderr, exitCode } = await this.applyWrite(
       ['write-tree'],
       workspacePath,
     );
@@ -2092,7 +2023,7 @@ export class GitInfoService {
   ): Promise<boolean> {
     try {
       if (indexRestoreTree !== null) {
-        const { exitCode, stderr } = await this.execGit(
+        const { exitCode, stderr } = await this.applyWrite(
           ['read-tree', indexRestoreTree],
           workspacePath,
         );
@@ -2524,35 +2455,36 @@ export class GitInfoService {
         return { success: false, error: 'Invalid branch name' };
       }
 
-      if (!force) {
-        const { stdout: statusOut, exitCode: statusCode } = await this.execGit(
-          ['status', '--porcelain'],
-          workspacePath,
-        );
-        if (statusCode === 0 && statusOut.trim()) {
-          return { success: false, dirty: true };
-        }
-      }
-
       const args = ['checkout'];
       if (force) args.push('--force');
       if (createNew) args.push('-b');
       args.push(branch);
 
-      const { exitCode, stderr } = await this.execGit(args, workspacePath);
-      if (exitCode !== 0) {
-        return { success: false, error: stderr.trim() || 'checkout failed' };
-      }
-
-      return { success: true };
+      return await this.writeLock.run(workspacePath, async () => {
+        if (!force) {
+          const status = await this.execGit(
+            ['status', '--porcelain'],
+            workspacePath,
+          );
+          if (status.exitCode === 0 && status.stdout.trim()) {
+            return { success: false, dirty: true };
+          }
+        }
+        return writeOutcome(
+          await this.writeLock.execWrite(args, workspacePath, {
+            timeoutMs: GIT_HOOK_TIMEOUT_MS,
+          }),
+          'checkout failed',
+        );
+      });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const outcome = thrownOutcome(error);
       this.logger.error('[GitInfoService] checkout failed', {
         workspacePath,
         branch,
-        error: message,
+        error: outcome.error,
       } as unknown as Error);
-      return { success: false, error: message };
+      return outcome;
     }
   }
 
@@ -2648,41 +2580,37 @@ export class GitInfoService {
     }
     const ref = stashRef(index);
     try {
-      if (expectedHash) {
-        const verify = await this.execGit(
-          ['rev-parse', '--verify', ref],
-          workspacePath,
-        );
-        if (
-          verify.exitCode !== 0 ||
-          verify.stdout.trim() !== expectedHash.trim()
-        ) {
-          return {
-            success: false,
-            error: 'The stash list changed. Refresh and try again.',
-          };
+      return await this.writeLock.run(workspacePath, async () => {
+        if (expectedHash) {
+          const verify = await this.execGit(
+            ['rev-parse', '--verify', ref],
+            workspacePath,
+          );
+          if (
+            verify.exitCode !== 0 ||
+            verify.stdout.trim() !== expectedHash.trim()
+          ) {
+            return {
+              success: false,
+              error: 'The stash list changed. Refresh and try again.',
+            };
+          }
         }
-      }
-      const { exitCode, stdout, stderr } = await this.execGit(
-        ['stash', verb, ref],
-        workspacePath,
-      );
-      if (exitCode !== 0) {
-        // A conflicted apply/pop reports on stdout ("CONFLICT (content): …").
-        return {
-          success: false,
-          error: stderr.trim() || stdout.trim() || `git stash ${verb} failed`,
-        };
-      }
-      return { success: true };
+        return writeOutcome(
+          await this.writeLock.execWrite(['stash', verb, ref], workspacePath, {
+            timeoutMs: GIT_HOOK_TIMEOUT_MS,
+          }),
+          `git stash ${verb} failed`,
+        );
+      });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const outcome = thrownOutcome(error);
       this.logger.error(`[GitInfoService] stash ${verb} failed`, {
         workspacePath,
         index,
-        error: message,
+        error: outcome.error,
       } as unknown as Error);
-      return { success: false, error: message };
+      return outcome;
     }
   }
 

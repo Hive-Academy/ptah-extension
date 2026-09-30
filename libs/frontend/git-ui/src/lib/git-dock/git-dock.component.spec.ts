@@ -96,7 +96,8 @@ function makeGitStatusStub() {
     stopListening: jest.fn(),
     files: jest.fn(() => []),
     activeWorkspacePath: jest.fn(() => '/ws/a'),
-    isLoading: jest.fn(() => false),
+    // A signal, not a jest.fn: the remount spec flips it after first render.
+    isLoading: signal(false),
     isGitRepo: jest.fn(() => true),
     statusUnavailable: jest.fn<GitStatusUnavailableReason | null, []>(
       () => null,
@@ -366,6 +367,36 @@ describe('GitDockComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain(
       'not a Git repository',
     );
+  });
+
+  it('keeps the same panel instance mounted while a status re-read is loading', () => {
+    // Regression (TASK_2026_576 B7, found by the commit-hook e2e): the panel
+    // calls GitStatusService.refresh() after every mutation, which flips
+    // isLoading() for the duration of the read. The rail used to be gated on
+    // !isLoading(), so a commit's own refresh destroyed the panel and its
+    // per-workspace commit draft and result with it — the hook output never
+    // rendered and the typed message vanished.
+    const fixture = createRenderedDock();
+    const before = renderedPanel(fixture);
+    expect(before).not.toBeNull();
+
+    gitStatus.isLoading.set(true);
+    fixture.detectChanges();
+    expect(renderedPanel(fixture)).toBe(before);
+
+    gitStatus.isLoading.set(false);
+    fixture.detectChanges();
+    expect(renderedPanel(fixture)).toBe(before);
+  });
+
+  it('still shows "Loading repository…" while nothing has been read yet', () => {
+    gitStatus.isGitRepo.mockReturnValue(false);
+    gitStatus.isLoading.set(true);
+
+    const fixture = createRenderedDock();
+
+    expect(renderedPanel(fixture)).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Loading repository…');
   });
 
   it('passes no stale reason for a fresh read', () => {

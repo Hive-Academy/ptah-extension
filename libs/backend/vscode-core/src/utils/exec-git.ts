@@ -504,6 +504,15 @@ export interface ExecGitOptions {
    * `maxOutputBytes` or after the call settled.
    */
   onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  /**
+   * Called once when the git process itself has exited — including one killed
+   * after the call already rejected on a timeout or abort. It fires on `exit`,
+   * not `close`: a process git started may outlive it and hold the output
+   * pipes (on Windows an MSYS program a hook had exec'd escapes the tree
+   * kill), and git's own exit is what ends its hold on the repository.
+   * Never called twice, and never for a spawn error alone.
+   */
+  onExit?: () => void;
 }
 
 export interface ExecGitResult {
@@ -541,6 +550,8 @@ interface GitChildHandle {
   readonly whenSpawned: Promise<number | undefined>;
   isKilled(): boolean;
   kill(signal: NodeJS.Signals): void;
+  /** git itself exited; its stdio may still be held by processes it started. */
+  onExit(listener: () => void): void;
   onClose(listener: (code: number | null) => void): void;
   onError(listener: (error: Error) => void): void;
 }
@@ -573,6 +584,7 @@ function spawnGitChild(
       kill: (signal) => {
         handle.kill(signal);
       },
+      onExit: (listener) => handle.on('exit', () => listener()),
       onClose: (listener) => handle.on('close', (code) => listener(code)),
       onError: (listener) => handle.on('error', listener),
     };
@@ -591,6 +603,9 @@ function spawnGitChild(
     isKilled: () => child.killed,
     kill: (signal) => {
       child.kill(signal);
+    },
+    onExit: (listener) => {
+      child.on('exit', () => listener());
     },
     onClose: (listener) => {
       child.on('close', (code: number | null) => listener(code));
@@ -731,6 +746,8 @@ function runGitChild(
     let outputBytes = 0;
     let settled = false;
     let exited = false;
+    /** git itself exited (`exit`); `exited` waits for its pipes (`close`). */
+    let exitNotified = false;
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
 
     if (options?.priority === 'background') {
@@ -752,12 +769,39 @@ function runGitChild(
      * closes or the grace runs out, escalating to SIGKILL first.
      */
     const terminate = (): void => {
-      child.kill('SIGTERM');
       // Off-thread the pid is not known synchronously, so the tree kill waits
       // for it rather than reading a field that would still be `undefined`.
-      void child.whenSpawned.then((pid) => {
-        if (!exited && pid !== undefined) void killProcessTree(pid);
-      });
+      if (process.platform === 'win32') {
+        // Tree first. `kill` is TerminateProcess on git.exe alone, and once
+        // git.exe is gone `taskkill /T` can no longer find its children (a
+        // hook's sh.exe and whatever it started): they would live on, holding
+        // the output pipes and the repository. `kill` then only backs up a
+        // tree kill that failed. An MSYS program the hook shell had exec'd is
+        // re-parented to an exited stub and escapes any Windows tree walk; it
+        // ends on its own, and the hook script around it is already dead.
+        void child.whenSpawned
+          .then(async (pid) => {
+            try {
+              if (!exitNotified && pid !== undefined) {
+                await killProcessTree(pid);
+              }
+            } finally {
+              if (!exitNotified) child.kill('SIGTERM');
+            }
+          })
+          .catch(() => {
+            // degradation-audit: reported - a failed tree kill has still
+            // fallen through to `kill` above; a child that outlives both is
+            // SIGKILLed by `armReleaseGrace` below, and the caller already
+            // holds the timeout or cancellation error that started this.
+          });
+      } else {
+        // SIGTERM first on POSIX: git removes its own lock files on the way out.
+        child.kill('SIGTERM');
+        void child.whenSpawned.then((pid) => {
+          if (!exited && pid !== undefined) void killProcessTree(pid);
+        });
+      }
       armReleaseGrace(() => {
         if (!child.isKilled()) child.kill('SIGKILL');
       });
@@ -822,10 +866,23 @@ function runGitChild(
     child.stdout?.on('data', collect(stdoutChunks, 'stdout', stdoutDecoder));
     child.stderr?.on('data', collect(stderrChunks, 'stderr', stderrDecoder));
 
+    const notifyExit = (): void => {
+      if (exitNotified) return;
+      exitNotified = true;
+      try {
+        options?.onExit?.();
+      } catch {
+        // degradation-audit: optional-capability - `onExit` only observes; a
+        // throwing observer must not change the result the caller awaits.
+      }
+    };
+    child.onExit(notifyExit);
+
     child.onClose((code: number | null) => {
       exited = true;
       if (graceTimer) clearTimeout(graceTimer);
       release();
+      notifyExit(); // `close` without a prior `exit` still counts, once
       if (settled) return;
       finish();
       // Flush any bytes a decoder still holds; a truncated final sequence

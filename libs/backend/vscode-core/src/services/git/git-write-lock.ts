@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from 'async_hooks';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   GIT_INDEX_LOCK_RETRY_DELAYS_MS,
   GIT_LOCKED_MESSAGE,

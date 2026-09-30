@@ -10,6 +10,10 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 describe('GitInfoService historical review', () => {
+  // Real git, ~15 spawns per test: the 5 s default is too tight when the
+  // other real-git suites share the machine.
+  jest.setTimeout(30_000);
+
   let root: string;
   let service: GitInfoService;
 

@@ -826,6 +826,24 @@ describe('git process supervision', () => {
   }
 
   /**
+   * The child was told to die. On Windows the tree kill goes FIRST: once
+   * git.exe is gone, `taskkill /T` can no longer find a hook it started.
+   * On POSIX SIGTERM goes first, so git can remove its own lock files.
+   */
+  async function expectTerminated(child: HeldChild): Promise<void> {
+    await drain();
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(mockTreeKill).toHaveBeenCalledWith(4242);
+    const treeKillAt = mockTreeKill.mock.invocationCallOrder[0];
+    const killAt = child.kill.mock.invocationCallOrder[0];
+    if (process.platform === 'win32') {
+      expect(treeKillAt).toBeLessThan(killAt);
+    } else {
+      expect(killAt).toBeLessThan(treeKillAt);
+    }
+  }
+
+  /**
    * Background lane. With `PTAH_GIT_MAX_CONCURRENT=2` (the minimum) it has
    * exactly one slot, which is what the single-slot specs below need.
    */
@@ -886,11 +904,7 @@ describe('git process supervision', () => {
 
     const first = execGit(['status'], WS, { ...BG, timeoutMs: 20 });
     await expect(first).rejects.toThrow('git status timed out after 20ms');
-    expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
-    await drain();
-    if (process.platform === 'win32') {
-      expect(mockTreeKill).toHaveBeenCalledWith(4242);
-    }
+    await expectTerminated(held[0]);
 
     const second = execGit(['rev-parse', 'HEAD'], WS, BG);
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -970,7 +984,7 @@ describe('git process supervision', () => {
     expect(error).toBeInstanceOf(GitOutputLimitError);
     expect((error as GitOutputLimitError).code).toBe('GIT_OUTPUT_LIMIT');
     expect((error as GitOutputLimitError).limitBytes).toBe(10);
-    expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
+    await expectTerminated(held[0]);
 
     // The killed child keeps its slot until it exits.
     const next = execGit(['status'], WS, BG);
@@ -1032,12 +1046,7 @@ describe('git process supervision', () => {
     await drain();
     held[0].emit('error', new Error('EPIPE'));
     await expect(failed).rejects.toThrow('EPIPE');
-    await drain();
-
-    expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
-    if (process.platform === 'win32') {
-      expect(mockTreeKill).toHaveBeenCalledWith(4242);
-    }
+    await expectTerminated(held[0]);
 
     const next = execGit(['status'], WS, BG);
     await drain();
@@ -1302,11 +1311,7 @@ describe('git process supervision', () => {
       const error = await call.catch((reason: unknown) => reason);
       expect(error).toBeInstanceOf(GitCancelledError);
       expect((error as GitCancelledError).subcommand).toBe('commit');
-      expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
-      await drain();
-      if (process.platform === 'win32') {
-        expect(mockTreeKill).toHaveBeenCalledWith(4242);
-      }
+      await expectTerminated(held[0]);
 
       // The dying child still owns the only background slot.
       const next = execGit(['status'], WS, BG);
@@ -1317,6 +1322,28 @@ describe('git process supervision', () => {
       expect(mockSpawn).toHaveBeenCalledTimes(2);
       held[1].emit('close', 0);
       await next;
+    });
+
+    it('still sends SIGTERM on Windows when the tree kill rejects', async () => {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      mockTreeKill.mockRejectedValueOnce(new Error('taskkill failed'));
+      try {
+        const controller = new AbortController();
+        const call = execGit(['commit', '-m', 'x'], WS, {
+          signal: controller.signal,
+        });
+        await drain();
+
+        controller.abort();
+        await expect(call).rejects.toBeInstanceOf(GitCancelledError);
+        await drain();
+        expect(mockTreeKill).toHaveBeenCalledWith(4242);
+        expect(held[0].kill).toHaveBeenCalledWith('SIGTERM');
+        held[0].emit('close', null);
+      } finally {
+        if (platform) Object.defineProperty(process, 'platform', platform);
+      }
     });
 
     it('ignores an abort after the child exited', async () => {
@@ -1354,6 +1381,101 @@ describe('git process supervision', () => {
       expect((error as GitTimeoutError).timeoutMs).toBe(20);
       expect((error as Error).message).toBe('git commit timed out after 20ms');
       held[0].emit('close', null);
+    });
+  });
+
+  describe('onExit', () => {
+    it('is called once when a child exits normally, before the call resolves', async () => {
+      const order: string[] = [];
+      const onExit = jest.fn(() => order.push('exit'));
+      const call = execGit(['status'], WS, { onExit }).then((result) => {
+        order.push('resolved');
+        return result;
+      });
+      await drain();
+      expect(onExit).not.toHaveBeenCalled();
+      held[0].emit('close', 0);
+      await expect(call).resolves.toMatchObject({ exitCode: 0 });
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(order).toEqual(['exit', 'resolved']);
+    });
+
+    it('is called when a killed child finally closes, after the call rejected', async () => {
+      const onExit = jest.fn();
+      const controller = new AbortController();
+      const call = execGit(['commit', '-m', 'x'], WS, {
+        signal: controller.signal,
+        onExit,
+      });
+      await drain();
+      controller.abort();
+      await expect(call).rejects.toBeInstanceOf(GitCancelledError);
+      await expectTerminated(held[0]);
+      // Rejected at kill time; the tree has not exited yet.
+      expect(onExit).not.toHaveBeenCalled();
+
+      held[0].emit('close', null);
+      expect(onExit).toHaveBeenCalledTimes(1);
+    });
+
+    it('is called after a timeout kill once the child closes', async () => {
+      const onExit = jest.fn();
+      const call = execGit(['commit'], WS, { timeoutMs: 20, onExit });
+      await expect(call).rejects.toBeInstanceOf(GitTimeoutError);
+      expect(onExit).not.toHaveBeenCalled();
+      held[0].emit('close', null);
+      expect(onExit).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires on the git process exit even while a survivor holds its pipes', async () => {
+      const onExit = jest.fn();
+      const controller = new AbortController();
+      const call = execGit(['commit', '-m', 'x'], WS, {
+        signal: controller.signal,
+        onExit,
+      });
+      await drain();
+      controller.abort();
+      await expect(call).rejects.toBeInstanceOf(GitCancelledError);
+
+      // git.exe died; an orphaned hook still holds stdout, so no `close`.
+      held[0].emit('exit', null, 'SIGTERM');
+      expect(onExit).toHaveBeenCalledTimes(1);
+      // The `close` that finally follows does not report it again.
+      held[0].emit('close', null);
+      expect(onExit).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not change the result when it throws', async () => {
+      const call = execGit(['status'], WS, {
+        onExit: () => {
+          throw new Error('observer broke');
+        },
+      });
+      await drain();
+      held[0].stdout.emit('data', Buffer.from('ok'));
+      held[0].emit('close', 0);
+      await expect(call).resolves.toMatchObject({ stdout: 'ok', exitCode: 0 });
+    });
+
+    it('is never called twice, nor on a spawn error without a close', async () => {
+      const onExit = jest.fn();
+      const call = execGit(['status'], WS, { onExit });
+      await drain();
+      held[0].emit('close', 0);
+      await call;
+      held[0].emit('error', new Error('late'));
+      await drain();
+      expect(onExit).toHaveBeenCalledTimes(1);
+
+      const neverStarted = jest.fn();
+      mockSpawn.mockImplementationOnce(() => makeHeldChild(null));
+      const failed = execGit(['status'], WS, { onExit: neverStarted });
+      await drain();
+      held[1].emit('error', new Error('spawn ENOENT'));
+      await expect(failed).rejects.toThrow('spawn ENOENT');
+      await drain();
+      expect(neverStarted).not.toHaveBeenCalled();
     });
   });
 

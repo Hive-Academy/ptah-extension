@@ -24,6 +24,8 @@
  *   git:diffFile       — rejects malformed params without invoking git
  *   git:diffFile       — returns a not-a-repo error result with no workspace
  *   git:diffFile       — maps a thrown rejection to an error result
+ *   git:commit/stage   — code, hookOutput, exitCode, hash, subject reach the
+ *                        RPC result unchanged (TASK_2026_576 RC1)
  *
  * Mocking posture: direct constructor injection; narrow mock surfaces.
  *
@@ -67,6 +69,8 @@ type MockGitInfo = jest.Mocked<
   Pick<
     GitInfoService,
     | 'getGitInfo'
+    | 'stageFiles'
+    | 'commit'
     | 'reviewChanges'
     | 'reviewFile'
     | 'getBranches'
@@ -94,6 +98,8 @@ function createMockGitInfo(): MockGitInfo {
       branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
       files: [],
     }),
+    stageFiles: jest.fn().mockResolvedValue({ success: true }),
+    commit: jest.fn().mockResolvedValue({ success: true }),
     reviewChanges: jest.fn().mockResolvedValue({
       success: true,
       base: { name: 'main', sha: 'a'.repeat(40) },
@@ -649,6 +655,77 @@ describe('git:branches handler', () => {
 
     expect(gitInfo.getBranches).toHaveBeenCalledWith('/workspace', true);
     expect(result.current).toBe('main');
+  });
+});
+
+// ===========================================================================
+// RC1 / RC8 pass-through — the handler returns the service result unchanged
+// ===========================================================================
+
+describe('git mutation result pass-through (TASK_2026_576 RC1)', () => {
+  it('git:commit forwards HOOK_FAILED with hookOutput, exitCode and code untouched', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const failure = {
+      success: false,
+      code: 'HOOK_FAILED' as const,
+      exitCode: 1,
+      hookOutput: 'lint failed in src/calc.ts\n1 problem\n',
+      error: 'A git hook rejected the commit (exit code 1).',
+    };
+    gitInfo.commit.mockResolvedValueOnce(failure);
+
+    const result = await getHandler(rpc, 'git:commit')({ message: 'feat: x' });
+
+    expect(gitInfo.commit).toHaveBeenCalledWith('/workspace', 'feat: x');
+    expect(result).toEqual(failure);
+  });
+
+  it('git:commit forwards the hash and subject read back from git', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const success = {
+      success: true,
+      commitHash: 'abc1234',
+      subject: 'feat: x',
+    };
+    gitInfo.commit.mockResolvedValueOnce(success);
+
+    await expect(
+      getHandler(rpc, 'git:commit')({ message: 'feat: x' }),
+    ).resolves.toEqual(success);
+  });
+
+  it.each(['TIMEOUT', 'CANCELLED', 'LOCKED'] as const)(
+    'git:commit forwards code %s',
+    async (code) => {
+      const { handlers, rpc, gitInfo } = buildSuite();
+      handlers.register();
+      gitInfo.commit.mockResolvedValueOnce({
+        success: false,
+        code,
+        error: 'x',
+      });
+
+      await expect(
+        getHandler(rpc, 'git:commit')({ message: 'feat: x' }),
+      ).resolves.toEqual({ success: false, code, error: 'x' });
+    },
+  );
+
+  it('git:stage forwards LOCKED with the fixed message', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const locked = {
+      success: false,
+      code: 'LOCKED' as const,
+      error: 'Another git process is using this repository.',
+    };
+    gitInfo.stageFiles.mockResolvedValueOnce(locked);
+
+    await expect(
+      getHandler(rpc, 'git:stage')({ paths: ['a.txt'] }),
+    ).resolves.toEqual(locked);
   });
 });
 
