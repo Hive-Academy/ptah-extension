@@ -16,6 +16,7 @@ import {
 import { ConnectionDetailDrawerComponent } from './connection-detail-drawer.component';
 import { RoutingMapComponent } from './routing-map.component';
 import { MainAgentReassignPopoverComponent, type MainAgentFocus } from './main-agent-reassign-popover.component';
+import { ProviderCatalogModalComponent } from './provider-catalog-modal.component';
 import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.component';
 // Type-only: the Credentials tab and its helpers stay in the drawer's deferred chunk (the write runner is tiny).
 import type { CredentialsCommit, CredentialsExternalAuth } from './connection-drawer/credentials-tab.component';
@@ -27,7 +28,6 @@ export type ProvidersSettingsFocusTarget =
   | 'main-agent' | 'main-model' | 'main-effort' | 'connections' | 'more-providers';
 
 const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-muted bg-base-100 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
 /**
  * Providers tab composition. All host access and persistence belong to the injected state owner;
@@ -38,7 +38,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [SettingScopeRowComponent, ProviderConnectionCardComponent, ProviderSetupWizardComponent,
-    ConnectionDetailDrawerComponent, RoutingMapComponent, MainAgentReassignPopoverComponent],
+    ConnectionDetailDrawerComponent, RoutingMapComponent, MainAgentReassignPopoverComponent, ProviderCatalogModalComponent],
   template: `
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
       <!-- No width or side padding of its own: the Settings shell (settings.component.html) already sets
@@ -58,7 +58,7 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
             }
           </div>
           <div class="flex flex-wrap gap-2">
-            <button type="button" [class]="control" (click)="openWizard('')" [disabled]="!canStartSetup()">Connect provider</button>
+            <button type="button" [class]="control" (click)="openCatalog()">Connect provider</button>
             <button type="button" [class]="control" (click)="state.refresh()" [disabled]="saving()">Refresh settings</button>
           </div>
         </header>
@@ -126,6 +126,11 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
                 (retryRequested)="state.checkConnection()" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
                 (checkConnectionRequested)="state.checkConnection()" />
             }
+            <!-- Prototype tile: the catalog modal from inside the grid. -->
+            <button type="button" [class]="'flex min-h-[80px] items-center justify-center gap-2 rounded-xl border border-dashed border-base-300 p-3 text-xs font-medium text-base-content hover:border-primary ' + focusRing"
+              (click)="openCatalog()" data-testid="connect-another-provider">
+              <span class="h-2 w-2 rounded-full bg-primary" aria-hidden="true"></span> + Connect another provider
+            </button>
           </div>
         </section>
 
@@ -145,29 +150,19 @@ const FIELD = 'input input-bordered input-sm min-h-9 w-full border-base-content-
           </section>
         }
 
-        <details #catalogDisclosure class="rounded-xl border border-base-300 bg-base-100" [open]="catalogOpen()">
-          <summary data-focus="more-providers" class="min-h-9 min-w-6 p-3 font-semibold cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content">More providers</summary>
-          <div class="p-3 space-y-3">
-            <label for="providers-catalog-search">Search providers</label>
-            <input id="providers-catalog-search" type="search" [class]="field" [value]="search()" (input)="search.set(inputValue($event))" />
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              @for (connection of catalog(); track connection.id) {
-                <div class="rounded-md border border-base-300 p-3 space-y-2">
-                  <h3 class="font-semibold break-words">{{ connection.name }}</h3><p>{{ modalityLabel(connection.authMode) }}</p>
-                  @if (connection.defaultsResolvable) { <p>Provider default models available.</p> }
-                  <button type="button" [class]="control" (click)="openWizard(connection.id)" [disabled]="!canStartSetup()">Set up {{ connection.name }}</button>
-                  @if (connection.authMode === 'oauth' || connection.authMode === 'cli') {
-                    <button type="button" [class]="control" (click)="externalAction(connection.id, 'sign-in')">Sign in to {{ connection.name }}</button>
-                  }
-                </div>
-              }
-            </div>
-            @if (!catalog().length && state.connections().status === 'ready') {
-              <p>No matching providers.</p><button type="button" [class]="control" (click)="search.set('')">Clear search</button>
-            }
-            <button type="button" [class]="control" (click)="openWizard('')" [disabled]="!canStartSetup()">Custom endpoint · choose Custom in setup</button>
-          </div>
-        </details>
+        <!-- Catalog hint strip (prototype): the unconfigured providers, and Browse catalog → the catalog modal. -->
+        <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-base-300 bg-base-200 p-2.5 text-xs text-base-content-muted"
+          data-testid="catalog-hint">
+          <p class="min-w-0"><span class="font-semibold text-base-content">{{ catalogHint().lead }}</span> {{ catalogHint().names }}</p>
+          <button type="button" data-focus="more-providers" [class]="'btn btn-ghost btn-xs min-h-6 font-semibold text-base-content underline ' + focusRing"
+            (click)="openCatalog()">Browse catalog →</button>
+        </div>
+        <!-- Catalog modal: deferred (eager route at its bundle budget); the native <dialog> traps focus and returns it. -->
+        @defer (on immediate) {
+          <ptah-provider-catalog-modal [open]="catalogOpen()" [providers]="catalog()" [status]="catalogStatus()" [canSetUp]="canStartSetup()"
+            (closed)="catalogOpen.set(false)" (providerChosen)="chooseCatalog($event)" (customChosen)="chooseCatalog('')"
+            (signInRequested)="catalogSignIn($event)" (retryRequested)="state.refreshConnections()" />
+        }
 
         @if (state.externalAuth().data; as auth) { <p role="status" class="break-words">{{ auth.message }}</p> }
         @if (state.externalAuth().status === 'loading') { <p role="status">Waiting for external sign-in…</p> }
@@ -230,11 +225,11 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly control = CONTROL;
-  protected readonly field = FIELD;
   protected readonly globalTarget: readonly SettingScope[] = ['global'];
   protected readonly mainKeys = ['authMethod', 'anthropicProviderId'];
   protected readonly mainValueFields = ['model', 'effort'] as const;
-  protected readonly search = signal('');
+  protected readonly focusRing = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+  /** The provider catalog modal is open. */
   protected readonly catalogOpen = signal(false);
   protected readonly wizardOpen = signal(false);
   protected readonly wizardProviderId = signal('');
@@ -269,6 +264,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     return [result.saved.length ? 'Saved: ' + result.saved.join(', ') : '', result.unsaved.length ? 'Not saved: ' + result.unsaved.join(', ') : '', result.unconfirmed.length ? 'Not confirmed: ' + result.unconfirmed.join(', ') : '', result.message].filter(Boolean).join('. ');
   });
   private returnFocus: HTMLElement | null = null;
+  /** What opened the catalog modal ("Connect provider", the tile, "Browse catalog →"). */
+  private catalogOpener: HTMLElement | null = null;
   /** Deep-linked provider handed to the open wizard and not yet accepted by it. */
   private deepLinkAwaitingAcceptance: string | null = null;
   protected readonly saving = computed(() => this.state.commit().status === 'saving');
@@ -287,7 +284,23 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   });
   protected readonly catalog = computed(() => {
     const configured = new Set(this.connections().map((entry) => entry.id));
-    return (this.state.connections().data ?? []).filter((entry) => !configured.has(entry.id) && entry.name.toLowerCase().includes(this.search().toLowerCase()));
+    return (this.state.connections().data ?? []).filter((entry) => !configured.has(entry.id));
+  });
+  /** A failed connections read (it includes `provider:listCustomEntries`) is shown in the catalog, never as empty. */
+  protected readonly catalogStatus = computed(() => {
+    const connections = this.state.connections();
+    return connections.status === 'error' ? 'error' : connections.data === null ? 'loading' : 'ready';
+  });
+  /** The hint strip's sentence: never "0 providers" for a failed or pending read. */
+  protected readonly catalogHint = computed(() => {
+    const count = this.catalog().length;
+    switch (this.catalogStatus()) {
+      case 'error': return { lead: 'The provider catalog could not be loaded.', names: '' };
+      case 'loading': return { lead: 'Loading the provider catalog…', names: '' };
+      default: return count
+        ? { lead: `${count} catalog provider${count === 1 ? '' : 's'} ready to add:`, names: this.catalog().map((entry) => entry.name).join(', ') }
+        : { lead: 'Every catalog provider is connected.', names: '' };
+    }
   });
   /** The connection whose detail drawer is open (the clicked card, `detailsRequested`). */
   private readonly drawerId = signal<string | null>(null);
@@ -388,7 +401,13 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
         untracked(() => this.openMainPopover(null, target));
         return;
       }
-      if (target === 'more-providers') this.catalogOpen.set(true);
+      // `more-providers` lands on the catalog modal; focus returns to "Browse catalog →" when it closes.
+      if (target === 'more-providers') {
+        this.element.nativeElement.querySelector<HTMLElement>('[data-focus="more-providers"]')?.focus();
+        this.focusedTarget = target;
+        untracked(() => this.openCatalog());
+        return;
+      }
       const node = this.element.nativeElement.querySelector<HTMLElement>(`[data-focus="${target}"]`);
       if (node) { node.focus(); this.focusedTarget = target; }
     });
@@ -402,16 +421,12 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       });
     }
   }
-  protected inputValue(event: Event): string { return (event.target as HTMLInputElement).value; }
   protected authenticationLabel(value: unknown): string {
     return value === 'apiKey' ? 'API key' : value === 'claudeCli' ? 'CLI subscription' : value === 'thirdParty' ? 'Provider connection' : 'Host-resolved authentication';
   }
   protected settingLabel(key: string): string {
     return key === 'authMethod' ? 'authentication' : key === this.state.mainSources().data?.model?.key ? 'main agent model'
       : key === this.state.mainSources().data?.effort?.key ? 'reasoning effort' : 'provider';
-  }
-  protected modalityLabel(mode: string): string {
-    return ({ apiKey: 'API key', 'api-key': 'API key', oauth: 'Provider sign-in', cli: 'CLI subscription', local: 'Local server', 'local-native': 'Local server', 'local-proxy': 'Local server (proxy)', custom: 'Custom endpoint' } as Record<string, string>)[mode] ?? 'Connection not checked';
   }
   protected connectionStatus(entry: ProvidersConnection): ProviderConnectionCardStatus {
     if (this.activeId() === entry.id) return 'active';
@@ -536,6 +551,26 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     this.returnFocus?.focus();
   }
   protected externalAction(providerId: string | null, action: ProvidersExternalAuthAction): void { void this.state.performExternalAuth(providerId, action); }
+  /**
+   * Opens the catalog modal; the native dialog returns focus to the opener when it closes. Opening is a read, so the
+   * openers stay enabled: a failed connections read is shown inside (with Retry), and setup is gated by `canSetUp`.
+   */
+  protected openCatalog(): void {
+    const active = this.element.nativeElement.ownerDocument.activeElement;
+    this.catalogOpener = active instanceof HTMLElement ? active : null;
+    this.catalogOpen.set(true);
+  }
+  /** A catalog choice: the modal closes, then the unchanged wizard opens (`''` = custom endpoint, nothing preselected). */
+  protected chooseCatalog(providerId: string): void {
+    this.catalogOpen.set(false);
+    this.openWizard(providerId);
+    // Closing the wizard returns focus to what opened the catalog, not to the (gone) modal button.
+    this.returnFocus = this.catalogOpener;
+  }
+  protected catalogSignIn(providerId: string): void {
+    this.catalogOpen.set(false);
+    this.externalAction(providerId, 'sign-in');
+  }
   /** Opens the Main Agent popover (node "Reassign", a card's "Use for main agent", a `main-*` deep link). */
   protected openMainPopover(provider: string | null = null, focus: MainAgentFocus | null = null): void {
     this.mainPopover.set({ provider, focus });

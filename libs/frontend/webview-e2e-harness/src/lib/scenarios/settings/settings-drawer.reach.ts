@@ -176,6 +176,37 @@ export async function closeMainAgentPopover(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="main-agent-popover"]')).toHaveCount(0);
 }
 
+/**
+ * The provider catalog modal's native `<dialog>` (Batch 27). daisyUI's `.modal` keeps a closed dialog laid out at
+ * opacity 0, so Playwright's visible/hidden cannot tell open from closed: use `expectCatalogOpen` instead.
+ */
+export const catalogDialog = (page: Page): Locator => page.locator('ptah-provider-catalog-modal dialog');
+export async function expectCatalogOpen(page: Page, open: boolean): Promise<void> {
+  if (open) await expect(catalogDialog(page)).toHaveAttribute('open', '');
+  else await expect(catalogDialog(page)).not.toHaveAttribute('open');
+}
+/** The page header's "Connect provider" (the catalog opener that focus returns to). */
+export const connectProviderButton = (page: Page): Locator => page.getByRole('button', { name: 'Connect provider', exact: true });
+
+/** Providers tab, then "Connect provider": the catalog modal is open with its search focused (Batch 27). */
+export async function openCatalog(page: Page): Promise<Locator> {
+  await providersTab(page);
+  // A modal left open by an earlier failed entry makes the page inert: close it rather than click through it.
+  if ((await catalogDialog(page).getAttribute('open').catch(() => null)) !== null) await page.keyboard.press('Escape');
+  await visibleEnabled(connectProviderButton(page));
+  await connectProviderButton(page).click();
+  await expectCatalogOpen(page, true);
+  await expect(catalogDialog(page).locator('[data-testid="provider-catalog-search"]')).toBeFocused();
+  return catalogDialog(page);
+}
+
+/** Closes the catalog modal with Esc; focus returns to "Connect provider". */
+export async function closeCatalog(page: Page): Promise<void> {
+  await page.keyboard.press('Escape');
+  await expectCatalogOpen(page, false);
+  await expect(connectProviderButton(page)).toBeFocused();
+}
+
 /** Confirms an inline two-step write in the Credentials tab and asserts its RPC went out. */
 export async function confirmWrite(page: Page, trigger: string, confirm: string, method: string, params: unknown): Promise<void> {
   const state = getFixtureState(page);

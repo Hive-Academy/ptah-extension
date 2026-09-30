@@ -24,7 +24,7 @@ import {
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 import {
-  advancedTab, applyManualTierModel, card, closeConnectionDrawer, confirmWrite, credentialsOf, expectCall, inDrawerTab,
+  advancedTab, applyManualTierModel, card, closeCatalog, closeConnectionDrawer, connectProviderButton, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
   cliConfigSection, closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
   throughDelegatedEdit, setupThroughDrawer, visibleEnabled, withAuthStatus,
 } from './settings-drawer.reach';
@@ -198,36 +198,17 @@ async function advancePastProviderStep(page: Page): Promise<void> {
   }
 }
 
-/**
- * Opens the "More providers" `<details>` disclosure if it is not already
- * open. A plain `.click()` on the summary TOGGLES it, so a later entry in
- * the same sequential run would collapse it right back closed if a previous
- * entry left it open — this checks the real `open` state first.
- */
-async function openCatalogDisclosure(page: Page): Promise<void> {
-  const disclosure = page.locator('summary[data-focus="more-providers"]');
-  await visibleEnabled(disclosure);
-  const isOpen = await disclosure.evaluate(
-    (el) => (el.closest('details') as HTMLDetailsElement | null)?.open ?? false,
-  );
-  if (!isOpen) await disclosure.click();
-}
-
-/** Opens the setup wizard for `providerName` from the "More providers" catalog and closes it after `assertion`. */
+/** Opens the setup wizard for `providerName` from the catalog modal's Connect (Batch 27) and closes it after `assertion`. */
 async function throughCatalog(
   page: Page,
   providerName: string,
   assertion: (page: Page) => Promise<void>,
   advance = true,
 ): Promise<void> {
-  await providersTab(page);
-  await openCatalogDisclosure(page);
-  const setupButton = page
-    .locator('.p-3.space-y-2')
-    .filter({ hasText: providerName })
-    .getByRole('button', { name: new RegExp('Set up ' + providerName) });
+  const setupButton = (await openCatalog(page)).getByRole('button', { name: 'Connect ' + providerName, exact: true });
   await visibleEnabled(setupButton);
   await setupButton.click();
+  await expectCatalogOpen(page, false);
   await visibleEnabled(wizardBody(page));
   try {
     if (advance) await advancePastProviderStep(page);
@@ -238,17 +219,15 @@ async function throughCatalog(
 }
 
 /**
- * Opens the wizard with NO deep link (`openWizard('')`, the "Custom
- * endpoint" catalog footer button) so it lands on the provider step with
+ * Opens the wizard with NO deep link (`openWizard('')`, the catalog modal's
+ * "Custom endpoint gateway" Configure) so it lands on the provider step with
  * nothing preselected, selects the "Custom endpoint" radio, then closes.
  */
 async function throughBlankWizardCustomOption(
   page: Page,
   assertion: (page: Page) => Promise<void>,
 ): Promise<void> {
-  await providersTab(page);
-  await openCatalogDisclosure(page);
-  const customEntry = page.getByRole('button', { name: 'Custom endpoint · choose Custom in setup' });
+  const customEntry = (await openCatalog(page)).getByRole('button', { name: 'Configure a custom endpoint', exact: true });
   await visibleEnabled(customEntry);
   await customEntry.click();
   await visibleEnabled(wizardBody(page));
@@ -292,10 +271,11 @@ async function throughCard(
 const providersAuth: readonly ReachabilityEntry[] = [
   {
     id: '#1', capability: 'All providers visible (configured cards + More providers catalog)', status: 'present',
+    // Since Batch 27 the catalog is a modal: the unconfigured providers are listed there, searchable.
     reach: async (page) => {
-      await providersTab(page);
-      const disclosure = page.locator('summary[data-focus="more-providers"]');
-      await openThenClose(disclosure, page.locator('#providers-catalog-search'), disclosure);
+      const dialog = await openCatalog(page);
+      await visibleEnabled(dialog.locator('[data-provider="openrouter"]').getByRole('button', { name: 'Connect OpenRouter', exact: true }));
+      await closeCatalog(page);
     },
   },
   {
@@ -824,6 +804,29 @@ const restoredPending: readonly ReachabilityEntry[] = [
 // ---------------------------------------------------------------------------
 
 const regressedUx: readonly ReachabilityEntry[] = [
+  { id: 'RUX-3', capability: 'Unconfigured providers shown up front (hint strip + catalog modal), not in a collapsed disclosure', status: 'restored',
+    // Batch 27 (+ Batch 14 finding 3): the hint strip names them; the modal traps focus, Esc and the backdrop close it,
+    // and focus returns to the opener.
+    reach: async (page) => {
+      await providersTab(page);
+      await expect(page.locator('[data-testid="catalog-hint"]')).toContainText('OpenRouter');
+      const dialog = await openCatalog(page);
+      await expect(dialog.locator('[data-provider]')).not.toHaveCount(0);
+      for (let i = 0; i < 12; i += 1) {
+        await page.keyboard.press('Tab');
+        expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+      }
+      await dialog.locator('[data-testid="provider-catalog-search"]').fill('no-such-provider');
+      await expect(dialog.locator('[data-testid="provider-catalog-empty"]')).toContainText('No matching providers.');
+      await dialog.getByRole('button', { name: 'Clear search', exact: true }).click();
+      await expect(dialog.locator('[data-provider]')).not.toHaveCount(0);
+      await closeCatalog(page);
+      await openCatalog(page);
+      // The backdrop is the dialog's own ::backdrop area: a click outside the panel.
+      await page.mouse.click(5, 5);
+      await expectCatalogOpen(page, false);
+      await expect(connectProviderButton(page)).toBeFocused();
+    } },
   { id: 'RUX-5', capability: 'Workspace save target offered in a visible Save-to list, not behind an override link', status: 'restored',
     // Batch 26: the popover's "Save to" lists every write scope, "This workspace" included, and re-saves the
     // current provider there through the D6 confirm (cancelled here).
@@ -945,9 +948,9 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
 /**
  * Guard constant (D14 rule 2): S4 set it to 81; later batches may only grow it. Batch 21 added the
  * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84. Batch 22 added RUX-2: 85. Batch 23 added
- * RUX-5 and RUX-6: 87.
+ * RUX-5 and RUX-6: 87. Batch 27 added RUX-3: 88.
  */
-export const EXPECTED_CAPABILITY_COUNT = 87;
+export const EXPECTED_CAPABILITY_COUNT = 88;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

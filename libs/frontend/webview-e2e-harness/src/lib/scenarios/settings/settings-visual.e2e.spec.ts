@@ -153,6 +153,27 @@ for (const host of ['vscode', 'electron'] as const) {
       await page.screenshot({ path: capturePath('scope-popover', host, theme), animations: 'disabled' });
       await page.keyboard.press('Escape');
       await expect(page.locator('[data-testid="scope-popover"]')).toHaveCount(0);
+      // Batch 27: the provider catalog modal (prototype `#modalPalette`), centred and fully on screen.
+      const connect = page.getByRole('button', { name: 'Connect provider', exact: true });
+      await connect.click();
+      const catalog = page.locator('ptah-provider-catalog-modal dialog');
+      await expect(catalog).toHaveAttribute('open', '');
+      await expect(catalog.locator('[data-testid="provider-catalog-search"]')).toBeFocused();
+      // daisyUI scales the box in on open: measure once its transition has finished.
+      await catalog.locator('.modal-box').evaluate((box) => Promise.all(box.getAnimations().map((animation) => animation.finished)));
+      const panel = await catalog.locator('.modal-box').boundingBox();
+      const view = page.viewportSize();
+      expect(panel && view && panel.y >= 0 && panel.y + panel.height <= view.height).toBe(true);
+      // Centred in its full-screen dialog (fixed, inset 0: the area left of the host's scrollbar gutter).
+      const frame = await catalog.boundingBox();
+      expect(panel && frame && Math.abs(panel.x + panel.width / 2 - (frame.x + frame.width / 2))).toBeLessThanOrEqual(1);
+      console.log(`B27 catalog ${host}/${theme}: ${Math.round(panel?.width ?? 0)}x${Math.round(panel?.height ?? 0)} @ ${Math.round(panel?.y ?? 0)}`);
+      await waitForSettled(page);
+      await page.screenshot({ path: capturePath('provider-catalog', host, theme), animations: 'disabled' });
+      await page.keyboard.press('Escape');
+      // daisyUI keeps a closed `.modal` laid out at opacity 0: the `open` attribute is the real state.
+      await expect(catalog).not.toHaveAttribute('open');
+      await expect(connect).toBeFocused();
       const drawer = page.locator('[data-testid="connection-detail-drawer"]');
       for (const entry of DRAWERS) {
         // Batch 24: the card itself opens the drawer (a click on its name, clear of the inline action).
