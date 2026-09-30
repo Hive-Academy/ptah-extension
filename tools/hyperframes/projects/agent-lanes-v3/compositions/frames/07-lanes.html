@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Frame 7 - lanes</title>
+    <!-- Frame 7: Lanes, two CLIs at once (STORYBOARD.md). 5.373 s = 3 bars.
+         The camera travels to the Agents rail; the Agents panel opens and two lanes stream tool rows side by side.
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. -->
+  </head>
+  <body>
+    <template>
+      <style>
+        #f07-cam { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
+        .f07-m { position: absolute; }
+        /* The panel opens from the Agents rail (x 1872): it slides in from the right edge of the canvas. */
+        #f07-drawer { position: absolute; left: 962px; top: 160px; width: 910px; height: 550px; box-shadow: -24px 0 48px rgba(0, 0, 0, 0.5); }
+      </style>
+
+      <div id="f07" class="scene" data-composition-id="f07" data-width="1920" data-height="1080" data-frame-start="17.910" data-frame-duration="5.373" data-seam-in="cinematic-zoom 0.4">
+        <div id="f07-cam" data-layout-allow-overflow>
+          <div id="f07-m1" class="clip f07-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html"
+            data-start="0" data-duration="5.373" data-track-index="1"
+            data-variable-values='{"layout":"2+2","activeTab":"Chat","notifications":"9+","preroll":3}'
+            style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
+
+          <div id="f07-m2" class="clip f07-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="2"
+            data-variable-values='{"title":"fix review on 579","countUp":false,"agents":2,"cost":"$4.12","time":"18m 04s","preroll":3}'
+            style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f07-m3" data-layout-ignore class="clip f07-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="3"
+            data-variable-values='{"title":"continue editor upgrades","countUp":false,"preroll":3}'
+            style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f07-m4" class="clip f07-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="4"
+            data-variable-values='{"title":"providers UX audit","countUp":false,"agents":3,"cost":"$2.37","time":"9m 51s","preroll":3}'
+            style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
+          <div id="f07-m5" data-layout-ignore class="clip f07-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="0" data-duration="5.373" data-track-index="5"
+            data-variable-values='{"title":"review memory work","countUp":false,"agents":1,"cost":"$1.08","time":"6m 12s","models":1,"preroll":3}'
+            style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
+
+          <div id="f07-drawer" data-layout-allow-overflow>
+            <div id="f07-m6" class="clip f07-m" data-composition-id="ptah-ui-agents-panel" data-composition-src="compositions/components/ptah-ui-agents-panel.html"
+              data-start="0.448" data-duration="4.925" data-track-index="6"
+              data-variable-values='{"count":2,"lane1Name":"Glm","lane1Status":"completed","lane2Name":"Antigravity","lane2Status":"completed","rowGap":0.448,"cues":"0,0.2,0.35,0.448","focus":"tabs","focusAt":4.03,"dimOthers":1}'
+              style="left: 0; top: 0; width: 910px; height: 546px"></div>
+          </div>
+        </div>
+
+        <audio id="sx-f07-whoosh" src="assets/sfx/whoosh.mp3" data-start="0" data-duration="0.575" data-track-index="70" data-volume="0.45"></audio>
+        <audio id="sx-f07-r1" src="assets/sfx/click-soft.mp3" data-start="0.896" data-duration="0.366" data-track-index="71" data-volume="0.35"></audio>
+        <audio id="sx-f07-r2" src="assets/sfx/click-soft.mp3" data-start="1.343" data-duration="0.366" data-track-index="72" data-volume="0.35"></audio>
+        <audio id="sx-f07-r3" src="assets/sfx/click-soft.mp3" data-start="1.791" data-duration="0.366" data-track-index="73" data-volume="0.35"></audio>
+        <audio id="sx-f07-r4" src="assets/sfx/click-soft.mp3" data-start="2.239" data-duration="0.366" data-track-index="74" data-volume="0.35"></audio>
+        <audio id="sx-f07-r5" src="assets/sfx/click-soft.mp3" data-start="2.687" data-duration="0.366" data-track-index="75" data-volume="0.35"></audio>
+        <audio id="sx-f07-done1" src="assets/sfx/ping.mp3" data-start="4.478" data-duration="0.6" data-track-index="76" data-volume="0.45"></audio>
+        <audio id="sx-f07-done2" src="assets/sfx/ping.mp3" data-start="4.925" data-duration="0.448" data-track-index="77" data-volume="0.4"></audio>
+      </div>
+
+      <script>
+          function pose(s, fx, fy) { return { scale: s, x: 960 - s * fx, y: 540 - s * fy }; }
+          // Window -> the panel's centre (1417, 433) -> settle closer -> punch in on both lanes as they complete (1417, 420).
+          var P0 = pose(1.0, 960, 540), P1 = pose(1.6, 1417, 433), P2 = pose(1.75, 1417, 433), P3 = pose(2.0, 1417, 420);
+          tl.fromTo("#f07-cam", P0, {
+            keyframes: [
+              Object.assign({}, P1, { duration: 0.896, ease: "expo.inOut" }),
+              Object.assign({}, P1, { duration: 0.895, ease: "none" }),
+              Object.assign({}, P2, { duration: 2.687, ease: "none" }),
+              Object.assign({}, P3, { duration: 0.35, ease: "expo.out" }),
+              Object.assign({}, P3, { duration: 0.545, ease: "none" }),
+            ],
+            ease: "none",
+          }, T0);
+          // The drawer slides in from the Agents rail on beat 2.
+          tl.fromTo("#f07-drawer", { x: 930 }, { x: 0, duration: 0.45, ease: "power3.out" }, T0 + 0.448);
+      </script>
+    </template>
+  </body>
+</html>

@@ -51,11 +51,25 @@
         #f05-body { position: absolute; left: 195px; top: 266px; width: 772px; height: 275px; overflow: hidden; }
         #f05-col { position: absolute; left: 0; top: 0; width: 772px; height: 330px; }
       
+/* 06-title-lanes.html */
+
+        #f06-vig { position: absolute; inset: 0; background: radial-gradient(ellipse 80% 70% at 50% 42%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.45) 100%); }
+        #f06-stage { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 160px; }
+        .f06-line { font-family: "Archivo Black", sans-serif; font-size: 130px; line-height: 1.02; letter-spacing: -0.01em; color: #e8e6e1; text-transform: uppercase; white-space: nowrap; }
+        #f06-l2 { color: #d4af37; }
+      
+/* 07-lanes.html */
+
+        #f07-cam { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
+        .f07-m { position: absolute; }
+        /* The panel opens from the Agents rail (x 1872): it slides in from the right edge of the canvas. */
+        #f07-drawer { position: absolute; left: 962px; top: 160px; width: 910px; height: 550px; box-shadow: -24px 0 48px rgba(0, 0, 0, 0.5); }
+      
     </style>
   </head>
   <body>
     <!-- Agent lanes v3. Grid: 134 BPM, beat 0.448 s, bar 1.791 s. Music offset 12.575 s puts the drop at 1.791 s. -->
-    <div id="root" data-composition-id="main" data-start="0" data-duration="16.119" data-width="1920" data-height="1080">
+    <div id="root" data-composition-id="main" data-start="0" data-duration="23.283" data-width="1920" data-height="1080">
 <!-- 01-hook.html (0-3.582) -->
 <div data-hf-id="hf-k13w" id="f01" class="scene">
         <div data-hf-id="hf-906g" id="f01-bg"></div>
@@ -198,23 +212,23 @@
 <div id="f05" class="scene">
         <div id="f05-cam" data-layout-allow-overflow>
           <div id="f05-m1" class="clip f05-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html"
-            data-start="10.746" data-duration="5.373" data-track-index="1"
+            data-start="10.746" data-duration="5.523" data-track-index="1"
             data-variable-values='{"layout":"2+2","activeTab":"Chat","notifications":"9+","preroll":3}'
             style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
 
           <!-- slot 0 (194,168) -->
           <div id="f05-m2" class="clip f05-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
-            data-start="10.746" data-duration="5.373" data-track-index="2"
+            data-start="10.746" data-duration="5.523" data-track-index="2"
             data-variable-values='{"title":"fix review on 579","countUp":false,"agents":2,"cost":"$4.12","time":"18m 04s","preroll":3}'
             style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
           <div id="f05-body" data-layout-allow-overflow>
             <div id="f05-col">
               <div id="f05-m3" class="clip f05-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
-                data-start="10.746" data-duration="5.373" data-track-index="3"
+                data-start="10.746" data-duration="5.523" data-track-index="3"
                 data-variable-values='{"text":"I will hand the review fixes to a **backend-developer** and verify the build after.","streamRate":8,"footer":false,"cues":"0,0.2"}'
                 style="left: 85px; top: 0; width: 602px; height: 163.4px"></div>
               <div id="f05-m4" class="clip f05-m" data-composition-id="ptah-ui-subagent-bubble" data-composition-src="compositions/components/ptah-ui-subagent-bubble.html"
-                data-start="11.642" data-duration="4.477" data-track-index="4"
+                data-start="11.642" data-duration="4.627" data-track-index="4"
                 data-variable-values='{"agentType":"backend-developer","task":"Fix review on 579","state":"completed","showMessage":true,"message":"Also check the curator fallback path.","typeRate":30,"cues":"0,0.4,0.8,0.895,1.445,2.9,3.8","focus":"message-agent","focusAt":0.895,"dimOthers":1}'
                 style="left: 85px; top: 169.4px; width: 602px; height: 141.9px"></div>
             </div>
@@ -222,19 +236,19 @@
 
           <!-- slots 1-3: Frame 1's end state -->
           <div id="f05-m5" class="clip f05-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
-            data-start="10.746" data-duration="5.373" data-track-index="5"
+            data-start="10.746" data-duration="5.523" data-track-index="5"
             data-variable-values='{"title":"continue editor upgrades","countUp":false,"preroll":3}'
             style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
           <div id="f05-m6" class="clip f05-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html"
-            data-start="10.746" data-duration="5.373" data-track-index="6"
+            data-start="10.746" data-duration="5.523" data-track-index="6"
             data-variable-values='{"text":"The spec is sound. I now spot-check key contracts: the shared constants and the CI job.","footer":false,"preroll":10}'
             style="left: 1086px; top: 275.5px; width: 602px; height: 163.4px"></div>
           <div id="f05-m7" class="clip f05-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
-            data-start="10.746" data-duration="5.373" data-track-index="7"
+            data-start="10.746" data-duration="5.523" data-track-index="7"
             data-variable-values='{"title":"providers UX audit","countUp":false,"agents":3,"cost":"$2.37","time":"9m 51s","preroll":3}'
             style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
           <div id="f05-m8" class="clip f05-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
-            data-start="10.746" data-duration="5.373" data-track-index="8"
+            data-start="10.746" data-duration="5.523" data-track-index="8"
             data-variable-values='{"title":"review memory work","countUp":false,"agents":1,"cost":"$1.08","time":"6m 12s","models":1,"preroll":3}'
             style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
         </div>
@@ -244,22 +258,78 @@
         <audio id="sx-f05-click" src="assets/sfx/click.mp3" data-start="12.537" data-duration="0.366" data-track-index="52" data-volume="0.55"></audio>
         <audio id="sx-f05-typing" src="assets/sfx/typing.mp3" data-start="13.087" data-duration="1.25" data-track-index="53" data-volume="0.35"></audio>
         <audio id="sx-f05-key" src="assets/sfx/key-press.mp3" data-start="14.542" data-duration="0.2" data-track-index="54" data-volume="0.6"></audio>
-        <audio id="sx-f05-chime" src="assets/sfx/chime.mp3" data-start="15.442" data-duration="0.677" data-track-index="55" data-volume="0.45"></audio>
+        <audio id="sx-f05-chime" src="assets/sfx/chime.mp3" data-start="15.442" data-duration="0.827" data-track-index="55" data-volume="0.45"></audio>
       </div>
 
-      <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="16.119" data-media-start="12.575" data-track-index="10" data-volume="0.6"></audio>
+<!-- 06-title-lanes.html (16.119-17.91) -->
+<div id="f06" class="scene">
+        <div id="f06-vig"></div>
+        <div id="f06-stage">
+          <div id="f06-l1" class="f06-line">Lanes run</div>
+          <div id="f06-l2" class="f06-line">in parallel.</div>
+        </div>
+        <audio id="sx-f06-hit" src="assets/sfx/impact-bass-2.mp3" data-start="16.119" data-duration="1.991" data-track-index="40" data-volume="0.6"></audio>
+        <audio id="sx-f06-click" src="assets/sfx/click.mp3" data-start="16.567" data-duration="0.366" data-track-index="41" data-volume="0.5"></audio>
+      </div>
+
+<!-- 07-lanes.html (17.91-23.283) -->
+<div id="f07" class="scene">
+        <div id="f07-cam" data-layout-allow-overflow>
+          <div id="f07-m1" class="clip f07-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html"
+            data-start="17.91" data-duration="5.373" data-track-index="1"
+            data-variable-values='{"layout":"2+2","activeTab":"Chat","notifications":"9+","preroll":3}'
+            style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
+
+          <div id="f07-m2" class="clip f07-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="17.91" data-duration="5.373" data-track-index="2"
+            data-variable-values='{"title":"fix review on 579","countUp":false,"agents":2,"cost":"$4.12","time":"18m 04s","preroll":3}'
+            style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f07-m3" data-layout-ignore class="clip f07-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="17.91" data-duration="5.373" data-track-index="3"
+            data-variable-values='{"title":"continue editor upgrades","countUp":false,"preroll":3}'
+            style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
+          <div id="f07-m4" class="clip f07-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="17.91" data-duration="5.373" data-track-index="4"
+            data-variable-values='{"title":"providers UX audit","countUp":false,"agents":3,"cost":"$2.37","time":"9m 51s","preroll":3}'
+            style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
+          <div id="f07-m5" data-layout-ignore class="clip f07-m" data-composition-id="ptah-ui-session-shell" data-composition-src="compositions/components/ptah-ui-session-shell.html"
+            data-start="17.91" data-duration="5.373" data-track-index="5"
+            data-variable-values='{"title":"review memory work","countUp":false,"agents":1,"cost":"$1.08","time":"6m 12s","models":1,"preroll":3}'
+            style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
+
+          <div id="f07-drawer" data-layout-allow-overflow>
+            <div id="f07-m6" class="clip f07-m" data-composition-id="ptah-ui-agents-panel" data-composition-src="compositions/components/ptah-ui-agents-panel.html"
+              data-start="18.358" data-duration="4.925" data-track-index="6"
+              data-variable-values='{"count":2,"lane1Name":"Glm","lane1Status":"completed","lane2Name":"Antigravity","lane2Status":"completed","rowGap":0.448,"cues":"0,0.2,0.35,0.448","focus":"tabs","focusAt":4.03,"dimOthers":1}'
+              style="left: 0; top: 0; width: 910px; height: 546px"></div>
+          </div>
+        </div>
+
+        <audio id="sx-f07-whoosh" src="assets/sfx/whoosh.mp3" data-start="17.91" data-duration="0.575" data-track-index="70" data-volume="0.45"></audio>
+        <audio id="sx-f07-r1" src="assets/sfx/click-soft.mp3" data-start="18.806" data-duration="0.366" data-track-index="71" data-volume="0.35"></audio>
+        <audio id="sx-f07-r2" src="assets/sfx/click-soft.mp3" data-start="19.253" data-duration="0.366" data-track-index="72" data-volume="0.35"></audio>
+        <audio id="sx-f07-r3" src="assets/sfx/click-soft.mp3" data-start="19.701" data-duration="0.366" data-track-index="73" data-volume="0.35"></audio>
+        <audio id="sx-f07-r4" src="assets/sfx/click-soft.mp3" data-start="20.149" data-duration="0.366" data-track-index="74" data-volume="0.35"></audio>
+        <audio id="sx-f07-r5" src="assets/sfx/click-soft.mp3" data-start="20.597" data-duration="0.366" data-track-index="75" data-volume="0.35"></audio>
+        <audio id="sx-f07-done1" src="assets/sfx/ping.mp3" data-start="22.388" data-duration="0.6" data-track-index="76" data-volume="0.45"></audio>
+        <audio id="sx-f07-done2" src="assets/sfx/ping.mp3" data-start="22.835" data-duration="0.448" data-track-index="77" data-volume="0.4"></audio>
+      </div>
+
+      <audio id="music" src="assets/music/mixkit-uplifting-bass.mp3" data-start="0" data-duration="23.283" data-media-start="12.575" data-track-index="10" data-volume="0.6"></audio>
     </div>
     <script>
       (function () {
         const tl = HyperShader.init({
           bgColor: "#131317",
           accentColor: "#d4af37",
-          scenes: ["f01", "f02", "f03", "f04", "f05"],
+          scenes: ["f01", "f02", "f03", "f04", "f05", "f06", "f07"],
           transitions: [
           {"time":3.407,"shader":"glitch","duration":0.35},
           {"time":5.173,"shader":"cinematic-zoom","duration":0.4},
           {"time":8.805,"shader":"whip-pan","duration":0.3},
-          {"time":10.546,"shader":"cinematic-zoom","duration":0.4}
+          {"time":10.546,"shader":"cinematic-zoom","duration":0.4},
+          {"time":15.969,"shader":"whip-pan","duration":0.3},
+          {"time":17.71,"shader":"cinematic-zoom","duration":0.4}
         ],
         });
 // 01-hook.html
@@ -362,6 +432,30 @@
           // The transcript scrolls up as the subagent bubble arrives (beat 3), like the app's chat column.
           tl.fromTo("#f05-col", { y: 0 }, { y: -44, duration: 0.45, ease: "power3.out" }, T0 + 0.896);
       })(tl, 10.746);
+// 06-title-lanes.html
+(function (tl, T0) {
+          var B = 0.448;
+          tl.fromTo("#f06-l1", { x: -380, opacity: 0 }, { x: 0, opacity: 1, duration: 0.38, ease: "expo.out" }, T0);
+          tl.fromTo("#f06-l2", { scale: 1.4, filter: "blur(12px)", opacity: 0, transformOrigin: "0% 50%" }, { scale: 1, filter: "blur(0px)", opacity: 1, duration: 0.4, ease: "power4.out" }, T0 + B);
+      })(tl, 16.119);
+// 07-lanes.html
+(function (tl, T0) {
+          function pose(s, fx, fy) { return { scale: s, x: 960 - s * fx, y: 540 - s * fy }; }
+          // Window -> the panel's centre (1417, 433) -> settle closer -> punch in on both lanes as they complete (1417, 420).
+          var P0 = pose(1.0, 960, 540), P1 = pose(1.6, 1417, 433), P2 = pose(1.75, 1417, 433), P3 = pose(2.0, 1417, 420);
+          tl.fromTo("#f07-cam", P0, {
+            keyframes: [
+              Object.assign({}, P1, { duration: 0.896, ease: "expo.inOut" }),
+              Object.assign({}, P1, { duration: 0.895, ease: "none" }),
+              Object.assign({}, P2, { duration: 2.687, ease: "none" }),
+              Object.assign({}, P3, { duration: 0.35, ease: "expo.out" }),
+              Object.assign({}, P3, { duration: 0.545, ease: "none" }),
+            ],
+            ease: "none",
+          }, T0);
+          // The drawer slides in from the Agents rail on beat 2.
+          tl.fromTo("#f07-drawer", { x: 930 }, { x: 0, duration: 0.45, ease: "power3.out" }, T0 + 0.448);
+      })(tl, 17.91);
         window.__timelines["main"] = tl;
       })();
     </script>
