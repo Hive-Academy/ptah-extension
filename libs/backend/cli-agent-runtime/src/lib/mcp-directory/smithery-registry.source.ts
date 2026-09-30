@@ -2,7 +2,7 @@
  * Smithery MCP registry source.
  *
  * Discovery against the Smithery registry (per-server hosted model). Mirrors
- * `McpRegistryProvider`: raw `globalThis.fetch` + 15s AbortController timeout +
+ * `McpRegistryProvider`: raw `globalThis.fetch` + 30s AbortController timeout +
  * 10-min cache + permissive Zod `.passthrough()`.
  *
  * SECURITY: never logs the API key or any built URL.

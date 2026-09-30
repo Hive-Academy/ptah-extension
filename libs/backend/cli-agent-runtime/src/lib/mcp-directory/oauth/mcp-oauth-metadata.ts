@@ -19,7 +19,26 @@
  *
  * All network access goes through an injected `FetchLike` so the flow is
  * unit-testable without real HTTP. No secrets are logged.
+ *
+ * Every request is bounded twice: `withRequestTimeout` aborts any single
+ * request after `OAUTH_REQUEST_TIMEOUT_MS`, and the discovery functions accept
+ * a deadline `signal` that aborts the in-flight request and stops trying
+ * further candidate URLs once the whole phase has run out of time.
  */
+
+/** Upper bound for any single OAuth HTTP request (discovery, DCR, token). */
+export const OAUTH_REQUEST_TIMEOUT_MS = 15_000;
+/**
+ * Upper bound for everything `connect()` does before it waits for the browser
+ * callback: protected-resource discovery, auth-server metadata discovery and
+ * dynamic client registration together.
+ */
+export const OAUTH_DISCOVERY_DEADLINE_MS = 45_000;
+/**
+ * Upper bound for the advisory `probeDiscovery()`. It sits under the 30 s
+ * default RPC timeout of the frontend, so it must give up before that fires.
+ */
+export const OAUTH_PROBE_DEADLINE_MS = 25_000;
 
 /** Minimal fetch surface — satisfied by Node's global `fetch`. */
 export type FetchLike = (
@@ -28,6 +47,7 @@ export type FetchLike = (
     method?: string;
     headers?: Record<string, string>;
     body?: string;
+    signal?: AbortSignal;
   },
 ) => Promise<{
   ok: boolean;
@@ -82,6 +102,65 @@ export class OAuthDiscoveryError extends Error {
   }
 }
 
+/** `name` of {@link OAuthTimeoutError}; classify by it the same way. */
+export const OAUTH_TIMEOUT_ERROR_NAME = 'OAuthTimeoutError';
+
+/**
+ * An OAuth request, or the discovery phase as a whole, ran out of time. It
+ * replaces the runtime's raw `AbortError` / `TimeoutError`, whose message
+ * ("This operation was aborted") means nothing to the user. `url` is the
+ * request that was cut off, kept for logs; it is not in the message.
+ */
+export class OAuthTimeoutError extends Error {
+  override readonly name = OAUTH_TIMEOUT_ERROR_NAME;
+
+  constructor(readonly url: string) {
+    super('The authorization server did not respond in time.');
+  }
+}
+
+/**
+ * Wrap a fetch so every request, including reading its body, is aborted after
+ * `timeoutMs`. A caller-supplied `init.signal` (a phase deadline) still
+ * applies; whichever fires first wins. Either abort surfaces as
+ * {@link OAuthTimeoutError}; every other failure propagates unchanged.
+ */
+export function withRequestTimeout(
+  fetchImpl: FetchLike,
+  timeoutMs: number = OAUTH_REQUEST_TIMEOUT_MS,
+): FetchLike {
+  return async (url, init) => {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = init?.signal
+      ? AbortSignal.any([init.signal, timeout])
+      : timeout;
+    const guard = async <T>(work: () => Promise<T>): Promise<T> => {
+      try {
+        return await work();
+      } catch (error: unknown) {
+        if (signal.aborted) throw new OAuthTimeoutError(url);
+        throw error;
+      }
+    };
+    const resp = await guard(() => fetchImpl(url, { ...init, signal }));
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      headers: resp.headers,
+      json: () => guard(() => resp.json()),
+      text: () => guard(() => resp.text()),
+    };
+  };
+}
+
+/** Stop a discovery phase whose deadline has passed. */
+function assertBeforeDeadline(
+  signal: AbortSignal | undefined,
+  url: string,
+): void {
+  if (signal?.aborted) throw new OAuthTimeoutError(url);
+}
+
 /**
  * The pathname of a URL with any trailing slash removed, or `''` when the URL
  * is at the root. `''` means "no path form applies", which is what both
@@ -114,10 +193,12 @@ function str(value: unknown): string | undefined {
 async function readProtectedResourceMetadata(
   prmUrl: string,
   fetchImpl: FetchLike,
+  signal: AbortSignal | undefined,
 ): Promise<string | undefined> {
   try {
     const resp = await fetchImpl(prmUrl, {
       headers: { Accept: 'application/json' },
+      signal,
     });
     if (!resp.ok) return undefined;
     const body = asRecord(await resp.json());
@@ -155,10 +236,12 @@ export function parseResourceMetadataChallenge(
 async function discoverPrmUrlFromChallenge(
   serverUrl: string,
   fetchImpl: FetchLike,
+  signal: AbortSignal | undefined,
 ): Promise<string | undefined> {
   try {
     const resp = await fetchImpl(serverUrl, {
       headers: { Accept: 'application/json, text/event-stream' },
+      signal,
     });
     if (resp.status !== 401) return undefined;
     const header =
@@ -183,10 +266,14 @@ async function discoverPrmUrlFromChallenge(
  *   3. The `resource_metadata` URL advertised by the server's own 401.
  *   4. Fall back to the MCP server's origin. Many servers co-locate their OAuth
  *      endpoints, and RFC 8414 discovery below will confirm or reject it.
+ *
+ * `signal` is the phase deadline: once it aborts, no further candidate is
+ * tried and the call rejects with {@link OAuthTimeoutError}.
  */
 export async function discoverAuthorizationServer(
   serverUrl: string,
   fetchImpl: FetchLike,
+  signal?: AbortSignal,
 ): Promise<string> {
   const url = new URL(serverUrl);
   const base = url.origin;
@@ -198,16 +285,32 @@ export async function discoverAuthorizationServer(
   ]);
 
   for (const candidate of candidates) {
-    const found = await readProtectedResourceMetadata(candidate, fetchImpl);
+    assertBeforeDeadline(signal, serverUrl);
+    const found = await readProtectedResourceMetadata(
+      candidate,
+      fetchImpl,
+      signal,
+    );
     if (found) return found;
   }
 
-  const hinted = await discoverPrmUrlFromChallenge(serverUrl, fetchImpl);
+  assertBeforeDeadline(signal, serverUrl);
+  const hinted = await discoverPrmUrlFromChallenge(
+    serverUrl,
+    fetchImpl,
+    signal,
+  );
   if (hinted) {
-    const found = await readProtectedResourceMetadata(hinted, fetchImpl);
+    assertBeforeDeadline(signal, serverUrl);
+    const found = await readProtectedResourceMetadata(
+      hinted,
+      fetchImpl,
+      signal,
+    );
     if (found) return found;
   }
 
+  assertBeforeDeadline(signal, serverUrl);
   return base;
 }
 
@@ -219,10 +322,15 @@ export async function discoverAuthorizationServer(
  * tried FIRST, then the OIDC Discovery 1.0 §4 form that appends the well-known
  * suffix to the issuer, and only then the two root documents. Returns the first
  * document that carries both an authorization and a token endpoint.
+ *
+ * `signal` is the phase deadline: once it aborts, no further candidate is
+ * tried and the call rejects with {@link OAuthTimeoutError} instead of the
+ * misleading {@link OAuthDiscoveryError}.
  */
 export async function discoverAuthServerMetadata(
   authServer: string,
   fetchImpl: FetchLike,
+  signal?: AbortSignal,
 ): Promise<AuthServerMetadata> {
   const issuer = new URL(authServer);
   const base = issuer.origin;
@@ -242,9 +350,11 @@ export async function discoverAuthServerMetadata(
   ]);
 
   for (const url of candidates) {
+    assertBeforeDeadline(signal, authServer);
     try {
       const resp = await fetchImpl(url, {
         headers: { Accept: 'application/json' },
+        signal,
       });
       if (!resp.ok) continue;
       const body = asRecord(await resp.json());
@@ -264,9 +374,10 @@ export async function discoverAuthServerMetadata(
         };
       }
     } catch {
-      /* try next candidate */
+      /* try next candidate; a passed deadline is caught at the loop head */
     }
   }
+  assertBeforeDeadline(signal, authServer);
 
   // Name the authorization server the caller asked about, not its origin: the
   // path is what tells one path-hosted server from another on the same host.
@@ -276,15 +387,19 @@ export async function discoverAuthServerMetadata(
 /**
  * RFC 7591 dynamic client registration. Returns a public client (no secret)
  * when the server issues one — the PKCE flow does not require a client secret.
+ * `signal` is the phase deadline, forwarded to the request.
  */
 export async function registerClient(
   registrationEndpoint: string,
   redirectUri: string,
   fetchImpl: FetchLike,
   clientName = 'Ptah',
+  signal?: AbortSignal,
 ): Promise<RegisteredClient> {
+  assertBeforeDeadline(signal, registrationEndpoint);
   const resp = await fetchImpl(registrationEndpoint, {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',

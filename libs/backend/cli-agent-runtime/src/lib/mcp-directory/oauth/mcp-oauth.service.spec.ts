@@ -419,6 +419,118 @@ describe('McpOAuthService', () => {
   });
 });
 
+describe('McpOAuthService time bounds', () => {
+  const cleanup: string[] = [];
+  afterEach(() => {
+    for (const p of cleanup.splice(0)) fs.rmSync(p, { force: true });
+  });
+
+  /** A request that settles only when its signal aborts. */
+  const hang = (init?: { signal?: AbortSignal }) =>
+    new Promise<never>((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () => reject(init.signal?.reason),
+        { once: true },
+      );
+    });
+
+  function makeTimedService(
+    transport: FetchLike,
+    bounds: {
+      requestTimeoutMs?: number;
+      discoveryDeadlineMs?: number;
+      probeDeadlineMs?: number;
+    },
+  ) {
+    const manifestPath = path.join(
+      os.tmpdir(),
+      `mcp-oauth-timeout-${process.pid}-${Math.random().toString(36).slice(2)}.json`,
+    );
+    cleanup.push(manifestPath);
+    const warn = jest.fn();
+    const service = new McpOAuthService({
+      callbackListener: makeFakeCallbackListener(),
+      openExternal: async () => true,
+      tokenStore: createMcpOAuthTokenStore(makeSecrets()),
+      manifest: new McpOAuthInstalledManifestStore(manifestPath),
+      fetchImpl: transport,
+      logger: { debug: jest.fn(), warn },
+      now: () => 1_000_000,
+      callbackTimeoutMs: 5000,
+      ...bounds,
+    });
+    return { service, warn };
+  }
+
+  it('probeDiscovery() gives up at the probe deadline with a readable error and a warn log', async () => {
+    const seen: string[] = [];
+    const { service, warn } = makeTimedService(
+      async (url, init) => {
+        seen.push(url);
+        return hang(init);
+      },
+      { requestTimeoutMs: 10_000, probeDeadlineMs: 40 },
+    );
+
+    await expect(
+      service.probeDiscovery('https://mcp.example.com/mcp'),
+    ).rejects.toThrow('The authorization server did not respond in time.');
+    // The deadline cut off the first candidate; no further one was tried.
+    expect(seen).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith('MCP OAuth: request timed out', {
+      serverUrl: 'https://mcp.example.com/mcp',
+      step: 'probe-discovery',
+      url: 'https://mcp.example.com/mcp',
+    });
+  });
+
+  it('connect() aborts a hanging registration after the per-request timeout', async () => {
+    const { service, warn } = makeTimedService(
+      async (url, init) =>
+        url === 'https://auth.example.com/register'
+          ? hang(init)
+          : fetchImpl(url, init),
+      { requestTimeoutMs: 30, discoveryDeadlineMs: 10_000 },
+    );
+
+    await expect(
+      service.connect({ serverUrl: 'https://mcp.example.com/mcp' }),
+    ).rejects.toMatchObject({
+      name: 'OAuthTimeoutError',
+      message: 'The authorization server did not respond in time.',
+    });
+    expect(warn).toHaveBeenCalledWith(
+      'MCP OAuth: request timed out',
+      expect.objectContaining({
+        serverUrl: 'https://mcp.example.com/mcp',
+        step: 'registration',
+      }),
+    );
+  });
+
+  it('connect() passes a live bounded signal on every request and completes normally', async () => {
+    const signals: Array<AbortSignal | undefined> = [];
+    const { service, warn } = makeTimedService(async (url, init) => {
+      signals.push(init?.signal);
+      return fetchImpl(url, init);
+    }, {});
+
+    await expect(
+      service.connect({ serverUrl: 'https://mcp.example.com/mcp' }),
+    ).resolves.toEqual({
+      serverKey: deriveMcpOAuthServerKey('https://mcp.example.com/mcp'),
+    });
+    // Protected-resource doc, AS metadata, registration, token exchange.
+    expect(signals).toHaveLength(4);
+    for (const signal of signals) {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal?.aborted).toBe(false);
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
 describe('deriveMcpOAuthServerKey', () => {
   it('produces a stable, config-safe key', () => {
     expect(deriveMcpOAuthServerKey('https://mcp.notion.com/mcp')).toBe(
