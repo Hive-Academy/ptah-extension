@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Frame 1 - hook</title>
+    <!-- Frame 1: Hook, glitch to clarity (STORYBOARD.md). 3.582 s = 2 bars at 134 BPM; the drop lands at 1.791.
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. -->
+  </head>
+  <body>
+    <template>
+      <style>
+        #f01-bg { position: absolute; inset: 0; background: #131317; }
+        #f01-lens { position: absolute; inset: 0; overflow: hidden; }
+        #f01-cam { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; will-change: transform; }
+        #f01-vig { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 80% 70% at 50% 42%, rgba(0, 0, 0, 0) 60%, rgba(0, 0, 0, 0.35) 100%); }
+        .f01-m { position: absolute; }
+        #f01-fx { position: absolute; width: 0; height: 0; }
+      </style>
+
+      <div data-hf-id="hf-k13w" id="f01" class="scene" data-composition-id="f01" data-width="1920" data-height="1080" data-frame-start="0" data-frame-duration="3.582">
+        <div data-hf-id="hf-906g" id="f01-bg"></div>
+        <div data-hf-id="hf-pp01" id="f01-vig"></div>
+        <svg data-hf-id="hf-yyv9" id="f01-fx" aria-hidden="true">
+          <filter data-hf-id="hf-q52c" id="f01-glitch" x="-2%" y="-2%" width="104%" height="104%" color-interpolation-filters="sRGB">
+            <feturbulence data-hf-id="hf-8va3" id="f01-turb" type="fractalNoise" baseFrequency="0.0002 0.08" numOctaves="1" seed="1" result="n" />
+            <fedisplacementmap data-hf-id="hf-mjsk" id="f01-disp" in="SourceGraphic" in2="n" scale="0" xChannelSelector="R" yChannelSelector="G" result="d" />
+            <fecolormatrix data-hf-id="hf-b5he" in="d" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r" />
+            <feoffset data-hf-id="hf-av5b" id="f01-ro" in="r" dx="0" dy="0" result="ro" />
+            <fecolormatrix data-hf-id="hf-sm65" in="d" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="g" />
+            <fecolormatrix data-hf-id="hf-eacq" in="d" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b" />
+            <feoffset data-hf-id="hf-so2n" id="f01-bo" in="b" dx="0" dy="0" result="bo" />
+            <feblend data-hf-id="hf-j1k5" in="ro" in2="g" mode="screen" result="rg" />
+            <feblend data-hf-id="hf-8kre" in="rg" in2="bo" mode="screen" />
+          </filter>
+        </svg>
+
+        <div data-hf-id="hf-6ztx" id="f01-lens">
+          <div data-hf-id="hf-80l9" id="f01-cam" data-layout-allow-overflow="">
+            <div data-hf-id="hf-xilm" id="f01-m1" class="clip f01-m" data-composition-id="ptah-ui-app-window" data-composition-src="compositions/components/ptah-ui-app-window.html" data-start="0" data-duration="3.582" data-track-index="1" data-variable-values="{&quot;layout&quot;:&quot;2+2&quot;,&quot;activeTab&quot;:&quot;Chat&quot;,&quot;notifications&quot;:&quot;9+&quot;,&quot;cues&quot;:&quot;0,0.04,0.08,0.12,0.16&quot;,&quot;focus&quot;:&quot;slot-0&quot;,&quot;focusAt&quot;:3.134,&quot;dimOthers&quot;:1}" style="left: 0; top: 0; width: 1920px; height: 1080px"></div>
+
+            <!-- slot 0 (194,168) -->
+            <div data-hf-id="hf-lawi" id="f01-m2" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.582" data-track-index="2" data-variable-values="{&quot;title&quot;:&quot;fix review on 579&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;,&quot;agents&quot;:2,&quot;cost&quot;:&quot;$4.12&quot;,&quot;time&quot;:&quot;18m 04s&quot;}" style="left: 194px; top: 168px; width: 774px; height: 430px"></div>
+            <div data-hf-id="hf-uo57" id="f01-m3" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.582" data-track-index="3" data-variable-values="{&quot;text&quot;:&quot;I read the review comments. Three are valid: I fix them, then run the build.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.3&quot;}" style="left: 280px; top: 275.5px; width: 602px; height: 163.4px"></div>
+            <div data-hf-id="hf-cx5e" id="f01-m4" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="4" data-variable-values="{&quot;tool&quot;:&quot;Read&quot;,&quot;label&quot;:&quot;.../pr-579/review-comments.md&quot;,&quot;cues&quot;:&quot;0.2,0.4,1.1&quot;,&quot;runFor&quot;:0.7,&quot;duration&quot;:&quot;0.4s&quot;}" style="left: 280px; top: 447.5px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-rosd" id="f01-m5" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="5" data-variable-values="{&quot;tool&quot;:&quot;Edit&quot;,&quot;label&quot;:&quot;.../git/git-operations.ts&quot;,&quot;cues&quot;:&quot;1.791,2.02,2.92&quot;,&quot;runFor&quot;:0.9,&quot;duration&quot;:&quot;0.6s&quot;}" style="left: 280px; top: 484px; width: 602px; height: 31px"></div>
+
+            <!-- slot 1 (1000,168): the hook's macro target is row 1's badge -->
+            <div data-hf-id="hf-qbpd" id="f01-m6" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.582" data-track-index="6" data-variable-values="{&quot;title&quot;:&quot;continue editor upgrades&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;}" style="left: 1000px; top: 168px; width: 774px; height: 430px"></div>
+            <div data-hf-id="hf-scuz" id="f01-m7" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.582" data-track-index="7" data-variable-values="{&quot;text&quot;:&quot;The spec is sound. I now spot-check key contracts: the shared constants and the CI job.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.2&quot;}" style="left: 1086px; top: 275.5px; width: 602px; height: 163.4px"></div>
+            <div data-hf-id="hf-3bqc" id="f01-target" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="8" data-variable-values="{&quot;tool&quot;:&quot;Bash&quot;,&quot;label&quot;:&quot;Show git operation constants and the CI job&quot;,&quot;liveText&quot;:&quot;Executing Bash...&quot;,&quot;cues&quot;:&quot;0,0.15,1.343&quot;,&quot;runFor&quot;:1.19,&quot;duration&quot;:&quot;1.2s&quot;}" style="left: 1086px; top: 447.5px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-2f9q" id="f01-m9" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="9" data-variable-values="{&quot;tool&quot;:&quot;Grep&quot;,&quot;label&quot;:&quot;EXPECTED_CAPABILITY_COUNT&quot;,&quot;cues&quot;:&quot;2.239,2.4,3.0&quot;,&quot;runFor&quot;:0.6,&quot;duration&quot;:&quot;0.2s&quot;}" style="left: 1086px; top: 484px; width: 602px; height: 31px"></div>
+
+            <!-- slot 2 (194,630) -->
+            <div data-hf-id="hf-go89" id="f01-m10" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.582" data-track-index="10" data-variable-values="{&quot;title&quot;:&quot;providers UX audit&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;,&quot;agents&quot;:3,&quot;cost&quot;:&quot;$2.37&quot;,&quot;time&quot;:&quot;9m 51s&quot;}" style="left: 194px; top: 630px; width: 774px; height: 430px"></div>
+            <div data-hf-id="hf-76ox" id="f01-m11" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.582" data-track-index="11" data-variable-values="{&quot;text&quot;:&quot;Two lanes audit the providers screen. I merge their findings when both report back.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.5&quot;}" style="left: 280px; top: 737.5px; width: 602px; height: 163.4px"></div>
+            <div data-hf-id="hf-jtq5" id="f01-m12" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="12" data-variable-values="{&quot;tool&quot;:&quot;Glob&quot;,&quot;label&quot;:&quot;libs/frontend/**/providers*.ts&quot;,&quot;cues&quot;:&quot;0.3,0.5,1.3&quot;,&quot;runFor&quot;:0.8,&quot;duration&quot;:&quot;0.3s&quot;}" style="left: 280px; top: 909.5px; width: 602px; height: 31px"></div>
+            <div data-hf-id="hf-9e1c" id="f01-m13" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="13" data-variable-values="{&quot;tool&quot;:&quot;Write&quot;,&quot;label&quot;:&quot;.../audit/providers-findings.md&quot;,&quot;cues&quot;:&quot;2.687,2.85,3.35&quot;,&quot;runFor&quot;:0.5,&quot;duration&quot;:&quot;0.2s&quot;}" style="left: 280px; top: 946px; width: 602px; height: 31px"></div>
+
+            <!-- slot 3 (1000,630) -->
+            <div data-hf-id="hf-c8bq" id="f01-m14" class="clip f01-m" data-composition-id="ptah-ui-session-shell" data-layout-allow-overflow="" data-layout-allow-occlusion="" data-composition-src="compositions/components/ptah-ui-session-shell.html" data-start="0" data-duration="3.582" data-track-index="14" data-variable-values="{&quot;title&quot;:&quot;review memory work&quot;,&quot;countUp&quot;:false,&quot;cues&quot;:&quot;0,0.08,0.16,0.24&quot;,&quot;agents&quot;:1,&quot;cost&quot;:&quot;$1.08&quot;,&quot;time&quot;:&quot;6m 12s&quot;,&quot;models&quot;:1}" style="left: 1000px; top: 630px; width: 774px; height: 430px"></div>
+            <div data-hf-id="hf-c1fz" id="f01-m15" class="clip f01-m" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.582" data-track-index="15" data-variable-values="{&quot;text&quot;:&quot;The memory curator looks right. The fallback path needs one more test.&quot;,&quot;streamRate&quot;:7,&quot;footer&quot;:false,&quot;cues&quot;:&quot;0,0.4&quot;}" style="left: 1086px; top: 737.5px; width: 602px; height: 163.4px"></div>
+            <div data-hf-id="hf-iprn" id="f01-m16" class="clip f01-m" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="16" data-variable-values="{&quot;tool&quot;:&quot;Read&quot;,&quot;label&quot;:&quot;.../memory/memory-curator.service.ts&quot;,&quot;cues&quot;:&quot;1.343,1.5,2.2&quot;,&quot;runFor&quot;:0.7,&quot;duration&quot;:&quot;0.3s&quot;}" style="left: 1086px; top: 909.5px; width: 602px; height: 31px"></div>
+          </div>
+        </div>
+      </div>
+
+      <script>
+          // Camera: one wrapper, transform-origin 0 0, screen = scale * world + (x, y).
+          // Poses: macro 3.5 on slot 1's Bash badge (world 1150, 463) -> full window at the drop -> slow push.
+          var BX = 1150, BY = 463, S0 = 3.5, S2 = 1.02;
+          tl.fromTo("#f01-cam", { scale: S0, x: 960 - S0 * BX, y: 540 - S0 * BY }, {
+            keyframes: [
+              { scale: S0, x: 960 - S0 * BX, y: 540 - S0 * BY, duration: 0.591, ease: "none" },
+              { scale: 1, x: 0, y: 0, duration: 1.2, ease: "expo.inOut" },
+              { scale: S2, x: 960 - S2 * 960, y: 540 - S2 * 540, duration: 1.791, ease: "none" },
+            ],
+            ease: "none",
+          }, T0);
+
+          // Glitch: RGB split + slice displacement + blur on the lens, a pure function of quantized time.
+          // Full strength until 0.591, bursts on beats 1-3, decays to clean at the drop (1.791).
+          var lens = document.getElementById("f01-lens");
+          var ro = document.getElementById("f01-ro");
+          var bo = document.getElementById("f01-bo");
+          var disp = document.getElementById("f01-disp");
+          var turb = document.getElementById("f01-turb");
+          var DROP = 1.791, BEATS = [0, 0.448, 0.896], STEP = 1 / 15;
+          var decay = gsap.parseEase("power2.in");
+          function hash(n) {
+            var x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+            return x - Math.floor(x);
+          }
+          function writeGlitch(t) {
+            var base = t >= DROP ? 0 : t < 0.591 ? 1 : 1 - decay((t - 0.591) / 1.2);
+            if (base <= 0.002) {
+              lens.style.filter = "none";
+              return;
+            }
+            var burst = 0;
+            for (var i = 0; i < BEATS.length; i++) if (t >= BEATS[i]) burst = Math.max(burst, 1 - (t - BEATS[i]) / 0.18);
+            var step = Math.floor(t / STEP);
+            var sign = hash(step * 7 + 1) > 0.5 ? 1 : -1;
+            var split = (10 + hash(step * 13 + 2) * 18) * base;
+            ro.setAttribute("dx", (sign * split).toFixed(2));
+            ro.setAttribute("dy", ((hash(step * 29 + 3) * 2 - 1) * split * 0.3).toFixed(2));
+            bo.setAttribute("dx", (-sign * split * 0.8).toFixed(2));
+            disp.setAttribute("scale", ((24 + 110 * burst) * base).toFixed(1));
+            turb.setAttribute("seed", String(1 + (step % 97)));
+            lens.style.filter = "url(#f01-glitch) blur(" + (3.5 * base).toFixed(2) + "px)";
+          }
+          var drive = { p: 0 };
+          writeGlitch(0);
+          tl.fromTo(drive, { p: 0 }, { p: 1, duration: DROP + 0.1, ease: "none", onUpdate: function () { writeGlitch(tl.time() - T0); } }, T0);
+      </script>
+    </template>
+  </body>
+</html>
