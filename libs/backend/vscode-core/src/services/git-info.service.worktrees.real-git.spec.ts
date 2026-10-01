@@ -44,7 +44,11 @@ function git(repo: string, ...args: string[]): string {
 const createdDirs: string[] = [];
 
 function makeTempDir(prefix: string): string {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  // `.native` expands Windows 8.3 short names (C:\Users\RUNNER~1), which
+  // git never prints, so listed paths compare equal.
+  const dir = fs.realpathSync.native(
+    fs.mkdtempSync(path.join(os.tmpdir(), prefix)),
+  );
   createdDirs.push(dir);
   return dir;
 }
@@ -216,13 +220,15 @@ describe('GitInfoService worktree administration (real git)', () => {
     it('warns and still succeeds when the exclude cannot be written', async () => {
       const repo = makeRepo();
       const exclude = commonExcludeFile(repo);
-      fs.rmSync(exclude, { force: true });
-      fs.mkdirSync(exclude, { recursive: true }); // a directory: unreadable as a file
+      // Read-only, not a directory: git on Linux and macOS refuses to run
+      // when info/exclude is a directory, but reads a read-only file.
+      fs.writeFileSync(exclude, '# read-only\n');
+      fs.chmodSync(exclude, 0o444);
 
       const result = await service.addWorktree(repo, {
         branch: 'agent-unwritable',
         createBranch: true,
-      });
+      }).finally(() => fs.chmodSync(exclude, 0o644));
 
       expect(result.success).toBe(true);
       expect(fs.existsSync(result.worktreePath ?? '')).toBe(true);

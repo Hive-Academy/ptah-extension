@@ -2153,9 +2153,8 @@ export class GitInfoService {
       // Stat first so an oversized file is never read into memory.
       const size = await readStat(absolutePath).then(
         (stats) => (stats.isFile() ? stats.size : null),
-        // degradation-audit: optional-capability - a path node cannot stat
-        // (a virtual file system behind the port) is read through the port
-        // and classified by its bytes instead.
+        // A path node cannot stat (a virtual file system behind the port):
+        // it is read through the port and classified by its bytes instead.
         () => null,
       );
       if (size !== null && size > GIT_DIFF_MAX_SIDE_BYTES) {
