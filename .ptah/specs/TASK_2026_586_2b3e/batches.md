@@ -1,6 +1,6 @@
 # Batches - TASK_2026_586_2b3e
 
-Total tasks: 22 | Batches: 6 | Complete: 1/6
+Total tasks: 22 | Batches: 6 | Complete: 2/6
 
 Worktree root (all paths below): `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed`
 Branch: `fix/task-586-thoth-activity-feed`, base `c4ab013f3`.
@@ -238,7 +238,7 @@ Edge cases:
   broadcast/snapshot id equality are behavioural
 - A4 caller list reported
 
-## Batch 2: Feed data path - ordering, dedupe, grouping, identity — IN_PROGRESS
+## Batch 2: Feed data path - ordering, dedupe, grouping, identity — COMPLETE (commit 9e9ff7b4c)
 
 - Recommended executor: frontend-developer (in-process sub-agent)
 - Fallback executor: second frontend-developer invocation for the failing task
@@ -246,7 +246,7 @@ Edge cases:
 - Rationale: state service and the feed component are coupled by the newest-first contract; small (4 files, 1 lib)
 - Tasks: 4 | Depends on: Batch 1
 
-### Task 2.1: Newest-first state with id dedupe and a larger snapshot window — IN_PROGRESS
+### Task 2.1: Newest-first state with id dedupe and a larger snapshot window — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.ts
 - Plan reference: context.md root cause 1; parity C3, C7, C8, root-cause row 1b
@@ -265,7 +265,7 @@ Edge cases:
   the copy already in the list.
 - Implementation details: a small private `insertSorted` / `sortNewestFirst` helper; ULIDs compare as strings.
 
-### Task 2.2: State service spec — IN_PROGRESS
+### Task 2.2: State service spec — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.spec.ts
 - Depends on: Task 2.1
@@ -274,7 +274,7 @@ Edge cases:
   double-bumped; out-of-order live event lands at its sorted position; oldest-first snapshot is normalised;
   `refresh()` sends `eventLimit` = the window constant; cap holds at 50.
 
-### Task 2.3: Grouped, id-tracked, newest-first feed rows — IN_PROGRESS
+### Task 2.3: Grouped, id-tracked, newest-first feed rows — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/event-feed.component.ts
 - Plan reference: context.md root causes 1-3; parity C9-C14; visual-review-before defects 1-3 and 8
@@ -289,7 +289,7 @@ Edge cases:
 - Validation notes: R8.
 - Implementation details: computed signal over `events()` and `limit()`.
 
-### Task 2.4: Feed spec (grouping + identity acceptance) — IN_PROGRESS
+### Task 2.4: Feed spec (grouping + identity acceptance) — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/event-feed.component.spec.ts
 - Depends on: Task 2.3
@@ -303,6 +303,34 @@ Edge cases:
   - Newest event is the first row; `limit` keeps the newest N rows; empty state unchanged; two `error`
     events with different text stay separate.
 
+### Batch 2 execution record (team-leader, Mode 2)
+
+- Verified on disk: only the 4 planned files changed.
+- State service (`skill-diagnostics-state.service.ts`):
+  - `SKILL_EVENT_WINDOW = 50` is both the live cap and the `eventLimit` sent with every snapshot request.
+  - Events are ordered by `compareNewestFirst` (later timestamp first, then larger id).
+  - The snapshot is deduplicated, sorted and capped, then still replaces the whole list (C8).
+  - `pushLiveEvent` ignores a duplicate id before any side effect, then inserts the event at its sorted position.
+- Feed (`event-feed.component.ts`):
+  - exported pure function `groupConsecutiveEvents`;
+  - rows tracked by `row.id`, with `data-event-id` on each row;
+  - count badge, with "N events" for screen readers;
+  - full outcome text in the `title` of the truncated cell.
+- Beyond the plan, accepted pending review: "last analysis" and "last curator pass" now only move forward
+  when an older event arrives late.
+- Executor verification: typecheck, lint and test pass for skill-synthesis-ui (27 suites, 441 tests).
+- Gaps the executor reported as accepted, which the review must rule on:
+  - (a) a duplicate push older than the 50-event window is not recognised; the next poll corrects it;
+  - (b) a live event that lands while a snapshot request is in flight can be overwritten by the snapshot; the
+    next poll restores it (merging the two would change C8);
+  - (c) `SKILL_EVENT_WINDOW` is not exported from the lib index (only used inside the lib).
+- Review: Glm CLI lane (cross-side code-logic), APPROVED 8/10, `code-logic-review.md` `## Batch 2`.
+  - Gaps (a) and (b) accepted as MODERATE-1 and MODERATE-2: they are transient and corrected by the next poll,
+    and (b) is the base behaviour (C8).
+  - Forward-only last-run times accepted.
+  - MINOR-1: a jest worker force-exit warning during teardown; the tests pass.
+  - The webview path from the Skills tab to the feed was not checked; it is covered by Task 4.3.
+
 ### Batch 2 verification
 
 - Files exist with real logic; only these 4 files changed
@@ -311,7 +339,7 @@ Edge cases:
   that consumes the Batch 1 wire contract; the lane must read both `skill-synthesis.service.ts` (producer) and
   DSS/FEED (consumer) and confirm field names, nullability, ordering and id equality across live and snapshot
 
-## Batch 3: Surviving status card, Activity feed owner, Settings triggers (unmounted) — PENDING
+## Batch 3: Surviving status card, Activity feed owner, Settings triggers (unmounted) — IN_PROGRESS
 
 - Recommended executor: frontend-developer (in-process sub-agent)
 - Fallback executor: two frontend-developer invocations, one per component pair
@@ -320,7 +348,7 @@ Edge cases:
   and the accordion still works; needs judgment on layout inside PSC (6 files, 1 lib)
 - Tasks: 6 | Depends on: Batch 2
 
-### Task 3.1: Status card absorbs the accordion summary rows and the Refresh button — PENDING
+### Task 3.1: Status card absorbs the accordion summary rows and the Refresh button — IN_PROGRESS
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/skill-pipeline-status.component.ts
 - Plan reference: parity B2, B3, B4, B5, B6, B11; context.md User Decisions items 2 and 3
@@ -339,7 +367,7 @@ Edge cases:
 - Validation notes: do not duplicate a fact already on the card (the verdict's overlap problem): the today
   counts line (A4) and the new total + histogram must read as one block, not two summaries.
 
-### Task 3.2: Status card spec — PENDING
+### Task 3.2: Status card spec — IN_PROGRESS
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/skill-pipeline-status.component.spec.ts
 - Depends on: Task 3.1
@@ -349,7 +377,7 @@ Edge cases:
   (newest) event when an older `ineligible` sits behind a newer `error` (fails on base semantics with
   oldest-first input).
 
-### Task 3.3: Activity feed owner component (feed, poll, analyze-now, errors) — PENDING
+### Task 3.3: Activity feed owner component (feed, poll, analyze-now, errors) — IN_PROGRESS
 
 - File (new): D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.component.ts
 - Plan reference: parity B7, B10, B12 (Activity), B13, B14 + User Decision item 4
@@ -365,7 +393,7 @@ Edge cases:
   - Error text from `state.error()` with `role="alert"`.
 - Validation notes: R1 (this is now the ONLY `startPolling` caller - confirm by grep), R12.
 
-### Task 3.4: Activity feed owner spec — PENDING
+### Task 3.4: Activity feed owner spec — IN_PROGRESS
 
 - File (new): D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.component.spec.ts
 - Depends on: Task 3.3
@@ -374,7 +402,7 @@ Edge cases:
 - Quality requirements: refresh + startPolling on init, stopPolling on destroy; feed renders newest first;
   analyze-now disabled/enabled/hint/called; error text shown.
 
-### Task 3.5: Settings triggers card (immediate save) — PENDING
+### Task 3.5: Settings triggers card (immediate save) — IN_PROGRESS
 
 - File (new): D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-triggers-settings.component.ts
 - Plan reference: parity B8, B9, B12 (Settings); context.md Scope "Move the trigger toggles to Settings"
@@ -389,7 +417,7 @@ Edge cases:
   - Does NOT start polling and does NOT bind to `settingsForm`.
 - Validation notes: R7; B9 defaults render before the snapshot resolves.
 
-### Task 3.6: Settings triggers spec — PENDING
+### Task 3.6: Settings triggers spec — IN_PROGRESS
 
 - File (new): D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-triggers-settings.component.spec.ts
 - Depends on: Task 3.5

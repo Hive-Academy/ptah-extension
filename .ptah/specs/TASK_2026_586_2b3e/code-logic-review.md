@@ -299,3 +299,143 @@
 - **Recommendation**: APPROVE
 - **Confidence**: HIGH
 - **Top risk**: None remaining in Batch 1 backend contracts. Batch 2 frontend consumers can now safely rely on identical wire payloads between live push and diagnostics snapshot.
+
+## Batch 2
+
+- **Batch**: Batch 2 — Feed data path: ordering, dedupe, grouping, identity
+- **Author**: frontend-developer (in-process sub-agent)
+- **Reviewer**: Glm CLI lane (code-logic-reviewer role)
+- **Verdict**: APPROVED
+- **Score**: 8/10
+
+### Summary
+
+| Finding | Status | Evidence (`file:line`) |
+| --- | --- | --- |
+| MODERATE-1: duplicate push of an out-of-window id re-bumps the histogram | accepted (gap (a)) | `skill-diagnostics-state.service.ts:222-239` |
+| MODERATE-2: live event during an in-flight snapshot is dropped until the next poll | accepted (gap (b)) | `skill-diagnostics-state.service.ts:142, 247` |
+| Gap (c): last-run timestamps only move forward on the live path | sound, accepted | `skill-diagnostics-state.service.ts:50-52, 228-230` |
+| Gap: `SKILL_EVENT_WINDOW` not exported from the lib index | non-issue | only in-lib consumers today |
+| MINOR-1: jest worker force-exit warning on suite teardown | observation only | test output, both suites pass |
+
+Score justification (Band 7-8: sound). Evidence separating from Band 5-6: every acceptance path read
+correctly end to end (backend `toSkillSynthesisEventWire` through DSS state to feed rows), the acceptance
+specs exist and fail on the base code, and 34 tests pass against the changed files. Evidence separating
+from Band 9-10: two moderate transient-state gaps remain and the executor ran typecheck and lint but this
+review ran tests only, not the typecheck target.
+
+### Check 1: Cross-side contract (producer to consumer)
+
+Confirmed.
+
+- Wire type: `id, kind, timestamp, sessionId?, stats?, error?` (`rpc-curator-diagnostics.types.ts:50-65`).
+- Producer: the live broadcast and the handler snapshot both go through
+  `toSkillSynthesisEventWire` (`event-wire.ts:13-32`; `skill-synthesis.service.ts:1038`;
+  `skills-synthesis-rpc.handlers.ts:717`). One mapper confirmed.
+- `recentEvents(limit)` returns newest-first without mutating the ring
+  (`skill-synthesis.service.ts:1053-1056`, `slice(-safe).reverse()`).
+- Consumer: `normalizeEvents` dedupes, sorts newest-first and caps at 50
+  (`skill-diagnostics-state.service.ts:37-48`). `applySnapshot` tolerates a missing `recentEvents`
+  (`:247`). The feed reads `sessionId ?? null` and `stats?.['reason']` (`event-feed.component.ts:30, 58`),
+  so an absent optional field renders `null`, no crash.
+- Live-push path intact: `skill-synthesis-live.service.ts:92-98` forwards the whole wire event, id
+  included, to `pushLiveEvent`.
+
+### Check 2: ULID tie-break in `compareNewestFirst`
+
+Confirmed sound (`skill-diagnostics-state.service.ts:27-34`).
+
+- Same millisecond: larger id sorts first, string compare. The backend assigns ids from
+  `monotonicFactory` (`skill-synthesis.service.ts:235, 1026`), so within one millisecond ids increase
+  strictly in record order. Larger id first is therefore the later record first.
+- ULIDs are 26 fixed-length Crockford Base32 chars in one case. Lexicographic and encoded order agree.
+- Across different milliseconds the timestamp comparison wins. The tie-break is only a same-ms rule, so
+  a clock regression between milliseconds cannot contradict the id order in a visible way.
+
+### Check 3: Duplicate-id handling cannot drop a different event
+
+Confirmed.
+
+- Ids are unique per event: the backend assigns one ULID per record; no persistence exists (Task 587 owns
+  the ledger), so the id space never overlaps across restarts.
+- `pushLiveEvent` returns early when the id is present (`:223`), before the list update and before any
+  side effect (`:224, 227-239`). The kept copy is the identical payload (one mapper, Batch 1).
+- Same id from two different events cannot arise under the current producer. See MODERATE-1 for the one
+  reachable edge, which counts side effects twice rather than drops an event.
+
+### Check 4: Rulings on the three accepted gaps
+
+1. **(a) Duplicate push older than the window — ACCEPT with a note (MODERATE-1).**
+   Trigger conditions are narrow: the backend pushes each event once at record time, so a redelivery of
+   an event older than the 50-cap requires a duplicated broadcast, which is not an observed path. Even
+   then the list self-heals: `insertNewestFirst` inserts at the tail and `slice(0, 50)` evicts the event
+   again (`:59-62`), but the histogram +1 (`:231-238`) was already applied and survives until the next
+   snapshot replaces the histogram whole (`:248-250`). The 30 s poll corrects it. Last-run timestamps use
+   `latest()` (`Math.max`), so a re-applied old timestamp cannot move them. Cheap future fix: bump side
+   effects only when the event is still inside the list after the update.
+2. **(b) Live event during an in-flight snapshot — ACCEPT (MODERATE-2).**
+   The event vanishes from the list until the next poll: the same-window snapshot replaces the whole
+   list (`:247`, C8 replace semantics) and the push is not re-delivered. Base code had the identical
+   behaviour (replace-list), so this is not a regression; the bug R3 described was the duplicate row,
+   which the id check now closes. Merging live events into the snapshot would be a new race surface and
+   would deviate from the accepted contract this batch recorded. One poll period of staleness in a
+   diagnostic view is an acceptable cost, and the poll refreshes it.
+3. **Additional recorded gap: `SKILL_EVENT_WINDOW` stays unexported from the lib index — ACCEPT as a
+   non-issue.** Consumers today import from the module path inside the lib (the spec at
+   `skill-diagnostics-state.service.spec.ts:11-14`). An index export becomes relevant only when an
+   outside lib needs the constant; none does.
+
+### Check 5: Row identity; acceptance specs exist and fail on base
+
+Confirmed.
+
+- Rows are tracked by `row.id` (`event-feed.component.ts:95`), exposed as
+  `[attr.data-event-id]="row.id"` (`:98`). Group ids are the newest member's real event id
+  (`:57, :48-52`); ids are unique per event, so two rows can never share a track key. No NG0955 source.
+- Spot-check against base: base tracked by `ev.timestamp + '-' + ev.kind` and rendered one row per raw
+  event with no `data-event-id`. The specs would fail on base:
+  - same-ms non-grouped two-row spec (`event-feed.component.spec.ts:114-140`) asserts `data-event-id`
+    equals each real id and no NG0955 - fails on base (equal track keys, no attribute).
+  - grouping spec (`:85-97`) - fails on base (five rows, no count badge).
+  - normalisation spec (`skill-diagnostics-state.service.spec.ts:240-248`) - fails on base (base
+    appended chronologically and never sorted).
+- Verification run in this review: `npx jest` on both changed spec files — 2 suites, 34 passed
+  (`skill-diagnostics-state.service.spec.ts` and `event-feed.component.spec.ts`).
+
+### Check 6: Stubs and markers
+
+Clean. Grep over the changed lib for `TODO|FIXME|PLACEHOLDER|STUB|not implemented` matched only: jest
+mock-helper names (`makeDiagnosticsStub`, test files) and a spec describing the skeleton loading state.
+No marker, no empty body, no mock standing in for logic in any production file changed by Batch 2.
+
+### Additional findings
+
+- **MODERATE-1** (also Check 4.1) — `skill-diagnostics-state.service.ts:222-239`: side effects are not
+  gated on the event surviving the window. A new-but-ancient event pushed when the list sits at 50 is
+  inserted then immediately evicted (`:62`), yet the histogram +1 stays counted. Repeated deliveries
+  count repeatedly. Impact: transient inflated histogram, at most until the next poll. Severity kept at
+  Moderate because the producer never re-pushes old events today.
+- **MODERATE-2** (also Check 4.2) — `skill-diagnostics-state.service.ts:142, 247`: an event that arrives
+  while a snapshot request is in flight is overwritten by the snapshot, and its last-run timestamp bump
+  regresses with it, until the next poll (30 s). Accepted.
+- **MINOR-1** — jest reports a worker force-exit on the state-service suite teardown ("a worker process
+  has failed to exit gracefully"). Tests pass; likely a lingering timer handle from polling coverage.
+  Observation only; worth a look if CI is noisy, not a Batch 2 defect.
+
+### Could not check
+
+1. `typecheck` and `lint` targets (executor ran them green, per batches.md). This review did not rerun
+   them to protect the low-disk constraint; the 34 passing tests compile both changed files, which
+   covers the transpile path but not the lib strict typecheck.
+2. Cross-batch reachability of the live push into the feed (TAB -> DSS -> feed with real DSS) is Batch
+   4 Task 4.3 territory; the state service paths are unit-verified here only.
+3. Real duplicate-delivery behaviour on the wire (does a broadcast ever arrive twice in production?).
+   MODERATE-1's trigger rests on the assumption that it does not.
+
+### Verdict
+
+- **Recommendation**: APPROVE
+- **Confidence**: HIGH
+- **Top risk**: transient histogram inflation (MODERATE-1) and a one-poll-period drop of a live event
+  arriving during an in-flight snapshot (MODERATE-2); both self-correct within the 30 s poll, and
+  neither loses a durable fact.
