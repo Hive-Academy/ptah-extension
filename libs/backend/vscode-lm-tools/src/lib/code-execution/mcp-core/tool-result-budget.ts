@@ -91,7 +91,7 @@ export const TOOL_RESULT_BUDGET_OVERRIDES: Readonly<
  * Markdown header. The outline reducer would keep the header and drop the
  * reply's body (a 20 KB `agent_message` detail came back as 312 chars with no
  * detail), so their text is cut to a prefix instead, on the HTTP and the
- * stdio surface alike.
+ * stdio surface alike. The `ptah_session_*` tools follow the same rule.
  */
 export const TOOL_CONTENT_HINTS: Readonly<Record<string, ContentKind>> =
   Object.freeze({
@@ -104,6 +104,14 @@ export const TOOL_CONTENT_HINTS: Readonly<Record<string, ContentKind>> =
     ptah_agent_report: 'preformatted',
     ptah_agent_stop: 'preformatted',
     ptah_agent_list: 'preformatted',
+    // Child sessions (TASK_2026_584): a short header, then a child's own
+    // text (status lines, transcript tail, held completion envelopes) that
+    // the outline reducer would drop.
+    ptah_session_start: 'preformatted',
+    ptah_session_send: 'preformatted',
+    ptah_session_status: 'preformatted',
+    ptah_session_read: 'preformatted',
+    ptah_session_stop: 'preformatted',
     ptah_task_list: 'preformatted',
   });
 

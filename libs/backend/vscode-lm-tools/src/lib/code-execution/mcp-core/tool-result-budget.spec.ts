@@ -155,6 +155,11 @@ describe('budget tables', () => {
       ptah_agent_report: 'preformatted',
       ptah_agent_stop: 'preformatted',
       ptah_agent_list: 'preformatted',
+      ptah_session_start: 'preformatted',
+      ptah_session_send: 'preformatted',
+      ptah_session_status: 'preformatted',
+      ptah_session_read: 'preformatted',
+      ptah_session_stop: 'preformatted',
       ptah_task_list: 'preformatted',
     });
   });

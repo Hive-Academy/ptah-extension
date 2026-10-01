@@ -23,7 +23,7 @@
 
 import * as os from 'os';
 import * as path from 'path';
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, type DependencyContainer } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type {
@@ -121,7 +121,9 @@ import {
 import type {
   AgentReportRouter,
   AgentRoleResolver,
+  ISessionSpawner,
 } from '@ptah-extension/cli-agent-runtime';
+import { buildSessionNamespace } from './namespace-builders/session-namespace.builder';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
 import {
   DIAGNOSTICS_CACHE_INVALIDATOR,
@@ -486,6 +488,17 @@ export class PtahAPIBuilder {
      */
     @inject(VSCODE_LM_TOOLS_TOKENS.SURFACE_STATE_SERVICE, { isOptional: true })
     private readonly surfaceStateService?: SurfaceStateService,
+
+    /**
+     * The container, for the ONE collaborator looked up per call: the session
+     * spawner (TASK_2026_584). This builder is registered in an earlier phase
+     * than the chat services the spawner's host adapter needs, so injecting
+     * the spawner here would construct it too early in some host. Optional and
+     * last for the same reason as `surfaceStateService`; every host registers
+     * `PLATFORM_TOKENS.DI_CONTAINER` (precedent: `PtahCliRegistry`).
+     */
+    @inject(PLATFORM_TOKENS.DI_CONTAINER, { isOptional: true })
+    private readonly container?: DependencyContainer,
   ) {
     diagnosticsCacheInvalidator.start();
     this.logger.info('PtahAPIBuilder initialized with 21 namespaces');
@@ -879,6 +892,13 @@ export class PtahAPIBuilder {
           logger: this.logger,
         }),
       ),
+      session: this.buildNamespaceSafe('session', () =>
+        buildSessionNamespace({
+          getSpawner: () => this.resolveSessionSpawner(),
+          getCallerSessionId,
+          onWorktreeChanged: this.buildWorktreeChangeHandler(),
+        }),
+      ),
       help: buildHelpMethod(),
     };
   }
@@ -1029,6 +1049,21 @@ export class PtahAPIBuilder {
           );
         });
     };
+  }
+
+  /**
+   * The session spawner, resolved on EVERY call (TASK_2026_584 Task 6.6),
+   * never captured at construction: an early capture would hold `undefined`
+   * (or a spawner built before its chat host was registered) for the life of
+   * the process. `undefined` when the host never registered it; the session
+   * namespace turns that into a named error. A resolve that throws propagates
+   * to the caller as that call's error.
+   */
+  private resolveSessionSpawner(): ISessionSpawner | undefined {
+    const token = CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER;
+    const container = this.container;
+    if (!container || !container.isRegistered(token, true)) return undefined;
+    return container.resolve<ISessionSpawner>(token);
   }
 
   /**

@@ -9,6 +9,7 @@
  */
 import 'reflect-metadata';
 import { resolve } from 'path';
+import { container as rootContainer, type DependencyContainer } from 'tsyringe';
 import {
   SdkAdapterEvents,
   SessionAdmissionRefusedError,
@@ -37,6 +38,7 @@ import type {
   SessionChildStartRequest,
 } from './session-spawner.port';
 import type { ChildChatSessionStartInput } from './child-chat-session-host.port';
+import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 
 const PARENT = '11111111-2222-4333-8444-555555555555';
 const PARENT_SDK = '22222222-3333-4444-8555-666666666666';
@@ -150,7 +152,24 @@ function makeHarness(options: { config?: Record<string, unknown> } = {}) {
     releaseRoot: jest.fn().mockResolvedValue(undefined),
   };
 
-  const build = (overrides: { host?: unknown; mcpStatus?: unknown } = {}) =>
+  /** A real child container holding `hostValue` (none when `null`). */
+  const containerWith = (hostValue: unknown): DependencyContainer => {
+    const scope = rootContainer.createChildContainer();
+    if (hostValue !== null) {
+      scope.register(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST, {
+        useValue: hostValue,
+      });
+    }
+    return scope;
+  };
+
+  const build = (
+    overrides: {
+      host?: unknown;
+      mcpStatus?: unknown;
+      container?: DependencyContainer | null;
+    } = {},
+  ) =>
     new SessionSpawnerService(
       registry,
       provisioner as never,
@@ -168,7 +187,9 @@ function makeHarness(options: { config?: Record<string, unknown> } = {}) {
       workspace as never,
       output as never,
       adapter as never,
-      ('host' in overrides ? overrides.host : host) as never,
+      'container' in overrides
+        ? (overrides.container ?? null)
+        : containerWith('host' in overrides ? overrides.host : host),
       ('mcpStatus' in overrides ? overrides.mcpStatus : mcpStatus) as never,
       registrar,
     );
@@ -215,6 +236,7 @@ function makeHarness(options: { config?: Record<string, unknown> } = {}) {
   return {
     spawner,
     build,
+    containerWith,
     registry,
     policies,
     adapterEvents,
@@ -269,6 +291,68 @@ describe('SessionSpawnerService.start — guards in order', () => {
       refusal: 'chat-runtime-unavailable',
     });
     expect(h.provisioner.create).not.toHaveBeenCalled();
+  });
+
+  describe('lazy chat host lookup (Task 6.6)', () => {
+    it('reaches a host registered AFTER the spawner was constructed', async () => {
+      const h = makeHarness();
+      const scope = h.containerWith(null);
+      const spawner = h.build({ container: scope });
+
+      scope.register(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST, {
+        useValue: h.host,
+      });
+      const result = await spawner.start(h.request());
+
+      expect(result.ok).toBe(true);
+      expect(h.host.startChildSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses chat-runtime-unavailable while the host is still unregistered at start()', async () => {
+      const h = makeHarness();
+      const spawner = h.build({ container: h.containerWith(null) });
+
+      const result = await spawner.start(h.request());
+
+      expect(result).toMatchObject({
+        ok: false,
+        refusal: 'chat-runtime-unavailable',
+      });
+      expect(h.provisioner.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses chat-runtime-unavailable without a container', async () => {
+      const h = makeHarness();
+      const spawner = h.build({ container: null });
+
+      const result = await spawner.start(h.request());
+
+      expect(result).toMatchObject({
+        ok: false,
+        refusal: 'chat-runtime-unavailable',
+      });
+    });
+
+    it('refuses chat-runtime-unavailable and logs when the host fails to construct', async () => {
+      const h = makeHarness();
+      const scope = h.containerWith(null);
+      scope.register(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST, {
+        useFactory: () => {
+          throw new Error('chat services half-registered');
+        },
+      });
+      const spawner = h.build({ container: scope });
+
+      const result = await spawner.start(h.request());
+
+      expect(result).toMatchObject({
+        ok: false,
+        refusal: 'chat-runtime-unavailable',
+      });
+      expect(
+        h.lines.some((line) => line.includes('chat services half-registered')),
+      ).toBe(true);
+    });
   });
 
   it.each([

@@ -27,7 +27,10 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import type { EmbedderWorkerClient } from '@ptah-extension/memory-curator';
 import type { DependencyGraphService } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
+import {
+  CLI_AGENT_RUNTIME_TOKENS,
+  type ISessionSpawner,
+} from '@ptah-extension/cli-agent-runtime';
 
 import type { BootCoordinator } from './boot-coordinator';
 import { createHeavyServicesBooter } from './boot-heavy-services';
@@ -564,7 +567,7 @@ export function settleOnAbort(
 }
 
 /**
- * Eagerly construct the two disposal handles whose dependency graphs must NOT
+ * Eagerly construct the disposal handles whose dependency graphs must NOT
  * be built during teardown.
  *
  * Resolving either of these in `will-quit` forces a first-time lazy build
@@ -605,6 +608,29 @@ function captureShutdownHandles(
         : String(agentManagerError),
     );
     coordinator.refs.agentProcessManager = null;
+  }
+
+  // Child chat sessions (TASK_2026_584), captured for the same reason. Safe to
+  // construct this early: the spawner looks its chat host up at `start()`
+  // time, never at construction (Task 6.6).
+  try {
+    coordinator.refs.sessionSpawner = container.isRegistered(
+      CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
+    )
+      ? container.resolve<ISessionSpawner>(
+          CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
+        )
+      : null;
+  } catch (sessionSpawnerError: unknown) {
+    // degradation-audit: reported - logged at warn; a null ref means
+    // `will-quit` has no child sessions to end.
+    console.warn(
+      '[Ptah Electron] Session spawner eager resolve failed (non-fatal):',
+      sessionSpawnerError instanceof Error
+        ? sessionSpawnerError.message
+        : String(sessionSpawnerError),
+    );
+    coordinator.refs.sessionSpawner = null;
   }
 
   // The watch host is a child process: `will-quit` must kill it through the

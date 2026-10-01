@@ -19,7 +19,7 @@
  * one 30 s grace timer per live child whose session ended; all cleared when
  * the child ends and in `dispose()`.
  */
-import { inject, injectable } from 'tsyringe';
+import { inject, injectable, type DependencyContainer } from 'tsyringe';
 import { isAbsolute, resolve } from 'path';
 import {
   SDK_TOKENS,
@@ -185,14 +185,16 @@ export class SessionSpawnerService implements ISessionSpawner {
     @inject(TOKENS.AGENT_ADAPTER, { isOptional: true })
     private readonly adapter: IAgentAdapter | null = null,
     /**
-     * Registered by `registerChatServices`, which every host runs before any
-     * consumer resolves this spawner (the chat RPC handlers and the PtahAPI
-     * builder resolve it lazily). Absent → `chat-runtime-unavailable`.
+     * Where the chat host port (`CHILD_CHAT_SESSION_HOST`) is looked up, at
+     * `start()` time and never here: `registerChatServices` registers it in a
+     * later phase than this spawner, so a constructor injection would capture
+     * `null` for the life of the process whenever anything resolves the
+     * spawner first (B5 review, Task 6.6). Optional for the same reason as in
+     * `PtahCliRegistry`: every host registers `DI_CONTAINER`. Absent, or no
+     * host registered at `start()` → `chat-runtime-unavailable`.
      */
-    @inject(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST, {
-      isOptional: true,
-    })
-    private readonly host: IChildChatSessionHost | null = null,
+    @inject(PLATFORM_TOKENS.DI_CONTAINER, { isOptional: true })
+    private readonly container: DependencyContainer | null = null,
     /** Absent or port-less (CLI host) → `mcp-unavailable`. */
     @inject(PLATFORM_TOKENS.MCP_SERVER_STATUS, { isOptional: true })
     private readonly mcpStatus: IMcpServerStatus | null = null,
@@ -237,7 +239,8 @@ export class SessionSpawnerService implements ISessionSpawner {
         'the host is shutting down',
       );
     }
-    if (!this.host || !this.adapter) {
+    const host = this.lookupHost();
+    if (!host || !this.adapter) {
       return this.refuseStart(
         'chat-runtime-unavailable',
         'this host has no chat runtime to start a child session in',
@@ -285,7 +288,7 @@ export class SessionSpawnerService implements ISessionSpawner {
       ok: true,
       caller,
       adapter: this.adapter,
-      host: this.host,
+      host,
       settings,
       reservation,
     };
@@ -1285,6 +1288,26 @@ export class SessionSpawnerService implements ISessionSpawner {
     const timer = setTimeout(fire, ms);
     timer.unref?.();
     return timer;
+  }
+
+  /**
+   * The chat host port as registered NOW (Task 6.6). `null` when there is no
+   * container, nothing is registered yet, or construction throws; the caller
+   * refuses `chat-runtime-unavailable` in every one of those cases.
+   */
+  private lookupHost(): IChildChatSessionHost | null {
+    const token = CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST;
+    if (this.container === null || !this.container.isRegistered(token, true)) {
+      return null;
+    }
+    try {
+      return this.container.resolve<IChildChatSessionHost>(token);
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged below; the start is refused as
+      // `chat-runtime-unavailable`, which the parent reads as a closed reason.
+      this.log(`chat host could not be resolved: ${errorMessage(error)}`);
+      return null;
+    }
   }
 
   private refuseStart(
