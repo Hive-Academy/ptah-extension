@@ -1,13 +1,13 @@
 # Batches - TASK_2026_580_9f77
 
-Total tasks: 50 | Batches: 29 | Complete: 23/29
+Total tasks: 50 | Batches: 29 | Complete: 25/29
 
 ## Resume here (session handoff, 2026-10-01)
 
 Draft PR: #623 (opened 2026-10-01 at the user's request; update its batch list on each push, mark ready at the PR gate).
 
-Last committed batch: A5.1 (`883d1a422`). C2.2 is implemented and uncommitted in this
-worktree (code review APPROVED, visual review pending). A fresh team-leader session resumes from this
+Last committed batches: C1.1 (`eb80449b4`) and C2.2 (`976854b74`). Next READY: C1.2.
+A fresh team-leader session resumes from this
 section; the batch sections below hold each batch's full task text and review notes.
 
 - **Where:** worktree `D:\projects\ptah-extension\.claude-worktrees\task-580`, branch
@@ -63,10 +63,10 @@ section; the batch sections below hold each batch's full task text and review no
 | B3.5 `ptah_session_link_task` MCP tool                                    | COMPLETE                   | bd5c5d98f |
 | C0.1 board start carries `taskId`                                         | COMPLETE                   | a83ca9b6e |
 | C0.2 board-start link capture + push handling                             | COMPLETE                   | b968cb66a |
-| C1.1 chips, filter bar, editor                                            | READY (PENDING)            | —         |
-| C1.2 loader + app-shell sidebar (visual)                                  | PENDING (after C1.1, A4.1) | —         |
+| C1.1 chips, filter bar, editor                                            | COMPLETE                   | eb80449b4 |
+| C1.2 loader + app-shell sidebar (visual)                                  | READY (PENDING)            | —         |
 | C2.1 open-session bridge                                                  | PENDING (after C0.1, C1.2) | —         |
-| C2.2 task links service + card (visual)                                   | IN REVIEW (visual pending) | —         |
+| C2.2 task links service + card (visual)                                   | COMPLETE                   | 976854b74 |
 | C2.3 task detail sessions list (visual)                                   | PENDING (after C2.1, C2.2) | —         |
 | T1 AC evidence, smoke S1-S8, test-report.md                               | PENDING (after all)        | —         |
 
@@ -80,26 +80,16 @@ section; the batch sections below hold each batch's full task text and review no
 
 ### Next READY batches (wave 6: four file-disjoint batches in four projects)
 
-Wave 6 status: A5.1, A5.2 and C0.2 are COMPLETE. C2.2 is implemented and uncommitted
-in this worktree: its code review is APPROVED 10/10 and its visual review (dark and
-light) is pending.
+Wave 6 is COMPLETE (A5.1, A5.2, C0.2, C2.2). C1.1 is COMPLETE.
 
-**Next READY: C1.1 — organization chips, filter bar, editor components**
-(frontend-developer, sequential, 3 tasks; code-logic review only, the visual review is
-deferred to C1.2). Verification:
-`npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`. It creates 6 files
-under `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\chat\src\lib\components\`:
+**Next READY: C1.2 — loader query + app-shell sidebar integration** (frontend-developer,
+sequential, 2 tasks; code-logic review plus visual review, which also covers the C1.1
+components now that they are mounted). Verification:
+`npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`. C1.2 inherits the
+C1.1 deviations recorded in the C1.1 section (filter bar owns its search input; the
+components are not exported from `components/index.ts`).
 
-- `atoms\session-organization-chips\session-organization-chips.component.ts` + `.spec.ts`
-- `molecules\session-filter-bar\session-filter-bar.component.ts` + `.spec.ts`
-- `molecules\session-organization-editor\session-organization-editor.component.ts` + `.spec.ts`
-
-C1.1 is file-disjoint from C2.2. However, lint-staged hides unstaged changes during a
-commit, so do not commit C2.2 while the C1.1 executor is editing. Either commit C2.2
-first, or wait for C1.1 to return.
-
-After C1.1: C1.2 (loader + app-shell sidebar, visual), then C2.1 (open-session bridge),
-then C2.3 (after C2.1 and C2.2), then T1.
+After C1.2: C2.1 (open-session bridge), then C2.3 (after C2.1 and C2.2), then T1.
 
 Wave 6 launch notes, kept for reference (A5.1, A5.2 and C0.2 are done):
 
@@ -217,6 +207,10 @@ After wave 6: C1.1 (after C0.2), then C1.2, C2.1 and C2.3, then T1.
     - map `SessionOrganizationInputError` to `INVALID_PARAMS`;
     - set the real `missing` flag on mutation results.
   - T1: the two `taskId` assertions in `task-start.service.spec.ts` (C0.1 nit).
+- **Task-card row arrival follow-up (open, accepted moderate from C2.2 visual round 1):**
+  the first board visit grows each linked card by 48px when the sessions row arrives
+  (CLS 0.029, under 0.1). Reserve the row height or show a skeleton during the first
+  fetch. See the C2.2 section and `visual-review-C2.2.md`.
 - **Plan follow-ups (out of scope):**
   - related defect 1: the Electron gateway lister's `Array.isArray`;
   - related defect 2: `messageCount`/`isActive` on `session:list`;
@@ -1848,7 +1842,16 @@ dropped` line and returns.
 - Validation notes: AC8 chain step 3; also, a push triggers `loadSessions`.
 - Implementation details: see plan.
 
-## Batch C1.1: organization chips, filter bar, editor components — PENDING
+## Batch C1.1: organization chips, filter bar, editor components — COMPLETE (commit eb80449b4)
+
+- Code review: `code-logic-review-C1.1.md` APPROVED 10/10 (antigravity lane).
+- Accepted executor deviations (C1.2 must build on these):
+  - Default chips (`normal` priority, `active` status) are hidden; only non-default
+    values render a chip.
+  - The filter bar owns its own search input; C1.2 replaces the shell search with it.
+  - The components are not exported from `components/index.ts`; C1.2 imports them by
+    relative path or adds the export.
+  - The editor emits only `closed`; mutations go through the RPCs inside it.
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -1859,7 +1862,7 @@ dropped` line and returns.
 - Review: code-logic lane → `code-logic-review-C1.1.md`. Visual review is deferred to
   C1.2, where the components are mounted.
 
-### Task C1.1.1: `SessionOrganizationChipsComponent` (atom) — PENDING
+### Task C1.1.1: `SessionOrganizationChipsComponent` (atom) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\chat\src\lib\components\atoms\session-organization-chips\session-organization-chips.component.ts` (CREATE), `...\session-organization-chips.component.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:978-979, :986-994, :1000-1002
@@ -1874,7 +1877,7 @@ dropped` line and returns.
   labels.
 - Implementation details: signals, OnPush.
 
-### Task C1.1.2: `SessionFilterBarComponent` (molecule) — PENDING
+### Task C1.1.2: `SessionFilterBarComponent` (molecule) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\chat\src\lib\components\molecules\session-filter-bar\session-filter-bar.component.ts` (CREATE), `...\session-filter-bar.component.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:974-975, :1008-1011, L17
@@ -1887,7 +1890,7 @@ dropped` line and returns.
 - Validation notes: none.
 - Implementation details: emits a query object.
 
-### Task C1.1.3: `SessionOrganizationEditorComponent` (molecule) — PENDING
+### Task C1.1.3: `SessionOrganizationEditorComponent` (molecule) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\chat\src\lib\components\molecules\session-organization-editor\session-organization-editor.component.ts` (CREATE), `...\session-organization-editor.component.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:979-982, :1000-1002, :1006-1007, Assumption A3
@@ -1977,11 +1980,18 @@ dropped` line and returns.
 - Validation notes: the bridge spec covers grid vs single routing.
 - Implementation details: see plan.
 
-## Batch C2.2: task session links service + task card — IN_PROGRESS (implemented, in review; uncommitted)
+## Batch C2.2: task session links service + task card — COMPLETE (commit 976854b74)
 
-- Code review: `code-logic-review-C2.2.md` APPROVED 10/10.
-- Visual review (dark and light, task board card) is pending, and no commit is made
-  until it returns an accepting verdict.
+- Code review: `code-logic-review-C2.2.md` APPROVED (round 0);
+  `code-logic-review-C2.2-r1.md` APPROVED 10/10.
+- Visual review: `visual-review-C2.2.md` round 1 APPROVED 8.5/10, dark `anubis` and light
+  `anubis-light` at 360/800/1400. Evidence: `visual-c22/round1/` plus scripts
+  `visual-c22/run2.mjs` and `visual-c22/tab2.mjs`.
+- Follow-up (accepted moderate, open, not blocking): on the first board visit the
+  sessions row arrives after the links fetch and grows each linked card by 48px
+  (measured CLS 0.029, under the 0.1 threshold). A fix would reserve the row height or
+  render a skeleton while the first fetch is in flight. Also accepted: minor 10px text
+  in the row; the pre-existing header overlap at 360px is out of scope for this task.
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -2004,7 +2014,7 @@ dropped` line and returns.
   - visual-reviewer: task board card after shots in dark and light, compared with V0 →
     `visual-review-C2.2.md`.
 
-### Task C2.2.1: `TaskSessionLinksService` — IMPLEMENTED
+### Task C2.2.1: `TaskSessionLinksService` — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\tasks-ui\src\lib\services\task-session-links.service.ts` (CREATE), `...\task-session-links.service.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:1033-1042, L6, L16
@@ -2019,7 +2029,7 @@ dropped` line and returns.
   → empty.
 - Implementation details: see plan.
 
-### Task C2.2.2: `TaskCardComponent` sessions row — IMPLEMENTED
+### Task C2.2.2: `TaskCardComponent` sessions row — COMPLETE
 
 - Depends on: Task C2.2.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\tasks-ui\src\lib\components\board\task-card.component.ts` (MODIFY, inline template, R-TL9), `...\task-card.component.spec.ts` (MODIFY)
