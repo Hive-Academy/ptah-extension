@@ -18,6 +18,7 @@ import {
   RefreshCw,
   ChevronRight,
 } from 'lucide-angular';
+import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
   CatalogCardComponent,
@@ -650,7 +651,11 @@ export class ExternalMarketplacesComponent implements OnInit {
     this.isAdding.set(true);
     this.addError.set(null);
     try {
-      const result = await this.rpc.call('plugins:add-marketplace', { source });
+      const result = await this.rpc.call(
+        'plugins:add-marketplace',
+        { source },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.PLUGIN_MANIFEST_MS },
+      );
       if (this.destroyed) return false;
       if (!result.isSuccess()) {
         this.addError.set(result.error ?? `Failed to add ${source}`);
@@ -740,7 +745,9 @@ export class ExternalMarketplacesComponent implements OnInit {
       if (options?.refresh === true) {
         params.refresh = true;
       }
-      const result = await this.rpc.call('plugins:browse-marketplace', params);
+      const result = await this.rpc.call('plugins:browse-marketplace', params, {
+        timeout: MARKETPLACE_RPC_TIMEOUTS.PLUGIN_MANIFEST_MS,
+      });
       if (this.destroyed) return;
       if (result.isSuccess()) {
         this.listings.set(result.data.plugins ?? []);
@@ -778,10 +785,11 @@ export class ExternalMarketplacesComponent implements OnInit {
     this.consentError.set(null);
     this.browseError.set(null);
     try {
-      const result = await this.rpc.call('plugins:install-external', {
-        source: listing.source,
-        plugin: listing.name,
-      });
+      const result = await this.rpc.call(
+        'plugins:install-external',
+        { source: listing.source, plugin: listing.name },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.PLUGIN_INSTALL_MS },
+      );
       if (this.destroyed) return;
       if (!result.isSuccess()) {
         this.browseError.set(result.error ?? `Failed to plan ${listing.name}`);
@@ -824,11 +832,17 @@ export class ExternalMarketplacesComponent implements OnInit {
     this.isConfirming.set(true);
     this.consentError.set(null);
     try {
-      const result = await this.rpc.call('plugins:install-external', {
-        source: plan.source,
-        plugin: plan.plugin,
-        consentToken: plan.consentToken,
-      });
+      // An expired token makes the backend re-plan (a fresh download) before
+      // it answers, so the confirm call gets the full install budget too.
+      const result = await this.rpc.call(
+        'plugins:install-external',
+        {
+          source: plan.source,
+          plugin: plan.plugin,
+          consentToken: plan.consentToken,
+        },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.PLUGIN_INSTALL_MS },
+      );
       if (this.destroyed) return;
       if (!result.isSuccess()) {
         this.consentError.set(

@@ -20,8 +20,8 @@ const DEFAULT_PAGE_SIZE = 20;
 /** Cache TTL for popular servers (10 minutes) */
 const POPULAR_CACHE_TTL_MS = 10 * 60 * 1000;
 
-/** HTTP request timeout (15 seconds) */
-const REQUEST_TIMEOUT_MS = 15_000;
+/** HTTP request timeout (30 seconds) — generous for slow links. */
+const REQUEST_TIMEOUT_MS = 30_000;
 
 interface CachedResponse<T> {
   data: T;

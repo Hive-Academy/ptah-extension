@@ -1,0 +1,8 @@
+# Playwright request events AFTER clicking Apps tab (only new requests)
+script	file:///D:/projects/ptah-extension/.claude-worktrees/task-494-qa/dist/apps/ptah-electron/renderer/chunk-bnRXTPxc.js
+
+# performance resource entries new since before-click
+
+
+# full performance resource list after click
+https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2

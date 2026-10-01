@@ -1,0 +1,105 @@
+{
+  "$schema": "https://hyperframes.heygen.com/schema/hyperframes.json",
+  "registry": "https://raw.githubusercontent.com/heygen-com/hyperframes/main/registry",
+  "paths": {
+    "blocks": "compositions",
+    "components": "compositions/components",
+    "assets": "assets"
+  },
+  "media": {
+    "autoProxy": true
+  },
+  "authoringSkill": "general-video",
+  "registryItems": [
+    {
+      "name": "light-leak",
+      "type": "hyperframes:block",
+      "target": "compositions/light-leak.html"
+    },
+    {
+      "name": "whip-pan",
+      "type": "hyperframes:block",
+      "target": "compositions/whip-pan.html"
+    },
+    {
+      "name": "glitch",
+      "type": "hyperframes:block",
+      "target": "compositions/glitch.html"
+    },
+    {
+      "name": "cinematic-zoom",
+      "type": "hyperframes:block",
+      "target": "compositions/cinematic-zoom.html"
+    },
+    {
+      "name": "chromatic-radial-split",
+      "type": "hyperframes:block",
+      "target": "compositions/chromatic-radial-split.html"
+    },
+    {
+      "name": "aurora-drift",
+      "type": "hyperframes:component",
+      "target": "compositions/components/aurora-drift.html"
+    },
+    {
+      "name": "grain-overlay",
+      "type": "hyperframes:component",
+      "target": "compositions/components/grain-overlay.html"
+    },
+    {
+      "name": "notification-stack",
+      "type": "hyperframes:component",
+      "target": "compositions/components/notification-stack.html"
+    },
+    {
+      "name": "liquid-glass-notification",
+      "type": "hyperframes:block",
+      "target": "compositions/liquid-glass-notification.html"
+    },
+    {
+      "name": "kinetic-type-swap",
+      "type": "hyperframes:component",
+      "target": "compositions/components/kinetic-type-swap.html"
+    },
+    {
+      "name": "rgb-glitch-text",
+      "type": "hyperframes:component",
+      "target": "compositions/components/rgb-glitch-text.html"
+    },
+    {
+      "name": "shimmer-sweep",
+      "type": "hyperframes:component",
+      "target": "compositions/components/shimmer-sweep.html"
+    },
+    {
+      "name": "code-terminal-run",
+      "type": "hyperframes:component",
+      "target": "compositions/components/code-terminal-run.html"
+    },
+    {
+      "name": "logo-sting",
+      "type": "hyperframes:component",
+      "target": "compositions/components/logo-sting.html"
+    },
+    {
+      "name": "logo-outro",
+      "type": "hyperframes:block",
+      "target": "compositions/logo-outro.html"
+    },
+    {
+      "name": "count-up",
+      "type": "hyperframes:component",
+      "target": "compositions/components/count-up.html"
+    },
+    {
+      "name": "camera-rig-depth-stack",
+      "type": "hyperframes:component",
+      "target": "compositions/components/camera-rig-depth-stack.html"
+    },
+    {
+      "name": "zoom-through-transition",
+      "type": "hyperframes:component",
+      "target": "compositions/components/zoom-through-transition.html"
+    }
+  ]
+}

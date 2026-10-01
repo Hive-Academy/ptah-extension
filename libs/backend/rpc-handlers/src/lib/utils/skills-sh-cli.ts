@@ -46,8 +46,15 @@ export interface SkillsCliResult {
   exitCode: number;
 }
 
-/** Default timeout for a `skills add` run — the CLI fetches from GitHub. */
-export const SKILLS_INSTALL_TIMEOUT_MS = 30000;
+/**
+ * Timeout for a `skills add` run.
+ *
+ * The CLI clones the WHOLE source repository from GitHub, not just the one
+ * skill, so the cost scales with the repo rather than the skill. Measured on a
+ * slow link: a shallow clone of an 80 MB repo took 17–35 s and a full install
+ * 11–46 s, so the previous 30 s limit killed installs that were progressing.
+ */
+export const SKILLS_INSTALL_TIMEOUT_MS = 120_000;
 
 /**
  * Relative path the CLI writes project-scope skills to, as path segments.

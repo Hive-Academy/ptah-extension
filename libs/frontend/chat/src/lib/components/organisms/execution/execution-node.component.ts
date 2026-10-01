@@ -165,9 +165,24 @@ function scheduleFrame(cb: () => void): FrameHandle {
             </div>
           }
           @case ('sendMessage') {
-            <!-- SendMessage tool: agent-to-agent message chip. -->
+            <!-- SendMessage tool: agent-to-agent message chip. A resumed
+                 subagent streams under the SendMessage tool_use id, so its
+                 agent node arrives as a child and must render here. -->
             <div [class.exec-fade-in]="!isFinalizing()">
               <ptah-send-message-chip [node]="node()" />
+              @if (node().children.length > 0) {
+                <div class="exec-children">
+                  @for (child of node().children; track child.id) {
+                    <ptah-execution-node
+                      [node]="child"
+                      [isStreaming]="isStreaming()"
+                      [isFinalizing]="isFinalizing()"
+                      [getPermissionForTool]="getPermissionForTool()"
+                      (permissionResponded)="permissionResponded.emit($event)"
+                    />
+                  }
+                </div>
+              }
             </div>
           }
           @case ('scheduleWakeup') {

@@ -205,6 +205,47 @@ describe('deriveLiveModelStats (session-live-stats.util)', () => {
     expect(derived?.primaryModel.model).toBe('claude-sonnet-4');
   });
 
+  describe('unpriced rows (costUSD: null)', () => {
+    const priced = usage({
+      model: 'claude-sonnet-4',
+      costUSD: 0.02,
+      inputTokens: 10,
+      outputTokens: 1,
+      cacheReadInputTokens: 0,
+      lastTurnContextTokens: 100,
+    });
+    const unpriced = usage({
+      model: 'local-model',
+      costUSD: null,
+      inputTokens: 90_000,
+      outputTokens: 5_000,
+      cacheReadInputTokens: 0,
+      lastTurnContextTokens: 200,
+      contextCapacity: undefined,
+    });
+
+    it('keeps an unpriced primary row at null cost, never 0', () => {
+      const derived = deriveLiveModelStats([priced, unpriced], {
+        stickyModel: 'local-model',
+        hasCompacted: false,
+      });
+
+      expect(derived?.primaryModel.model).toBe('local-model');
+      expect(derived?.primaryModel.costUSD).toBeNull();
+      expect(derived?.live.model).toBe('local-model');
+      expect(derived?.live.contextUsed).toBe(200);
+    });
+
+    it('does not let an unknown cost outrank a known one, and leaves rows untouched', () => {
+      const rows = [unpriced, priced];
+      const derived = deriveLiveModelStats(rows, { hasCompacted: false });
+
+      expect(derived?.primaryModel.model).toBe('claude-sonnet-4');
+      expect(derived?.primaryModel.costUSD).toBe(0.02);
+      expect(rows[0].costUSD).toBeNull();
+    });
+  });
+
   it('renders 0 contextPercent when the context window is unknown (0)', () => {
     const derived = deriveLiveModelStats(
       [

@@ -22,7 +22,7 @@ type RemoteVerb = 'push' | 'pull' | 'fetch';
 const AUTH_REQUIRED = 'Authentication is required for this remote.';
 
 /** Never ask a terminal for credentials: fail fast instead. */
-const NO_PROMPT = { GIT_TERMINAL_PROMPT: '0' };
+const NO_PROMPT = { GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '' };
 
 /**
  * Detect whether git stderr or error message indicates an authentication failure.

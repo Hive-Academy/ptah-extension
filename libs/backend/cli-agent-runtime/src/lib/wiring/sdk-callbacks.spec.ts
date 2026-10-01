@@ -529,7 +529,7 @@ describe('wireSdkCallbacks — session stats snapshot transport (TASK_2026_533)'
 
   const footer = {
     sessionId: REAL_SESSION_ID as ResultStatsPayload['sessionId'],
-    cost: 0.5,
+    turnCost: 0.5,
     tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 },
     duration: 100,
   };

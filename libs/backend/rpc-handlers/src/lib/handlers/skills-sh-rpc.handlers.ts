@@ -312,14 +312,22 @@ export class SkillsShRpcHandlers {
         // each guards a call site another caller can reach directly.
         const parsed = SkillsShInstallParamsSchema.safeParse(params);
         if (!parsed.success) {
-          return {
-            success: false,
-            error: `Invalid install request for source "${String(params.source)}".`,
-          };
+          const error = `Invalid install request for source "${String(params.source)}".`;
+          this.logger.warn('RPC: skillsSh:install rejected', {
+            source: params.source,
+            skillId: params.skillId,
+            error,
+          });
+          return { success: false, error };
         }
 
         const rejection = rejectUnsafeInstallRequest(parsed.data);
         if (rejection !== null) {
+          this.logger.warn('RPC: skillsSh:install rejected', {
+            source: parsed.data.source,
+            skillId: parsed.data.skillId,
+            error: rejection,
+          });
           return { success: false, error: rejection };
         }
 
@@ -331,6 +339,11 @@ export class SkillsShRpcHandlers {
         });
 
         if (!result.success) {
+          this.logger.warn('RPC: skillsSh:install failed', {
+            source: parsed.data.source,
+            skillId: parsed.data.skillId,
+            error: result.error,
+          });
           return { success: false, error: result.error };
         }
 

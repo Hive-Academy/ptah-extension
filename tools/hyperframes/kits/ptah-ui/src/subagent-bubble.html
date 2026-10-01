@@ -1,0 +1,457 @@
+<!doctype html>
+<!--
+  ptah-ui/subagent-bubble: the inline subagent card inside the main chat (SPEC 4.6).
+  Mirrors libs/frontend/chat/src/lib/components/organisms/execution/inline-agent-bubble.component.ts:85-104 (container, states),
+  :117-125 (avatar), :143-186 (header badges), :193-357 (status row, Message agent), :376-415 (message input, sent note),
+  :419-433 (collapsed description), :504-533 (stats footer), :541-545 (static streaming glow);
+  agent color from libs/frontend/chat-ui/src/lib/utils/agent-color.utils.ts:26-53.
+
+  States: running (Streaming / Background badge) / completed (stats footer) / interrupted / resumed.
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 card slide-settles, avatar springs, name and task settle
+    c1 0.40 badge-status springs, status row settles
+    c2 0.80 progress line cross-fades in (or swaps "a|b" once)
+    c3 1.40 (showMessage) Message agent press, chevron flips, message input expands
+    c4 1.95 message types at typeRate (never before the input is open)
+    c5 2.80 send press (never before typing ends), input collapses, "sent" note settles
+    c6 3.40 (state completed) status -> completed, streaming glow off, stats footer expands
+  Design box 1400 x 330 (showMessage) or 1400 x 250. Mount at that size for the 26 px type floor.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-subagent-bubble"
+  data-composition-duration="6.5"
+  data-composition-variables='[
+    { "id": "agentType", "type": "string", "label": "Agent type", "default": "backend-developer" },
+    { "id": "name", "type": "string", "label": "Display name (empty = agent type)", "default": "" },
+    { "id": "task", "type": "string", "label": "Task", "default": "Fix review on 579" },
+    { "id": "background", "type": "boolean", "label": "Background agent", "default": false },
+    { "id": "state", "type": "enum", "label": "State", "default": "running", "options": [{ "value": "running", "label": "Running" }, { "value": "completed", "label": "Completed" }, { "value": "interrupted", "label": "Interrupted" }, { "value": "resumed", "label": "Resumed" }] },
+    { "id": "progress", "type": "string", "label": "Progress line (a|b swaps once)", "default": "last: Grep" },
+    { "id": "tools", "type": "string", "label": "Tool count badge (completed)", "default": "3 tools" },
+    { "id": "model", "type": "string", "label": "Model", "default": "Opus 5.5" },
+    { "id": "tokens", "type": "string", "label": "Tokens", "default": "127 tokens" },
+    { "id": "cost", "type": "string", "label": "Cost", "default": "$0.81" },
+    { "id": "duration", "type": "string", "label": "Duration", "default": "13.2s" },
+    { "id": "showMessage", "type": "boolean", "label": "Animate Message agent", "default": true },
+    { "id": "message", "type": "string", "label": "Message", "default": "Also check the curator fallback path." },
+    { "id": "typeRate", "type": "number", "label": "Type rate (chars/s)", "default": 16, "min": 4, "max": 60, "step": 1 },
+    { "id": "colorOverride", "type": "string", "label": "Color override (CSS)", "default": "" },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "avatar", "label": "Avatar" }, { "value": "badge-status", "label": "Status badge" }, { "value": "message-agent", "label": "Message agent" }, { "value": "stats", "label": "Stats" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui subagent-bubble</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-subagent-bubble" data-duration="6.5" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .sb-shell {
+            position: absolute;
+            left: 0;
+            top: calc(8 * var(--u));
+            width: 100%;
+          }
+          .sb-glow {
+            position: absolute;
+            inset: 0;
+            border-radius: calc(16 * var(--u));
+            box-shadow: 0 0 calc(12 * var(--u)) calc(2 * var(--u)) rgba(59, 130, 246, 0.2);
+          }
+          .sb-card {
+            position: relative;
+            border-left: calc(4 * var(--u)) solid var(--agent);
+            border-radius: calc(16 * var(--u));
+            background: rgba(26, 26, 32, 0.5);
+            overflow: hidden;
+          }
+          .sb-card.bg {
+            border-left-style: dashed;
+            background: rgba(59, 130, 246, 0.05);
+            box-shadow: 0 0 0 calc(2 * var(--u)) rgba(59, 130, 246, 0.2);
+          }
+          .sb-card.interrupted {
+            border-left-color: #f97316;
+            background: rgba(249, 115, 22, 0.1);
+            box-shadow: 0 0 0 calc(2 * var(--u)) rgba(249, 115, 22, 0.3);
+          }
+          .sb-card.resumed {
+            border-left-style: dashed;
+            border-left-color: #16a34a;
+            background: rgba(22, 163, 74, 0.05);
+            box-shadow: 0 0 0 calc(2 * var(--u)) rgba(22, 163, 74, 0.3);
+          }
+          .sb-head {
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+            padding: calc(16 * var(--u)) calc(24 * var(--u));
+          }
+          .sb-chev {
+            color: var(--muted);
+          }
+          .sb-avatar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: calc(48 * var(--u));
+            height: calc(48 * var(--u));
+            border-radius: 50%;
+            background: var(--agent);
+            color: #ffffff;
+            font-size: calc(26 * var(--u));
+            font-weight: 700;
+            flex: 0 0 auto;
+          }
+          .sb-name {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: calc(28 * var(--u));
+            font-weight: 600;
+            color: var(--muted);
+          }
+          .sb-stack {
+            position: relative;
+            display: grid;
+            flex: 0 0 auto;
+          }
+          .sb-stack > * {
+            grid-area: 1 / 1;
+            justify-self: end;
+          }
+          .sb-b {
+            border-radius: calc(8 * var(--u));
+            font-weight: 500;
+            height: calc(40 * var(--u));
+            padding: 0 calc(12 * var(--u));
+          }
+          .sb-b.c-oinfo {
+            border: calc(2 * var(--u)) solid #3b82f6;
+            color: #3b82f6;
+          }
+          .sb-b .pu-dot {
+            width: calc(12 * var(--u));
+            height: calc(12 * var(--u));
+            background: currentColor;
+          }
+          .sb-status {
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+            padding: calc(8 * var(--u)) calc(24 * var(--u));
+            border-top: calc(2 * var(--u)) solid rgba(36, 36, 48, 0.3);
+            background: rgba(19, 19, 23, 0.4);
+          }
+          .sb-status .sb-stack > * {
+            justify-self: start;
+          }
+          .sb-prog {
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+            height: calc(36 * var(--u));
+          }
+          .sb-prog > span {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            line-height: calc(36 * var(--u));
+            font-size: calc(26 * var(--u));
+            font-style: italic;
+            color: var(--muted);
+          }
+          .sb-btn {
+            display: flex;
+            align-items: center;
+            gap: calc(6 * var(--u));
+            padding: calc(4 * var(--u)) calc(8 * var(--u));
+            border-radius: calc(12 * var(--u));
+            color: var(--muted);
+            font-size: calc(26 * var(--u));
+            font-weight: 500;
+            white-space: nowrap;
+            flex: 0 0 auto;
+          }
+          .sb-mchev {
+            transform-origin: 50% 50%;
+          }
+          .sb-msg {
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+            padding: calc(16 * var(--u)) calc(24 * var(--u));
+            border-top: calc(2 * var(--u)) solid rgba(36, 36, 48, 0.3);
+            background: rgba(19, 19, 23, 0.3);
+          }
+          .sb-ta {
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+            height: calc(56 * var(--u));
+            padding: 0 calc(16 * var(--u));
+            border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.2);
+            border-radius: calc(12 * var(--u));
+            background: #131317;
+            font-size: calc(28 * var(--u));
+            line-height: calc(52 * var(--u));
+            white-space: nowrap;
+            overflow: hidden;
+          }
+          .sb-ph {
+            position: absolute;
+            left: calc(16 * var(--u));
+            top: 0;
+            color: var(--muted);
+          }
+          .sb-send {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: calc(64 * var(--u));
+            height: calc(56 * var(--u));
+            border-radius: calc(12 * var(--u));
+            background: #2563eb;
+            color: #f8f7f4;
+            flex: 0 0 auto;
+          }
+          .sb-note {
+            display: flex;
+            align-items: center;
+            gap: calc(6 * var(--u));
+            padding: calc(6 * var(--u)) calc(24 * var(--u));
+            font-size: calc(26 * var(--u));
+            font-style: italic;
+            color: rgba(22, 163, 74, 0.8);
+          }
+          .sb-desc {
+            padding: calc(8 * var(--u)) calc(24 * var(--u)) calc(16 * var(--u));
+            font-size: calc(28 * var(--u));
+            line-height: 1.625;
+            color: var(--muted);
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+          }
+          .sb-stats {
+            display: flex;
+            align-items: center;
+            gap: calc(12 * var(--u));
+            padding: calc(12 * var(--u)) calc(24 * var(--u));
+            border-top: calc(2 * var(--u)) solid rgba(255, 255, 255, 0.05);
+            background: var(--agent-tint);
+          }
+          .sb-model {
+            background: var(--agent);
+            border: calc(2 * var(--u)) solid rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 0.8);
+          }
+        </style>
+
+        <div id="sb-clip" class="clip" data-start="0" data-duration="6.5" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="sb-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var vars0 = window.__hyperframes && window.__hyperframes.getVariables ? window.__hyperframes.getVariables() : {};
+            var showMessage = !(vars0.showMessage === false || vars0.showMessage === "false");
+            var K = ptahKit(root, { dw: 1400, dh: showMessage ? 330 : 250, id: "ptah-ui-subagent-bubble" });
+            var tl = K.tl;
+            K.vignette();
+
+            var agentType = K.str("agentType", "backend-developer");
+            var name = K.str("name", "") || agentType;
+            var task = K.str("task", "Fix review on 579");
+            var background = K.bool("background", false);
+            var state = K.oneOf("state", ["running", "completed", "interrupted", "resumed"], "running");
+            var progress = K.str("progress", "last: Grep").split("|");
+            var tools = K.str("tools", "3 tools");
+            var model = K.str("model", "Opus 5.5");
+            var tokens = K.str("tokens", "127 tokens");
+            var cost = K.str("cost", "$0.81");
+            var dur = K.str("duration", "13.2s");
+            var message = K.str("message", "Also check the curator fallback path.");
+            var typeRate = K.num("typeRate", 16, 4, 60);
+            var override = K.str("colorOverride", "").trim();
+
+            // agent color, exactly as agent-color.utils.ts: built-ins, else 32-bit string hash -> hue, oklch(.55 .15 hue)
+            function agentColor(t) {
+              var builtin = { Explore: [0.6, 0.18, 145], Plan: [0.55, 0.2, 300], "general-purpose": [0.55, 0.2, 265], "claude-code-guide": [0.6, 0.18, 210], "statusline-setup": [0.55, 0.05, 250] };
+              var o = builtin[t];
+              if (!o) {
+                var h = 0;
+                for (var i = 0; i < t.length; i++) h = t.charCodeAt(i) + ((h << 5) - h);
+                o = [0.55, 0.15, Math.abs(h % 360)];
+              }
+              return { solid: "oklch(" + o[0] + " " + o[1] + " " + o[2] + ")", tint: "oklch(" + o[0] + " " + o[1] + " " + o[2] + " / 0.1)" };
+            }
+            var col = override ? { solid: override, tint: "color-mix(in oklab, " + override + " 10%, transparent)" } : agentType ? agentColor(agentType) : { solid: "#8e8887", tint: "rgba(142,136,135,0.1)" };
+            root.style.setProperty("--agent", col.solid);
+            root.style.setProperty("--agent-tint", col.tint);
+
+            var finishing = state === "completed";
+            var live = state === "running" || finishing || state === "resumed";
+            var streaming = (state === "running" || finishing) && !background;
+            var initial = (agentType.charAt(0) || "?").toUpperCase();
+
+            function chip(cls, inner) {
+              return '<span class="pu-chip sb-b ' + cls + '">' + inner + "</span>";
+            }
+            var spinSvg = '<span class="sb-hspin">' + K.icon("loader", 24) + "</span>";
+            var headStart, headEnd = "";
+            if (state === "interrupted") headStart = chip("c-warning", K.icon("square", 24) + "Interrupted");
+            else if (state === "resumed") headStart = chip("c-success", "Resumed");
+            else {
+              headStart = chip("c-info", spinSvg + (background ? "Background" : "Streaming"));
+              if (finishing) headEnd = background ? chip("c-oinfo", "Background") : chip("c-ghost", K.esc(tools));
+            }
+            var statStart =
+              state === "interrupted"
+                ? chip("c-warning", K.icon("square", 22) + "stopped")
+                : chip("c-info", '<span class="pu-dot sb-pdot"></span>running');
+            var statEnd = finishing ? chip("c-success", K.icon("check", 22) + "completed") : "";
+
+            var stage = document.getElementById("sb-stage");
+            stage.innerHTML =
+              '<div class="sb-shell">' +
+              (streaming ? '<div class="sb-glow"></div>' : "") +
+              '<div class="sb-card' + (background && live ? " bg" : "") + (state === "interrupted" ? " interrupted" : "") + (state === "resumed" ? " resumed" : "") + '">' +
+              '<div class="sb-head">' +
+              '<span class="sb-chev">' + K.icon("chevron-right", 28) + "</span>" +
+              '<span class="sb-avatar" data-ptah-part="avatar">' + K.esc(initial) + "</span>" +
+              '<span class="sb-name trunc">' + K.esc(name) + "</span>" +
+              '<span class="sb-stack sb-hbadge" data-ptah-part="badge-status">' + headStart + headEnd + "</span>" +
+              "</div>" +
+              '<div class="sb-status">' +
+              '<span class="sb-stack sb-sbadge">' + statStart + statEnd + "</span>" +
+              '<span class="sb-prog">' + progress.map(function (p) { return '<span class="trunc">' + K.esc(p) + "</span>"; }).join("") + "</span>" +
+              (live && !background ? '<span class="sb-btn sb-moon">' + K.icon("moon", 24) + "</span>" : "") +
+              (live ? '<span class="sb-btn sb-stop">' + K.icon("square", 24) + "</span>" : "") +
+              '<span class="sb-btn sb-magent" data-ptah-part="message-agent"><span class="sb-mchev">' + K.icon("chevron-down", 24) + "</span>Message agent</span>" +
+              "</div>" +
+              (showMessage
+                ? '<div class="sb-msgwrap"><div class="sb-msg"><div class="sb-ta" data-layout-allow-overlap><span class="sb-ph" data-layout-allow-overlap>Message this agent…</span><span class="sb-typed" data-layout-allow-overlap></span><span class="pu-caret sb-caret"></span></div>' +
+                  '<span class="sb-send">' + K.icon("send", 28) + "</span></div></div>" +
+                  '<div class="sb-notewrap"><div class="sb-note">sent ' + K.icon("check", 26) + "</div></div>"
+                : "") +
+              '<div class="sb-desc">' + K.esc(task) + "</div>" +
+              (finishing
+                ? '<div class="sb-statswrap" data-ptah-part="stats"><div class="sb-stats">' +
+                  chip("sb-model", K.esc(model)) + chip("c-outline", K.esc(tokens)) + chip("c-success", K.esc(cost)) + chip("c-ghost", K.esc(dur)) +
+                  "</div></div>"
+                : "") +
+              "</div></div>";
+
+            var shell = K.q(".sb-shell");
+            var glow = K.q(".sb-glow");
+            var hb = K.qa(".sb-hbadge > .sb-b");
+            var sbad = K.qa(".sb-sbadge > .sb-b");
+            var statusRow = K.q(".sb-status");
+            var progEls = K.qa(".sb-prog > span");
+            var magent = K.q(".sb-magent");
+            var mchev = K.q(".sb-mchev");
+            var msgWrap = K.q(".sb-msgwrap");
+            var noteWrap = K.q(".sb-notewrap");
+            var statsWrap = K.q(".sb-statswrap");
+            var U = K.U;
+            var msgH = msgWrap ? msgWrap.offsetHeight / U : 0;
+            var noteH = noteWrap ? noteWrap.offsetHeight / U : 0;
+            var statsH = statsWrap ? statsWrap.offsetHeight / U : 0;
+
+            // beats; later beats never start before the work they wait on is done
+            var c = K.cues([0, 0.4, 0.8, 1.4, 1.95, 2.8, 3.4]);
+            var c4 = Math.max(c[4], c[3] + 0.55);
+            var typeEnd = c4 + message.length / typeRate;
+            var c5 = Math.max(c[5], typeEnd + 0.25);
+            var c6 = Math.max(c[6], showMessage ? c5 + 0.9 : c[2] + 0.6);
+            var lastBeat = finishing ? c6 + 0.55 : showMessage ? c5 + 0.3 : c[2];
+            var end = K.duration;
+
+            // focus ring is measured on the layout that exists at the focus time
+            var fAt = K.num("focusAt", -1);
+            var tf = fAt >= 0 ? fAt : lastBeat + 0.5;
+            if (msgWrap && !(tf >= c[3] && tf < c5 + 0.25)) msgWrap.style.height = "0px";
+            if (noteWrap && tf < c5 + 0.3) noteWrap.style.height = "0px";
+            if (statsWrap && tf < c6) statsWrap.style.height = "0px";
+            if (statsWrap) statsWrap.style.overflow = "hidden";
+            K.focusFromVars(tf);
+
+            // c0: card, avatar, name, task
+            K.settle(shell, c[0]);
+            K.spring(K.q(".sb-avatar"), c[0] + 0.1);
+            K.settle(K.q(".sb-name"), c[0] + 0.15, { dy: 10, dur: 0.4 });
+            K.settle(K.q(".sb-desc"), c[0] + 0.24, { dy: 10, dur: 0.4 });
+            // c1: header badge, status row
+            K.spring(hb[0], c[1]);
+            K.settle(statusRow, c[1], { dy: 12, dur: 0.4 });
+            K.spring(sbad[0], c[1] + 0.09);
+            var runEnd = finishing ? c6 : end;
+            var hspin = K.q(".sb-hspin");
+            if (hspin) K.spin(hspin, c[1], Math.max(0.2, runEnd - c[1]));
+            var pdot = K.q(".sb-pdot");
+            if (pdot) {
+              // whole yoyo pairs only, so the dot ends on full opacity
+              var n = Math.floor((runEnd - c[1] - 0.3) / 1.0);
+              if (n >= 1) tl.fromTo(pdot, { opacity: 1 }, { opacity: 0.35, duration: 0.5, ease: "none", yoyo: true, repeat: n * 2 - 1, immediateRender: false }, c[1] + 0.3);
+            }
+            // c2: progress line (fade in, or swap a -> b once)
+            if (progEls.length > 1) {
+              if (progEls.length > 2) gsap.set(progEls.slice(2), { opacity: 0 });
+              K.fadeOut(progEls[0], c[2], 0.2);
+              K.fadeIn(progEls[1], c[2] + 0.1, 0.25);
+            } else {
+              K.fadeIn(progEls[0], c[2], 0.25);
+            }
+            // c3..c5: Message agent
+            if (msgWrap) {
+              K.press(magent, c[3]);
+              K.expand(msgWrap, c[3] + 0.1, msgH);
+              tl.fromTo(mchev, { rotation: 0 }, { rotation: 180, duration: 0.55, ease: "power3.out", immediateRender: false }, c[3] + 0.14);
+              var caret = K.q(".sb-caret");
+              gsap.set(caret, { opacity: 0 });
+              K.blink(caret, c[3] + 0.55, c5);
+              tl.set(K.q(".sb-ph"), { opacity: 0 }, c4);
+              K.type(K.q(".sb-typed"), message, c4, typeRate);
+              K.press(K.q(".sb-send"), c5);
+              tl.fromTo(msgWrap, { height: msgH * U }, { height: 0, duration: 0.55, ease: "power3.out", immediateRender: false }, c5 + 0.25);
+              tl.fromTo(mchev, { rotation: 180 }, { rotation: 0, duration: 0.55, ease: "power3.out", immediateRender: false }, c5 + 0.25);
+              K.expand(noteWrap, c5 + 0.3, noteH, 0.45);
+              K.settle(K.q(".sb-note"), c5 + 0.3, { dy: 12, dur: 0.45 });
+            }
+            // c6: completed
+            if (finishing) {
+              if (glow) K.fadeOut(glow, c6, 0.3);
+              K.fadeOut(hb[0], c6, 0.15);
+              K.spring(hb[1], c6 + 0.1);
+              K.fadeOut(sbad[0], c6, 0.15);
+              K.spring(sbad[1], c6 + 0.1);
+              K.qa(".sb-moon, .sb-stop").forEach(function (b) {
+                K.fadeOut(b, c6, 0.2);
+              });
+              K.expand(statsWrap, c6 + 0.1, statsH);
+              tl.set(statsWrap, { height: "auto" }, c6 + 0.65);
+              K.qa(".sb-stats > .sb-b").forEach(function (b, i) {
+                K.spring(b, c6 + 0.3 + i * 0.09);
+              });
+            }
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>

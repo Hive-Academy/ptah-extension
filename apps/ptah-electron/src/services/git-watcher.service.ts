@@ -435,7 +435,7 @@ export class GitWatcherService {
     try {
       const target = fs.readFileSync(commondirFile, 'utf8').trim();
       if (target.length > 0) {
-        const resolved = path.resolve(gitDir, target);
+        const resolved = path.resolve(ownGitDir, target);
         if (fs.existsSync(resolved)) {
           commonDir = canonicalPath(resolved);
         } else {

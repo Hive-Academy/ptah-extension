@@ -874,6 +874,102 @@ describe('AgentMonitorStore', () => {
         expect(store.workflowSubagentsForSession(sid)).toEqual([]);
       },
     );
+
+    describe('activeSessionSubagents', () => {
+      function startPlainSubagent(
+        toolCallId: string,
+        status: SubagentRecord['status'] = 'running',
+        sessionId?: string,
+      ): void {
+        store.onAgentStart({
+          eventType: 'agent_start',
+          id: `id-${toolCallId}`,
+          timestamp: 1,
+          toolCallId,
+          agentType: 'Explore',
+          agentDescription: 'explore',
+          agentId: `short-${toolCallId}`,
+          source: 'hook',
+          sessionId,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+        if (status !== 'running') {
+          store.onAgentStatus({
+            eventType: 'agent_status',
+            id: `status-${toolCallId}`,
+            timestamp: 2,
+            parentToolUseId: toolCallId,
+            status,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any);
+        }
+      }
+
+      it('returns only records with no workflowRunId', () => {
+        startPlainSubagent('toolu_plain_1', 'running');
+        startWorkflowSubagent('toolu_wf_1', 'run-1');
+
+        mockActiveTab.set(null);
+        const subs = store.activeSessionSubagents();
+        expect(subs.map((r) => r.parentToolUseId)).toEqual(['toolu_plain_1']);
+      });
+
+      it.each<SubagentRecord['status']>([
+        'running',
+        'pending',
+        'paused',
+        'background',
+      ])('includes active status: %s', (status) => {
+        startPlainSubagent(`toolu_${status}`, status);
+        mockActiveTab.set(null);
+        const ids = store
+          .activeSessionSubagents()
+          .map((r) => r.parentToolUseId);
+        expect(ids).toContain(`toolu_${status}`);
+      });
+
+      it.each<SubagentRecord['status']>([
+        'completed',
+        'failed',
+        'killed',
+        'stopped',
+      ])('excludes non-active terminal status: %s', (status) => {
+        startPlainSubagent(`toolu_terminal_${status}`, status);
+        mockActiveTab.set(null);
+        const ids = store
+          .activeSessionSubagents()
+          .map((r) => r.parentToolUseId);
+        expect(ids).not.toContain(`toolu_terminal_${status}`);
+      });
+
+      it('scopes by active session and shows unowned subagents in all sessions', () => {
+        startPlainSubagent('toolu_sess_a', 'running', 'sess-A');
+        startPlainSubagent('toolu_sess_b', 'running', 'sess-B');
+        startPlainSubagent('toolu_unowned', 'running');
+
+        mockActiveTab.set({ claudeSessionId: 'sess-A' });
+        const ids = store
+          .activeSessionSubagents()
+          .map((r) => r.parentToolUseId)
+          .sort();
+        expect(ids).toEqual(['toolu_sess_a', 'toolu_unowned']);
+      });
+
+      it('sessionSubagentsForSession filters by exact sessionId and handles unresolved scope', () => {
+        startPlainSubagent('toolu_a', 'running', 'sess-A');
+        startPlainSubagent('toolu_b', 'running', 'sess-B');
+
+        expect(
+          store
+            .sessionSubagentsForSession('sess-A')
+            .map((r) => r.parentToolUseId),
+        ).toEqual(['toolu_a']);
+
+        expect(store.sessionSubagentsForSession('')).toEqual([]);
+        expect(store.sessionSubagentsForSession(null)).toEqual([]);
+        expect(store.sessionSubagentsForSession(undefined)).toEqual([]);
+      });
+    });
   });
 
   describe('Phase 3 — bidirectional messaging actions', () => {

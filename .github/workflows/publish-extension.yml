@@ -48,6 +48,8 @@ env:
   NODE_VERSION: 22
   NX_TUI: 'false'
   VSCODE_E2E_VERSION: '1.137.0'
+  # Paused while the VS Code extension is retired. Set to 'true' to restore the gate.
+  RUN_VSCODE_E2E: 'false'
 
 jobs:
   publish:
@@ -178,6 +180,7 @@ jobs:
       # RPC handlers invisible to unit tests.
 
       - name: Cache Playwright browsers
+        if: env.RUN_VSCODE_E2E == 'true'
         id: cache-playwright
         uses: actions/cache@v4
         with:
@@ -185,19 +188,22 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install VS Code system deps
-        if: steps.cache-playwright.outputs.cache-hit != 'true'
+        if: env.RUN_VSCODE_E2E == 'true' && steps.cache-playwright.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Install xvfb
+        if: env.RUN_VSCODE_E2E == 'true'
         run: sudo apt-get update && sudo apt-get install -y xvfb
 
       - name: Cache VS Code download
+        if: env.RUN_VSCODE_E2E == 'true'
         uses: actions/cache@v4
         with:
           path: apps/ptah-extension-vscode-e2e/.vscode-test
           key: vscode-test-${{ runner.os }}-${{ runner.arch }}-${{ env.VSCODE_E2E_VERSION }}
 
       - name: Run VS Code E2E gate against the packaged dist
+        if: env.RUN_VSCODE_E2E == 'true'
         run: xvfb-run --auto-servernum node apps/ptah-extension-vscode-e2e/src/runner.mjs
 
       - name: Publish to VS Code Marketplace

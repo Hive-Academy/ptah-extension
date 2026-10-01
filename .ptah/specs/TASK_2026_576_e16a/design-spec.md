@@ -443,7 +443,7 @@ States (all kept verbatim from `file-view.component.ts`, re-hosted):
 
 - **Disk-conflict** (Requirement 7.3): a modal `alertdialog` — "This file changed on
   disk since you opened it." with `Reload` (safe/non-destructive, default focus) and
-  `Overwrite` (`btn-error btn-outline`, secondary) — same focus-safe-choice rule as the
+  `Overwrite` (solid `btn btn-error` with `.err-solid-text`) — same focus-safe-choice rule as the
   existing revert dialog.
 - **Replace-with-unsaved-changes** (Requirement 7.4): same alertdialog shape —
   `Discard and open` vs `Cancel` (focus on Cancel).
@@ -759,8 +759,11 @@ recommendation, §12) — the History tab has no "all branches" picker in this s
   `git-ui` keeps its no-`chat` dependency rule; the change-set card lives in `chat-ui`
   (or a new small lib) and only _calls into_ git-ui/Electron IPC, mirroring today's
   `file-link-router.service.ts` boundary.
-- The hunk toolbar and comment-anchor UI must be Angular DOM siblings positioned via the
-  renderer's own line/hunk coordinate callbacks (Pierre exposes hunk indices; CodeMirror
-  merge exposes chunk positions) — never appended inside `diffs-container`'s shadow
-  root, so Angular's structural directives, `(click)` bindings and focus management work
-  normally and axe-core can see them (Risk table, shadow-DOM accessibility risk).
+- The hunk toolbar and comment-anchor UI must be in-flow Angular DOM siblings projected
+  into `@pierre/diffs`' per-hunk slots (slot placement contract: §0 "Slotted in-flow
+  hunk header rendering"; Pierre exposes hunk indices as slot names) — never
+  coordinate-positioned via renderer callbacks, and never appended inside
+  `diffs-container`'s shadow root, so Angular's structural directives, `(click)` bindings
+  and focus management work normally and axe-core can see them (Risk table, shadow-DOM
+  accessibility risk). CodeMirror widgets (merge exposes chunk positions, not slots) are
+  the fallback only where a per-hunk slot is unavailable.

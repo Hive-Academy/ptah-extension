@@ -17,73 +17,31 @@ import {
   resolveModelDisplayName,
   type ChatSessionSummary,
   type SessionStatsBatchResult,
-  type SessionStatsCoverage,
   type SessionStatsEntry,
-  type SessionStatsPricingCoverage,
 } from '@ptah-extension/shared';
-
-/**
- * Where a session's stats are in the progressive load.
- *
- * `'pending'` means its page has not arrived yet. The other three are the
- * host's own `SessionStatsEntry.status`.
- */
-export type DashboardStatsStatus = 'pending' | 'ok' | 'error' | 'empty';
-
-/**
- * Merged session data: metadata from session:list + stats from session:stats-batch.
- *
- * Combines trusted metadata (name, dates) from SessionMetadataStore with
- * per-session usage read from the transcript for the selected range.
- */
-export interface DashboardSessionEntry {
-  readonly sessionId: string;
-  readonly name: string;
-  readonly createdAt: number;
-  readonly lastActivityAt: number;
-  readonly model: string | null;
-  readonly modelDisplayName: string;
-  /**
-   * Estimate from recorded usage and the CURRENT rate card. `null` means
-   * unknown (no counted model has a price, or the stats are not in yet) —
-   * never render it as $0.
-   */
-  readonly totalCost: number | null;
-  readonly tokens: {
-    readonly input: number;
-    readonly output: number;
-    readonly cacheRead: number;
-    readonly cacheCreation: number;
-  };
-  readonly messageCount: number;
-  /** Number of agent/subagent sessions (from agent-*.jsonl files). */
-  readonly agentSessionCount: number;
-  /** CLI agent types used in this session (e.g., ['codex', 'copilot']). */
-  readonly cliAgents: readonly string[];
-  /** Per-model usage breakdown (model, tokens, cost). Empty when single/unknown model. */
-  readonly modelUsageList: ReadonlyArray<{
-    readonly model: string;
-    readonly modelDisplayName: string;
-    readonly inputTokens: number;
-    readonly outputTokens: number;
-    readonly costUSD: number | null;
-  }>;
-  readonly status: DashboardStatsStatus;
-  /** `null` while pending. `'partial'` when some usage could not be counted. */
-  readonly coverage: SessionStatsCoverage | null;
-  /** Usage records left out of the range because they carry no timestamp. */
-  readonly untimestampedCount: number;
-  /** `null` while pending or when the host did not report it. */
-  readonly pricingCoverage: SessionStatsPricingCoverage | null;
-}
+import {
+  sessionCostEstimate,
+  type DashboardSessionEntry,
+} from '../models/session-analytics.models';
 
 /**
  * Aggregate totals computed from displayed sessions.
  * Single-pass computation for efficiency.
  */
 export interface AggregateTotals {
-  /** Sum of the known session estimates; `null` when no session has one. */
+  /**
+   * Sum of every readable session's estimate (full total, or the priced
+   * subtotal of a partially priced session); `null` when no session has one.
+   * A lower bound whenever {@link totalCostIsLowerBound} is true.
+   */
   readonly totalCost: number | null;
+  /**
+   * True when the real spend may exceed `totalCost`: a contributing session is
+   * only partially priced, or a readable session with usage has no price at
+   * all. Always shown next to the total. CLI-lane spend is never recorded, so
+   * it is neither summed nor counted here.
+   */
+  readonly totalCostIsLowerBound: boolean;
   readonly totalTokens: number;
   readonly totalInput: number;
   readonly totalOutput: number;
@@ -103,8 +61,17 @@ export interface AggregateTotals {
   readonly untimestampedCount: number;
   /** Sessions with usage but no known price — excluded from `totalCost`. */
   readonly unknownCostSessionCount: number;
-  /** Sessions where only part of the usage has a price. */
+  /**
+   * Sessions where only part of the usage has a price. Their priced subtotal
+   * IS included in `totalCost`, which is then a lower bound.
+   */
   readonly partiallyPricedSessionCount: number;
+  /**
+   * Readable sessions that ran CLI agents. Their spend is never recorded, so
+   * it is not in `totalCost` and does not set `totalCostIsLowerBound`; this
+   * count exists only to say so next to the total (scope decision 3).
+   */
+  readonly cliAgentSessionCount: number;
 }
 
 /** Progress of the stats pages for the active load. */
@@ -263,12 +230,14 @@ export class SessionAnalyticsStateService {
       totalMessages = 0,
       totalSubagents = 0;
     let costContributorCount = 0;
+    let totalCostIsLowerBound = false;
     let pendingSessionCount = 0,
       errorSessionCount = 0,
       partialSessionCount = 0,
       untimestampedCount = 0,
       unknownCostSessionCount = 0,
-      partiallyPricedSessionCount = 0;
+      partiallyPricedSessionCount = 0,
+      cliAgentSessionCount = 0;
 
     for (const s of sessions) {
       if (s.status === 'pending') {
@@ -283,15 +252,19 @@ export class SessionAnalyticsStateService {
         partialSessionCount++;
       }
       untimestampedCount += s.untimestampedCount;
-      if (s.totalCost !== null) {
-        totalCost += s.totalCost;
+      const estimate = sessionCostEstimate(s);
+      if (estimate.cost !== null) {
+        totalCost += estimate.cost;
         costContributorCount++;
+        if (estimate.isLowerBound) totalCostIsLowerBound = true;
       } else if (s.status === 'ok') {
         unknownCostSessionCount++;
+        totalCostIsLowerBound = true;
       }
-      if (s.status === 'ok' && s.pricingCoverage === 'partial') {
+      if (s.status === 'ok' && estimate.isLowerBound) {
         partiallyPricedSessionCount++;
       }
+      if (s.cliAgents.length > 0) cliAgentSessionCount++;
       totalInput += s.tokens.input;
       totalOutput += s.tokens.output;
       totalCacheRead += s.tokens.cacheRead;
@@ -302,6 +275,7 @@ export class SessionAnalyticsStateService {
 
     return {
       totalCost: costContributorCount > 0 ? totalCost : null,
+      totalCostIsLowerBound: costContributorCount > 0 && totalCostIsLowerBound,
       totalTokens:
         totalInput + totalOutput + totalCacheRead + totalCacheCreation,
       totalInput,
@@ -319,6 +293,7 @@ export class SessionAnalyticsStateService {
       untimestampedCount,
       unknownCostSessionCount,
       partiallyPricedSessionCount,
+      cliAgentSessionCount,
     };
   });
 
@@ -557,6 +532,8 @@ export class SessionAnalyticsStateService {
         ? resolveModelDisplayName(stats.model, models)
         : 'Unknown',
       totalCost: stats?.totalCost ?? null,
+      // Older producers send no `knownCost`; a full total is its own subtotal.
+      knownCost: stats?.knownCost ?? stats?.totalCost ?? null,
       tokens: stats?.tokens ?? {
         input: 0,
         output: 0,
@@ -608,6 +585,7 @@ function unreadableStats(sessionId: string): SessionStatsEntry {
     sessionId,
     model: null,
     totalCost: null,
+    knownCost: null,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
     messageCount: 0,
     status: 'error',

@@ -77,6 +77,7 @@ export {
   type InstalledServerGroup,
 } from './lib/molecules/setup-plugins/installed-mcp-groups';
 export { removeInstalledGroup } from './lib/molecules/setup-plugins/installed-mcp-removal';
+export { MARKETPLACE_RPC_TIMEOUTS } from './lib/molecules/setup-plugins/marketplace-rpc-timeouts';
 export { PluginCatalogPanelComponent } from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
 export { PromptSuggestionsComponent } from './lib/molecules/setup-plugins/prompt-suggestions.component';
 export { SetupStatusWidgetComponent } from './lib/molecules/setup-plugins/setup-status-widget.component';

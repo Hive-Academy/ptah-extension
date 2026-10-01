@@ -31,6 +31,8 @@ import { TabManagerService } from './tab-manager.service';
 import { TabSessionBinding } from './tab-session-binding.service';
 import { TabWorkspacePartitionService } from './tab-workspace-partition.service';
 import {
+  LEGACY_COMPACT_HEIGHT_UNITS,
+  LEGACY_COMPACT_TALL_HEIGHT_UNITS,
   PERSISTED_TAB_STATE_VERSION,
   sanitizeRestoredTab,
 } from './tab-persistence';
@@ -203,6 +205,73 @@ describe('restored tabs — one sanitize, both readers', () => {
       expect(tab.order).toBe(3);
       expect(tab.claudeSessionId).toBe('sess-tab-1');
       expect(tab.messages).toHaveLength(1);
+    });
+
+    it('migrates a legacy compact-tall tab to compact at 3 units (TASK_2026_583)', () => {
+      const [tab] = restore([
+        storedTab('tab-1', 'loaded', { viewMode: 'compact-tall' }),
+      ]);
+      expect(tab.viewMode).toBe('compact');
+      expect(tab.compactHeightUnits).toBe(LEGACY_COMPACT_TALL_HEIGHT_UNITS);
+      expect(LEGACY_COMPACT_TALL_HEIGHT_UNITS).toBe(3);
+    });
+
+    it('gives a legacy compact tab without a height 2 units', () => {
+      const [tab] = restore([
+        storedTab('tab-1', 'loaded', { viewMode: 'compact' }),
+      ]);
+      expect(tab.viewMode).toBe('compact');
+      expect(tab.compactHeightUnits).toBe(LEGACY_COMPACT_HEIGHT_UNITS);
+      expect(LEGACY_COMPACT_HEIGHT_UNITS).toBe(2);
+    });
+
+    it('keeps a valid stored height, on compact, full and legacy compact-tall tabs', () => {
+      const tabs = restore([
+        storedTab('tab-1', 'loaded', {
+          viewMode: 'compact',
+          compactHeightUnits: 4,
+        }),
+        storedTab('tab-2', 'loaded', {
+          viewMode: 'full',
+          compactHeightUnits: 5,
+        }),
+        storedTab('tab-3', 'loaded', {
+          viewMode: 'compact-tall',
+          compactHeightUnits: 5,
+        }),
+      ]);
+      expect(
+        tabs.map((tab) => [tab.viewMode, tab.compactHeightUnits]),
+      ).toEqual([
+        ['compact', 4],
+        ['full', 5],
+        ['compact', 5],
+      ]);
+    });
+
+    it.each([0, -2, 2.5, '4', null, true])(
+      'drops an invalid stored height %p',
+      (value) => {
+        const [compact, full] = restore([
+          storedTab('tab-1', 'loaded', {
+            viewMode: 'compact',
+            compactHeightUnits: value,
+          }),
+          storedTab('tab-2', 'loaded', {
+            viewMode: 'full',
+            compactHeightUnits: value,
+          }),
+        ]);
+        expect(compact.compactHeightUnits).toBe(LEGACY_COMPACT_HEIGHT_UNITS);
+        expect(full.viewMode).toBe('full');
+        expect(full.compactHeightUnits).toBeUndefined();
+      },
+    );
+
+    it('leaves a tab with no view mode without a mode or height', () => {
+      const [tab] = restore([storedTab('tab-1', 'loaded')]);
+      expect(tab.viewMode).toBeUndefined();
+      expect(tab.compactHeightUnits).toBeUndefined();
     });
 
     it('sanitizes every tab in the set, not just the first', () => {

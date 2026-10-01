@@ -32,6 +32,7 @@ import {
 // dynamic import, keeping the vendored logo table out of the eager chunk (R7).
 import { BrandMarkComponent } from '@ptah-extension/ui/brand-mark';
 import { mcpTargetLabel } from './installed-mcp-groups';
+import { MARKETPLACE_RPC_TIMEOUTS } from './marketplace-rpc-timeouts';
 
 const ALL_TARGETS: McpInstallTarget[] = [
   'vscode',
@@ -446,9 +447,11 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     }
     this.isLoadingDetails.set(true);
     try {
-      const result = await this.rpcService.call('mcpDirectory:getDetails', {
-        name: server.name,
-      });
+      const result = await this.rpcService.call(
+        'mcpDirectory:getDetails',
+        { name: server.name },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+      );
 
       if (this.destroyed) return;
 
@@ -612,9 +615,11 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     this.error.set(null);
 
     try {
-      const result = await this.rpcService.call('mcpDirectory:search', {
-        query,
-      });
+      const result = await this.rpcService.call(
+        'mcpDirectory:search',
+        { query },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+      );
 
       if (this.destroyed) return;
 
@@ -638,7 +643,11 @@ export class McpDirectoryBrowserComponent implements OnInit, OnDestroy {
     this.error.set(null);
 
     try {
-      const result = await this.rpcService.call('mcpDirectory:getPopular', {});
+      const result = await this.rpcService.call(
+        'mcpDirectory:getPopular',
+        {},
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+      );
 
       if (this.destroyed) return;
 

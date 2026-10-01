@@ -1221,16 +1221,32 @@ describe('TabManagerService — intent-named mutators', () => {
       expect(service.getTabViewMode(id)).toBe('full');
     });
 
-    it('toggleTabViewMode returns compact-tall to full, not on to another tier', () => {
-      // The header's one-click affordance must round-trip. When the toggle
-      // CYCLED through compact-tall, a second click never came back to full,
-      // which is what broke canvas.spec.ts:481. Choosing a specific tier is
-      // setViewMode's job, and the tile menu already exposes it.
+    it('toggleTabViewMode stays binary and keeps the last compact height', () => {
+      // The header's one-click affordance must round-trip (canvas.spec.ts).
+      // Height is tab state set by setCompactHeight, so the toggle never lands
+      // on a height tier; it only switches mode and reuses the stored height.
       const id = service.createTab('view');
-      service.setViewMode(id, 'compact-tall');
-      expect(service.getTabViewMode(id)).toBe('compact-tall');
+      service.setCompactHeight(id, 3);
       service.toggleTabViewMode(id);
       expect(service.getTabViewMode(id)).toBe('full');
+      service.toggleTabViewMode(id);
+      expect(service.getTabViewMode(id)).toBe('compact');
+      expect(service.getTabCompactHeightUnits(id)).toBe(3);
+    });
+
+    it('setCompactHeight writes the tab once and ignores non-positive or fractional units', () => {
+      const id = service.createTab('view');
+      service.setCompactHeight(id, 4);
+      const tab = service.tabs().find((t) => t.id === id);
+      expect(tab?.viewMode).toBe('compact');
+      expect(tab?.compactHeightUnits).toBe(4);
+
+      const before = service.tabs();
+      service.setCompactHeight(id, 4);
+      service.setCompactHeight(id, 0);
+      service.setCompactHeight(id, -1);
+      service.setCompactHeight(id, 2.5);
+      expect(service.tabs()).toBe(before);
     });
 
     it('applyNewConversationDraft preserves a user name, sets draft, and clears claudeSessionId', () => {

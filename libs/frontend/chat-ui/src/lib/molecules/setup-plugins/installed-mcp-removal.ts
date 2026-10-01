@@ -3,6 +3,7 @@ import {
   mcpTargetLabel,
   type InstalledServerGroup,
 } from './installed-mcp-groups';
+import { MARKETPLACE_RPC_TIMEOUTS } from './marketplace-rpc-timeouts';
 
 /**
  * Perform the removal for one group.
@@ -26,9 +27,11 @@ export async function removeInstalledGroup(
 ): Promise<string | null> {
   switch (group.removal) {
     case 'smithery': {
-      const result = await rpc.call('mcpDirectory:uninstallSmithery', {
-        serverKey: group.serverKey,
-      });
+      const result = await rpc.call(
+        'mcpDirectory:uninstallSmithery',
+        { serverKey: group.serverKey },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+      );
       if (!result.isSuccess()) {
         return (
           result.error ?? `Smithery could not remove "${group.serverKey}".`

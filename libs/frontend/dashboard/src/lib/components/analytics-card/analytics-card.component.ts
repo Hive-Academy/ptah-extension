@@ -13,8 +13,8 @@ import {
   SessionAnalyticsStateService,
   SessionDateRange,
   SESSION_DATE_RANGE_OPTIONS,
-  DashboardSessionEntry,
 } from '../../services/session-analytics-state.service';
+import { DashboardSessionEntry } from '../../models/session-analytics.models';
 import { MetricsCardsComponent } from '../session-analytics/metrics-cards.component';
 import { SessionStatsCardComponent } from '../session-analytics/session-stats-card.component';
 import { SessionDetailModalComponent } from '../session-analytics/session-detail-modal.component';

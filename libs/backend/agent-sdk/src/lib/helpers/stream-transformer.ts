@@ -15,13 +15,14 @@ import { injectable, inject } from 'tsyringe';
 import {
   SessionId,
   FlatStreamEventUnion,
-  MessageTokenUsage,
   calculateMessageCost,
   resolveContextCapacity,
   type ContextCapacity,
   type ContextCapacityRoute,
   AuthEnv,
+  normalizeModelKey,
   type ModelPricing,
+  type ResultStatsPayload,
   type SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
@@ -70,26 +71,13 @@ interface TrackedTurnContext {
 }
 
 /**
- * Reduce a model id to the spelling the two key spaces share.
+ * Pair each `modelUsage` key with the last-turn context the stream tracked.
  *
  * `modelUsage` is keyed by the raw model string the CLI ran (the SDK's
  * `ModelUsage.canonicalModel` doc: "may differ from the raw model string this
- * entry is keyed by"), so the 1M variant arrives as `claude-opus-5[1m]`. The
- * CLI strips that tag before calling the API, so the `message_start` the
- * tracker reads carries the bare id. Lowercase, trailing `[..]` variant tags,
- * a `provider/` prefix and a date snapshot suffix are spelling, not identity.
- */
-function normalizeModelKey(modelId: string): string {
-  const lower = modelId
-    .trim()
-    .toLowerCase()
-    .replace(/(\[[^\]]*\])+$/, '');
-  const unprefixed = lower.slice(lower.lastIndexOf('/') + 1);
-  return unprefixed.replace(/-(?:\d{4}-\d{2}-\d{2}|\d{8})$/, '');
-}
-
-/**
- * Pair each `modelUsage` key with the last-turn context the stream tracked.
+ * entry is keyed by"), so the 1M variant arrives as `claude-opus-5[1m]`, while
+ * the `message_start` the tracker reads carries the bare id. Spellings are
+ * compared through the shared `normalizeModelKey`.
  *
  * Exact key first. A tracked entry left unclaimed is then matched by
  * normalized spelling against the key and its aliases (the SDK's canonical id,
@@ -174,22 +162,16 @@ export interface ResultModelUsage {
 }
 
 /**
- * Callback type for notifying when result message with stats is received
- * Uses MessageTokenUsage from shared for type consistency
+ * The shared `session:stats` payload (one source of truth for its fields,
+ * including `turnCost`), with this transformer's own model rows.
  */
-export type ResultStatsCallback = (stats: {
-  sessionId: SessionId;
-  cost: number | null;
-  tokens: MessageTokenUsage;
-  duration: number;
+export type TransformerResultStats = Omit<ResultStatsPayload, 'modelUsage'> & {
   /** Per-model usage data including context window size */
-  modelUsage?: ResultModelUsage[];
-  /**
-   * The session owner's lifetime snapshot after this result (TASK_2026_533).
-   * The per-result fields above keep their footer/context meaning.
-   */
-  sessionStats?: SessionStatsEntry;
-}) => void;
+  readonly modelUsage?: ResultModelUsage[];
+};
+
+/** Callback type for notifying when result message with stats is received */
+export type ResultStatsCallback = (stats: TransformerResultStats) => void;
 
 /**
  * Configuration for stream transformation
@@ -248,49 +230,46 @@ export interface StreamTransformConfig {
 }
 
 /**
- * Validated stats interface
- * Uses MessageTokenUsage from shared for type consistency
- */
-interface ValidatedStats {
-  sessionId: SessionId;
-  cost: number | null;
-  tokens: MessageTokenUsage;
-  duration: number;
-  /** Per-model usage data including context window size */
-  modelUsage?: ResultModelUsage[];
-}
-
-/**
  * Validate stats from SDK result message
  * Rejects corrupt negative or non-finite numeric values from the SDK
  *
- * @param stats - Raw stats extracted from SDK result message
+ * @param stats - Stats extracted from SDK result message
+ * @param sdkCost - The SDK-derived cumulative cost of the query run. Checked
+ *   because a corrupt value means the whole result is corrupt; never published.
  * @param logger - Logger instance for validation warnings
  * @returns Validated stats or null if validation fails
  */
 function validateStats(
-  stats: {
-    sessionId: SessionId;
-    cost: number | null;
-    tokens: { input: number; output: number };
-    duration: number;
-    modelUsage?: ResultModelUsage[];
-  },
+  stats: TransformerResultStats,
+  sdkCost: number | null,
   logger: Logger,
-): ValidatedStats | null {
-  // Cost and token figures are cumulative per session, and duration can cover
-  // a long-running turn, so none has a fixed upper bound. Production logs
-  // recorded valid cumulative costs above $100 (up to about $356); rejecting a
-  // large value drops the whole payload and freezes the UI stats.
-  // Negative and non-finite checks are deliberately the whole defence.
+): TransformerResultStats | null {
+  // The SDK's cost and model figures are cumulative per query process, and
+  // duration can cover a long-running turn, so none has a fixed upper bound.
+  // Production logs recorded valid cumulative costs above $100 (up to about
+  // $356); rejecting a large value drops the whole payload and freezes the UI
+  // stats. Negative and non-finite checks are deliberately the whole defence.
   if (
-    stats.cost !== null &&
-    (stats.cost < 0 || isNaN(stats.cost) || !isFinite(stats.cost))
+    sdkCost !== null &&
+    (sdkCost < 0 || Number.isNaN(sdkCost) || !Number.isFinite(sdkCost))
   ) {
     logger.warn('[StreamTransformer] Invalid cost value from SDK:', {
-      cost: stats.cost,
+      cost: sdkCost,
       sessionId: stats.sessionId,
     });
+    return null;
+  }
+  if (
+    stats.turnCost !== null &&
+    (stats.turnCost < 0 || !Number.isFinite(stats.turnCost))
+  ) {
+    logger.warn(
+      '[StreamTransformer] Invalid turn cost from the session owner:',
+      {
+        turnCost: stats.turnCost,
+        sessionId: stats.sessionId,
+      },
+    );
     return null;
   }
   if (
@@ -671,6 +650,9 @@ export class StreamTransformer {
                   });
                 }
               }
+              // The run's CUMULATIVE cost so far (per query process, subagents
+              // included). Handed to the session owner only; it is never a
+              // message cost.
               let totalCost: number | null;
               if (reported) {
                 totalCost = sdkMessage.total_cost_usd;
@@ -708,27 +690,41 @@ export class StreamTransformer {
               // The owner generation is checked HERE, after every pricing
               // await above: a result whose owner was released or replaced
               // meanwhile is dropped, and can never recreate an owner.
+              // The message cost is the owner's `turnCost` for an accepted
+              // result; with no owner, no model rows, or any other outcome it
+              // stays unknown — the cumulative `totalCost` is never published
+              // in its place. A duplicate is not published at all: it belongs
+              // to a turn whose cost was already published.
               let sessionStats: SessionStatsEntry | undefined;
+              let turnCost: number | null = null;
+              let duplicate = false;
               if (statsGeneration === null) {
                 // No owner was prepared for this stream: nothing to publish.
               } else if (runModels.length > 0) {
-                const { outcome, snapshot, firstRejection } =
-                  statsOwner.replaceRun(
-                    effectiveSessionId,
-                    statsGeneration,
-                    runToken,
-                    {
-                      models: runModels,
-                      totalCost:
-                        typeof totalCost === 'number' ? totalCost : null,
-                      costSource: usageCostSource,
-                      isErrorResult:
-                        sdkMessage.subtype !== 'success' || sdkMessage.is_error,
-                      // Per turn; the owner adds it only when it accepts the
-                      // result, and validates it.
-                      durationMs: sdkMessage.duration_ms,
-                    },
+                const offered = statsOwner.replaceRun(
+                  effectiveSessionId,
+                  statsGeneration,
+                  runToken,
+                  {
+                    models: runModels,
+                    totalCost: typeof totalCost === 'number' ? totalCost : null,
+                    costSource: usageCostSource,
+                    isErrorResult:
+                      sdkMessage.subtype !== 'success' || sdkMessage.is_error,
+                    // Per turn; the owner adds it only when it accepts the
+                    // result, and validates it.
+                    durationMs: sdkMessage.duration_ms,
+                  },
+                );
+                const { outcome, snapshot, firstRejection } = offered;
+                turnCost = offered.turnCost;
+                duplicate = outcome === 'duplicate';
+                if (offered.runCostDecreased) {
+                  logger.warn(
+                    '[StreamTransformer] The run cost went down between two accepted results (a model rate changed mid-run); this turn cost is unknown',
+                    { sessionId: effectiveSessionId },
                   );
+                }
                 if (outcome === 'rejected-invalid') {
                   logger.warn(
                     '[StreamTransformer] Session stats owner rejected a malformed result; keeping the accepted snapshot',
@@ -762,22 +758,32 @@ export class StreamTransformer {
                   '[StreamTransformer] Result stats callback not set - stats will be lost!',
                   { sessionId: effectiveSessionId },
                 );
+              } else if (duplicate) {
+                // Identical to the run's accepted cumulative value: a repeat of
+                // a turn whose cost, footer and snapshot were already
+                // published. Publishing it would overwrite that message's cost.
               } else if (!hasNoSdkTokenUsage || modelUsageList.length > 0) {
                 // A result with neither aggregate usage nor per-model usage is
                 // a turn boundary, not a stats update. Emitting its zero values
                 // would overwrite the populated session header after resume.
-                // `sdkTokens` is a per-turn delta for the message footer;
-                // `modelUsageList` is cumulative per query and must not be
-                // summed into that delta or earlier turns are counted again.
-                const rawStats = {
+                // `sdkTokens` (main loop only) and `turnCost` (every model of
+                // the turn, subagents included) are this turn's own figures
+                // for the message footer; `modelUsageList` is cumulative per
+                // query and must not be summed into them or earlier turns are
+                // counted again.
+                const rawStats: TransformerResultStats = {
                   sessionId: effectiveSessionId,
-                  cost: totalCost,
+                  turnCost,
                   tokens: sdkTokens,
                   duration: sdkMessage.duration_ms,
                   modelUsage:
                     modelUsageList.length > 0 ? modelUsageList : undefined,
                 };
-                const validatedStats = validateStats(rawStats, logger);
+                const validatedStats = validateStats(
+                  rawStats,
+                  totalCost,
+                  logger,
+                );
                 if (validatedStats) {
                   onResultStats({
                     ...validatedStats,

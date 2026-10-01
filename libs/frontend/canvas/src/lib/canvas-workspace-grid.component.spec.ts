@@ -77,6 +77,8 @@ jest.mock('gridstack/dist/angular', () => {
 });
 jest.mock('gridstack', () => ({ GridStack: class {} }));
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { TestBed } from '@angular/core/testing';
 import { ApplicationRef, signal } from '@angular/core';
 import { By } from '@angular/platform-browser';
@@ -95,8 +97,17 @@ const THREE_COLUMN_WIDTH = 1464;
 /** Container width that derives 2 columns — the reported editor-open case. */
 const TWO_COLUMN_WIDTH = 1180;
 
+interface FakeTab {
+  id: string;
+  viewMode?: TabViewMode;
+  compactHeightUnits?: number;
+  title?: string;
+}
+
 interface FakeNode {
   id?: unknown;
+  minH?: number;
+  maxH?: number;
   x?: number;
   y?: number;
   w?: number;
@@ -206,9 +217,9 @@ describe('CanvasWorkspaceGridComponent', () => {
   >;
   let grid: FakeGrid;
   /** Writable `tabs` signal behind the tab-manager fake, seeded by `mount`. */
-  let tabsSignal: ReturnType<
-    typeof signal<Array<{ id: string; viewMode?: TabViewMode; title?: string }>>
-  >;
+  let tabsSignal: ReturnType<typeof signal<FakeTab[]>>;
+  /** `TabManagerService.setCompactHeight` fake: writes through to `tabsSignal`. */
+  let setCompactHeightSpy: jest.Mock<void, [string, number]>;
 
   const flush = (): void => {
     TestBed.inject(ApplicationRef).tick();
@@ -240,9 +251,16 @@ describe('CanvasWorkspaceGridComponent', () => {
     originalRaf = globalThis.requestAnimationFrame;
     originalCancelRaf = globalThis.cancelAnimationFrame;
 
-    tabsSignal = signal<
-      Array<{ id: string; viewMode?: TabViewMode; title?: string }>
-    >([]);
+    tabsSignal = signal<FakeTab[]>([]);
+    setCompactHeightSpy = jest.fn((tabId: string, units: number) => {
+      tabsSignal.set(
+        tabsSignal().map((tab) =>
+          tab.id === tabId
+            ? { ...tab, viewMode: 'compact', compactHeightUnits: units }
+            : tab,
+        ),
+      );
+    });
 
     globalThis.ResizeObserver = class {
       constructor(cb: ObserverCallback) {
@@ -275,6 +293,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       openSessionTab: jest.fn(),
       closeTab: jest.fn().mockResolvedValue(undefined),
       forceCloseTab: jest.fn(),
+      setCompactHeight: setCompactHeightSpy,
     } as unknown as TabManagerService;
 
     TestBed.configureTestingModule({
@@ -364,15 +383,21 @@ describe('CanvasWorkspaceGridComponent', () => {
     });
   };
 
-  const fireResizeStop = (): void => {
+  const fireResizeStop = (nodeIndex = 0): void => {
     gridStub().resizeStartCB.emit({
       event: new Event('resizestart'),
-      el: grid.engine.nodes[0].el,
+      el: grid.engine.nodes[nodeIndex].el,
     });
     gridStub().resizeStopCB.emit({
       event: new Event('resizestop'),
-      el: grid.engine.nodes[0].el,
+      el: grid.engine.nodes[nodeIndex].el,
     });
+  };
+
+  const nodeOf = (id: string): FakeNode => {
+    const node = grid.engine.nodes.find((candidate) => candidate.id === id);
+    if (!node) throw new Error(`Missing fake Gridstack node: ${id}`);
+    return node;
   };
 
   const engineGeometry = (): Array<
@@ -386,14 +411,18 @@ describe('CanvasWorkspaceGridComponent', () => {
   > =>
     grid.engine.nodes.map((node) => [node.id, node.x, node.y, node.w, node.h]);
 
-  /** Flip one mounted tab's view mode and settle the reactive graph. */
+  /**
+   * Flip one mounted tab's view mode (and optionally its stored compact
+   * height) and settle the reactive graph.
+   */
   const setViewMode = (
     tabId: string,
     viewMode: TabViewMode | undefined,
+    compactHeightUnits?: number,
   ): void => {
     tabsSignal.set(
       tabsSignal().map((tab) =>
-        tab.id === tabId ? { ...tab, viewMode } : tab,
+        tab.id === tabId ? { ...tab, viewMode, compactHeightUnits } : tab,
       ),
     );
     flush();
@@ -406,7 +435,7 @@ describe('CanvasWorkspaceGridComponent', () => {
   };
 
   describe('grid options', () => {
-    it('runs with gravity on, horizontal-only resize and a header drag handle', () => {
+    it('runs with gravity on, edge resize handles and a header drag handle', () => {
       mount(['t1']);
 
       const options = fixture.componentInstance.gsOptions;
@@ -414,7 +443,9 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(options.column).toBe(12);
       expect(options.margin).toBe(8);
       expect(options.animate).toBe(true);
-      expect(options.resizable).toEqual({ handles: 'e, w' });
+      // Every item gets all three; per-item CSS shows south for compact tiles
+      // and east/west for full tiles.
+      expect(options.resizable).toEqual({ handles: 'e, s, w' });
       expect(options.draggable).toEqual({ handle: '.tile-header' });
     });
   });
@@ -452,8 +483,8 @@ describe('CanvasWorkspaceGridComponent', () => {
     });
   });
 
-  describe('view-mode tiers', () => {
-    it('reflows between compact tiers while locked and cancels an earlier gesture', () => {
+  describe('view-mode heights', () => {
+    it('reflows between compact heights while locked and cancels an earlier gesture', () => {
       mount(['t1', 't2', 't3', 't4']);
       setAllSpansToThirds(['t1', 't2', 't3', 't4']);
       setViewMode('t2', 'compact');
@@ -464,7 +495,7 @@ describe('CanvasWorkspaceGridComponent', () => {
         event: new Event('dragstart'),
         el: grid.engine.nodes[0].el,
       });
-      setViewMode('t2', 'compact-tall');
+      setViewMode('t2', 'compact', 3);
       expect(fixture.componentInstance.viewFingerprint()).not.toBe(fingerprint);
       expect(
         (fixture.componentInstance as unknown as { _gesture: unknown })
@@ -530,7 +561,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(grid.load).toHaveBeenLastCalledWith(
         [
           { id: 't1', x: 0, y: 0, w: 4, h: 6 },
-          { id: 't2', x: 4, y: 0, w: 4, h: 2 },
+          { id: 't2', x: 4, y: 0, w: 4, h: 2, minH: 2, maxH: 5 },
           { id: 't3', x: 8, y: 0, w: 4, h: 6 },
           { id: 't4', x: 4, y: 2, w: 4, h: 6 },
         ],
@@ -558,53 +589,52 @@ describe('CanvasWorkspaceGridComponent', () => {
       expect(store.workspaceRevision(WORKSPACE)).toBe(revision);
     });
 
-    it.each(['compact', 'compact-tall'] as const)(
-      'keeps a %s node movable but not resizable, in options and on the engine',
-      (mode) => {
-        mount(['t1', 't2', 't3']);
-        grid.movable.mockClear();
-        grid.resizable.mockClear();
-        setViewMode('t2', mode);
+    it('keeps a compact node movable and resizable, marked for its south handle only', () => {
+      mount(['t1', 't2', 't3']);
+      grid.movable.mockClear();
+      grid.resizable.mockClear();
+      setViewMode('t2', 'compact');
 
-        const nodeOf = (id: string) => {
-          const node = grid.engine.nodes.find(
-            (candidate) => candidate.id === id,
-          );
-          if (!node) throw new Error(`Missing fake Gridstack node: ${id}`);
-          return node;
-        };
-        expect(grid.movable).toHaveBeenCalledWith(nodeOf('t2').el, true);
-        expect(grid.resizable).toHaveBeenCalledWith(nodeOf('t2').el, false);
-        expect(grid.resizable).toHaveBeenCalledWith(nodeOf('t1').el, true);
+      expect(grid.movable).toHaveBeenCalledWith(nodeOf('t2').el, true);
+      expect(grid.resizable).toHaveBeenCalledWith(nodeOf('t2').el, true);
+      expect(grid.resizable).toHaveBeenCalledWith(nodeOf('t1').el, true);
 
-        const items = (
-          fixture.componentInstance as unknown as {
-            items: () => Array<{
-              tabId: string;
-              options: { noMove?: boolean; noResize?: boolean };
-            }>;
-          }
-        ).items();
-        expect(
-          items.find((item) => item.tabId === 't2')?.options.noResize,
-        ).toBe(true);
-        expect(
-          items.find((item) => item.tabId === 't1')?.options.noResize,
-        ).toBe(false);
+      const items = (
+        fixture.componentInstance as unknown as {
+          items: () => Array<{
+            tabId: string;
+            compact: boolean;
+            options: { noMove?: boolean; noResize?: boolean };
+          }>;
+        }
+      ).items();
+      expect(items.find((item) => item.tabId === 't2')).toEqual(
+        expect.objectContaining({
+          compact: true,
+          options: expect.objectContaining({ noResize: false }),
+        }),
+      );
+      expect(items.find((item) => item.tabId === 't1')?.compact).toBe(false);
 
-        // A stale compact resize handle event is refused before it can latch.
-        gridStub().resizeStartCB.emit({
-          event: new Event('resizestart'),
-          el: nodeOf('t2').el,
-        });
-        expect(
-          (fixture.componentInstance as unknown as { _gesture: unknown })
-            ._gesture,
-        ).toBeNull();
-        const metrics = TestBed.inject(CanvasRenderMetricsService);
-        expect(metrics.snapshot().rejectedGestures).toBeGreaterThan(0);
-      },
-    );
+      // The compact class gates the handles in CSS: south for compact tiles,
+      // east and west for full tiles.
+      const itemEls = fixture.debugElement
+        .queryAll(By.css('gridstack-item'))
+        .map((debugEl) => debugEl.nativeElement as HTMLElement);
+      expect(
+        itemEls.map((el) => el.classList.contains('ptah-compact-item')),
+      ).toEqual([false, true, false]);
+
+      // A compact resize start now latches a gesture.
+      gridStub().resizeStartCB.emit({
+        event: new Event('resizestart'),
+        el: nodeOf('t2').el,
+      });
+      expect(
+        (fixture.componentInstance as unknown as { _gesture: unknown })
+          ._gesture,
+      ).not.toBeNull();
+    });
 
     it('cancels an in-flight gesture when a participating tab changes tier', () => {
       mount(['t1', 't2', 't3']);
@@ -1082,6 +1112,195 @@ describe('CanvasWorkspaceGridComponent', () => {
     });
   });
 
+  describe('compact height resize', () => {
+    /** Four thirds with t2 compact at `units`: t4 fills the hole under t2. */
+    const mountCompactRow = (units = 2): void => {
+      mount(['t1', 't2', 't3', 't4']);
+      setAllSpansToThirds(['t1', 't2', 't3', 't4']);
+      setViewMode('t2', 'compact', units);
+      reorderSpy.mockClear();
+      resizeSpanSpy.mockClear();
+      setCompactHeightSpy.mockClear();
+    };
+    const metrics = () => TestBed.inject(CanvasRenderMetricsService).snapshot();
+
+    it('commits a south-edge drag to the tab height and reflows the neighbour', () => {
+      mountCompactRow();
+      const intentBefore = store.tiles().map((tile) => ({ ...tile }));
+      const accepted = metrics().acceptedGestures;
+
+      nodeOf('t2').h = 4;
+      fireResizeStop(1);
+      grid.emitChange();
+
+      expect(setCompactHeightSpy).toHaveBeenCalledTimes(1);
+      expect(setCompactHeightSpy).toHaveBeenCalledWith('t2', 4);
+      expect(metrics().acceptedGestures).toBe(accepted + 1);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 4],
+        ['t3', 8, 0, 4, 6],
+        ['t4', 4, 4, 4, 6],
+      ]);
+      // Height is tab state: canvas intent and revision are untouched.
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intentBefore);
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+      expect(reorderSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [9, 5],
+      [6, 5],
+      [1, 2],
+    ])('clamps an observed height of %i to %i units', (observed, stored) => {
+      mountCompactRow(3);
+
+      nodeOf('t2').h = observed;
+      fireResizeStop(1);
+      grid.emitChange();
+
+      expect(setCompactHeightSpy).toHaveBeenCalledWith('t2', stored);
+      expect(nodeOf('t2').h).toBe(stored);
+    });
+
+    it('accepts a drag that ends at the current height without writing', () => {
+      mountCompactRow(3);
+      const accepted = metrics().acceptedGestures;
+
+      fireResizeStop(1);
+      grid.emitChange();
+
+      expect(setCompactHeightSpy).not.toHaveBeenCalled();
+      expect(metrics().acceptedGestures).toBe(accepted + 1);
+      expect(nodeOf('t2').h).toBe(3);
+    });
+
+    it('rejects a fractional height and settles back to authoritative geometry', () => {
+      mountCompactRow();
+      const rejected = metrics().rejectedGestures;
+
+      nodeOf('t2').h = 3.5;
+      fireResizeStop(1);
+      grid.emitChange();
+
+      expect(setCompactHeightSpy).not.toHaveBeenCalled();
+      expect(metrics().rejectedGestures).toBe(rejected + 1);
+      expect(nodeOf('t2').h).toBe(2);
+    });
+
+    it('commits a full tile resize as a span and ignores its height', () => {
+      mountCompactRow();
+
+      nodeOf('t1').w = 6;
+      nodeOf('t1').h = 9;
+      fireResizeStop(0);
+      grid.emitChange();
+
+      expect(resizeSpanSpy).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Number),
+        't1',
+        'half',
+      );
+      expect(setCompactHeightSpy).not.toHaveBeenCalled();
+      expect(nodeOf('t1').h).toBe(6);
+    });
+
+    it('passes compact drag bounds to Gridstack and clears them on return to full', () => {
+      mountCompactRow();
+      expect(nodeOf('t2')).toEqual(
+        expect.objectContaining({ minH: 2, maxH: 5 }),
+      );
+
+      setViewMode('t2', undefined);
+
+      const loadCalls = grid.load.mock.calls;
+      const loaded = loadCalls[loadCalls.length - 1][0] as Array<{
+        id: string;
+        minH?: number;
+        maxH?: number;
+      }>;
+      const t2 = loaded.find((item) => item.id === 't2');
+      // Explicit `undefined` keys: Gridstack's update() assigns and strips them.
+      expect(t2).toHaveProperty('minH', undefined);
+      expect(t2).toHaveProperty('maxH', undefined);
+      expect(nodeOf('t2').maxH).toBeUndefined();
+    });
+
+    it('applies compact drag bounds to a node already at its target geometry', () => {
+      mountCompactRow();
+      // A reload creates the node at its target geometry, without bounds.
+      delete nodeOf('t2').minH;
+      delete nodeOf('t2').maxH;
+      const geometry = engineGeometry();
+      grid.load.mockClear();
+
+      measure(THREE_COLUMN_WIDTH, 901);
+      flush();
+
+      expect(grid.load).toHaveBeenCalled();
+      expect(nodeOf('t2')).toEqual(
+        expect.objectContaining({ minH: 2, maxH: 5 }),
+      );
+      expect(engineGeometry()).toEqual(geometry);
+    });
+
+    it('refuses a compact resize while the canvas is locked', () => {
+      mountCompactRow();
+      fixture.componentRef.setInput('locked', true);
+      flush();
+
+      nodeOf('t2').h = 4;
+      fireResizeStop(1);
+      grid.emitChange();
+
+      expect(
+        (fixture.componentInstance as unknown as { _gesture: unknown })
+          ._gesture,
+      ).toBeNull();
+      expect(setCompactHeightSpy).not.toHaveBeenCalled();
+    });
+
+    it('applies a menu height change under lock once, with frozen measurements and no gesture commit', () => {
+      mountCompactRow();
+      fixture.componentRef.setInput('locked', true);
+      flush();
+      // A withheld responsive reflow must not hitchhike on the height change.
+      measure(TWO_COLUMN_WIDTH);
+      flush();
+      const intentBefore = store.tiles().map((tile) => ({ ...tile }));
+      const revision = store.workspaceRevision(WORKSPACE);
+      const accepted = metrics().acceptedGestures;
+      grid.load.mockClear();
+
+      // What the tile menu stepper does.
+      TestBed.inject(TabManagerService).setCompactHeight('t2', 4);
+      flush();
+
+      expect(grid.load).toHaveBeenCalledTimes(1);
+      expect(engineGeometry()).toEqual([
+        ['t1', 0, 0, 4, 6],
+        ['t2', 4, 0, 4, 4],
+        ['t3', 8, 0, 4, 6],
+        ['t4', 4, 4, 4, 6],
+      ]);
+      expect(grid.setStatic).toHaveBeenLastCalledWith(true);
+      expect(metrics().acceptedGestures).toBe(accepted);
+      expect(store.tiles().map((tile) => ({ ...tile }))).toEqual(intentBefore);
+      expect(store.workspaceRevision(WORKSPACE)).toBe(revision);
+      expect(reorderSpy).not.toHaveBeenCalled();
+      expect(resizeSpanSpy).not.toHaveBeenCalled();
+    });
+
+    it('clamps an out-of-range stored height when projecting', () => {
+      mount(['t1', 't2']);
+      setViewMode('t2', 'compact', 42);
+      expect(nodeOf('t2').h).toBe(5);
+      setViewMode('t2', 'compact', undefined);
+      expect(nodeOf('t2').h).toBe(2);
+    });
+  });
+
   describe('layout focus', () => {
     it('disables move and resize while focused and reapplies intent on exit', () => {
       mount(['t1', 't2']);
@@ -1371,7 +1590,7 @@ describe('CanvasWorkspaceGridComponent', () => {
       ).toMatch(/^\d+px$/);
     });
 
-    it('sizes a compact tall singleton to three cells and expands only during layout focus', () => {
+    it('sizes a three-unit compact singleton to three cells and expands only during layout focus', () => {
       mount(['tab-1']);
       setViewMode('tab-1', 'compact');
       const gridstackEl = fixture.debugElement.query(By.css('gridstack'))
@@ -1381,7 +1600,7 @@ describe('CanvasWorkspaceGridComponent', () => {
           gridstackEl.style.getPropertyValue('--ptah-compact-singleton-height'),
         );
       const shortHeight = height();
-      setViewMode('tab-1', 'compact-tall');
+      setViewMode('tab-1', 'compact', 3);
       expect(height()).toBe(shortHeight * 1.5);
       expect(gridstackEl.classList).toContain('compact-singleton');
       expect(grid.engine.nodes[0]).toMatchObject({ w: 4, h: 3 });
@@ -1393,6 +1612,47 @@ describe('CanvasWorkspaceGridComponent', () => {
       flush();
       expect(height()).toBe(shortHeight * 1.5);
       expect(gridstackEl.classList).toContain('compact-singleton');
+    });
+
+    it('pins a compact singleton to its stored height except while its edge is dragged', () => {
+      mount(['tab-1']);
+      setViewMode('tab-1', 'compact', 4);
+      const gridstackEl = fixture.debugElement.query(By.css('gridstack'))
+        .nativeElement as HTMLElement;
+      const item = gridstackEl.querySelector('gridstack-item') as HTMLElement;
+      expect(gridstackEl.classList).toContain('compact-singleton');
+      expect(grid.engine.nodes[0]).toMatchObject({ h: 4 });
+      expect(
+        parseFloat(
+          gridstackEl.style.getPropertyValue('--ptah-compact-singleton-height'),
+        ),
+      ).toBeGreaterThan(0);
+      // jest-preset-angular strips component `styles`, so read the pinning
+      // rule from source and match its selector against the rendered item.
+      const source = readFileSync(
+        join(__dirname, 'canvas-workspace-grid.component.ts'),
+        'utf8',
+      );
+      const pinSelectors = [
+        ...source.matchAll(
+          /([^{}]+)\{\s*height:\s*var\(--ptah-compact-singleton-height\)/g,
+        ),
+      ].map((match) =>
+        match[1]
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      );
+      expect(pinSelectors).toHaveLength(1);
+      const pinned = (): boolean =>
+        pinSelectors.some((selector) => item.matches(selector));
+
+      expect(pinned()).toBe(true);
+      // Gridstack marks the item while a resize handle is dragged.
+      item.classList.add('ui-resizable-resizing');
+      expect(pinned()).toBe(false);
+      item.classList.remove('ui-resizable-resizing');
+      expect(pinned()).toBe(true);
     });
 
     it('freezes compact singleton height while locked and follows height when unlocked', () => {

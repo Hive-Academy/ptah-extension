@@ -2341,6 +2341,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
       const pushCall = mockSpawn.mock.calls[1];
       expect(pushCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
+      expect(pushCall[2]?.env?.GIT_ASKPASS).toBe('');
     });
 
     it('pull passes GIT_TERMINAL_PROMPT=0 and translates auth failures', async () => {
@@ -2362,6 +2363,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
       const pullCall = mockSpawn.mock.calls[0];
       expect(pullCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
+      expect(pullCall[2]?.env?.GIT_ASKPASS).toBe('');
     });
 
     it('fetch passes GIT_TERMINAL_PROMPT=0 and translates auth failures', async () => {
@@ -2383,6 +2385,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
       const fetchCall = mockSpawn.mock.calls[0];
       expect(fetchCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
+      expect(fetchCall[2]?.env?.GIT_ASKPASS).toBe('');
     });
   });
 });

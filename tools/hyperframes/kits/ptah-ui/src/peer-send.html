@@ -1,0 +1,418 @@
+<!doctype html>
+<!--
+  ptah-ui/peer-send: the "Peer" status-line action and the Message Peer Session dialog (SPEC 4.10).
+  Mirrors libs/frontend/chat/src/lib/components/molecules/peer-session-send/peer-session-send.component.ts:41-53 (trigger),
+  peer-session-send-dialog.component.ts:40-260 (title, picker, target details, message, notice, outcome, caveat, actions),
+  libs/backend/agent-sdk/src/lib/peer-sessions/peer-message.composer.ts:77-82 (acceptance caveat).
+  Copy rule: the result is "Accepted". Never "delivered", "received" or "acknowledged".
+  Video-scale layout: the dialog body is two columns (picker/target/message | notice) and scrolls to the
+  outcome panel the way the real modal-box scrolls, so every line stays >= 26 design px inside 1300 x 640.
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 trigger chip springs
+    c1 0.50 trigger press, dialog rises 24 px and scales .96 -> 1
+    c2 1.00 picker, target, message, notice settle (0.09 s stagger)
+    c3 1.45 message types at typeRate
+    c4 end of typing + 0.3: Send press, spinner for sendingFor
+    c5 c4 + sendingFor: outcome panel expands (body scrolls to it), status badge springs, buttons swap
+    c6 c5 + 0.45: caveat reveals line by line (0.12 s per line)
+    focus (default: after the caveat + 0.5): parts outcome | trigger | notice | message
+  Design box 1300 x 640. Recommended mount 1300x640.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-peer-send"
+  data-composition-duration="8"
+  data-composition-variables='[
+    { "id": "target", "type": "string", "label": "Target session", "default": "review memory work" },
+    { "id": "workspace", "type": "string", "label": "Workspace", "default": "ptah-extension" },
+    { "id": "message", "type": "string", "label": "Message", "default": "Batch 5 review is approved. Start the P2 worktree now." },
+    { "id": "outcome", "type": "enum", "label": "Outcome", "default": "accepted", "options": [{ "value": "accepted", "label": "Accepted" }, { "value": "refused", "label": "Refused" }] },
+    { "id": "reason", "type": "string", "label": "Reason (refused only)", "default": "" },
+    { "id": "typeRate", "type": "number", "label": "Type rate (chars/s)", "default": 18, "min": 4, "max": 80, "step": 1 },
+    { "id": "showCaveat", "type": "boolean", "label": "Show caveat", "default": true },
+    { "id": "sendingFor", "type": "number", "label": "Sending seconds", "default": 0.9, "min": 0.2, "max": 5, "step": 0.1 },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "outcome", "label": "Outcome" }, { "value": "trigger", "label": "Trigger" }, { "value": "notice", "label": "Notice" }, { "value": "message", "label": "Message" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui peer-send</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-peer-send" data-duration="8" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .ps-status {
+            position: absolute;
+            left: calc(12 * var(--u));
+            bottom: calc(10 * var(--u));
+            height: calc(48 * var(--u));
+          }
+          .ps-trigger {
+            gap: calc(10 * var(--u));
+            background: rgba(232, 230, 225, 0.08);
+            transform-origin: 50% 50%;
+          }
+          .ps-dialog {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: calc(1300 * var(--u));
+            height: calc(572 * var(--u));
+            display: flex;
+            flex-direction: column;
+            padding: calc(20 * var(--u)) calc(32 * var(--u));
+            background: #131317;
+            border: calc(2 * var(--u)) solid #242430;
+            border-radius: calc(24 * var(--u));
+            box-shadow: 0 calc(12 * var(--u)) calc(36 * var(--u)) rgba(0, 0, 0, 0.45);
+            transform-origin: 50% 100%;
+          }
+          .ps-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: calc(12 * var(--u));
+            border-bottom: calc(2 * var(--u)) solid #242430;
+            flex: 0 0 auto;
+          }
+          .ps-close {
+            width: calc(44 * var(--u));
+            height: calc(44 * var(--u));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+          }
+          .ps-view {
+            position: relative;
+            flex: 1 1 auto;
+            overflow: hidden;
+            margin: calc(12 * var(--u)) 0;
+          }
+          .ps-cols {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            column-gap: calc(28 * var(--u));
+            align-items: start;
+          }
+          .ps-col {
+            display: flex;
+            flex-direction: column;
+            gap: calc(12 * var(--u));
+          }
+          .ps-label {
+            font-size: calc(28 * var(--u));
+            font-weight: 600;
+            color: var(--muted);
+            margin-bottom: calc(8 * var(--u));
+          }
+          .ps-select {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: calc(60 * var(--u));
+            padding: 0 calc(20 * var(--u));
+            border: calc(2 * var(--u)) solid #242430;
+            border-radius: calc(12 * var(--u));
+            background: rgba(26, 26, 32, 0.5);
+            font-size: calc(30 * var(--u));
+            color: var(--fg);
+          }
+          .ps-select > span:first-child {
+            min-width: 0;
+          }
+          .ps-select .pu-ico {
+            color: var(--muted);
+          }
+          .ps-target {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: calc(12 * var(--u));
+            height: calc(52 * var(--u));
+            padding: 0 calc(16 * var(--u));
+            border-radius: calc(8 * var(--u));
+            background: rgba(26, 26, 32, 0.5);
+            font-size: calc(28 * var(--u));
+            color: var(--muted);
+          }
+          .ps-badge {
+            display: inline-flex;
+            align-items: center;
+            height: calc(36 * var(--u));
+            padding: 0 calc(12 * var(--u));
+            border-radius: calc(8 * var(--u));
+            font-size: calc(26 * var(--u));
+            font-weight: 600;
+            white-space: nowrap;
+            flex: 0 0 auto;
+          }
+          .ps-text {
+            position: relative;
+            height: calc(136 * var(--u));
+            padding: calc(14 * var(--u)) calc(20 * var(--u));
+            border: calc(2 * var(--u)) solid #242430;
+            border-radius: calc(12 * var(--u));
+            background: #131317;
+            font-size: calc(34 * var(--u));
+            line-height: 1.5;
+          }
+          .ps-ph {
+            position: absolute;
+            left: calc(20 * var(--u));
+            right: calc(20 * var(--u));
+            top: calc(14 * var(--u));
+            color: var(--muted);
+          }
+          .ps-notice {
+            padding: calc(18 * var(--u)) calc(20 * var(--u));
+            border: calc(2 * var(--u)) solid rgba(249, 115, 22, 0.3);
+            border-radius: calc(8 * var(--u));
+            background: rgba(249, 115, 22, 0.1);
+          }
+          .ps-notice-title {
+            font-size: calc(28 * var(--u));
+            font-weight: 600;
+            color: var(--warning);
+            margin-bottom: calc(8 * var(--u));
+          }
+          .ps-notice ul {
+            margin: 0;
+            padding-left: calc(34 * var(--u));
+            display: flex;
+            flex-direction: column;
+            gap: calc(8 * var(--u));
+            font-size: calc(28 * var(--u));
+            line-height: 1.35;
+            color: var(--muted);
+          }
+          .ps-outwrap {
+            padding-top: calc(16 * var(--u));
+          }
+          .ps-out {
+            padding: calc(18 * var(--u)) calc(24 * var(--u));
+            border-radius: calc(8 * var(--u));
+            border: calc(2 * var(--u)) solid rgba(59, 130, 246, 0.4);
+            background: rgba(59, 130, 246, 0.1);
+          }
+          .ps-out.refused {
+            border-color: rgba(220, 38, 38, 0.4);
+            background: rgba(220, 38, 38, 0.1);
+          }
+          .ps-out-row {
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+            height: calc(44 * var(--u));
+          }
+          .ps-reason {
+            margin-top: calc(8 * var(--u));
+            font-size: calc(28 * var(--u));
+            font-weight: 500;
+            color: var(--error);
+          }
+          .ps-caveat {
+            margin-top: calc(12 * var(--u));
+            padding-top: calc(12 * var(--u));
+            border-top: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+            font-family: var(--mono);
+            font-size: calc(28 * var(--u));
+            line-height: 1.5;
+            color: var(--muted);
+          }
+          .ps-actions {
+            position: relative;
+            flex: 0 0 auto;
+            height: calc(74 * var(--u));
+            padding-top: calc(16 * var(--u));
+            border-top: calc(2 * var(--u)) solid #242430;
+          }
+          .ps-btns {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            gap: calc(16 * var(--u));
+          }
+          .ps-btn {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: calc(56 * var(--u));
+            padding: 0 calc(28 * var(--u));
+            border-radius: calc(12 * var(--u));
+            font-size: calc(28 * var(--u));
+            font-weight: 600;
+            color: var(--fg);
+            transform-origin: 50% 50%;
+          }
+          .ps-btn.primary {
+            background: #2563eb;
+            color: #f8f7f4;
+          }
+          .ps-btn .ps-spin {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            margin: calc(-14 * var(--u)) 0 0 calc(-14 * var(--u));
+          }
+        </style>
+
+        <div id="ps-clip" class="clip" data-start="0" data-duration="8" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="ps-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var K = ptahKit(root, { dw: 1300, dh: 640, id: "ptah-ui-peer-send" });
+            var tl = K.tl;
+            K.vignette();
+
+            var target = K.str("target", "review memory work");
+            var workspace = K.str("workspace", "ptah-extension");
+            var message = K.str("message", "Batch 5 review is approved. Start the P2 worktree now.");
+            var outcome = K.oneOf("outcome", ["accepted", "refused"], "accepted");
+            var reason = K.str("reason", "");
+            var typeRate = K.num("typeRate", 18, 4, 80);
+            var showCaveat = K.bool("showCaveat", true);
+            var sendingFor = K.num("sendingFor", 0.9, 0.2, 5);
+            var accepted = outcome === "accepted";
+            // peer-message.composer.ts:77-82, rendered in full (peer-session-send-dialog.component.ts:203-209)
+            var CAVEAT =
+              "Accepted means the request was handed to this session for relay. Ptah cannot observe whether the other session received it: the send is performed by the model calling the CLI's own peer-messaging tool, and that tool reports only that the message reached the peer's inbox. Confirm arrival by reading the other session, never from this result.";
+
+            var stage = document.getElementById("ps-stage");
+            stage.innerHTML =
+              '<div class="pu-status ps-status"><span class="pu-chip ps-trigger" data-ptah-part="trigger">' + K.icon("message-square", 28) + "<span>Peer</span></span></div>" +
+              '<div class="ps-dialog">' +
+              '<div class="ps-head"><span class="t-h2">Message Peer Session</span><span class="ps-close">' + K.icon("x", 28) + "</span></div>" +
+              '<div class="ps-view" data-layout-allow-overflow><div class="ps-content" data-layout-allow-overflow>' +
+              '<div class="ps-cols">' +
+              '<div class="ps-col">' +
+              '<div class="ps-picker"><div class="ps-label">Target Peer Session</div><div class="ps-select"><span class="trunc">' + K.esc(target) + "</span>" + K.icon("chevron-down", 24) + "</div></div>" +
+              '<div class="ps-target"><span class="trunc">' + K.esc("Workspace: " + workspace) + '</span><span class="ps-badge" style="background:#16a34a;color:#131317">reachable</span></div>' +
+              '<div class="ps-message" data-ptah-part="message"><div class="ps-label">Message</div><div class="ps-text" data-layout-allow-overlap><span class="ps-ph" data-layout-allow-overlap>Type a message or instruction for the peer session...</span><span class="ps-typed"></span><span class="pu-caret ps-caret"></span></div></div>' +
+              "</div>" +
+              '<div class="ps-col"><div class="ps-notice" data-ptah-part="notice"><div class="ps-notice-title">Notice before sending</div><ul>' +
+              "<li><strong>Consumes a turn:</strong> Sending this message consumes a turn in this session.</li>" +
+              "<li><strong>Model-mediated:</strong> The model executes the send and may rephrase or decline outright.</li>" +
+              "</ul></div></div>" +
+              "</div>" +
+              '<div class="ps-outwrap" data-layout-allow-overflow><div class="ps-out' + (accepted ? "" : " refused") + '" data-ptah-part="outcome">' +
+              '<div class="ps-out-row"><span class="t-micro upper" style="font-weight:600">Status:</span>' +
+              '<span class="ps-badge ps-status-badge" style="' + (accepted ? "background:#3b82f6;color:#131317" : "background:#dc2626;color:#e8e6e1") + '">' + (accepted ? "Accepted" : "Refused") + "</span>" +
+              '<span class="t-small muted trunc">' + K.esc("Target: " + target) + "</span></div>" +
+              (!accepted && reason ? '<div class="ps-reason">' + K.esc("Reason: " + reason) + "</div>" : "") +
+              (showCaveat ? '<div class="ps-caveat"></div>' : "") +
+              "</div></div>" +
+              "</div></div>" +
+              '<div class="ps-actions">' +
+              '<div class="ps-btns ps-btns-a"><span class="ps-btn ps-cancel">Cancel</span><span class="ps-btn primary ps-send"><span class="ps-send-lbl">Send</span><span class="ps-spin">' + K.icon("loader", 28) + "</span></span></div>" +
+              '<div class="ps-btns ps-btns-b"><span class="ps-btn">Send another</span><span class="ps-btn primary">Done</span></div>' +
+              "</div>" +
+              "</div>";
+
+            var dialog = K.q(".ps-dialog");
+            var view = K.q(".ps-view");
+            var content = K.q(".ps-content");
+            var outWrap = K.q(".ps-outwrap");
+            var caveat = K.q(".ps-caveat");
+
+            // caveat laid out word by word, then grouped into rendered lines (reveal by line, no reflow)
+            var lines = [];
+            if (caveat) {
+              K.stream(caveat, CAVEAT, 0, 0);
+              var lastTop = null;
+              Array.prototype.slice.call(caveat.querySelectorAll("span")).forEach(function (w) {
+                if (lastTop === null || Math.abs(w.offsetTop - lastTop) > 2) {
+                  lines.push([]);
+                  lastTop = w.offsetTop;
+                }
+                lines[lines.length - 1].push(w);
+              });
+            }
+
+            // measured geometry (design px -> px via K.U)
+            var outH = outWrap.offsetHeight / K.U;
+            // scroll so the outcome panel sits flush with the top of the dialog body (no half-cut form line above it)
+            var scroll = outWrap.offsetTop + 16 * K.U;
+
+            // cues: fixed slots first, derived slots follow the typing length
+            var c = K.cues([0, 0.5, 1.0, 1.45]);
+            var typeEnd = c[3] + message.length / typeRate;
+            c = K.cues([0, 0.5, 1.0, 1.45, typeEnd + 0.3, typeEnd + 0.3 + sendingFor, typeEnd + 0.75 + sendingFor]);
+            c[4] = Math.max(c[4], typeEnd + 0.05);
+            c[5] = Math.max(c[5], c[4] + 0.36);
+            c[6] = Math.max(c[6], c[5] + 0.2);
+            var caveatEnd = c[6] + lines.length * 0.12;
+
+            // focus ring is measured in the final (scrolled) layout, before any entrance transform
+            gsap.set(content, { y: -scroll });
+            K.focusFromVars(caveatEnd + 0.5);
+            gsap.set(content, { y: 0 });
+
+            // c0: trigger
+            var trigger = K.q(".ps-trigger");
+            K.spring(trigger, c[0]);
+            // c1: press, dialog opens
+            K.press(trigger, c[1]);
+            gsap.set(dialog, { opacity: 0, scale: 0.96, y: 24 * K.U });
+            tl.fromTo(dialog, { opacity: 0, scale: 0.96, y: 24 * K.U }, { opacity: 1, scale: 1, y: 0, duration: 0.45, ease: "power3.out", immediateRender: false }, c[1] + 0.2);
+            // c2: form parts settle
+            [K.q(".ps-picker"), K.q(".ps-target"), K.q(".ps-message"), K.q(".ps-notice")].forEach(function (el, i) {
+              K.settle(el, c[2] + i * 0.09);
+            });
+            // c3: typing
+            var ph = K.q(".ps-ph");
+            var typed = K.q(".ps-typed");
+            var caret = K.q(".ps-caret");
+            gsap.set(caret, { opacity: 0 });
+            tl.set(ph, { opacity: 0 }, c[3]);
+            K.type(typed, message, c[3], typeRate);
+            K.blink(caret, c[3], c[4]);
+            // c4: send press + spinner
+            var send = K.q(".ps-send");
+            var sendLbl = K.q(".ps-send-lbl");
+            var spin = K.q(".ps-spin");
+            gsap.set(spin, { opacity: 0 });
+            K.press(send, c[4]);
+            tl.fromTo(K.q(".ps-cancel"), { opacity: 1 }, { opacity: 0.4, duration: 0.2, ease: "none", immediateRender: false }, c[4] + 0.14);
+            K.fadeOut(sendLbl, c[4] + 0.14, 0.12);
+            K.fadeIn(spin, c[4] + 0.14, 0.12);
+            K.spin(spin, c[4] + 0.14, Math.max(0.2, c[5] - c[4] - 0.14));
+            K.fadeOut(spin, c[5], 0.12);
+            // c5: outcome panel expands, body scrolls to it, badge springs, buttons swap
+            K.expand(outWrap, c[5], outH);
+            tl.fromTo(content, { y: 0 }, { y: -scroll, duration: 0.55, ease: "power3.out", immediateRender: false }, c[5]);
+            K.spring(K.q(".ps-status-badge"), c[5] + 0.2);
+            var btnA = K.q(".ps-btns-a");
+            var btnB = K.q(".ps-btns-b");
+            gsap.set(btnB, { opacity: 0 });
+            tl.fromTo(btnA, { opacity: 1 }, { opacity: 0, duration: 0.2, ease: "none", immediateRender: false }, c[5]);
+            tl.fromTo(btnB, { opacity: 0 }, { opacity: 1, duration: 0.2, ease: "none", immediateRender: false }, c[5] + 0.15);
+            // c6: caveat by line
+            lines.forEach(function (ln, i) {
+              gsap.set(ln, { opacity: 0 });
+              tl.fromTo(ln, { opacity: 0 }, { opacity: 1, duration: 0.15, ease: "none", immediateRender: false }, c[6] + i * 0.12);
+            });
+
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>

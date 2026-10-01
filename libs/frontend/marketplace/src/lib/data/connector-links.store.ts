@@ -9,6 +9,7 @@ import {
   type Signal,
   type WritableSignal,
 } from '@angular/core';
+import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
 import { ClaudeRpcService, WorkspaceScopeService } from '@ptah-extension/core';
 import {
   PTAH_CONNECTORS,
@@ -494,8 +495,12 @@ export class ConnectorLinksStore {
     try {
       const result =
         connector.kind === 'smithery'
-          ? await this.rpc.call('mcpDirectory:uninstallSmithery', { serverKey })
-          : await this.rpc.call('mcpDirectory:disconnectOAuth', { serverKey });
+          ? await this.rpc.call(
+              'mcpDirectory:uninstallSmithery',
+              { serverKey },
+              { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+            )
+          :await this.rpc.call('mcpDirectory:disconnectOAuth', { serverKey });
       if (this.destroyed) return SKIPPED;
       if (result.isSuccess() && result.data.success) {
         await this.load();
@@ -526,7 +531,9 @@ export class ConnectorLinksStore {
       };
       if (serverKey !== undefined) params.serverKey = serverKey;
       if (target.scope) params.scope = target.scope;
-      const result = await this.rpc.call('mcpDirectory:connectOAuth', params);
+      const result = await this.rpc.call('mcpDirectory:connectOAuth', params, {
+        timeout: MARKETPLACE_RPC_TIMEOUTS.OAUTH_CONNECT_MS,
+      });
       if (this.destroyed) return SKIPPED;
       if (result.isSuccess() && result.data.success) {
         await this.load();
@@ -559,10 +566,11 @@ export class ConnectorLinksStore {
     this.addTo(this._busyIds, connector.id);
     this._actionError.set(null);
     try {
-      const result = await this.rpc.call('mcpDirectory:installSmithery', {
-        qualifiedName,
-        config: {},
-      });
+      const result = await this.rpc.call(
+        'mcpDirectory:installSmithery',
+        { qualifiedName, config: {} },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_TWO_REQUEST_MS },
+      );
       if (this.destroyed) return SKIPPED;
       if (!result.isSuccess() || !result.data.success) {
         return this.fail(
@@ -597,9 +605,11 @@ export class ConnectorLinksStore {
     this.addTo(this._busyIds, target.actionId);
     this._actionError.set(null);
     try {
-      const result = await this.rpc.call('mcpDirectory:openSmitherySetup', {
-        serverKey,
-      });
+      const result = await this.rpc.call(
+        'mcpDirectory:openSmitherySetup',
+        { serverKey },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_TWO_REQUEST_MS },
+      );
       if (this.destroyed) return SKIPPED;
       if (result.isSuccess() && result.data.opened) {
         this.startSetupPoll(target.actionId, serverKey);
@@ -656,6 +666,7 @@ export class ConnectorLinksStore {
       const result = await this.rpc.call(
         'mcpDirectory:smitheryConnectionStatus',
         { serverKey },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_TWO_REQUEST_MS },
       );
       return result.isSuccess() ? result.data.status : null;
     } catch {
@@ -772,6 +783,7 @@ export class ConnectorLinksStore {
       const result = await this.rpc.call(
         'mcpDirectory:listSmitheryConnections',
         {},
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_TWO_REQUEST_MS },
       );
       if (!result.isSuccess()) return null;
       return {

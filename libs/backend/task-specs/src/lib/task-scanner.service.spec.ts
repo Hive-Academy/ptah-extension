@@ -98,7 +98,9 @@ describe('TaskScannerService', () => {
         path.join(specsDir(), 'TASK_2026_011', 'context.md'),
         'notes',
       );
-      fs.readFile.mockRejectedValueOnce(Object.assign(new Error(code), { code }));
+      fs.readFile.mockRejectedValueOnce(
+        Object.assign(new Error(code), { code }),
+      );
 
       const result = await new TaskScannerService(fs, makeLogger()).scan(ROOT);
 
@@ -107,6 +109,34 @@ describe('TaskScannerService', () => {
       ]);
     },
   );
+
+  /**
+   * Git removes a finished task's tracked files but leaves the ignored
+   * `.harvested.json` behind, so the folder outlives the task. That is residue,
+   * not a broken task, and must not fill the board's exclusion list.
+   */
+  it('skips a folder that holds only hidden residue, without reporting it', async () => {
+    const fs = createMockFileSystemProvider();
+    await fs.writeFile(
+      path.join(specsDir(), 'TASK_2026_040', '.harvested.json'),
+      '{}',
+    );
+    await fs.writeFile(
+      path.join(specsDir(), 'TASK_2026_041', '.harvested.json'),
+      '{}',
+    );
+    await fs.writeFile(
+      path.join(specsDir(), 'TASK_2026_041', 'review.md'),
+      'notes',
+    );
+
+    const result = await new TaskScannerService(fs, makeLogger()).scan(ROOT);
+
+    expect(result.tasks).toHaveLength(0);
+    expect(result.excluded).toEqual([
+      { folderName: 'TASK_2026_041', reason: 'no_carrier' },
+    ]);
+  });
 
   it('reads each carrier once with bounded concurrency and preserves folder order', async () => {
     const fs = createMockFileSystemProvider();

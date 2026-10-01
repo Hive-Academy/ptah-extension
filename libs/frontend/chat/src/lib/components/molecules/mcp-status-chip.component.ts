@@ -24,6 +24,7 @@ import {
 } from '@angular/core';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
+import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
 import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
 import {
   PTAH_CONNECTORS,
@@ -375,11 +376,15 @@ export class McpStatusChipComponent {
     if (row.key.startsWith('oauth-')) {
       const record = this.oauthRecords().find((r) => r.serverKey === row.key);
       if (record) {
-        await this.rpc.call('mcpDirectory:connectOAuth', {
-          serverUrl: record.serverUrl,
-          serverKey: record.serverKey,
-          name: record.name,
-        });
+        await this.rpc.call(
+          'mcpDirectory:connectOAuth',
+          {
+            serverUrl: record.serverUrl,
+            serverKey: record.serverKey,
+            name: record.name,
+          },
+          { timeout: MARKETPLACE_RPC_TIMEOUTS.OAUTH_CONNECT_MS },
+        );
         return;
       }
       // The key claims OAuth but no manifest record backs it. Nothing here can

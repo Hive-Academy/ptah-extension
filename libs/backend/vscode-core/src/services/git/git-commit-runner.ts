@@ -114,7 +114,13 @@ export class GitCommitKillGuard {
   ) {
     this.timer = setTimeout(() => this.kill('TIMEOUT'), timeoutMs);
     this.timer.unref?.();
-    callerSignal?.addEventListener('abort', this.onCallerAbort, { once: true });
+    if (callerSignal?.aborted) {
+      this.kill('CANCELLED');
+    } else {
+      callerSignal?.addEventListener('abort', this.onCallerAbort, {
+        once: true,
+      });
+    }
   }
 
   /** Pass as `ExecGitOptions.signal`. */
@@ -293,7 +299,7 @@ export class GitCommitRunner {
       code: 'HOOK_FAILED',
       exitCode,
       hookOutput: stdout + stderr,
-      error: `A git hook rejected the commit (exit code ${exitCode}).`,
+      error: `git refused the commit (exit code ${exitCode}); a commit hook may have rejected it. See the output below.`,
     };
   }
 

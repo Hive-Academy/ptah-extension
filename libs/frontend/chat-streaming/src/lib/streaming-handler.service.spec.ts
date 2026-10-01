@@ -984,7 +984,7 @@ describe('StreamingHandlerService', () => {
 
       const result = service.handleSessionStats({
         sessionId: SESSION_ID,
-        cost: 0.1,
+        turnCost: 0.1,
         tokens: { input: 5, output: 5 },
         duration: 100,
       });
@@ -1039,7 +1039,7 @@ describe('StreamingHandlerService', () => {
 
       const result = service.handleSessionStats({
         sessionId: SESSION_ID,
-        cost: 0.25,
+        turnCost: 0.25,
         tokens: { input: 5, output: 5 },
         duration: 200,
       });
@@ -1074,7 +1074,7 @@ describe('StreamingHandlerService', () => {
 
       service.handleSessionStats({
         sessionId: SESSION_ID,
-        cost: 0.5,
+        turnCost: 0.5,
         tokens: { input: 11, output: 13 },
         duration: 250,
       });
@@ -1109,7 +1109,7 @@ describe('StreamingHandlerService', () => {
 
       service.handleSessionStats({
         sessionId: SESSION_ID,
-        cost: 0.75,
+        turnCost: 0.75,
         tokens: { input: 42, output: 17 },
         duration: 333,
       });
@@ -1141,7 +1141,7 @@ describe('StreamingHandlerService', () => {
 
       const result = service.handleSessionStats({
         sessionId: SESSION_ID,
-        cost: 0.1,
+        turnCost: 0.1,
         tokens: { input: 1, output: 1 },
         duration: 10,
       });
@@ -1173,7 +1173,7 @@ describe('StreamingHandlerService', () => {
 
       service.handleSessionStats({
         sessionId: SESSION_ID,
-        cost: 0.2,
+        turnCost: 0.2,
         tokens: { input: 2, output: 2 },
         duration: 20,
       });
@@ -1202,7 +1202,7 @@ describe('StreamingHandlerService', () => {
       });
       service.handleSessionStats({
         sessionId: SESSION_ID,
-        cost: 0.3,
+        turnCost: 0.3,
         tokens: { input: 3, output: 3 },
         duration: 30,
       });
@@ -1212,6 +1212,121 @@ describe('StreamingHandlerService', () => {
           expect.objectContaining({ id: 'asst-msg-1', cost: 0.3 }),
         ]),
       );
+    });
+  });
+
+  // TASK_2026_575: `session:stats` carries `turnCost`, the turn's OWN spend
+  // (one payload per new turn), while the session total lives only in the
+  // backend snapshot. A message footer must show its own turn, never the
+  // session total, and an unknown (`null`) cost must stay unknown — never $0.
+  describe('per-turn cost (TASK_2026_575)', () => {
+    /** The backend snapshot total after turn 2 — the header's figure. */
+    const SESSION_TOTAL_AFTER_TURN_2 = 15;
+
+    const turnResult = (
+      turnCost: number | null,
+      tokens: { input: number; output: number },
+      duration: number,
+    ) => ({ sessionId: SESSION_ID, turnCost, tokens, duration });
+
+    const assistant = (id: string) => ({
+      id,
+      role: 'assistant' as const,
+      content: `response ${id}`,
+    });
+    const user = (id: string) => ({
+      id,
+      role: 'user' as const,
+      content: `prompt ${id}`,
+    });
+
+    const finalizedTab = (messages: unknown[]) =>
+      makeTab({
+        id: TAB_ID,
+        claudeSessionId: SESSION_ID,
+        streamingState: null,
+        status: 'loaded',
+        messages,
+      } as Partial<TabState>);
+
+    const costsOf = (): Array<number | null | undefined> =>
+      (tabsSignal().find((t) => t.id === TAB_ID)?.messages ?? [])
+        .filter((m) => m.role === 'assistant')
+        .map((m) => m.cost);
+
+    it('gives each finalized assistant message its own turn cost (10 then 5), never the session total', () => {
+      tabsSignal.set([finalizedTab([user('u1'), assistant('a1')])]);
+
+      service.handleSessionStats(
+        turnResult(10, { input: 100, output: 10 }, 1000),
+      );
+      expect(costsOf()).toEqual([10]);
+
+      // Turn 2 finalizes a second assistant message; its stats land on it.
+      tabsSignal.update((tabs) =>
+        tabs.map((t) =>
+          t.id === TAB_ID
+            ? ({
+                ...t,
+                messages: [...t.messages, user('u2'), assistant('a2')],
+              } as TabState)
+            : t,
+        ),
+      );
+      service.handleSessionStats(turnResult(5, { input: 50, output: 5 }, 500));
+
+      const costs = costsOf();
+      expect(costs).toEqual([10, 5]);
+      // The last footer is that turn's own spend, not the session total.
+      expect(costs[costs.length - 1]).not.toBe(SESSION_TOTAL_AFTER_TURN_2);
+    });
+
+    it('stashes the turn cost as pendingStats.cost while the tab still streams', () => {
+      const state = createEmptyStreamingState();
+      tabsSignal.set([
+        makeTab({
+          id: TAB_ID,
+          claudeSessionId: SESSION_ID,
+          streamingState: state,
+          status: 'streaming',
+        }),
+      ]);
+
+      service.handleSessionStats(turnResult(5, { input: 50, output: 5 }, 500));
+
+      expect(state.pendingStats).toEqual({
+        cost: 5,
+        tokens: { input: 50, output: 5 },
+        duration: 500,
+      });
+    });
+
+    it('keeps an unknown turn cost (null) as null on the finalized message, never 0', () => {
+      tabsSignal.set([
+        finalizedTab([user('u1'), { ...assistant('a1'), cost: 0 }]),
+      ]);
+
+      service.handleSessionStats(turnResult(null, { input: 7, output: 3 }, 90));
+
+      const [cost] = costsOf();
+      expect(cost).toBeNull();
+      expect(cost).not.toBe(0);
+    });
+
+    it('keeps an unknown turn cost (null) as null in pendingStats while streaming', () => {
+      const state = createEmptyStreamingState();
+      tabsSignal.set([
+        makeTab({
+          id: TAB_ID,
+          claudeSessionId: SESSION_ID,
+          streamingState: state,
+          status: 'streaming',
+        }),
+      ]);
+
+      service.handleSessionStats(turnResult(null, { input: 7, output: 3 }, 90));
+
+      expect(state.pendingStats?.cost).toBeNull();
     });
   });
 
@@ -1281,7 +1396,7 @@ describe('StreamingHandlerService', () => {
       expect(() =>
         service.handleSessionStats({
           sessionId: '',
-          cost: 1,
+          turnCost: 1,
           tokens: { input: 1, output: 1 },
           duration: 1,
         }),

@@ -4,6 +4,10 @@
 dist
 tmp
 
+# Finished videos (renders, exports). Not under dist/: `npm run clean` does rm -rf dist.
+# tools/hyperframes/render.mjs writes here from any worktree.
+video-output/
+
 # @vscode/test-electron downloads VS Code into this dir
 .vscode-test/
 out-tsc

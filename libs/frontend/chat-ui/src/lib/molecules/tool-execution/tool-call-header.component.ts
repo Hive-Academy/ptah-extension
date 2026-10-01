@@ -28,6 +28,14 @@ import {
   isWebSearchToolInput,
   isAgentDispatchTool,
 } from '@ptah-extension/shared';
+import {
+  describeToolTarget,
+  displayToolName,
+  isPtahMcpToolName,
+  shortenToolPath,
+  toolStatusBadgeClass,
+  truncateToolText,
+} from '../../utils/tool-target.utils';
 
 /**
  * ToolCallHeaderComponent - Header section for tool call display
@@ -250,76 +258,19 @@ export class ToolCallHeaderComponent {
    * Get tool description for display
    */
   protected getToolDescription(): string {
-    const node = this.node();
-    const toolName = node.toolName || '';
-    const toolInput = node.toolInput;
-
-    if (isReadToolInput(toolInput)) {
-      return this.shortenPath(toolInput.file_path) || '...';
-    }
-    if (isWriteToolInput(toolInput)) {
-      return this.shortenPath(toolInput.file_path) || '...';
-    }
-    if (isEditToolInput(toolInput)) {
-      return this.shortenPath(toolInput.file_path) || '...';
-    }
-    if (isBashToolInput(toolInput)) {
-      const desc = toolInput.description;
-      if (desc) return desc;
-      const cmd = toolInput.command;
-      return cmd ? this.truncate(cmd, 40) : '...';
-    }
-    if (isGrepToolInput(toolInput)) {
-      return this.truncate(toolInput.pattern, 30) || '...';
-    }
-    if (isGlobToolInput(toolInput)) {
-      return this.truncate(toolInput.pattern, 30) || '...';
-    }
-    if (
-      toolInput &&
-      typeof toolInput === 'object' &&
-      '__summary' in toolInput &&
-      typeof toolInput['__summary'] === 'string'
-    ) {
-      return this.truncate(toolInput['__summary'], 40) || toolName;
-    }
-    return toolName;
+    return this.toolTarget().short;
   }
 
   /**
    * Get full description for title attribute
    */
   protected getFullDescription(): string {
-    const toolInput = this.node().toolInput;
-
-    if (isReadToolInput(toolInput)) {
-      return toolInput.file_path;
-    }
-    if (isWriteToolInput(toolInput)) {
-      return toolInput.file_path;
-    }
-    if (isEditToolInput(toolInput)) {
-      return toolInput.file_path;
-    }
-    if (isBashToolInput(toolInput)) {
-      return toolInput.command;
-    }
-    if (isGrepToolInput(toolInput)) {
-      return toolInput.pattern;
-    }
-    if (isGlobToolInput(toolInput)) {
-      return toolInput.pattern;
-    }
-    if (
-      toolInput &&
-      typeof toolInput === 'object' &&
-      '__summary' in toolInput &&
-      typeof toolInput['__summary'] === 'string'
-    ) {
-      return toolInput['__summary'];
-    }
-    return '';
+    return this.toolTarget().full;
   }
+
+  private readonly toolTarget = computed(() =>
+    describeToolTarget(this.node().toolName || '', this.node().toolInput),
+  );
 
   /**
    * Get streaming description
@@ -331,31 +282,31 @@ export class ToolCallHeaderComponent {
     if (!toolName || !input) return 'Working...';
 
     if (isReadToolInput(input)) {
-      return `Reading ${this.shortenPath(input.file_path)}...`;
+      return `Reading ${shortenToolPath(input.file_path)}...`;
     }
     if (isWriteToolInput(input)) {
-      return `Writing ${this.shortenPath(input.file_path)}...`;
+      return `Writing ${shortenToolPath(input.file_path)}...`;
     }
     if (isEditToolInput(input)) {
-      return `Editing ${this.shortenPath(input.file_path)}...`;
+      return `Editing ${shortenToolPath(input.file_path)}...`;
     }
     if (isBashToolInput(input)) {
       const desc = input.description;
       if (desc) return `${desc}...`;
       const cmd = input.command;
-      return `Running ${this.truncate(cmd, 20)}...`;
+      return `Running ${truncateToolText(cmd, 20)}...`;
     }
     if (isGrepToolInput(input)) {
-      return `Searching for "${this.truncate(input.pattern, 15)}"...`;
+      return `Searching for "${truncateToolText(input.pattern, 15)}"...`;
     }
     if (isGlobToolInput(input)) {
-      return `Finding ${this.truncate(input.pattern, 15)}...`;
+      return `Finding ${truncateToolText(input.pattern, 15)}...`;
     }
     if (isWebFetchToolInput(input)) {
-      return `Fetching ${this.truncate(input.url, 20)}...`;
+      return `Fetching ${truncateToolText(input.url, 20)}...`;
     }
     if (isWebSearchToolInput(input)) {
-      return `Searching "${this.truncate(input.query, 15)}"...`;
+      return `Searching "${truncateToolText(input.query, 15)}"...`;
     }
     if (isAgentDispatchTool(toolName)) {
       return 'Invoking agent...';
@@ -376,40 +327,22 @@ export class ToolCallHeaderComponent {
    * Matches both ptah-cli format (mcp__ptah__*) and Copilot format (ptah-ptah_*)
    */
   isPtahMcpTool(): boolean {
-    const toolName = this.node().toolName || '';
-    return (
-      toolName.startsWith('mcp__ptah') || toolName.startsWith('ptah-ptah_')
-    );
+    return isPtahMcpToolName(this.node().toolName || '');
   }
 
   /**
-   * Extract clean tool name from Ptah MCP tool
-   * Handles both naming conventions:
-   * - mcp__ptah__workspace_analyze -> "workspace analyze" (ptah-cli)
-   * - ptah-ptah_search_files -> "search files" (Copilot)
+   * Clean Ptah MCP tool name (`mcp__ptah__workspace_analyze` ->
+   * "workspace analyze", `ptah-ptah_search_files` -> "search files").
    */
   protected getPtahToolName(): string {
-    const toolName = this.node().toolName || '';
-    const mcpMatch = toolName.match(/^mcp__ptah__(.+)$/);
-    if (mcpMatch) {
-      return mcpMatch[1].replace(/_/g, ' ');
-    }
-    const cliMatch = toolName.match(/^ptah-\w+?_(.+)$/);
-    if (cliMatch) {
-      return cliMatch[1].replace(/_/g, ' ');
-    }
-    return toolName;
+    return displayToolName(this.node().toolName || '');
   }
 
   /**
    * Get badge class based on status
    */
   protected getBadgeClass(): string {
-    const status = this.node().status;
-    if (status === 'complete') return 'badge-success';
-    if (status === 'streaming') return 'badge-info';
-    if (status === 'error') return 'badge-error';
-    return 'badge-ghost';
+    return toolStatusBadgeClass(this.node().status);
   }
 
   /**
@@ -417,23 +350,5 @@ export class ToolCallHeaderComponent {
    */
   protected onFilePathClick(event: Event): void {
     event.stopPropagation(); // Prevent collapse toggle
-  }
-
-  /**
-   * Shorten file path for display
-   */
-  private shortenPath(path: string | undefined): string {
-    if (!path) return '';
-    const parts = path.replace(/\\/g, '/').split('/');
-    if (parts.length <= 2) return path;
-    return '.../' + parts.slice(-2).join('/');
-  }
-
-  /**
-   * Truncate string to max length
-   */
-  private truncate(str: string | undefined, maxLen: number): string {
-    if (!str) return '';
-    return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
   }
 }

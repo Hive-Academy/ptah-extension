@@ -223,6 +223,7 @@ export class MarketplaceRegistryService {
   async resolvePlugin(
     source: string,
     plugin: string,
+    signal?: AbortSignal,
   ): Promise<{ resolved: ResolvedManifest; entry: MarketplaceManifestPlugin }> {
     const slug = this.requireSlug(source);
     if (!this.store.findMarketplace(slug.source)) {
@@ -232,7 +233,7 @@ export class MarketplaceRegistryService {
       );
     }
 
-    const resolved = await this.resolveManifest(slug.source);
+    const resolved = await this.resolveManifest(slug.source, { signal });
     const entry = resolved.manifest.plugins.find(
       (candidate) => candidate.name === plugin,
     );
@@ -261,7 +262,7 @@ export class MarketplaceRegistryService {
    */
   private async resolveManifest(
     source: string,
-    options: { forceRefresh?: boolean } = {},
+    options: { forceRefresh?: boolean; signal?: AbortSignal } = {},
   ): Promise<ResolvedManifest> {
     const slug = this.requireSlug(source);
 
@@ -281,6 +282,7 @@ export class MarketplaceRegistryService {
     const raw = await this.github.fetchMarketplaceManifest(
       slug.owner,
       slug.repo,
+      options.signal,
     );
 
     let json: unknown;
