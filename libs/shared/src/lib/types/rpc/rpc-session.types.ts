@@ -7,7 +7,22 @@ import type { ContextCapacity } from '../../utils/pricing.utils';
  */
 
 import type { SessionId } from '../branded.types';
-import type { ChatSessionSummary, SessionTurnState } from '../execution';
+import type {
+  ChatSessionSummary,
+  SessionTurnPhase,
+  SessionTurnState,
+} from '../execution';
+import type {
+  SessionListGroup,
+  SessionListSort,
+  SessionOrganizationSummary,
+  SessionPrLinkSummary,
+  SessionPrState,
+  SessionPriority,
+  SessionTaskLinkRole,
+  SessionTaskLinkSource,
+  SessionWorkflowStatus,
+} from '../session-organization.types';
 import type { CliOutputSegment } from '../agent-process.types';
 import type { FlatStreamEventUnion } from '../execution';
 import type {
@@ -74,6 +89,30 @@ export interface SessionListParams {
    * at or after this timestamp are returned. Applied before pagination.
    */
   since?: number;
+
+  /*
+   * Organization query (TASK_2026_580). A request carrying at least one of
+   * the fields below is in query mode: archived rows are excluded unless
+   * `status` lists `archived`, and pinned rows sort first. A request with
+   * none of them returns today's rows, order and total unchanged.
+   */
+
+  /** Keep rows whose workflow status is one of these (no stored row = `active`). */
+  status?: SessionWorkflowStatus[];
+  /** Keep rows whose priority is one of these (no stored row = `normal`). */
+  priority?: SessionPriority[];
+  /** Keep rows linked to this task id (any role). */
+  taskId?: string;
+  /** Keep only pinned (`true`) or only unpinned (`false`) rows. */
+  pinned?: boolean;
+  /** Keep only rows with (`true`) or without (`false`) a PR link. */
+  hasPr?: boolean;
+  /** Case-insensitive substring of the session name. */
+  text?: string;
+  /** Sort key; defaults to `lastActive`. Ties break on last activity, newest first. */
+  sort?: SessionListSort;
+  /** Group key applied before `sort`; defaults to `none`. */
+  groupBy?: SessionListGroup;
 }
 
 /** Response from session:list RPC method */
@@ -81,7 +120,118 @@ export interface SessionListResult {
   sessions: ChatSessionSummary[];
   total: number;
   hasMore: boolean;
+  /**
+   * Whether the host serves session organization (TASK_2026_580). Absent
+   * means false: a producer that predates the field, or a host without the
+   * organization store (VS Code), is read as unavailable.
+   */
+  organizationAvailable?: boolean;
 }
+
+/**
+ * Result of every session organization mutation
+ * (`session:setOrganization`, `session:linkTask`, `session:unlinkTask`,
+ * `session:addPrLink`, `session:removePrLink`).
+ */
+export type SessionOrganizationMutationResult =
+  | { ok: true; organization: SessionOrganizationSummary }
+  | {
+      ok: false;
+      reason: 'organization-unavailable' | 'session-not-found';
+      message: string;
+    };
+
+/** Parameters for session:setOrganization. At least one field besides `sessionId`. */
+export interface SessionSetOrganizationParams {
+  /** SDK session UUID. */
+  sessionId: string;
+  priority?: SessionPriority;
+  status?: SessionWorkflowStatus;
+  pinned?: boolean;
+}
+
+/** Response from session:setOrganization */
+export type SessionSetOrganizationResult = SessionOrganizationMutationResult;
+
+/**
+ * Parameters for session:linkTask. Linking a `primary` task demotes an
+ * existing different primary to `related`.
+ */
+export interface SessionLinkTaskParams {
+  /** SDK session UUID. */
+  sessionId: string;
+  /** Task folder id, e.g. `TASK_2026_580_9f77`. */
+  taskId: string;
+  role: SessionTaskLinkRole;
+  /**
+   * Defaults to `user`. The webview may not claim `agent`: agent links come
+   * only from the MCP tool.
+   */
+  source?: Exclude<SessionTaskLinkSource, 'agent'>;
+}
+
+/** Response from session:linkTask */
+export type SessionLinkTaskResult = SessionOrganizationMutationResult;
+
+/** Parameters for session:unlinkTask */
+export interface SessionUnlinkTaskParams {
+  /** SDK session UUID. */
+  sessionId: string;
+  taskId: string;
+}
+
+/** Response from session:unlinkTask */
+export type SessionUnlinkTaskResult = SessionOrganizationMutationResult;
+
+/** Parameters for session:addPrLink. Re-adding an existing url updates it. */
+export interface SessionAddPrLinkParams {
+  /** SDK session UUID. */
+  sessionId: string;
+  /** `https:` URL of the pull request, at most 2048 characters. */
+  url: string;
+  state?: SessionPrState;
+}
+
+/** Response from session:addPrLink */
+export type SessionAddPrLinkResult = SessionOrganizationMutationResult;
+
+/** Parameters for session:removePrLink */
+export interface SessionRemovePrLinkParams {
+  /** SDK session UUID. */
+  sessionId: string;
+  url: string;
+}
+
+/** Response from session:removePrLink */
+export type SessionRemovePrLinkResult = SessionOrganizationMutationResult;
+
+/** A session linked to a task, as shown on the task card and detail. */
+export interface TaskLinkedSession {
+  sessionId: string;
+  /** Session display name from its metadata. */
+  name: string;
+  role: SessionTaskLinkRole;
+  source: SessionTaskLinkSource;
+  /** Live turn phase; null when the session is not loaded in this host. */
+  livePhase: SessionTurnPhase | null;
+  prLinks: SessionPrLinkSummary[];
+}
+
+/** Parameters for session:listForTasks */
+export interface SessionListForTasksParams {
+  /** Workspace whose links are listed. */
+  workspacePath: string;
+  /** Restrict to these task ids; absent means every linked task. */
+  taskIds?: string[];
+}
+
+/**
+ * Response from session:listForTasks. `links` is keyed by task id; a task
+ * with no linked session has no key.
+ */
+export type SessionListForTasksResult =
+  | { available: true; links: Record<string, TaskLinkedSession[]> }
+  | { available: false };
 
 /** Parameters for session:load RPC method */
 export interface SessionLoadParams {
