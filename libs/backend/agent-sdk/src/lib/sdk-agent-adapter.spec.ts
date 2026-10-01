@@ -2672,7 +2672,11 @@ describe('SdkAgentAdapter', () => {
 
         it.each([
           ['no record', undefined, undefined],
-          ['an unbound record', { tabId: TAB_ID, realSessionId: null }, undefined],
+          [
+            'an unbound record',
+            { tabId: TAB_ID, realSessionId: null },
+            undefined,
+          ],
           [
             'a record bound to the same id',
             { tabId: TAB_ID, realSessionId: ROTATED_ID },

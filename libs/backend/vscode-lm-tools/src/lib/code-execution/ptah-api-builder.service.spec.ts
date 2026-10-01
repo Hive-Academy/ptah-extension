@@ -308,8 +308,7 @@ function extractResolvedRoots(args: unknown[]): unknown[] {
     }
 
     const provider = obj['workspaceProvider'] as
-      | { getWorkspaceRoot?: () => unknown }
-      | undefined;
+      { getWorkspaceRoot?: () => unknown } | undefined;
     if (provider && typeof provider.getWorkspaceRoot === 'function') {
       roots.push(provider.getWorkspaceRoot());
     }

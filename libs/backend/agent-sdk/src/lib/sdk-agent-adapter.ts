@@ -1180,7 +1180,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
     realSessionId: string,
   ): string | undefined {
     const priorId = this.sessionLifecycle.find(tabId)?.realSessionId;
-    if (priorId === null || priorId === undefined || priorId === realSessionId) {
+    if (
+      priorId === null ||
+      priorId === undefined ||
+      priorId === realSessionId
+    ) {
       return undefined;
     }
     return priorId;

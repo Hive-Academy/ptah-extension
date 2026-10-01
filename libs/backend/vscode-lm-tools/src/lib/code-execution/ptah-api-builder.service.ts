@@ -1033,6 +1033,8 @@ export class PtahAPIBuilder {
         this.sdkSessionLifecycleManager?.find(callerId)?.realSessionId ??
         undefined;
     } catch (error: unknown) {
+      // degradation-audit: reported - the lookup error is debug-logged below,
+      // and undefined becomes an explicit unattributed-caller result for the agent.
       this.logger.debug(
         `[PtahAPIBuilder] Resolving the SDK session id of MCP caller ${callerId} failed; caller not attributed`,
         error,

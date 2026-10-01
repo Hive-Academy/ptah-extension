@@ -141,9 +141,9 @@ describe('WorktreeHookHandler', () => {
       });
       expect(recorder.recordLineage).not.toHaveBeenCalled();
       // Recorded before the host is notified.
-      expect(
-        recorder.recordWorktree.mock.invocationCallOrder[0],
-      ).toBeLessThan(onCreated.mock.invocationCallOrder[0]);
+      expect(recorder.recordWorktree.mock.invocationCallOrder[0]).toBeLessThan(
+        onCreated.mock.invocationCallOrder[0],
+      );
       // The hook's SDK return value is unchanged by recording.
       expect(result).toEqual({
         hookSpecificOutput: {

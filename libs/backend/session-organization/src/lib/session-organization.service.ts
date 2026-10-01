@@ -182,6 +182,9 @@ export class SessionOrganizationService
     try {
       return this.store.isReady();
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - a readiness check that throws
+      // means the store is unusable; every caller treats false as "organization
+      // unavailable", and the error is logged to the output channel below.
       this.log(`isAvailable: readiness check failed: ${describe(error)}`);
       return false;
     }

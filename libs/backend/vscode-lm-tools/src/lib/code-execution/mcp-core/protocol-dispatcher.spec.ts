@@ -866,7 +866,9 @@ describe('ptah_session_link_task', () => {
   ): { deps: ProtocolHandlerDependencies; linkTask: jest.Mock } {
     const linkTask = jest.fn();
     const recorder =
-      options.recorder === null ? undefined : (options.recorder ?? { linkTask });
+      options.recorder === null
+        ? undefined
+        : (options.recorder ?? { linkTask });
     const sessionOrganization = buildSessionOrganizationNamespace({
       // The real wiring: the caller comes from the request context only.
       resolveCallerSessionId: () => {

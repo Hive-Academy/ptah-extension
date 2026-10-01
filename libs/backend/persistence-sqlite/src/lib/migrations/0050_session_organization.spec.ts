@@ -371,7 +371,12 @@ describe('migration 0050_session_organization — applied on top of 1..49', () =
       // Another session, or the same session id in another workspace, may
       // have its own primary.
       insertLink.run(WS, 'session-2', 'TASK_2026_001', 'primary');
-      insertLink.run('D:/projects/other', 'session-1', 'TASK_2026_001', 'primary');
+      insertLink.run(
+        'D:/projects/other',
+        'session-1',
+        'TASK_2026_001',
+        'primary',
+      );
       // The same (session, task) pair twice violates the primary key.
       expect(() =>
         insertLink.run(WS, 'session-1', 'TASK_2026_003', 'related'),

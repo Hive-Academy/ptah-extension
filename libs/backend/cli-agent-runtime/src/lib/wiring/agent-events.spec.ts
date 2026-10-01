@@ -272,9 +272,15 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
 
     expect(saveAgentOutput).toHaveBeenCalledTimes(1);
     const passedPayload = saveAgentOutput.mock.calls[0][1];
-    expect(Object.prototype.hasOwnProperty.call(passedPayload, 'stdout')).toBe(true);
-    expect(Object.prototype.hasOwnProperty.call(passedPayload, 'segments')).toBe(false);
-    expect(Object.prototype.hasOwnProperty.call(passedPayload, 'streamEvents')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(passedPayload, 'stdout')).toBe(
+      true,
+    );
+    expect(
+      Object.prototype.hasOwnProperty.call(passedPayload, 'segments'),
+    ).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(passedPayload, 'streamEvents'),
+    ).toBe(false);
     expect(Object.keys(passedPayload)).toEqual(['stdout']);
   });
 
@@ -472,7 +478,9 @@ describe('persistCliSessionReference — bulk write gates the reference', () => 
     expect(saveAgentOutput).toHaveBeenCalledTimes(1); // not retried
     expect(addCliSession).not.toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to persist CLI session reference after retries'),
+      expect.stringContaining(
+        'Failed to persist CLI session reference after retries',
+      ),
       serializationError,
     );
   });

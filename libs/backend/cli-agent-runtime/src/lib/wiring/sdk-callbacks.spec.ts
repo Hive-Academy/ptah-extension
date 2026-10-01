@@ -618,7 +618,8 @@ describe('wireSdkCallbacks — worktree created broadcast (TASK_2026_580)', () =
         options: { worktree: true, resolveWorktreePath },
       },
     );
-    if (!onCreated) throw new Error('setWorktreeCreatedCallback was never wired');
+    if (!onCreated)
+      throw new Error('setWorktreeCreatedCallback was never wired');
     return { onCreated, webviewManager };
   }
 

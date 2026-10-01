@@ -343,8 +343,7 @@ function wireWorktreeCallbacks(
   logger: Logger,
   tag: string,
   resolveWorktreePath:
-    | ((data: WorktreeCreatedData) => Promise<string | undefined>)
-    | undefined,
+    ((data: WorktreeCreatedData) => Promise<string | undefined>) | undefined,
 ): void {
   sdkAdapter.setWorktreeCreatedCallback(async (data) => {
     logger.info(

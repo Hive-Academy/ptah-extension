@@ -51,6 +51,9 @@ export function parsePrUrl(raw: unknown): ParsedPrUrl | null {
   try {
     parsed = new URL(trimmed);
   } catch {
+    // degradation-audit: reported - a malformed URL is a validation result, not
+    // a lost failure: null is this function's documented answer, and every
+    // caller turns it into a logged drop or a SessionOrganizationInputError.
     // Malformed URL: `new URL` throws a TypeError; there is nothing to keep.
     return null;
   }

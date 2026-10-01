@@ -100,7 +100,10 @@ describe('buildSessionOrganizationNamespace — linkTask', () => {
     const recorder = makeRecorder();
     const resolve = jest.fn(() => SDK_ID);
     const out = buildSessionOrganizationNamespace(
-      makeDeps({ getRecorder: () => recorder, resolveCallerSessionId: resolve }),
+      makeDeps({
+        getRecorder: () => recorder,
+        resolveCallerSessionId: resolve,
+      }),
     ).linkTask(args);
 
     expect(out).toEqual(
