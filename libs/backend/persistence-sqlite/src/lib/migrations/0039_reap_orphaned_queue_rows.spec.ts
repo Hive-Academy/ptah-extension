@@ -62,7 +62,8 @@ describe('migration 0039_reap_orphaned_queue_rows — registry entry', () => {
     // 45 since TASK_2026_461 appended 0045_skill_backlog_cleanup.
     // 46 since TASK_2026_473 appended 0046_memory_merge_subject_index.
     // 48 and 49 since TASK_2026_563 appended 0048_memory_quarantine and 0049_memory_sediment_quarantine.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(49);
+    // 50 since TASK_2026_580 appended 0050_session_organization.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(50);
   });
 
   it('contains no id-shape predicate — a tabId is a UUID v4', () => {
