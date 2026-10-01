@@ -23,6 +23,8 @@ import {
 import {
   JUDGE_PANEL_ROLES,
   JUDGE_STATUSES,
+  MERGED_INTO_PREFIX,
+  RETIRED_UNUSED_REASON,
   type CandidateId,
   type JudgePanelRationale,
   type JudgeStatus,
@@ -32,6 +34,7 @@ import {
   type ReplayMeasurement,
   type TriggerEvalMeasurement,
   type SkillCandidateRow,
+  type SkillCandidateStats,
   type SkillInvocationRow,
   type SkillResidency,
   type SkillStatus,
@@ -107,6 +110,20 @@ interface RawInvocationRow {
   context_id: string | null;
 }
 
+interface RawInvocationEventRow {
+  id: string;
+  session_id: string;
+  succeeded: number;
+  invoked_at: number;
+  source: string;
+  context_id: string | null;
+}
+
+/** `SUM(CASE …)` over an empty table is NULL, hence the `| null`. */
+type RawLifecycleCountsRow = {
+  [K in Exclude<keyof SkillCandidateStats, 'invocations'>]: number | null;
+};
+
 interface RawScorecardAggregateRow {
   slug: string;
   total: number | null;
@@ -168,6 +185,9 @@ const LEGAL_TRANSITIONS: Record<SkillStatus, readonly SkillStatus[]> = {
 
 @injectable()
 export class SkillCandidateStore {
+  /** Nesting depth of {@link inImmediateTransaction}; 0 = no open transaction. */
+  private transactionDepth = 0;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
@@ -417,6 +437,8 @@ export class SkillCandidateStore {
    *
    * Decay score per skill = sum of decayRate^(ageDays) for each invocation.
    * Skills with no invocations get score 0 (oldest for demotion).
+   * Invocations are the tracker's `skill_invocation_events` for the row's
+   * slug (`name`), so a `-2` suffixed skill counts only its own events.
    */
   listActiveOrderedByDecayScore(
     now: number,
@@ -426,12 +448,18 @@ export class SkillCandidateStore {
       (r) => !r.pinned && r.residency === 'resident',
     );
     if (promoted.length === 0) return [];
+    const eventTimes = this.db.prepare(
+      `SELECT invoked_at FROM skill_invocation_events
+        WHERE skill_slug = ?
+        ORDER BY invoked_at DESC
+        LIMIT 1000`,
+    );
     const scored: Array<{ row: SkillCandidateRow; score: number }> = [];
     for (const row of promoted) {
-      const invocations = this.listInvocations(row.id, 1000);
+      const events = eventTimes.all(row.name) as Array<{ invoked_at: number }>;
       let score = 0;
-      for (const inv of invocations) {
-        const ageDays = Math.max(0, (now - inv.invokedAt) / 86400000);
+      for (const event of events) {
+        const ageDays = Math.max(0, (now - event.invoked_at) / 86400000);
         score += Math.pow(decayRate, ageDays);
       }
       scored.push({ row, score });
@@ -463,6 +491,10 @@ export class SkillCandidateStore {
    * Promote one candidate and optionally demote the weakest resident as one
    * durable state transition. The explicit transaction is shared by both
    * SQLite bindings; `node:sqlite` deliberately has no `db.transaction()`.
+   *
+   * `name`, when given, is the materialized directory slug (e.g. `foo-2`) and
+   * is written with the promotion. A UNIQUE violation on `name` throws, and the
+   * transaction rolls back the demotion with it.
    */
   promoteAtomically(
     id: CandidateId,
@@ -470,6 +502,7 @@ export class SkillCandidateStore {
       promotedAt: number;
       bodyPath: string;
       demotedResidentId?: CandidateId;
+      name?: string;
     },
   ): SkillCandidateRow {
     const current = this.findById(id);
@@ -484,6 +517,11 @@ export class SkillCandidateStore {
     if (options.demotedResidentId === id) {
       throw new Error(
         `[skill-synthesis] promoteAtomically: candidate ${id} cannot demote itself`,
+      );
+    }
+    if (options.name !== undefined && options.name.trim() === '') {
+      throw new Error(
+        `[skill-synthesis] promoteAtomically: empty slug for candidate ${id}`,
       );
     }
 
@@ -515,13 +553,15 @@ export class SkillCandidateStore {
           `UPDATE skill_candidates
            SET status = @promotedStatus,
                promoted_at = @promotedAt,
-               body_path = @bodyPath
+               body_path = @bodyPath,
+               name = COALESCE(@name, name)
            WHERE id = @candidateId AND status = @candidateStatus`,
         )
         .run({
           promotedStatus: 'promoted',
           promotedAt: options.promotedAt,
           bodyPath: options.bodyPath,
+          name: options.name ?? null,
           candidateId: id,
           candidateStatus: 'candidate',
         });
@@ -557,28 +597,29 @@ export class SkillCandidateStore {
   }
 
   /**
-   * Active = status='promoted'. Ordered by recency-weighted invocation
-   * activity for LRU eviction (most-active first → eviction takes the tail).
+   * Every promoted row with the time it was last used, oldest use first:
+   * the newest `skill_invocation_events` row for its slug, else `promoted_at`,
+   * else `created_at`. One statement; the retirement sweep's input.
    */
-  listActiveOrderedByActivity(now: number): SkillCandidateRow[] {
-    const stmt = this.db.prepare(
-      `SELECT c.*,
-              (
-                CAST(c.success_count AS REAL) /
-                (1.0 +
-                  ((? - COALESCE(
-                    (SELECT MAX(invoked_at) FROM skill_invocations
-                     WHERE skill_id = c.id),
-                    c.created_at
-                  )) / 86400000.0)
-                )
-              ) AS activity_score
-       FROM skill_candidates c
-       WHERE c.status = 'promoted'
-       ORDER BY activity_score DESC, c.promoted_at DESC`,
-    );
-    const rows = stmt.all(now) as RawCandidateRow[];
-    return rows.map((r) => this.toCandidateRow(r));
+  listPromotedLastUse(): Array<{ row: SkillCandidateRow; lastUsedAt: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT c.*,
+                COALESCE(e.max_invoked_at, c.promoted_at, c.created_at) AS last_used_at
+           FROM skill_candidates c
+           LEFT JOIN (
+             SELECT skill_slug, MAX(invoked_at) AS max_invoked_at
+               FROM skill_invocation_events
+              GROUP BY skill_slug
+           ) e ON e.skill_slug = c.name
+          WHERE c.status = 'promoted'
+          ORDER BY last_used_at ASC`,
+      )
+      .all() as Array<RawCandidateRow & { last_used_at: number }>;
+    return rows.map((r) => ({
+      row: this.toCandidateRow(r),
+      lastUsedAt: r.last_used_at,
+    }));
   }
 
   /** Update status with a legal-transition check. Throws on illegal moves. */
@@ -634,8 +675,49 @@ export class SkillCandidateStore {
     return updated;
   }
 
-  private inImmediateTransaction<T>(fn: () => T): T {
+  /**
+   * Reject `id` only if it is still `expected` — one compare-and-set UPDATE,
+   * the same shape as `promoteAtomically`'s promotion write. Both edges are in
+   * `LEGAL_TRANSITIONS`. `false` means another writer decided first; callers
+   * log and skip it, never throw.
+   */
+  rejectIfStatus(
+    id: CandidateId,
+    expected: 'candidate' | 'promoted',
+    reason: string,
+    rejectedAt: number = Date.now(),
+  ): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE skill_candidates
+            SET status = 'rejected', rejected_at = ?, rejected_reason = ?
+          WHERE id = ? AND status = ?`,
+      )
+      .run(rejectedAt, reason, id, expected);
+    return result.changes === 1;
+  }
+
+  /**
+   * Run `fn` in one `BEGIN IMMEDIATE` transaction. Re-entrant: a nested call
+   * runs `fn` inline and only the outermost call issues BEGIN/COMMIT/ROLLBACK,
+   * so callers can compose store writes (and plain-statement writes of other
+   * stores on the same connection) into one unit. Nesting is tracked here, not
+   * via `db.inTransaction`, which the node:sqlite adapter does not keep for an
+   * `exec('BEGIN')`. An inner throw must propagate so the outer call rolls
+   * back; there is no savepoint. Never call a method that opens its own
+   * transaction (e.g. `setPin`) from `fn` — SQLite rejects the nested BEGIN.
+   */
+  inImmediateTransaction<T>(fn: () => T): T {
+    if (this.transactionDepth > 0) {
+      this.transactionDepth++;
+      try {
+        return fn();
+      } finally {
+        this.transactionDepth--;
+      }
+    }
     this.db.exec('BEGIN IMMEDIATE');
+    this.transactionDepth = 1;
     try {
       const result = fn();
       this.db.exec('COMMIT');
@@ -643,6 +725,8 @@ export class SkillCandidateStore {
     } catch (error: unknown) {
       this.db.exec('ROLLBACK');
       throw error;
+    } finally {
+      this.transactionDepth = 0;
     }
   }
 
@@ -1257,8 +1341,7 @@ export class SkillCandidateStore {
          LIMIT 1`,
       )
       .get(input.slug, input.windowStart, input.windowEnd) as
-      | { id: string }
-      | undefined;
+      { id: string } | undefined;
     if (!fallback) return false;
 
     this.applyReconciliation(
@@ -1488,6 +1571,39 @@ export class SkillCandidateStore {
   }
 
   /**
+   * Newest-first tracker events for a candidate, read by its slug (`name`) from
+   * `skill_invocation_events` and mapped onto the `SkillInvocationRow` wire
+   * shape (`skillId` = the candidate id, `notes` = the event `source`).
+   * Unknown id or non-positive limit → `[]`.
+   */
+  listInvocationEvents(
+    candidateId: CandidateId,
+    limit: number,
+  ): SkillInvocationRow[] {
+    if (limit <= 0) return [];
+    const row = this.findById(candidateId);
+    if (!row) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT id, session_id, succeeded, invoked_at, source, context_id
+           FROM skill_invocation_events
+          WHERE skill_slug = ?
+          ORDER BY invoked_at DESC
+          LIMIT ?`,
+      )
+      .all(row.name, limit) as RawInvocationEventRow[];
+    return rows.map((r) => ({
+      id: r.id,
+      skillId: candidateId,
+      sessionId: r.session_id,
+      succeeded: r.succeeded === 1,
+      invokedAt: r.invoked_at,
+      notes: r.source,
+      contextId: r.context_id ?? null,
+    }));
+  }
+
+  /**
    * Read a stored embedding by rowid. Returns null if sqlite-vec is not
    * loaded or the rowid does not exist.
    */
@@ -1519,32 +1635,42 @@ export class SkillCandidateStore {
     return scored.slice(0, limit);
   }
 
-  getStats(): {
-    candidates: number;
-    promoted: number;
-    rejected: number;
-    invocations: number;
-  } {
-    const counts = this.db
+  getStats(): SkillCandidateStats {
+    const c = this.db
       .prepare(
-        `SELECT status, COUNT(*) as n FROM skill_candidates GROUP BY status`,
+        `SELECT
+           SUM(CASE WHEN status = 'candidate' THEN 1 ELSE 0 END) AS candidates,
+           SUM(CASE WHEN status = 'promoted' THEN 1 ELSE 0 END) AS promoted,
+           SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+           SUM(CASE WHEN status = 'promoted' AND residency = 'resident'
+                    THEN 1 ELSE 0 END) AS active,
+           SUM(CASE WHEN status = 'promoted' AND residency = 'dormant'
+                    THEN 1 ELSE 0 END) AS dormant,
+           SUM(CASE WHEN status = 'rejected' AND rejected_reason LIKE ?
+                    THEN 1 ELSE 0 END) AS merged,
+           SUM(CASE WHEN status = 'rejected' AND rejected_reason = ?
+                    THEN 1 ELSE 0 END) AS retired
+         FROM skill_candidates`,
       )
-      .all() as Array<{ status: SkillStatus; n: number }>;
-    const invocations =
-      (
-        this.db.prepare(`SELECT COUNT(*) as n FROM skill_invocations`).get() as
-          | { n: number }
-          | undefined
-      )?.n ?? 0;
-    let candidates = 0;
-    let promoted = 0;
-    let rejected = 0;
-    for (const c of counts) {
-      if (c.status === 'candidate') candidates = c.n;
-      else if (c.status === 'promoted') promoted = c.n;
-      else if (c.status === 'rejected') rejected = c.n;
-    }
-    return { candidates, promoted, rejected, invocations };
+      .get(`${MERGED_INTO_PREFIX}%`, RETIRED_UNUSED_REASON) as
+      RawLifecycleCountsRow | undefined;
+    const invocations = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM skill_invocation_events
+          WHERE skill_slug IN
+            (SELECT name FROM skill_candidates WHERE status = 'promoted')`,
+      )
+      .get() as { n: number } | undefined;
+    return {
+      candidates: c?.candidates ?? 0,
+      promoted: c?.promoted ?? 0,
+      rejected: c?.rejected ?? 0,
+      active: c?.active ?? 0,
+      dormant: c?.dormant ?? 0,
+      merged: c?.merged ?? 0,
+      retired: c?.retired ?? 0,
+      invocations: invocations?.n ?? 0,
+    };
   }
 
   /**

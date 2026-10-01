@@ -17,6 +17,15 @@ export type CandidateId = string & { readonly __brand: 'CandidateId' };
 export type SkillStatus = 'candidate' | 'promoted' | 'rejected';
 
 /**
+ * `rejected_reason` spellings of the skill lifecycle. The writers and the
+ * `getStats` count SQL share these so the two never drift apart.
+ * A member merged into an umbrella stores `MERGED_INTO_PREFIX + umbrellaSlug`.
+ */
+export const MERGED_INTO_PREFIX = 'merged-into:';
+export const RETIRED_UNUSED_REASON = 'retired:unused';
+export const BACKLOG_PURGE_REASON = 'backlog-purge: unclustered >30d';
+
+/**
  * The judge verdict vocabulary (migration `0033`).
  *
  * THIS UNION IS THE ONLY ENFORCEMENT THERE IS. `0033` deliberately ships
@@ -336,6 +345,23 @@ export function unmeasuredGateFields(): GateMeasurementFields {
     triggerRecall: null,
     triggerEvalAt: null,
   };
+}
+
+/** `SkillCandidateStore.getStats()` — lifecycle counts over `skill_candidates`. */
+export interface SkillCandidateStats {
+  candidates: number;
+  promoted: number;
+  rejected: number;
+  /** Promoted and resident. */
+  active: number;
+  /** Promoted and dormant. */
+  dormant: number;
+  /** Rejected with a `MERGED_INTO_PREFIX` reason. */
+  merged: number;
+  /** Rejected with `RETIRED_UNUSED_REASON`. */
+  retired: number;
+  /** `skill_invocation_events` whose slug is a promoted row's `name`. */
+  invocations: number;
 }
 
 /** Row shape for `skill_invocations`. */
