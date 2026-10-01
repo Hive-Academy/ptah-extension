@@ -23,12 +23,12 @@ State per batch (statuses also on each batch header below):
 | B6 MCP surface, report fallback, shutdown, lazy host lookup | COMPLETE           | 9d4086361 | code-logic-review-b6.md APPROVED 10/10                                                           |
 | B7 frontend adoption, badge, banner                         | COMPLETE           | a16d700c2 | code b7 REVISE 8 -> r1 10 -> r2 9 -> r3 10 APPROVED; visual b7 REVISE 6 -> r1 8 -> r2 9 APPROVED |
 | B8 skills + docs                                            | COMPLETE           | f2a0d59ed | code-logic-review-b8.md APPROVED 10/10 (copy parity restored in 5216a3331)                       |
-| B9 real-host smoke S1-S11                                   | IN_PROGRESS        | —         | — (S1-S10 BLOCKED; awaiting user decision)                                                       |
+| B9 real-host smoke S1-S11                                   | IN_PROGRESS        | —         | — (S1-S10 next run: user's Ptah Dev profile + manual VS Code checklist)                          |
 
 Next steps, in order:
 
-1. USER DECISION: how to run B9 smoke S1-S10 (no provider credentials in an isolated host profile; no VS Code GUI driver). See Batch 9.
-2. Decide F1 (defect candidate), F2 (read budget) and O16 (settings manifest).
+1. B9 S1-S10 re-run (user decision 2026-10-02): Electron S1-S10 on the user's "Ptah Dev" profile (real credentials; the user's instance must not hold the single-instance lock), and VS Code as a manual checklist the user runs. Include the F1 fix (eb33e22c7) in S1b and the F2 override (bc8f11b4a) in the `ptah_session_read` step.
+2. Decide O16 (settings manifest).
 3. Finish B9, then team-leader Mode 3.
 
 Review routing: cross-side CLI lane, antigravity only (Glm hit its Ollama Cloud usage limit, 429; codex unavailable until 2026-10-03); one lane at a time when TASK_2026_580's team-leader also uses antigravity. Resume a lane's CLI session for a re-review.
@@ -59,9 +59,9 @@ Open items and rulings:
 
 Follow-ups (recorded at B6/B7 commit, 2026-10-01; updated at B8/B9 2026-10-01):
 
-- F1 DEFECT CANDIDATE (B9 static evidence, not reproduced live): with no active workspace, `findTabByIdAcrossWorkspaces` (`libs/frontend/chat-state/src/lib/tab-workspace-partition.service.ts:318-341`) returns null for callers that do not pass `activeTabs`, e.g. `streaming-handler.service.ts:161`, `message-finalization.service.ts:130`, `permission-handler.service.ts:457` (more in `test-report.md`). The B7 `requireTargetTab` fix covers only `session-loader.service.ts`. Needs a fix batch or a live/unit repro — USER DECISION.
-- F2 `ptah_session_read`'s default 32 KiB tail (`session-spawner.service.ts:108`) exceeds the 8,000-char budget (`tool-result-budget.ts:54`): any transcript over 8,000 chars is cut (B9 static evidence; live BLOCKED). A per-tool budget override is a design call — USER DECISION.
-- F3 OPEN: B8 documents child-session reports in the skill and docs page, but the `ptah_agent_report` tool description (`vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts:853-865`) still does not mention child sessions. One-sentence code fix, outside B8's docs-only file list.
+- F1 CLOSED (commit eb33e22c7, `code-logic-review-f1.md` APPROVED 10/10; user-approved fix inside 584). Root cause: `findTabByIdAcrossWorkspaces` searched the active tab set only when a workspace was active; the VS Code webview never activates one, so EVERY tab there was invisible to streaming, finalization, permission and applyTurnState lookups (wider than late-adopted tabs). Fixed in the lookup; `TabLookupResult.workspacePath` is now `string | null`; consumers map null to undefined; completion notifications and notification-center prompt cards still skip tabs with no workspace. Deviation (accepted): 3 extra projects touched for the null type (`chat-streaming` `turn-state-applier.service.ts`, `notification-center` `notification-center.store.ts`, `chat` `chat-message-handler.service.ts`). Reviewer ruling (not a defect): `findTabBySessionIdAcrossWorkspaces` keeps its `activePath` gate, because its callers (`routeBackgroundEvent`, turn-end handler) assume a partition tab updated through `updateBackgroundTab`.
+- F2 CLOSED (commit bc8f11b4a, `code-logic-review-f2.md` APPROVED 10/10). User decision: per-tool override, keep the 32 KiB default. `ptah_session_read` budget is 40,768 chars / 10,192 tokens (32,768 tail + 8,000 for header and held completions). Deviation (accepted): 32 KiB duplicated as a literal in `tool-result-budget.ts` (importing it pulled tsyringe into light consumers), guarded by a drift spec in `session-tools.spec.ts`.
+- F3 CLOSED (commit bc8f11b4a, with F2; `code-logic-review-f2.md` APPROVED 10/10): one sentence on child sessions added to the `ptah_agent_report` description. Pins updated: report description limit 799 -> 921; `tools/list` 130,357 -> 130,469 bytes.
 - F4 CLEARED (B9): the spawner is constructed eagerly in Electron (`wire-runtime.ts`); the Electron dev build boots clean with it registered and shuts down gracefully (`test-report.md`, `smoke-b9/`).
 - F5 The child tab title truncates at the 200px tab cap once the 24px badge is present (visual-review-b7-r2 observation; full title stays in the `title` attribute). Minor, no change planned.
 
@@ -737,7 +737,8 @@ Files:
 ## Batch 9: real-host smoke S1-S11 + test-report.md — IN_PROGRESS
 
 - Partial result (`test-report.md`, `smoke-b9/`): S11 PASS (57/59; 2 known failures: platform-core perf smoke under load, rpc-handlers harness-skill-selection known base failure). Electron dev build boot PASS (F4 cleared; idle graceful quit clean). S1-S10 BLOCKED on both hosts: no provider credentials in the isolated profile (`auth:getAuthStatus` all false); no VS Code GUI driver. A1/A3/A4/A5 NOT proven. F2 static evidence only. F1 upgraded to defect candidate (static).
-- Awaiting USER DECISION on how to run S1-S10 (e.g. user-run smoke on their own profile, or authorising a credentialed scratch profile). Not reviewed or committed as a batch; the partial report is committed as docs only.
+- User decision (2026-10-02): the next run uses the user's "Ptah Dev" profile for Electron S1-S10, and a manual checklist for the VS Code host. F1 (eb33e22c7) and F2/F3 (bc8f11b4a) are fixed before that run. Not reviewed or committed as a batch; the partial report is committed as docs only.
+- Evidence gap: `smoke-b9/electron-boot.png` and `electron-idle.png` are byte-identical; the re-run must capture a distinct idle screenshot.
 
 - Recommended executor: senior-tester (sub-agent), real host (Electron dev build, then VS Code), NOT a mocked run
 - Fallback executor: none; a smoke step that cannot run is reported as blocked with the reason
