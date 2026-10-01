@@ -303,9 +303,8 @@ export class ChatMessageHandler implements MessageHandler {
     if (memoized !== undefined) return memoized;
 
     const workspacePath =
-      this.tabManager.findTabBySessionIdAcrossWorkspaces(
-        sessionId,
-      )?.workspacePath;
+      this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)
+        ?.workspacePath ?? undefined;
     if (workspacePath !== undefined) {
       this._workspaceBySession.set(sessionId, workspacePath);
     }

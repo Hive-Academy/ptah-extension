@@ -96,6 +96,22 @@ describe('TabWorkspacePartitionService', () => {
     });
   });
 
+  describe('findTabByIdAcrossWorkspaces with no active workspace (TASK_2026_584 F1)', () => {
+    it('finds a tab in the caller-supplied tab set (the only set)', () => {
+      const tabs = [makeTab('parent'), makeTab('child', 'sess-child')];
+      const result = svc.findTabByIdAcrossWorkspaces('child', tabs);
+      expect(result?.tab.id).toBe('child');
+      expect(result?.workspacePath).toBeNull();
+    });
+
+    it('returns null when the id is in no set', () => {
+      expect(
+        svc.findTabByIdAcrossWorkspaces('missing', [makeTab('parent')]),
+      ).toBeNull();
+      expect(svc.findTabByIdAcrossWorkspaces('missing')).toBeNull();
+    });
+  });
+
   describe('updateBackgroundTab', () => {
     it('mutates a tab in the background workspace', () => {
       svc.switchWorkspace('/ws/a', [], null);

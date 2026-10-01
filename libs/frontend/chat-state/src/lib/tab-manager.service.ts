@@ -1430,7 +1430,13 @@ export class TabManagerService {
       this.clearAbortController(tabId);
     }
     this.updateTabInternal(tabId, updates);
-    if (shouldEmitTerminalPulse && resolvedSessionId !== null) {
+    // The pulse feeds workspace-keyed completion cards; a tab in no workspace
+    // (the active set while none is active) has no card target.
+    if (
+      shouldEmitTerminalPulse &&
+      resolvedSessionId !== null &&
+      lookup.workspacePath !== null
+    ) {
       const classification: TerminalTurnClassification =
         state.phase === 'idle' && state.terminalReason === 'completed'
           ? 'success'

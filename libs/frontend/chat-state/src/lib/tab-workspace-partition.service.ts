@@ -19,10 +19,14 @@ export interface WorkspaceTabSet {
 /**
  * Result of a cross-workspace tab lookup.
  * Includes the tab and the workspace it belongs to.
+ *
+ * `workspacePath` is `null` when the tab is in the active tab set and no
+ * workspace is active (the VS Code panel never activates one): that set
+ * belongs to no workspace partition.
  */
 export interface TabLookupResult {
   tab: TabState;
-  workspacePath: string;
+  workspacePath: string | null;
 }
 
 /**
@@ -312,21 +316,25 @@ export class TabWorkspacePartitionService {
    * Pure lookup — never mutates state.
    *
    * @param tabId - Tab ID to look up
-   * @param activeTabs - Current active workspace tabs (from signal) for the
-   *   active-workspace fast path (the map copy can lag behind the signal).
+   * @param activeTabs - Current active tab set (from signal). With an active
+   *   workspace it is that workspace's fast path (the map copy can lag behind
+   *   the signal); with none it is the only tab set, and a hit there reports
+   *   `workspacePath: null`.
    */
   findTabByIdAcrossWorkspaces(
     tabId: string,
     activeTabs?: TabState[],
   ): TabLookupResult | null {
     const activePath = this._activeWorkspacePath();
-    if (activePath) {
-      const tabs =
-        activeTabs ?? this._workspaceTabSets.get(activePath)?.tabs ?? [];
-      const activeTab = tabs.find((t) => t.id === tabId);
-      if (activeTab) {
-        return { tab: activeTab, workspacePath: activePath };
-      }
+    // With no active workspace (the VS Code panel never activates one) the
+    // caller's tab set is the only set and is in no partition, so it must be
+    // searched too — otherwise every tab there is invisible to by-id routing.
+    const tabs = activePath
+      ? (activeTabs ?? this._workspaceTabSets.get(activePath)?.tabs ?? [])
+      : (activeTabs ?? []);
+    const activeTab = tabs.find((t) => t.id === tabId);
+    if (activeTab) {
+      return { tab: activeTab, workspacePath: activePath };
     }
 
     for (const [wsPath, tabSet] of this._workspaceTabSets) {

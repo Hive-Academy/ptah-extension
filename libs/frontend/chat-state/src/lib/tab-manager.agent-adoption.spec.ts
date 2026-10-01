@@ -230,6 +230,53 @@ describe('TabManagerService — agent session adoption (TASK_2026_584)', () => {
     expect(service.tabs().map((t) => t.id)).toEqual([parent, CHILD_TAB]);
   });
 
+  // F1: the VS Code panel never activates a workspace partition, so the
+  // `_tabs` signal is the only tab set. Every by-id consumer (turn state,
+  // streaming boundaries, finalization, permission prompts) goes through
+  // `findTabByIdAcrossWorkspaces` and must still see a late-adopted child.
+  describe('late-adopted child with no active workspace (F1)', () => {
+    function adoptLateChild(): string {
+      const parent = service.createTab('parent');
+      expect(
+        service.adoptAgentSessionTab(
+          payload(parent, { sessionId: CHILD_SESSION }),
+          'late',
+        ),
+      ).toBe('adopted');
+      expect(service.activeWorkspacePath).toBeNull();
+      return parent;
+    }
+
+    it('is found by tab id', () => {
+      adoptLateChild();
+      const lookup = service.findTabByIdAcrossWorkspaces(CHILD_TAB);
+      expect(lookup?.tab.id).toBe(CHILD_TAB);
+      expect(lookup?.workspacePath).toBeNull();
+    });
+
+    it('receives a backend turn state (applyTurnState)', () => {
+      adoptLateChild();
+
+      service.applyTurnState(
+        CHILD_TAB,
+        {
+          phase: 'generating',
+          revision: 1,
+          backgroundTasks: [],
+          sessionCrons: [],
+          terminalReason: null,
+          timestamp: 1,
+        },
+        CHILD_SESSION,
+      );
+
+      const child = service.tabs().find((t) => t.id === CHILD_TAB);
+      expect(child?.status).toBe('streaming');
+      expect(child?.lastTurnStateRevision).toBe(1);
+      expect(service.isTabStreaming(CHILD_TAB)).toBe(true);
+    });
+  });
+
   it('agentOrigin survives save and restore', () => {
     service.switchWorkspace(WS_A);
     const parent = service.createTab('parent');
