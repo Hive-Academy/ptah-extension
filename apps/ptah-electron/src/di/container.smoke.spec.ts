@@ -19,6 +19,7 @@
 
 import 'reflect-metadata';
 
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { container as rootContainer } from 'tsyringe';
@@ -30,8 +31,22 @@ import {
   type Logger,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { createMockOutputChannel } from '@ptah-extension/platform-core/testing';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
-import { SDK_TOKENS, registerSdkServices } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  registerSdkServices,
+  type PostToolUseCallbackRegistry,
+} from '@ptah-extension/agent-sdk';
+import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import {
+  SESSION_ORGANIZATION_TOKENS,
+  registerSessionOrganizationServices,
+  startSessionOrganization,
+} from '@ptah-extension/session-organization';
+import { registerVsCodeLmToolsServices } from '@ptah-extension/vscode-lm-tools';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
+import { PLUGIN_MARKETPLACE_TOKENS } from '@ptah-extension/plugin-marketplace';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
@@ -183,9 +198,12 @@ function buildMinimalContainer(): DependencyContainer {
   // graph is covered by auth-providers' registration regression test.
   c.registerInstance(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {});
   c.registerInstance(SDK_TOKENS.SDK_AGENT_ADAPTER, {});
-  c.register<Pick<AuthRpcHandlers, 'invalidateAuthStatusCache'>>(AuthRpcHandlers, {
-    useValue: { invalidateAuthStatusCache: jest.fn() },
-  });
+  c.register<Pick<AuthRpcHandlers, 'invalidateAuthStatusCache'>>(
+    AuthRpcHandlers,
+    {
+      useValue: { invalidateAuthStatusCache: jest.fn() },
+    },
+  );
 
   registerSharedRpcHandlers(c);
   return c;
@@ -448,5 +466,159 @@ describe('Electron DI — background-work governor (TASK_2026_437)', () => {
     expect(governor.isClear()).toBe(true);
     expect(typeof governor.whenClear).toBe('function');
     expect(c.resolve(TOKENS.BACKGROUND_WORK_GOVERNOR)).toBe(governor);
+  });
+});
+
+/**
+ * Session organization (TASK_2026_580, risk R-TL11, B2 follow-up).
+ *
+ * `WorktreeHookHandler`, `SessionForkService` and `PtahAPIBuilder` are
+ * singletons that take `PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER` as an
+ * OPTIONAL constructor argument. One resolved before phase 2 binds the
+ * recorder keeps `undefined` for the life of the process and silently never
+ * records. Capture also subscribes to the PostToolUse registry; without it,
+ * `startSessionOrganization` reports a non-fatal failure and no PR is captured.
+ *
+ * The real Electron container cannot boot under Jest (see the header and
+ * `phase-2-diagnostics-override.spec.ts`), so the call order is pinned by
+ * reading the source, and the registrations run for real in that order:
+ * `registerSdkServices` (phase 2), the session-organization pair (phase 2,
+ * after the SQLite block), then `registerVsCodeLmToolsServices` (phase 3).
+ */
+describe('Electron DI — session organization recorder binding (TASK_2026_580 R-TL11)', () => {
+  it('phase 2 registers and starts session organization once, after the SDK and SQLite registrations', () => {
+    const phase2 = fs.readFileSync(
+      path.join(__dirname, 'phase-2-libraries.ts'),
+      'utf8',
+    );
+    const at = (call: string): number => {
+      const index = phase2.indexOf(call);
+      expect(index).toBeGreaterThan(-1);
+      return index;
+    };
+
+    expect(phase2.match(/registerSessionOrganizationServices\(/g)).toHaveLength(
+      1,
+    );
+    expect(phase2.match(/startSessionOrganization\(/g)).toHaveLength(1);
+    const register = at('registerSessionOrganizationServices(container);');
+    expect(at('registerSdkServices(container, logger);')).toBeLessThan(
+      register,
+    );
+    expect(
+      at('registerPersistenceSqliteServices(container, logger);'),
+    ).toBeLessThan(register);
+    expect(at('startTaskSpecsIndex(container, logger);')).toBeLessThan(
+      register,
+    );
+    expect(register).toBeLessThan(at('startSessionOrganization(container);'));
+    // Phase 2 itself never resolves a producer early.
+    expect(phase2).not.toMatch(
+      /SDK_WORKTREE_HOOK_HANDLER|SDK_SESSION_FORK_SERVICE|PTAH_API_BUILDER/,
+    );
+
+    // The API builder is registered in phase 3, after phase 2 bound the recorder.
+    const orchestrator = fs.readFileSync(
+      path.join(__dirname, 'container.ts'),
+      'utf8',
+    );
+    const phase2At = orchestrator.indexOf('registerPhase2Libraries(root');
+    expect(phase2At).toBeGreaterThan(-1);
+    expect(phase2At).toBeLessThan(
+      orchestrator.indexOf('registerPhase3Storage(root'),
+    );
+    expect(
+      fs.readFileSync(path.join(__dirname, 'phase-3-storage.ts'), 'utf8'),
+    ).toContain('registerVsCodeLmToolsServices(container, logger);');
+  });
+
+  it('the bound recorder reaches all three producers and capture subscribes to PostToolUse', () => {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    const output = createMockOutputChannel();
+    c.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, { useValue: output });
+    // Phase 1 binds this in production; `SessionMetadataStore` injects it.
+    c.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+
+    // Phase 2, in production order. The connection is never opened here.
+    registerSdkServices(c, logger);
+    c.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
+      useValue: { isOpen: false },
+    });
+    registerSessionOrganizationServices(c);
+    startSessionOrganization(c);
+
+    // Phase 3. Required producer dependencies unrelated to this check (bound
+    // by other phase-2 libraries in production) are bare stubs, as in
+    // `ptah-extension-vscode/src/di/surface-composition.spec.ts`.
+    c.register(TOKENS.CONTEXT_ORCHESTRATION_SERVICE, { useValue: {} });
+    registerVsCodeLmToolsServices(c, logger);
+    for (const token of [
+      AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER,
+      AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
+      AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER,
+      SDK_TOKENS.PRICING_PROVIDER,
+      TOKENS.SUBAGENT_REGISTRY_SERVICE,
+      TOKENS.WEBVIEW_MANAGER,
+      MEMORY_CONTRACT_TOKENS.MEMORY_READER,
+      MEMORY_CONTRACT_TOKENS.MEMORY_LISTER,
+      PLATFORM_TOKENS.PLATFORM_INFO,
+      PLUGIN_MARKETPLACE_TOKENS.STATE_STORE,
+      TOKENS.WORKSPACE_ANALYZER_SERVICE,
+      TOKENS.FILE_SYSTEM_MANAGER,
+      TOKENS.CONTEXT_SIZE_OPTIMIZER,
+      TOKENS.MONOREPO_DETECTOR_SERVICE,
+      TOKENS.DEPENDENCY_ANALYZER_SERVICE,
+      TOKENS.FILE_RELEVANCE_SCORER,
+      TOKENS.TOKEN_COUNTER_SERVICE,
+      TOKENS.WORKSPACE_INDEXER_SERVICE,
+      TOKENS.PROJECT_DETECTOR_SERVICE,
+      TOKENS.CONTEXT_ENRICHMENT_SERVICE,
+      TOKENS.DEPENDENCY_GRAPH_SERVICE,
+      TOKENS.TREE_SITTER_PARSER_SERVICE,
+      TOKENS.AST_ANALYSIS_SERVICE,
+      TOKENS.AGENT_PROCESS_MANAGER,
+      TOKENS.CLI_DETECTION_SERVICE,
+      PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER,
+    ]) {
+      if (!c.isRegistered(token, true)) c.register(token, { useValue: {} });
+    }
+
+    const recorder = c.resolve(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER);
+    expect(recorder).toBe(c.resolve(SESSION_ORGANIZATION_TOKENS.SERVICE));
+    expect(
+      c.resolve<{ recorder: unknown }>(SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER)
+        .recorder,
+    ).toBe(recorder);
+    expect(
+      c.resolve<{ recorder: unknown }>(SDK_TOKENS.SDK_SESSION_FORK_SERVICE)
+        .recorder,
+    ).toBe(recorder);
+    expect(
+      c.resolve<{ sessionOrganizationRecorder: unknown }>(
+        TOKENS.PTAH_API_BUILDER,
+      ).sessionOrganizationRecorder,
+    ).toBe(recorder);
+
+    // B2: the registry is bound on this host and capture actually subscribed.
+    expect(
+      c.isRegistered(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY, true),
+    ).toBe(true);
+    expect(
+      c.resolve<PostToolUseCallbackRegistry>(
+        SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY,
+      ).size,
+    ).toBeGreaterThan(0);
+    expect(
+      output.__state.lines.filter((line) =>
+        line.startsWith('[SessionOrganization]'),
+      ),
+    ).toEqual([]);
   });
 });

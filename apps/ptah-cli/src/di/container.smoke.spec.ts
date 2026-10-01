@@ -18,6 +18,7 @@
 
 import 'reflect-metadata';
 
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { container as rootContainer } from 'tsyringe';
@@ -29,7 +30,21 @@ import {
   type Logger,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { createMockOutputChannel } from '@ptah-extension/platform-core/testing';
+import {
+  SDK_TOKENS,
+  registerSdkServices,
+  type PostToolUseCallbackRegistry,
+} from '@ptah-extension/agent-sdk';
+import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import {
+  SESSION_ORGANIZATION_TOKENS,
+  registerSessionOrganizationServices,
+  startSessionOrganization,
+} from '@ptah-extension/session-organization';
+import { registerVsCodeLmToolsServices } from '@ptah-extension/vscode-lm-tools';
+import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
+import { PLUGIN_MARKETPLACE_TOKENS } from '@ptah-extension/plugin-marketplace';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
@@ -296,5 +311,183 @@ describe('CLI DI — workspace watcher (TASK_2026_437)', () => {
     expect(c.resolve(PLATFORM_TOKENS.WORKSPACE_WATCHER)).toBe(watcher);
     expect(fork).not.toHaveBeenCalled();
     watcher.dispose();
+  });
+});
+
+/**
+ * Session organization (TASK_2026_580, risk R-TL11, B2 follow-up).
+ *
+ * `WorktreeHookHandler`, `SessionForkService` and `PtahAPIBuilder` are
+ * singletons that take `PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER` as an
+ * OPTIONAL constructor argument. One resolved before `registerThothLibraries`
+ * binds the recorder keeps `undefined` for the life of the process and
+ * silently never records. Capture also subscribes to the PostToolUse registry;
+ * without it, `startSessionOrganization` reports a non-fatal failure and no PR
+ * is captured.
+ *
+ * `CliDIContainer.setup()` cannot run under Jest (see the header and
+ * `cli-engine/src/lib/container-diagnostics-override.spec.ts`), so the call
+ * order is pinned by reading the cli-engine source, and the registrations run
+ * for real in that order: `registerSdkServices`, the session-organization pair
+ * inside `registerThothLibraries`, then `registerVsCodeLmToolsServices`.
+ */
+describe('CLI DI — session organization recorder binding (TASK_2026_580 R-TL11)', () => {
+  const cliEngineLib = path.resolve(
+    __dirname,
+    '../../../../libs/backend/cli-engine/src/lib',
+  );
+
+  it('registers and starts session organization once, after the SDK and SQLite registrations', () => {
+    const thoth = fs.readFileSync(
+      path.join(cliEngineLib, 'thoth', 'register-thoth-libraries.ts'),
+      'utf8',
+    );
+    const at = (source: string, call: string): number => {
+      const index = source.indexOf(call);
+      expect(index).toBeGreaterThan(-1);
+      return index;
+    };
+
+    expect(thoth.match(/registerSessionOrganizationServices\(/g)).toHaveLength(
+      1,
+    );
+    expect(thoth.match(/startSessionOrganization\(/g)).toHaveLength(1);
+    const register = at(
+      thoth,
+      'registerSessionOrganizationServices(container);',
+    );
+    expect(
+      at(thoth, 'registerPersistenceSqliteServices(container, logger);'),
+    ).toBeLessThan(register);
+    expect(at(thoth, 'startTaskSpecsIndex(container, logger);')).toBeLessThan(
+      register,
+    );
+    expect(register).toBeLessThan(
+      at(thoth, 'startSessionOrganization(container);'),
+    );
+    expect(thoth).not.toMatch(
+      /SDK_WORKTREE_HOOK_HANDLER|SDK_SESSION_FORK_SERVICE|PTAH_API_BUILDER/,
+    );
+
+    const setup = fs.readFileSync(
+      path.join(cliEngineLib, 'container.ts'),
+      'utf8',
+    );
+    const thothCall = at(setup, 'registerThothLibraries(container, logger);');
+    expect(at(setup, 'registerSdkServices(container, logger);')).toBeLessThan(
+      thothCall,
+    );
+    expect(thothCall).toBeLessThan(
+      at(setup, 'registerVsCodeLmToolsServices(container, logger);'),
+    );
+  });
+
+  it('the bound recorder reaches all three producers and capture subscribes to PostToolUse', () => {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    const output = createMockOutputChannel();
+    c.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, { useValue: output });
+    // `registerSdkServices` eagerly resolves `SDK_CONFIG_WATCHER`, whose
+    // constructor subscribes to both of these.
+    c.register(TOKENS.CONFIG_MANAGER, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        set: jest.fn(async () => undefined),
+        watch: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
+      useValue: {
+        get: jest.fn(async () => undefined),
+        store: jest.fn(async () => undefined),
+        delete: jest.fn(async () => undefined),
+        onDidChange: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    // Phase 1 binds this in production; `SessionMetadataStore` injects it.
+    c.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+
+    // Phase 2, in production order. The connection is never opened here.
+    registerSdkServices(c, logger);
+    c.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
+      useValue: { isOpen: false },
+    });
+    registerSessionOrganizationServices(c);
+    startSessionOrganization(c);
+
+    // Phase 4. Required producer dependencies unrelated to this check (bound
+    // by other libraries in production) are bare stubs, as in
+    // `ptah-extension-vscode/src/di/surface-composition.spec.ts`.
+    c.register(TOKENS.CONTEXT_ORCHESTRATION_SERVICE, { useValue: {} });
+    registerVsCodeLmToolsServices(c, logger);
+    for (const token of [
+      AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER,
+      AUTH_PROVIDERS_TOKENS.SDK_AUTH_ENV,
+      AUTH_PROVIDERS_TOKENS.SDK_AUTH_MANAGER,
+      SDK_TOKENS.PRICING_PROVIDER,
+      TOKENS.GIT_INFO_SERVICE,
+      TOKENS.SUBAGENT_REGISTRY_SERVICE,
+      TOKENS.WEBVIEW_MANAGER,
+      MEMORY_CONTRACT_TOKENS.MEMORY_READER,
+      MEMORY_CONTRACT_TOKENS.MEMORY_LISTER,
+      PLATFORM_TOKENS.PLATFORM_INFO,
+      PLUGIN_MARKETPLACE_TOKENS.STATE_STORE,
+      TOKENS.WORKSPACE_ANALYZER_SERVICE,
+      TOKENS.FILE_SYSTEM_MANAGER,
+      TOKENS.CONTEXT_SIZE_OPTIMIZER,
+      TOKENS.MONOREPO_DETECTOR_SERVICE,
+      TOKENS.DEPENDENCY_ANALYZER_SERVICE,
+      TOKENS.FILE_RELEVANCE_SCORER,
+      TOKENS.TOKEN_COUNTER_SERVICE,
+      TOKENS.WORKSPACE_INDEXER_SERVICE,
+      TOKENS.PROJECT_DETECTOR_SERVICE,
+      TOKENS.CONTEXT_ENRICHMENT_SERVICE,
+      TOKENS.DEPENDENCY_GRAPH_SERVICE,
+      TOKENS.TREE_SITTER_PARSER_SERVICE,
+      TOKENS.AST_ANALYSIS_SERVICE,
+      TOKENS.AGENT_PROCESS_MANAGER,
+      TOKENS.CLI_DETECTION_SERVICE,
+      PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
+      PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER,
+    ]) {
+      if (!c.isRegistered(token, true)) c.register(token, { useValue: {} });
+    }
+
+    const recorder = c.resolve(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER);
+    expect(recorder).toBe(c.resolve(SESSION_ORGANIZATION_TOKENS.SERVICE));
+    expect(
+      c.resolve<{ recorder: unknown }>(SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER)
+        .recorder,
+    ).toBe(recorder);
+    expect(
+      c.resolve<{ recorder: unknown }>(SDK_TOKENS.SDK_SESSION_FORK_SERVICE)
+        .recorder,
+    ).toBe(recorder);
+    expect(
+      c.resolve<{ sessionOrganizationRecorder: unknown }>(
+        TOKENS.PTAH_API_BUILDER,
+      ).sessionOrganizationRecorder,
+    ).toBe(recorder);
+
+    // B2: the registry is bound on this host and capture actually subscribed.
+    expect(
+      c.isRegistered(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY, true),
+    ).toBe(true);
+    expect(
+      c.resolve<PostToolUseCallbackRegistry>(
+        SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY,
+      ).size,
+    ).toBeGreaterThan(0);
+    expect(
+      output.__state.lines.filter((line) =>
+        line.startsWith('[SessionOrganization]'),
+      ),
+    ).toEqual([]);
   });
 });
