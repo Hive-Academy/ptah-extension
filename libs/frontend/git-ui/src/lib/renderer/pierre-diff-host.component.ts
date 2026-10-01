@@ -79,7 +79,7 @@ type ParsedDiff =
   template: `
     @if (mappingError(); as error) {
       <p
-        class="px-2 py-1 text-xs text-base-content/70"
+        class="px-2 py-1 text-xs text-base-content-muted"
         role="status"
         data-testid="pierre-mapping-error"
       >

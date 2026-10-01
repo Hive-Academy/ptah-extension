@@ -573,6 +573,22 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+/*
+ * anubis-light: `--s` gold measures 2.94-3.41:1 against the cream panels the
+ * offset ring sits on, under the 3:1 non-text minimum (TASK_2026_576 P2 visual
+ * review). The deepened brand gold `--ptah-gold-strong` measures 5.24:1 on
+ * base-300 and 6.31:1 on base-100. The first selector matches the global rule's
+ * specificity, so an explicit `focus-visible:outline-*` utility (e.g.
+ * `outline-base-content`) still wins; the second reaches the components that
+ * copied the `--s` ring as an arbitrary utility.
+ */
+:where([data-theme='anubis-light'])
+  :is(button, input, select, textarea, a):focus-visible,
+[data-theme='anubis-light']
+  .focus-visible\:outline-\[oklch\(var\(--s\)\)\]:focus-visible {
+  outline-color: var(--ptah-gold-strong);
+}
+
 /* Remove default focus outline (replaced by focus-visible) */
 button:focus:not(:focus-visible),
 input:focus:not(:focus-visible),
@@ -1814,6 +1830,72 @@ lucide-angular.w-6 svg {
 }
 
 /* ============================================================================
+ANUBIS SEMANTIC INK OVERRIDES (TASK_2026_576, design-spec §0)
+============================================================================ */
+
+/**
+ * Measured per-theme substitutes for daisyUI pairings that fail WCAG AA at the
+ * small sizes the git surfaces use. Scoped to the two anubis themes only, the
+ * pairs the design measured; the other 32 themes keep daisyUI's stock pairing.
+ * Values are re-measured by
+ * apps/ptah-extension-webview/src/app/status-badge-contrast.spec.ts, which
+ * parses the `[data-theme='…'] .class { color: … }` rules below — keep each
+ * one a single-selector, single-declaration rule.
+ *
+ * - `--ptah-error-ink`: the error hue as ink on a base layer. Stock `--er`
+ *   measures 3.17-3.84:1 (dark) and 2.97-3.57:1 (light) on base-100..300,
+ *   which fails AA for text and 3:1 for the error icons and outline-button
+ *   borders. Red-400 / a deepened red measure >= 5.5:1 on every base layer.
+ *   It backs `text-error`, `border-error` and `.diff-del-text`.
+ * - `.err-solid-text`: ink on a solid `error` fill (destructive confirm
+ *   buttons, solid error chips): `error-content` measures 3.87 / 4.12:1.
+ * - `.ok-solid-text`: ink on a solid `success` or `info` fill, dark only:
+ *   `success-content` measures 2.64:1, `info-content` 2.95:1.
+ * - `.diff-add-text`: addition text; stock `text-success` is 2.36:1 in light.
+ */
+[data-theme='anubis'] {
+  --ptah-error-ink: #f87171;
+}
+[data-theme='anubis-light'] {
+  --ptah-error-ink: oklch(45% 0.22 20);
+}
+
+[data-theme='anubis'] .text-error {
+  color: var(--ptah-error-ink);
+}
+[data-theme='anubis-light'] .text-error {
+  color: var(--ptah-error-ink);
+}
+[data-theme='anubis'] .border-error {
+  border-color: var(--ptah-error-ink);
+}
+[data-theme='anubis-light'] .border-error {
+  border-color: var(--ptah-error-ink);
+}
+[data-theme='anubis'] .diff-del-text {
+  color: var(--ptah-error-ink);
+}
+[data-theme='anubis-light'] .diff-del-text {
+  color: var(--ptah-error-ink);
+}
+
+[data-theme='anubis'] .err-solid-text {
+  color: #ffffff;
+}
+[data-theme='anubis-light'] .err-solid-text {
+  color: #131317;
+}
+[data-theme='anubis'] .ok-solid-text {
+  color: #131317;
+}
+[data-theme='anubis'] .diff-add-text {
+  color: #16a34a;
+}
+[data-theme='anubis-light'] .diff-add-text {
+  color: oklch(45% 0.17 162.48);
+}
+
+/* ============================================================================
 LIGHT THEME (ANUBIS-LIGHT) VISIBILITY FIXES
 Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
 ============================================================================ */
@@ -1832,23 +1914,37 @@ Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
  * 5. Permission cards have visible backgrounds
  */
 
+/*
+ * Ghost buttons, their icons and the model-selector text default to dark
+ * base-content ink in the light theme — as a DEFAULT only. These rules used to
+ * sit in the block below at (0,2,0), which beat every `text-*` utility (0,1,0)
+ * on a ghost button and silently turned e.g. `btn-ghost text-error` back into
+ * plain ink (TASK_2026_576 P2 visual review). Here they are (0,1,0) at most
+ * and live in `@layer components`, which Tailwind emits after daisyUI's own
+ * `.btn-ghost` and before utilities: they still win over daisyUI, and any
+ * `text-*` utility on the button or its child now wins over them.
+ */
+@layer components {
+  :where([data-theme='anubis-light']) .btn-ghost {
+    color: oklch(var(--bc));
+  }
+
+  /* Icons follow the button's ink, including a `text-*` set on the button. */
+  :where([data-theme='anubis-light'] .btn-ghost) :where(lucide-angular, svg) {
+    color: inherit;
+  }
+
+  /* Model selector trigger text. */
+  :where([data-theme='anubis-light'] .btn-ghost) :is(.font-medium, .text-xs) {
+    color: oklch(var(--bc));
+  }
+}
+
 [data-theme='anubis-light'] {
   /* ===== Ghost Button Fixes ===== */
-  /* Ghost buttons should use dark text, not light primary */
-  .btn-ghost {
-    color: oklch(var(--bc)); /* Use base-content (dark text) */
-  }
-
+  /* Hover tint only; the ink is the low-specificity default above. */
   .btn-ghost:hover {
     background-color: oklch(var(--bc) / 0.1); /* Subtle dark hover */
-    color: oklch(var(--bc)); /* Keep dark text on hover */
-  }
-
-  /* ===== Icon Visibility ===== */
-  /* Lucide icons in buttons should be visible */
-  .btn-ghost lucide-angular,
-  .btn-ghost svg {
-    color: oklch(var(--bc)); /* Dark icon color */
   }
 
   /* ===== Tab Bar Fixes ===== */
@@ -1876,13 +1972,6 @@ Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
     background-color: oklch(var(--b1)); /* Warm white background */
     border: 1px solid oklch(var(--b3)); /* Visible border */
     box-shadow: 0 4px 12px oklch(var(--bc) / 0.15); /* Subtle shadow */
-  }
-
-  /* ===== Model Selector Specific ===== */
-  /* Model selector trigger button text */
-  .btn-ghost .font-medium,
-  .btn-ghost .text-xs {
-    color: oklch(var(--bc)); /* Dark text for model name */
   }
 
   /* ===== Permission Card Fixes ===== */

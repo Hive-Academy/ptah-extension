@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 27/69
+Total tasks: 87 | Batches: 69 | Complete: 28/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1225,7 +1225,7 @@ executors at once.
   mode green. Orchestrator corrections before commit: error note `text-base-content/70` → `text-base-content-muted`
   (the sanctioned muted token), `catch (err: unknown)`. Verified: git-ui 544 tests, typecheck, lint green.
 
-## Batch 24: `FileStatusBadgeComponent` with AA contrast — PENDING
+## Batch 24: `FileStatusBadgeComponent` with AA contrast — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, style scope; visual-reviewer (badge in anubis + anubis-light)
@@ -1233,7 +1233,7 @@ executors at once.
 - Concurrency-eligible with: Batches 20-23, 25-28
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/ui ptah-extension-webview`
 
-### Task 24.1: Neutral chip with hue accent (Gate 2 default a) — PENDING
+### Task 24.1: Neutral chip with hue accent (Gate 2 default a) — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/ui/src/lib/native/file-status-badge/file-status-badge.component.ts; CREATE .../file-status-badge/file-status-badge.component.spec.ts; CREATE .../file-status-badge/index.ts (all under D:/projects/ptah-extension/libs/frontend/ui/src/lib/native/); MODIFY D:/projects/ptah-extension/libs/frontend/ui/src/lib/native/index.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/styles.css; CREATE D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/status-badge-contrast.spec.ts
 - Plan reference: implementation-plan.md:768-794
@@ -1241,6 +1241,18 @@ executors at once.
 - Quality requirements: `base-content` on `base-300` ≥4.5:1 for every picker theme; `aria-label` full word; override classes scoped to anubis themes only.
 - Validation notes: design-spec §13a resolved by default (a).
 - Implementation details: inputs `status`, `conflictKind?`.
+- Outcome: executor frontend-developer. `ptah-file-status-badge`: `text-base-content` letter on `bg-base-300`
+  with a 2 px status-colour left border; full word (plus conflict kind) in `role="img"` `aria-label`/`title`;
+  letters match the existing rows (U, !, I). styles.css (anubis themes only): `.err-solid-text`, `.ok-solid-text`,
+  `.diff-add-text`, `.diff-del-text`; `--ptah-error-ink` drives `.text-error`/`.border-error` (≥5.5:1 on every
+  base layer); light focus ring uses `--ptah-gold-strong` (5.24:1 on base-300, also covers the 25
+  `focus-visible:outline-[oklch(var(--s))]` sites); `.btn-ghost` dark-text default moved to `@layer components`
+  with lower specificity so `text-*` wins. Closes the P2 carried contrast items. Contrast spec: base-content on
+  base-300 ≥4.5:1 in all 34 picker themes (min 5.98:1). Accepted deviations: the `.text-error`/`.border-error`
+  change is global within anubis; the model-selector `.btn-ghost` child rule got the same specificity fix; badge
+  not yet wired into rows (Component 29). Orchestrator fix: `pierre-diff-host.component.ts` `text-base-content/70`
+  → `text-base-content-muted` (caught by `no-alpha-base-content.spec.ts`). Verified by the orchestrator:
+  typecheck, test, lint green for ui, ptah-extension-webview, git-ui.
 
 ## Batch 25: Change-set shared types and facade delegates — COMPLETE
 
