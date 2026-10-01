@@ -588,3 +588,193 @@ Comparing `SkillTriggersSettingsComponent` (`skill-triggers-settings.component.t
 - **Recommendation**: APPROVE
 - **Confidence**: HIGH
 - **Top risk**: None identified in Batch 3. The components are ready for tab-level integration and accordion replacement in Batch 4.
+
+
+---
+
+## Batch 4
+
+- **Batch**: Batch 4 — Wire Activity and Settings, remove the accordion, tab-level acceptance
+- **Author**: frontend-developer (in-process sub-agent)
+- **Reviewer**: antigravity CLI lane (code-logic-reviewer role)
+- **Verdict**: APPROVED
+- **Score**: 9/10
+
+### Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 9/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 1        |
+| Failure modes found | 1        |
+
+**Score justification (Band 9–10: exemplary)**:
+- *Evidence separating from Band 7–8 (sound)*:
+  1. Full parity achieved across all 14 accordion capabilities (B1–B14) and related touchpoints (A1, A3, C15, D1, D2, E1) with zero dropped capabilities.
+  2. The producer-to-screen pipeline (backend RPC → `SkillDiagnosticsStateService` → `SkillSynthesisTabComponent` → `SkillActivityFeedComponent` → `SkillEventFeedComponent`) guarantees strict newest-first ordering end-to-end, with `ineligibleHint` and the status card `reasonChip` reliably evaluating `events[0]`.
+  3. Single-caller polling ownership is preserved in `SkillActivityFeedComponent`, cleanly subscribing on mount and unregistering on sub-view switch or destroy with zero timer leaks or double-polling.
+  4. All 8 new integration test cases in `skill-synthesis-tab.component.spec.ts` test real end-to-end component trees with real `SkillDiagnosticsStateService`, are strictly non-tautological, and would fail under regression to pre-fix behaviors. All 28 test suites (466 tests) pass cleanly.
+- *Evidence separating from Band 10*:
+  1. A minor concurrent `refresh()` loading flag reset edge case (MODERATE-1) exists when multiple `refresh()` calls overlap in `SkillDiagnosticsStateService`.
+  2. Redundant dual `refresh()` on initial tab mount (MINOR-1) remains due to intentional preservation of both `tab.ngOnInit` and `feed.ngOnInit` refresh calls per recorded decisions.
+
+---
+
+### Parity Table (B1–B14, A1, A3, C15, D1, D2, E1)
+
+| Row | Capability | New Home (`file:line`) | Backing RPC / Path | Status |
+| --- | --- | --- | --- | --- |
+| **B1** | Accordion mount on Activity | Removed as planned (Task 4.2). Replaced by `ptah-skill-activity-feed` on Activity (`skill-synthesis-tab.component.ts:488`) and `ptah-skill-triggers-settings` on Settings (`skill-synthesis-tab.component.ts:597`) | N/A (Component container replacement) | **INTACT** |
+| **B2** | "Last analyze run" absolute time / `Never` | `skill-pipeline-status.component.ts:138-150` via `[lastAnalyzeRunAt]="lastAnalyzeRunAt()"` (`skill-synthesis-tab.component.ts:474`) | `skillSynthesis:diagnostics` snapshot (`lastAnalyzeRunAt`) + live push | **REACHABLE** |
+| **B3** | "Last curator pass" absolute time / `Never` | `skill-pipeline-status.component.ts:164-170` via `[lastCuratorPassAt]="lastCuratorPassAt()"` (`skill-synthesis-tab.component.ts:483`) | `skillSynthesis:diagnostics` snapshot (`lastCuratorPassAt`) + live push | **REACHABLE** |
+| **B4** | "Sessions analyzed today (N)" total | `skill-pipeline-status.component.ts:183-197` via `[histogram]="eligibilityHistogram()"` (`skill-synthesis-tab.component.ts:475`) | `skillSynthesis:diagnostics` snapshot (`eligibilityHistogram`) + live push | **REACHABLE** |
+| **B5** | Eligibility histogram 3 bars | `skill-pipeline-status.component.ts:199` via `<ptah-eligibility-histogram [histogram]="histogram()" />` | `skillSynthesis:diagnostics` snapshot (`eligibilityHistogram`) | **REACHABLE** |
+| **B6** | "Candidates by status" (Candidates, Promoted, Rejected) | `skill-pipeline-status.component.ts:203-230` via `[byStatus]="byStatus()"` (`skill-synthesis-tab.component.ts:484`) | `skillSynthesis:diagnostics` snapshot (`totalCandidates`, `totalPromoted`, `totalRejected`) | **REACHABLE** |
+| **B7** | "Recent events" hosting feed | `skill-activity-feed.component.ts:29-69` hosting `<ptah-skill-event-feed [events]="events()" />`, mounted at `skill-synthesis-tab.component.ts:488` | `skillSynthesis:diagnostics` snapshot (`recentEvents`) + live push `SKILL_SYNTHESIS_EVENT` | **REACHABLE** |
+| **B8** | Triggers panel (8 controls) | `skill-triggers-settings.component.ts:40-105`, mounted at `skill-synthesis-tab.component.ts:597` | Read: `skillSynthesis:diagnostics` (`triggers`). Write: `skillSynthesis:setTriggers` (immediate per control) | **REACHABLE** |
+| **B9** | Frontend trigger defaults | `skill-diagnostics-state.service.ts:65-70` (`DEFAULT_TRIGGERS`) | N/A (State service initial signal value) | **INTACT** |
+| **B10** | "Analyze current session" button | `skill-activity-feed.component.ts:45-55` | `skillSynthesis:analyzeNow` via `SkillDiagnosticsStateService.analyzeNow()` | **REACHABLE** |
+| **B11** | "View logs" -> "Refresh" button | `skill-pipeline-status.component.ts:172-180` via `(refresh)="onRefreshDiagnostics()"` (`skill-synthesis-tab.component.ts:486`) | `skillSynthesis:diagnostics` snapshot | **REACHABLE** |
+| **B12** | Diagnostics error text | `skill-activity-feed.component.ts:57-65` & `skill-triggers-settings.component.ts:106-114` | Shared `state.error` from `diagnostics`, `analyzeNow`, `setTriggers` | **REACHABLE** |
+| **B13** | 30s diagnostics poll | `skill-activity-feed.component.ts:81-88` (`startPolling()` on init, `stopPolling()` on destroy) | `skillSynthesis:diagnostics` 30s interval | **REACHABLE** |
+| **B14** | Accordion's init `refresh()` | `skill-activity-feed.component.ts:82` (`void this.state.refresh()`) and `skill-synthesis-tab.component.ts:944` | `skillSynthesis:diagnostics` snapshot | **REACHABLE** |
+| **A1** | Pipeline status card mount | `skill-synthesis-tab.component.ts:474-486` | Same mount point on Activity with updated inputs | **INTACT** |
+| **A3** | Status card reason chip from `events[0]` | `skill-pipeline-status.component.ts:151-162, 423-437` | Reads newest event (`events[0]`) from newest-first list | **INTACT** |
+| **C15** | Sessions sub-view ineligible hint | `skill-synthesis-tab.component.ts:781-807` (`ineligibleHint`) | Reads newest event (`events[0]`) from newest-first list | **INTACT** |
+| **D1** | Weekly digest panel | `skill-synthesis-tab.component.ts:489-492` | Kept immediately following activity feed on Activity | **INTACT** |
+| **D2** | Orchestration specs card | `skill-synthesis-tab.component.ts:494-578` | Kept following digest panel on Activity | **INTACT** |
+| **E1** | Settings sub-view panels | `skill-synthesis-tab.component.ts:588-597` | Hosts `ptah-skill-settings-panel` and `ptah-skill-triggers-settings` | **INTACT** |
+
+---
+
+### Five Logic Questions
+
+#### 1. How does this fail silently?
+1. **Concurrent `refresh()` loading flag premature reset (`skill-diagnostics-state.service.ts:133-148`)**:
+   If user clicks the status card "Refresh" button while a background interval poll or mount refresh is in-flight, two `diagnostics()` RPC calls run concurrently. When the first one completes, its `finally` block executes `this._loading.set(false)`. If the second request is still executing, `loading()` returns `false` prematurely. The second snapshot will still update signals when it resolves, but the UI indicator flips to idle prematurely.
+2. **Webview broadcast failure suppression on live push (`skill-synthesis.service.ts:1041-1046`)**:
+   As identified in Batch 1, any failure in `broadcastMessage` logs at debug level only; if live push drops, the frontend activity feed silently relies on the 30s poll to catch up.
+
+#### 2. What user action produces unexpected behaviour?
+1. **Rapid sub-view switching during an in-flight snapshot query**:
+   If a user navigates to Activity, triggering `refresh()` and `startPolling()`, and immediately navigates to Settings before the RPC resolves, `<ptah-skill-activity-feed />` is destroyed and `stopPolling()` executes. The in-flight snapshot promise resolves shortly after and updates `SkillDiagnosticsStateService` signals. This does not crash or leak resources, but the background state change occurs while the user is looking at Settings.
+
+#### 3. What input data produces a wrong answer?
+- None. Empty events array, missing optional snapshot fields (`totalCandidates`, `lastCuratorPassAt`, `lastAnalyzeRunAt`), and null session IDs are guarded with fallback defaults and null-coalescing operators across `SkillPipelineStatusComponent`, `SkillActivityFeedComponent`, and `SkillDiagnosticsStateService`.
+
+#### 4. What happens when a dependency fails?
+1. **`skillSynthesis:diagnostics` RPC error or timeout (10s)**:
+   Caught cleanly in `SkillDiagnosticsStateService.refresh()` line 143, recorded in `_error`, and displayed in an accessible `role="alert"` box in `SkillActivityFeedComponent:57-65`.
+2. **`skillSynthesis:analyzeNow` RPC error or timeout (60s)**:
+   Caught in `analyzeNow()` line 170, populated to `_error`, and displayed in the Activity feed alert.
+3. **`skillSynthesis:setTriggers` RPC error or timeout (8s)**:
+   Caught in `setTriggers()` line 183, populated to `_error`, and displayed in the Settings Triggers card alert.
+
+#### 5. What is missing that the requirements never mentioned?
+1. **Single in-flight request de-duplication in `SkillDiagnosticsStateService.refresh()`**:
+   The requirements specified wiring the Refresh button and retaining the mount refresh, but did not specify coalescing concurrent `refresh()` requests into a single in-flight Promise or tracking generation tokens.
+
+---
+
+### Failure Modes
+
+#### Failure Mode 1: Premature Reset of Loading State During Overlapping Refreshes
+- **Trigger**: User clicks "Refresh" on the status card during the window when the 30s polling timer or initial mount `refresh()` is already in-flight.
+- **Symptom**: The Refresh button and loading spinner reset to idle before all pending network requests complete.
+- **Evidence**: `libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.ts:133-148`:
+  ```typescript
+  public async refresh(): Promise<void> {
+    this._loading.set(true);
+    this._error.set(null);
+    try {
+      ...
+      const snapshot = await this.rpc.diagnostics(...);
+      this.applySnapshot(snapshot);
+    } catch (err: unknown) {
+      ...
+    } finally {
+      this._loading.set(false);
+    }
+  }
+  ```
+- **Current handling**: Every call unconditionally executes `this._loading.set(false)` in `finally`.
+- **Recommendation**: Either coalesce concurrent `refresh()` calls (return the existing active promise) or maintain an active request counter before setting `_loading` to `false`.
+
+---
+
+### Blocking Issues
+
+*None.*
+
+---
+
+### Serious Issues
+
+*None.*
+
+---
+
+### Moderate and Minor Issues
+
+#### MODERATE-1: Overlapping `refresh()` calls can prematurely reset `_loading` signal
+- **File**: `libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.ts:133-148`
+- **Scenario**: When two `refresh()` calls run concurrently, the first resolving request clears `_loading` while the second is still in flight.
+- **Impact**: Status card `refreshing` indicator clears before all in-flight diagnostics RPCs settle.
+- **Fix**: Check active in-flight count or return in-flight promise if `_loading()` is already true.
+
+#### MINOR-1: Redundant diagnostics snapshot RPC on initial tab mount
+- **File**: `libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.ts:944` and `libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.component.ts:82`
+- **Scenario**: On initial tab mount, `SkillSynthesisTabComponent.ngOnInit` triggers `this.diagnostics.refresh()`, and `<ptah-skill-activity-feed>` immediately mounts and its `ngOnInit` triggers `this.state.refresh()`.
+- **Impact**: Two identical `skillSynthesis:diagnostics` RPCs are dispatched on initial load.
+- **Fix**: Retained per explicit user decision 4 and requirement R12; harmless, but represents an unnecessary initial network duplicate.
+
+---
+
+### Verification Checks
+
+#### Check 1: Parity Rows and Screen Reachability
+- Confirmed: All 14 parity rows B1–B14 are accounted for. The accordion component is completely deleted from disk and template. All capabilities (panels, stats, histogram, feed, controls, poll, and errors) are present and reachable in their target locations (`SkillPipelineStatusComponent`, `SkillActivityFeedComponent`, and `SkillTriggersSettingsComponent`).
+- Touchpoints A1, A3, C15, D1, D2, and E1 are preserved and intact.
+
+#### Check 2: Producer-to-Screen Pipeline & Order
+- Traced:
+  1. Backend `SkillsSynthesisRpcHandlers` + `toSkillSynthesisEventWire` maps events newest-first.
+  2. `SkillDiagnosticsStateService.applySnapshot` normalizes and deduplicates events via `normalizeEvents` using `compareNewestFirst` (timestamp desc, ULID desc).
+  3. `SkillDiagnosticsStateService.pushLiveEvent` checks for duplicate IDs, and inserts at sorted newest-first index.
+  4. `SkillSynthesisTabComponent` exposes `recentEvents` signal.
+  5. `ineligibleHint` in `SkillSynthesisTabComponent:781-807` evaluates `events[0]` as the newest event.
+  6. `reasonChip` in `SkillPipelineStatusComponent:423-437` evaluates `events[0]` as the newest event.
+  7. `SkillActivityFeedComponent` passes `events()` to `<ptah-skill-event-feed>`.
+  8. `SkillEventFeedComponent` groups consecutive events by kind/session and keys rows by newest member's `row.id`.
+- Polling: `SkillActivityFeedComponent` is the sole production caller of `startPolling()`. Ref-counting starts on `ngOnInit` and stops on `ngOnDestroy`. Switching sub-views unmounts the feed and decrements subscriber count to 0, canceling the interval handle.
+
+#### Check 3: Spec Validity (Non-Tautological Assertions)
+- The 8 new integration tests in `skill-synthesis-tab.component.spec.ts:1010-1269` were inspected:
+  - `renders the newest event first`: Seeds 12 events oldest-first; asserts top rows are `evt-12` and `evt-11`, then pushes live event and asserts it becomes first. Fails if oldest-first or append-at-tail is used.
+  - `groups five repeated analyze-run events`: Asserts single row with `5 events` badge and `run-5` ID. Fails without grouping.
+  - `renders two same-millisecond events`: Asserts distinct rows with correct ULID tie-breaking order. Fails without ULID tie-breaking.
+  - `removes the accordion and keeps the triggers card on Settings only`: Verifies DOM element existence/absence across sub-view transitions.
+  - `shows candidates by status on the status card and refreshes from its Refresh button`: Asserts rendered text and verifies click triggers `refresh()` spy.
+  - `polls while Activity is shown and stops when the sub-view changes`: Asserts `startPolling` and `stopPolling` spies upon switching between Activity and Settings.
+  - `drives the Sessions ineligible hint from the newest event`: Asserts hint absence when newest event is not ineligible, and presence once an ineligible event is pushed. Fails if oldest event is read.
+  - `drives the status card reason chip from the newest event`: Asserts chip reflects newest event rather than older events in the window.
+
+#### Check 4: Accepted Deviation (Protected Pass-Throughs)
+- In `SkillSynthesisTabComponent`:
+  - `diagnostics` is private: `private readonly diagnostics = inject(SkillDiagnosticsStateService);`.
+  - Protected signal pass-through: `protected readonly diagnosticsLoading = this.diagnostics.loading;`.
+  - Protected handler pass-through: `protected onRefreshDiagnostics(): void { void this.diagnostics.refresh(); }`.
+  - Bound in template: `[refreshing]="diagnosticsLoading()"` and `(refresh)="onRefreshDiagnostics()"`.
+- Confirmed correct, standard Angular encapsulation, and type-safe.
+
+---
+
+### Verdict
+
+- **Recommendation**: APPROVE
+- **Confidence**: HIGH
+- **Top risk**: None remaining in Batch 4. Accordion removal is complete, all capabilities are restored in their dedicated locations, and tab-level integration is verified by 28 passing test suites.
+- **Verdict**: APPROVED

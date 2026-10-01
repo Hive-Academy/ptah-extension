@@ -1,6 +1,6 @@
 # Batches - TASK_2026_586_2b3e
 
-Total tasks: 22 | Batches: 6 | Complete: 3/6
+Total tasks: 22 | Batches: 6 | Complete: 4/6
 
 Worktree root (all paths below): `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed`
 Branch: `fix/task-586-thoth-activity-feed`, base `c4ab013f3`.
@@ -451,7 +451,7 @@ Edge cases:
 - Reviewer: code-logic-reviewer (in-process) - poll ownership, ref counting, immediate-save semantics and
   parity of the 8 trigger controls are behavioural
 
-## Batch 4: Wire Activity and Settings, remove the accordion, tab-level acceptance — IN_PROGRESS
+## Batch 4: Wire Activity and Settings, remove the accordion, tab-level acceptance — COMPLETE (commit 4dcf03df5)
 
 - Recommended executor: frontend-developer (in-process sub-agent)
 - Fallback executor: second frontend-developer invocation
@@ -459,7 +459,7 @@ Edge cases:
 - Rationale: one tab file, its spec and the deletions are one rollback unit (4 files, 1 lib)
 - Tasks: 3 | Depends on: Batch 3
 
-### Task 4.1: Rewire the Skills tab — IN_PROGRESS
+### Task 4.1: Rewire the Skills tab — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.ts
 - Plan reference: context.md root cause 4, Scope bullets 3-4; parity A1, B1, B8, B11, C15, E1
@@ -474,7 +474,7 @@ Edge cases:
   - `ngOnInit` diagnostics refresh (`:929`) stays (R12).
 - Validation notes: R2.
 
-### Task 4.2: Delete the accordion — IN_PROGRESS
+### Task 4.2: Delete the accordion — COMPLETE
 
 - Files (delete):
   - D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-diagnostics-accordion.component.ts
@@ -484,7 +484,7 @@ Edge cases:
   `ptah-skill-diagnostics-accordion` outside `.ptah/specs`, except the e2e spec locator owned by Batch 6.
   `skill-trigger-toggle.component.ts` and `eligibility-histogram.component.ts` stay (now used by the new homes).
 
-### Task 4.3: Tab-level reachability and parity specs — IN_PROGRESS
+### Task 4.3: Tab-level reachability and parity specs — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.spec.ts
 - Depends on: Tasks 4.1, 4.2
@@ -502,6 +502,34 @@ Edge cases:
     status and a "Refresh" button that calls `diagnostics.refresh`; polling started while Activity is shown and
     stopped when switching sub-view; `ineligibleHint` follows the newest event; PSC reason chip follows the
     newest event (A3).
+
+### Batch 4 execution record (team-leader, Mode 2)
+
+- Verified on disk: `git diff --stat` shows exactly 2 modified files (the tab and its spec) and 2 deleted files (the
+  accordion and its spec). The untracked e2e harness spec and `screenshots/` belong to Batch 6 and are not part of
+  this batch.
+- Tab: PSC binds `[lastCuratorPassAt]`, `[byStatus]`, `[refreshing]="diagnosticsLoading()"` and
+  `(refresh)="onRefreshDiagnostics()"` (`:476-486`). `<ptah-skill-activity-feed />` comes right after it (`:488`).
+  `<ptah-skill-triggers-settings />` comes after the settings panel (`:597`). `ineligibleHint` is documented as
+  newest-first (`:781-782`), and the `ngOnInit` refresh stays (`:944`).
+- Accepted deviation: `diagnostics` is private, so the template uses the protected `diagnosticsLoading` (`:764`) and
+  `onRefreshDiagnostics()` (`:956`), which delegate to it. Behaviour is the same.
+- Leftover references: `git grep` finds the accordion only in the spec assertion that it is absent (`spec:1178`).
+  The e2e harness does not reference it. The only `startPolling()` caller outside specs is
+  `skill-activity-feed.component.ts:83`.
+- Spec: the new describe block (`spec:1010`) has 8 cases that cover every Task 4.3 requirement, plus A3. No
+  TODO, PLACEHOLDER or STUB markers.
+- Team-leader re-run: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/skill-synthesis-ui
+  --skip-nx-cache` passes.
+- Review: antigravity CLI lane (cross-side code-logic), APPROVED 9/10, `code-logic-review.md` `## Batch 4`.
+  Parity rows B1-B14, A1, A3, C15, D1, D2 and E1 are reachable; 28 suites and 466 tests pass.
+- MODERATE-1 (overlapping `refresh()` clears `_loading` early, `skill-diagnostics-state.service.ts:133-148`):
+  recorded as a follow-up and not fixed in this task. At base (`c4ab013f3`, `:83-95`) `refresh()` sets and
+  clears `_loading` the same way, unguarded. Batch 2 did not change that body, and none of this batch's risks
+  covered it. The effect is cosmetic: the spinner can clear while a duplicate snapshot RPC is still in flight.
+  No data is lost. Suggested fix: share the in-flight promise.
+- MINOR-1 (two snapshot RPCs on first mount, tab `ngOnInit` + feed `ngOnInit`): kept by design (R12 and user
+  decision 4). This matches base, where the tab and accordion `ngOnInit` both refreshed.
 
 ### Batch 4 verification
 
