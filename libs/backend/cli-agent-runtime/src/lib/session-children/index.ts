@@ -44,3 +44,25 @@ export type {
   SessionChildRecordPatch,
   SessionChildReservation,
 } from './session-child.registry';
+export {
+  ChildWorktreeProvisioner,
+  type ChildWorktree,
+  type ChildWorktreeCreateResult,
+  type ChildWorktreeRefusal,
+} from './child-worktree.provisioner';
+export {
+  SessionSpawnerService,
+  SESSION_CHILD_GRACE_MS,
+  SESSION_READ_DEFAULT_TAIL_KIB,
+  SESSION_READ_MAX_TAIL_KIB,
+} from './session-spawner.service';
+export {
+  renderSessionChildContract,
+  composeSessionChildPrompt,
+  type SessionChildContractInput,
+} from './session-child-contract';
+export {
+  readSessionChildSettings,
+  DEFAULT_SESSION_CHILD_BASH_ALLOWLIST,
+  type SessionChildSettings,
+} from './session-child-settings';

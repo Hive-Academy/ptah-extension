@@ -25,6 +25,8 @@ import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
 import { LaneCompletionNotifier } from '../cli-agents/lane-completion-notifier.service';
 import { AgentReportRouter } from '../cli-agents/agent-report-router.service';
 import { SessionChildRegistry } from '../session-children/session-child.registry';
+import { ChildWorktreeProvisioner } from '../session-children/child-worktree.provisioner';
+import { SessionSpawnerService } from '../session-children/session-spawner.service';
 import { AgentRoleResolver } from '../roles';
 import {
   PtahCliRegistry,
@@ -98,6 +100,16 @@ export function registerCliAgentRuntimeServices(
   container.register(
     CLI_AGENT_RUNTIME_TOKENS.AGENT_REPORT_ROUTER,
     { useClass: AgentReportRouter },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  // Child chat sessions (TASK_2026_584). The spawner subscribes to the SDK
+  // event fan-outs in its constructor, so it is constructed only when a
+  // consumer resolves it; its optional `CHILD_CHAT_SESSION_HOST` is bound by
+  // `registerChatServices`, which every host runs before that happens.
+  container.registerSingleton(ChildWorktreeProvisioner);
+  container.register(
+    CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
+    { useClass: SessionSpawnerService },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(
