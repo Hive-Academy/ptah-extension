@@ -35,7 +35,8 @@ describe('migration 0030_skill_event_metrics — registry entry', () => {
     const maxVersion = Math.max(...MIGRATIONS.map((m) => m.version));
     // 46 since TASK_2026_473 appended 0046_memory_merge_subject_index.
     // 48 and 49 since TASK_2026_563 appended 0048_memory_quarantine and 0049_memory_sediment_quarantine.
-    expect(maxVersion).toBe(49);
+    // 51 since TASK_2026_578 appended 0051_skill_lifecycle.
+    expect(maxVersion).toBe(51);
   });
 });
 
