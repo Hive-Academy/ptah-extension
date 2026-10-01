@@ -1,14 +1,13 @@
 # Batches - TASK_2026_580_9f77
 
-Total tasks: 50 | Batches: 29 | Complete: 19/29
+Total tasks: 50 | Batches: 29 | Complete: 20/29
 
 ## Resume here (session handoff, 2026-10-01)
 
 Draft PR: #623 (opened 2026-10-01 at the user's request; update its batch list on each push, mark ready at the PR gate).
 
-The run paused at the user's request after A3.4 and A3.4b. A fresh team-leader session
-resumes from this section; the batch sections below hold each batch's full task text
-and review notes.
+Last committed batch: A4.2 (`e2105f1cc`). A fresh team-leader session resumes from this
+section; the batch sections below hold each batch's full task text and review notes.
 
 - **Where:** worktree `D:\projects\ptah-extension\.claude-worktrees\task-580`, branch
   `feat/task-580-session-organization`, base `a90c086d7`. One commit per batch, all on
@@ -51,9 +50,9 @@ and review notes.
 | A3.4 DI register + start                                                  | COMPLETE                   | fae183675 |
 | A3.4b branch hook-clean (audit markers, commitlint scope, prettier)       | COMPLETE                   | efa997ca5 |
 | A4.1 `session:list` query + AC1 perf spec                                 | COMPLETE                   | eb67d86f3 |
-| A4.2 organization RPC handlers + manifest + registry entries              | READY (PENDING)            | —         |
-| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | PENDING (after A4.2)       | —         |
-| A5.2 VS Code unavailable proof                                            | PENDING (after A4.2)       | —         |
+| A4.2 organization RPC handlers + manifest + registry entries              | COMPLETE                   | e2105f1cc |
+| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | READY (PENDING)            | —         |
+| A5.2 VS Code unavailable proof                                            | READY (PENDING)            | —         |
 | B1 SDK worktree hook + fork lineage                                       | COMPLETE                   | 3961f4322 |
 | B2 PR capture subscriber (+ B2.3 hardening)                               | COMPLETE                   | a98c1dd2c |
 | B3.1 runtime capture (cli-agent-runtime)                                  | COMPLETE                   | 8f16da0ed |
@@ -62,11 +61,11 @@ and review notes.
 | B3.4 namespace hardening + builder tests                                  | COMPLETE                   | f39b2d2ce |
 | B3.5 `ptah_session_link_task` MCP tool                                    | COMPLETE                   | bd5c5d98f |
 | C0.1 board start carries `taskId`                                         | COMPLETE                   | a83ca9b6e |
-| C0.2 board-start link capture + push handling                             | PENDING (after A4.2)       | —         |
+| C0.2 board-start link capture + push handling                             | READY (PENDING)            | —         |
 | C1.1 chips, filter bar, editor                                            | PENDING (after C0.2, A4.2) | —         |
 | C1.2 loader + app-shell sidebar (visual)                                  | PENDING (after C1.1, A4.1) | —         |
 | C2.1 open-session bridge                                                  | PENDING (after C0.1, C1.2) | —         |
-| C2.2 task links service + card (visual)                                   | PENDING (after A4.2)       | —         |
+| C2.2 task links service + card (visual)                                   | READY (PENDING)            | —         |
 | C2.3 task detail sessions list (visual)                                   | PENDING (after C2.1, C2.2) | —         |
 | T1 AC evidence, smoke S1-S8, test-report.md                               | PENDING (after all)        | —         |
 
@@ -78,45 +77,58 @@ and review notes.
 - `npx prettier --check` on every file changed since `a90c086d7`: clean.
 - `npx nx run di-lint:lint`: passes.
 
-### Next READY batches (they can run in parallel: different libs, no shared files)
+### Next READY batches (wave 6: four file-disjoint batches in four projects)
 
-**B2 — PR capture subscriber** (backend-developer, sequential, 3 tasks).
-Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/session-organization`.
+A4.2 unlocked A5.1, A5.2, C0.2 and C2.2. They write to different projects and share no
+files, so all four can run in parallel. Run at most three lanes at once on this machine
+(the pre-commit `nx affected` lint is slow under load); a sensible split is the two
+backend batches together, then the two frontend ones. Commit one batch at a time, only
+when no executor is editing the tree (lint-staged hides unstaged changes).
+
+**A5.1 — Electron + CLI host wiring, with the R-TL11 check** (backend-developer,
+sequential, 1 task). Verification:
+`npx nx run-many -t typecheck,test,lint -p ptah-electron @ptah-extension/cli-engine`.
 Files:
 
-- MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\session-organization\src\lib\utils\pr-url.ts`
-- MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\session-organization\src\lib\utils\pr-url.spec.ts`
-- MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\session-organization\src\lib\session-organization-capture.service.ts`
-- MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\session-organization\src\lib\session-organization-capture.service.spec.ts`
+- MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-580\apps\ptah-electron\src\di\phase-2-libraries.ts`
+- MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-580\apps\ptah-electron\src\di\container.smoke.spec.ts`
+- MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\cli-engine\src\lib\thoth\register-thoth-libraries.ts`
+- CREATE, only if R-TL11 needs it: `D:\projects\ptah-extension\.claude-worktrees\task-580\apps\ptah-cli\src\di\container.smoke.spec.ts`
 
-Tasks:
+Carries R-TL11: assert that `WorktreeHookHandler`, `SessionForkService` and
+`PtahAPIBuilder` hold the bound recorder after the real containers are built. Also
+carries the B2 note: confirm that the PostToolUse registry
+(`SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY`) is registered on each host, or PR
+capture silently never starts.
 
-- B2.1 `extractGhPrCreateUrl`, which reuses `parsePrUrl` (no second canonicalizer).
-- B2.2 the PostToolUse subscription, with a reachability spec through
-  `startSessionOrganization` and a tab-id-drop spec.
-- B2.3 hardening carried from the A3.3 review and the A3.4 executor: whitespace
-  `workspaceId`/`previousSessionId`, and the `start()` subscription leak on a
-  partial failure.
-- Optional B2.4, if B2 stays within the cap: the three A3.4 review nits in
-  `di/register.ts` and `di/start.ts` (see the A3.4 section).
-
-**A4.1 — `session:list` query extension + AC1 perf spec** (backend-developer,
-sequential, 2 tasks). Verification:
-`npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers`.
+**A5.2 — VS Code unavailable proof** (backend-developer, sequential, 1 task, spec only).
+Verification: `npx nx run-many -t typecheck,test,lint -p ptah-extension-vscode`.
 Files:
 
-- CREATE `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\handlers\session-list-query.ts`
-- CREATE `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\handlers\session-list-query.spec.ts`
-- CREATE `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\handlers\session-organization-rpc.schema.ts`
-- MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\handlers\session-rpc.handlers.ts`
-- MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\handlers\session-rpc.handlers.spec.ts`
-- CREATE `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\handlers\session-list.perf.spec.ts`
+- CREATE `D:\projects\ptah-extension\.claude-worktrees\task-580\apps\ptah-extension-vscode\src\di\session-organization-unavailable.spec.ts`
+- MODIFY, only if needed (R-TL10): `D:\projects\ptah-extension\.claude-worktrees\task-580\apps\ptah-extension-vscode\src\di\expected-resolvable.ts`
 
-Use the service's `queryWorkspace`, `countChildren`, `listTaskLinks` and
-`toSessionOrganizationSummary`; do not reach into the store.
+**C0.2 — board-start link capture + organization push handling** (frontend-developer,
+sequential, 2 tasks, logic review only). Verification:
+`npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`. Files under
+`D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\chat\src\lib\services\`:
 
-After those: A4.2, which also owns the `rpc.types.ts` registry entries (R-TL1). A4.2
-unlocks A5.1, A5.2, C0.2 and C2.2.
+- CREATE `chat-store\board-task-link-capture.service.ts` and its `.spec.ts`
+- MODIFY `chat-store\task-prompt-bridge.service.ts` and its `.spec.ts`
+- MODIFY `chat-message-handler.service.ts` and its `.spec.ts` (a 584 merge point, R-TL7)
+
+**C2.2 — task session links service + task card** (frontend-developer, sequential,
+2 tasks, logic review plus visual review in dark and light). Verification:
+`npx nx run-many -t typecheck,test,lint -p @ptah-extension/tasks-ui`. Files under
+`D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\tasks-ui\src\lib\`:
+
+- CREATE `services\task-session-links.service.ts` and its `.spec.ts`
+- MODIFY `components\board\task-card.component.ts` and its `.spec.ts`
+
+Consumes `session:listForTasks` as A4.2 shipped it: orphan links are omitted, the
+primary link comes first and then the newest.
+
+After wave 6: C1.1 (after C0.2), then C1.2, C2.1 and C2.3, then T1.
 
 ### Open risks, rulings, merge points and follow-ups
 
@@ -152,6 +164,11 @@ unlocks A5.1, A5.2, C0.2 and C2.2.
   metadata read. A capture that finishes after a delete or a rekey can leave an orphan
   row, which is harmless because `session:list` joins from metadata (plan failure
   table `:1233`, D4). T1's write-path trace confirms orphans never surface.
+- **Missing-task helper follow-up (open, out of scope; from A4.2):**
+  `SessionOrganizationRpcHandlers.withMissingTasks` duplicates
+  `SessionRpcHandlers.findMissingTaskIds` (one `taskIndex.list(root)` read, then a
+  set-membership check). Two callers is acceptable; if a third appears, extract one
+  shared helper in rpc-handlers and switch all callers to it.
 - **Namespace-count follow-up (open, out of scope):** the help overview header
   (`system-namespace.builders.ts:49`) says "22 Namespaces" but lists 21, and the
   `PtahAPIBuilder` log line says "21 namespaces". Both were already out of step before
@@ -1122,7 +1139,32 @@ dropped` line and returns.
     - FAILS (not skips) when no opener loads.
 - Implementation details: see plan data flow :1166-1174.
 
-## Batch A4.2: `SessionOrganizationRpcHandlers` + manifest + RPC registry entries — PENDING
+## Batch A4.2: `SessionOrganizationRpcHandlers` + manifest + RPC registry entries — COMPLETE (commit e2105f1cc)
+
+- Result: A4.2.1-A4.2.3 landed in one commit (R-TL1); 7 files, 1372 insertions.
+- Review: `code-logic-review-A4.2.md` APPROVED 10/10 (0 blocking, 0 serious,
+  0 moderate, 0 minor); all executor deviations accepted.
+- Deviations (accepted):
+  1. `sessionId` params must be UUIDs.
+  2. `session:listForTasks` caps `taskIds` at 1000.
+  3. A session that does not belong to an open workspace folder returns
+     `UNAUTHORIZED_WORKSPACE`.
+  4. Params are validated before the unavailable check, so bad params give
+     `INVALID_PARAMS` even on VS Code.
+  5. `session:listForTasks` omits orphan links (no metadata row), and orders each
+     task's sessions primary first, then newest.
+  6. `session:addPrLink` from the webview records `source: 'user'`.
+- Verification at commit (executor run, confirmed by the reviewer):
+  - typecheck and lint pass on shared, rpc-handlers, cli-engine, ptah-electron and
+    ptah-extension-vscode.
+  - Tests pass except the known pre-existing
+    `harness-skill-selection-rpc.service.spec.ts` "never writes state.json"
+    (TASK_2026_589); the 28 new handler specs and the rpc-surface specs pass.
+  - di-lint, degradation-audit and `ptah-electron:validate-deps` pass.
+  - Commit hooks: lint-staged (prettier + `nx affected` lint), validate-deps and
+    commitlint all passed.
+- Follow-up: `withMissingTasks` duplicates `SessionRpcHandlers.findMissingTaskIds`
+  (see "Open risks").
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -1146,7 +1188,7 @@ dropped` line and returns.
     from one `taskIndex.list(root)` read (deviation 5).
 - Merge note: `rpc.types.ts` is a 584 merge point (R-TL7).
 
-### Task A4.2.1: `SessionOrganizationRpcHandlers` (six methods, optional service, conditional subscription) — PENDING
+### Task A4.2.1: `SessionOrganizationRpcHandlers` (six methods, optional service, conditional subscription) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\handlers\session-organization-rpc.handlers.ts` (CREATE), `...\session-organization-rpc.handlers.spec.ts` (CREATE), `...\session-organization-rpc.schema.ts` (MODIFY: append the mutation schemas)
 - Plan reference: implementation-plan.md:600-633, :655-665, D5, D14
@@ -1169,7 +1211,7 @@ dropped` line and returns.
 - Implementation details: `session:listForTasks` groups links by task with name,
   `livePhase` and PR links.
 
-### Task A4.2.2: manifest entry + barrels — PENDING
+### Task A4.2.2: manifest entry + barrels — COMPLETE
 
 - Depends on: Task A4.2.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\host-profile\manifest.ts` (MODIFY), `...\rpc-handlers\src\lib\handlers\index.ts` (MODIFY, beside `:78`), `...\rpc-handlers\src\index.ts` (MODIFY, beside `:54`)
@@ -1179,7 +1221,7 @@ dropped` line and returns.
 - Validation notes: R-TL1. `assertManifestInvariants` must pass.
 - Implementation details: none beyond the entry.
 
-### Task A4.2.3: RPC registry + `RPC_METHOD_ENTRIES` for the six methods (moved from A1, R-TL1) — PENDING
+### Task A4.2.3: RPC registry + `RPC_METHOD_ENTRIES` for the six methods (moved from A1, R-TL1) — COMPLETE
 
 - Depends on: Task A4.2.2 (same commit)
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\shared\src\lib\types\rpc.types.ts` (MODIFY)
