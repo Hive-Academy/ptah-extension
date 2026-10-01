@@ -1087,6 +1087,29 @@ Outcome (orchestrator, 2026-10-01):
 
 # P3 — Foundation
 
+## P3 branch and execution waves (orchestrator, 2026-10-01)
+
+Branch `feat/task-2026-576-p3` from P2 `ef6f18915`, worktree `.claude-worktrees/task-576-p3` (node_modules junction
+to the main checkout), draft PR stacked on `feat/task-2026-576-p2`. When PR #619 merges, merge `origin/main` into
+P3 and retarget its PR to `main` (no rebase, no force push).
+
+Same wave rule as P2: a wave holds more than one batch only when the batches are file-disjoint; where one batch's
+check scope compiles the other's library, the executor re-runs a failed check once before reporting. At most 3
+executors at once.
+
+| Wave | Batches  | Why                                                                                                                     |
+| ---- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 1    | 20 ∥ 25  | 20 measures the base bundle (webview build only, report-only); 25 adds shared types + vscode-core delegates (no bundle change). |
+| 2    | 21 ∥ 26  | 21 = git-ui entry + webview + `tsconfig.base.json` alias; 26 = rpc-handlers only. 21 must follow 20 (baseline).          |
+| 3    | 22 ∥ 27  | 22 = git-ui renderer + `package.json` (exact `@pierre/diffs`); 27 = rpc-handlers registration + host lists.              |
+| 4    | 23 ∥ 28  | 23 = git-ui diff-renderer entry (CLI lane); 28 = VS Code app commands.                                                    |
+| 5    | 24       | ui + webview `styles.css`; takes the P2 carried items (light focus ring, error icon/border cues, `.btn-ghost` override). |
+| 6    | 29       | chat-ui card; needs 24, 25.                                                                                              |
+| 7    | 30       | chat store/actions + webview app config; needs 27, 28, 29.                                                               |
+| 8    | 31       | transcript insertion + Electron e2e; needs 30.                                                                           |
+| 9    | 32       | VS Code e2e; needs 31.                                                                                                    |
+| end  | P3 phase-end review | per Review cadence; card visual review against `prototype/`.                                                  |
+
 ## Batch 20: Eager-bundle guard script and baseline measurements — PENDING
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
