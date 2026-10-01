@@ -3,8 +3,13 @@ import * as path from 'path';
 import {
   PLATFORM_TOKENS,
   type IFileSystemProvider,
+  type IProcessSpawner,
 } from '@ptah-extension/platform-core';
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import {
+  DEFAULT_GIT_TIMEOUT_MS,
+  TOKENS,
+  type Logger,
+} from '@ptah-extension/vscode-core';
 import {
   CARRIER_FILE,
   type TaskSpecSummary,
@@ -12,16 +17,34 @@ import {
   type TasksSweepResult,
 } from '@ptah-extension/shared';
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
-
-/** The `git show HEAD:<path>` probe, narrowed to what this service needs. */
-export interface ISweepGitProbe {
-  showFile(
-    workspacePath: string,
-    relativePath: string,
-  ): Promise<{ content: string }>;
-}
+import {
+  SDK_PROCESS_SPAWNER_TOKEN,
+  VISIBILITY_EXEC_GIT_TOKEN,
+  type ExecGitFn,
+} from './git-task-folder-visibility.service';
 
 const MS_PER_DAY = 86_400_000;
+
+/**
+ * `git ls-tree -r --name-only -z HEAD -- .ptah/specs/` → the folders whose
+ * carrier git has. Only `.ptah/specs/<id>/task.md` counts: a folder that git
+ * holds a review file for, but no carrier, has nothing `git show` could restore.
+ */
+export function trackedCarrierFolders(stdout: string): Set<string> {
+  const folders = new Set<string>();
+  for (const entry of stdout.split('\0')) {
+    const parts = entry.split('/');
+    if (
+      parts.length === 4 &&
+      parts[0] === '.ptah' &&
+      parts[1] === 'specs' &&
+      parts[3] === CARRIER_FILE
+    ) {
+      folders.add(parts[2]);
+    }
+  }
+  return folders;
+}
 
 /**
  * TaskSweepService
@@ -62,8 +85,9 @@ export class TaskSweepService {
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fs: IFileSystemProvider,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.GIT_INFO_SERVICE)
-    private readonly git: ISweepGitProbe,
+    @inject(VISIBILITY_EXEC_GIT_TOKEN) private readonly exec: ExecGitFn,
+    @inject(SDK_PROCESS_SPAWNER_TOKEN, { isOptional: true })
+    private readonly spawner: IProcessSpawner | null = null,
   ) {}
 
   /**
@@ -82,20 +106,28 @@ export class TaskSweepService {
     const root = normalizeWorkspaceRoot(workspaceRoot);
     const cutoff = now - olderThanDays * MS_PER_DAY;
 
-    const candidates: TaskSweepCandidate[] = [];
+    const aged: Array<{ task: TaskSpecSummary; updatedMs: number }> = [];
     for (const task of tasks) {
       if (task.status !== 'done' && task.status !== 'cancelled') continue;
       const updatedMs = this.parseUpdated(task.updated);
       if (updatedMs === null || updatedMs > cutoff) continue;
+      aged.push({ task, updatedMs });
+    }
 
-      candidates.push({
+    // One git process for the whole run, not one per candidate: a spawn costs
+    // seconds on some Windows machines, and ninety of them in sequence blew the
+    // RPC timeout long before the preview could answer.
+    const tracked = aged.length > 0 ? await this.trackedCarriers(root) : null;
+
+    const candidates: TaskSweepCandidate[] = aged.map(
+      ({ task, updatedMs }) => ({
         taskId: task.id,
         status: task.status,
         updated: task.updated,
         ageDays: Math.floor((now - updatedMs) / MS_PER_DAY),
-        committed: await this.isCommitted(root, task.id),
-      });
-    }
+        committed: tracked?.has(task.id) ?? false,
+      }),
+    );
 
     // Newest first, so the preview's top row is the closest call the policy
     // made — that is the one a user checks before agreeing to the rest.
@@ -131,26 +163,36 @@ export class TaskSweepService {
   }
 
   /**
-   * Is this folder's carrier in `HEAD`?
+   * The folder names whose carrier is in `HEAD`.
    *
-   * `showFile` resolves `{ content: '' }` for a path git does not have, so
-   * empty content IS the negative answer. A throw is treated the same way —
-   * outside a repo, or with git unavailable, NOTHING is committed and therefore
-   * nothing is deletable, which is the safe direction to fail in.
+   * `null` when git fails — outside a repo, or with git unavailable, NOTHING is
+   * committed and therefore nothing is deletable, which is the safe direction
+   * to fail in.
    */
-  private async isCommitted(root: string, taskId: string): Promise<boolean> {
-    // POSIX separators: this is a git pathspec, not a filesystem path, and git
-    // does not accept backslashes on Windows.
-    const relative = `.ptah/specs/${taskId}/${CARRIER_FILE}`;
+  private async trackedCarriers(root: string): Promise<Set<string> | null> {
     try {
-      const result = await this.git.showFile(root, relative);
-      return result.content.length > 0;
+      // POSIX pathspec: git does not accept backslashes on Windows.
+      const result = await this.exec(
+        ['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', '.ptah/specs/'],
+        root,
+        {
+          timeoutMs: DEFAULT_GIT_TIMEOUT_MS,
+          spawner: this.spawner ?? undefined,
+        },
+      );
+      if (result.exitCode !== 0) {
+        this.logger.warn('[task-specs] sweep git probe failed', {
+          exitCode: result.exitCode,
+          stderr: result.stderr.trim(),
+        });
+        return null;
+      }
+      return trackedCarrierFolders(result.stdout);
     } catch (error: unknown) {
       this.logger.warn('[task-specs] sweep git probe failed', {
-        taskId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return false;
+      return null;
     }
   }
 

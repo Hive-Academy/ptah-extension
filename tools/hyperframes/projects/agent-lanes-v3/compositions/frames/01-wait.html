@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Frame 01 - waiting</title>
+    <!-- Frame 01: Waiting (STORYBOARD.md v2). 1.791 s = 1 bar, before the drop.
+         One agent, one running row, a clock that ticks on every beat. Rules: kinetic-beat-slam (caption).
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. -->
+  </head>
+  <body>
+    <template>
+      <style>
+        /* The row is a tool-call-row at u 1.2 (design 1400 x 72). Its centre (960, 513) is where Frame 02 starts. */
+        #f01-row { position: absolute; left: 120px; top: 470px; width: 1680px; height: 86.4px; transform-origin: 50% 50%; }
+        #f01-clock { position: absolute; left: 0; top: 600px; width: 1920px; height: 90px; }
+        .f01-t { position: absolute; left: 0; top: 0; width: 1920px; text-align: center; font-family: "JetBrains Mono", monospace; font-size: 64px; font-weight: 500; color: #989291; opacity: 0; }
+      </style>
+
+      <div id="f01" class="scene" data-composition-id="f01" data-width="1920" data-height="1080" data-frame-start="0" data-frame-duration="1.791">
+        <div id="f01-vig" class="vig"></div>
+        <div id="f01-cap" class="cap"><span id="f01-c1">One agent.</span> <span id="f01-c2" class="g">One task.</span></div>
+
+        <div id="f01-row">
+          <div id="f01-m1" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="1.791" data-track-index="1" data-variable-values='{"tool":"Bash","label":"Run the full test suite","liveText":"Executing Bash...","cues":"0,0.45,9","runFor":9,"preroll":0.8}' style="left: 0; top: 0; width: 1680px; height: 86.4px"></div>
+        </div>
+
+        <div id="f01-clock">
+          <div id="f01-t1" class="f01-t">18m 01s</div>
+          <div id="f01-t2" class="f01-t">18m 02s</div>
+          <div id="f01-t3" class="f01-t">18m 03s</div>
+          <div id="f01-t4" class="f01-t">18m 04s</div>
+        </div>
+
+        <audio id="sx-f01-k1" src="assets/sfx/click-soft.mp3" data-start="0" data-duration="0.366" data-track-index="20" data-volume="0.45"></audio>
+        <audio id="sx-f01-k2" src="assets/sfx/click-soft.mp3" data-start="0.448" data-duration="0.366" data-track-index="21" data-volume="0.45"></audio>
+        <audio id="sx-f01-k3" src="assets/sfx/click-soft.mp3" data-start="0.896" data-duration="0.366" data-track-index="22" data-volume="0.45"></audio>
+        <audio id="sx-f01-k4" src="assets/sfx/click-soft.mp3" data-start="1.343" data-duration="0.366" data-track-index="23" data-volume="0.45"></audio>
+        <audio id="sx-f01-rise" src="assets/sfx/riser.mp3" data-start="0.9" data-duration="0.891" data-track-index="24" data-volume="0.45"></audio>
+      </div>
+
+      <script>
+          var B = 0.448;
+          // Caption: "ONE AGENT." on beat 1, gold "ONE TASK." on beat 2.
+          tl.fromTo("#f01-c1", { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: "expo.out" }, T0);
+          tl.fromTo("#f01-c2", { scale: 1.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "expo.out" }, T0 + B);
+          // The clock ticks once per beat: each second replaces the last.
+          ["#f01-t1", "#f01-t2", "#f01-t3", "#f01-t4"].forEach(function (id, i) {
+            tl.set(id, { opacity: 1 }, T0 + i * B);
+            if (i < 3) tl.set(id, { opacity: 0 }, T0 + (i + 1) * B);
+          });
+          // A slow push on the row: the wait gets heavier toward the drop.
+          tl.fromTo("#f01-row", { scale: 1 }, { scale: 1.03, duration: 1.791, ease: "none" }, T0);
+      </script>
+    </template>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 ---
-status: planned
+status: backlog
 type: feature
 title: 'Task intake classification: typed intake, gate triggers and routing (local-first, BYO TypeSafe key)'
 depends_on: [TASK_2026_535, TASK_2026_536]

@@ -209,10 +209,14 @@ describe('TasksViewComponent', () => {
       click(fixture, 'tasks-sweep-trigger');
       await fixture.whenStable();
 
-      expect(rpcCall).toHaveBeenCalledWith('tasks:sweepFinished', {
-        olderThanDays: 7,
-        apply: false,
-      });
+      expect(rpcCall).toHaveBeenCalledWith(
+        'tasks:sweepFinished',
+        {
+          olderThanDays: 7,
+          apply: false,
+        },
+        { timeout: 60_000 },
+      );
       expect(
         rpcCall.mock.calls.filter(
           (c) => c[0] === 'tasks:sweepFinished' && c[1].apply === true,
@@ -318,10 +322,14 @@ describe('TasksViewComponent', () => {
       click(fixture, 'tasks-sweep-confirm');
       await fixture.whenStable();
 
-      expect(rpcCall).toHaveBeenCalledWith('tasks:sweepFinished', {
-        olderThanDays: 7,
-        apply: true,
-      });
+      expect(rpcCall).toHaveBeenCalledWith(
+        'tasks:sweepFinished',
+        {
+          olderThanDays: 7,
+          apply: true,
+        },
+        { timeout: 60_000 },
+      );
       expect(rpcCall).toHaveBeenCalledWith('tasks:board', {});
     });
   });

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_583_c0a1
-status: planned
+status: done
 type: feature
 title: 'Compact session view: normal-view content polish and freely adjustable tile height'
 branch: feat/task-2026-583-compact-polish
