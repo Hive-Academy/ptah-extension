@@ -337,6 +337,16 @@ describe('VS Code DI — GitInfoService (TASK_2026_576 RC13)', () => {
     c.register(TOKENS.WEBVIEW_MANAGER, {
       useValue: { broadcastMessage: jest.fn() },
     });
+    // ...and `TurnChangeSetRecorder` (TASK_2026_576 Component 19), which also
+    // subscribes to prompt submits and reads session metadata and workspace
+    // state. It is constructed only; none of these are called.
+    c.register(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY, {
+      useValue: { register: jest.fn(() => unsubscribe) },
+    });
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: {} });
+    c.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
+      useValue: { get: jest.fn(), update: jest.fn() },
+    });
 
     registerPhase3Handlers(c, logger);
 

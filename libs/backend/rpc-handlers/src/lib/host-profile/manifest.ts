@@ -46,6 +46,7 @@ import {
   FileSystemRpcHandlers,
   FileViewRpcHandlers,
   GatewayRpcHandlers,
+  GitChangeSetRpcHandlers,
   GitRpcHandlers,
   HarnessRpcHandlers,
   ImagePickerRpcHandlers,
@@ -193,6 +194,14 @@ export const RPC_HANDLER_MANIFEST = [
     methods: GitRpcHandlers.METHODS,
     requires: [],
     handler: GitRpcHandlers,
+  },
+  {
+    // `requires: []`: a read of workspace state, which every host has. A
+    // host without git simply has no change sets recorded.
+    key: 'gitChangeSet',
+    methods: GitChangeSetRpcHandlers.METHODS,
+    requires: [],
+    handler: GitChangeSetRpcHandlers,
   },
   {
     key: 'harness',

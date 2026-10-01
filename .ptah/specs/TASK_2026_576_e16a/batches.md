@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 26/69
+Total tasks: 87 | Batches: 69 | Complete: 27/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1300,14 +1300,14 @@ executors at once.
   timing flake); degradation-audit green. For Batch 27: Electron worker storage does not exclude
   `ptah.turnChangeSets:` from `cacheExcludeKeyPrefixes` (several MB per session could load at startup).
 
-## Batch 27: Change-set RPC and registration — PENDING
+## Batch 27: Change-set RPC and registration — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 26
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers ptah-electron ptah-extension-vscode @ptah-extension/cli-engine` (host surface specs; exception (a))
 
-### Task 27.1: `GitChangeSetRpcHandlers`, registry, manifest, recorder activation — PENDING
+### Task 27.1: `GitChangeSetRpcHandlers`, registry, manifest, recorder activation — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-change-set-rpc.handlers.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/index.ts
 - Plan reference: implementation-plan.md:816-817, 846-853
@@ -1315,6 +1315,18 @@ executors at once.
 - Quality requirements: manifest invariant spec green; `requires: []`.
 - Validation notes: V5, A14 — also check host handler name lists (`apps/ptah-electron/src/di/phase-4-handlers.ts:140-175`, `expected-resolvable.ts`) and add the class name only if those lists enumerate every lib-owned handler.
 - Implementation details: recorder registered singleton beside `SessionLifecycleNotifier` (`register-shared-rpc-handlers.ts:49, 58-61`).
+- Outcome: executor backend-developer. `git:turnChangeSets {sessionId}` → `{changeSets}` oldest first; params
+  zod-validated in the handler file (`sessionId` string 1–512, strict) → `RpcUserError('…','INVALID_PARAMS')`;
+  storage failure surfaces as an RPC error. Registry + `RPC_METHOD_ENTRIES` entries; manifest `gitChangeSet`,
+  `requires: []`. `TurnChangeSetStore`, `TurnChangeSetRecorder`, `GitChangeSetRpcHandlers` registered as
+  singletons; recorder resolved in `activateSessionLifecycleNotifier`. Electron `cacheExcludeKeyPrefixes` now
+  includes `TURN_CHANGE_SETS_KEY_PREFIX` (exported from rpc-handlers). VS Code container smoke stubs added for
+  the new dependencies. A14: host handler lists do not enumerate every lib-owned handler, so no entry added.
+  Verified by the orchestrator: change-set handler spec 11/11, container smoke 33/33, typecheck of shared,
+  rpc-handlers, ptah-electron, cli-engine green, degradation-audit green; rpc-handlers 3437 passed / 1 known
+  unrelated failure (`harness-skill-selection`); ptah-electron shell-csp timeouts under load pass alone.
+  Out of scope, stale: handler count "(19)" in `cli-engine/src/lib/container.ts:832-834` and the log list in
+  `apps/ptah-electron/src/di/phase-4-handlers.ts:154-159`.
 
 ## Batch 28: VS Code `ptah.review.*` commands and HEAD content provider — COMPLETE
 

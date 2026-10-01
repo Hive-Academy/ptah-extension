@@ -365,6 +365,10 @@ import type {
   GitLastCommitParams,
   GitLastCommitResult,
 } from './rpc/rpc-git.types';
+import type {
+  GitTurnChangeSetsParams,
+  GitTurnChangeSetsResult,
+} from './rpc/rpc-change-set.types';
 
 import type {
   MemoryListParams,
@@ -1587,6 +1591,10 @@ export interface RpcMethodRegistry {
   'git:lastCommit': {
     params: GitLastCommitParams;
     result: GitLastCommitResult;
+  };
+  'git:turnChangeSets': {
+    params: GitTurnChangeSetsParams;
+    result: GitTurnChangeSetsResult;
   };
   'harness:initialize': {
     params: HarnessInitializeParams;
@@ -3774,6 +3782,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:tags': true,
   'git:remotes': true,
   'git:lastCommit': true,
+  'git:turnChangeSets': true,
   'harness:initialize': true,
   'harness:suggest-config': true,
   'harness:search-skills': true,
