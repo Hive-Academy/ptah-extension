@@ -509,18 +509,15 @@ export async function wireRuntimePreWindow(
   });
 
   const postWindow = async (): Promise<void> => {
-    // Behind the window, ahead of the heavy boot — the same position relative
-    // to the Thoth scans it had when it sat in front of the window. Never
-    // throws. Session starters await their own registration regardless.
-    //
-    // Released early by a quit: the CLI probes are not abortable, and holding
-    // the post-window promise open for them cost every quit during start-up the
-    // whole `will-quit` drain budget. The gate still opens below either way —
-    // the booter's own abort path is what settles the persistence gate.
-    await settleOnAbort(
-      registerCodeExecutionMcpForSubagents({ container, logger: rpcLogger }),
-      coordinator.abortSignal,
-    );
+    // Started, NOT awaited, and beside the heavy boot rather than ahead of it.
+    // It waits on `CliDetectionService`, which probes every installed CLI in
+    // turn — 13 s measured on Windows `.CMD` shims — and awaiting it held the
+    // boot on `starting`, and the user on the boot screen, for all of it while
+    // the real boot took ~1.5 s. Nothing in the heavy boot reads the entries it
+    // writes: Thoth queries read the MCP port live, started above, and every
+    // session starter awaits its own `ensureRegisteredForSubagents()`, which the
+    // server's op queue serializes behind this one. Never rejects.
+    void registerCodeExecutionMcpForSubagents({ container, logger: rpcLogger });
     booter.openWindowGate();
     if (startupWorkspaceRoot) {
       await booter.startOrJoin(startupWorkspaceRoot);
@@ -529,38 +526,6 @@ export async function wireRuntimePreWindow(
   };
 
   return { resolvedStateStorage, postWindow };
-}
-
-/**
- * Resolve when `work` settles or `signal` aborts, whichever comes first.
- *
- * For a step that cannot itself be cancelled: the work carries on in the
- * background, but the caller stops waiting for it. Never rejects — a rejection
- * of `work` is observed here and resolves like a success, so callers pass work
- * that already reports its own failures.
- */
-export function settleOnAbort(
-  work: Promise<unknown>,
-  signal: AbortSignal,
-): Promise<void> {
-  return new Promise<void>((resolve) => {
-    if (signal.aborted) {
-      // Still observed, so a late rejection is never unhandled.
-      work.then(
-        () => undefined,
-        () => undefined,
-      );
-      resolve();
-      return;
-    }
-    const onAbort = (): void => resolve();
-    signal.addEventListener('abort', onAbort, { once: true });
-    const done = (): void => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    };
-    work.then(done, done);
-  });
 }
 
 /**
