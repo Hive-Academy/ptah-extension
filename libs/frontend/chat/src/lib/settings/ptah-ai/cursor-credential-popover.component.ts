@@ -1,0 +1,155 @@
+import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, output, signal } from '@angular/core';
+import { Eye, EyeOff, LucideAngularModule, X } from 'lucide-angular';
+import { ProvidersSettingsStateService } from '@ptah-extension/core';
+import { runDrawerWrite, type DrawerWriteOutcome } from '../providers/connection-drawer/drawer-write';
+
+const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ${FOCUS}`;
+
+/**
+ * The Cursor row's Credentials popover (plan :744-749, #64, TASK_2026_551). Cursor runs through the bundled SDK and is
+ * detected once a key resolves (`cursor-cli.adapter.ts:208-223`), so this is reachable from the Uninstalled row too.
+ * - "Set" badge from `cursorApiKeyStored` (the secrets store only; `cursorApiKeyConfigured` also counts the env var).
+ * - With `cursorApiKeyEnvSet`: the 551 note that `CURSOR_API_KEY` takes precedence over the stored key.
+ * - Masked key with show/hide (#49); Save → `state.saveCursorCredential(key)`; "Remove stored key" (two-step) →
+ *   `saveCursorCredential('')`. Both read back `cursorApiKeyStored`, so a write is reported saved only when the store
+ *   says so (D15); the outcome is this popover's own (`runDrawerWrite`), never an earlier save's.
+ * - The key lives only in this component's signal, cleared after a save and on destroy (`ptah-cli-config:177`).
+ * The secret is per machine (secrets store), so there is no Save-to target and no Undo.
+ */
+@Component({
+  selector: 'ptah-cursor-credential-popover',
+  standalone: true,
+  imports: [LucideAngularModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div role="dialog" aria-labelledby="cursor-credential-title" class="w-[19rem] max-w-[calc(100vw-2rem)] space-y-2.5 whitespace-normal p-3 text-left text-xs"
+      data-testid="cursor-credential-popover">
+      <div class="flex items-center justify-between gap-2 border-b border-base-300 pb-1.5">
+        <h3 id="cursor-credential-title" class="text-xs font-bold text-base-content">Cursor credentials</h3>
+        <button type="button" [class]="'btn btn-ghost btn-xs btn-square min-h-6 ' + focusRing" aria-label="Close" (click)="closed.emit()">
+          <lucide-angular [img]="CloseIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div class="flex items-center justify-between gap-2">
+        <span class="font-semibold text-base-content">Stored API key</span>
+        @if (stored() === null) {
+          <span class="text-base-content-muted" data-testid="cursor-credential-status">Not loaded</span>
+        } @else {
+          <span [class]="'badge badge-outline badge-xs h-auto py-0.5 font-medium text-base-content ' + (stored() ? 'border-success/40 bg-success/10' : 'border-base-content-muted/40 bg-base-300')"
+            data-testid="cursor-credential-status">{{ stored() ? 'Set' : 'Not set' }}</span>
+        }
+      </div>
+
+      @if (envSet()) {
+        <p class="rounded border border-info/40 bg-info/10 px-2 py-1.5 text-base-content" data-testid="cursor-credential-env-note">
+          CURSOR_API_KEY is set in the environment and takes precedence over the stored key.
+        </p>
+      }
+
+      <p class="text-base-content-muted" data-testid="cursor-credential-help">
+        Create a key at cursor.com → Dashboard → Integrations. Ptah keeps it in this machine's secrets store and never shows it again.
+      </p>
+
+      <div class="space-y-1">
+        <label for="cursor-credential-key" class="block font-semibold text-base-content">{{ stored() ? 'Replace API key' : 'API key' }}</label>
+        <div class="relative">
+          <input id="cursor-credential-key" [type]="keyVisible() ? 'text' : 'password'" autocomplete="off" spellcheck="false"
+            [class]="'input input-bordered input-sm w-full pr-9 font-mono text-xs ' + focusRing" [value]="key()"
+            (input)="onKeyInput($event)" [disabled]="busy()" placeholder="crsr_…" data-testid="cursor-credential-key" />
+          <button type="button" [class]="'btn btn-ghost btn-xs absolute right-1 top-1 ' + focusRing" (click)="keyVisible.set(!keyVisible())"
+            [attr.aria-label]="keyVisible() ? 'Hide API key' : 'Show API key'" [attr.aria-pressed]="keyVisible()"
+            data-testid="cursor-credential-toggle-visibility">
+            <lucide-angular [img]="keyVisible() ? EyeOffIcon : EyeIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button type="button" [class]="'btn btn-primary btn-xs min-h-7 ' + focusRing" [disabled]="busy() || !key().trim()" (click)="save()"
+          data-testid="cursor-credential-save">{{ outcome()?.status === 'saving' && action() === 'save' ? 'Saving…' : 'Save key' }}</button>
+        @if (stored() && !confirmRemove()) {
+          <button type="button" [class]="ACTION" [disabled]="busy()" (click)="confirmRemove.set(true)"
+            data-testid="cursor-credential-remove">Remove stored key</button>
+        }
+      </div>
+      @if (confirmRemove()) {
+        <div role="group" aria-label="Confirm removing the stored Cursor key" class="space-y-1.5 rounded border border-base-300 bg-base-200 p-2"
+          data-testid="cursor-credential-remove-confirm">
+          <p class="text-base-content">
+            Remove the stored Cursor key?
+            {{ envSet() ? 'Cursor keeps using CURSOR_API_KEY from the environment.' : 'Cursor stops working until a key is set again.' }}
+          </p>
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" [class]="ACTION" [disabled]="busy()" (click)="remove()" data-testid="cursor-credential-remove-confirm-button">Remove key</button>
+            <button type="button" [class]="ACTION" [disabled]="busy()" (click)="confirmRemove.set(false)">Cancel</button>
+          </div>
+        </div>
+      }
+      @if (outcomeText(); as text) {
+        <p [attr.role]="text.alert ? 'alert' : 'status'" class="text-base-content" data-testid="cursor-credential-outcome">{{ text.text }}</p>
+      }
+    </div>
+  `,
+})
+export class CursorCredentialPopoverComponent implements OnDestroy {
+  protected readonly CloseIcon = X;
+  protected readonly EyeIcon = Eye;
+  protected readonly EyeOffIcon = EyeOff;
+  protected readonly focusRing = FOCUS;
+  protected readonly ACTION = ACTION;
+  private readonly state = inject(ProvidersSettingsStateService);
+
+  readonly closed = output<void>();
+
+  /** The typed key: held only here, never in service state. */
+  protected readonly key = signal('');
+  protected readonly keyVisible = signal(false);
+  protected readonly confirmRemove = signal(false);
+  protected readonly action = signal<'save' | 'remove' | null>(null);
+  protected readonly outcome = signal<DrawerWriteOutcome | null>(null);
+
+  /** `null` while the orchestration read has no data (never guessed from an earlier value). */
+  protected readonly stored = computed(() => this.state.orchestration().data?.cursorApiKeyStored ?? null);
+  protected readonly envSet = computed(() => this.state.orchestration().data?.cursorApiKeyEnvSet === true);
+  /** Triggers wait while any save runs (D3). */
+  protected readonly busy = computed(() => this.state.commit().status === 'saving' || this.outcome()?.status === 'saving');
+
+  protected readonly outcomeText = computed(() => {
+    const outcome = this.outcome(), action = this.action();
+    if (!outcome || outcome.status === 'saving' || outcome.status === 'idle') return null;
+    if (outcome.status === 'saved') return { text: action === 'remove' ? 'Stored key removed.' : 'Key saved.', alert: false };
+    const lead = outcome.status === 'unconfirmed'
+      ? 'Could not confirm the change. Check the "Set" status before retrying.'
+      : action === 'remove' ? 'The stored key was not removed.' : 'The key was not saved.';
+    return { text: [lead, outcome.message].filter(Boolean).join(' '), alert: true };
+  });
+
+  ngOnDestroy(): void {
+    this.key.set('');
+  }
+
+  protected onKeyInput(event: Event): void {
+    this.key.set((event.target as HTMLInputElement).value);
+  }
+
+  protected async save(): Promise<void> {
+    const key = this.key();
+    if (!key.trim() || this.busy()) return;
+    this.action.set('save');
+    await runDrawerWrite(this.state, (context) => this.state.saveCursorCredential(key, context), (outcome) => this.outcome.set(outcome));
+    // D15: the typed key is dropped only once the store confirms it; a failed save keeps it for a retry.
+    if (this.outcome()?.status === 'saved') {
+      this.key.set('');
+      this.keyVisible.set(false);
+    }
+  }
+
+  protected async remove(): Promise<void> {
+    if (this.busy()) return;
+    this.action.set('remove');
+    await runDrawerWrite(this.state, (context) => this.state.saveCursorCredential('', context), (outcome) => this.outcome.set(outcome));
+    if (this.outcome()?.status === 'saved') this.confirmRemove.set(false);
+  }
+}

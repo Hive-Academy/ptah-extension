@@ -55,7 +55,7 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
   imports: [LucideAngularModule, ProviderModelSearchFieldComponent, ProviderModelPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div role="dialog" [attr.aria-labelledby]="titleId()" class="w-[17rem] max-w-[calc(100vw-2rem)] space-y-2 p-3 text-xs"
+    <div role="dialog" [attr.aria-labelledby]="titleId()" class="w-[17rem] max-w-[calc(100vw-2rem)] space-y-2 whitespace-normal p-3 text-left text-xs"
       data-testid="cli-matrix-popover" [attr.data-field]="field()" [attr.data-row]="row().id">
       <div class="flex items-center justify-between gap-2 border-b border-base-300 pb-1.5">
         <h3 [id]="titleId()" class="text-xs font-bold text-base-content">{{ title() }}</h3>

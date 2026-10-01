@@ -140,9 +140,11 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(row('glm-1')?.className).not.toContain('bg-primary/5');
     });
 
-    it('renders no Add, Tiers, Edit or Credentials control before their batches (no dead controls)', () => {
+    it('renders no Add, Tiers or Edit control before Batch 32 (no dead controls)', () => {
       const labels = Array.from(element().querySelectorAll('button')).map((button) => button.textContent?.trim() ?? '');
-      for (const name of ['Add Ptah CLI Instance', 'Tiers', 'Edit', 'Credentials']) expect(labels).not.toContain(name);
+      for (const name of ['Add Ptah CLI Instance', 'Tiers', 'Edit']) expect(labels).not.toContain(name);
+      // Credentials only on Cursor (Batch 31).
+      expect(labels.filter((label) => label === 'Credentials')).toHaveLength(1);
     });
   });
 
@@ -229,6 +231,34 @@ describe('CliOrchestrationMatrixComponent', () => {
       const popover = q('[data-testid="cli-permission-popover"]');
       expect(popover?.textContent).toContain('Pi permissions');
       expect(popover?.textContent).toContain('No approval gate and no MCP support');
+    });
+
+    it('keeps Cursor actionable in the Uninstalled group: Credentials opens its popover (#64, Batch 31)', () => {
+      const credentials = q<HTMLButtonElement>('[data-testid="cli-matrix-credentials-cursor"]');
+      expect(credentials?.closest('[data-testid="cli-matrix-uninstalled"]')).not.toBeNull();
+      expect(row('cursor')?.querySelector('[data-testid="cli-matrix-install-cursor"]')).not.toBeNull();
+      credentials?.click();
+      fixture.detectChanges();
+      expect(q('[data-testid="cursor-credential-popover"]')).not.toBeNull();
+      expect(credentials?.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('offers Credentials on an installed Cursor row too, and on no other row', () => {
+      state.orchestration.set(ready({ ...ORCHESTRATION, detectedClis: [detected('cursor', true, { version: 'sdk' }), detected('codex', true)] }));
+      fixture.detectChanges();
+      expect(q('tbody:not([data-testid="cli-matrix-uninstalled"]) [data-testid="cli-matrix-credentials-cursor"]')).not.toBeNull();
+      expect(element().querySelectorAll('[data-testid^="cli-matrix-credentials-"]')).toHaveLength(1);
+    });
+
+    it('shows Copilot\'s auto-approve toggle in its permission popover only (moved from the policy section)', () => {
+      q<HTMLButtonElement>('[data-testid="cli-matrix-permission-info-copilot"]')?.click();
+      fixture.detectChanges();
+      const popover = q('[data-testid="cli-permission-popover"]');
+      expect(popover?.textContent).toContain('Copilot permissions');
+      expect(popover?.querySelector('[data-testid="copilot-auto-approve"]')).not.toBeNull();
+      q<HTMLButtonElement>('[data-testid="cli-matrix-permission-info-codex"]')?.click();
+      fixture.detectChanges();
+      expect(q('[data-testid="cli-permission-popover"] [data-testid="copilot-auto-approve"]')).toBeNull();
     });
 
     it('opens one popover at a time', () => {

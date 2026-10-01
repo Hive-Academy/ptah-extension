@@ -1,6 +1,6 @@
 /**
  * Gate G entries for the CLI matrix on the Orchestration tab (Batch 30): the restored #43, #44, #54, #70 and #71, and
- * the regressed-UX fixes RUX-8 and RUX-11. Kept apart from the table, which is over its `max-lines` budget (the
+ * the regressed-UX fixes RUX-8 and RUX-11. Batch 31 re-pointed #63 (Copilot auto-approve) and #64 (Cursor key) here. Kept apart from the table, which is over its `max-lines` budget (the
  * `settings-routing-map.entries.ts` precedent); `REACHABILITY_TABLE` spreads them in and `EXPECTED_CAPABILITY_COUNT`
  * counts them.
  */
@@ -20,7 +20,11 @@ async function matrixRow(page: Page, id: string): Promise<Locator> {
   return row;
 }
 
-/** Opens a matrix popover from `trigger`, runs `body` on it, then closes it with Esc. */
+/**
+ * Opens a matrix popover from `trigger`, runs `body` on it, then closes it: Esc when focus is still inside it, else
+ * its own Close button (a body that clicked outside it, e.g. the toast's Undo, moved focus out, and the popover takes
+ * Esc only from inside). Left open, its backdrop would block every later entry's clicks.
+ */
 async function throughMatrixPopover(page: Page, trigger: Locator, popover: string, body: (panel: Locator) => Promise<void>): Promise<void> {
   await visibleEnabled(trigger);
   await trigger.click();
@@ -29,12 +33,52 @@ async function throughMatrixPopover(page: Page, trigger: Locator, popover: strin
   try {
     await body(panel);
   } finally {
-    if (await panel.count()) await page.keyboard.press('Escape');
+    const focusInside = await panel.evaluate((node) => node.contains(document.activeElement)).catch(() => false);
+    if (focusInside) await page.keyboard.press('Escape');
+    else if (await panel.count()) await panel.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(panel).toHaveCount(0);
   }
 }
 
 export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
+  { id: '#63', capability: 'Copilot auto-approve toggle', status: 'present',
+    // Batch 31: Copilot's permission ℹ holds the moved toggle. A real write through state.saveSettings (the fixture
+    // stores `copilotAutoApprove: false`), read back into the toggle, then Undo writes the value back.
+    reach: async (page) => {
+      const copilot = await matrixRow(page, 'copilot');
+      await throughMatrixPopover(page, copilot.locator('[data-testid="cli-matrix-permission-info-copilot"]'), 'cli-permission-popover', async (panel) => {
+        const toggle = panel.locator('[data-testid="copilot-auto-approve"]');
+        await visibleEnabled(toggle);
+        await expect(toggle).not.toBeChecked();
+        const before = getFixtureState(page).calls.length;
+        await toggle.click();
+        await expectCall(page, before, 'agent:setConfig', { copilotAutoApprove: true });
+        await expect(toggle).toBeChecked();
+        await expect(page.locator('[data-testid="cli-matrix-row-copilot"] [data-testid="cli-matrix-permission"]')).toHaveText('Auto-approve: On');
+        const undo = page.locator('[data-testid="settings-toast-undo"]');
+        await visibleEnabled(undo);
+        await undo.click();
+        await expectCall(page, before, 'agent:setConfig', { copilotAutoApprove: false });
+        await expect(toggle).not.toBeChecked();
+      });
+    } },
+  { id: '#64', capability: 'Cursor API key input + Save', status: 'present',
+    // Batch 31: Cursor's Credentials (on its Uninstalled row: it installs once a key resolves). Masked key with
+    // show/hide and the "Set" status; nothing is saved here (the fixture has no stored-key read-back).
+    reach: async (page) => {
+      const cursor = await matrixRow(page, 'cursor');
+      await throughMatrixPopover(page, cursor.locator('[data-testid="cli-matrix-credentials-cursor"]'), 'cursor-credential-popover', async (panel) => {
+        await expect(panel.locator('[data-testid="cursor-credential-status"]')).toHaveText('Not set');
+        await expect(panel.locator('[data-testid="cursor-credential-help"]')).toContainText('cursor.com → Dashboard → Integrations');
+        const key = panel.locator('[data-testid="cursor-credential-key"]');
+        await expect(key).toBeFocused();
+        await key.fill('crsr_e2e_reach_key');
+        await expect(key).toHaveAttribute('type', 'password');
+        await panel.locator('[data-testid="cursor-credential-toggle-visibility"]').click();
+        await expect(key).toHaveAttribute('type', 'text');
+        await visibleEnabled(panel.locator('[data-testid="cursor-credential-save"]'));
+      });
+    } },
   { id: '#43', capability: 'Ptah CLI agent status (Ready/Error/Init/No Key)', status: 'restored',
     // The matrix Status column (`cliMatrixRows`; every status is pinned in `cli-matrix-rows.spec.ts`).
     reach: async (page) => {

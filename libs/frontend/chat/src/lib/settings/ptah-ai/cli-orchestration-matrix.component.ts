@@ -9,9 +9,11 @@ import {
 } from './cli-matrix-rows';
 import type { CliPermissionTone } from './cli-permission-notes';
 import { CliModelEffortPopoverComponent, type CliMatrixCellField } from './cli-model-effort-popover.component';
+import { CopilotAutoApproveToggleComponent } from './copilot-auto-approve-toggle.component';
+import { CursorCredentialPopoverComponent } from './cursor-credential-popover.component';
 
 /** Which popover of which row is open; one at a time. */
-type OpenCell = { readonly rowId: string; readonly kind: CliMatrixCellField | 'permission' | 'install' };
+type OpenCell = { readonly rowId: string; readonly kind: CliMatrixCellField | 'permission' | 'install' | 'credentials' };
 interface MatrixGroup { readonly id: 'installed' | 'uninstalled'; readonly rows: readonly CliMatrixRow[] }
 
 /**
@@ -60,12 +62,16 @@ const SAVE_SCOPE = 'global';
  * - Status shows only what detection reports for system CLIs (D11); instances show their status, key status,
  *   tier badges and the last Test with its latency or failure reason (#43, #44, #54, #52, RUX-11).
  * - Permissions & Safety: badge + ℹ popover (#70). A disabled or not-installed row renders its cells as plain text.
- * Add, Tiers, Edit and Cursor Credentials are not rendered until their batches (31, 32) land.
+ * Since Batch 31: Cursor's Credentials popover (#64, 551) on both its rows, and Copilot's auto-approve toggle inside its
+ * permission popover. Add, Tiers and Edit are not rendered until Batch 32 lands.
  */
 @Component({
   selector: 'ptah-cli-orchestration-matrix',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent, CliModelEffortPopoverComponent],
+  imports: [
+    LucideAngularModule, NativePopoverComponent, CliModelEffortPopoverComponent, CopilotAutoApproveToggleComponent,
+    CursorCredentialPopoverComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="rounded-xl border border-base-300 bg-base-200 p-3" aria-labelledby="cli-matrix-heading" data-testid="cli-matrix-section">
@@ -206,7 +212,7 @@ const SAVE_SCOPE = 'global';
               </button>
               @if (isOpen(row.id, 'permission')) {
                 <div content role="dialog" [attr.aria-labelledby]="'cli-permission-title-' + row.id"
-                  class="w-[17rem] max-w-[calc(100vw-2rem)] space-y-2 p-3" data-testid="cli-permission-popover">
+                  class="w-[17rem] max-w-[calc(100vw-2rem)] space-y-2 whitespace-normal p-3 text-left" data-testid="cli-permission-popover">
                   <div class="flex items-center justify-between gap-2 border-b border-base-300 pb-1.5">
                     <h3 [id]="'cli-permission-title-' + row.id" class="flex items-center gap-1.5 text-xs font-bold text-base-content">
                       <lucide-angular [img]="ShieldIcon" class="h-3.5 w-3.5 text-warning" aria-hidden="true" />
@@ -217,6 +223,10 @@ const SAVE_SCOPE = 'global';
                     </button>
                   </div>
                   <p class="text-[11px] leading-relaxed text-base-content">{{ row.permission.detail }}</p>
+                  <!-- Batch 31: Copilot's auto-approve lives in its permission popover (moved from the old policy section). -->
+                  @if (row.kind === 'system' && row.cli === 'copilot') {
+                    <ptah-copilot-auto-approve-toggle />
+                  }
                 </div>
               }
             </ptah-native-popover>
@@ -246,7 +256,21 @@ const SAVE_SCOPE = 'global';
                 {{ result.text }}
               </p>
             }
-          } @else if (!row.installed) {
+          } @else {
+            <div class="inline-flex flex-wrap items-center justify-end gap-1">
+            <!-- Batch 31: Cursor's Credentials, on its installed and its Uninstalled row alike (it installs once a key resolves). -->
+            @if (row.credentialAction) {
+              <ptah-native-popover [isOpen]="isOpen(row.id, 'credentials')" placement="bottom-end" [hasBackdrop]="true"
+                backdropClass="transparent" (closed)="close()" (opened)="focusCredentialKey()">
+                <button trigger type="button" [class]="ACTION" (click)="openCell(row.id, 'credentials')"
+                  [attr.aria-label]="'Credentials for ' + row.name" [attr.aria-expanded]="isOpen(row.id, 'credentials')"
+                  [attr.data-testid]="'cli-matrix-credentials-' + row.id">Credentials</button>
+                @if (isOpen(row.id, 'credentials')) {
+                  <ptah-cursor-credential-popover content (closed)="close()" />
+                }
+              </ptah-native-popover>
+            }
+            @if (!row.installed) {
             <ptah-native-popover [isOpen]="isOpen(row.id, 'install')" placement="bottom-end" [hasBackdrop]="true"
               backdropClass="transparent" (closed)="close()">
               <button trigger type="button" [class]="ACTION" (click)="openCell(row.id, 'install')"
@@ -254,7 +278,7 @@ const SAVE_SCOPE = 'global';
                 [attr.data-testid]="'cli-matrix-install-' + row.id">Install guide</button>
               @if (isOpen(row.id, 'install')) {
                 <div content role="dialog" [attr.aria-labelledby]="'cli-install-title-' + row.id"
-                  class="w-[18rem] max-w-[calc(100vw-2rem)] space-y-2 p-3 text-left" data-testid="cli-install-popover">
+                  class="w-[18rem] max-w-[calc(100vw-2rem)] space-y-2 whitespace-normal p-3 text-left" data-testid="cli-install-popover">
                   <div class="flex items-center justify-between gap-2 border-b border-base-300 pb-1.5">
                     <h3 [id]="'cli-install-title-' + row.id" class="text-xs font-bold text-base-content">Install {{ row.name }}</h3>
                     <button type="button" [class]="'btn btn-ghost btn-xs btn-square min-h-6 ' + focusRing" aria-label="Close" (click)="close()">
@@ -268,6 +292,8 @@ const SAVE_SCOPE = 'global';
                 </div>
               }
             </ptah-native-popover>
+            }
+            </div>
           }
         </td>
       </tr>
@@ -355,6 +381,11 @@ export class CliOrchestrationMatrixComponent {
     this.element.nativeElement.querySelector<HTMLElement>(
       '[data-testid="cli-matrix-popover"] input:not([disabled]), [data-testid="cli-matrix-popover"] button[aria-pressed="true"]',
     )?.focus();
+  }
+
+  /** The Credentials popover's key field takes focus once the panel is positioned. */
+  protected focusCredentialKey(): void {
+    this.element.nativeElement.querySelector<HTMLElement>('[data-testid="cursor-credential-key"]:not([disabled])')?.focus();
   }
 
   protected statusLabel(row: CliMatrixRow): string {

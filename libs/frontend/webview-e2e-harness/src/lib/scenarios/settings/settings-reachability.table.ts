@@ -598,10 +598,7 @@ const cliAgents: readonly ReachabilityEntry[] = [
   { id: '#60', capability: 'Codex reasoning effort (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Codex reasoning effort') },
   { id: '#61', capability: 'Copilot model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Copilot model') },
   { id: '#62', capability: 'Copilot reasoning effort (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Copilot reasoning effort') },
-  { id: '#63', capability: 'Copilot auto-approve toggle', status: 'present',
-    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.locator('[data-testid="copilot-auto-approve"]')); } },
-  { id: '#64', capability: 'Cursor API key input + Save', status: 'present',
-    reach: async (page) => { await cliConfigSection(page); await visibleEnabled(page.locator('#providers-cursor-key')); } },
+  // #63 and #64 moved to the CLI matrix in Batch 31: `settings-cli-matrix.entries.ts`.
   { id: '#65', capability: 'Cursor model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Cursor model') },
   { id: '#66', capability: 'Antigravity model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Antigravity model') },
   { id: '#67', capability: 'opencode model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'OpenCode model') },

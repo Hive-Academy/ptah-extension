@@ -189,6 +189,13 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
     expect(box && viewport && box.y >= 0 && box.y + box.height <= viewport.height && box.x >= 0 && box.x + box.width <= viewport.width,
       `${selector} on screen`).toBe(true);
   };
+  // Batch 31: popovers sit inside table cells (nowrap, right-aligned); their text must still wrap inside the panel.
+  const noOverflow = async (selector: string) => {
+    const overflow = await page.locator(selector).evaluate((panel) =>
+      Math.max(0, ...Array.from(panel.querySelectorAll('p, h3, label, span')).map((node) => node.scrollWidth - node.clientWidth),
+        panel.scrollWidth - panel.clientWidth));
+    expect(overflow, `${selector} content overflow`).toBeLessThanOrEqual(0);
+  };
   const popover = '[data-testid="cli-matrix-popover"]';
   // Model: the cell opens the popover with its search focused and the list open (interactions/orchestration-2).
   await page.locator('[data-testid="cli-matrix-model-codex"]').click();
@@ -220,6 +227,27 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
   await page.screenshot({ path: capturePath('orchestration-popover-permission', host, theme), animations: 'disabled' });
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-testid="cli-permission-popover"]')).toHaveCount(0);
+  // Batch 31: Copilot's permission popover with the moved auto-approve toggle, and Cursor's Credentials popover.
+  await page.locator('[data-testid="cli-matrix-permission-info-copilot"]').click();
+  await expect(page.locator('[data-testid="cli-permission-popover"] [data-testid="copilot-auto-approve"]')).toBeEnabled();
+  await onScreen('[data-testid="cli-permission-popover"]');
+  await noOverflow('[data-testid="cli-permission-popover"]');
+  await assertPopoverOnTop(page, '[data-testid="cli-permission-popover"]', 'h3, p, input');
+  await page.screenshot({ path: capturePath('orchestration-popover-copilot', host, theme), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-testid="cli-permission-popover"]')).toHaveCount(0);
+  await page.locator('[data-testid="cli-matrix-credentials-cursor"]').click();
+  const cursorPopover = '[data-testid="cursor-credential-popover"]';
+  await expect(page.locator(`${cursorPopover} [data-testid="cursor-credential-key"]`)).toBeFocused();
+  await onScreen(cursorPopover);
+  await noOverflow(cursorPopover);
+  expect(await page.locator(`${cursorPopover} [data-testid="cursor-credential-help"]`).evaluate((node) => getComputedStyle(node).textAlign))
+    .toBe('left');
+  await assertPopoverOnTop(page, cursorPopover, 'h3, p, input, button');
+  console.log(`B31 cursor popover ${host}/${theme}: ${JSON.stringify(await page.locator(cursorPopover).boundingBox())}`);
+  await page.screenshot({ path: capturePath('orchestration-popover-cursor', host, theme), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(page.locator(cursorPopover)).toHaveCount(0);
 }
 
 for (const host of ['vscode', 'electron'] as const) {
