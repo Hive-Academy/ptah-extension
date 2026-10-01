@@ -27,6 +27,8 @@ import type {
   IStateStorage,
   IDisposable,
   IMcpServerStatus,
+  IMcpSubagentRootRegistrar,
+  McpSubagentRootRetention,
 } from '@ptah-extension/platform-core';
 import {
   PtahAPIBuilder,
@@ -160,7 +162,9 @@ interface OwnedRegistration {
 }
 
 @injectable()
-export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
+export class CodeExecutionMCP
+  implements IDisposable, IMcpServerStatus, IMcpSubagentRootRegistrar
+{
   private server: http.Server | null = null;
   private port: number | null = null;
   private ptahAPI: PtahAPI;
@@ -201,6 +205,19 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
    * `unregisterFromSlot` documents.
    */
   private readonly registrations = new Map<string, OwnedRegistration>();
+
+  /**
+   * Folders that are NOT necessarily open in the workspace but must carry the
+   * `ptah` entry anyway, because an agent session is running there (a child
+   * session's git worktree). Planned beside the open folders in
+   * {@link desiredSlots}, so a workspace-folder reconcile keeps them.
+   *
+   * A set, not a count: each child owns its own worktree, so one root is never
+   * retained twice by two live sessions. Mutated only inside `enqueueMcpOp`.
+   * Survives `stop()` on purpose: the sessions still run in those folders, so a
+   * restarted server writes their entries back on its next reconcile.
+   */
+  private readonly retainedRoots = new Set<string>();
 
   /**
    * The tail of the re-pointing queue. Every `.mcp.json` OWNERSHIP mutation
@@ -513,6 +530,79 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
   }
 
   /**
+   * Keep the `ptah` entry in `<root>/.mcp.json` while a session runs in `root`
+   * (IMcpSubagentRootRegistrar). Serialized with every other ownership
+   * mutation, and resolves only once the write has landed.
+   *
+   * Nothing is retained when the answer is `registered: false`, so a refused
+   * retain leaves no state for the next reconcile to act on.
+   */
+  async retainRoot(root: string): Promise<McpSubagentRootRetention> {
+    if (root.trim() === '' || !path.isAbsolute(root)) {
+      return { registered: false, reason: 'invalid-root' };
+    }
+    return this.enqueueMcpOp(() => this.retainRootNow(root));
+  }
+
+  /** The body of {@link retainRoot}, already serialized. */
+  private async retainRootNow(root: string): Promise<McpSubagentRootRetention> {
+    // Same guard as `ensureRegisteredNow`: `stop()` nulls the port outside the
+    // queue, so a non-null port is not proof the server is staying up.
+    if (this.stopped || !this.port) {
+      return { registered: false, reason: 'not-started' };
+    }
+
+    const alreadyRetained = this.retainedRoots.has(root);
+    this.retainedRoots.add(root);
+    let outcome: McpSubagentRegistration;
+    try {
+      const outcomes = await this.reconcileRegistrations(this.port);
+      outcome =
+        outcomes.get(path.join(root, '.mcp.json')) ??
+        notRegistered('write-failed');
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[CodeExecutionMCP] Failed to retain ${root} for subagents: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        'CodeExecutionMCP',
+      );
+      outcome = notRegistered('write-failed');
+    }
+
+    if (!outcome.registered && !alreadyRetained) {
+      this.retainedRoots.delete(root);
+    }
+    return outcome;
+  }
+
+  /**
+   * Give back a root kept by {@link retainRoot}. Idempotent, never rejects.
+   *
+   * The entry goes away in the reconcile that follows, unless the folder is
+   * also an open workspace folder, which keeps its own entry.
+   */
+  async releaseRoot(root: string): Promise<void> {
+    await this.enqueueMcpOp(async () => {
+      if (!this.retainedRoots.delete(root)) return;
+      // A stopping or stopped server has already given every entry back (or
+      // kept the record of a failed removal for its next pass). Reconciling
+      // here would write the open folders' entries for a port about to close.
+      if (this.stopped || this.port === null) return;
+      try {
+        await this.reconcileRegistrations(this.port);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `[CodeExecutionMCP] Failed to release ${root}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          'CodeExecutionMCP',
+        );
+      }
+    });
+  }
+
+  /**
    * Every slot Ptah should own right now, keyed by config path.
    *
    * A detector failure is not fatal here: `planPtahMcpSlots` gates only the
@@ -523,6 +613,7 @@ export class CodeExecutionMCP implements IDisposable, IMcpServerStatus {
       workspaceRoots: [
         ...this.workspaceProvider.getWorkspaceFolders(),
         this.workspaceProvider.getWorkspaceRoot() ?? '',
+        ...this.retainedRoots,
       ],
       isInstalled: (target) =>
         this.cliDetector?.isInstalled(target) ?? Promise.resolve(false),
