@@ -205,3 +205,190 @@ None.
   1. Named savepoints for nested transaction levels.
   2. A composite index `(skill_slug, invoked_at DESC)` on `skill_invocation_events`.
   3. Single-query batching for decay scores across resident skills.
+
+## Batch 4
+
+### Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 1        |
+| Failure modes found | 1        |
+
+Scope examined:
+- `libs/backend/skill-synthesis/src/lib/types.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-suggestion.store.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-suggestion.store.spec.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-registry.store.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-registry.store.spec.ts`
+- `libs/backend/skill-synthesis/src/lib/lifecycle/skill-backlog-purge-state.store.ts`
+- `libs/backend/skill-synthesis/src/lib/lifecycle/skill-backlog-purge-state.store.spec.ts`
+- `libs/backend/skill-synthesis/src/lib/di/tokens.ts`
+- `libs/backend/skill-synthesis/src/lib/di/register.ts`
+- `libs/backend/skill-synthesis/src/lib/di/register.spec.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-curator.service.ts` (:602 only)
+- `libs/backend/skill-synthesis/src/lib/skill-curator.service.spec.ts`
+- `libs/backend/skill-synthesis/src/lib/digest/skill-gap-curator.service.spec.ts`
+
+Verification:
+- `npx nx run @ptah-extension/skill-synthesis:test --testFile=skill-suggestion.store.spec.ts`: 1 suite passed, 28 tests passed, 0 skipped, 0 failed.
+- `npx nx run @ptah-extension/skill-synthesis:test --testFile=skill-backlog-purge-state.store.spec.ts`: 1 suite passed, 6 tests passed, 0 skipped, 0 failed.
+- `npx nx run @ptah-extension/skill-synthesis:test --testFile=skill-registry.store.spec.ts`: 1 suite passed, 15 tests passed, 0 skipped, 0 failed.
+- `npx nx run @ptah-extension/skill-synthesis:test --skip-nx-cache --maxWorkers=2`: 82 suites passed, 1 skipped (unrelated), 1649 tests passed, 0 failed.
+- `npx nx run @ptah-extension/skill-synthesis:typecheck`: passed with exit code 0.
+- `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts`: passed with exit code 0; `libs/backend/skill-synthesis: 6 ok (baseline 6)`.
+
+---
+
+### Checkpoints & Focus Answers
+
+1. **`SkillSuggestionStore` Lineage & Status Guards:**
+   - **`parseReferences` (`skill-suggestion.store.ts:342-382`):**
+     Handles `null` by returning `[]`. JSON syntax errors are caught, logged with warning and row ID, and safely degraded to `[]`. Validates array payload and discards malformed entries (missing string `name` or `body`), logging the count of dropped items. Correct entries are mapped to `SkillReference[]`.
+   - **`insert` & `insertPending` (`skill-suggestion.store.ts:75-125`):**
+     Supports both `'pending'` and `'dismissed'`. When inserting with `'dismissed'`, sets `decided_at = createdAt`, ensuring rejected umbrella proposals remain recorded and deduplicated. Pre-insert references serialization handles optional references gracefully.
+   - **Guarded `accept` & Concurrency:**
+     `accept(id, promotedCandidateId)` delegates to `transition(id, 'accepted', promotedCandidateId)`. It retains the existing guard (`if (current.status !== 'pending') return current;`) and strengthens the underlying SQL with `WHERE id = ? AND status = 'pending'`.
+     - *Caller impact:* Existing callers (`skill-curator.service.ts:602`, `digest/skill-gap-curator.service.spec.ts:506`, RPC accept handler) already guard or operate on pending suggestions (`skill-curator.service.ts:555` already returns `{ accepted: false, filePath: '' }` if `status !== 'pending'`). No caller depends on transitioning a non-pending suggestion.
+     - *No-op accept handling:* A no-op accept on an already decided suggestion cleanly returns the row in its current status without executing an update or erroring, matching the store contract.
+   - **`markMerged` (`skill-suggestion.store.ts:197-209`):**
+     Deduplicates IDs via `[...new Set(ids)]`. Returns 0 immediately if the deduplicated array is empty. Uses parameterized `WHERE status = 'pending' AND id IN (${placeholders})` to only absorb pending suggestions into `umbrellaId` and returns `changes`. Runs as a single statement safe inside `inImmediateTransaction`.
+   - **`listMemberCandidateIds` (`skill-suggestion.store.ts:216-243`):**
+     Accepts optional status filter. Returns an empty `Set` immediately if `filter.statuses` is empty `[]`. Parameterizes `IN (${placeholders})` for non-empty status filters. Safely parses `member_candidate_ids` using `parseStringArray` and aggregates into a `Set<string>`.
+   - **`listAcceptedWithoutPromotedCandidate` (`skill-suggestion.store.ts:249-258`):**
+     Queries `WHERE status = 'accepted' AND promoted_candidate_id IS NULL ORDER BY decided_at ASC, id ASC`, correctly identifying unlinked accepted suggestions for startup reconciliation.
+
+2. **`SkillRegistryStore.remove` (`skill-registry.store.ts:196-208`):**
+   - Scoped deletion defaults to `onlyCloneStatus: CloneStatus = 'synth'`.
+   - Guaranteed protection: `DELETE ... WHERE kind = ? AND slug = ? AND clone_status = ?` leaves `authored` and `diverged` entries untouched.
+   - Respects `kind`, preventing accidental cross-kind deletions when a skill and an agent share a slug.
+   - Returns boolean `changes === 1`. Single atomic statement; does not open its own transaction.
+
+3. **`SkillBacklogPurgeStateStore` (`skill-backlog-purge-state.store.ts:1-96`):**
+   - **Degradation in `read()`:** Catches missing table (pre-0051 DB) or closed connection errors, logs a warning with error details, and returns `null`. This informs the purge runner to skip cleanly without raising unhandled errors to the curator.
+   - **First-writer-wins in `markComplete()`:** Uses `INSERT INTO skill_backlog_purge_state (id, cutoff_created_at, completed_at, rejected) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO NOTHING`. Returns `changes === 1`.
+   - **Error propagation (R-f, R-f2):** `markComplete()` does NOT catch exceptions. When executed within an `inImmediateTransaction` callback, any DB failure propagates upward, triggering an automatic rollback of the enclosing transaction.
+
+4. **DI Token & Singleton Registration (`tokens.ts`, `register.ts`, `register.spec.ts`):**
+   - Registered under `SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_PURGE_STATE_STORE` with `Symbol.for('PtahSkillBacklogPurgeStateStore')`.
+   - Registered as singleton alias using `{ useToken: SkillBacklogPurgeStateStore }`.
+   - `SkillBacklogPurgeStateStore` has explicit `@inject(TOKENS.LOGGER)` and `@inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)`.
+   - Unit tests in `register.spec.ts` assert singleton resolution and token description uniqueness.
+
+5. **Degradation-Audit Markers:**
+   - Valid suppression markers present in `skill-suggestion.store.ts:348` and `skill-backlog-purge-state.store.ts:69`.
+   - Both catch blocks log informative warnings via `this.logger.warn(...)`.
+   - Degradation audit script exited with code 0 (`libs/backend/skill-synthesis: 6 ok (baseline 6)`).
+
+6. **Spec Quality:**
+   - Specs use `resolveOpener()` to run on `better-sqlite3` or `node:sqlite`.
+   - `skill-backlog-purge-state.store.spec.ts` includes both SQLite-backed integration tests and isolated non-SQLite degradation unit tests that verify throw-propagation and closed-connection degradation.
+   - 100% test pass rate across all modified test files with real DDL migrations (`0022`, `0023`, `0025`, `0051`).
+
+---
+
+### Five Logic Questions
+
+#### 1. How does this fail silently?
+- In `SkillSuggestionStore.markMerged(ids, umbrellaId)` (`skill-suggestion.store.ts:197-209`), if any ID in `ids` does not exist or has already been transitioned to `accepted` or `dismissed`, it is ignored by the `WHERE status = 'pending'` clause. The method returns `changes`, but callers that do not verify `changes === unique.length` would silently miss that certain members were not merged.
+- In `SkillSuggestionStore.parseReferences` (`skill-suggestion.store.ts:342-382`), corrupt JSON or malformed reference objects are warned and dropped to `[]`, leaving the suggestion visible and usable without failing the entire query.
+
+#### 2. What user action produces unexpected behaviour?
+- Rapidly or concurrently accepting a suggestion from multiple UI tabs while a merge or purge pass is running: `accept()`'s CAS condition `WHERE id = ? AND status = 'pending'` prevents double-transitions, but returns the already-accepted/dismissed row without throwing, which could lead an uncoordinated client to believe it was the initiator.
+
+#### 3. What input data produces a wrong answer?
+- In `SkillSuggestionStore.markMerged(ids, umbrellaId)` (`skill-suggestion.store.ts:197`), if a caller accidentally includes `umbrellaId` within the `ids` array, the umbrella suggestion itself matches `WHERE id IN (...) AND status = 'pending'` and marks itself dismissed with `merged_into = umbrellaId`.
+
+#### 4. What happens when a dependency fails?
+- If SQLite throws due to a missing `skill_backlog_purge_state` table or connection drop during `SkillBacklogPurgeStateStore.read()`, the error is caught, logged, and `null` is returned, allowing the purge runner to skip safely.
+- If SQLite throws during `markComplete()`, the error is not caught, allowing the outer `inImmediateTransaction` to intercept the failure and roll back all changes atomically.
+
+#### 5. What is missing that the requirements never mentioned?
+- Defensive self-exclusion in `markMerged`: filtering out `umbrellaId` from `ids` (`unique.filter((id) => id !== umbrellaId)`).
+- A covering index on `skill_suggestions(status, promoted_candidate_id)` for `listAcceptedWithoutPromotedCandidate`. Given typical suggestion table sizes, table scans are fast, but as suggestions accumulate over months, an index would be optimal.
+
+---
+
+### Failure Modes
+
+#### F-1: Accidental Self-Merge in `markMerged`
+- **Trigger:** Calling `markMerged(memberIds, umbrellaId)` where `memberIds` contains `umbrellaId`.
+- **Symptom:** The new umbrella suggestion is immediately transitioned to `dismissed` with `merged_into` pointing to itself.
+- **Evidence:** `libs/backend/skill-synthesis/src/lib/skill-suggestion.store.ts:197-209`.
+- **Current handling:** `unique` dedupes `ids`, but does not filter out `umbrellaId`.
+- **Recommendation:** Add `.filter((id) => id !== umbrellaId)` before building SQL placeholders in `markMerged` (or ensure callers in Batch 8 enforce strict disjointness).
+
+---
+
+### Blocking Issues
+
+None.
+
+### Serious Issues
+
+None.
+
+### Moderate and Minor Issues
+
+- **MODERATE (`skill-suggestion.store.ts:198`):** `markMerged` does not filter out `umbrellaId` from `ids`. If a caller includes the umbrella's ID among member IDs, the umbrella row marks itself as dismissed.
+- **MINOR (`skill-suggestion.store.ts:250-258`):** `listAcceptedWithoutPromotedCandidate` performs a full table scan on `skill_suggestions` without an index on `(status, promoted_candidate_id)`.
+- **MINOR (`skill-suggestion.store.ts:226-235`):** `listMemberCandidateIds` uses `WHERE status IN (...)` where status strings are case-sensitive; relies entirely on domain caller using typed lowercase enum values.
+
+---
+
+### Data Flow
+
+1. Entry: `insert(input, status)` -> Generates ULID & timestamps -> Serializes references -> Executes parameterized INSERT -> Re-reads and returns `SkillSuggestionRow` `[OK]`.
+2. Entry: `accept(id, promotedCandidateId)` -> Calls `transition()` -> Finds existing -> Asserts status is pending -> Executes parameterized UPDATE with `AND status = 'pending'` -> Re-reads row -> Exits `[OK]`.
+3. Entry: `markMerged(ids, umbrellaId)` -> Deduplicates IDs -> Evaluates non-empty -> Executes UPDATE `WHERE status = 'pending' AND id IN (...)` -> Returns count of changed rows `[OK]`.
+4. Entry: `listMemberCandidateIds(filter)` -> Parameterizes status check if provided -> Queries member candidate JSON -> Parses JSON arrays -> Assembles distinct `Set<string>` `[OK]`.
+5. Entry: `listAcceptedWithoutPromotedCandidate()` -> Queries `WHERE status = 'accepted' AND promoted_candidate_id IS NULL` -> Maps via `toRow` -> Exits `[OK]`.
+6. Entry: `remove(kind, slug, onlyCloneStatus)` -> Executes DELETE `WHERE kind = ? AND slug = ? AND clone_status = ?` -> Evaluates `changes === 1` -> Returns boolean `[OK]`.
+7. Entry: `SkillBacklogPurgeStateStore.read()` -> Prepares SELECT -> Catches connection/table errors -> Logs warn & returns null on failure -> Maps row `[OK]`.
+8. Entry: `SkillBacklogPurgeStateStore.markComplete(state)` -> Executes INSERT `ON CONFLICT(id) DO NOTHING` -> Does not catch errors -> Returns `changes === 1` `[OK]`.
+
+---
+
+### Requirements Fulfilment
+
+| Requirement | Status | Gap |
+| ----------- | ------ | --- |
+| Task 4.1: Suggestion lineage types (`SkillReference`, `mergedInto`, `promotedCandidateId`, `references`) | COMPLETE | None. Domain model and row interfaces fully defined. |
+| Task 4.2: `SkillSuggestionStore` lineage API (`insert`, `accept`, `markMerged`, `listMemberCandidateIds`, `listAcceptedWithoutPromotedCandidate`, references parsing) | COMPLETE | None. All methods implemented, tested, and guarded. |
+| Task 4.3: `SkillRegistryStore.remove` scoped to `'synth'` by default | COMPLETE | None. Authored and diverged protected; kind match verified. |
+| Task 4.4: `SkillBacklogPurgeStateStore` (`read` degrade, `markComplete` atomic CAS) | COMPLETE | None. First writer wins; errors propagate per R-f2. |
+| Task 4.5: DI token & singleton registration for purge-state store | COMPLETE | None. Registered, token description unique, verified in spec. |
+
+---
+
+### Edge Cases
+
+| Case | Handled | How | Concern |
+| ---- | ------- | --- | ------- |
+| Corrupt `references_json` in DB | YES | `parseReferences` catches parse error, logs warn with ID, returns `[]` | None |
+| Non-array `references_json` in DB | YES | Warns and returns `[]` | None |
+| Array with malformed reference elements | YES | Filters out invalid elements, logs dropped count, keeps valid items | None |
+| Empty ID list passed to `markMerged` | YES | Returns 0 immediately before executing SQL | None |
+| Duplicate IDs passed to `markMerged` | YES | Deduplicated via `new Set(ids)` before placeholder generation | None |
+| Calling `markMerged` on already accepted row | YES | Guarded by `AND status = 'pending'`, row left untouched | None |
+| Empty status filter in `listMemberCandidateIds` | YES | Returns empty `Set` immediately | None |
+| Pre-0051 DB (table missing) in `purgeState.read()` | YES | Caught in `try/catch`, logs warn, returns `null` | None |
+| Database error during `purgeState.markComplete()` | YES | Not caught; propagates to enclosing `inImmediateTransaction` | None |
+| Concurrent purge runs | YES | `ON CONFLICT(id) DO NOTHING` lets first writer win (`changes === 1`) | None |
+| Removing non-synth registry row | YES | Default `clone_status = 'synth'` ensures authored/diverged return `false` | None |
+| Cross-kind slug collision in `registry.remove` | YES | `WHERE kind = ? AND slug = ?` matches exact kind | None |
+
+---
+
+### Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: In `markMerged`, callers must ensure the newly created `umbrellaId` is not inadvertently included in the member `ids` list to prevent self-dismissal.
+- What a robust implementation would add:
+  1. An explicit self-exclusion guard `unique.filter((id) => id !== umbrellaId)` in `SkillSuggestionStore.markMerged`.
+  2. A composite SQLite index on `skill_suggestions(status, promoted_candidate_id)`.

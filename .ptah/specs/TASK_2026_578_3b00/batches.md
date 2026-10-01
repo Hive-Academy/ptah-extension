@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 43 | Batches: 14 | Complete: 3/14
+Total tasks: 44 | Batches: 14 | Complete: 4/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -83,6 +83,7 @@ Assumptions:
 | R-i: `SS/di/register.spec.ts` may assert the registered token set or the curator's resolved graph. | LOW | Tasks 4.5, 7.2, 8.2 and 9.1 run it and extend it for each new token. |
 | R-j: Destructive filesystem removal of an active SKILL.md (retirement, accept merges). | HIGH | Task 7.1 containment check (inside `activeRoot()`, basename = `row.name`), spec case for an outside path. |
 | R-k: LLM-supplied reference names reach `path.join`. | HIGH | Task 5.4 Zod regex at the LLM boundary; Task 5.1 regex re-check at the filesystem boundary with `../x` and `a/b` spec cases. |
+| R-n (Batch 4 review MODERATE + F-1): `SkillSuggestionStore.markMerged` (`skill-suggestion.store.ts:197-209`) does not exclude `umbrellaId` from `ids` (the umbrella, inserted `pending` in the same transaction, would dismiss itself with `merged_into` = itself), and returns `changes`, so a caller that ignores the count silently misses members that were no longer pending. No caller exists yet (grep: store + spec only). | MEDIUM | HARD REQUIREMENT on Batch 8. Task 8.3: `markMerged` filters `umbrellaId` out of `ids` before the UPDATE, plus a spec case (umbrella id among ids → umbrella stays `pending`, `merged_into` NULL, count excludes it). Task 8.1: the caller compares the returned count with the member-suggestion count it expected and throws inside the `inImmediateTransaction` callback on mismatch (whole cluster rolls back, logged by the outer per-cluster catch, retried next pass); spec case for a member that turned non-pending. Batch 8 does not pass review without both. |
 | R-l: Track B's prompt surface (`buildSystemPrompt`) must not change. | MEDIUM | Task 5.4 snapshot spec of the `buildSystemPrompt` string. |
 | R-m: 586 unmerged blocks Batches 10, 11, 13 tail, 14. | MEDIUM | G-586 gate; Batches 1-9 carry no 586-shared file. |
 
@@ -369,7 +370,7 @@ Edge cases:
   `3a3cfcc85`** (3 explicit paths), after Batch 2. Hooks (lint-staged, electron validate-deps, commitlint) passed
   on all three commits. Batch 4 started.
 
-## Batch 4: Suggestion, registry and purge-state stores + DI — IN_PROGRESS
+## Batch 4: Suggestion, registry and purge-state stores + DI — COMPLETE (commit 6dbf1a5b4)
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lane x 1 (antigravity)
@@ -379,7 +380,7 @@ Edge cases:
 - Tasks: 5 | Depends on: Batches 1, 3
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
-### Task 4.1: Suggestion lineage types — IN_PROGRESS
+### Task 4.1: Suggestion lineage types — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/types.ts`
 - Plan reference: implementation-plan.md:360-367
@@ -387,7 +388,7 @@ Edge cases:
   `mergedInto: string | null`, `promotedCandidateId: string | null`, `references: SkillReference[]`;
   `NewSuggestionInput` gains `references?: SkillReference[]`.
 
-### Task 4.2: SkillSuggestionStore lineage API — IN_PROGRESS
+### Task 4.2: SkillSuggestionStore lineage API — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-suggestion.store.ts` (+ `skill-suggestion.store.spec.ts`)
 - Depends on: Task 4.1
@@ -401,7 +402,7 @@ Edge cases:
   single curator call `SS/skill-curator.service.ts:602` to `accept(id, null)`; no other curator edit. No method opens
   its own transaction (R-f).
 
-### Task 4.3: SkillRegistryStore.remove — IN_PROGRESS
+### Task 4.3: SkillRegistryStore.remove — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-registry.store.ts` (+ `skill-registry.store.spec.ts`)
 - Plan reference: implementation-plan.md:767-769, 809-810
@@ -409,7 +410,7 @@ Edge cases:
   `DELETE … WHERE kind = ? AND slug = ? AND clone_status = ?`, `changes === 1`. Spec: authored and diverged rows
   untouched.
 
-### Task 4.4: SkillBacklogPurgeStateStore — IN_PROGRESS
+### Task 4.4: SkillBacklogPurgeStateStore — COMPLETE
 
 - Files: CREATE `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/lifecycle/skill-backlog-purge-state.store.ts` and `.spec.ts`
 - Plan reference: implementation-plan.md:390-405
@@ -417,7 +418,7 @@ Edge cases:
 - Implementation details: `read()` (null + warn on missing table), `markComplete(...)` with
   `INSERT … ON CONFLICT(id) DO NOTHING` (first writer wins). Explicit `@inject` on every constructor parameter.
 
-### Task 4.5: DI token and registration for the purge-state store — IN_PROGRESS
+### Task 4.5: DI token and registration for the purge-state store — COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/di/tokens.ts`, `.../di/register.ts` (+ `.../di/register.spec.ts` if it asserts the token set)
 - Depends on: Task 4.4
@@ -427,6 +428,37 @@ Edge cases:
 ### Batch 4 verification
 
 - Files exist with real implementations; skill-synthesis test + typecheck pass; reviewer accepted
+- Team-leader verification (Mode 2): all 12 files are on disk with real code, and the diff matches the report. Checks
+  re-run by the team-leader: skill-synthesis lint passed (no cache); `degradation-audit:lint` passed (no cache);
+  rpc-handlers and skill-synthesis typecheck passed; skill-synthesis tests passed (82 suites passed, 1 skipped; 1649
+  tests passed, 1 skipped). The only consumer outside the lib is `rpc-handlers/.../skills-synthesis-rpc.handlers.ts`,
+  which reads `SkillSuggestionRow` and still typechecks. Tasks 4.1-4.5 are IMPLEMENTED. Waiting for the
+  cross-side logic verdict.
+
+### Batch 4 review verdict
+
+- Cross-side antigravity lane, logic scope: **APPROVED 8/10**, 0 blocking, 0 serious, 1 moderate, 1 failure mode
+  (`code-logic-review.md` `## Batch 4`). Lane re-checks: 82 suites / 1649 tests passed, typecheck and
+  degradation audit passed.
+- Transaction race (team-leader point 1): accepted. `accept()` keeps the `findById` guard plus the CAS
+  `WHERE id = ? AND status='pending'`; the curator (`skill-curator.service.ts:555`) already returns
+  `{accepted:false}` for a non-pending row. Remaining risk, accepted: a concurrent loser gets the already-transitioned row
+  back with no error. Batch 9 Task 9.2 must take the outcome from `promoteSuggestion`/the transaction result, not
+  from `accept()`'s return value alone.
+- `markMerged` sets `dismissed` (team-leader point 2): confirmed consistent with the plan lineage.
+- MODERATE (unchecked `changes`) and F-1 (umbrella self-merge): **carried to Batch 8 as a hard requirement (R-n,
+  new Task 8.3, plus a count check in Task 8.1)**, not sent back now. Reason: `markMerged` has no caller until
+  Task 8.1, so the defect cannot fire on any committed path. The fix lands in the batch that adds the first
+  caller, under the same review.
+- Commit: 13 explicit code paths (11 modified, 2 created under `lifecycle/`); the two one-line spec edits
+  (`skill-curator.service.spec.ts`, `digest/skill-gap-curator.service.spec.ts`) are R-g's `accept(id, null)` call-site
+  updates and belong to this batch.
+- **Batch 4 ACCEPTED. Committed `6dbf1a5b4`** (13 explicit paths; hooks passed).
+- **Run paused after Batch 4 at the user's request (2026-10-01).** Batch 5 stays PENDING (not marked
+  IN_PROGRESS) until the run resumes; the next team-leader or orchestrator marks it IN_PROGRESS when the executor is
+  spawned. Open items at the pause: R-n (Batch 8 hard requirement), R-f2 (caller rule for Tasks 6.1, 8.1, 9.2),
+  R-l N+1 (QA / `future-enhancements.md`), R-h (store ≤ 1272 ESLint lines at Batch 12, currently 1302), G-586
+  (rebase onto merged 586 before Batch 10).
 
 ## Batch 5: Generator slugs/references, union-find clustering, umbrella synthesizer (additive) — PENDING
 
@@ -560,7 +592,7 @@ Edge cases:
 - Execution mode: sequential
 - Reviewer (cross-side): antigravity CLI lane, logic scope
 - Rationale: the largest new unit (umbrella, R7, singletons, one-time purge) with real-DB specs.
-- Tasks: 2 | Depends on: Batches 4, 5
+- Tasks: 3 | Depends on: Batches 4, 5
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
 ### Task 8.1: Umbrella merge service and spec — PENDING
@@ -573,7 +605,9 @@ Edge cases:
 - Validation notes: R-f; R-f2 (the per-cluster try/catch wraps the whole `inImmediateTransaction` call, never sits
   inside it; spec: a throw mid-cluster leaves no umbrella row and no member marked merged); re-read members inside the transaction and abort on change;
   `rejectIfStatus` false → skip, not counted; purge only when marker absent, vec available, pool not truncated;
-  never throws into the caller. 8 explicit `@inject` deps; exempt slugs passed in by the caller.
+  never throws into the caller. 8 explicit `@inject` deps; exempt slugs passed in by the caller. R-n (hard
+  requirement): never pass the umbrella id to `markMerged`; check its returned count and throw inside the callback
+  on mismatch (see Task 8.3).
 - Implementation details: returns `UmbrellaPassResult` with `clustersRemaining` and `rateLimited`. Spec cases per
   plan:589-604 on a real migrated DB with a plain `skill_candidates_vec(rowid INTEGER PRIMARY KEY, embedding BLOB)`.
 
@@ -581,6 +615,17 @@ Edge cases:
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/di/tokens.ts`, `.../di/register.ts` (+ `register.spec.ts` if needed)
 - Implementation details: `SKILL_UMBRELLA_MERGE_SERVICE`. R-i.
+
+### Task 8.3: markMerged self-exclusion (R-n, Batch 4 review F-1) — PENDING
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-suggestion.store.ts` (+ `skill-suggestion.store.spec.ts`)
+- Do this before Task 8.1 (Task 8.1 depends on it).
+- Implementation details: in `markMerged` (`:197-209`), drop `umbrellaId` from the de-duplicated id list before
+  the empty check and the UPDATE. Spec: umbrella id passed among `ids` → umbrella row stays `pending` with
+  `merged_into` NULL and the returned count excludes it.
+- Task 8.1 hard requirement (same risk): compare `markMerged`'s return with the expected pending-member count and
+  throw inside the transaction callback on mismatch; spec case where one member became non-pending → no umbrella
+  row and no member marked merged.
 
 ### Batch 8 verification
 
