@@ -16,8 +16,12 @@ const ordinary = (xy: string, path: string): string =>
 const renamed = (xy: string, path: string, origPath: string): string =>
   `2 ${xy} N... ${MODES} ${HASHES} R100 ${path}\0${origPath}\0`;
 
-const unmerged = (xy: string, path: string): string =>
-  `u ${xy} N... ${UNMERGED_MODES} ${UNMERGED_HASHES} ${path}\0`;
+const unmerged = (
+  xy: string,
+  path: string,
+  sub = 'N...',
+  modes = UNMERGED_MODES,
+): string => `u ${xy} ${sub} ${modes} ${UNMERGED_HASHES} ${path}\0`;
 
 const EMPTY_BRANCH: GitBranchInfo = {
   branch: '',
@@ -82,9 +86,21 @@ describe('parseStatusV2Z', () => {
         ],
       },
       {
-        name: 'type change T maps to M (V9)',
+        name: 'type change T is reported as T',
         output: ordinary('T.', 'link'),
-        files: [{ path: 'link', status: 'M', staged: true }],
+        files: [{ path: 'link', status: 'T', staged: true }],
+      },
+      {
+        name: 'submodule with a new commit is flagged',
+        output: `1 .M SC.. 160000 160000 160000 ${HASHES} libs/vendor\0`,
+        files: [
+          {
+            path: 'libs/vendor',
+            status: 'M',
+            staged: false,
+            submodule: true,
+          },
+        ],
       },
       {
         name: 'staged rename with origPath from the next NUL field',
@@ -117,9 +133,94 @@ describe('parseStatusV2Z', () => {
         ],
       },
       {
-        name: 'unmerged row maps to unstaged M (V9)',
+        name: 'unmerged UU row is a content conflict',
         output: unmerged('UU', 'conflict file.txt'),
-        files: [{ path: 'conflict file.txt', status: 'M', staged: false }],
+        files: [
+          {
+            path: 'conflict file.txt',
+            status: 'U',
+            staged: false,
+            conflict: { kind: 'content' },
+          },
+        ],
+      },
+      {
+        name: 'unmerged DU row is delete-modify',
+        output: unmerged('DU', 'gone.txt'),
+        files: [
+          {
+            path: 'gone.txt',
+            status: 'U',
+            staged: false,
+            conflict: { kind: 'delete-modify' },
+          },
+        ],
+      },
+      {
+        name: 'unmerged UD row is delete-modify',
+        output: unmerged('UD', 'gone.txt'),
+        files: [
+          {
+            path: 'gone.txt',
+            status: 'U',
+            staged: false,
+            conflict: { kind: 'delete-modify' },
+          },
+        ],
+      },
+      {
+        name: 'unmerged AA row is add-add',
+        output: unmerged('AA', 'both added.txt'),
+        files: [
+          {
+            path: 'both added.txt',
+            status: 'U',
+            staged: false,
+            conflict: { kind: 'add-add' },
+          },
+        ],
+      },
+      {
+        name: 'unmerged UA row is a content conflict',
+        output: unmerged('UA', 'theirs.txt'),
+        files: [
+          {
+            path: 'theirs.txt',
+            status: 'U',
+            staged: false,
+            conflict: { kind: 'content' },
+          },
+        ],
+      },
+      {
+        name: 'unmerged row with a symlink stage is a symlink conflict',
+        output: unmerged('UU', 'link', 'N...', '100644 120000 100644 120000'),
+        files: [
+          {
+            path: 'link',
+            status: 'U',
+            staged: false,
+            conflict: { kind: 'symlink' },
+          },
+        ],
+      },
+      {
+        name: 'unmerged submodule wins over add-add',
+        output: unmerged(
+          'AA',
+          'libs/vendor',
+          'S...',
+          '160000 160000 160000 160000',
+        ),
+        files: [
+          {
+            path: 'libs/vendor',
+            status: 'U',
+            staged: false,
+            conflict: { kind: 'submodule' },
+            submodule: true,
+          },
+        ],
       },
       {
         name: 'untracked file',
@@ -238,7 +339,12 @@ describe('parseStatusV2Z', () => {
     expect(result.files).toEqual([
       { path: 'src/a.ts', status: 'M', staged: true },
       { path: 'b2.ts', status: 'R', staged: true, origPath: 'b1.ts' },
-      { path: 'c.ts', status: 'M', staged: false },
+      {
+        path: 'c.ts',
+        status: 'U',
+        staged: false,
+        conflict: { kind: 'add-add' },
+      },
       { path: 'd.txt', status: '??', staged: false },
     ]);
     expect(result.skippedRecords).toBe(0);

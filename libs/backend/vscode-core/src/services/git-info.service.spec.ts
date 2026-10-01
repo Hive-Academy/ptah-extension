@@ -71,6 +71,7 @@ jest.mock('os', () => ({
 
 import { GitInfoService, isMutatingGitCommand } from './git-info.service';
 import { GitOutputLimitError } from '../utils/exec-git';
+import { GIT_DIFF_MAX_SIDE_BYTES } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Minimal logger double
@@ -650,17 +651,24 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
     it('getGitInfo coalesces concurrently but is never served from a settled entry', async () => {
       mockSpawn.mockImplementation((_cmd: unknown, args: string[]) =>
         args[0] === 'rev-parse'
-          ? makeSpawnResult({ stdout: 'true\n', exitCode: 0 })
+          ? makeSpawnResult({
+              stdout: args.includes('--git-path')
+                ? '.git/MERGE_HEAD\n.git/CHERRY_PICK_HEAD\n.git/rebase-merge\n.git/rebase-apply\n'
+                : 'true\n',
+              exitCode: 0,
+            })
           : makeSpawnResult({ stdout: '# branch.head main\0', exitCode: 0 }),
       );
 
       await Promise.all([service.getGitInfo(WS), service.getGitInfo(WS)]);
-      // rev-parse + status + staged/worktree numstat, once — not twice.
-      expect(mockSpawn).toHaveBeenCalledTimes(4);
+      // rev-parse + status + staged/worktree numstat + the operation markers'
+      // `rev-parse --git-path`, once — not twice.
+      expect(mockSpawn).toHaveBeenCalledTimes(5);
 
       await service.getGitInfo(WS);
 
-      expect(mockSpawn).toHaveBeenCalledTimes(8);
+      // A fresh run; the marker paths are already resolved, so no fifth spawn.
+      expect(mockSpawn).toHaveBeenCalledTimes(9);
     });
   });
 
@@ -2118,7 +2126,13 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
     return jest.fn((opts: { args: string[] }) => {
       const verb = opts.args[0];
       const stdout =
-        verb === 'rev-parse' ? 'true\n' : verb === 'status' ? statusStdout : '';
+        verb === 'rev-parse'
+          ? opts.args.includes('--git-path')
+            ? '.git/MERGE_HEAD\n.git/CHERRY_PICK_HEAD\n.git/rebase-merge\n.git/rebase-apply\n'
+            : 'true\n'
+          : verb === 'status'
+            ? statusStdout
+            : '';
       const dataListeners: Array<(chunk: Buffer) => void> = [];
       const closeListeners: Array<(code: number) => void> = [];
       // A macrotask, not a microtask: exec-git skips `setPriority` for a
@@ -2160,9 +2174,10 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
     await service.refreshGitInfo(WS);
 
-    // rev-parse, status, and the staged + worktree numstat reads.
-    expect(spawnProcess).toHaveBeenCalledTimes(4);
-    expect(mockSetPriority).toHaveBeenCalledTimes(4);
+    // rev-parse, status, the staged + worktree numstat reads, and the
+    // operation markers' `rev-parse --git-path`.
+    expect(spawnProcess).toHaveBeenCalledTimes(5);
+    expect(mockSetPriority).toHaveBeenCalledTimes(5);
     for (const call of mockSetPriority.mock.calls) {
       expect(call).toEqual([
         31337,
@@ -2180,7 +2195,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
     await service.getGitInfo(WS);
 
-    expect(spawnProcess).toHaveBeenCalledTimes(4);
+    expect(spawnProcess).toHaveBeenCalledTimes(5);
     expect(mockSetPriority).not.toHaveBeenCalled();
   });
 
@@ -2255,7 +2270,51 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
     expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it('reads a blob without an output cap, so a large binary still classifies', async () => {
+  it('reports a blob past the per-side cap as too-large with its real size', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    const seam = service as unknown as {
+      execGitBuffer: (...args: unknown[]) => Promise<unknown>;
+      execGit: (args: string[]) => Promise<unknown>;
+    };
+    jest
+      .spyOn(seam, 'execGitBuffer')
+      .mockRejectedValue(
+        new GitOutputLimitError('show', GIT_DIFF_MAX_SIDE_BYTES),
+      );
+    const exec = jest.spyOn(seam, 'execGit').mockResolvedValue({
+      stdout: '3145728\n',
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const result = await service.readBlob(WS, 'HEAD', 'big.txt');
+
+    expect(result).toEqual({ outcome: 'too-large', byteLength: 3145728 });
+    expect(exec.mock.calls[0][0]).toEqual(['cat-file', '-s', 'HEAD:big.txt']);
+  });
+
+  it('reports the cap as the size when git cannot say how big the blob is', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    const seam = service as unknown as {
+      execGitBuffer: (...args: unknown[]) => Promise<unknown>;
+      execGit: (args: string[]) => Promise<unknown>;
+    };
+    jest
+      .spyOn(seam, 'execGitBuffer')
+      .mockRejectedValue(
+        new GitOutputLimitError('show', GIT_DIFF_MAX_SIDE_BYTES),
+      );
+    jest.spyOn(seam, 'execGit').mockRejectedValue(new Error('spawn failed'));
+
+    const result = await service.readBlob(WS, '', 'big.txt');
+
+    expect(result).toEqual({
+      outcome: 'too-large',
+      byteLength: GIT_DIFF_MAX_SIDE_BYTES,
+    });
+  });
+
+  it('reads a blob capped at the per-side limit, so a binary still classifies', async () => {
     const service = new GitInfoService(makeLogger() as never);
     const seam = service as unknown as {
       execGitBuffer: (
@@ -2274,7 +2333,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
     expect(result).toEqual({ outcome: 'binary', byteLength: 2 });
     expect(buffer.mock.calls[0][2]).toEqual({
-      maxOutputBytes: Number.POSITIVE_INFINITY,
+      maxOutputBytes: GIT_DIFF_MAX_SIDE_BYTES,
     });
   });
 

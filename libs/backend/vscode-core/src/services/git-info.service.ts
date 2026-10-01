@@ -28,6 +28,7 @@ import {
   type GitMutationFailureCode,
   GIT_LOCKED_MESSAGE,
   GIT_HOOK_TIMEOUT_MS,
+  GIT_DIFF_MAX_SIDE_BYTES,
   type GitWorktreeInfo,
   type GitStageResult,
   type GitUnstageResult,
@@ -72,6 +73,8 @@ import { GitRepoWriteLock } from './git/git-write-lock';
 import { GitCommitRunner } from './git/git-commit-runner';
 import { GitRemoteSync } from './git/git-remote-sync';
 import { AgentWorktreeAdmin } from './git/agent-worktree-admin';
+import { GitRepoOperationReader } from './git/git-repo-operation.reader';
+import { classifyBlobBytes } from './git/git-blob-classifier';
 import { thrownOutcome, writeOutcome } from './git/git-mutation-outcome';
 import { assertSafeRef, assertSafeRevision } from './git/git-ref-guard';
 
@@ -90,6 +93,11 @@ function unavailableReason(
   if (error instanceof GitOutputLimitError) return 'output-too-large';
   if (error instanceof GitTimeoutError) return 'timeout';
   return isIndexLockFailure(stderr) ? 'locked' : 'error';
+}
+
+/** A diff side whose text is not shipped: no patch, no hunks (RC12). */
+function isUnpatchable(side: GitBlobRead): boolean {
+  return side.outcome === 'too-large' || side.outcome === 'lfs-pointer';
 }
 
 function statusUnavailable(reason: GitStatusUnavailableReason): GitInfoResult {
@@ -448,6 +456,7 @@ export class GitInfoService {
   private readonly commitRunner: GitCommitRunner;
   private readonly remoteSync: GitRemoteSync;
   private readonly worktreeAdmin: AgentWorktreeAdmin;
+  private readonly operationReader: GitRepoOperationReader;
 
   /**
    * @param spawner Optional `IProcessSpawner`. When a host supplies one, every
@@ -474,6 +483,7 @@ export class GitInfoService {
     this.commitRunner = new GitCommitRunner(deps);
     this.remoteSync = new GitRemoteSync(deps);
     this.worktreeAdmin = new AgentWorktreeAdmin(deps);
+    this.operationReader = new GitRepoOperationReader(deps);
   }
 
   /**
@@ -737,9 +747,10 @@ export class GitInfoService {
       const branch = parsed.branch;
       // `!` (ignored) records are never changes, whatever flags produced them.
       const files = parsed.files.filter((file) => file.status !== '!');
-      const [stagedStats, worktreeStats] = await Promise.all([
+      const [stagedStats, worktreeStats, operation] = await Promise.all([
         this.readNumstat(workspacePath, true, priority),
         this.readNumstat(workspacePath, false, priority),
+        this.operationReader.readRepoOperation(workspacePath, files, priority),
       ]);
       let untrackedRead = 0;
       for (const file of files) {
@@ -755,7 +766,12 @@ export class GitInfoService {
         }
       }
 
-      return { isGitRepo: true, branch, files };
+      return {
+        isGitRepo: true,
+        branch,
+        files,
+        ...(operation && { operation }),
+      };
     } catch (error: unknown) {
       if (error instanceof GitOutputLimitError) {
         // Not a failure to retry and not a clean tree: the repository's own
@@ -840,9 +856,7 @@ export class GitInfoService {
   }
 
   /** `git worktree prune`: drop the admin entries of vanished worktrees. */
-  async pruneWorktrees(
-    workspacePath: string,
-  ): Promise<{
+  async pruneWorktrees(workspacePath: string): Promise<{
     success: boolean;
     error?: string;
     code?: GitMutationFailureCode;
@@ -1154,8 +1168,9 @@ export class GitInfoService {
    * for a broken repository.
    *
    * ```
-   * git show <rev>:<path>
-   *   exit 0    -> 'content' (or 'binary' when the bytes contain NUL)
+   * git show <rev>:<path>        (stopped past GIT_DIFF_MAX_SIDE_BYTES)
+   *   past cap  -> 'too-large', size from `git cat-file -s`
+   *   exit 0    -> classifyBlobBytes: 'lfs-pointer', 'binary' or 'content'
    *   exit 128  -> git rev-parse --verify --quiet <rev>:<path>
    *                  exit 0     -> 'error'/'submodule' (a gitlink: the spec
    *                                resolves, but to a commit, not a blob)
@@ -1182,19 +1197,14 @@ export class GitInfoService {
     const spec = `${rev}:${relativePath}`;
 
     try {
-      // Uncapped: a blob is one file the user opened, and a large binary one
-      // must still classify as `binary` with its byte length rather than fail
-      // (the default cap exists for unbounded listings, not single blobs).
+      // Capped at the per-side limit: a bigger blob is never shipped, so its
+      // bytes are not worth reading. Past the cap git is stopped and the side
+      // becomes `too-large`.
       const show = await this.execGitBuffer(['show', spec], workspacePath, {
-        maxOutputBytes: Number.POSITIVE_INFINITY,
+        maxOutputBytes: GIT_DIFF_MAX_SIDE_BYTES,
       });
 
-      if (show.exitCode === 0) {
-        if (show.stdout.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
-          return { outcome: 'binary', byteLength: show.stdout.byteLength };
-        }
-        return { outcome: 'content', content: show.stdout.toString('utf8') };
-      }
+      if (show.exitCode === 0) return classifyBlobBytes(show.stdout);
 
       const probe = await this.execGit(
         ['rev-parse', '--verify', '--quiet', spec],
@@ -1231,6 +1241,16 @@ export class GitInfoService {
         relativePath,
       );
     } catch (error: unknown) {
+      if (error instanceof GitOutputLimitError) {
+        return {
+          outcome: 'too-large',
+          byteLength: await this.blobSize(
+            workspacePath,
+            spec,
+            error.limitBytes,
+          ),
+        };
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error('[GitInfoService] readBlob threw', {
         workspacePath,
@@ -1239,6 +1259,32 @@ export class GitInfoService {
         error: message,
       } as unknown as Error);
       return this.gitReadError(this.classifyExecError(error), relativePath);
+    }
+  }
+
+  /**
+   * Byte size of the blob at `spec`, read only after `git show` passed the
+   * per-side cap. When git cannot say, `atLeast` (the cap that was passed) is
+   * the honest lower bound.
+   */
+  private async blobSize(
+    workspacePath: string,
+    spec: string,
+    atLeast: number,
+  ): Promise<number> {
+    try {
+      const { stdout, exitCode } = await this.execGit(
+        ['cat-file', '-s', spec],
+        workspacePath,
+      );
+      const size = Number(stdout.trim());
+      return exitCode === 0 && Number.isSafeInteger(size) && size > atLeast
+        ? size
+        : atLeast;
+    } catch {
+      // degradation-audit: optional-capability - only the reported size is
+      // less precise; the side is still refused as too large.
+      return atLeast;
     }
   }
 
@@ -1323,12 +1369,17 @@ export class GitInfoService {
 
       // Read after both sides, so the token below covers the patch bytes that
       // were current at the *end* of this read rather than the start of it.
-      const patch = await this.readPatch(
-        workspacePath,
-        comparison,
-        modifiedPath,
-        originalPath,
-      );
+      // A side that is too large or a Git LFS pointer has no patch: its text
+      // is not shipped, so there are no hunks to show or apply.
+      const patch =
+        isUnpatchable(original) || isUnpatchable(modified)
+          ? null
+          : await this.readPatch(
+              workspacePath,
+              comparison,
+              modifiedPath,
+              originalPath,
+            );
 
       return {
         path: modifiedPath,
@@ -1630,6 +1681,14 @@ export class GitInfoService {
         // [AC10] Binary is the expected reason for a hunkless diff, but not
         // the only one: an untracked file produces no `git diff` output at
         // all, and calling that "binary" would be a user-visible lie.
+        // A side too large to ship, or a Git LFS pointer, is refused the
+        // same way: there is no text to select hunks from.
+        if (isUnpatchable(before.original) || isUnpatchable(before.modified)) {
+          return this.applyFailure(
+            'BINARY_UNSUPPORTED',
+            'Files that are too large or stored in Git LFS have no hunks to stage or revert.',
+          );
+        }
         const isBinary =
           before.original.outcome === 'binary' ||
           before.modified.outcome === 'binary' ||
@@ -2055,17 +2114,22 @@ export class GitInfoService {
         return { outcome: 'absent' };
       }
 
-      const bytes = await fileReader.readFileBytes(absolutePath);
-      const buffer = Buffer.from(
-        bytes.buffer,
-        bytes.byteOffset,
-        bytes.byteLength,
+      // Stat first so an oversized file is never read into memory.
+      const size = await readStat(absolutePath).then(
+        (stats) => (stats.isFile() ? stats.size : null),
+        // degradation-audit: optional-capability - a path node cannot stat
+        // (a virtual file system behind the port) is read through the port
+        // and classified by its bytes instead.
+        () => null,
       );
-
-      if (buffer.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
-        return { outcome: 'binary', byteLength: buffer.byteLength };
+      if (size !== null && size > GIT_DIFF_MAX_SIDE_BYTES) {
+        return { outcome: 'too-large', byteLength: size };
       }
-      return { outcome: 'content', content: buffer.toString('utf8') };
+
+      const bytes = await fileReader.readFileBytes(absolutePath);
+      return classifyBlobBytes(
+        Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error('[GitInfoService] worktree read failed', {

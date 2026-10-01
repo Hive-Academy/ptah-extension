@@ -1,4 +1,8 @@
-import type { GitBranchInfo, GitFileStatus } from '@ptah-extension/shared';
+import type {
+  GitBranchInfo,
+  GitConflictKind,
+  GitFileStatus,
+} from '@ptah-extension/shared';
 
 /**
  * Parser for `git status --porcelain=v2 --branch -z` output.
@@ -19,9 +23,9 @@ import type { GitBranchInfo, GitFileStatus } from '@ptah-extension/shared';
  *   ? <path>
  *   ! <path>
  *
- * Status values stay inside today's `GitFileStatus['status']` union: `T`
- * (type change) and unmerged `u` records map to `'M'`, matching the
- * line-based parser this module replaces.
+ * `T` (type change) is reported as `'T'`. An unmerged `u` record becomes one
+ * unstaged `'U'` entry whose `conflict.kind` says how it conflicts (see
+ * {@link conflictKind}). A `<sub>` field starting with `S` marks a submodule.
  */
 
 export interface GitStatusV2ZResult {
@@ -205,27 +209,66 @@ function pushTracked(
   if (xy === null || start === -1) return false;
 
   const path = record.substring(start);
-  const origin = origPath === undefined ? {} : { origPath };
+  const extra = {
+    ...(origPath !== undefined && { origPath }),
+    ...(isSubmodule(record) && { submodule: true }),
+  };
   if (xy[0] !== '.') {
-    files.push({ path, status: mapStatusCode(xy[0]), staged: true, ...origin });
+    files.push({ path, status: mapStatusCode(xy[0]), staged: true, ...extra });
   }
   if (xy[1] !== '.') {
     files.push({
       path,
       status: mapStatusCode(xy[1]),
       staged: false,
-      ...origin,
+      ...extra,
     });
   }
   return true;
 }
 
-/** Unmerged records keep today's shape: one unstaged `'M'` entry (V9). */
+/** The `<sub>` field (always the third) starts with `S` for a submodule. */
+function isSubmodule(record: string): boolean {
+  return record[5] === 'S';
+}
+
+/** One unstaged `'U'` entry per unmerged record, with its conflict kind. */
 function pushUnmerged(record: string, files: GitFileStatus[]): boolean {
+  const xy = readXy(record);
   const start = pathStart(record, UNMERGED_FIELDS_BEFORE_PATH);
-  if (readXy(record) === null || start === -1) return false;
-  files.push({ path: record.substring(start), status: 'M', staged: false });
+  if (xy === null || start === -1) return false;
+  // `u <XY> <sub> <m1> <m2> <m3> ...`: the stage modes are fields 3-5.
+  const modes = record.substring(0, start).split(' ', 6).slice(3);
+  const submodule = isSubmodule(record);
+  files.push({
+    path: record.substring(start),
+    status: 'U',
+    staged: false,
+    conflict: { kind: conflictKind(xy, submodule, modes) },
+    ...(submodule && { submodule: true }),
+  });
   return true;
+}
+
+/** Git's file mode for a symbolic link. */
+const SYMLINK_MODE = '120000';
+
+/**
+ * How an unmerged entry conflicts. The kinds that decide whether the entry
+ * can be shown as text at all win: a submodule, then a symbolic link in any
+ * stage. Then `DU`/`UD` is delete-modify and `AA` is add-add; every other
+ * entry is a content conflict.
+ */
+function conflictKind(
+  xy: string,
+  submodule: boolean,
+  stageModes: string[],
+): GitConflictKind {
+  if (submodule) return 'submodule';
+  if (stageModes.includes(SYMLINK_MODE)) return 'symlink';
+  if (xy === 'DU' || xy === 'UD') return 'delete-modify';
+  if (xy === 'AA') return 'add-add';
+  return 'content';
 }
 
 function pushUntrackedOrIgnored(
@@ -245,9 +288,11 @@ function pushUntrackedOrIgnored(
   return true;
 }
 
-/** `T` (type change) and any other code fall back to `'M'` as today (V9). */
+/** One XY side of a type 1 or 2 record. `M` and any other code give `'M'`. */
 function mapStatusCode(code: string): GitFileStatus['status'] {
   switch (code) {
+    case 'T':
+      return 'T';
     case 'A':
       return 'A';
     case 'D':
