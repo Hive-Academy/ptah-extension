@@ -1,6 +1,6 @@
 # Batches - TASK_2026_580_9f77
 
-Total tasks: 50 | Batches: 29 | Complete: 18/29
+Total tasks: 50 | Batches: 29 | Complete: 19/29
 
 ## Resume here (session handoff, 2026-10-01)
 
@@ -50,8 +50,8 @@ and review notes.
 | A3.3 capture service (delete cascade, rekey)                              | COMPLETE                   | b6ac36321 |
 | A3.4 DI register + start                                                  | COMPLETE                   | fae183675 |
 | A3.4b branch hook-clean (audit markers, commitlint scope, prettier)       | COMPLETE                   | efa997ca5 |
-| A4.1 `session:list` query + AC1 perf spec                                 | READY (PENDING)            | —         |
-| A4.2 organization RPC handlers + manifest + registry entries              | PENDING (after A4.1)       | —         |
+| A4.1 `session:list` query + AC1 perf spec                                 | COMPLETE                   | eb67d86f3 |
+| A4.2 organization RPC handlers + manifest + registry entries              | READY (PENDING)            | —         |
 | A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | PENDING (after A4.2)       | —         |
 | A5.2 VS Code unavailable proof                                            | PENDING (after A4.2)       | —         |
 | B1 SDK worktree hook + fork lineage                                       | COMPLETE                   | 3961f4322 |
@@ -1040,7 +1040,26 @@ dropped` line and returns.
 - Validation notes: `sdk-agent-adapter.ts` and its spec are 584 merge points (R-TL6).
   A formatting-only change there is safe to rebase.
 
-## Batch A4.1: `session:list` query extension + AC1 perf spec — PENDING
+## Batch A4.1: `session:list` query extension + AC1 perf spec — COMPLETE (commit eb67d86f3)
+
+- Result: A4.1.1 and A4.1.2 landed; 9 files.
+- File-list addition: `apps/ptah-electron/tsconfig.build.json`,
+  `apps/ptah-cli/tsconfig.build.json` and `apps/ptah-tui/tsconfig.build.json` each gain
+  the `@ptah-extension/session-organization` path. rpc-handlers now imports the lib, and
+  without the path the Electron production build (the `ptah-electron:validate-deps`
+  pre-commit gate) could not resolve it. The CLI and TUI builds needed the same path.
+- Review: `code-logic-review-A4.1.md` APPROVED 9.5/10 with 3 minor nits; the review
+  approves all 6 executor deviations.
+- Verification at commit:
+  - rpc-handlers typecheck and lint pass. Tests: 115 of 116 suites pass (3439 passed,
+    4 skipped, 1 failed). The one failure is the known pre-existing
+    `harness-skill-selection-rpc.service.spec.ts` "never writes state.json"; the
+    harness folder is untouched since `a90c086d7`.
+  - di-lint passes; degradation-audit rpc-handlers 1 (baseline 1); prettier clean.
+- Follow-up (review finding 1): with `groupBy: 'parent'`, groups are ordered by parent
+  `sessionId` (`session-list-query.ts:147-154`), not by the sort key. C1.2, the sidebar
+  consumer, decides whether groups must be ordered by the parent's sort key; if so, C1.2
+  owns that change.
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -1052,7 +1071,7 @@ dropped` line and returns.
 - From A3.2 (deviation 4): use the service's `queryWorkspace`, `countChildren`,
   `listTaskLinks` and `toSessionOrganizationSummary`; do not reach into the store.
 
-### Task A4.1.1: `applySessionListQuery` (pure), with query mode — PENDING
+### Task A4.1.1: `applySessionListQuery` (pure), with query mode — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\handlers\session-list-query.ts` (CREATE), `...\session-list-query.spec.ts` (CREATE), `...\session-organization-rpc.schema.ts` (CREATE: the `session:list` param schema now; A4.2 appends the mutation schemas)
 - Plan reference: implementation-plan.md:559-585, L3, L4, L5
@@ -1070,7 +1089,7 @@ dropped` line and returns.
   - `status: ['archived']` returns only archived rows.
 - Implementation details: pure function over rows plus the org map.
 
-### Task A4.1.2: `SessionRpcHandlers.session:list` enrichment + AC1 perf spec — PENDING
+### Task A4.1.2: `SessionRpcHandlers.session:list` enrichment + AC1 perf spec — COMPLETE
 
 - Depends on: Task A4.1.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\rpc-handlers\src\lib\handlers\session-rpc.handlers.ts` (MODIFY), `...\session-rpc.handlers.spec.ts` (MODIFY), `...\session-list.perf.spec.ts` (CREATE)
