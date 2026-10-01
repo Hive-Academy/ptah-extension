@@ -83,11 +83,15 @@ function makeStore() {
   return {
     findById: jest.fn(),
     listByStatus: jest.fn().mockReturnValue([]),
-    listInvocations: jest.fn().mockReturnValue([]),
+    listInvocationEvents: jest.fn().mockReturnValue([]),
     getStats: jest.fn().mockReturnValue({
       candidates: 4,
       promoted: 2,
       rejected: 1,
+      active: 2,
+      dormant: 0,
+      merged: 0,
+      retired: 0,
       invocations: 7,
     }),
     getInvocationStats: jest.fn().mockReturnValue({
@@ -240,7 +244,16 @@ function makeDiagnostics() {
         prefilterRejected: 0,
         accepted: 0,
       },
-      byStatus: { candidate: 0, promoted: 0, rejected: 0, invocations: 0 },
+      byStatus: {
+        candidate: 0,
+        promoted: 0,
+        rejected: 0,
+        invocations: 0,
+        active: 0,
+        dormant: 0,
+        merged: 0,
+        retired: 0,
+      },
       recentEvents: [],
       triggers: {
         sessionEnd: true,
@@ -338,7 +351,16 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
         prefilterRejected: 5,
         accepted: 4,
       },
-      byStatus: { candidate: 10, promoted: 3, rejected: 2, invocations: 12 },
+      byStatus: {
+        candidate: 10,
+        promoted: 3,
+        rejected: 2,
+        invocations: 12,
+        active: 2,
+        dormant: 1,
+        merged: 4,
+        retired: 5,
+      },
       recentEvents: [
         { kind: 'analyze-run', timestamp: 1700000000000, sessionId: 's-1' },
       ],
@@ -356,6 +378,10 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       candidates: 10,
       promoted: 3,
       rejected: 2,
+      active: 2,
+      dormant: 1,
+      merged: 4,
+      retired: 5,
       invocations: 12,
     });
 
@@ -374,7 +400,11 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       totalPromoted: 3,
       totalRejected: 2,
       totalInvocations: 12,
-      activeSkills: 3,
+      // Resident only: the dormant promoted row is not active.
+      activeSkills: 2,
+      totalMerged: 4,
+      totalRetired: 5,
+      totalDormant: 1,
       eligibilityHistogram: { accepted: 4 },
       triggers: { sessionEnd: true, idleMs: 300000, bootScan: false },
     });
@@ -418,7 +448,16 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
         prefilterRejected: 0,
         accepted: 0,
       },
-      byStatus: { candidate: 0, promoted: 0, rejected: 0, invocations: 0 },
+      byStatus: {
+        candidate: 0,
+        promoted: 0,
+        rejected: 0,
+        invocations: 0,
+        active: 0,
+        dormant: 0,
+        merged: 0,
+        retired: 0,
+      },
       recentEvents: [newest, sameMs, older],
       triggers: {
         sessionEnd: true,
@@ -491,6 +530,97 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
     const rpcErr = thrown as RpcUserError;
     expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
     expect(rpcErr.message).not.toContain('SQLITE_CORRUPT');
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:stats', () => {
+  it('reports resident-only activeSkills and event-based invocations', async () => {
+    const { rpcHandler, store } = buildHandlers();
+    store.getStats.mockReturnValue({
+      candidates: 6,
+      promoted: 5,
+      rejected: 3,
+      active: 3,
+      dormant: 2,
+      merged: 1,
+      retired: 2,
+      invocations: 9,
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:stats', {});
+
+    expect(result).toEqual({
+      totalCandidates: 6,
+      totalPromoted: 5,
+      totalRejected: 3,
+      totalInvocations: 9,
+      activeSkills: 3,
+    });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:invocations', () => {
+  it('reads tracker events by candidate id and maps them onto the wire', async () => {
+    const { rpcHandler, store } = buildHandlers();
+    store.listInvocationEvents.mockReturnValue([
+      {
+        id: 'evt-2',
+        skillId: 'cand_1',
+        sessionId: 's-2',
+        succeeded: true,
+        invokedAt: 1700000000500,
+        notes: 'tool-use',
+        contextId: 'ctx-1',
+      },
+      {
+        id: 'evt-1',
+        skillId: 'cand_1',
+        sessionId: 's-1',
+        succeeded: false,
+        invokedAt: 1700000000000,
+        notes: null,
+        contextId: null,
+      },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:invocations', {
+      skillId: 'cand_1',
+      limit: 25,
+    });
+
+    expect(store.listInvocationEvents).toHaveBeenCalledWith('cand_1', 25);
+    expect(result).toEqual({
+      invocations: [
+        {
+          id: 'evt-2',
+          skillId: 'cand_1',
+          sessionId: 's-2',
+          succeeded: true,
+          invokedAt: 1700000000500,
+          notes: 'tool-use',
+        },
+        {
+          id: 'evt-1',
+          skillId: 'cand_1',
+          sessionId: 's-1',
+          succeeded: false,
+          invokedAt: 1700000000000,
+          notes: null,
+        },
+      ],
+    });
+  });
+
+  it('defaults the limit to 200 and returns [] without a skillId', async () => {
+    const { rpcHandler, store } = buildHandlers();
+
+    await rpcHandler.call('skillSynthesis:invocations', { skillId: 'cand_9' });
+    expect(store.listInvocationEvents).toHaveBeenCalledWith('cand_9', 200);
+
+    store.listInvocationEvents.mockClear();
+    const empty = await rpcHandler.call('skillSynthesis:invocations', {});
+    expect(empty).toEqual({ invocations: [] });
+    expect(store.listInvocationEvents).not.toHaveBeenCalled();
   });
 });
 

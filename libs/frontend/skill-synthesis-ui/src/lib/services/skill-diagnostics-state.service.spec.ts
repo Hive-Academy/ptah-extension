@@ -37,6 +37,9 @@ describe('SkillDiagnosticsStateService', () => {
     totalRejected: 1,
     totalInvocations: 9,
     activeSkills: 3,
+    totalMerged: 0,
+    totalRetired: 0,
+    totalDormant: 0,
     eligibilityHistogram: {
       prefilterTooThin: 1,
       prefilterRejected: 5,
