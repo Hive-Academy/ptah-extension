@@ -436,8 +436,12 @@ Variables:
 | `lane1Rows` | string | `Read\|.../git/run-stage-failure.spec.ts;Thinking;Bash\|Show git operation constants;Thinking;Write\|.../reviews/p1-approval.md` (semicolon rows, pipe = `tool\|label`, `Thinking` = thinking row) |
 | `lane1Text` | string | `All checks pass. I write the deliverable now.` |
 | `lane2Rows` | string | `view_file\|view_file;write_to_file\|write_to_file;call_mcp_tool\|call_mcp_tool` |
-| `selected` | number | `1` |
+| `lane3Name` | string | `""` (empty = two lanes; set it to show a third column, as the real panel does up to 3: `CH/organisms/agent-monitor/agent-lane-layout.ts:11-13`) |
+| `lane3Status` | enum running/completed/failed | `running` |
+| `lane3Rows` | string | `Read\|README.md;Bash\|npm test` |
+| `selected` | number | `1` (0-3) |
 | `rowGap` | number | `0.45` (seconds between rows, floor 0.3) |
+| `laneOffset` | number | `0.2` (row start offset per later lane; 0 = all lanes on the same beat) |
 
 Beats: c0 0.00 panel slide-settle, header; c1 0.30 tabs spring with 0.12s stagger, dots start (running dots pulse via finite tween); c2 0.80 lane columns settle; c3 1.10 rows enter in order each `rowGap` apart (each row runs the 4.3 pending to running to done in 0.6s); c4 = after last row `lane1Text` streams; c5 lane status flip (dot cross-fade to final color, tab check spring). Focus parts: `tabs`, `lane-1`, `lane-2`, `header`.
 
