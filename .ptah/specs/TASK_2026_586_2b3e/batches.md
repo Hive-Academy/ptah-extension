@@ -1,6 +1,6 @@
 # Batches - TASK_2026_586_2b3e
 
-Total tasks: 22 | Batches: 6 | Complete: 2/6
+Total tasks: 22 | Batches: 6 | Complete: 3/6
 
 Worktree root (all paths below): `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed`
 Branch: `fix/task-586-thoth-activity-feed`, base `c4ab013f3`.
@@ -339,7 +339,7 @@ Edge cases:
   that consumes the Batch 1 wire contract; the lane must read both `skill-synthesis.service.ts` (producer) and
   DSS/FEED (consumer) and confirm field names, nullability, ordering and id equality across live and snapshot
 
-## Batch 3: Surviving status card, Activity feed owner, Settings triggers (unmounted) — IN_PROGRESS
+## Batch 3: Surviving status card, Activity feed owner, Settings triggers (unmounted) — COMPLETE (commit f62ade78e)
 
 - Recommended executor: frontend-developer (in-process sub-agent)
 - Fallback executor: two frontend-developer invocations, one per component pair
@@ -348,7 +348,7 @@ Edge cases:
   and the accordion still works; needs judgment on layout inside PSC (6 files, 1 lib)
 - Tasks: 6 | Depends on: Batch 2
 
-### Task 3.1: Status card absorbs the accordion summary rows and the Refresh button — IN_PROGRESS
+### Task 3.1: Status card absorbs the accordion summary rows and the Refresh button — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/skill-pipeline-status.component.ts
 - Plan reference: parity B2, B3, B4, B5, B6, B11; context.md User Decisions items 2 and 3
@@ -367,7 +367,7 @@ Edge cases:
 - Validation notes: do not duplicate a fact already on the card (the verdict's overlap problem): the today
   counts line (A4) and the new total + histogram must read as one block, not two summaries.
 
-### Task 3.2: Status card spec — IN_PROGRESS
+### Task 3.2: Status card spec — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/skill-pipeline-status.component.spec.ts
 - Depends on: Task 3.1
@@ -377,7 +377,7 @@ Edge cases:
   (newest) event when an older `ineligible` sits behind a newer `error` (fails on base semantics with
   oldest-first input).
 
-### Task 3.3: Activity feed owner component (feed, poll, analyze-now, errors) — IN_PROGRESS
+### Task 3.3: Activity feed owner component (feed, poll, analyze-now, errors) — COMPLETE
 
 - File (new): D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.component.ts
 - Plan reference: parity B7, B10, B12 (Activity), B13, B14 + User Decision item 4
@@ -393,7 +393,7 @@ Edge cases:
   - Error text from `state.error()` with `role="alert"`.
 - Validation notes: R1 (this is now the ONLY `startPolling` caller - confirm by grep), R12.
 
-### Task 3.4: Activity feed owner spec — IN_PROGRESS
+### Task 3.4: Activity feed owner spec — COMPLETE
 
 - File (new): D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.component.spec.ts
 - Depends on: Task 3.3
@@ -402,7 +402,7 @@ Edge cases:
 - Quality requirements: refresh + startPolling on init, stopPolling on destroy; feed renders newest first;
   analyze-now disabled/enabled/hint/called; error text shown.
 
-### Task 3.5: Settings triggers card (immediate save) — IN_PROGRESS
+### Task 3.5: Settings triggers card (immediate save) — COMPLETE
 
 - File (new): D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-triggers-settings.component.ts
 - Plan reference: parity B8, B9, B12 (Settings); context.md Scope "Move the trigger toggles to Settings"
@@ -417,13 +417,32 @@ Edge cases:
   - Does NOT start polling and does NOT bind to `settingsForm`.
 - Validation notes: R7; B9 defaults render before the snapshot resolves.
 
-### Task 3.6: Settings triggers spec — IN_PROGRESS
+### Task 3.6: Settings triggers spec — COMPLETE
 
 - File (new): D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-triggers-settings.component.spec.ts
 - Depends on: Task 3.5
 - Pattern to follow: `skill-diagnostics-accordion.component.spec.ts:125`, `:201`, `:223`, `:245`, `:267`
 - Quality requirements: every moved trigger case ported (8 controls, bounds, on-defaults); default triggers
   render before refresh; setTriggers error text shown; no `startPolling` call.
+
+### Batch 3 execution record (team-leader, Mode 2)
+
+- Verified on disk: `skill-pipeline-status.component.ts` and its spec modified; `skill-activity-feed.component.ts`,
+  `skill-triggers-settings.component.ts` and both their specs created. The accordion and the tab component are
+  untouched, nothing new is mounted, and there are no TODO, PLACEHOLDER or STUB markers.
+- Activity feed component: `ngOnInit` calls `refresh()` and then `startPolling()`; `ngOnDestroy` calls
+  `stopPolling()`.
+- Triggers card: all 8 controls map through a single `switch` to `setTriggers`; it never polls and is not
+  bound to `settingsForm`.
+- `startPolling()` callers outside specs: `skill-activity-feed.component.ts:83` and the accordion
+  (`:237`, which goes away in Batch 4).
+- Executor verification: typecheck and test pass (29 suites, 470 tests); lint has 0 errors and 3 pre-existing
+  warnings, none in Batch 3 files.
+- Noted, not a defect: `state.error()` is shared, so a diagnostics refresh error also appears on the Settings
+  triggers card. Parity B12 accepts this.
+- Reviewer changed from the plan: the orchestrator sends the review to a CLI lane (antigravity; Glm is at its
+- Review: antigravity CLI lane (code-logic), APPROVED 9/10, no defects, `code-logic-review.md` `## Batch 3`.
+  quota) because the author ran in-process. The scope is unchanged (code-logic).
 
 ### Batch 3 verification
 
@@ -432,7 +451,7 @@ Edge cases:
 - Reviewer: code-logic-reviewer (in-process) - poll ownership, ref counting, immediate-save semantics and
   parity of the 8 trigger controls are behavioural
 
-## Batch 4: Wire Activity and Settings, remove the accordion, tab-level acceptance — PENDING
+## Batch 4: Wire Activity and Settings, remove the accordion, tab-level acceptance — IN_PROGRESS
 
 - Recommended executor: frontend-developer (in-process sub-agent)
 - Fallback executor: second frontend-developer invocation
@@ -440,7 +459,7 @@ Edge cases:
 - Rationale: one tab file, its spec and the deletions are one rollback unit (4 files, 1 lib)
 - Tasks: 3 | Depends on: Batch 3
 
-### Task 4.1: Rewire the Skills tab — PENDING
+### Task 4.1: Rewire the Skills tab — IN_PROGRESS
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.ts
 - Plan reference: context.md root cause 4, Scope bullets 3-4; parity A1, B1, B8, B11, C15, E1
@@ -455,7 +474,7 @@ Edge cases:
   - `ngOnInit` diagnostics refresh (`:929`) stays (R12).
 - Validation notes: R2.
 
-### Task 4.2: Delete the accordion — PENDING
+### Task 4.2: Delete the accordion — IN_PROGRESS
 
 - Files (delete):
   - D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-diagnostics-accordion.component.ts
@@ -465,7 +484,7 @@ Edge cases:
   `ptah-skill-diagnostics-accordion` outside `.ptah/specs`, except the e2e spec locator owned by Batch 6.
   `skill-trigger-toggle.component.ts` and `eligibility-histogram.component.ts` stay (now used by the new homes).
 
-### Task 4.3: Tab-level reachability and parity specs — PENDING
+### Task 4.3: Tab-level reachability and parity specs — IN_PROGRESS
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.spec.ts
 - Depends on: Tasks 4.1, 4.2

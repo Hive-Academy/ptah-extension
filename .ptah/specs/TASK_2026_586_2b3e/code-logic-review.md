@@ -439,3 +439,152 @@ No marker, no empty body, no mock standing in for logic in any production file c
 - **Top risk**: transient histogram inflation (MODERATE-1) and a one-poll-period drop of a live event
   arriving during an in-flight snapshot (MODERATE-2); both self-correct within the 30 s poll, and
   neither loses a durable fact.
+
+
+---
+
+## Batch 3
+
+- **Batch**: Batch 3 — Surviving status card, Activity feed owner, Settings triggers (unmounted)
+- **Author**: frontend-developer (in-process sub-agent)
+- **Reviewer**: antigravity CLI lane (code-logic-reviewer role)
+- **Verdict**: APPROVED
+- **Score**: 9/10
+
+### Summary
+
+| Metric | Value |
+| --- | --- |
+| Overall score | 9/10 |
+| Assessment | APPROVED |
+| Blocking issues | 0 |
+| Serious issues | 0 |
+| Moderate issues | 0 |
+| Failure modes found | 0 |
+
+Score justification (Band 9–10: exemplary): Full parity with the legacy accordion achieved across all 10 parity rows (B2–B6, B10–B14) and user decisions. Clean Angular 22 standalone architecture with signals and `ChangeDetectionStrategy.OnPush`. Polling ref-counting in `SkillDiagnosticsStateService` is strictly balanced via `ngOnInit`/`ngOnDestroy` lifecycle hooks. All 8 trigger controls preserve exact bounds, keys, payloads, and fallback defaults. Unit tests are comprehensive with 50/50 passing tests for Batch 3 components and 470/470 passing tests across the entire `skill-synthesis-ui` library.
+
+---
+
+### Check 1: Poll ownership and lifecycle ref-counting
+
+**CONFIRMED SOUND.**
+
+- `SkillActivityFeedComponent` (`libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.component.ts:81-88`) is the sole component in Batch 3 that manages the polling lifecycle:
+  - `ngOnInit`: calls `void this.state.refresh()` immediately (refresh-on-mount, user decision 4) followed by `this.state.startPolling()`.
+  - `ngOnDestroy`: calls `this.state.stopPolling()`.
+- `SkillDiagnosticsStateService` (`libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.ts:188-207`) manages polling via `_subscriberCount`:
+  - `startPolling()` increments subscriber count and arms `setInterval(..., POLL_INTERVAL_MS)` when the count transitions $0 \to 1$.
+  - `stopPolling()` decrements subscriber count with an underflow guard (`if (current <= 0) return;`) and clears `pollHandle` when the count drops to 0.
+- If `SkillActivityFeedComponent` is destroyed early, `ngOnDestroy` reliably decrements the subscriber count and disposes of the interval timer. Neither `SkillTriggersSettingsComponent` nor `SkillPipelineStatusComponent` attaches to the polling lifecycle.
+- Verified in `skill-activity-feed.component.spec.ts:45-61`.
+
+---
+
+### Check 2: Fidelity of the 8 trigger controls
+
+**CONFIRMED SOUND.**
+
+Comparing `SkillTriggersSettingsComponent` (`skill-triggers-settings.component.ts:130-172`) against `SkillDiagnosticsAccordionComponent` (`skill-diagnostics-accordion.component.ts:244-305`):
+
+| Control Key | Type / Bounds | Default When Enabled | Payload Dispatched to `setTriggers` | Accordion Parity |
+| --- | --- | --- | --- | --- |
+| `sessionEnd` | `boolean` | N/A | `{ sessionEnd: boolean }` | Exact match |
+| `idleMs` | `number` / `boolean` | `600_000` | `{ idleMs: number }` (0 when off, 600,000 when toggled on, or typed ms) | Exact match |
+| `bootScan` | `boolean` | N/A | `{ bootScan: boolean }` | Exact match |
+| `subagentStop` | `boolean` | N/A | `{ subagentStop: { enabled: boolean } }` | Exact match |
+| `turnComplete` | `boolean` | N/A | `{ turnComplete: { enabled: boolean } }` | Exact match |
+| `postToolUse` | `boolean` | preserves `minEditCount` (default `1`) | `{ postToolUse: { enabled: boolean, minEditCount: number } }` | Exact match |
+| `postToolUseMinEditCount` | `number` [1, 20] | N/A | `{ postToolUse: { enabled: boolean, minEditCount: number } }` | Exact match |
+| `maxAnalyzesPerHour` | `number` [0, 1000] / `boolean` | `60` | `{ maxAnalyzesPerHour: number }` (0 when off, 60 when toggled on, or typed count) | Exact match |
+
+- All 8 controls map to identical keys, bounds, defaults, and payloads as the legacy accordion.
+- Verified in `skill-triggers-settings.component.spec.ts:84-219`.
+
+---
+
+### Check 3: Parity rows B2–B6 and B10–B14 against accordion & user decisions
+
+**CONFIRMED PARITY ACHIEVED.**
+
+- **B2 (Absolute last-run time)**: `SkillPipelineStatusComponent:139-151` shows relative text `lastAnalysisLabel()` and absolute timestamp `lastAnalysisAbsolute()` (`new Date(ts).toLocaleString()` or `"Never"`).
+- **B3 (Last curator pass)**: `SkillPipelineStatusComponent:163-170` renders `"Last curator pass: <absolute | 'Never'>"`.
+- **B4 (Sessions analyzed today)**: `SkillPipelineStatusComponent:182-198` displays `Sessions analyzed today (<total>): <accepted> accepted, <ineligible> ineligible` where total is the sum of histogram buckets.
+- **B5 (Histogram bars)**: Embedded directly via `<ptah-eligibility-histogram [histogram]="histogram()" />` in `SkillPipelineStatusComponent:197`.
+- **B6 (Candidates by status)**: Preserved per user decision item 2. `SkillPipelineStatusComponent:201-229` renders `Candidates by status: N Candidates, N Promoted, N Rejected` when `byStatus` is provided.
+- **B10 (Analyze current session)**: `SkillActivityFeedComponent:45-55` renders button calling `state.analyzeNow()`, disabled with tooltip hint `"Open a session to analyze it manually"` when `!hasActiveSession()`.
+- **B11 ("View logs" -> "Refresh" button)**: Replaced on status card per user decision item 3. `SkillPipelineStatusComponent:172-180` renders `"Refresh"` button emitting `refresh`, disabled while `refreshing()`.
+- **B12 (Error text)**: Both `SkillActivityFeedComponent:57-65` and `SkillTriggersSettingsComponent:106-114` render `error()` in an alert container (`role="alert"`).
+- **B13 (30s poll)**: Controlled by `SkillActivityFeedComponent:83`.
+- **B14 (Refresh on mount)**: Retained per user decision item 4 via `void this.state.refresh()` in `SkillActivityFeedComponent:82`.
+
+---
+
+### Check 4: Reason chip reads the newest event
+
+**CONFIRMED SOUND.**
+
+- `SkillPipelineStatusComponent:424-437`:
+  ```typescript
+  protected readonly reasonChip = computed<{ label: string } | null>(() => {
+    const events = this.recentEvents();
+    if (events.length === 0) return null;
+    // Input contract is newest-first, so the first event is the latest.
+    const latest = events[0];
+    if (latest.kind === 'ineligible') return { label: 'ineligible' };
+    if (latest.kind === 'rate-limited') return { label: 'rate-limited' };
+    return null;
+  });
+  ```
+- Because Batch 2 established the newest-first order contract (`events[0]` is latest), `reasonChip` evaluates the newest event.
+- Tested in `skill-pipeline-status.component.spec.ts:642-681`: an older `ineligible` event behind a newer `error` event does not render the chip, while a newer `ineligible` event correctly renders the chip.
+
+---
+
+### Check 5: No overlapping summary inside the status card
+
+**CONFIRMED SOUND.**
+
+- The legacy standalone `Today: N accepted, M ineligible` line was completely deleted. It was replaced by the single unified block `Sessions analyzed today (total): N accepted, M ineligible` with embedded histogram bars (`skill-pipeline-status.component.ts:182-198`).
+- Confirmed by test in `skill-pipeline-status.component.spec.ts:597`: `expect(text(root)).not.toContain('Today:');`.
+- Absolute timestamp `lastAnalysisAbsolute()` renders conditionally only when `lastAnalyzeRunAt() !== null`, preventing duplicate `"Never"` labels.
+
+---
+
+### Check 6: Shared `state.error()` signal behavior
+
+**CONFIRMED AS INTENDED.**
+
+- `SkillDiagnosticsStateService` exposes a single shared `error` signal (`_error`).
+- `refresh()`, `analyzeNow()`, and `setTriggers()` all record failures to `_error`.
+- Consequently, an error during `refresh()` will display in both `SkillActivityFeedComponent` and `SkillTriggersSettingsComponent`. This was reviewed against parity row B12 and confirmed to be the recorded design default.
+
+---
+
+### Check 7: Stubs and markers
+
+**CONFIRMED CLEAN.**
+
+- Zero `TODO`, `FIXME`, `PLACEHOLDER`, or `STUB` markers exist in the changed files.
+- All template bindings and method handlers contain complete production implementations.
+
+---
+
+### New Defects
+
+*None.*
+
+---
+
+### Could not check
+
+1. **Integrated Tab Mounting**: Components in Batch 3 are unmounted standalone units. Full wiring into `skill-synthesis-tab.component.ts` and deletion of `skill-diagnostics-accordion.component.ts` is explicitly deferred to Batch 4.
+2. **E2E Visual Rendering**: Visual verification across light/dark themes will be performed during Batch 6 with Playwright after tab wiring is complete.
+
+---
+
+### Verdict
+
+- **Recommendation**: APPROVE
+- **Confidence**: HIGH
+- **Top risk**: None identified in Batch 3. The components are ready for tab-level integration and accordion replacement in Batch 4.
