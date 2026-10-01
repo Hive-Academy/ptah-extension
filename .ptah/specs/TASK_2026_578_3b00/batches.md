@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 8/14
+Total tasks: 44 | Batches: 14 | Complete: 9/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -995,7 +995,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
   read); its warn text still says "purge will skip" though the effect is a rollback; a cluster skipped for
   having no judge anchor has already spent a `skill.analyze` token.
 
-## Batch 9: SkillCuratorService rewrite (facade) — PENDING
+## Batch 9: SkillCuratorService rewrite (facade) — IN_PROGRESS
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: none (needs design judgement on the facade); re-run the sub-agent with reviewer findings
@@ -1040,7 +1040,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Curator rewritten (~550 lines), no caller of the old methods remains outside their own files; tests + typecheck
   pass; reviewer accepted
 
-## Batch 10: Diagnostics counts and SS default (post-586) — IN_PROGRESS
+## Batch 10: Diagnostics counts and SS default (post-586) — COMPLETE (1a6c5f2fe)
 
 - **Precondition: G-586 rebase done.**
 - Recommended executor: backend-developer sub-agent
@@ -1051,7 +1051,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Tasks: 2 | Depends on: Batch 3, G-586
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
-### Task 10.1: Diagnostics status counts — IMPLEMENTED
+### Task 10.1: Diagnostics status counts — COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/diagnostics.types.ts`, `.../diagnostics.service.ts` (+ `diagnostics.service.spec.ts`)
 - Plan reference: implementation-plan.md:863-864
@@ -1059,7 +1059,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Implementation details: `SkillCandidateStatusCounts` gains `active`, `dormant`, `merged`, `retired`; `readStats`
   maps with zero fallbacks.
 
-### Task 10.2: Pool default literal — IMPLEMENTED
+### Task 10.2: Pool default literal — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts`
 - Plan reference: implementation-plan.md:843-849
@@ -1090,6 +1090,13 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
   pass. A full-project run showed spec-harvester (58.7 s) and reachability.integration failing under
   load; both pass in isolation (18/18) and neither touches Batch 10 files - flake, not a regression.
 - Not committed (awaiting antigravity style verdict; Batch 8 files unstaged and not owned here).
+
+### Batch 10 review verdict
+
+- Style (antigravity CLI lane): APPROVED 9/10, no findings (`code-style-review.md` `## Batch 10`).
+- Team-leader Mode 2: VERIFIED. Pre-commit re-check: diagnostics.service.spec + skill-synthesis.service.spec
+  58/58, `@ptah-extension/skill-synthesis:typecheck` pass.
+- Committed as 1a6c5f2fe with exactly the five Batch 10 files; Batch 9 files left unstaged.
 
 ## Batch 11: Shared DTO and RPC handler wiring (post-586) — PENDING
 
