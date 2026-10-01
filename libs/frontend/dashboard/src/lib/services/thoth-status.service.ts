@@ -135,13 +135,14 @@ const PLATFORMS: readonly GatewayPlatformId[] = [
  * sidebar.
  *
  * Refresh strategy: lazy. The Thoth shell calls {@link refreshIfNeeded} on first
- * render, and a constructor effect re-runs {@link refresh} whenever the active
- * workspace root changes (Electron workspace switcher) so the memory tile
- * tracks the workspace-scoped counts. Cron and gateway calls are gated by
- * `vscodeService.config().isElectron` — VS Code surfaces `'desktop-only'`
- * placeholders for those rows.
+ * render and {@link refresh} on every tab switch, and a constructor effect
+ * re-runs {@link refresh} whenever the active workspace root changes (Electron
+ * workspace switcher) so the workspace-scoped tiles follow it. Overlapping
+ * refreshes are ordered by a generation token: only the newest one writes.
+ * Cron and gateway calls are gated by `vscodeService.config().isElectron` —
+ * VS Code surfaces `'desktop-only'` placeholders for those rows.
  *
- * No polling — re-call `refresh()` on user interaction (e.g. window focus).
+ * No polling — re-call `refresh()` on user interaction.
  */
 @Injectable({ providedIn: 'root' })
 export class ThothStatusService implements MessageHandler {
@@ -158,6 +159,9 @@ export class ThothStatusService implements MessageHandler {
    * effect's initial run doesn't duplicate the shell's `refreshIfNeeded()`.
    */
   private lastWorkspaceRoot: string | null | undefined;
+
+  /** Generation of the newest {@link refresh}; older ones drop their results. */
+  private refreshGeneration = 0;
 
   public constructor() {
     effect(() => {
@@ -234,17 +238,24 @@ export class ThothStatusService implements MessageHandler {
    * {@link ThothStatusSummary.errors}.
    */
   async refresh(): Promise<void> {
+    // Refreshes overlap (a tab switch, then a workspace switch while the first
+    // is still in flight). Each one claims a generation; a loader writes its
+    // result only while its generation is still the newest, so a slow response
+    // for the previous workspace cannot overwrite the newer one.
+    const generation = ++this.refreshGeneration;
+    const isCurrent = (): boolean => generation === this.refreshGeneration;
+
     this._isLoading.set(true);
 
     const isElectron = this.vscode.config()?.isElectron === true;
 
-    const memoryPromise = this.loadMemory();
-    const skillsPromise = this.loadSkills();
+    const memoryPromise = this.loadMemory(isCurrent);
+    const skillsPromise = this.loadSkills(isCurrent);
     const cronPromise = isElectron
-      ? this.loadCron()
+      ? this.loadCron(isCurrent)
       : Promise.resolve(this.markDesktopOnly('cron'));
     const gatewayPromise = isElectron
-      ? this.loadGateway()
+      ? this.loadGateway(isCurrent)
       : Promise.resolve(this.markDesktopOnly('gateway'));
 
     await Promise.all([
@@ -254,12 +265,19 @@ export class ThothStatusService implements MessageHandler {
       gatewayPromise,
     ]);
 
+    // A superseded refresh leaves the loading flag and timestamp to the newer
+    // one, which is still running and will settle them itself.
+    if (!isCurrent()) return;
+
     this._lastUpdatedAt.set(Date.now());
     this._hasLoadedOnce.set(true);
     this._isLoading.set(false);
   }
 
-  /** Refresh once, only on the first call. Subsequent calls are no-ops. */
+  /**
+   * Refresh once, only on the first call. Subsequent calls are no-ops. Used for
+   * the shell's first render; a tab switch calls {@link refresh} directly.
+   */
   async refreshIfNeeded(): Promise<void> {
     if (this._hasLoadedOnce()) return;
     await this.refresh();
@@ -278,12 +296,13 @@ export class ThothStatusService implements MessageHandler {
     this.clearError('gateway');
   }
 
-  private async loadMemory(): Promise<void> {
+  private async loadMemory(isCurrent: () => boolean): Promise<void> {
     try {
       // Scope to the active workspace so the sidebar tile matches the memory
       // tab's workspace-filtered stats; null falls back to global counts.
       const workspaceRoot = this.appState.workspaceInfo()?.path ?? null;
       const stats = await this.memoryRpc.stats(workspaceRoot);
+      if (!isCurrent()) return;
       const totalFacts = stats.core + stats.recall + stats.archival;
       this._memory.set({
         available: true,
@@ -292,28 +311,41 @@ export class ThothStatusService implements MessageHandler {
       });
       this.clearError('memory');
     } catch (err) {
+      if (!isCurrent()) return;
       this._memory.set({ available: false, reason: 'error' });
       this.setError('memory', err);
     }
   }
 
-  private async loadSkills(): Promise<void> {
+  private async loadSkills(isCurrent: () => boolean): Promise<void> {
     try {
+      // Same query as the Skills tab's default list, so the tile and the list
+      // agree. `scope: 'workspace'` is the backend's own active workspace (it
+      // resolves the root itself; on a workspace switch the webview changes
+      // `workspaceInfo` only after `workspace:switch` has moved it), PLUS
+      // the rows whose origin was never recorded (`workspace_root IS NULL`):
+      // the store keeps those visible in every workspace on purpose, so the
+      // tile counts them too. `limit: 1000` is the handler's clamp ceiling;
+      // a workspace with more than 1000 pending candidates reads as 1000.
       const candidates = await this.skillsRpc.listCandidates({
         status: 'candidate',
+        scope: 'workspace',
+        limit: 1000,
       });
+      if (!isCurrent()) return;
       this._skills.set({
         available: true,
         pendingCandidates: candidates.length,
       });
       this.clearError('skills');
     } catch (err) {
+      if (!isCurrent()) return;
       this._skills.set({ available: false, reason: 'error' });
       this.setError('skills', err);
     }
   }
 
-  private async loadCron(): Promise<void> {
+  private async loadCron(isCurrent: () => boolean): Promise<void> {
     try {
       // Scope to the active workspace so the pillar counts this workspace's
       // schedules, matching the Schedules tab's default 'workspace' view.
@@ -321,6 +353,7 @@ export class ThothStatusService implements MessageHandler {
       const result = await this.cronRpc.list(
         workspaceRoot ? { workspaceRoot } : {},
       );
+      if (!isCurrent()) return;
       const jobs = result.jobs ?? [];
       const nextRunAt = jobs
         .map((job) => job.nextRunAt)
@@ -332,17 +365,19 @@ export class ThothStatusService implements MessageHandler {
       this._cron.set({ available: true, totalJobs: jobs.length, nextRunAt });
       this.clearError('cron');
     } catch (err) {
+      if (!isCurrent()) return;
       this._cron.set({ available: false, reason: 'error' });
       this.setError('cron', err);
     }
   }
 
-  private async loadGateway(): Promise<void> {
+  private async loadGateway(isCurrent: () => boolean): Promise<void> {
     try {
       const [statusResult, bindings] = await Promise.all([
         this.gatewayRpc.status(),
         this.gatewayRpc.listBindings({ status: 'pending' }),
       ]);
+      if (!isCurrent()) return;
 
       const platforms = this.derivePlatformSummaries(statusResult);
       this._gateway.set({
@@ -352,6 +387,7 @@ export class ThothStatusService implements MessageHandler {
       });
       this.clearError('gateway');
     } catch (err) {
+      if (!isCurrent()) return;
       this._gateway.set({ available: false, reason: 'error' });
       this.setError('gateway', err);
     }
