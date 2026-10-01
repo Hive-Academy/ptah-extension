@@ -335,7 +335,12 @@ export class BranchPickerDropdownComponent {
         // Keep the picker open on the notice so the user learns where their
         // changes went; Dismiss (or any other close) closes it.
         this.recordSwitch(landedOn);
-        this.stashNotice.set({ label: 'stash@{0}', sha: result.stashRef });
+        // The short SHA, not `stash@{0}`: the stash stack is shared by every
+        // worktree, so an ordinal can name another entry a moment later.
+        this.stashNotice.set({
+          label: result.stashRef.slice(0, 7),
+          sha: result.stashRef,
+        });
       } else {
         this.completeSwitch(landedOn);
       }

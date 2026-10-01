@@ -151,7 +151,7 @@ describe('BranchPickerDropdownComponent', () => {
     const notice = query(fixture, '[data-testid="stash-notice"]');
     expect(notice?.getAttribute('role')).toBe('status');
     expect((notice?.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
-      'Changes stashed as stash@{0} — find them in Stashes. Dismiss',
+      'Changes stashed as abc123 — find them in Stashes. Dismiss',
     );
     expect(notice?.querySelector('.font-mono')?.getAttribute('title')).toBe(
       'abc123',
