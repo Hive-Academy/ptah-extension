@@ -1,6 +1,6 @@
 # Batches - TASK_2026_586_2b3e
 
-Total tasks: 22 | Batches: 6 | Complete: 5/6
+Total tasks: 22 | Batches: 6 | Complete: 6/6
 
 Worktree root (all paths below): `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed`
 Branch: `fix/task-586-thoth-activity-feed`, base `c4ab013f3`.
@@ -628,7 +628,7 @@ Edge cases:
 - A3 finding reported
 - Reviewer: code-logic-reviewer (in-process) - refresh race and scope are behavioural, single side (webview)
 
-## Batch 6: E2E harness for the AFTER visual run — IN_PROGRESS
+## Batch 6: E2E harness for the AFTER visual run — COMPLETE (commit 8a5f58c93)
 
 - Recommended executor: frontend-developer (in-process sub-agent)
 - Fallback executor: visual-reviewer may patch the fixtures itself during its run if locators drift
@@ -637,7 +637,7 @@ Edge cases:
   is reproducible
 - Tasks: 1 | Depends on: Batches 4 and 5
 
-### Task 6.1: Update and commit the Thoth feed visual spec — IN_PROGRESS
+### Task 6.1: Update and commit the Thoth feed visual spec — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/webview-e2e-harness/src/lib/scenarios/thoth/thoth-feed-visual.e2e.spec.ts (currently untracked)
 - Plan reference: visual-review-before.md "Reproduce", "Limitations"; R13
@@ -656,6 +656,41 @@ Edge cases:
   - `SHOT_DIR` behaviour unchanged.
 - Validation notes: do not run the Playwright suite in this task (needs a webview rebuild; the visual-reviewer
   does it).
+
+### Batch 6 execution record (team-leader, Mode 2)
+
+- Verified on disk: the only code change is the e2e spec (641 lines). It has ULID-shaped ids from
+  `ulidLike` (`:70-78`) and an oldest-first seed (`:81-152`). `listCandidates` answers by scope (`:340-352`).
+  The Providers/settings fixtures are plain data (`:224-275`, R13). Assertions: tile 2 then 3 (`:534`, `:554`);
+  no accordion and no triggers panel on Activity (`:564-569`); "Candidates by status" and an enabled Refresh
+  (`:573-578`); the first row is the newest id (`:584`); sess-1001 is one row with x5 (`:590-598`); the two
+  same-ms rows each have their own id (`:600-607`); the triggers card shows on Settings and the feed is absent
+  there (`:624-628`). `SHOT_DIR` is unchanged. No TODO, PLACEHOLDER or STUB markers.
+- Accepted deviation: shot 06 is now Skills > Settings, not the app Settings view from the BEFORE run, because
+  the triggers card moved there.
+- Executor verification: `nx run-many -t typecheck,lint -p @ptah-extension/webview-e2e-harness` passes. The
+  harness typecheck target does not compile `*.e2e.spec.ts`. `tsc -p tsconfig.spec.json` reports no errors in
+  this file; its 4 errors are in other files and were there before this task.
+- Review: visual-reviewer, APPROVED, `visual-review.md`. Webview rebuilt and sourcemaps deleted; disk had
+  ~52 GB free, which settles A5. The spec passes 6/6 and produced 36 PNGs. BEFORE defects 1-7 are fixed at every
+  viewport and in both themes. 0 blocking, 2 moderate, 6 minor.
+- M1 (375 px shell clipping): the same as BEFORE, so it predates this task. Recorded as an OUT-OF-SCOPE
+  FOLLOW-UP.
+- M2 (narrow feed rows): recorded as a follow-up, not fixed in this task.
+  - The reviewer's "no title" claim is wrong. The outcome cell has `[attr.title]="row.outcome"`
+    (`event-feed.component.ts:122-125`, Batch 2), and a static screenshot cannot show a hover title. So the
+    full error text is reachable, and defect 8 is mitigated, not left unchanged.
+  - What remains is polish: the relative time wraps because its column has no `whitespace-nowrap`
+    (`:112`), and the session id truncates (`:117`).
+  - No acceptance criterion and no Batch 6 risk covers this. At 375 px the pre-existing shell overflow (M1)
+    makes it worse.
+  - Suggested fix: `whitespace-nowrap shrink-0` on the time span, a `title` on the session span, and a
+    click-to-expand or wrap for `error` rows.
+- Minor m1-m6 are recorded in `visual-review.md`; none needs action in this task. m1 is a capture artifact:
+  shot 06 shows the Triggers card at 375 px.
+- Screenshots: before/ has 36 files (1.74 MB), after/ has 36 files (1.92 MB), 3.7 MB in total, largest file
+  122 KB. That size is fine for git. Other tasks already commit spec screenshots under `.ptah/specs` (for
+  example TASK_2026_494). They go into the docs(task-specs) commit with `visual-review.md`, not the code commit.
 
 ### Batch 6 verification
 
