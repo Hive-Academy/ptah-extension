@@ -141,8 +141,8 @@ export function buildSessionOrganizationNamespace(
 
       const { taskId } = parsed.data;
       const role = parsed.data.role ?? DEFAULT_LINK_ROLE;
-      const workspaceRootHint = deps.getWorkspaceRootHint();
       try {
+        const workspaceRootHint = deps.getWorkspaceRootHint();
         recorder.linkTask({
           sessionId,
           ...(workspaceRootHint ? { workspaceRootHint } : {}),

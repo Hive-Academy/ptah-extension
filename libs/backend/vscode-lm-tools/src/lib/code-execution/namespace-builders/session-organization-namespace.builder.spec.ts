@@ -9,7 +9,7 @@
  *     sessionId (the caller is never an argument)
  *   - organization-unavailable without a recorder (VS Code)
  *   - unattributed-caller when the caller does not resolve
- *   - link-failed when a faulty recorder throws
+ *   - link-failed when a faulty recorder throws or the root-hint read throws
  */
 
 import {
@@ -155,5 +155,24 @@ describe('buildSessionOrganizationNamespace — linkTask', () => {
       error: 'link-failed',
       message: 'recorder boom',
     });
+  });
+
+  it('returns link-failed without recording when the root-hint read throws', () => {
+    const recorder = makeRecorder();
+    const out = buildSessionOrganizationNamespace(
+      makeDeps({
+        getRecorder: () => recorder,
+        getWorkspaceRootHint: () => {
+          throw new Error('root boom');
+        },
+      }),
+    ).linkTask({ taskId: TASK_ID });
+
+    expect(out).toEqual({
+      ok: false,
+      error: 'link-failed',
+      message: 'root boom',
+    });
+    expect(recorder.linkTask).not.toHaveBeenCalled();
   });
 });
