@@ -15,6 +15,8 @@ import {
   FileMinus,
   FileQuestion,
   FileCode,
+  FileType,
+  FileWarning,
   Folder,
   CircleAlert,
   X,
@@ -33,7 +35,8 @@ import {
  * Patterns: Standalone, OnPush, signal-based inputs/outputs
  *
  * Displays a file with:
- * - Status icon with semantic color (M=warning, A=success, D=error, ??=info)
+ * - Status icon with semantic color (M/T=warning, A=success, D/U=error,
+ *   ??=info); the trailing badge names the status in text, never colour alone
  * - File name (bold) + parent directory (subdued)
  * - Inline hover actions: stage/unstage, discard
  * - Row click opens diff view
@@ -287,40 +290,87 @@ export class SourceControlFileComponent {
   protected readonly statusIcon = computed(() => {
     const file = this.file();
     if (file.status === '??' && file.isDirectory) return Folder;
-    switch (file.status) {
+    const status = file.status;
+    switch (status) {
       case 'M':
         return FileEdit;
       case 'A':
         return FilePlus;
       case 'D':
         return FileMinus;
+      case 'U':
+        return FileWarning;
+      case 'T':
+        return FileType;
       case '??':
         return FileQuestion;
-      default:
+      case 'R':
+      case 'C':
+      case '!':
         return FileCode;
+      default: {
+        // Compile-time exhaustiveness; a code from a newer backend still renders.
+        const unhandled: never = status;
+        void unhandled;
+        return FileCode;
+      }
     }
   });
 
   protected readonly statusColor = computed(() => {
     const file = this.file();
     if (file.status === '??' && file.isDirectory) return 'text-warning';
-    switch (file.status) {
+    const status = file.status;
+    switch (status) {
       case 'M':
+      case 'T':
         return 'text-warning';
       case 'A':
         return 'text-success';
       case 'D':
+      case 'U':
         return 'text-error';
       case '??':
         return 'text-info';
-      default:
+      case 'R':
+      case 'C':
+      case '!':
         return 'opacity-60';
+      default: {
+        const unhandled: never = status;
+        void unhandled;
+        return 'opacity-60';
+      }
     }
   });
 
-  protected readonly statusBadge = computed(() =>
-    this.file().status === '??' ? 'U' : this.file().status,
-  );
+  /**
+   * One-character badge, VS Code's letters: untracked is `U`, so a conflict
+   * is `!` and an ignored entry `I`. The badge never stands alone: it carries
+   * {@link statusLabel} as its accessible name and title.
+   */
+  protected readonly statusBadge = computed(() => {
+    const status = this.file().status;
+    switch (status) {
+      case '??':
+        return 'U';
+      case 'U':
+        return '!';
+      case '!':
+        return 'I';
+      case 'M':
+      case 'A':
+      case 'D':
+      case 'R':
+      case 'C':
+      case 'T':
+        return status;
+      default: {
+        const unhandled: never = status;
+        return String(unhandled);
+      }
+    }
+  });
 
   protected readonly statusLabel = computed(() => {
     const status = this.file().status;
@@ -337,8 +387,16 @@ export class SourceControlFileComponent {
         return 'Renamed';
       case 'C':
         return 'Copied';
-      default:
-        return status;
+      case 'U':
+        return 'Conflicted';
+      case 'T':
+        return 'Type changed';
+      case '!':
+        return 'Ignored';
+      default: {
+        const unhandled: never = status;
+        return String(unhandled);
+      }
     }
   });
 

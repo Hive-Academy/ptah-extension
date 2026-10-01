@@ -258,6 +258,9 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
     ['??', 'U', 'Untracked'],
     ['R', 'R', 'Renamed'],
     ['C', 'C', 'Copied'],
+    ['U', '!', 'Conflicted'],
+    ['T', 'T', 'Type changed'],
+    ['!', 'I', 'Ignored'],
   ])(
     'renders %s as badge %s with the human-readable label %s',
     (status, badgeText, label) => {

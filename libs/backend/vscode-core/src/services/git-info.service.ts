@@ -2200,6 +2200,10 @@ export class GitInfoService {
         return `content:${blob.content}`;
       case 'binary':
         return `binary:${blob.byteLength}`;
+      case 'too-large':
+        return `too-large:${blob.byteLength}`;
+      case 'lfs-pointer':
+        return `lfs-pointer:${blob.oid}:${blob.size}`;
       case 'absent':
         return 'absent';
       case 'error':
