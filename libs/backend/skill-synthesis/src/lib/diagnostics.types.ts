@@ -50,6 +50,14 @@ export interface SkillCandidateStatusCounts {
   readonly promoted: number;
   readonly rejected: number;
   readonly invocations: number;
+  /** Promoted and resident. */
+  readonly active: number;
+  /** Promoted and dormant. */
+  readonly dormant: number;
+  /** Rejected by an umbrella merge. */
+  readonly merged: number;
+  /** Rejected by unused-skill retirement. */
+  readonly retired: number;
 }
 
 export interface SkillSynthesisDiagnosticsSnapshot {

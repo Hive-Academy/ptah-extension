@@ -152,7 +152,7 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   curatorEnabled: true,
   curatorIntervalHours: 24,
   suggestionMinClusterSize: 2,
-  suggestionMaxCandidates: 200,
+  suggestionMaxCandidates: 1000,
 };
 
 /**
