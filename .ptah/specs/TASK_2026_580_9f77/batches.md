@@ -1,13 +1,13 @@
 # Batches - TASK_2026_580_9f77
 
-Total tasks: 50 | Batches: 29 | Complete: 22/29
+Total tasks: 50 | Batches: 29 | Complete: 23/29
 
 ## Resume here (session handoff, 2026-10-01)
 
 Draft PR: #623 (opened 2026-10-01 at the user's request; update its batch list on each push, mark ready at the PR gate).
 
-Last committed batches: A5.2 (`9c1f69870`) and C0.2 (`b968cb66a`). A5.1 and C2.2 are
-implemented and in review, uncommitted in this worktree. A fresh team-leader session resumes from this
+Last committed batch: A5.1 (`883d1a422`). C2.2 is implemented and uncommitted in this
+worktree (code review APPROVED, visual review pending). A fresh team-leader session resumes from this
 section; the batch sections below hold each batch's full task text and review notes.
 
 - **Where:** worktree `D:\projects\ptah-extension\.claude-worktrees\task-580`, branch
@@ -52,7 +52,7 @@ section; the batch sections below hold each batch's full task text and review no
 | A3.4b branch hook-clean (audit markers, commitlint scope, prettier)       | COMPLETE                   | efa997ca5 |
 | A4.1 `session:list` query + AC1 perf spec                                 | COMPLETE                   | eb67d86f3 |
 | A4.2 organization RPC handlers + manifest + registry entries              | COMPLETE                   | e2105f1cc |
-| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | IN REVIEW (IMPLEMENTED)    | —         |
+| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | COMPLETE                   | 883d1a422 |
 | A5.2 VS Code unavailable proof                                            | COMPLETE                   | 9c1f69870 |
 | B1 SDK worktree hook + fork lineage                                       | COMPLETE                   | 3961f4322 |
 | B2 PR capture subscriber (+ B2.3 hardening)                               | COMPLETE                   | a98c1dd2c |
@@ -63,10 +63,10 @@ section; the batch sections below hold each batch's full task text and review no
 | B3.5 `ptah_session_link_task` MCP tool                                    | COMPLETE                   | bd5c5d98f |
 | C0.1 board start carries `taskId`                                         | COMPLETE                   | a83ca9b6e |
 | C0.2 board-start link capture + push handling                             | COMPLETE                   | b968cb66a |
-| C1.1 chips, filter bar, editor                                            | PENDING (after C0.2, A4.2) | —         |
+| C1.1 chips, filter bar, editor                                            | READY (PENDING)            | —         |
 | C1.2 loader + app-shell sidebar (visual)                                  | PENDING (after C1.1, A4.1) | —         |
 | C2.1 open-session bridge                                                  | PENDING (after C0.1, C1.2) | —         |
-| C2.2 task links service + card (visual)                                   | IN REVIEW (IMPLEMENTED)    | —         |
+| C2.2 task links service + card (visual)                                   | IN REVIEW (visual pending) | —         |
 | C2.3 task detail sessions list (visual)                                   | PENDING (after C2.1, C2.2) | —         |
 | T1 AC evidence, smoke S1-S8, test-report.md                               | PENDING (after all)        | —         |
 
@@ -80,10 +80,28 @@ section; the batch sections below hold each batch's full task text and review no
 
 ### Next READY batches (wave 6: four file-disjoint batches in four projects)
 
-Wave 6 status: A5.2 and C0.2 are COMPLETE. A5.1 and C2.2 are implemented and in review,
-uncommitted in this worktree. C1.1 (after C0.2) is now unblocked, but its chat-lane
-files must not be edited until A5.1 and C2.2 are committed, because lint-staged hides
-unstaged changes during each commit.
+Wave 6 status: A5.1, A5.2 and C0.2 are COMPLETE. C2.2 is implemented and uncommitted
+in this worktree: its code review is APPROVED 10/10 and its visual review (dark and
+light) is pending.
+
+**Next READY: C1.1 — organization chips, filter bar, editor components**
+(frontend-developer, sequential, 3 tasks; code-logic review only, the visual review is
+deferred to C1.2). Verification:
+`npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`. It creates 6 files
+under `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\chat\src\lib\components\`:
+
+- `atoms\session-organization-chips\session-organization-chips.component.ts` + `.spec.ts`
+- `molecules\session-filter-bar\session-filter-bar.component.ts` + `.spec.ts`
+- `molecules\session-organization-editor\session-organization-editor.component.ts` + `.spec.ts`
+
+C1.1 is file-disjoint from C2.2. However, lint-staged hides unstaged changes during a
+commit, so do not commit C2.2 while the C1.1 executor is editing. Either commit C2.2
+first, or wait for C1.1 to return.
+
+After C1.1: C1.2 (loader + app-shell sidebar, visual), then C2.1 (open-session bridge),
+then C2.3 (after C2.1 and C2.2), then T1.
+
+Wave 6 launch notes, kept for reference (A5.1, A5.2 and C0.2 are done):
 
 A4.2 unlocked A5.1, A5.2, C0.2 and C2.2. They write to different projects and share no
 files, so all four can run in parallel. Run at most three lanes at once on this machine
@@ -161,7 +179,7 @@ After wave 6: C1.1 (after C0.2), then C1.2, C2.1 and C2.3, then T1.
 - **R-TL8 (open, no code yet):** the `recordAgentStartedSession` call in 584's
   `session-spawner.service.ts` `SessionIdResolved` handler, plus its spawner spec, is
   added by whichever of 580/584 merges second. 584 code is not on main yet.
-- **R-TL11 (ruled; check owed in A5.1):** `WorktreeHookHandler`, `SessionForkService`
+- **R-TL11 (resolved in A5.1, `883d1a422`; smoke assertions in both hosts):** `WorktreeHookHandler`, `SessionForkService`
   and `PtahAPIBuilder` are singletons that take the recorder through their
   constructors. The host order is safe today (B1 and B3.2 reviews).
   - A5.1 must assert, after the real Electron and CLI containers are built, that all
@@ -1242,7 +1260,35 @@ dropped` line and returns.
   `requires: []`, so the expected-absent list is unchanged.
 - Implementation details: none beyond the entries.
 
-## Batch A5.1: Electron + CLI host wiring — IN_PROGRESS (implemented, in review; uncommitted)
+## Batch A5.1: Electron + CLI host wiring — COMPLETE (commit 883d1a422)
+
+- Result: 4 files: `apps/ptah-electron/src/di/phase-2-libraries.ts`,
+  `apps/ptah-electron/src/di/container.smoke.spec.ts`,
+  `libs/backend/cli-engine/src/lib/thoth/register-thoth-libraries.ts` and
+  `apps/ptah-cli/src/di/container.smoke.spec.ts`.
+- Review: `code-logic-review-A5.1.md` APPROVED 9.5/10 with 1 minor finding: an order
+  check in the Electron smoke spec could pass vacuously. The orchestrator fixed it: the
+  spec now asserts that `registerPhase2Libraries` is present before comparing order
+  (`container.smoke.spec.ts:525-527`). Re-run: 16/16 pass.
+- Deviations (accepted):
+  1. The CLI smoke spec already existed, so it was modified, not created.
+  2. The CLI order test reads the cli-engine source, because `registerThothLibraries`
+     is not exported.
+  3. Exporting `SessionOrganizationPostToolUseSource` is deferred to the next batch that
+     owns `libs/backend/session-organization/src/index.ts` (see the B2 note). No
+     remaining batch owns that file, so it is now an open follow-up.
+- Verification (executor):
+  - typecheck and lint pass on ptah-electron, cli-engine and ptah-cli; cli-engine tests
+    pass 206/206 and ptah-cli tests pass.
+  - di-lint, degradation-audit and validate-deps pass.
+  - In the ptah-electron full run, 2 unrelated suites failed under load
+    (`shell-csp.spec.ts`, `electron-ide-capabilities.spec.ts`); both pass alone.
+- R-TL11 is resolved by the smoke assertions in both hosts.
+- The stray `apps/ptah-electron/src/windows/.shell-security-*` test-debris directory
+  was deleted by the orchestrator.
+- Commit hooks: pre-commit and commitlint passed. The first attempt was rejected by
+  commitlint (subject over 72 characters), so no commit was made; it was retried with a
+  shorter subject.
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -1252,7 +1298,7 @@ dropped` line and returns.
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-electron @ptah-extension/cli-engine`
 - Review: code-logic lane → `code-logic-review-A5.1.md`
 
-### Task A5.1.1: register + start after `startTaskSpecsIndex`; Electron smoke assertion — IMPLEMENTED
+### Task A5.1.1: register + start after `startTaskSpecsIndex`; Electron smoke assertion — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\apps\ptah-electron\src\di\phase-2-libraries.ts` (MODIFY, after `:393`), `...\apps\ptah-electron\src\di\container.smoke.spec.ts` (MODIFY), `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\cli-engine\src\lib\thoth\register-thoth-libraries.ts` (MODIFY, after `:150`)
 - Plan reference: implementation-plan.md:869-895
@@ -1932,6 +1978,10 @@ dropped` line and returns.
 - Implementation details: see plan.
 
 ## Batch C2.2: task session links service + task card — IN_PROGRESS (implemented, in review; uncommitted)
+
+- Code review: `code-logic-review-C2.2.md` APPROVED 10/10.
+- Visual review (dark and light, task board card) is pending, and no commit is made
+  until it returns an accepting verdict.
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: a CLI lane
