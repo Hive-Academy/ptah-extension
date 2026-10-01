@@ -1,12 +1,13 @@
 # Batches - TASK_2026_580_9f77
 
-Total tasks: 50 | Batches: 29 | Complete: 20/29
+Total tasks: 50 | Batches: 29 | Complete: 22/29
 
 ## Resume here (session handoff, 2026-10-01)
 
 Draft PR: #623 (opened 2026-10-01 at the user's request; update its batch list on each push, mark ready at the PR gate).
 
-Last committed batch: A4.2 (`e2105f1cc`). A fresh team-leader session resumes from this
+Last committed batches: A5.2 (`9c1f69870`) and C0.2 (`b968cb66a`). A5.1 and C2.2 are
+implemented and in review, uncommitted in this worktree. A fresh team-leader session resumes from this
 section; the batch sections below hold each batch's full task text and review notes.
 
 - **Where:** worktree `D:\projects\ptah-extension\.claude-worktrees\task-580`, branch
@@ -51,8 +52,8 @@ section; the batch sections below hold each batch's full task text and review no
 | A3.4b branch hook-clean (audit markers, commitlint scope, prettier)       | COMPLETE                   | efa997ca5 |
 | A4.1 `session:list` query + AC1 perf spec                                 | COMPLETE                   | eb67d86f3 |
 | A4.2 organization RPC handlers + manifest + registry entries              | COMPLETE                   | e2105f1cc |
-| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | READY (PENDING)            | —         |
-| A5.2 VS Code unavailable proof                                            | READY (PENDING)            | —         |
+| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | IN REVIEW (IMPLEMENTED)    | —         |
+| A5.2 VS Code unavailable proof                                            | COMPLETE                   | 9c1f69870 |
 | B1 SDK worktree hook + fork lineage                                       | COMPLETE                   | 3961f4322 |
 | B2 PR capture subscriber (+ B2.3 hardening)                               | COMPLETE                   | a98c1dd2c |
 | B3.1 runtime capture (cli-agent-runtime)                                  | COMPLETE                   | 8f16da0ed |
@@ -61,11 +62,11 @@ section; the batch sections below hold each batch's full task text and review no
 | B3.4 namespace hardening + builder tests                                  | COMPLETE                   | f39b2d2ce |
 | B3.5 `ptah_session_link_task` MCP tool                                    | COMPLETE                   | bd5c5d98f |
 | C0.1 board start carries `taskId`                                         | COMPLETE                   | a83ca9b6e |
-| C0.2 board-start link capture + push handling                             | READY (PENDING)            | —         |
+| C0.2 board-start link capture + push handling                             | COMPLETE                   | b968cb66a |
 | C1.1 chips, filter bar, editor                                            | PENDING (after C0.2, A4.2) | —         |
 | C1.2 loader + app-shell sidebar (visual)                                  | PENDING (after C1.1, A4.1) | —         |
 | C2.1 open-session bridge                                                  | PENDING (after C0.1, C1.2) | —         |
-| C2.2 task links service + card (visual)                                   | READY (PENDING)            | —         |
+| C2.2 task links service + card (visual)                                   | IN REVIEW (IMPLEMENTED)    | —         |
 | C2.3 task detail sessions list (visual)                                   | PENDING (after C2.1, C2.2) | —         |
 | T1 AC evidence, smoke S1-S8, test-report.md                               | PENDING (after all)        | —         |
 
@@ -78,6 +79,11 @@ section; the batch sections below hold each batch's full task text and review no
 - `npx nx run di-lint:lint`: passes.
 
 ### Next READY batches (wave 6: four file-disjoint batches in four projects)
+
+Wave 6 status: A5.2 and C0.2 are COMPLETE. A5.1 and C2.2 are implemented and in review,
+uncommitted in this worktree. C1.1 (after C0.2) is now unblocked, but its chat-lane
+files must not be edited until A5.1 and C2.2 are committed, because lint-staged hides
+unstaged changes during each commit.
 
 A4.2 unlocked A5.1, A5.2, C0.2 and C2.2. They write to different projects and share no
 files, so all four can run in parallel. Run at most three lanes at once on this machine
@@ -124,6 +130,9 @@ sequential, 2 tasks, logic review only). Verification:
 
 - CREATE `services\task-session-links.service.ts` and its `.spec.ts`
 - MODIFY `components\board\task-card.component.ts` and its `.spec.ts`
+- MODIFY `libs\frontend\tasks-ui\src\services.ts` and
+  `apps\ptah-extension-webview\src\app\app.config.ts` (the `MESSAGE_HANDLERS` wiring;
+  scope extension, see the C2.2 section). Verification adds `ptah-extension-webview`.
 
 Consumes `session:listForTasks` as A4.2 shipped it: orphan links are omitted, the
 primary link comes first and then the newest.
@@ -1233,7 +1242,7 @@ dropped` line and returns.
   `requires: []`, so the expected-absent list is unchanged.
 - Implementation details: none beyond the entries.
 
-## Batch A5.1: Electron + CLI host wiring — PENDING
+## Batch A5.1: Electron + CLI host wiring — IN_PROGRESS (implemented, in review; uncommitted)
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -1243,7 +1252,7 @@ dropped` line and returns.
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-electron @ptah-extension/cli-engine`
 - Review: code-logic lane → `code-logic-review-A5.1.md`
 
-### Task A5.1.1: register + start after `startTaskSpecsIndex`; Electron smoke assertion — PENDING
+### Task A5.1.1: register + start after `startTaskSpecsIndex`; Electron smoke assertion — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\apps\ptah-electron\src\di\phase-2-libraries.ts` (MODIFY, after `:393`), `...\apps\ptah-electron\src\di\container.smoke.spec.ts` (MODIFY), `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\cli-engine\src\lib\thoth\register-thoth-libraries.ts` (MODIFY, after `:150`)
 - Plan reference: implementation-plan.md:869-895
@@ -1254,7 +1263,15 @@ dropped` line and returns.
   `SessionOrganizationRpcHandlers` resolve.
 - Implementation details: two lines per host.
 
-## Batch A5.2: VS Code unavailable proof — PENDING
+## Batch A5.2: VS Code unavailable proof — COMPLETE (commit 9c1f69870)
+
+- Result: one file, `apps/ptah-extension-vscode/src/di/session-organization-unavailable.spec.ts`.
+- Review: `code-logic-review-A5.2.md` APPROVED 9.5/10 with 1 minor finding: the source
+  scan could pass vacuously. The orchestrator fixed it: the spec now asserts that the
+  scanned list contains `main.ts` (`:227`). Re-run: 11/11 pass.
+- Deviation (accepted): `expected-resolvable.ts` is unchanged, because the smoke
+  container lacks the metadata-store and turn-state tokens (R-TL10 not needed).
+- Commit hooks: lint-staged, validate-deps and commitlint passed.
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -1264,7 +1281,7 @@ dropped` line and returns.
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-extension-vscode`
 - Review: code-logic lane → `code-logic-review-A5.2.md`
 
-### Task A5.2.1: `session-organization-unavailable.spec.ts` (+ `expected-resolvable.ts` if the smoke spec iterates it) — PENDING
+### Task A5.2.1: `session-organization-unavailable.spec.ts` (+ `expected-resolvable.ts` if the smoke spec iterates it) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\apps\ptah-extension-vscode\src\di\session-organization-unavailable.spec.ts` (CREATE), `...\apps\ptah-extension-vscode\src\di\expected-resolvable.ts` (MODIFY, only if needed: R-TL10)
 - Plan reference: implementation-plan.md:886-890, D5
@@ -1735,7 +1752,14 @@ dropped` line and returns.
 - Validation notes: AC8 chain step 1: the request carries `taskId`.
 - Implementation details: see plan.
 
-## Batch C0.2: board-start link capture + organization push handling — PENDING
+## Batch C0.2: board-start link capture + organization push handling — COMPLETE (commit b968cb66a)
+
+- Result: C0.2.1 and C0.2.2 landed; 6 files in `libs/frontend/chat`.
+- Review: `code-logic-review-C0.2.md` APPROVED 10/10, no findings, no deviations.
+- Commit hooks: lint-staged, validate-deps and commitlint passed.
+- Follow-up (out of scope): the header comment of `chat-message-handler.service.ts`
+  does not list `SESSION_ORGANIZATION_CHANGED`. It was left alone to keep the 584
+  rebase small (R-TL7); fix it when the two tasks are merged.
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -1746,7 +1770,7 @@ dropped` line and returns.
 - Review: code-logic lane → `code-logic-review-C0.2.md`. No rendered change.
 - Merge note: `chat-message-handler.service.ts` is a 584 merge point (R-TL7).
 
-### Task C0.2.1: `BoardTaskLinkCaptureService` + bridge `expect(tabId, taskId)` — PENDING
+### Task C0.2.1: `BoardTaskLinkCaptureService` + bridge `expect(tabId, taskId)` — COMPLETE
 
 - File:
   - `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\chat\src\lib\services\chat-store\board-task-link-capture.service.ts` (CREATE)
@@ -1765,7 +1789,7 @@ dropped` line and returns.
   with `board-start`.
 - Implementation details: see plan.
 
-### Task C0.2.2: `ChatMessageHandler` hands off `session:id-resolved` and handles `session:organizationChanged` — PENDING
+### Task C0.2.2: `ChatMessageHandler` hands off `session:id-resolved` and handles `session:organizationChanged` — COMPLETE
 
 - Depends on: Task C0.2.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\chat\src\lib\services\chat-message-handler.service.ts` (MODIFY), `...\chat-message-handler.service.spec.ts` (MODIFY)
@@ -1907,20 +1931,30 @@ dropped` line and returns.
 - Validation notes: the bridge spec covers grid vs single routing.
 - Implementation details: see plan.
 
-## Batch C2.2: task session links service + task card — PENDING
+## Batch C2.2: task session links service + task card — IN_PROGRESS (implemented, in review; uncommitted)
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: a CLI lane
 - Execution mode: sequential
 - Rationale: tasks-ui only, so it can run in parallel with the chat lane (C1.x).
 - Tasks: 2 | Depends on: A4.2 (`session:listForTasks` registry entry), C0.1
-- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/tasks-ui`
+- Scope extension (team-leader ruling, raised by the C2.2 executor mid-batch): the
+  plan omitted the webview wiring that the reload-on-push requirement needs. Without it
+  links load on board mount, but no push ever reaches the service. C2.2.1 also owns:
+  - `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\tasks-ui\src\services.ts`
+    (MODIFY: export `TaskSessionLinksService` beside `TasksStore`);
+  - `D:\projects\ptah-extension\.claude-worktrees\task-580\apps\ptah-extension-webview\src\app\app.config.ts`
+    (MODIFY: `{ provide: MESSAGE_HANDLERS, useExisting: TaskSessionLinksService, multi: true }`
+    beside the `TasksStore` entry, imported from `@ptah-extension/tasks-ui/services`).
+  - The batch is now 6 files across 2 projects, which is at the cap. No other wave-6
+    batch touches either file.
+- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/tasks-ui ptah-extension-webview`
 - Review:
   - code-logic lane → `code-logic-review-C2.2.md`;
   - visual-reviewer: task board card after shots in dark and light, compared with V0 →
     `visual-review-C2.2.md`.
 
-### Task C2.2.1: `TaskSessionLinksService` — PENDING
+### Task C2.2.1: `TaskSessionLinksService` — IMPLEMENTED
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\tasks-ui\src\lib\services\task-session-links.service.ts` (CREATE), `...\task-session-links.service.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:1033-1042, L6, L16
@@ -1935,7 +1969,7 @@ dropped` line and returns.
   → empty.
 - Implementation details: see plan.
 
-### Task C2.2.2: `TaskCardComponent` sessions row — PENDING
+### Task C2.2.2: `TaskCardComponent` sessions row — IMPLEMENTED
 
 - Depends on: Task C2.2.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\tasks-ui\src\lib\components\board\task-card.component.ts` (MODIFY, inline template, R-TL9), `...\task-card.component.spec.ts` (MODIFY)
