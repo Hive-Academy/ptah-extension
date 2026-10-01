@@ -51,7 +51,8 @@ import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import type { SessionVerdict } from './archaeology/session-verdict.types';
 import type { LaneRun, LaneRunnerService } from './lanes/lane-runner.service';
 import type { ExtractedTrajectory } from './trajectory-extractor';
-import type { SkillSynthesisSettings } from './types';
+import type { SkillReference, SkillSynthesisSettings } from './types';
+import { SKILL_REFERENCE_NAME_PATTERN } from './skill-md-generator';
 
 const SynthesizedSkillSchema = z.object({
   name: z.string().min(1),
@@ -86,14 +87,115 @@ export const SYNTHESIZED_SKILL_JSON_SCHEMA: Record<string, unknown> = {
  */
 const CLUSTER_MEMBER_MAX_CHARS = 3_000;
 
+/** Most members an umbrella prompt carries; the caller picks the closest. */
+export const UMBRELLA_MAX_MEMBERS = 12;
+/** Most reference documents one umbrella may ship. */
+const UMBRELLA_MAX_REFERENCES = 8;
+/** Upper bound on one reference document's body. */
+const UMBRELLA_REFERENCE_MAX_CHARS = 20_000;
+
+/**
+ * The umbrella answer as Zod accepts it. This is the LLM boundary for
+ * reference names: each one later becomes `references/<name>.md`, so a name
+ * that is not one plain path segment (`../x`, `a/b`) rejects the whole answer.
+ * `SkillMdGenerator` re-checks the same pattern at the filesystem boundary.
+ */
+const UmbrellaSkillSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
+  body: z.string().min(1),
+  references: z
+    .array(
+      z.object({
+        name: z.string().regex(SKILL_REFERENCE_NAME_PATTERN),
+        body: z.string().min(1).max(UMBRELLA_REFERENCE_MAX_CHARS),
+      }),
+    )
+    .max(UMBRELLA_MAX_REFERENCES)
+    .refine(
+      (refs) => new Set(refs.map((r) => r.name)).size === refs.length,
+      { message: 'reference names must be unique' },
+    )
+    .default([]),
+});
+
+/** The JSON Schema half of `UmbrellaSkillSchema`, sent as the lane's `outputSchema`. */
+export const UMBRELLA_SKILL_JSON_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', minLength: 1 },
+    description: { type: 'string', minLength: 1 },
+    body: { type: 'string', minLength: 1 },
+    references: {
+      type: 'array',
+      maxItems: UMBRELLA_MAX_REFERENCES,
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', pattern: SKILL_REFERENCE_NAME_PATTERN.source },
+          body: {
+            type: 'string',
+            minLength: 1,
+            maxLength: UMBRELLA_REFERENCE_MAX_CHARS,
+          },
+        },
+        required: ['name', 'body'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['name', 'description', 'body', 'references'],
+  additionalProperties: false,
+};
+
+/**
+ * The umbrella authoring rules. Its own constant on purpose: the per-session
+ * prompt (`buildSystemPrompt`) is a separately tuned surface and must not
+ * drift because umbrellas need different instructions.
+ */
+export const UMBRELLA_SYSTEM_PROMPT = `You are consolidating SEVERAL closely related skill drafts and skills into ONE broad "umbrella" skill that another AI agent will later load and follow, plus optional reference documents for the variants. Apply skill-authoring best practices.
+
+Output ONLY a single JSON object: {"name": string, "description": string, "body": string, "references": [{"name": string, "body": string}]}. No preamble, no code fences.
+
+name:
+- short kebab-case slug naming the SHARED WORKFLOW in verb-first/imperative form (e.g. "add-zod-validated-rpc-method").
+- Broad enough to cover every input, never a copy of one input's name.
+
+description: the MOST important field — it is the only text used to decide when this skill triggers.
+- One or two sentences stating BOTH what the skill does AND the concrete trigger ("Use when ..."), covering the whole family of inputs.
+- Put ALL "when to use" information here, NEVER in the body.
+
+body: the common procedure, as imperative/infinitive instructions for another agent.
+- Keep only what holds across the inputs; generalize away workspace-specific paths, identifiers and one-off details.
+- Be concise; include only non-obvious, reusable procedural knowledge.
+- When a variant needs its own steps, point to it by name ("see references/<name>.md") instead of inlining it.
+- Do NOT include YAML frontmatter, a "When to use" section, or a replay of any input.
+
+references: zero to ${UMBRELLA_MAX_REFERENCES} documents, one per genuinely distinct variant the body points to.
+- name: lowercase letters, digits and hyphens only, starting with a letter or digit, at most 60 characters (it becomes references/<name>.md). Names must be unique.
+- body: markdown with the variant-specific steps and gotchas only; never repeat the common procedure.
+- Use an empty array when the inputs share one procedure with no meaningful variants.`;
+
 export interface SynthesizedSkill {
   name: string;
   description: string;
   body: string;
 }
 
+/** An umbrella skill: one broad procedure plus its variant references. */
+export interface UmbrellaSkill extends SynthesizedSkill {
+  references: SkillReference[];
+}
+
 /** One cluster member's distilled signal fed into cluster synthesis. */
 export interface ClusterMemberInput {
+  description: string;
+  body: string;
+}
+
+/** One pool member fed into umbrella synthesis. */
+export interface UmbrellaMemberInput {
+  kind: 'candidate' | 'promoted' | 'suggestion';
   description: string;
   body: string;
 }
@@ -121,6 +223,8 @@ export class SkillSynthesizerService {
     const parsed = await this.runSynthesis(
       this.buildSystemPrompt(),
       this.buildPrompt(trajectory, verdict),
+      SYNTHESIZED_SKILL_JSON_SCHEMA,
+      parseSynthesizedSkill,
     );
     if (!parsed) {
       this.logger.warn(
@@ -151,6 +255,8 @@ export class SkillSynthesizerService {
     const parsed = await this.runSynthesis(
       this.buildSystemPrompt(),
       this.buildClusterPrompt(members),
+      SYNTHESIZED_SKILL_JSON_SCHEMA,
+      parseSynthesizedSkill,
       origin,
     );
     if (!parsed) {
@@ -164,23 +270,60 @@ export class SkillSynthesizerService {
   }
 
   /**
+   * Consolidate a cluster of pool members into ONE umbrella skill plus
+   * reference documents for its variants. At most `UMBRELLA_MAX_MEMBERS`
+   * members are sent (the caller orders them closest-to-centroid first) and
+   * each body is clipped to `CLUSTER_MEMBER_MAX_CHARS`.
+   *
+   * Every non-success returns `null`: the umbrella pass skips the cluster and
+   * there is no template fallback for a merge.
+   */
+  async synthesizeUmbrella(
+    members: readonly UmbrellaMemberInput[],
+    origin: QueryOrigin = {},
+  ): Promise<UmbrellaSkill | null> {
+    if (members.length === 0) return null;
+    const sent = members.slice(0, UMBRELLA_MAX_MEMBERS);
+    const parsed = await this.runSynthesis(
+      UMBRELLA_SYSTEM_PROMPT,
+      buildUmbrellaPrompt(sent),
+      UMBRELLA_SKILL_JSON_SCHEMA,
+      parseUmbrellaSkill,
+      origin,
+    );
+    if (!parsed) {
+      this.logger.info(
+        '[skill-synthesis] umbrella synthesis failed/parse failed; skipping',
+        { clusterSize: members.length, sent: sent.length },
+      );
+      return null;
+    }
+    return parsed;
+  }
+
+  /**
    * One lane pass. Every non-success — no lane in this host, a stalled lane, a
    * thrown transport error, an answer that will not parse — collapses to `null`,
-   * because both callers already have a policy for "no skill came back" and
-   * neither can act on the difference.
+   * because every caller already has a policy for "no skill came back" and
+   * none can act on the difference.
+   *
+   * `outputSchema` shapes what is asked for; `parseJson` (a Zod parse) decides
+   * what is accepted.
    */
-  private async runSynthesis(
+  private async runSynthesis<T>(
     systemPromptAppend: string,
     prompt: string,
+    outputSchema: Record<string, unknown>,
+    parseJson: (json: unknown) => T | null,
     origin: QueryOrigin = {},
-  ): Promise<SynthesizedSkill | null> {
+  ): Promise<T | null> {
     let result;
     try {
       result = await this.laneRunner.run({
         laneId: 'synthesis',
         systemPromptAppend,
         prompt,
-        outputSchema: SYNTHESIZED_SKILL_JSON_SCHEMA,
+        outputSchema,
         userInitiated: origin.userInitiated,
       });
     } catch (error: unknown) {
@@ -206,7 +349,8 @@ export class SkillSynthesizerService {
       });
       return null;
     }
-    return this.parse(result.run);
+    const json = this.readJson(result.run);
+    return json === null ? null : parseJson(json);
   }
 
   private buildClusterPrompt(members: ClusterMemberInput[]): string {
@@ -270,22 +414,15 @@ If the session has no transferable, reusable routine (pure one-off Q&A, a trivia
 
   /**
    * The lane's structured answer when there is one, otherwise the manual
-   * extractor over the assistant text. Zod has the final say either way — a
-   * provider that honoured the schema can still omit a field.
+   * extractor over the assistant text. The caller's Zod parser has the final
+   * say either way — a provider that honoured the schema can still omit a field.
    */
-  private parse(run: LaneRun): SynthesizedSkill | null {
+  private readJson(run: LaneRun): unknown | null {
     const json =
       run.json !== null && typeof run.json === 'object'
         ? run.json
         : this.extractJsonObject(run.text);
-    if (!json) return null;
-    const parsed = SynthesizedSkillSchema.safeParse(json);
-    if (!parsed.success) return null;
-    return {
-      name: parsed.data.name,
-      description: parsed.data.description,
-      body: parsed.data.body,
-    };
+    return json ? json : null;
   }
 
   private extractJsonObject(text: string): unknown | null {
@@ -340,6 +477,63 @@ If the session has no transferable, reusable routine (pure one-off Q&A, a trivia
       '```',
       '',
     ].join('\n');
+  }
+}
+
+/** Zod-validated per-session / cluster answer, or `null`. */
+function parseSynthesizedSkill(json: unknown): SynthesizedSkill | null {
+  const parsed = SynthesizedSkillSchema.safeParse(json);
+  if (!parsed.success) return null;
+  return {
+    name: parsed.data.name,
+    description: parsed.data.description,
+    body: parsed.data.body,
+  };
+}
+
+/** Zod-validated umbrella answer, or `null` (including any bad reference name). */
+function parseUmbrellaSkill(json: unknown): UmbrellaSkill | null {
+  const parsed = UmbrellaSkillSchema.safeParse(json);
+  if (!parsed.success) return null;
+  return {
+    name: parsed.data.name,
+    description: parsed.data.description,
+    body: parsed.data.body,
+    references: parsed.data.references.map((r) => ({
+      name: r.name,
+      body: r.body,
+    })),
+  };
+}
+
+/**
+ * The umbrella prompt: every member labelled by what it is, each body clipped
+ * by the same fairness bound the cluster prompt uses.
+ */
+function buildUmbrellaPrompt(members: readonly UmbrellaMemberInput[]): string {
+  const sections = members.map((m, i) =>
+    [
+      `### Input ${i + 1} (${describeMemberKind(m.kind)}) — ${m.description}`,
+      m.body.slice(0, CLUSTER_MEMBER_MAX_CHARS),
+    ].join('\n'),
+  );
+  return [
+    `These ${members.length} skill drafts and skills cover closely related work.`,
+    `Merge them into ONE umbrella skill: the shared procedure in the body, and a`,
+    `reference document for each genuinely distinct variant.`,
+    ``,
+    ...sections,
+  ].join('\n\n');
+}
+
+function describeMemberKind(kind: UmbrellaMemberInput['kind']): string {
+  switch (kind) {
+    case 'candidate':
+      return 'draft from one session';
+    case 'promoted':
+      return 'live skill already in use';
+    case 'suggestion':
+      return 'pending suggestion merged from several sessions';
   }
 }
 

@@ -26,8 +26,37 @@ import {
   PLATFORM_TOKENS,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import type { SkillReference } from './types';
 
 const MAX_SLUG_RETRIES = 5;
+
+/** Sub-directory of a skill directory holding its reference documents. */
+export const REFERENCES_DIR_NAME = 'references';
+
+/**
+ * The only shape a reference name may take: it becomes a file name under
+ * `references/`, so it must be one plain path segment. The synthesizer's Zod
+ * schema enforces the same pattern at the LLM boundary; this module checks it
+ * again at the filesystem boundary because the name originates in model output.
+ */
+export const SKILL_REFERENCE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,59}$/;
+
+/**
+ * Windows device names. `con.md` opens the console device rather than a file
+ * on Windows, so these are refused even though they match the pattern above
+ * (which already forces lowercase). `console` and `com10` are ordinary names.
+ */
+const WINDOWS_RESERVED_NAME_PATTERN = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/;
+
+/** Options for {@link SkillMdGenerator.promoteToActive}. */
+export interface PromoteToActiveOptions {
+  /**
+   * True when a slug is already claimed in the database even though no
+   * directory exists for it (a deleted or not-yet-mirrored materialization).
+   * Such a slug is treated as occupied, exactly like an existing directory.
+   */
+  isSlugTaken?: (slug: string) => boolean;
+}
 
 /** Settings section, matching every other reader in this library. */
 export const SKILLS_ROOT_SECTION = 'ptah';
@@ -95,6 +124,13 @@ export interface SkillMdInput {
    * If omitted, extracted from a `## When to use` section in the body.
    */
   whenToUse?: string;
+  /**
+   * Reference documents written beside SKILL.md as
+   * `references/<name>.md`. Each name must match
+   * {@link SKILL_REFERENCE_NAME_PATTERN}; a violation throws before anything
+   * is written.
+   */
+  references?: readonly SkillReference[];
 }
 
 export interface MaterializedSkill {
@@ -164,6 +200,13 @@ export class SkillMdGenerator {
     input: SkillMdInput,
     candidatesDir?: string,
   ): MaterializedSkill {
+    // The candidate-rewrite path writes SKILL.md only; silently dropping
+    // references would lose content the caller believes was persisted.
+    if (input.references && input.references.length > 0) {
+      throw new Error(
+        '[skill-synthesis] overwriteCandidate does not write references',
+      );
+    }
     const root = this.candidatesRoot(candidatesDir);
     const slug = this.sanitizeSlug(input.slug);
     const dir = path.join(root, slug);
@@ -191,36 +234,61 @@ export class SkillMdGenerator {
    * Returns the new absolute file path. The original candidate directory is
    * left in place — the candidate row in SQLite is the source of truth, and
    * the file system is just a materialization.
+   *
+   * `options.isSlugTaken` lets the caller veto a slug the database already
+   * holds, so the chosen slug is free on disk AND in the DB.
    */
   promoteToActive(
     input: SkillMdInput,
     candidatesDir?: string,
+    options: PromoteToActiveOptions = {},
   ): MaterializedSkill {
     void candidatesDir;
     const root = this.activeRoot();
-    return this.writeAtRoot(input, root);
+    return this.writeAtRoot(input, root, options.isSlugTaken);
   }
 
-  /** Remove the exact active materialization returned by {@link promoteToActive}. */
+  /**
+   * Remove the exact active materialization returned by {@link promoteToActive},
+   * including its `references/` directory.
+   *
+   * Refuses (throws, deletes nothing) unless the directory is strictly inside
+   * the active root: a recursive delete must never reach the root itself or a
+   * path outside it.
+   */
   removeActive(materialized: MaterializedSkill): void {
-    fs.rmSync(materialized.dir, { recursive: true, force: true });
+    const root = path.resolve(this.activeRoot());
+    const dir = path.resolve(materialized.dir);
+    if (!dir.startsWith(root + path.sep)) {
+      throw new Error(
+        `[skill-synthesis] refusing to remove a directory outside the active root: ${dir}`,
+      );
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  private writeAtRoot(input: SkillMdInput, root: string): MaterializedSkill {
+  private writeAtRoot(
+    input: SkillMdInput,
+    root: string,
+    isSlugTaken: (slug: string) => boolean = () => false,
+  ): MaterializedSkill {
+    // Validate before touching the disk: an invalid reference must not leave a
+    // half-written skill directory behind.
+    const references = this.validateReferences(input.references ?? []);
     fs.mkdirSync(root, { recursive: true });
     const baseSlug = this.sanitizeSlug(input.slug);
+    const occupied = (slug: string): boolean =>
+      fs.existsSync(path.join(root, slug)) || isSlugTaken(slug);
     let chosen = baseSlug;
-    let dir = path.join(root, chosen);
-    for (let attempt = 2; attempt <= MAX_SLUG_RETRIES; attempt++) {
-      if (!fs.existsSync(dir)) break;
-      chosen = `${baseSlug}-${attempt}`;
-      dir = path.join(root, chosen);
-      if (attempt === MAX_SLUG_RETRIES && fs.existsSync(dir)) {
+    for (let attempt = 2; occupied(chosen); attempt++) {
+      if (attempt > MAX_SLUG_RETRIES) {
         throw new Error(
           `[skill-synthesis] slug collision: ${baseSlug} (tried up to -${MAX_SLUG_RETRIES})`,
         );
       }
+      chosen = `${baseSlug}-${attempt}`;
     }
+    const dir = path.join(root, chosen);
     fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, 'SKILL.md');
     const content = this.renderSkillMd({
@@ -228,12 +296,85 @@ export class SkillMdGenerator {
       description: input.description,
       body: input.body,
     });
-    fs.writeFileSync(filePath, content, 'utf8');
+    try {
+      fs.writeFileSync(filePath, content, 'utf8');
+      if (references.length > 0) {
+        const referencesDir = path.join(dir, REFERENCES_DIR_NAME);
+        fs.mkdirSync(referencesDir, { recursive: true });
+        for (const reference of references) {
+          fs.writeFileSync(
+            path.join(referencesDir, `${reference.name}.md`),
+            `${reference.body.trim()}\n`,
+            'utf8',
+          );
+        }
+      }
+    } catch (error: unknown) {
+      // A half-written skill directory would occupy the slug and look like a
+      // real skill to discovery; remove it, then surface the original error.
+      this.removeDirAfterFailedWrite(dir, chosen);
+      throw error;
+    }
     this.logger.info('[skill-synthesis] SKILL.md materialized', {
       slug: chosen,
       filePath,
+      references: references.length,
     });
     return { slug: chosen, dir, filePath };
+  }
+
+  /**
+   * Best-effort cleanup for {@link writeAtRoot}. A cleanup failure is logged
+   * and not thrown, so the caller rethrows the ORIGINAL write error rather
+   * than this secondary one.
+   */
+  private removeDirAfterFailedWrite(dir: string, slug: string): void {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch (cleanupError: unknown) {
+      this.logger.warn(
+        '[skill-synthesis] could not remove a partially written skill directory',
+        {
+          slug,
+          dir,
+          error:
+            cleanupError instanceof Error
+              ? cleanupError.message
+              : String(cleanupError),
+        },
+      );
+    }
+  }
+
+  /**
+   * Re-check every reference name at the filesystem boundary. A name is one
+   * plain path segment or the write is refused: `../x` and `a/b` would
+   * otherwise escape `references/`. Duplicates are refused too, because the
+   * second write would silently replace the first.
+   */
+  private validateReferences(
+    references: readonly SkillReference[],
+  ): readonly SkillReference[] {
+    const seen = new Set<string>();
+    for (const reference of references) {
+      if (!SKILL_REFERENCE_NAME_PATTERN.test(reference.name)) {
+        throw new Error(
+          `[skill-synthesis] invalid reference name: ${JSON.stringify(reference.name)}`,
+        );
+      }
+      if (WINDOWS_RESERVED_NAME_PATTERN.test(reference.name)) {
+        throw new Error(
+          `[skill-synthesis] reserved reference name: ${reference.name}`,
+        );
+      }
+      if (seen.has(reference.name)) {
+        throw new Error(
+          `[skill-synthesis] duplicate reference name: ${reference.name}`,
+        );
+      }
+      seen.add(reference.name);
+    }
+    return references;
   }
 
   private renderSkillMd(input: SkillMdInput): string {
