@@ -24,6 +24,7 @@ import {
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 import { ROUTING_MAP_ENTRIES } from './settings-routing-map.entries';
+import { CLI_MATRIX_ENTRIES } from './settings-cli-matrix.entries';
 import {
   advancedTab, applyManualTierModel, card, chooseMainAgentModel, expectHostAppScope, closeCatalog, closeConnectionDrawer, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
   cliConfigSection, closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
@@ -777,8 +778,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
     reach: (page) => inDrawerTab(page, 'Moonshot', 'Models & Tiers', 'connection-models', async (panel) => {
       await expect(panel.locator('[data-tier="sonnet"] [data-testid="provider-model-picker-tooluse-summary"]')).toContainText('support tool use');
     }) },
-  { id: '#43', capability: 'Ptah CLI agent status (Ready/Error/Init/No Key)', status: 'pending', reach: notYetBuilt },
-  { id: '#44', capability: 'Ptah CLI agent key status (Key set/No key/Cloud signin)', status: 'pending', reach: notYetBuilt },
+  // #43, #44, #54, #70 and #71 (restored in Batch 30) are in `settings-cli-matrix.entries.ts`.
   { id: '#47', capability: 'Inline GitHub login when adding a Copilot-backed CLI agent', status: 'pending', reach: notYetBuilt },
   { id: '#49', capability: 'Show/hide API key in CLI agent add/edit forms', status: 'restored',
     // Batch 21 restores the drawer Credentials half (the Replace key field). The CLI agent add/edit
@@ -796,9 +796,6 @@ const restoredPending: readonly ReachabilityEntry[] = [
       }
     } },
   { id: '#53', capability: 'CLI-agent tier mapping (cliAgent scope)', status: 'pending', reach: notYetBuilt },
-  { id: '#54', capability: 'Tier-mapping badges on CLI agent cards', status: 'pending', reach: notYetBuilt },
-  { id: '#70', capability: 'Per-CLI permission and safety notes', status: 'pending', reach: notYetBuilt },
-  { id: '#71', capability: 'Per-CLI grouping of delegated settings, hidden when not installed', status: 'pending', reach: notYetBuilt },
 ];
 
 // ---------------------------------------------------------------------------
@@ -962,7 +959,7 @@ export const KEPT_SELECTORS: readonly KeptSelector[] = [
 
 /** Every parity-inventory entry this baseline covers, frozen in S4 (D14 rule 2/3). */
 export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
-  ...providersAuth, ...mainAgentModel, ...cliAgents, ...orchestrationPolicy, ...other, ...restoredPending, ...regressedUx, ...ROUTING_MAP_ENTRIES,
+  ...providersAuth, ...mainAgentModel, ...cliAgents, ...orchestrationPolicy, ...other, ...restoredPending, ...regressedUx, ...ROUTING_MAP_ENTRIES, ...CLI_MATRIX_ENTRIES,
 ];
 
 /**
@@ -970,8 +967,10 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
  * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84. Batch 22 added RUX-2: 85. Batch 23 added
  * RUX-5 and RUX-6: 87. Batch 27 added RUX-3: 88. Batch 28 added the routing-map node actions RM-1..3: 91.
  * Batch 28d added the Gate V 28 follow-ups GV28-1..3 (key hint, check latency, Codex CLI under "Used by"): 94.
+ * Batch 30 added the CLI matrix's regressed-UX fixes RUX-8 (2-click model/effort) and RUX-11 (inline test result), in
+ * `settings-cli-matrix.entries.ts` with the restored #43, #44, #54, #70 and #71 (moved there from the pending list): 96.
  */
-export const EXPECTED_CAPABILITY_COUNT = 94;
+export const EXPECTED_CAPABILITY_COUNT = 96;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

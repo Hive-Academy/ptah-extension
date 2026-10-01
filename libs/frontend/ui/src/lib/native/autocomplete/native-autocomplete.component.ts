@@ -133,6 +133,8 @@ let nextAutocompleteInstanceId = 0;
               let i = $index
             ) {
               <ptah-native-option
+                [class.!px-2]="compact()"
+                [class.!py-1]="compact()"
                 [optionId]="optionIdPrefix() + '-' + i"
                 [value]="suggestion"
                 [isActive]="i === activeIndex()"
@@ -239,6 +241,15 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
   readonly suggestionTemplate = input.required<TemplateRef<{ $implicit: T }>>();
 
   /**
+   * Opt-in: the panel takes the width of the projected input, so it reads as that field's own list (TASK_2026_555
+   * Batch 30, the CLI matrix model popover). Off by default: the panel sizes to its content, as before.
+   */
+  readonly matchInputWidth = input<boolean>(false);
+
+  /** Opt-in: denser rows (`px-2 py-1` instead of `px-3 py-2`) for a compact list. Off by default. */
+  readonly compact = input<boolean>(false);
+
+  /**
    * Emitted when a suggestion is selected (click or Enter key).
    * Parent should handle insertion logic.
    */
@@ -332,6 +343,7 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
     const panel = this.floatingPanel()?.nativeElement;
 
     if (origin && panel) {
+      if (this.matchInputWidth()) panel.style.width = `${origin.getBoundingClientRect().width}px`;
       await this.floatingUI.position(origin, panel, {
         placement: 'bottom-start',
         offset: AUTOCOMPLETE_OVERLAY_OFFSET,

@@ -3,6 +3,7 @@ import {
 } from '@angular/core';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
+import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
 import { PtahCliConfigComponent } from './ptah-cli-config.component';
 import {
   ProviderConsumerAssignmentsComponent, type BackgroundConsumerId,
@@ -23,15 +24,23 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
  * Mounts the existing orchestration policy, the background-role assignments and the Ptah CLI
  * instance manager unchanged, moved here from the Providers page in one change so no capability
  * is ever unmounted. Opens the shared state itself, because a user can land on this tab first.
- * S6 replaces the contents (CLI matrix, policy bar, roles `<details>`).
+ * S6 replaces the contents (CLI matrix, policy bar, roles `<details>`); the CLI matrix is mounted since Batch 30.
  */
 @Component({
   selector: 'ptah-orchestration-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AgentOrchestrationConfigComponent, ProviderConsumerAssignmentsComponent, PtahCliConfigComponent],
+  imports: [AgentOrchestrationConfigComponent, CliOrchestrationMatrixComponent, ProviderConsumerAssignmentsComponent, PtahCliConfigComponent],
   template: `
     <div class="space-y-4 font-sans text-sm text-base-content">
+      <!-- Batch 30: the CLI matrix, above the old policy and instance manager until Batches 33-34 retire them (D14).
+           Deferred (own chunk; the eager bundle is at its budget) behind a same-footprint placeholder. -->
+      @defer (on immediate) {
+        <ptah-cli-orchestration-matrix />
+      } @placeholder {
+        <div class="min-h-[22rem] rounded-xl border border-base-300 bg-base-200/40" aria-busy="true" data-testid="cli-matrix-placeholder"></div>
+      }
+
       <ptah-agent-orchestration-config />
 
       @for (section of readStates(); track section.id) {

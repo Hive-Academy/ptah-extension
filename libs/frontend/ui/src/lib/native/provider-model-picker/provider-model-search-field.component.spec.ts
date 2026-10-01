@@ -363,4 +363,57 @@ describe('ProviderModelSearchFieldComponent', () => {
       expect(reachedParent).toHaveBeenCalledTimes(1);
     });
   });
+
+  // TASK_2026_555 Batch 30, Visual round 1: opt-in compact list and search placeholder for the CLI matrix popover.
+  describe('compact and placeholder (opt-in)', () => {
+    async function settle(): Promise<void> {
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+      fixture.detectChanges();
+    }
+
+    it('keeps the default rows, width and placeholder when not opted in', async () => {
+      create({ selectedId: 'kimi-k2' });
+      focus();
+      await settle();
+      expect(input().placeholder).toBe('Kimi K2');
+      expect(optionLabels()).toContain('Claude Sonnet 4');
+      expect(optionEls()[0].className).not.toContain('!py-1');
+      expect((root().querySelector('[role="listbox"]') as HTMLElement).style.width).toBe('');
+    });
+
+    it('opens empty with the given placeholder', async () => {
+      create({ selectedId: 'kimi-k2', placeholder: 'Search models (e.g. gpt-5, sonnet)...' });
+      focus();
+      await settle();
+      expect(input().value).toBe('');
+      expect(input().placeholder).toBe('Search models (e.g. gpt-5, sonnet)...');
+    });
+
+    it('lists ids in mono with the display name after them and checks the current one', async () => {
+      create({ selectedId: 'kimi-k2', compact: true, pinnedOption: { id: '__manual__', name: 'Enter a model ID…', supportsToolUse: null } });
+      focus();
+      await settle();
+      const rows = optionEls();
+      // The sentinel and the pinned action row keep their labels; catalogue rows lead with the id.
+      expect(rows.map((row) => row.querySelector('.truncate')?.textContent?.trim()))
+        .toEqual(['Default (haiku tier)', 'claude-sonnet-4', 'gpt-5-mini', 'kimi-k2', 'Enter a model ID…']);
+      expect(rows[1].querySelector('.font-mono')?.textContent?.trim()).toBe('claude-sonnet-4');
+      expect(rows[1].textContent).toContain('Claude Sonnet 4');
+      expect(rows[0].querySelector('.font-mono')).toBeNull();
+      const current = rows.filter((row) => row.querySelector('[data-current="true"]'));
+      expect(current).toHaveLength(1);
+      expect(current[0].textContent).toContain('✓');
+      expect(current[0].textContent).toContain('(current)');
+      expect(rows[1].className).toContain('!py-1');
+    });
+
+    it('sizes the compact list to the field', async () => {
+      create({ compact: true });
+      jest.spyOn(root().querySelector('.autocomplete-input') as HTMLElement, 'getBoundingClientRect')
+        .mockReturnValue({ width: 236 } as DOMRect);
+      focus();
+      await settle();
+      expect((root().querySelector('[role="listbox"]') as HTMLElement).style.width).toBe('236px');
+    });
+  });
 });

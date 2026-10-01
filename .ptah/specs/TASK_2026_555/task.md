@@ -118,3 +118,10 @@ Gate 1.7 (user) → architect → team-leader → batches with cross-side review
   Copilot, Codex) record status + time with `latencyMs: null` (orchestrator choice). The `auth:getApiKeyStatus`
   read-failure change (fixed "Could not read the stored keys." instead of an empty list) is accepted (D15 spirit).
   - PR 611 Sonar (same session): the 3 `ci.yml` install-step findings were accepted on SonarCloud (user choice).
+- Second track (2026-10-01, user): replaces the 2026-09-30 "sequential, no second worktree" line for Batches 39-50.
+  Batches 39-50 run in a second worktree `.claude-worktrees/task-555-advanced-search-voice` (branch
+  `feat/task-555-advanced-search-voice`, from `41b85393c`) while the Orchestration owner continues 30-36 here. CLI
+  lanes author 39-50 (opencode `opencode-go/kimi-k2.7-code`, antigravity, Glm); Advanced (40-44) and Search & Voice
+  (45-48) run as two file-disjoint streams after 39. In the second worktree only its team-leader builds, runs Gate G
+  and captures (single writer). Gate V 50 code review = subagent `code-logic-reviewer` (cross-side of lane authors).
+  The second branch merges into this one after Gate V 36, then Gate G runs again.

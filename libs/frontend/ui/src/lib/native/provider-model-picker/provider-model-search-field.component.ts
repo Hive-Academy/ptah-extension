@@ -66,7 +66,9 @@ let nextPopupId = 0;
       [ariaLabel]="listAriaLabel()"
       [emptyMessage]="emptyMessage"
       [trackBy]="trackById"
-      [suggestionTemplate]="optionTemplate"
+      [suggestionTemplate]="compact() ? compactOptionTemplate : optionTemplate"
+      [compact]="compact()"
+      [matchInputWidth]="compact()"
       (suggestionSelected)="choose($event)"
       (closed)="close()"
     >
@@ -91,7 +93,7 @@ let nextPopupId = 0;
           data-testid="provider-model-picker-search"
           [attr.id]="inputId()"
           [value]="displayValue()"
-          [placeholder]="selectedLabel()"
+          [placeholder]="placeholder() ?? selectedLabel()"
           [disabled]="disabled()"
           [attr.aria-label]="ariaLabel()"
           [attr.aria-expanded]="open()"
@@ -106,6 +108,19 @@ let nextPopupId = 0;
         />
       </div>
     </ptah-native-autocomplete>
+
+    <!-- Compact rows: the id in mono, the catalogue's display name (when it differs) muted after it, and the
+         current selection marked with a check. -->
+    <ng-template #compactOptionTemplate let-option>
+      <span class="flex min-w-0 items-center gap-1.5 text-xs" [attr.data-current]="option.id === selectedId() ? 'true' : null">
+        <span class="w-3 shrink-0 text-center" aria-hidden="true">{{ option.id === selectedId() ? '✓' : '' }}</span>
+        <span class="truncate" [class.font-mono]="option.id !== '' && option.id !== pinnedOption()?.id">{{ compactLabel(option) }}</span>
+        @if (option.id && option.name && option.name !== option.id && option.id !== pinnedOption()?.id) {
+          <span class="truncate opacity-70">{{ option.name }}</span>
+        }
+        @if (option.id === selectedId()) { <span class="sr-only">(current)</span> }
+      </span>
+    </ng-template>
 
     <ng-template #optionTemplate let-option>
       <span class="flex min-w-0 items-center justify-between gap-2 text-sm">
@@ -152,6 +167,15 @@ export class ProviderModelSearchFieldComponent {
 
   /** An action row always listed last and never filtered out (e.g. "Enter a model ID…"); none by default. */
   readonly pinnedOption = input<ProviderModelSearchOption | null>(null);
+
+  /**
+   * Opt-in compact list (TASK_2026_555 Batch 30, the CLI matrix popover): dense `text-xs` rows showing the model id in
+   * mono with its display name muted after it, the current one checked, in a list as wide as the field. Off by default.
+   */
+  readonly compact = input<boolean>(false);
+
+  /** Placeholder of the open, empty search; `null` (default) shows the current selection's label. */
+  readonly placeholder = input<string | null>(null);
 
   /** Fires with the chosen id when the user picks a different entry. */
   readonly modelSelected = output<string>();
@@ -234,6 +258,11 @@ export class ProviderModelSearchFieldComponent {
   protected readonly displayValue = computed<string>(() =>
     this._open() ? this._query() : this.selectedLabel(),
   );
+
+  /** Compact rows lead with the id; the sentinel and the pinned action row keep their label. */
+  protected compactLabel(option: ProviderModelSearchOption): string {
+    return option.id === '' || option.id === this.pinnedOption()?.id ? option.name : option.id;
+  }
 
   protected openPanel(): void {
     if (this.disabled() || this._open()) return;

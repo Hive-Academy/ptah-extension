@@ -165,6 +165,63 @@ async function assertPopoverOnTop(page: Page, popover: string, rows: string): Pr
   expect(covered).toEqual([]);
 }
 
+/**
+ * Batch 30: the CLI matrix (table-xs) and its Codex model, effort and permission popovers, each captured open and
+ * fully on screen, then closed with Esc (the model search closes its list first). Row heights are logged; the
+ * Orchestration fold assertions follow in Batch 36.
+ */
+async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', theme: string): Promise<void> {
+  const matrix = page.locator('[data-testid="cli-matrix"]');
+  await expect(matrix).toBeVisible();
+  const rows = await matrix.locator('tr[data-testid^="cli-matrix-row-"]').evaluateAll((all) => all.map((row) =>
+    `${row.getAttribute('data-testid')?.replace('cli-matrix-row-', '')}:${Math.round(row.getBoundingClientRect().height)}`));
+  // Every column fits its box in both hosts (Electron moves the provider under the agent name): nothing scrolls sideways.
+  const overflow = await matrix.evaluate((table) => {
+    const box = table.parentElement;
+    return box ? box.scrollWidth - box.clientWidth : 0;
+  });
+  console.log(`B30 matrix ${host}/${theme}: header bottom ${await bottomOf(page, '[data-testid="cli-matrix"] thead')}, `
+    + `first row bottom ${await bottomOf(page, '[data-testid="cli-matrix"] tbody tr')}; overflow ${overflow}px; rows ${rows.join(', ')}`);
+  expect(overflow, 'CLI matrix horizontal overflow').toBeLessThanOrEqual(0);
+  const viewport = page.viewportSize();
+  const onScreen = async (selector: string) => {
+    const box = await page.locator(selector).boundingBox();
+    expect(box && viewport && box.y >= 0 && box.y + box.height <= viewport.height && box.x >= 0 && box.x + box.width <= viewport.width,
+      `${selector} on screen`).toBe(true);
+  };
+  const popover = '[data-testid="cli-matrix-popover"]';
+  // Model: the cell opens the popover with its search focused and the list open (interactions/orchestration-2).
+  await page.locator('[data-testid="cli-matrix-model-codex"]').click();
+  const search = page.locator(`${popover} input[role="combobox"]`);
+  await expect(search).toBeEnabled();
+  await expect(search).toBeFocused();
+  const listbox = page.locator(`[id="${await search.getAttribute('aria-controls')}"]`);
+  await expect(listbox).toBeVisible();
+  await waitForSettled(page);
+  await onScreen(popover);
+  await assertPopoverOnTop(page, popover, 'h3, button');
+  await page.screenshot({ path: capturePath('orchestration-popover-model', host, theme), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(search).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('Escape');
+  await expect(page.locator(popover)).toHaveCount(0);
+  // Effort: the CLI's allowlist as a two-column grid, the saved value pressed (interactions/orchestration-3).
+  await page.locator('[data-testid="cli-matrix-effort-codex"]').click();
+  await expect(page.locator(`${popover} [aria-pressed="true"]`)).toHaveText('Medium');
+  await onScreen(popover);
+  await assertPopoverOnTop(page, popover, 'button');
+  await page.screenshot({ path: capturePath('orchestration-popover-effort', host, theme), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(page.locator(popover)).toHaveCount(0);
+  // Permission ℹ (the copy shown to the user at Gate V 36).
+  await page.locator('[data-testid="cli-matrix-permission-info-codex"]').click();
+  await expect(page.locator('[data-testid="cli-permission-popover"]')).toBeVisible();
+  await onScreen('[data-testid="cli-permission-popover"]');
+  await page.screenshot({ path: capturePath('orchestration-popover-permission', host, theme), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-testid="cli-permission-popover"]')).toHaveCount(0);
+}
+
 for (const host of ['vscode', 'electron'] as const) {
   for (const theme of ['anubis', 'anubis-light'] as const) {
     test(`baseline smoke — both tabs (${host}, ${theme})`, async ({ page, fixtureServer }) => {
@@ -177,6 +234,8 @@ for (const host of ['vscode', 'electron'] as const) {
         await waitForSettled(page);
         await page.screenshot({ path: capturePath(tab.name, host, theme) });
       }
+      // Batch 30: the CLI matrix's cell popovers (prototype interactions/orchestration-2/-3). The tab is still open.
+      await captureMatrixPopovers(page, host, theme);
       await gotoSettingsTab(page, 'Providers');
       await waitForSettled(page);
       // Batch 28: the fold gate, in both hosts (Q-extra-1: container-width columns, 80 px cards everywhere).
