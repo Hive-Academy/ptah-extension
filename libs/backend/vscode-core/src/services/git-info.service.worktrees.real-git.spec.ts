@@ -159,6 +159,31 @@ describe('GitInfoService worktree administration (real git)', () => {
       ).toBe('');
     });
 
+    it.each(['!x', '#y'])(
+      'anchors the exclude line so a workspace folder named %s is excluded, not negated or commented out',
+      async (folder) => {
+        const repo = makeRepo();
+        const workspace = path.join(repo, folder);
+        fs.mkdirSync(workspace);
+
+        const result = await service.addWorktree(workspace, {
+          branch: 'agent-sub',
+          createBranch: true,
+        });
+
+        expect(result.success).toBe(true);
+        expect(
+          fs
+            .readFileSync(commonExcludeFile(repo), 'utf8')
+            .split(/\r?\n/)
+            .filter((line) => line === `/${folder}/${EXCLUDE_LINE.slice(1)}`),
+        ).toHaveLength(1);
+        expect(
+          git(repo, 'status', '--porcelain', '--untracked-files=all'),
+        ).toBe('');
+      },
+    );
+
     it('writes nothing when the directory is already ignored', async () => {
       const repo = makeRepo();
       fs.writeFileSync(path.join(repo, '.gitignore'), '.claude-worktrees/\n');

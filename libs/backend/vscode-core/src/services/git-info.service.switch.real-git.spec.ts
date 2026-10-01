@@ -199,6 +199,25 @@ describe('GitInfoService.checkout switch semantics (real git)', () => {
     expect(read(repo, 'a.txt')).toBe('feature\n');
   });
 
+  it('reports an untracked blocker of force as dirty and never deletes it', async () => {
+    const repo = makeRepo();
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'edited\n');
+    fs.writeFileSync(path.join(repo, 'f.txt'), 'untracked clash\n');
+
+    const result = await service.checkout(repo, 'feature', false, true);
+
+    expect(result).toMatchObject({
+      success: false,
+      dirty: true,
+      conflictingPaths: ['f.txt'],
+    });
+    expect(result.error).toMatch(
+      /^Untracked files block this switch: f\.txt\./,
+    );
+    expect(currentBranch(repo)).toBe('main');
+    expect(read(repo, 'f.txt')).toBe('untracked clash\n');
+  });
+
   it('stashes (untracked included) and switches, returning the stash SHA', async () => {
     const repo = makeRepo();
     fs.writeFileSync(path.join(repo, 'a.txt'), 'edited\n');

@@ -794,8 +794,8 @@ describe('worktree handlers workspace scoping', () => {
     expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
   });
 
-  it('git:worktrees returns an empty list for malformed params', async () => {
-    const { handlers, rpc, gitInfo } = buildSuite();
+  it('git:worktrees returns an empty list and warns for malformed params', async () => {
+    const { handlers, rpc, gitInfo, logger } = buildSuite();
     handlers.register();
 
     const result = await getHandler(
@@ -805,6 +805,9 @@ describe('worktree handlers workspace scoping', () => {
 
     expect(result).toEqual({ worktrees: [] });
     expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[GitRpc] git:worktrees called with invalid params',
+    );
   });
 
   it('git:addWorktree runs in the registered folder named in workspaceRoot', async () => {

@@ -121,6 +121,13 @@ export class AgentWorktreeAdmin {
         timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
       });
       if (exitCode !== 0) {
+        // `--end-of-options` arrived in git 2.24; older git rejects it.
+        if (/unknown option .end-of-options'/.test(stderr)) {
+          return {
+            success: false,
+            error: 'Git 2.24 or later is required for this action.',
+          };
+        }
         return {
           success: false,
           error: stderr.trim() || 'Failed to add worktree',

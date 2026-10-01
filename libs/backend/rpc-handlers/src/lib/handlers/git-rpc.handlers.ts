@@ -321,9 +321,11 @@ export class GitRpcHandlers {
       'git:worktrees',
       async (rawParams) => {
         const params = parseGitWorkspaceScopedParams(rawParams);
-        const wsRoot = params
-          ? this.resolveRoot(params.workspaceRoot, 'git:worktrees')
-          : undefined;
+        if (!params) {
+          this.logger.warn('[GitRpc] git:worktrees called with invalid params');
+          return { worktrees: [] };
+        }
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:worktrees');
         if (!wsRoot) {
           return { worktrees: [] };
         }

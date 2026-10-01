@@ -260,26 +260,62 @@ function stashRef(index: number): string {
   return `stash@{${index}}`;
 }
 
+/** Why git refused a switch: the paths in the way, and whether any is untracked. */
+interface SwitchRefusal {
+  paths: string[];
+  untracked: boolean;
+}
+
 /**
- * Paths git lists when it refuses a switch because local changes would be
- * overwritten. Both refusals (tracked "Your local changes to the following
- * files…" and "The following untracked working tree files…") end their header
- * with "would be overwritten by <op>:" and list one tab-indented path per line.
- * `execGit` pins `LC_ALL=C`, so the English text is stable.
+ * Paths git names when it refuses a switch because local files would be
+ * overwritten. `execGit` pins `LC_ALL=C`, so the English text is stable.
+ *
+ * - List form (plain `switch`): a header ending "would be overwritten by
+ *   <op>:" — "Your local changes to the following files…" for tracked files,
+ *   "The following untracked working tree files…" for untracked ones — then
+ *   one tab-indented path per line.
+ * - Single-line form (`switch --discard-changes`, which discards tracked
+ *   changes but still refuses an untracked file in the way): `error: Untracked
+ *   working tree file '<path>' would be overwritten by <op>.` Git stops at the
+ *   first such file, so only that one is named.
  */
-function parseOverwrittenPaths(stderr: string): string[] {
+function parseSwitchRefusal(stderr: string): SwitchRefusal {
   const paths: string[] = [];
+  let untracked = false;
   let inList = false;
   for (const line of stderr.split(/\r?\n/)) {
-    if (/would be overwritten by \S+:$/.test(line)) {
+    const single =
+      /^error: Untracked working tree file '(.+)' would be overwritten by \S+\.$/.exec(
+        line,
+      );
+    if (single) {
+      paths.push(single[1]);
+      untracked = true;
+      inList = false;
+    } else if (/would be overwritten by \S+:$/.test(line)) {
       inList = true;
+      untracked ||= line.includes('untracked working tree files');
     } else if (inList && line.startsWith('\t')) {
       paths.push(line.slice(1));
     } else {
       inList = false;
     }
   }
-  return paths;
+  return { paths, untracked };
+}
+
+/** Shown when the installed git predates `git switch` / `--end-of-options`. */
+const GIT_TOO_OLD_MESSAGE = 'Git 2.24 or later is required for this action.';
+
+/**
+ * Whether a failed `git switch` failed because git is older than 2.24:
+ * `switch` arrived in 2.23 and `--end-of-options` in 2.24.
+ */
+function isGitTooOldForSwitch(stderr: string): boolean {
+  return (
+    stderr.includes("'switch' is not a git command") ||
+    /unknown option .end-of-options'/.test(stderr)
+  );
 }
 
 /**
@@ -2521,11 +2557,11 @@ export class GitInfoService {
           ? await this.resolveTrackTarget(workspacePath, branch)
           : ['--end-of-options', branch];
         if (force) {
-          return this.runSwitch(workspacePath, [
-            'switch',
-            '--discard-changes',
-            ...target,
-          ]);
+          return this.runSwitch(
+            workspacePath,
+            ['switch', '--discard-changes', ...target],
+            true,
+          );
         }
         if (options.stash) {
           return this.stashAndSwitch(workspacePath, branch, target);
@@ -2543,20 +2579,35 @@ export class GitInfoService {
     }
   }
 
-  /** One `git switch`; an overwrite refusal becomes `dirty` + paths. */
+  /**
+   * One `git switch`; an overwrite refusal becomes `dirty` + paths. After
+   * `--discard-changes` (`discarding`) only untracked files can still be in
+   * the way; they are never deleted, so the error asks the user to move them.
+   * A git too old for `switch` / `--end-of-options` gets a clear message.
+   */
   private async runSwitch(
     workspacePath: string,
     args: string[],
+    discarding = false,
   ): Promise<GitCheckoutResult> {
     const run = await this.writeLock.execWrite(args, workspacePath, {
       timeoutMs: GIT_HOOK_TIMEOUT_MS,
     });
     const outcome: GitCheckoutResult = writeOutcome(run, 'git switch failed');
     if (outcome.success || run.code !== 'COMPLETED') return outcome;
-    const conflictingPaths = parseOverwrittenPaths(run.stderr);
-    return conflictingPaths.length > 0
-      ? { ...outcome, dirty: true, conflictingPaths }
-      : outcome;
+    if (isGitTooOldForSwitch(run.stderr)) {
+      return { ...outcome, error: GIT_TOO_OLD_MESSAGE };
+    }
+    const { paths: conflictingPaths, untracked } = parseSwitchRefusal(
+      run.stderr,
+    );
+    if (conflictingPaths.length === 0) return outcome;
+    const error =
+      discarding && untracked
+        ? `Untracked files block this switch: ${conflictingPaths.join(', ')}. ` +
+          'Move or delete them, then try again.'
+        : outcome.error;
+    return { ...outcome, error, dirty: true, conflictingPaths };
   }
 
   /**

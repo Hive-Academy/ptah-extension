@@ -215,6 +215,27 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
         'feature/x',
       ]);
     });
+
+    it('reports the minimum git version when worktree add rejects --end-of-options', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr:
+            "error: unknown option `end-of-options'\nusage: git worktree add [<options>] <path> [<commit-ish>]\n",
+          exitCode: 129,
+        }),
+      );
+
+      const result = await service.addWorktree(WS, {
+        branch: 'feature/x',
+        path: path.resolve('/worktrees/old-git'),
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Git 2.24 or later is required for this action.',
+      });
+    });
   });
   describe('getBranches()', () => {
     /**
@@ -721,6 +742,71 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
         'feat/x',
       ]);
     });
+
+    it('reports an untracked blocker of switch --discard-changes as dirty with a move-or-delete message', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr:
+            "error: Untracked working tree file 'docs/it''s.txt' would be overwritten by merge.\n",
+          exitCode: 128,
+        }),
+      );
+
+      const result = await service.checkout(WS, 'feat/x', false, true);
+
+      expect(result).toEqual({
+        success: false,
+        dirty: true,
+        conflictingPaths: ["docs/it''s.txt"],
+        error:
+          "Untracked files block this switch: docs/it''s.txt. Move or delete them, then try again.",
+      });
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the untracked list refusal of a plain switch as dirty, keeping git text', async () => {
+      const stderr =
+        'error: The following untracked working tree files would be overwritten by checkout:\n' +
+        '\tu1.txt\n' +
+        '\tu2.txt\n' +
+        'Please move or remove them before you switch branches.\n' +
+        'Aborting\n';
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({ stdout: '', stderr, exitCode: 1 }),
+      );
+
+      const result = await service.checkout(WS, 'feat/x', false, false);
+
+      expect(result).toEqual({
+        success: false,
+        dirty: true,
+        conflictingPaths: ['u1.txt', 'u2.txt'],
+        error: stderr.trim(),
+      });
+    });
+
+    it.each([
+      ["git: 'switch' is not a git command. See 'git --help'.\n", 1],
+      [
+        "error: unknown option `end-of-options'\nusage: git switch [<options>] [<branch>]\n",
+        129,
+      ],
+    ])(
+      'reports the minimum git version when git is too old (%#)',
+      async (stderr, exitCode) => {
+        mockSpawn.mockImplementationOnce(() =>
+          makeSpawnResult({ stdout: '', stderr, exitCode }),
+        );
+
+        const result = await service.checkout(WS, 'feat/x', false, false);
+
+        expect(result).toEqual({
+          success: false,
+          error: 'Git 2.24 or later is required for this action.',
+        });
+      },
+    );
 
     it('returns { success: false, error: "Invalid branch name" } for path traversal attempt', async () => {
       const result = await service.checkout(WS, '../evil', false, false);
