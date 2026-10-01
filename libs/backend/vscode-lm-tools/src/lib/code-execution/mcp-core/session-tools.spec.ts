@@ -2,10 +2,15 @@
 // tool-description.builder, whose workspace-intelligence import needs the
 // reflect polyfill.
 import 'reflect-metadata';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type {
-  SessionChildCompletionEnvelope,
-  SessionChildSnapshot,
+import {
+  SESSION_READ_DEFAULT_TAIL_KIB,
+  SESSION_READ_MAX_TAIL_KIB,
+  type SessionChildCompletionEnvelope,
+  type SessionChildSnapshot,
 } from '@ptah-extension/cli-agent-runtime';
 import type { SessionNamespace } from '../namespace-builders/session-namespace.builder';
 import { MAX_AGENT_MESSAGE_LENGTH } from './tool-description.builder';
@@ -29,6 +34,11 @@ import {
   HELD_COMPLETIONS_HEADING,
   handleSessionToolCall,
 } from './session-tool-handlers';
+import {
+  DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+  applyToolResultBudget,
+  getToolResultBudget,
+} from './tool-result-budget';
 
 const PARITY = [
   [buildSessionStartTool, SessionStartArgsSchema, ['branch', 'task']],
@@ -470,5 +480,120 @@ describe('handleSessionToolCall', () => {
       isError: true,
       text: 'ptah_session_start failed: Agent sessions are unavailable',
     });
+  });
+});
+
+/* ------------------------------------------------------------------------- */
+
+// TASK_2026_584 F2: the read reply goes through the tool-result budget like
+// every other tool; its override holds the default tail whole.
+describe('ptah_session_read under its tool-result budget', () => {
+  let spoolRoot: string;
+
+  beforeAll(async () => {
+    spoolRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'session-read-'));
+  });
+
+  afterAll(async () => {
+    await fs.rm(spoolRoot, { recursive: true, force: true });
+  });
+
+  /** Plain transcript prose, exactly `chars` long, as the spawner slices it. */
+  function transcriptOf(chars: number): string {
+    const turn =
+      'Assistant: I read the parser module, found the off-by-one in the ' +
+      'token loop, fixed it, and ran the unit tests; all of them pass now.\n' +
+      'User: Good. Also check the error path for an empty input file.\n';
+    return turn.repeat(Math.ceil(chars / turn.length)).slice(-chars);
+  }
+
+  /** A held completion shaped like the notifier's real envelope. */
+  function envelope(index: number): SessionChildCompletionEnvelope {
+    const id = `child-${index}-0000-4000-8000-000000000000`;
+    return {
+      childSessionId: id,
+      turn: 3,
+      verdict: 'unverified',
+      text: [
+        `<agent-lane-completed agent-id="${id}" agent="parser fix ${index}" cli="ptah-session" status="completed" verdict="unverified" turn="3">`,
+        `Child session parser fix ${index} settled: completed after 14m 3s (settled turn 3).`,
+        'Task: Fix the off-by-one in the tokenizer loop and add a regression test',
+        `Branch: feat/parser-fix-${index}`,
+        `Worktree: D:\\projects\\ptah-extension\\.claude-worktrees\\parser-fix-${index}`,
+        'Deliverables: none were declared, so nothing was checked.',
+        'Reports sent by this child so far: 2.',
+        'Last message: Fixed the loop bound, added tokenizer.spec.ts case, all 212 tests pass.',
+        'Read its transcript with ptah_session_read, then steer it with ptah_session_send.',
+        '</agent-lane-completed>',
+      ].join('\n'),
+    };
+  }
+
+  async function budgetedRead(
+    tailKiB: number,
+    held: readonly SessionChildCompletionEnvelope[],
+  ) {
+    const transcript = transcriptOf(tailKiB * 1024);
+    const session = fakeSession(
+      {
+        read: jest.fn().mockResolvedValue({
+          ok: true,
+          result: {
+            child: CHILD,
+            transcript,
+            truncated: true,
+            available: true,
+          },
+        }),
+      },
+      held,
+    );
+    const reply = await call(
+      'ptah_session_read',
+      { sessionId: 'c-1' },
+      session,
+    );
+    const outcome = await applyToolResultBudget({
+      text: reply.text,
+      toolName: 'ptah_session_read',
+      requestId: `read-${tailKiB}`,
+      spoolRoot,
+    });
+    return { transcript, reply, outcome };
+  }
+
+  it("budgets the spawner's default tail plus the default budget (no drift)", () => {
+    expect(getToolResultBudget('ptah_session_read').chars).toBe(
+      SESSION_READ_DEFAULT_TAIL_KIB * 1024 + DEFAULT_TOOL_RESULT_BUDGET_CHARS,
+    );
+  });
+
+  it('returns the default tail, the header and five held completions whole', async () => {
+    const held = [1, 2, 3, 4, 5].map(envelope);
+    const { transcript, reply, outcome } = await budgetedRead(
+      SESSION_READ_DEFAULT_TAIL_KIB,
+      held,
+    );
+
+    expect(outcome.text).toBe(reply.text);
+    expect(outcome.reducer).toBe('none');
+    expect(outcome.truncated).toBe(false);
+    expect(outcome.spoolPath).toBeUndefined();
+    expect(outcome.text.endsWith(transcript)).toBe(true);
+    for (const item of held) expect(outcome.text).toContain(item.text);
+  });
+
+  it('a maximum tail is cut from the transcript end and spooled; the held block stays', async () => {
+    const held = [envelope(1)];
+    const { outcome } = await budgetedRead(SESSION_READ_MAX_TAIL_KIB, held);
+
+    expect(outcome.truncated).toBe(true);
+    expect(outcome.reducer).toBe('none');
+    expect(outcome.spoolPath).toBeDefined();
+    expect(outcome.text).toContain(HELD_COMPLETIONS_HEADING);
+    expect(outcome.text).toContain(held[0].text);
+    expect(outcome.text.length).toBeLessThanOrEqual(
+      getToolResultBudget('ptah_session_read').chars,
+    );
   });
 });

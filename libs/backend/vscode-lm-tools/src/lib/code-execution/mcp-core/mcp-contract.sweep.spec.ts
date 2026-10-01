@@ -1394,6 +1394,9 @@ const PINNED_BUDGET_OVERRIDES: Readonly<
 > = {
   // 32 KiB page cap + 1 KiB Markdown wrapper; tokens at 4 chars/token.
   ptah_browser_content: { chars: 33_792, tokens: 8_448 },
+  // TASK_2026_584 F2: the default 32 KiB transcript tail + the 8,000-char
+  // default for the header and held-completion block; tokens at 4 chars/token.
+  ptah_session_read: { chars: 40_768, tokens: 10_192 },
   // The surface catalog's `maxStateReadBytes` (548 KiB); tokens at 4 chars/token.
   ptah_surface_get_state: { chars: 561_152, tokens: 140_288 },
 };
@@ -1759,6 +1762,15 @@ describe('independently pinned budgets (TASK_2026_559 Batch 21 r1, defect 3)', (
     );
     expect(TOOL_RESULT_BUDGET_OVERRIDES['ptah_browser_content'].tokens).toBe(
       Math.ceil(browserContentChars / 4),
+    );
+    // `ptah_session_read`: the default 32 KiB transcript tail + the default
+    // budget (tool-result-budget.ts `SESSION_READ_CHARS`, TASK_2026_584 F2).
+    const sessionReadChars = 32 * 1024 + 8000;
+    expect(TOOL_RESULT_BUDGET_OVERRIDES['ptah_session_read'].chars).toBe(
+      sessionReadChars,
+    );
+    expect(TOOL_RESULT_BUDGET_OVERRIDES['ptah_session_read'].tokens).toBe(
+      Math.ceil(sessionReadChars / 4),
     );
     // `ptah_surface_get_state`: the surface catalog's `maxStateReadBytes`.
     const surfaceStateChars = 548 * 1024;
@@ -2187,7 +2199,9 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_context_enrich_file: 1175,
       ptah_get_symbol_index: 1048,
       ptah_task_list: 830,
-      ptah_agent_report: 799,
+      // TASK_2026_584 F3, measured 2026-10-01: 828 chars (+ the child
+      // session sentence); ceil(828 * 1.1) + 10.
+      ptah_agent_report: 921,
       ptah_harness_install_mcp_server: 780,
       // +12 (Batch 33): the registry graphEdges list gained ", python, go".
       ptah_get_dependents: 734,
@@ -2295,8 +2309,11 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
     // headroom, per Task 21.1. A tool added or removed, or a description
     // that grows, moves this number — update the pin deliberately, do not
     // silence the assertion. TASK_2026_584 (2026-10-01): the five
-    // ptah_session_* tools moved it to 130,357 bytes.
-    const PINNED_TOOLS_LIST_BYTES_AT_HEAD = 130_357;
+    // ptah_session_* tools moved it to 130,357 bytes; follow-ups F2/F3
+    // (measured 2026-10-01) to 130,469: +111 for the ptah_agent_report
+    // child-session sentence, +1 for ptah_session_read's 40768-char
+    // maxResultSizeChars.
+    const PINNED_TOOLS_LIST_BYTES_AT_HEAD = 130_469;
     const bytes = Buffer.byteLength(payloads[0], 'utf8');
     expect(bytes).toBeLessThanOrEqual(
       Math.ceil(PINNED_TOOLS_LIST_BYTES_AT_HEAD * 1.05),

@@ -64,6 +64,24 @@ const CHARS_PER_TOKEN = 4;
  */
 const BROWSER_CONTENT_CHARS = 32 * 1024 + 1024;
 
+/**
+ * `ptah_session_read` returns a transcript tail of 32 KiB of text by default
+ * (`SESSION_READ_DEFAULT_TAIL_KIB` in cli-agent-runtime's
+ * `session-spawner.service.ts`, which slices it to that many UTF-16 units).
+ * The value is restated here, not imported: the cli-agent-runtime barrel
+ * pulls tsyringe into every light consumer of this module, and
+ * `session-tools.spec.ts` fails if the two drift apart. The default budget on
+ * top holds the reply's header line and the held-completion block (one
+ * `<agent-lane-completed>` envelope per child, at most
+ * `agentSessions.maxConcurrent` live children), exactly the room any other
+ * tool's whole answer gets. The held block comes before the transcript, so a
+ * larger `tailKiB` (up to 256 KiB) is cut from the transcript's end and
+ * spooled, never the held completions.
+ */
+const SESSION_READ_DEFAULT_TAIL_CHARS = 32 * 1024;
+const SESSION_READ_CHARS =
+  SESSION_READ_DEFAULT_TAIL_CHARS + DEFAULT_TOOL_RESULT_BUDGET_CHARS;
+
 function charBudget(chars: number): TextBudget {
   return Object.freeze({ tokens: Math.ceil(chars / CHARS_PER_TOKEN), chars });
 }
@@ -78,6 +96,7 @@ export const TOOL_RESULT_BUDGET_OVERRIDES: Readonly<
   Record<string, TextBudget>
 > = Object.freeze({
   ptah_browser_content: charBudget(BROWSER_CONTENT_CHARS),
+  ptah_session_read: charBudget(SESSION_READ_CHARS),
   ptah_surface_get_state: charBudget(SURFACE_LIMITS.maxStateReadBytes),
 });
 
