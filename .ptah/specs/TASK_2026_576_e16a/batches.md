@@ -1308,14 +1308,14 @@ executors at once.
 - Validation notes: V5, A14 — also check host handler name lists (`apps/ptah-electron/src/di/phase-4-handlers.ts:140-175`, `expected-resolvable.ts`) and add the class name only if those lists enumerate every lib-owned handler.
 - Implementation details: recorder registered singleton beside `SessionLifecycleNotifier` (`register-shared-rpc-handlers.ts:49, 58-61`).
 
-## Batch 28: VS Code `ptah.review.*` commands and HEAD content provider — PENDING
+## Batch 28: VS Code `ptah.review.*` commands and HEAD content provider — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 18, 25
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-extension-vscode`
 
-### Task 28.1: Four commands, validation, fallbacks, provider, palette hiding — PENDING
+### Task 28.1: Four commands, validation, fallbacks, provider, palette hiding — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/apps/ptah-extension-vscode/src/commands/review-commands.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/apps/ptah-extension-vscode/src/commands/ptah-git-head-content-provider.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/src/core/ptah-extension.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/package.json
 - Plan reference: implementation-plan.md:902-945
@@ -1323,6 +1323,20 @@ executors at once.
 - Quality requirements: `command:execute` allowlist unchanged (by diff); outside paths throw `Error('Path is outside the workspace.')`; ≤500 files; no new VSIX assets.
 - Validation notes: V8 — register next to `licenseCommands.registerCommands(this.context)` at `ptah-extension.ts:78`. A3 — read `extHostApiCommands.ts` at `1.100.0`, record the signature.
 - Implementation details: `ptah-git-head:/<rel>?root=<folderIndex>`; `vscode.changes` → per-file `vscode.diff` fallback; `git.openMergeEditor` → `vscode.open` fallback.
+- Outcome: executor backend-developer; the six listed files. `openChanges [{workspaceRoot, files[1..500]}]`,
+  `openDiff`/`openMerge [{workspaceRoot, path, origPath?, status?}]`, `openScm`. Root must match an open `file:`
+  workspace folder after symlink resolution (case folded on win32 only); each path checked lexically
+  (`isPathWithinRoots`) and again after symlink resolution (nearest existing parent for deleted files); refusal
+  throws `Error('Path is outside the workspace.')`, no absolute path in messages. Provider serves `readHeadText`;
+  absent/binary/too-large/LFS → one explanatory line; error → empty content + warning. `vscode.changes` →
+  per-file `vscode.diff` (or `vscode.open` when one side is missing — `vscode.diff` needs two URIs).
+  A3 (`extHostApiCommands.ts` @ 1.100.0, :452-488): `vscode.changes(title, [label: Uri, left: Uri|undefined|null,
+  right: Uri|undefined|null][])`. Allowlist: `command-rpc.handlers.ts` diff empty; `ALLOWED_COMMAND_PREFIXES =
+  ['ptah.']` already admits `ptah.review.*`. Accepted deviation: commands and provider constructed in
+  `ptah-extension.ts` (container files not in the batch). Verified by the orchestrator: typecheck + lint green;
+  the two new suites 31/31; full vscode test run 134/134 once Batch 27 fixed its container smoke stubs.
+  Noted: `readHeadText` paths are repository-relative, so a workspace folder that is a repo subfolder resolves the
+  HEAD side at the wrong path (same root assumption as `GitInfoService`).
 
 ## Batch 29: Change-set card component — PENDING
 

@@ -7,9 +7,15 @@ import type {
   ConfigManager,
   CommandManager,
   WebviewManager,
+  GitInfoService,
 } from '@ptah-extension/vscode-core';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
 import type { LicenseCommands } from '../commands/license-commands';
+import { ReviewCommands } from '../commands/review-commands';
+import {
+  PTAH_GIT_HEAD_SCHEME,
+  PtahGitHeadContentProvider,
+} from '../commands/ptah-git-head-content-provider';
 
 /**
  * Main extension class for Ptah.
@@ -77,7 +83,26 @@ export class PtahExtension implements vscode.Disposable {
     );
     licenseCommands.registerCommands(this.context);
     this.logger.info('License commands registered');
+    this.registerReviewCommands();
     this.logger.info('Extension components registered');
+  }
+
+  /**
+   * `ptah.review.*` commands and the `ptah-git-head:` provider that serves
+   * their HEAD side (TASK_2026_576, Requirement 5).
+   */
+  private registerReviewCommands(): void {
+    const gitInfo = DIContainer.resolve<GitInfoService>(
+      TOKENS.GIT_INFO_SERVICE,
+    );
+    this.context.subscriptions.push(
+      vscode.workspace.registerTextDocumentContentProvider(
+        PTAH_GIT_HEAD_SCHEME,
+        new PtahGitHeadContentProvider(gitInfo, this.logger),
+      ),
+    );
+    new ReviewCommands(this.logger).registerCommands(this.context);
+    this.logger.info('Review commands registered');
   }
 
   /**
