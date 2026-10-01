@@ -4,6 +4,10 @@
  * Heavy mocking of SkillCandidateStore + SkillMdGenerator avoids SQLite.
  */
 import 'reflect-metadata';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   SkillPromotionService,
@@ -11,16 +15,28 @@ import {
   rankingScore,
   MIN_REPLAY_CONFIDENCE_KEY,
   MIN_REPLAY_CONFIDENCE_DEFAULT,
+  SUGGESTION_TRAJECTORY_PREFIX,
+  RegistrySlugOwnedByPluginError,
 } from './skill-promotion.service';
 import { JUDGE_REASONS, type JudgeDecision } from './skill-judge.service';
-import type { SkillCandidateStore } from './skill-candidate.store';
-import type { SkillMdGenerator } from './skill-md-generator';
+import { SkillCandidateStore } from './skill-candidate.store';
+import { SkillMdGenerator, SKILLS_ROOT_KEY } from './skill-md-generator';
+import {
+  SkillRegistryStore,
+  type SkillRegistryEntry,
+} from './skill-registry.store';
 import type {
   CandidateId,
   SkillCandidateRow,
+  SkillSuggestionRow,
   SkillSynthesisSettings,
 } from './types';
 import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
+import {
+  asConnection,
+  resolveOpener,
+  type TestDatabase,
+} from './queue/queue-db.test-support';
 
 const noopLogger = {
   debug: jest.fn(),
@@ -115,6 +131,9 @@ function makeStore(
     searchActiveByEmbedding: jest.fn(() => []),
     listByStatus: jest.fn(() => []),
     countDistinctContexts: jest.fn(() => 0),
+    findByName: jest.fn((name: string) =>
+      name === current.name ? current : null,
+    ),
     /**
      * A stand-in for the real store's write, minus its validation — the
      * throwing guard is `skill-candidate.store.spec.ts`'s to prove, and
@@ -1382,6 +1401,548 @@ describe('SkillPromotionService', () => {
       const { svc, judge } = withJudge();
       await svc.evaluate('cand_test' as CandidateId, SETTINGS);
       expect(judge.judge.mock.calls[0][5]).toEqual({});
+    });
+  });
+
+  /**
+   * TASK_2026_578 Task 6.1 — the automatic path stores the MATERIALIZED slug.
+   * A real generator on a temp root, so the collision is a real directory.
+   */
+  describe('automatic promotion onto an occupied slug', () => {
+    let root: string;
+    beforeEach(() => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-promote-auto-'));
+    });
+    afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    it("stores name = '<name>-2' when <activeRoot>/<name>/ already exists", async () => {
+      fs.mkdirSync(path.join(root, 'do-thing'));
+      const store = makeStore(row({ successCount: 3 }));
+      const md = new SkillMdGenerator(noopLogger, workspaceAt(root));
+      const svc = new SkillPromotionService(noopLogger, store, md, null, null);
+
+      const decision = await svc.evaluate('cand_test' as CandidateId, SETTINGS);
+
+      expect(decision.promoted).toBe(true);
+      expect(store.promoteAtomically).toHaveBeenCalledWith(
+        'cand_test',
+        expect.objectContaining({ name: 'do-thing-2' }),
+      );
+      expect(decision.filePath).toBe(
+        path.join(root, 'do-thing-2', 'SKILL.md'),
+      );
+    });
+
+    it('skips a slug another row holds in the database even with no directory', async () => {
+      fs.mkdirSync(path.join(root, 'do-thing'));
+      const store = makeStore(row({ successCount: 3 }));
+      (store.findByName as jest.Mock).mockImplementation((name: string) =>
+        name === 'do-thing-2' ? row({ id: 'other' as CandidateId }) : null,
+      );
+      const md = new SkillMdGenerator(noopLogger, workspaceAt(root));
+      const svc = new SkillPromotionService(noopLogger, store, md, null, null);
+
+      await svc.evaluate('cand_test' as CandidateId, SETTINGS);
+
+      expect(store.promoteAtomically).toHaveBeenCalledWith(
+        'cand_test',
+        expect.objectContaining({ name: 'do-thing-3' }),
+      );
+    });
+  });
+});
+
+function workspaceAt(root: string): IWorkspaceProvider {
+  return {
+    getWorkspaceRoot: () => '',
+    getConfiguration: <T>(_section: string, key: string, fallback?: T) =>
+      (key === SKILLS_ROOT_KEY ? root : fallback) as T,
+  } as unknown as IWorkspaceProvider;
+}
+
+// ─── Real store: promoteSuggestion / adoptMaterializedSkill ────────────────
+
+const opener = resolveOpener();
+const describeDb = opener ? describe : describe.skip;
+
+const migrationSql = (version: number): string =>
+  MIGRATIONS.find((m) => m.version === version)?.sql ?? '';
+
+/**
+ * `skill_candidates` as `0003` declares it (minus the vec0 table, which needs
+ * the extension) — including `name UNIQUE`, which the name-collision case
+ * relies on — then the later candidate, event, verdict and registry
+ * migrations from `MIGRATIONS` so the columns cannot drift.
+ */
+function createPromotionDb(): TestDatabase {
+  if (!opener) throw new Error('no sqlite binding available');
+  const db = opener(':memory:');
+  db.exec(`
+    CREATE TABLE skill_candidates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL,
+      body_path TEXT NOT NULL,
+      source_session_ids TEXT NOT NULL DEFAULT '[]',
+      trajectory_hash TEXT NOT NULL UNIQUE,
+      embedding_rowid INTEGER,
+      status TEXT NOT NULL CHECK(status IN ('candidate','promoted','rejected')) DEFAULT 'candidate',
+      success_count INTEGER NOT NULL DEFAULT 0,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      promoted_at INTEGER,
+      rejected_at INTEGER,
+      rejected_reason TEXT,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      residency TEXT NOT NULL DEFAULT 'resident' CHECK(residency IN ('resident','dormant'))
+    );
+    CREATE TABLE skill_invocation_events (
+      id TEXT PRIMARY KEY,
+      skill_slug TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      context_id TEXT,
+      source TEXT NOT NULL,
+      succeeded INTEGER NOT NULL,
+      is_error INTEGER NOT NULL,
+      invoked_at INTEGER NOT NULL,
+      reconciled_at INTEGER,
+      verdict_source TEXT,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      cache_read_tokens INTEGER,
+      cache_creation_tokens INTEGER,
+      cost_usd REAL,
+      duration_ms INTEGER,
+      tool_count INTEGER,
+      task_id TEXT
+    );
+  `);
+  for (const version of [33, 36, 37, 32, 40, 34, 22, 23]) {
+    db.exec(migrationSql(version));
+  }
+  return db;
+}
+
+function suggestion(
+  overrides: Partial<SkillSuggestionRow> = {},
+): SkillSuggestionRow {
+  return {
+    id: 'sug-1',
+    name: 'deploy-flow',
+    description: 'deploy the service',
+    body: '# Deploy\n\nSteps.',
+    memberSessionIds: ['s1', 's2'],
+    memberCandidateIds: [],
+    clusterSize: 2,
+    technologyFingerprint: 'node',
+    judgeScore: 8,
+    status: 'pending',
+    createdAt: 1,
+    decidedAt: null,
+    mergedInto: null,
+    promotedCandidateId: null,
+    references: [{ name: 'rollback', body: 'Roll back.' }],
+    ...overrides,
+  };
+}
+
+describeDb('SkillPromotionService — suggestion promotion on a real store', () => {
+  let db: TestDatabase;
+  let root: string;
+  let store: SkillCandidateStore;
+  let registry: SkillRegistryStore;
+  let md: SkillMdGenerator;
+  let svc: SkillPromotionService;
+
+  beforeEach(() => {
+    db = createPromotionDb();
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-promote-sug-'));
+    store = new SkillCandidateStore(noopLogger, asConnection(db), {
+      available: false,
+    } as never);
+    registry = new SkillRegistryStore(noopLogger, asConnection(db));
+    md = new SkillMdGenerator(noopLogger, workspaceAt(root));
+    svc = new SkillPromotionService(noopLogger, store, md, null, null, registry);
+  });
+
+  afterEach(() => {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  /** A promoted, resident row named `name`, as an earlier promotion left it. */
+  function seedResident(name: string): SkillCandidateRow {
+    const { candidate } = store.registerCandidate({
+      name,
+      description: `${name} skill`,
+      bodyPath: path.join(root, name, 'SKILL.md'),
+      sourceSessionIds: [],
+      trajectoryHash: `seed-${name}`,
+      embedding: null,
+      createdAt: 1,
+    });
+    return store.promoteAtomically(candidate.id, {
+      promotedAt: 1,
+      bodyPath: candidate.bodyPath,
+    });
+  }
+
+  const rowsWithHash = (hash: string): number =>
+    (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM skill_candidates WHERE trajectory_hash = ?`,
+        )
+        .get(hash) as { n: number }
+    ).n;
+
+  const SUGGESTION_HASH = `${SUGGESTION_TRAJECTORY_PREFIX}sug-1`;
+
+  /** A pre-existing `kind='skill'` registry row for `slug`. */
+  function seedRegistry(
+    slug: string,
+    overrides: Partial<SkillRegistryEntry> = {},
+  ): void {
+    registry.upsert({
+      slug,
+      kind: 'skill',
+      userPath: `/user/${slug}/SKILL.md`,
+      originPluginId: null,
+      originVersion: null,
+      sourceHash: 'h1',
+      cloneStatus: 'authored',
+      diverged: false,
+      historyDir: null,
+      lastEnhancedAt: null,
+      candidateId: null,
+      pendingSourceHash: null,
+      ...overrides,
+    });
+  }
+
+  describe('promoteSuggestion', () => {
+    it('creates a promoted, resident row with the registry candidate_id set', async () => {
+      const onCommit = jest.fn((r: SkillCandidateRow) => `accepted:${r.id}`);
+
+      const result = await svc.promoteSuggestion(
+        { suggestion: suggestion(), embedding: null },
+        SETTINGS,
+        { userInitiated: true },
+        onCommit,
+      );
+
+      expect(result.candidate).toMatchObject({
+        name: 'deploy-flow',
+        status: 'promoted',
+        residency: 'resident',
+        trajectoryHash: SUGGESTION_HASH,
+        sourceSessionIds: ['s1', 's2'],
+      });
+      expect(result.outcome).toBe(`accepted:${result.candidate.id}`);
+      expect(onCommit).toHaveBeenCalledTimes(1);
+      expect(registry.getBySlug('skill', 'deploy-flow')).toMatchObject({
+        cloneStatus: 'synth',
+        candidateId: result.candidate.id,
+        userPath: result.filePath,
+      });
+      expect(fs.existsSync(path.join(root, 'deploy-flow', 'SKILL.md'))).toBe(
+        true,
+      );
+      expect(
+        fs.readFileSync(
+          path.join(root, 'deploy-flow', 'references', 'rollback.md'),
+          'utf8',
+        ),
+      ).toBe('Roll back.\n');
+    });
+
+    it('applies the residency cap: the weakest resident is demoted', async () => {
+      const resident = seedResident('old-skill');
+
+      const result = await svc.promoteSuggestion(
+        { suggestion: suggestion(), embedding: null },
+        { ...SETTINGS, maxActiveSkills: 1 },
+        {},
+        () => undefined,
+      );
+
+      expect(result.evictedSkillId).toBe(resident.id);
+      expect(store.findById(resident.id)?.residency).toBe('dormant');
+      expect(result.candidate.residency).toBe('resident');
+    });
+
+    it("suffixes a slug the database holds without a directory, and stores '-2'", async () => {
+      // A candidate row owns the name; nothing is on disk for it.
+      store.registerCandidate({
+        name: 'deploy-flow',
+        description: 'older candidate',
+        bodyPath: '/elsewhere/SKILL.md',
+        sourceSessionIds: [],
+        trajectoryHash: 'older',
+        embedding: null,
+        createdAt: 1,
+      });
+
+      const result = await svc.promoteSuggestion(
+        { suggestion: suggestion(), embedding: null },
+        SETTINGS,
+        {},
+        () => undefined,
+      );
+
+      expect(result.slug).toBe('deploy-flow-2');
+      expect(result.candidate.name).toBe('deploy-flow-2');
+    });
+
+    it('a throw after registerCandidate leaves no candidate row and no directory (R-f2)', async () => {
+      const resident = seedResident('old-skill');
+      jest.spyOn(store, 'promoteAtomically').mockImplementation(() => {
+        throw new Error('forced promotion failure');
+      });
+
+      await expect(
+        svc.promoteSuggestion(
+          { suggestion: suggestion(), embedding: null },
+          { ...SETTINGS, maxActiveSkills: 1 },
+          {},
+          () => undefined,
+        ),
+      ).rejects.toThrow('forced promotion failure');
+
+      expect(rowsWithHash(SUGGESTION_HASH)).toBe(0);
+      expect(fs.existsSync(path.join(root, 'deploy-flow'))).toBe(false);
+      expect(registry.getBySlug('skill', 'deploy-flow')).toBeNull();
+      expect(store.findById(resident.id)?.residency).toBe('resident');
+    });
+
+    it('an onCommit throw rolls back the promotion and the demotion and removes the directory', async () => {
+      const resident = seedResident('old-skill');
+
+      await expect(
+        svc.promoteSuggestion(
+          { suggestion: suggestion(), embedding: null },
+          { ...SETTINGS, maxActiveSkills: 1 },
+          {},
+          () => {
+            throw new Error('member merge failed');
+          },
+        ),
+      ).rejects.toThrow('member merge failed');
+
+      expect(rowsWithHash(SUGGESTION_HASH)).toBe(0);
+      expect(fs.existsSync(path.join(root, 'deploy-flow'))).toBe(false);
+      expect(registry.getBySlug('skill', 'deploy-flow')).toBeNull();
+      expect(store.findById(resident.id)?.residency).toBe('resident');
+    });
+
+    it('keeps a diverged registry row diverged and sets its candidate_id', async () => {
+      seedRegistry('deploy-flow', { cloneStatus: 'diverged', diverged: true });
+
+      const result = await svc.promoteSuggestion(
+        { suggestion: suggestion(), embedding: null },
+        SETTINGS,
+        {},
+        () => undefined,
+      );
+
+      expect(registry.getBySlug('skill', 'deploy-flow')).toMatchObject({
+        cloneStatus: 'diverged',
+        diverged: true,
+        candidateId: result.candidate.id,
+        userPath: result.filePath,
+      });
+    });
+
+    it('refuses a slug whose registry row is a plugin clone: no row, directory removed', async () => {
+      seedRegistry('deploy-flow', {
+        cloneStatus: 'clone',
+        originPluginId: 'plugin-x',
+      });
+
+      await expect(
+        svc.promoteSuggestion(
+          { suggestion: suggestion(), embedding: null },
+          SETTINGS,
+          {},
+          () => undefined,
+        ),
+      ).rejects.toBeInstanceOf(RegistrySlugOwnedByPluginError);
+
+      expect(rowsWithHash(SUGGESTION_HASH)).toBe(0);
+      expect(fs.existsSync(path.join(root, 'deploy-flow'))).toBe(false);
+      expect(registry.getBySlug('skill', 'deploy-flow')).toMatchObject({
+        cloneStatus: 'clone',
+        candidateId: null,
+      });
+    });
+
+    it('a UNIQUE violation on name rolls back and removes the directory', async () => {
+      // The slug check raced: it saw the name free, a row took it before the
+      // insert. The UNIQUE index is the backstop.
+      const holder = store.registerCandidate({
+        name: 'deploy-flow',
+        description: 'raced in',
+        bodyPath: '/elsewhere/SKILL.md',
+        sourceSessionIds: [],
+        trajectoryHash: 'raced',
+        embedding: null,
+        createdAt: 1,
+      }).candidate;
+      jest.spyOn(store, 'findByName').mockReturnValue(null);
+
+      await expect(
+        svc.promoteSuggestion(
+          { suggestion: suggestion(), embedding: null },
+          SETTINGS,
+          {},
+          () => undefined,
+        ),
+      ).rejects.toThrow(/UNIQUE/i);
+
+      expect(rowsWithHash(SUGGESTION_HASH)).toBe(0);
+      expect(fs.existsSync(path.join(root, 'deploy-flow'))).toBe(false);
+      expect(store.findById(holder.id)).toMatchObject({
+        name: 'deploy-flow',
+        status: 'candidate',
+      });
+    });
+  });
+
+  describe('adoptMaterializedSkill', () => {
+    const LEGACY_KEY = 'reconcile:sug-0';
+
+    function materializeLegacy(): string {
+      const dir = path.join(root, 'legacy');
+      fs.mkdirSync(dir, { recursive: true });
+      const filePath = path.join(dir, 'SKILL.md');
+      fs.writeFileSync(filePath, '---\nname: legacy\n---\nbody\n', 'utf8');
+      return filePath;
+    }
+
+    const adoptInput = (filePath: string) => ({
+      slug: 'legacy',
+      filePath,
+      description: 'legacy skill',
+      sourceSessionIds: ['s9'],
+      embedding: null,
+      trajectoryKey: LEGACY_KEY,
+    });
+
+    it('promotes and links an existing materialization, keeping the registry history', async () => {
+      const filePath = materializeLegacy();
+      registry.upsert({
+        slug: 'legacy',
+        kind: 'skill',
+        userPath: filePath,
+        originPluginId: null,
+        originVersion: null,
+        sourceHash: 'h1',
+        cloneStatus: 'authored',
+        diverged: false,
+        historyDir: '/hist/legacy',
+        lastEnhancedAt: 5,
+        candidateId: null,
+        pendingSourceHash: null,
+      });
+
+      const result = await svc.adoptMaterializedSkill(
+        adoptInput(filePath),
+        SETTINGS,
+        (r) => r.id,
+      );
+
+      expect(result.linkedOnly).toBe(false);
+      expect(result.candidate).toMatchObject({
+        name: 'legacy',
+        status: 'promoted',
+        bodyPath: filePath,
+        trajectoryHash: LEGACY_KEY,
+      });
+      expect(result.outcome).toBe(result.candidate.id);
+      expect(registry.getBySlug('skill', 'legacy')).toMatchObject({
+        cloneStatus: 'synth',
+        candidateId: result.candidate.id,
+        sourceHash: 'h1',
+        historyDir: '/hist/legacy',
+        lastEnhancedAt: 5,
+      });
+      expect(fs.existsSync(filePath)).toBe(true);
+    });
+
+    it('keeps a diverged registry row diverged and sets its candidate_id', async () => {
+      const filePath = materializeLegacy();
+      seedRegistry('legacy', { cloneStatus: 'diverged', diverged: true });
+
+      const result = await svc.adoptMaterializedSkill(
+        adoptInput(filePath),
+        SETTINGS,
+        () => undefined,
+      );
+
+      expect(registry.getBySlug('skill', 'legacy')).toMatchObject({
+        cloneStatus: 'diverged',
+        diverged: true,
+        candidateId: result.candidate.id,
+        userPath: filePath,
+      });
+    });
+
+    it.each([
+      ['a clone row', { cloneStatus: 'clone' as const, originPluginId: null }],
+      [
+        'a row with an originPluginId',
+        { cloneStatus: 'authored' as const, originPluginId: 'plugin-x' },
+      ],
+    ])(
+      'refuses %s: throws, no candidate row, directory kept',
+      async (_label, overrides) => {
+        const filePath = materializeLegacy();
+        seedRegistry('legacy', overrides);
+
+        await expect(
+          svc.adoptMaterializedSkill(
+            adoptInput(filePath),
+            SETTINGS,
+            () => undefined,
+          ),
+        ).rejects.toBeInstanceOf(RegistrySlugOwnedByPluginError);
+
+        expect(rowsWithHash(LEGACY_KEY)).toBe(0);
+        expect(fs.existsSync(filePath)).toBe(true);
+        expect(registry.getBySlug('skill', 'legacy')?.candidateId).toBeNull();
+      },
+    );
+
+    it('only links when the slug already belongs to a promoted row', async () => {
+      const filePath = materializeLegacy();
+      const existing = seedResident('legacy');
+      const onCommit = jest.fn((r: SkillCandidateRow) => r.id);
+
+      const result = await svc.adoptMaterializedSkill(
+        adoptInput(filePath),
+        SETTINGS,
+        onCommit,
+      );
+
+      expect(result.linkedOnly).toBe(true);
+      expect(result.candidate.id).toBe(existing.id);
+      expect(onCommit).toHaveBeenCalledWith(
+        expect.objectContaining({ id: existing.id }),
+      );
+      expect(rowsWithHash(LEGACY_KEY)).toBe(0);
+    });
+
+    it('a failure rolls back and leaves the existing directory in place', async () => {
+      const filePath = materializeLegacy();
+
+      await expect(
+        svc.adoptMaterializedSkill(adoptInput(filePath), SETTINGS, () => {
+          throw new Error('lineage write failed');
+        }),
+      ).rejects.toThrow('lineage write failed');
+
+      expect(rowsWithHash(LEGACY_KEY)).toBe(0);
+      expect(fs.existsSync(filePath)).toBe(true);
     });
   });
 });

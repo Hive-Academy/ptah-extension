@@ -35,6 +35,7 @@ import { JUDGE_CRITERION_KEYS } from './skill-judge.service';
 import type {
   CandidateId,
   SkillCandidateRow,
+  SkillSuggestionRow,
   SkillSynthesisSettings,
 } from './types';
 
@@ -128,6 +129,59 @@ export interface PromotionDecision {
    * the scorecard, not a reward for passing.
    */
   ranking?: CandidateRanking;
+}
+
+/**
+ * `trajectory_hash` prefix of a candidate row created by accepting a
+ * suggestion. The hash is UNIQUE, so a second accept of the same suggestion
+ * reuses the row instead of minting a twin.
+ */
+export const SUGGESTION_TRAJECTORY_PREFIX = 'suggestion:';
+
+/**
+ * A committed promotion from {@link SkillPromotionService.promoteSuggestion}
+ * or {@link SkillPromotionService.adoptMaterializedSkill}. Failures throw
+ * after rollback; there is no unsuccessful variant.
+ */
+export interface ResidentPromotion<T> {
+  /** The promoted row (the pre-existing one when `linkedOnly`). */
+  readonly candidate: SkillCandidateRow;
+  /** What `onCommit` returned inside the transaction. */
+  readonly outcome: T;
+  /** The materialized directory slug, equal to `candidate.name`. */
+  readonly slug: string;
+  /** Absolute path to SKILL.md. */
+  readonly filePath: string;
+  /** The resident demoted to dormant by the cap, if any. */
+  readonly evictedSkillId?: CandidateId;
+  /** True when the slug was already promoted and only `onCommit` ran. */
+  readonly linkedOnly: boolean;
+}
+
+/**
+ * The registry row for the slug belongs to a plugin clone (`clone`, or an
+ * `originPluginId`). A synthesized promotion must not claim it: the catalog
+ * sync owns that row. Thrown inside the promotion transaction so the whole
+ * unit rolls back.
+ */
+export class RegistrySlugOwnedByPluginError extends Error {
+  constructor(
+    readonly slug: string,
+    readonly originPluginId: string | null,
+  ) {
+    super(
+      `[skill-synthesis] registry slug ${slug} is owned by plugin ${originPluginId ?? '(clone)'}; promotion refused`,
+    );
+    this.name = 'RegistrySlugOwnedByPluginError';
+  }
+}
+
+/** The residency-cap victim chosen before a promotion writes anything. */
+interface ResidentDemotion {
+  readonly weakest: SkillCandidateRow | undefined;
+  /** The victim's measured win rate; `null` = never measured. */
+  readonly winRate: number | null;
+  readonly residentCount: number;
 }
 
 @injectable()
@@ -269,42 +323,14 @@ export class SkillPromotionService {
     const replay = this.applyReplayGate(graded);
     if (replay) return { ...replay, ranking };
 
-    let evictedSkillId: CandidateId | undefined;
-    let demotedSlug: string | null = null;
-    let weakestResident: SkillCandidateRow | undefined;
-    let weakestWinRate: number | null = null;
-    const activeResident = this.store.listActiveOrderedByDecayScore(
-      nowFn(),
-      settings.evictionDecayRate,
-    );
-    if (activeResident.length >= settings.maxActiveSkills) {
-      const authoredSlugs = this.authoredSlugs();
-      const demotable = activeResident.filter(
-        (r) => !authoredSlugs.has(r.name),
-      );
-      const winRates =
-        demotable.length > 0
-          ? this.winRatesBySlug()
-          : new Map<string, number | null>();
-      const weakest = orderForDemotion(demotable, winRates).at(0);
-      if (weakest) {
-        weakestResident = weakest;
-        weakestWinRate = winRates.get(weakest.name) ?? null;
-      } else {
-        this.logger.info(
-          '[skill-synthesis] residency cap reached but all residents are authored — none demoted',
-          {
-            residentCount: activeResident.length,
-            cap: settings.maxActiveSkills,
-          },
-        );
-      }
-    }
+    const demotion = this.selectWeakestResident(settings, nowFn);
     const body = this.readCandidateBody(candidate);
     let bodyPath = candidate.bodyPath;
     let materialized: MaterializedSkill | null = null;
     let promoted: SkillCandidateRow;
     try {
+      // The slug is free on disk AND in the database. The candidate's own
+      // name is not a collision: its row is the one being promoted.
       materialized = this.mdGenerator.promoteToActive(
         {
           slug: candidate.name,
@@ -312,29 +338,24 @@ export class SkillPromotionService {
           body,
         },
         settings.candidatesDir,
+        {
+          isSlugTaken: (slug) =>
+            slug !== candidate.name && this.store.findByName(slug) !== null,
+        },
       );
       bodyPath = materialized.filePath;
       promoted = this.store.promoteAtomically(candidate.id, {
         promotedAt: nowFn(),
         bodyPath,
-        demotedResidentId: weakestResident?.id,
+        demotedResidentId: demotion.weakest?.id,
+        name: materialized.slug,
       });
     } catch (err) {
       // degradation-audit: reported - promotion refused; decision reason write-failed
       if (materialized) {
-        try {
-          this.mdGenerator.removeActive(materialized);
-        } catch (error: unknown) {
-          // degradation-audit: reported - failed rollback cleanup is logged; write-failed remains the caller contract
-          this.logger.warn(
-            '[skill-synthesis] failed to remove active skill after promotion rollback',
-            {
-              candidate: candidate.id,
-              slug: materialized.slug,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
-        }
+        this.removeActiveAfterRollback(materialized, {
+          candidate: candidate.id,
+        });
       }
       this.logger.warn(
         '[skill-synthesis] failed to persist promoted skill; promotion refused',
@@ -352,37 +373,358 @@ export class SkillPromotionService {
       };
     }
 
-    if (weakestResident) {
-      evictedSkillId = weakestResident.id;
-      demotedSlug = weakestResident.name;
-      this.logger.info('[skill-synthesis] residency-cap demotion to dormant', {
-        demoted: weakestResident.id,
-        demotedName: weakestResident.name,
-        // `null` = never measured; it is why this row sorted LAST among the
-        // demotable set and was reached anyway.
-        demotedWinRate: weakestWinRate,
-        residentCount: activeResident.length,
-        cap: settings.maxActiveSkills,
-      });
-    }
-
-    this.clusterDedup?.invalidate();
+    const demotedSlug = this.afterResidencyChange(demotion, settings);
 
     // Both residency changes, emitted together AFTER the last write. Emitting
     // the demotion at the point it happened would ask the harness to reconcile
     // a half-applied state — the weakest skill already gone, the new one not yet
     // materialized — and the reconciler would then run twice for one decision.
-    await this.emitRepropagation([demotedSlug, candidate.name], origin);
+    // The MATERIALIZED slug, not `candidate.name`: they differ when the
+    // directory was suffixed (`foo-2`), and the harness reconciles by slug.
+    await this.emitRepropagation([demotedSlug, materialized.slug], origin);
 
     return {
       promoted: true,
       reason: 'promoted',
       candidate: promoted,
-      evictedSkillId,
+      evictedSkillId: demotion.weakest?.id,
       closestMatchSimilarity: dedupResult.similarity,
       filePath: bodyPath,
       ranking,
     };
+  }
+
+  /**
+   * Promote an accepted suggestion as a resident skill.
+   *
+   * The user decided and the suggestion was already judged, so there are NO
+   * dedup or judge gates here. The residency cap DOES apply: the row it
+   * creates is an ordinary promoted candidate that counters, the cap and
+   * retirement all see.
+   *
+   * Filesystem first, database second. SKILL.md and its `references/` are
+   * materialized under a slug free on disk and in the database; then one
+   * transaction registers the candidate, promotes it (demoting the weakest
+   * resident when the cap is reached), links the registry row and runs
+   * `onCommit`. Any throw rolls the transaction back, removes the directory
+   * this call created and propagates; the caller owns the fail-soft answer.
+   *
+   * `onCommit` runs INSIDE the transaction. It may only call plain-statement
+   * store methods (never one that opens its own transaction, such as
+   * `setPin`), and it must not swallow a store-write error: there is no
+   * savepoint, so a caught inner error would commit a partial unit.
+   */
+  async promoteSuggestion<T>(
+    input: { suggestion: SkillSuggestionRow; embedding: Float32Array | null },
+    settings: SkillSynthesisSettings,
+    origin: QueryOrigin,
+    onCommit: (row: SkillCandidateRow) => T,
+    nowFn: () => number = () => Date.now(),
+  ): Promise<ResidentPromotion<T>> {
+    const { suggestion } = input;
+    const demotion = this.selectWeakestResident(settings, nowFn);
+    const materialized = this.mdGenerator.promoteToActive(
+      {
+        slug: suggestion.name,
+        description: suggestion.description,
+        body: suggestion.body,
+        references: suggestion.references,
+      },
+      settings.candidatesDir,
+      { isSlugTaken: (slug) => this.store.findByName(slug) !== null },
+    );
+
+    let committed: { row: SkillCandidateRow; outcome: T };
+    try {
+      committed = this.commitResidentPromotion(
+        {
+          slug: materialized.slug,
+          filePath: materialized.filePath,
+          description: suggestion.description,
+          sourceSessionIds: suggestion.memberSessionIds,
+          trajectoryHash: `${SUGGESTION_TRAJECTORY_PREFIX}${suggestion.id}`,
+          embedding: input.embedding,
+          demotedResidentId: demotion.weakest?.id,
+          now: nowFn(),
+        },
+        onCommit,
+      );
+    } catch (error: unknown) {
+      // The transaction already rolled back; the directory is the only
+      // remaining trace of this attempt.
+      this.removeActiveAfterRollback(materialized, {
+        suggestion: suggestion.id,
+      });
+      this.logger.warn(
+        '[skill-synthesis] failed to persist promoted suggestion; rolled back',
+        {
+          suggestion: suggestion.id,
+          slug: materialized.slug,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw error;
+    }
+
+    const demotedSlug = this.afterResidencyChange(demotion, settings);
+    await this.emitRepropagation([demotedSlug, materialized.slug], origin);
+    return {
+      candidate: committed.row,
+      outcome: committed.outcome,
+      slug: materialized.slug,
+      filePath: materialized.filePath,
+      evictedSkillId: demotion.weakest?.id,
+      linkedOnly: false,
+    };
+  }
+
+  /**
+   * Adopt a skill that is ALREADY materialized at `<activeRoot>/<slug>/` —
+   * the reconcile of suggestions accepted before promotion created a row.
+   *
+   * The same transactional tail as {@link promoteSuggestion}, without
+   * materialization. When `slug` already belongs to a promoted row there is
+   * nothing to promote: `onCommit` runs against that row, in a transaction,
+   * and nothing else is written.
+   *
+   * On failure the directory is NOT removed: this call did not create it,
+   * and it is a live skill the user accepted.
+   *
+   * Callers must pass only a slug PROVEN to be an accepted suggestion's
+   * materialized directory — never a slug matched by name alone (the Task 9.3
+   * reconcile rule). An `authored` registry row becomes `synth` here, exactly
+   * as the catalog sync does once a candidate holds the name; a plugin clone
+   * throws {@link RegistrySlugOwnedByPluginError} and nothing is written.
+   */
+  async adoptMaterializedSkill<T>(
+    input: {
+      slug: string;
+      filePath: string;
+      description: string;
+      sourceSessionIds: string[];
+      embedding: Float32Array | null;
+      trajectoryKey: string;
+    },
+    settings: SkillSynthesisSettings,
+    onCommit: (row: SkillCandidateRow) => T,
+    nowFn: () => number = () => Date.now(),
+  ): Promise<ResidentPromotion<T>> {
+    const existing = this.store.findByName(input.slug);
+    if (existing?.status === 'promoted') {
+      const outcome = this.store.inImmediateTransaction(() =>
+        onCommit(existing),
+      );
+      return {
+        candidate: existing,
+        outcome,
+        slug: input.slug,
+        filePath: existing.bodyPath,
+        linkedOnly: true,
+      };
+    }
+
+    const demotion = this.selectWeakestResident(settings, nowFn);
+    const committed = this.commitResidentPromotion(
+      {
+        slug: input.slug,
+        filePath: input.filePath,
+        description: input.description,
+        sourceSessionIds: input.sourceSessionIds,
+        trajectoryHash: input.trajectoryKey,
+        embedding: input.embedding,
+        demotedResidentId: demotion.weakest?.id,
+        now: nowFn(),
+      },
+      onCommit,
+    );
+    const demotedSlug = this.afterResidencyChange(demotion, settings);
+    await this.emitRepropagation([demotedSlug, input.slug], {});
+    return {
+      candidate: committed.row,
+      outcome: committed.outcome,
+      slug: input.slug,
+      filePath: input.filePath,
+      evictedSkillId: demotion.weakest?.id,
+      linkedOnly: false,
+    };
+  }
+
+  /**
+   * The shared transactional tail of {@link promoteSuggestion} and
+   * {@link adoptMaterializedSkill}: register → promote (re-entrant, demotes
+   * the cap victim) → registry link → `onCommit`, as one unit.
+   *
+   * Every call inside the callback is a plain statement or the re-entrant
+   * `promoteAtomically`, and nothing here catches: a throw anywhere rolls the
+   * whole unit back (risks R-f, R-f2).
+   */
+  private commitResidentPromotion<T>(
+    args: {
+      slug: string;
+      filePath: string;
+      description: string;
+      sourceSessionIds: string[];
+      trajectoryHash: string;
+      embedding: Float32Array | null;
+      demotedResidentId: CandidateId | undefined;
+      now: number;
+    },
+    onCommit: (row: SkillCandidateRow) => T,
+  ): { row: SkillCandidateRow; outcome: T } {
+    return this.store.inImmediateTransaction(() => {
+      const { candidate } = this.store.registerCandidate({
+        name: args.slug,
+        description: args.description,
+        bodyPath: args.filePath,
+        sourceSessionIds: args.sourceSessionIds,
+        trajectoryHash: args.trajectoryHash,
+        embedding: args.embedding,
+        createdAt: args.now,
+        workspaceRoot: null,
+      });
+      const row = this.store.promoteAtomically(candidate.id, {
+        promotedAt: args.now,
+        bodyPath: args.filePath,
+        name: args.slug,
+        demotedResidentId: args.demotedResidentId,
+      });
+      this.linkRegistryRow(args.slug, args.filePath, row.id);
+      return { row, outcome: onCommit(row) };
+    });
+  }
+
+  /**
+   * Point the `kind='skill'` registry row for `slug` at `candidateId`. An
+   * existing row keeps its other fields (history, hashes, enhancement time);
+   * only path, status and candidate change.
+   *
+   * The status follows the precedence `SkillRegistryCatalogService
+   * .deriveStatus` applies, because the next catalog sync rewrites any other
+   * value:
+   *  - diverged (flag or status) → stays `diverged`;
+   *  - a plugin clone (`clone`, or any `originPluginId`) → throws
+   *    {@link RegistrySlugOwnedByPluginError}, rolling the promotion back;
+   *  - otherwise (no row, `synth`, `authored`) → `synth`.
+   *
+   * Plain statements only, and the throw is deliberate and uncaught — this
+   * runs inside the promotion transaction (R-f, R-f2).
+   */
+  private linkRegistryRow(
+    slug: string,
+    userPath: string,
+    candidateId: CandidateId,
+  ): void {
+    if (!this.registry) return;
+    const existing = this.registry.getBySlug('skill', slug);
+    if (
+      existing &&
+      (existing.cloneStatus === 'clone' || existing.originPluginId !== null)
+    ) {
+      throw new RegistrySlugOwnedByPluginError(slug, existing.originPluginId);
+    }
+    const diverged =
+      existing?.diverged === true || existing?.cloneStatus === 'diverged';
+    this.registry.upsert({
+      originPluginId: existing?.originPluginId ?? null,
+      originVersion: existing?.originVersion ?? null,
+      sourceHash: existing?.sourceHash ?? null,
+      diverged,
+      historyDir: existing?.historyDir ?? null,
+      lastEnhancedAt: existing?.lastEnhancedAt ?? null,
+      pendingSourceHash: existing?.pendingSourceHash ?? null,
+      slug,
+      kind: 'skill',
+      userPath,
+      cloneStatus: diverged ? 'diverged' : 'synth',
+      candidateId,
+    });
+  }
+
+  /**
+   * The residency-cap victim, if the cap is reached: the weakest non-authored
+   * resident by {@link orderForDemotion}. Read before any write; the demotion
+   * itself is a compare-and-set inside `promoteAtomically`, so a resident that
+   * changed in between fails the promotion rather than being demoted twice.
+   */
+  private selectWeakestResident(
+    settings: SkillSynthesisSettings,
+    nowFn: () => number,
+  ): ResidentDemotion {
+    const activeResident = this.store.listActiveOrderedByDecayScore(
+      nowFn(),
+      settings.evictionDecayRate,
+    );
+    const residentCount = activeResident.length;
+    if (residentCount < settings.maxActiveSkills) {
+      return { weakest: undefined, winRate: null, residentCount };
+    }
+    const authoredSlugs = this.authoredSlugs();
+    const demotable = activeResident.filter((r) => !authoredSlugs.has(r.name));
+    const winRates =
+      demotable.length > 0
+        ? this.winRatesBySlug()
+        : new Map<string, number | null>();
+    const weakest = orderForDemotion(demotable, winRates).at(0);
+    if (!weakest) {
+      this.logger.info(
+        '[skill-synthesis] residency cap reached but all residents are authored — none demoted',
+        { residentCount, cap: settings.maxActiveSkills },
+      );
+      return { weakest: undefined, winRate: null, residentCount };
+    }
+    return {
+      weakest,
+      winRate: winRates.get(weakest.name) ?? null,
+      residentCount,
+    };
+  }
+
+  /**
+   * Bookkeeping after a committed promotion: log the cap demotion, drop the
+   * dedup cache, and answer the demoted slug for repropagation.
+   */
+  private afterResidencyChange(
+    demotion: ResidentDemotion,
+    settings: SkillSynthesisSettings,
+  ): string | null {
+    const weakest = demotion.weakest;
+    if (weakest) {
+      this.logger.info('[skill-synthesis] residency-cap demotion to dormant', {
+        demoted: weakest.id,
+        demotedName: weakest.name,
+        // `null` = never measured; it is why this row sorted LAST among the
+        // demotable set and was reached anyway.
+        demotedWinRate: demotion.winRate,
+        residentCount: demotion.residentCount,
+        cap: settings.maxActiveSkills,
+      });
+    }
+    this.clusterDedup?.invalidate();
+    return weakest?.name ?? null;
+  }
+
+  /**
+   * Remove a materialization whose database write rolled back. A cleanup
+   * failure is logged, never thrown, so the caller reports the ORIGINAL
+   * failure.
+   */
+  private removeActiveAfterRollback(
+    materialized: MaterializedSkill,
+    context: Record<string, unknown>,
+  ): void {
+    try {
+      this.mdGenerator.removeActive(materialized);
+    } catch (error: unknown) {
+      // degradation-audit: reported - failed rollback cleanup is logged; the caller reports the original failure
+      this.logger.warn(
+        '[skill-synthesis] failed to remove active skill after promotion rollback',
+        {
+          ...context,
+          slug: materialized.slug,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
   }
 
   /**

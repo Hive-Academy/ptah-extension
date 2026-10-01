@@ -119,6 +119,9 @@ function makeStore(
     listByStatus: jest.fn(() => []),
     countDistinctContexts: jest.fn(() => 0),
     setResidency,
+    findByName: jest.fn(() => null),
+    registerCandidate: jest.fn(() => ({ candidate: current, reused: false })),
+    inImmediateTransaction: jest.fn(<T>(fn: () => T): T => fn()),
   } as unknown as jest.Mocked<SkillCandidateStore>;
 }
 
@@ -326,6 +329,92 @@ describe('SkillPromotionService — repropagation emit', () => {
 
     expect(decision.promoted).toBe(true);
     expect(decision.reason).toBe('promoted');
+  });
+
+  it('emits the MATERIALIZED slug when the directory was suffixed', async () => {
+    const store = makeStore(row());
+    const md = makeMdGenerator();
+    (md.promoteToActive as jest.Mock).mockReturnValue({
+      slug: 'do-thing-2',
+      dir: '/tmp/active/do-thing-2',
+      filePath: '/tmp/active/do-thing-2/SKILL.md',
+    });
+    const repropagation = makeRepropagation();
+    const svc = new SkillPromotionService(
+      noopLogger,
+      store,
+      md,
+      null,
+      null,
+      null,
+      makeWorkspace('D:/ws'),
+      repropagation,
+    );
+
+    await svc.evaluate('cand_test' as CandidateId, SETTINGS);
+
+    expect(store.promoteAtomically).toHaveBeenCalledWith(
+      'cand_test',
+      expect.objectContaining({ name: 'do-thing-2' }),
+    );
+    expect(repropagation.repropagate).toHaveBeenCalledTimes(1);
+    expect(repropagation.repropagate).toHaveBeenCalledWith(
+      'skill',
+      'do-thing-2',
+      'D:/ws',
+      {},
+    );
+  });
+
+  it('promoteSuggestion emits the promoted and the demoted slug after commit', async () => {
+    const weakest = row({ id: 'cand_weak' as CandidateId, name: 'weak-skill' });
+    const store = makeStore(row(), [weakest]);
+    const repropagation = makeRepropagation();
+    const svc = new SkillPromotionService(
+      noopLogger,
+      store,
+      makeMdGenerator(),
+      null,
+      null,
+      null,
+      makeWorkspace('D:/ws'),
+      repropagation,
+    );
+
+    await svc.promoteSuggestion(
+      {
+        suggestion: {
+          id: 'sug-1',
+          name: 'do-thing',
+          description: 'do a thing',
+          body: 'body',
+          memberSessionIds: ['s1'],
+          memberCandidateIds: [],
+          clusterSize: 1,
+          technologyFingerprint: '',
+          judgeScore: 8,
+          status: 'pending',
+          createdAt: 1,
+          decidedAt: null,
+          mergedInto: null,
+          promotedCandidateId: null,
+          references: [],
+        },
+        embedding: null,
+      },
+      { ...SETTINGS, maxActiveSkills: 1 },
+      { userInitiated: true },
+      () => undefined,
+    );
+
+    const calls = repropagation.repropagate.mock.calls.map((c) => [c[1], c[3]]);
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        ['weak-skill', { userInitiated: true }],
+        ['do-thing', { userInitiated: true }],
+      ]),
+    );
+    expect(calls).toHaveLength(2);
   });
 
   it('promotes normally in a host that bound no repropagation port', async () => {
