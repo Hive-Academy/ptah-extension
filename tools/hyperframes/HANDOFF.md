@@ -23,7 +23,8 @@ Then `kits/ptah-ui/SPEC.md` before touching a component.
 | Explainer v2 (`projects/agent-lanes-v2`) | 60 s, shader transitions + registry components: `video-output/agent-lanes-v2/ptah-lanes-v2.mp4`. User: text too small, background blobs not good |
 | ptah-ui kit (`kits/ptah-ui`) | 11 components built and checked: session-shell, chat-message, tool-call-row, thinking-block, agent-report-card, subagent-bubble, agents-panel, composer, lane-completion-toast, peer-send, app-window. Gallery: `video-output/ptah-ui-gallery/ptah-ui-gallery.mp4` (approved by the user: "that's awesome") |
 | Playbook | `PLAYBOOK.md`: gated phases, one scene per file, hooks, gates, skill map |
-| Explainer v3 (`projects/agent-lanes-v3`) | All 13 frames built, `check` passes (46.567 s, 26 bars at 134 BPM), SFX bus + music ducking in, commits on `feat/ptah-explainer-v3` (not pushed, no PR). **User review of the full Studio preview: REJECTED - "the components show on top of each other and it doesn't look anywhere good in the video".** See "Open problem" below. No render yet |
+| Explainer v3 dive film (v1) | Rejected 2026-10-01 (stacked kit mounts, no clear message). Diagnosis and v1 storyboard: `projects/agent-lanes-v3/STORYBOARD-v1.md`; v1 fragments removed (git history) |
+| Agent lanes v2, Act 1 prototypes | Storyboard v2 (series pilot, 30 s): `projects/agent-lanes-v3/STORYBOARD.md` + `storyboard.html`. Act 1 (14.3 s) built twice: A swimlanes (`projects/agent-lanes-v3`) and C session transcript (`projects/agent-lanes-chat`). Both pass `check` with 0 errors and no layout ignores. User prefers C; see "Next" |
 | Kit contrast | Muted token lifted to `#989291` (SPEC 1.5 deviation 2, user-approved option A); badge text weight 500 |
 
 ## Decisions (user-approved)
@@ -37,13 +38,16 @@ Then `kits/ptah-ui/SPEC.md` before touching a component.
 
 ## Next
 
-1. **Explainer v3: fix the stacked-components problem** (section "Open problem" below) before anything else. The storyboard, beat grid, titles, seams, audio and outro were not challenged; the UI dive scenes are what failed.
-2. **Footage promo rebuild** with the same kit/grammar (faster cuts, callouts as kit components).
-3. 4K renders on approval: `node tools/hyperframes/render.mjs <project> <name> --4k`.
-4. Open: the user mentioned an existing task to extract the video apps (video-studio, video-editor, this kit) into their own Nx plugin. Its ID was not found in `.ptah/specs` or the first task-board page. Ask for it; keep `tools/hyperframes` self-contained so the move stays a folder move.
-5. Housekeeping: delete `kits/ptah-ui/scratch-*` (ignored test projects). Push `feat/ptah-explainer-v3` and open a PR before the v3 render (the user wants the PR before videos are generated).
+1. **Agent lanes v3 (direction C, session transcript)** from the user's review of the Act 1 prototypes (verbatim in both storyboards): open with a prompt, then the session starts, the session calls the spawn, the lanes start, and the lanes deliver or raise questions (`ptah_agent_report`). One continuous scene: no cuts away to a separate scene. Write the storyboard round first, then build.
+2. Series: Ptah gets one small promo per group of related features; agent lanes + agent messaging is the pilot and sets the grammar (STORYBOARD.md v2, "Series grammar").
+3. Footage promo rebuild with the same kit and grammar.
+4. 4K renders only on approval: `node tools/hyperframes/render.mjs <project> <name> --4k`.
+5. Video pipelines move to an Nx plugin + template (separate task). Keep `tools/hyperframes` self-contained so the move stays a folder move.
+6. Housekeeping: delete `kits/ptah-ui/scratch-*` (ignored test projects).
 
-## Open problem: v3 components stack on top of each other (user review, 2026-10-01)
+## Resolved: v1 components stacked on top of each other (user review, 2026-10-01)
+
+Resolved by storyboard v2 (one diagram or one transcript column, one kit component at a time) and the two Act 1 prototypes. The notes below stay as the record of the cause.
 
 The user watched the full v3 preview and rejected it: kit components show on top of each other and the dive scenes do not look good. Not yet diagnosed with the user. Reproduce first, then propose, then fix.
 
@@ -89,3 +93,9 @@ The user watched the full v3 preview and rejected it: kit components show on top
 - A scene that cuts into a running window uses the kit `preroll` variable (SPEC section 2) so every mount opens settled; for a hard cut, give the new mount the same variables and `preroll` = the previous frame's length.
 - A focus beat dims the other parts until the mount ends; pass `dimOthers: 1` when later parts (stats footers) must stay bright.
 - Kit follow-ups: `agent-report-card` expanded body clips the `Parent Session` line and leaves empty space above the heading; `*.motion.json` sidecars were not written for v3.
+- Studio preview (html2canvas shader path) can show the wrong scene right after a seek: `HyperShader` restores scene opacities saved before it prepared the seam samples. Seams declared `cut` use a plain opacity switch: no "Preparing scene transitions" step, fast Studio load, and no wrong scene.
+- Many kit mounts + shader seams make Studio's transition caching slow (v1: 75 mounts, 11 seams, about 45 s). Keep 1-6 mounts per frame.
+- Kit string variables: an empty string falls back to the default (`has()` in `runtime.js`). Give a short real value instead of "".
+- `tool-call-row` cues: c1 (running) must come after the label entrance (c0 + 0.55 s), or the label fades back in under the live text. To open a row already running, keep the default cues and use `preroll`.
+- Truth: built-in lane CLIs are codex, copilot, cursor, antigravity, opencode, pi; "Glm" is the user's Ollama Cloud lane (ptah-cli provider). The canvas has no "2+2" preset ("Even grid", "1 + 2", "Focus + stack"). The product shows no lane toast: the kit toast is a labelled visualization of the pushed `<agent-lane-completed>` turn.
+- `agents-panel` now has an optional third lane (`lane3Name`) and `laneOffset` (0 = all lanes on the same beat).

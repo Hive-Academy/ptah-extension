@@ -101,6 +101,16 @@ Diagnosis (reproduced in Studio and `snapshot`, `snapshots/studio-repro/`, `snap
 
 Choices (2026-10-01): direction A "Swimlanes" with the problem opening from B; about 30 s per promo. Truth fixes: no "2+2" canvas preset, no product toast (the toast is labelled a visualization), lanes Glm / Codex / Copilot.
 
+## Review of the Act 1 prototypes (user, 2026-10-01)
+
+User, verbatim: "both are nearly fine i do like the one that has the chat more , but the start for both of them is not perfect basically we need some kind of a prompt first then start the session then call the spawn to start the lanes and then they send delivery  or raise a questions also no scene switching  but that's fine as a start"
+
+What this means for the next version:
+- Direction: C (session transcript) is preferred over A (swimlanes).
+- New opening order: a prompt first → the session starts → the session calls the spawn → the lanes start → the lanes deliver results or raise questions (`ptah_agent_report`). The "one agent, one task" waiting hook is replaced by this sequence.
+- No scene switching: one continuous scene (the transcript and its panels stay in one world); no cuts away to a separate panel scene.
+- The Act 1 prototypes are accepted as a starting point and are committed as is.
+
 ## Still open
 
 1. Caption copy for every frame (below). Approve or rewrite.
