@@ -33,6 +33,8 @@ export interface WorktreeCreatedData {
   readonly name: string;
   readonly cwd: string;
   readonly timestamp: number;
+  /** Absolute worktree path when the hook reported one; skips the resolver. */
+  readonly worktreePath?: string;
 }
 
 export interface WireSdkCallbacksOptions {
@@ -349,8 +351,10 @@ function wireWorktreeCallbacks(
       `${tag} Worktree created: name=${data.name}, sessionId=${data.sessionId}`,
     );
 
-    let worktreePath: string | undefined;
-    if (resolveWorktreePath) {
+    // The hook's own path is authoritative; the platform resolver is only the
+    // fallback for a hook that reported a name alone.
+    let worktreePath: string | undefined = data.worktreePath || undefined;
+    if (!worktreePath && resolveWorktreePath) {
       try {
         worktreePath = await resolveWorktreePath(data);
       } catch (err) {
@@ -366,6 +370,7 @@ function wireWorktreeCallbacks(
         action: 'created',
         name: data.name,
         path: worktreePath,
+        sessionId: data.sessionId,
       })
       .catch((error) => {
         logger.error(

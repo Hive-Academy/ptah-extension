@@ -19,6 +19,7 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
 import {
@@ -509,5 +510,124 @@ describe('wireAgentEventListeners — the drop reaches the log', () => {
       expect.stringContaining('no parent session id'),
       expect.anything(),
     );
+  });
+});
+
+/**
+ * TASK_2026_580 (D13) — a ptah-cli child's lineage is recorded only once
+ * `addCliSession` accepted the reference, which proves the parent id is a real
+ * SDK session UUID rather than a tab id.
+ */
+describe('persistCliSessionReference — child lineage capture (TASK_2026_580)', () => {
+  const CHILD_SESSION = '99999999-8888-4777-8666-555555555555';
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function persistWith(
+    addCliSession: jest.Mock,
+    recorder: { recordLineage: jest.Mock } | undefined,
+    overrides: Partial<AgentProcessInfo> = {},
+  ): ReturnType<typeof createMockLogger> {
+    const logger = createMockLogger();
+    const entries: Array<[symbol, unknown]> = [
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession,
+          markChildSession: jest.fn().mockResolvedValue(undefined),
+        },
+      ],
+    ];
+    if (recorder) {
+      entries.push([PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER, recorder]);
+    }
+    persistCliSessionReference(
+      buildContainer(entries),
+      logger as unknown as Logger,
+      '[test]',
+      buildInfo({
+        parentSessionId: PARENT_SESSION,
+        cliSessionId: CHILD_SESSION,
+        // The `agent:spawned` shape: no output to persist, so no output warning.
+        status: 'running',
+        ...overrides,
+      }),
+      undefined,
+    );
+    return logger;
+  }
+
+  it('records lineage with the parent and startedBy agent after a resolved add', async () => {
+    const recordLineage = jest.fn();
+    persistWith(jest.fn().mockResolvedValue(undefined), { recordLineage });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(recordLineage).toHaveBeenCalledTimes(1);
+    expect(recordLineage).toHaveBeenCalledWith({
+      sessionId: CHILD_SESSION,
+      parentSessionId: PARENT_SESSION,
+      startedBy: 'agent',
+      workspaceRootHint: '/repo',
+    });
+  });
+
+  it('does not record when the add is rejected with "Parent session not found"', async () => {
+    const recordLineage = jest.fn();
+    persistWith(
+      jest.fn().mockRejectedValue(new Error('Parent session not found: x')),
+      { recordLineage },
+    );
+
+    await jest.advanceTimersByTimeAsync(60_000);
+
+    expect(recordLineage).not.toHaveBeenCalled();
+  });
+
+  it('does not record when the child session id equals the parent', async () => {
+    const recordLineage = jest.fn();
+    persistWith(
+      jest.fn().mockResolvedValue(undefined),
+      { recordLineage },
+      { cliSessionId: PARENT_SESSION },
+    );
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(recordLineage).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when no recorder is registered', async () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const logger = persistWith(addCliSession, undefined);
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(addCliSession).toHaveBeenCalledTimes(1);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('logs a faulty recorder throw instead of reporting a failed persist', async () => {
+    const recordLineage = jest.fn(() => {
+      throw new Error('recorder broke');
+    });
+    const logger = persistWith(jest.fn().mockResolvedValue(undefined), {
+      recordLineage,
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Could not record child session lineage'),
+      expect.any(Error),
+    );
+    expect(logger.error).not.toHaveBeenCalled();
   });
 });
