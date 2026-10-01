@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Agent lanes — storyboard v2</title>
+<style>
+  :root { --bg:#0b0b0e; --stage:#131317; --text:#e8e6e1; --muted:#989291; --gold:#d4af37; --info:#3b82f6; --ok:#16a34a; --card:#1a1a20; --line:#242430; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:Inter, "Segoe UI", system-ui, sans-serif; padding:48px 56px 80px; }
+  header { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:12px; }
+  h1 { font-family:"Archivo Black","Arial Black",Impact,sans-serif; font-size:40px; letter-spacing:-.01em; }
+  h1 small { color:var(--gold); font-size:22px; margin-left:12px; }
+  .dek { color:var(--muted); font-size:17px; margin-bottom:8px; max-width:1100px; line-height:1.45; }
+  .tag { border:1px solid var(--line); border-radius:999px; padding:6px 14px; font-size:14px; color:var(--muted); white-space:nowrap; }
+  .act { margin:32px 0 12px; font-size:13px; letter-spacing:.18em; color:var(--gold); text-transform:uppercase; border-bottom:1px solid var(--line); padding-bottom:8px; }
+  .grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:28px; }
+  .cell { display:flex; flex-direction:column; gap:10px; }
+  .frame { aspect-ratio:16/9; background:var(--stage); border-radius:10px; overflow:hidden; border:1px solid var(--line); }
+  .frame svg { width:100%; height:100%; display:block; }
+  .label { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); letter-spacing:.06em; }
+  .label b { color:var(--text); letter-spacing:.08em; }
+  .note { font-size:14px; line-height:1.5; color:#c9c6c0; }
+  .note b { color:var(--text); }
+  .chip { align-self:flex-start; font-size:12px; border:1px solid var(--gold); color:var(--gold); border-radius:999px; padding:3px 10px; }
+  .wide { grid-column:span 3; }
+  .seams { display:grid; grid-template-columns:repeat(9,1fr); gap:6px; }
+  .seams div { background:var(--card); border-radius:8px; padding:10px; font-size:12px; color:var(--muted); line-height:1.4; }
+  .seams div b { display:block; color:var(--text); font-size:13px; margin-bottom:4px; }
+  .tokens { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:24px; background:var(--card); border-radius:10px; padding:20px 24px; font-size:14px; line-height:1.6; }
+  .tokens h3 { font-size:12px; letter-spacing:.16em; color:var(--gold); margin-bottom:8px; }
+  .sw { display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; margin-right:6px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Agent lanes <small>storyboard v2 · series pilot</small></h1>
+    <p class="dek">Your agents work in parallel lanes, and they talk back. One world: your session node, three lanes, a peer node. One caption per beat. One real kit component at a time, grown from its node.</p>
+  </div>
+  <span class="tag">1920×1080 · 30.448 s · 17 bars @ 134 BPM · 9 frames</span>
+</header>
+
+<!-- shared SVG pieces -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <g id="node"><circle r="60" fill="#1a1a20" stroke="#d4af37" stroke-width="6"/><circle r="14" fill="#d4af37"/></g>
+    <style>
+      .cap { font-family:"Archivo Black","Arial Black",Impact,sans-serif; font-size:84px; fill:#e8e6e1; letter-spacing:-1px; }
+      .g { fill:#d4af37; }
+      .sub { font-family:Inter,"Segoe UI",sans-serif; font-size:40px; fill:#989291; font-weight:600; }
+      .lbl { font-family:Inter,"Segoe UI",sans-serif; font-size:36px; fill:#e8e6e1; font-weight:500; }
+      .mut { font-family:Inter,"Segoe UI",sans-serif; font-size:30px; fill:#989291; }
+      .mono { font-family:"JetBrains Mono",Consolas,monospace; font-size:34px; fill:#e8e6e1; }
+      .ln { stroke:#3a3a46; stroke-width:6; fill:none; stroke-linecap:round; }
+      .lnG { stroke:#d4af37; stroke-width:6; fill:none; stroke-linecap:round; }
+      .lnOk { stroke:#16a34a; stroke-width:6; fill:none; stroke-linecap:round; }
+      .card { fill:#1a1a20; stroke:#2e2e3a; stroke-width:3; }
+      .ring { fill:none; stroke:#d4af37; stroke-width:5; }
+    </style>
+  </defs>
+</svg>
+
+<div class="act">Act 1 · The lanes</div>
+<div class="grid">
+
+  <div class="cell" id="frame-01">
+    <div class="frame"><svg viewBox="0 0 1920 1080">
+      <text x="192" y="200" class="cap">ONE AGENT. <tspan class="g">ONE TASK.</tspan></text>
+      <rect x="360" y="420" width="1200" height="150" rx="24" class="card"/>
+      <rect x="410" y="463" width="150" height="64" rx="12" fill="#3b82f6"/>
+      <text x="438" y="507" class="mono" style="fill:#fff">Bash</text>
+      <text x="600" y="507" class="mono">Executing Bash...</text>
+      <circle cx="1480" cy="495" r="22" fill="none" stroke="#3b82f6" stroke-width="6" stroke-dasharray="90 60"/>
+      <text x="960" y="700" text-anchor="middle" class="mono" style="font-size:64px;fill:#989291">18m 04s</text>
+    </svg></div>
+    <div class="label"><b>01 · WAITING</b><span>frame-01 · 0.000–1.791</span></div>
+    <p class="note"><b>The timer ticks first, on every beat.</b> One large running row, one clock. On the drop the row shrinks into the session node and slides to the left edge.</p>
+    <span class="chip">match cut → node</span>
+  </div>
+
+  <div class="cell" id="frame-02">
+    <div class="frame"><svg viewBox="0 0 1920 1080">
+      <text x="192" y="200" class="cap">ONE PROMPT. <tspan class="g">THREE LANES.</tspan></text>
+      <path d="M300 640 H640" class="lnG"/>
+      <path d="M640 640 C720 640 720 480 820 480 H1760" class="lnG"/>
+      <path d="M640 640 H1760" class="lnG"/>
+      <path d="M640 640 C720 640 720 800 820 800 H1760" class="lnG"/>
+      <use href="#node" x="240" y="640"/>
+      <text x="240" y="750" text-anchor="middle" class="mut">Your session</text>
+      <circle cx="860" cy="440" r="10" fill="#3b82f6"/><text x="885" y="452" class="lbl">Glm</text>
+      <circle cx="860" cy="600" r="10" fill="#3b82f6"/><text x="885" y="612" class="lbl">Codex</text>
+      <circle cx="860" cy="760" r="10" fill="#3b82f6"/><text x="885" y="772" class="lbl">Copilot</text>
+    </svg></div>
+    <div class="label"><b>02 · SPLIT</b><span>frame-02 · 1.791–5.373</span></div>
+    <p class="note"><b>On the drop a gold line shoots right and splits.</b> The lanes draw on beats 2, 3, 4. In bar 2, ticks flow right along all three lanes at the same speed.</p>
+    <span class="chip">camera travel →</span>
+  </div>
+
+  <div class="cell" id="frame-03">
+    <div class="frame"><svg viewBox="0 0 1920 1080">
+      <text x="192" y="200" class="cap">ALL <tspan class="g">AT ONCE.</tspan></text>
+      <text x="192" y="256" class="sub">THE AGENTS PANEL</text>
+      <rect x="192" y="300" width="1536" height="700" rx="24" class="card"/>
+      <text x="232" y="365" class="lbl" style="font-weight:600">Agents</text><rect x="370" y="330" width="48" height="44" rx="8" fill="#1e1e26"/><text x="385" y="363" class="lbl" style="font-size:28px">3</text>
+      <g class="lbl" style="font-size:28px">
+        <rect x="232" y="400" width="170" height="60" rx="16" fill="#132042" stroke="#2563eb" stroke-width="3"/><circle cx="262" cy="430" r="8" fill="#16a34a"/><text x="282" y="440">Glm ✓</text>
+        <rect x="420" y="400" width="190" height="60" rx="16" fill="#131317" stroke="#242430" stroke-width="3"/><circle cx="450" cy="430" r="8" fill="#3b82f6"/><text x="470" y="440">Codex</text>
+        <rect x="628" y="400" width="210" height="60" rx="16" fill="#131317" stroke="#242430" stroke-width="3"/><circle cx="658" cy="430" r="8" fill="#3b82f6"/><text x="678" y="440">Copilot</text>
+      </g>
+      <g>
+        <rect x="232" y="490" width="476" height="480" rx="14" fill="#131317"/>
+        <rect x="726" y="490" width="476" height="480" rx="14" fill="#131317"/>
+        <rect x="1220" y="490" width="476" height="480" rx="14" fill="#131317"/>
+      </g>
+      <g fill="#1f2d22"><rect x="252" y="520" width="436" height="56" rx="10"/><rect x="252" y="590" width="436" height="56" rx="10"/><rect x="252" y="660" width="436" height="56" rx="10"/></g>
+      <g fill="#1f2d22"><rect x="746" y="520" width="436" height="56" rx="10"/><rect x="746" y="590" width="436" height="56" rx="10"/></g><rect x="746" y="660" width="436" height="56" rx="10" fill="#172648"/>
+      <g fill="#1f2d22"><rect x="1240" y="520" width="436" height="56" rx="10"/><rect x="1240" y="590" width="436" height="56" rx="10"/></g><rect x="1240" y="660" width="436" height="56" rx="10" fill="#172648"/>
+    </svg></div>
+    <div class="label"><b>03 · ALL AT ONCE</b><span>frame-03 · 5.373–10.746</span></div>
+    <p class="note"><b>Bar 2: the three lanes rotate into the real Agents panel's three columns.</b> Rows arrive on the same beat in all three columns. Glm turns green on bar 3, beat 4.</p>
+    <span class="chip">match cut → lanes</span>
+  </div>
+
+  <div class="cell" id="frame-04">
+    <div class="frame"><svg viewBox="0 0 1920 1080">
+      <text x="192" y="200" class="cap">RESULTS <tspan class="g">COME BACK</tspan> TO YOU.</text>
+      <text x="192" y="256" class="sub">Pushed to your session. No polling.</text>
+      <g opacity=".3">
+        <path d="M300 640 H640 M640 640 C720 640 720 480 820 480 M640 640 H1760 M640 640 C720 640 720 800 820 800 H1760" class="ln"/>
+        <path d="M820 480 H1760" class="lnOk"/>
+      </g>
+      <use href="#node" x="240" y="640"/>
+      <rect x="420" y="420" width="1160" height="300" rx="24" class="card"/>
+      <text x="470" y="485" class="mut" style="font-size:26px;letter-spacing:4px;fill:#d4af37">PUSHED TO THE PARENT SESSION</text>
+      <text x="470" y="560" class="lbl" style="font-size:44px;font-weight:600">Lane Glm finished: completed</text>
+      <rect x="1310" y="520" width="200" height="56" rx="28" fill="#16a34a"/><text x="1340" y="558" class="lbl" style="font-size:30px">delivered</text>
+      <rect x="1300" y="510" width="220" height="76" rx="38" class="ring"/>
+      <text x="470" y="640" class="mono" style="font-size:28px;fill:#989291">.../reviews/batch-5-code-logic-review.md · 4120 bytes</text>
+    </svg></div>
+    <div class="label"><b>04 · PUSHED BACK</b><span>frame-04 · 10.746–14.328</span></div>
+    <p class="note"><b>A gold packet runs left along the Glm lane into your session.</b> Bar 2: the result card grows out of the node. The "delivered" chip gets the focus ring.</p>
+    <span class="chip">card → node</span>
+  </div>
+
+</div>
+
+<div class="act">Act 2 · They talk back</div>
+<div class="grid">
+
+  <div class="cell" id="frame-05">
+    <div class="frame"><svg viewBox="0 0 1920 1080">
+      <text x="192" y="200" class="cap">AND THEY <tspan class="g">TALK BACK.</tspan></text>
+      <text x="192" y="256" class="sub">A lane reports before it finishes.</text>
+      <g opacity=".3"><path d="M300 640 H1760 M640 640 C720 640 720 480 820 480 H1760 M640 640 C720 640 720 800 820 800 H1760" class="ln"/></g>
+      <use href="#node" x="240" y="640"/>
+      <rect x="420" y="400" width="1160" height="360" rx="24" class="card" style="stroke:#6b5a1e"/>
+      <rect x="470" y="440" width="260" height="56" rx="10" fill="#2a2412" stroke="#8a7426" stroke-width="2"/><text x="490" y="478" class="mono" style="font-size:28px;fill:#d4af37">Ptah Superpower</text>
+      <rect x="750" y="440" width="320" height="56" rx="10" fill="#2a2412" stroke="#6b5a1e" stroke-width="2"/><text x="770" y="478" class="mono" style="font-size:28px;fill:#d4af37">ptah agent report</text>
+      <text x="1500" y="480" class="lbl" style="fill:#16a34a">✓</text>
+      <rect x="470" y="540" width="1060" height="110" rx="12" fill="#131317" class="ring"/>
+      <text x="500" y="610" class="lbl" style="font-size:44px;font-weight:700">Report Delivered</text>
+      <text x="470" y="710" class="lbl" style="font-size:32px"><tspan style="font-weight:700">Delivered:</tspan> Yes</text>
+    </svg></div>
+    <div class="label"><b>05 · REPORT MID-RUN</b><span>frame-05 · 14.328–17.910</span></div>
+    <p class="note"><b>A packet leaves the middle of the Codex lane while the lane keeps running.</b> Bar 2: the real report row grows from the node and expands to "Report Delivered".</p>
+    <span class="chip">card → node</span>
+  </div>
+
+  <div class="cell" id="frame-06">
+    <div class="frame"><svg viewBox="0 0 1920 1080">
+      <text x="192" y="200" class="cap"><tspan class="g">MESSAGE</tspan> A RUNNING LANE.</text>
+      <g opacity=".3"><path d="M300 640 H1760 M640 640 C720 640 720 480 820 480 H1760" class="ln"/></g>
+      <path d="M300 640 H640 C720 640 720 800 820 800 H1500" class="lnG" opacity=".5"/>
+      <circle cx="1500" cy="800" r="16" fill="#d4af37"/>
+      <use href="#node" x="240" y="640"/>
+      <rect x="420" y="470" width="1160" height="150" rx="24" class="card" style="stroke:#6b5a1e"/>
+      <rect x="470" y="517" width="260" height="56" rx="10" fill="#2a2412" stroke="#8a7426" stroke-width="2"/><text x="490" y="555" class="mono" style="font-size:28px;fill:#d4af37">Ptah Superpower</text>
+      <rect x="750" y="517" width="350" height="56" rx="10" fill="#2a2412" stroke="#6b5a1e" stroke-width="2"/><text x="770" y="555" class="mono" style="font-size:28px;fill:#d4af37">ptah agent message</text>
+      <text x="1500" y="558" class="lbl" style="fill:#16a34a">✓</text>
+      <text x="860" y="860" class="lbl">Copilot</text>
+    </svg></div>
+    <div class="label"><b>06 · MESSAGE A LANE</b><span>frame-06 · 17.910–21.493</span></div>
+    <p class="note"><b>The packet now travels right, from your session up the Copilot lane.</b> Bar 2: the gold "ptah agent message" row grows from the node and runs to done.</p>
+    <span class="chip">camera travel ↓</span>
+  </div>
+
+  <div class="cell" id="frame-07">
+    <div class="frame"><svg viewBox="0 0 1920 1080">
+      <text x="192" y="200" class="cap">SESSIONS TALK <tspan class="g">TO EACH OTHER.</tspan></text>
+      <path d="M240 340 C120 520 120 700 240 880" class="lnG" opacity=".6"/>
+      <use href="#node" x="240" y="340"/><text x="330" y="352" class="mut">Your session</text>
+      <use href="#node" x="240" y="880"/><text x="330" y="892" class="mut">review memory work</text>
+      <rect x="520" y="300" width="1200" height="660" rx="24" class="card"/>
+      <text x="570" y="380" class="lbl" style="font-size:44px;font-weight:600">Message Peer Session</text>
+      <text x="570" y="450" class="mut">Target Peer Session</text>
+      <rect x="570" y="470" width="620" height="70" rx="12" fill="#131317" stroke="#242430" stroke-width="3"/><text x="595" y="517" class="lbl" style="font-size:32px">review memory work</text>
+      <rect x="1220" y="430" width="450" height="230" rx="12" fill="#2a1a0e" stroke="#9a4a10" stroke-width="2"/><text x="1245" y="480" class="lbl" style="font-size:28px;fill:#f97316">Notice before sending</text>
+      <rect x="570" y="570" width="620" height="120" rx="12" fill="#131317" stroke="#242430" stroke-width="3"/><text x="595" y="625" class="lbl" style="font-size:30px">Batch 5 review is approved. Start P2.</text>
+      <rect x="570" y="730" width="1100" height="190" rx="14" fill="#10203d" stroke="#3b82f6" stroke-width="3"/>
+      <text x="600" y="800" class="lbl" style="font-size:36px"><tspan style="font-weight:700">Status:</tspan> Accepted</text>
+      <rect x="590" y="755" width="330" height="70" rx="12" class="ring"/>
+      <text x="600" y="860" class="mut">Target: review memory work</text>
+    </svg></div>
+    <div class="label"><b>07 · PEER</b><span>frame-07 · 21.493–25.075</span></div>
+    <p class="note"><b>The camera travels down to a second session node, and a gold arc connects the two.</b> The dialog grows from the arc: the message types, Send, then "Status: Accepted".</p>
+    <span class="chip">pull-back</span>
+  </div>
+
+  <div class="cell" id="frame-08">
+    <div class="frame"><svg viewBox="0 0 1920 1080">
+      <g transform="translate(160 0) scale(.85)">
+        <path d="M300 420 H640" class="lnG"/>
+        <path d="M640 420 C720 420 720 260 820 260 H1760 M640 420 H1760 M640 420 C720 420 720 580 820 580 H1760" class="lnOk"/>
+        <path d="M240 420 C120 520 120 620 240 720" class="lnG" opacity=".6"/>
+        <use href="#node" x="240" y="420"/><use href="#node" x="240" y="720"/>
+        <text x="885" y="232" class="lbl">Glm</text><text x="885" y="392" class="lbl">Codex</text><text x="885" y="552" class="lbl">Copilot</text>
+      </g>
+      <text x="960" y="880" text-anchor="middle" class="cap" style="font-size:80px">YOUR AGENTS WORK IN PARALLEL.</text>
+      <text x="960" y="990" text-anchor="middle" class="cap g" style="font-size:80px">AND THEY TALK BACK.</text>
+    </svg></div>
+    <div class="label"><b>08 · THE LINE (HELD)</b><span>frame-08 · 25.075–26.866</span></div>
+    <p class="note"><b>The camera pulls back to the whole diagram, and then it does not move.</b> The line slams on beat 2. Nothing moves after the slam.</p>
+    <span class="chip">match cut → icon</span>
+  </div>
+
+  <div class="cell" id="frame-09">
+    <div class="frame"><svg viewBox="0 0 1920 1080">
+      <circle cx="960" cy="380" r="110" fill="#1a1a20" stroke="#d4af37" stroke-width="8"/>
+      <text x="960" y="410" text-anchor="middle" class="cap g" style="font-size:80px">𓂀</text>
+      <text x="960" y="640" text-anchor="middle" class="cap" style="font-size:150px">Ptah</text>
+      <text x="960" y="720" text-anchor="middle" class="mut" style="font-size:44px;letter-spacing:10px">AGENT LANES</text>
+      <rect x="610" y="790" width="700" height="80" rx="40" fill="#2563eb"/>
+      <text x="960" y="843" text-anchor="middle" class="lbl" style="font-size:36px;fill:#f8f7f4">Free and open source · ptah.live</text>
+    </svg></div>
+    <div class="label"><b>09 · LOCKUP</b><span>frame-09 · 26.866–30.448</span></div>
+    <p class="note"><b>The session node becomes the Ptah icon.</b> Wordmark, then the feature name, then the CTA pill on bar 2. The last 0.9 s do not move. (The glyph is a placeholder for <code>ptah-icon.png</code>.)</p>
+    <span class="chip">optional light-leak</span>
+  </div>
+
+  <div class="cell wide">
+    <div class="act" style="margin-top:8px">Seam map</div>
+    <div class="seams">
+      <div><b>0.000</b>01 Waiting</div>
+      <div><b>1.791</b>row → node (drop)</div>
+      <div><b>5.373</b>travel right</div>
+      <div><b>7.164</b>lanes → panel</div>
+      <div><b>10.746</b>panel → lanes</div>
+      <div><b>14.328</b>card → node</div>
+      <div><b>17.910</b>card → node</div>
+      <div><b>21.493</b>travel down · <b>25.075</b> pull-back</div>
+      <div><b>26.866</b>node → icon</div>
+    </div>
+  </div>
+
+  <div class="cell wide">
+    <div class="tokens">
+      <div>
+        <h3>SERIES GRAMMAR</h3>
+        Caption bar top-left in title-safe, Archivo Black 84 px, one gold phrase. One diagram world. One real kit component at a time, grown from its node at u 1.2–1.6. Work flows right, results flow left. Lockup: Ptah + feature name + CTA.
+      </div>
+      <div>
+        <h3>PALETTE</h3>
+        <span class="sw" style="background:#131317;border:1px solid #333"></span>#131317 stage<br>
+        <span class="sw" style="background:#e8e6e1"></span>#e8e6e1 text · <span class="sw" style="background:#989291"></span>#989291 muted<br>
+        <span class="sw" style="background:#d4af37"></span>#d4af37 gold: captions, packets, Ptah rows<br>
+        <span class="sw" style="background:#3b82f6"></span>running · <span class="sw" style="background:#16a34a"></span>completed
+      </div>
+      <div>
+        <h3>BANS</h3>
+        Two components on screen at once · a 2+2 grid · zoom to read small UI · API names in captions · "delivered/received" for Peer · blobs, grain, bounce on UI · slideshow · screensaver
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

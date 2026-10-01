@@ -1,378 +1,288 @@
 ---
 format: 1920x1080
-duration: 46.567s
-message: "One prompt puts a whole AI team to work, and every result comes back to your session."
-arc: Hook → Ask → Delegate → Parallel lanes → Pushed result → Peer sessions → Pull-back → Lockup
+duration: 30.448s
+message: "Your agents work in parallel lanes, and they talk back."
+arc: Wait → Split → Parallel proof → Pushed back → They talk (report, message, peer) → Held line → Lockup
 audience: developers who already use AI coding agents
 mode: collaborative
-version: v1
+version: v2
 ---
 
-# Agent lanes v3 — storyboard v1
+# Agent lanes — storyboard v2 (series pilot)
+
+v1 (the 46.6 s dive film) is archived in `STORYBOARD-v1.md`. The user rejected it on 2026-10-01; see "Changes from v1".
 
 ## Decisions
 
-- **Message:** One prompt puts a whole AI team to work, and every result comes back to your session.
-- **Audience and arc:** developers who use AI coding agents. Hook → ask → four features → pull-back → lockup.
-- **Format:** 1920x1080, 30 fps, 46.567 s (26 bars). No voiceover. Music + SFX. No captions (on-screen type carries the story).
-- **Spine:** one Ptah app window with four live sessions in the `2+2` canvas. Every feature scene is a camera dive into that same window (a slot, the Agents rail, or the footer). The pull-back in Frame 12 shows that all of it ran in one window at once.
-- **Sandwich rhythm:** kinetic title (1 bar) → shader seam → live-UI dive (2-3 bars) → shader seam → next title. Titles say the claim; dives prove it with real UI states.
-- **Held frame:** Frame 12, bar 2 (39.403-41.194). The camera stops; only streaming text moves; the line lands.
+- **Message:** Your agents work in parallel lanes, and they talk back.
+- **Audience and arc:** developers who use AI coding agents. Wait (problem) → split into lanes (the turn) → proof → results pushed back → messaging (report, message, peer) → held line → lockup.
+- **Format:** 1920x1080, 30 fps, 30.448 s (17 bars at 134 BPM). No voiceover. Music + SFX. No captions track: the caption bar carries the story.
+- **Spine: the lane diagram.** One world for the whole film: your session is a node at the left, three lanes run to the right (Glm, Codex, Copilot), and a peer session node waits below. Every scene is a camera position in this diagram or a proof card that grows out of one of its nodes and returns into it.
+- **Series grammar (this pilot sets it for the next feature promos):**
+  1. Caption bar: top-left inside title-safe, Archivo Black 84 px uppercase, one gold word or phrase; an optional Inter 40 px muted sub-line. One caption per beat, never two.
+  2. Diagram stage: flat `#131317`, lines 6 px, nodes 120 px, lane labels Inter 36 px. Packets are 28 px gold dots that travel along lines.
+  3. Proof card: ONE real `ptah-ui` kit component at a time, centered, mounted at u 1.2-1.6, grown from its node (scale 0.1 → 1 from the node position, `expo.out` 0.45 s) and returned to it the same way. The diagram dims to 30% under a proof card.
+  4. Seams: camera moves inside the one world and match cuts (an element of scene N becomes an element of scene N+1). One shader seam at most (into the lockup).
+  5. Lockup: the session node becomes the Ptah icon; "Ptah" + the feature name + the CTA pill.
+- **Held frame:** Frame 08 (25.075-26.866). Nothing moves; the line lands.
 
-## Beat grid (from `beats/assets/music/mixkit-uplifting-bass.mp3.json`)
+## Beat grid
 
-- 134 BPM. Beat B = 0.448 s. Bar = 1.791 s. Music `data-media-start="12.575"` (music bar 7), so the drop (music 14.366 s) lands at film 1.791 s.
-- Every cut is on a bar downbeat. Every entrance is on a beat. Kit `cues` are frame-local seconds on this grid.
-- Music: fade out over the last bar (44.776-46.567). The last 0.9 s hold still.
-
-## Camera convention (all dive frames)
-
-- The world is `app-window` (1920x1080, u = 1) with four `session-shell` mounts at the `2+2` slot rectangles (SPEC 4.11). Feature components mount inside a slot's body rectangle.
-- A slot renders at u = 0.43. A reading framing uses camera scale >= 2.4 on that slot, so on-screen u >= 1.03 and the 26 px floor holds. The overview (scale 1.0) is for geography only, never for reading.
-- Camera = one non-timed wrapper (`.cam`) with `translate + scale` keyframes (`/hyperframes-keyframes`, rule `viewport-change`). The kit focus beat of the target part fires on the same beat as each punch-in.
-- Risk to verify at the first draft: crisp text at scale 2.4-3.5 on u = 0.43 mounts. Fallback: author the world at 2.4x (u = 1.03 mounts) and show the overview at camera scale 0.417.
+- 134 BPM. Beat B = 0.448 s. Bar = 1.791 s. Music `data-media-start="12.575"`, so the drop lands at film 1.791 s (the split).
+- Bar starts: 0.000, 1.791, 3.582, 5.373, 7.164, 8.955, 10.746, 12.537, 14.328, 16.119, 17.910, 19.701, 21.493, 23.284, 25.075, 26.866, 28.657, 30.448.
+- Every scene change is on a bar. Every entrance is on a beat.
 
 ## Brand tokens (from `kits/ptah-ui/SPEC.md` §1)
 
 | Role | Value |
 | --- | --- |
-| Background | `#131317` flat + one static vignette (SPEC 3.4a) |
-| Text | `#e8e6e1`; muted `oklch(63% .007 23)` |
-| Accent (one word per title, focus ring) | Pharaoh gold `#d4af37` |
-| Product state | primary `#2563eb`, info `#3b82f6`, success `#16a34a` |
-| Display type | Archivo Black, 110-140 px, uppercase, tracking -0.01em |
-| UI type | Inter / JetBrains Mono through the kit roles (26-36 px at u = 1) |
-| Eases | `expo.out` camera landings and slams, `expo.inOut` camera travel, `power3.out` UI settles, `back.out(1.6)` chips |
+| Background | `#131317` flat + one static vignette under the UI |
+| Text | `#e8e6e1`; muted `#989291` (SPEC 1.5 deviation 2) |
+| Accent | Pharaoh gold `#d4af37`: one caption word, packets, Ptah tool rows |
+| Lane state | running info `#3b82f6`, completed success `#16a34a` |
+| Display type | Archivo Black 84 px captions, 80 px held line (title-safe width) |
+| UI type | Inter / JetBrains Mono through the kit roles (26 px floor on screen) |
+| Eases | `expo.out` slams and card grows, `expo.inOut` camera travel, `power3.out` UI settles, `sine.inOut` packet travel |
 
 ## Bans
 
-- No drifting blobs, particles, bokeh, or grain on UI frames (v2 review). One static vignette only.
-- No screenshots and no generic cards. Every UI surface is a `ptah-ui` kit component.
-- No text under 26 px on screen at a reading moment. No shrunken mounts.
-- No elastic or bounce on product UI. Type slams only.
-- No "delivered", "received", or "acknowledged" for Peer. Only "Accepted".
-- Motion failures to avoid: the slideshow (a title with nothing live behind the next seam) and the screensaver (camera drift with no UI state change).
+- Never more than one kit component on screen. No component placed over another component.
+- No 2+2 session grid, no dense overview, no camera zoom to read small UI. A proof card is big when it appears.
+- No caption that names an API (`ptah_agent_spawn`, `<agent-lane-completed>`) in the caption bar. Outcome language only; tool names appear only inside real UI.
+- No "delivered", "received" or "read" for Peer. Only "Accepted".
+- No claim that lanes are unlimited. (The film shows three; the default cap is 5, configurable to 20.)
+- No drifting blobs, particles or grain. No elastic or bounce on product UI.
+- Motion failures to avoid: the slideshow (a proof card with no diagram motion that led to it) and the screensaver (diagram motion with no state change).
+
+## Truthfulness
+
+- Lanes: background CLI agents started from the session (`ptah_agent_spawn`). Built-in CLIs include codex and copilot (`libs/shared/src/lib/types/agent-process.types.ts:58-65`). "Glm" is the user's Ollama Cloud lane (a user-configured ptah-cli provider).
+- Pushed back: `LaneCompletionNotifier` pushes one `<agent-lane-completed>` turn into the session that spawned the lane, with a verdict such as `delivered`. The kit `lane-completion-toast` is a visualization of that push; it carries the eyebrow "PUSHED TO THE PARENT SESSION" (user-approved decision).
+- Report mid-run: `ptah_agent_report` shows a lane's report in the parent session before the lane finishes.
+- Message a lane: `ptah_agent_message` sends a message to a running lane. The film does not claim a delivery mode.
+- Peer: "Message Peer Session" dialog, outcome "Accepted" (`peer-session-send-dialog.component.ts`).
+- Agents panel: up to 3 lane columns side by side (`agent-monitor/agent-lane-layout.ts:11-13`).
 
 ## Seam map
 
-| Time | From → To | Seam | Dur |
-| --- | --- | --- | --- |
-| 3.582 | 01 → 02 | shader `glitch` | 0.35 |
-| 5.373 | 02 → 03 | shader `cinematic-zoom` | 0.40 |
-| 8.955 | 03 → 04 | shader `whip-pan` (leftward) | 0.30 |
-| 10.746 | 04 → 05 | shader `cinematic-zoom` | 0.40 |
-| 16.119 | 05 → 06 | shader `whip-pan` (leftward) | 0.30 |
-| 17.910 | 06 → 07 | shader `cinematic-zoom` | 0.40 |
-| 23.283 | 07 → 08 | shader `whip-pan` (leftward) | 0.30 |
-| 25.074 | 08 → 09 | shader `chromatic-split` | 0.35 |
-| 30.448 | 09 → 10 | shader `whip-pan` (leftward) | 0.30 |
-| 32.239 | 10 → 11 | shader `cinematic-zoom` | 0.40 |
-| 37.612 | 11 → 12 | hard cut on an identical frame (same world, same camera) | 0 |
-| 41.194 | 12 → 13 | shader `light-leak` | 0.50 |
+| Time | From → To | Seam |
+| --- | --- | --- |
+| 1.791 | 01 → 02 | match cut: the spinner shrinks into the session node |
+| 5.373 | 02 → 03 | camera travel right along the lanes |
+| 10.746 | 03 → 04 | match cut: the panel columns fold back into the lanes |
+| 14.328 | 04 → 05 | proof card returns into the node; caption swap |
+| 17.910 | 05 → 06 | proof card returns into the node; caption swap |
+| 21.493 | 06 → 07 | camera travel down to the peer node |
+| 25.075 | 07 → 08 | camera pull-back to the whole diagram |
+| 26.866 | 08 → 09 | match cut: the session node becomes the Ptah icon (one `light-leak` shader at most) |
 
-Direction rule: every whip-pan goes leftward. Every `cinematic-zoom` goes into a dive.
+Direction rule: work flows right (prompt to lanes), results flow left (lanes to session). The camera never reverses a flow on screen.
 
 ## Audio plan
 
-- Music bed on track 10, volume 0.6, `data-media-start="12.575"`, fade-out automation over the last bar.
-- SFX bus: one `<hf-audio-group id="sfx">` (`/hyperframes-audio`) with a compressor and a limiter, fader -2 dB. Every SFX clip below sits in it.
-- The music ducks -4 dB for 0.3 s under each title slam (automation on the bed, not a carve: there is no voiceover).
+- Music bed: same track, volume 0.6, fade over the last bar.
+- SFX bus `<hf-audio-group id="sfx">` (compressor + limiter, as v1).
+- Packet SFX: one soft tick per packet launch, one pop per packet arrival. Caption slams duck the music 0.3 s.
+
+## Build notes (to verify before Frame 03)
+
+- Kit change: `agents-panel` needs a third lane (`lane3Name`, `lane3Status`, `lane3Rows`); the real panel shows up to 3 columns. Rebuild the kit after the change (`node build.mjs`).
+- The diagram is plain HTML/SVG inside each frame fragment (lines, nodes, packets). It is not a kit component.
+- About 1-2 kit mounts per frame (v1 had 9-16). Studio transition caching gets much faster.
+- No `data-layout-ignore` / `-allow-*` attributes. `check` must pass clean.
+
+## Changes from v1 (user review, 2026-10-01)
+
+User, verbatim: "the way we show components on each others is very confusing and i don't understand or have any clue on what we are trying to say and the video is not properly show so we need to step back and think as a true motion graphic video editor and see the main mess and hook we want users to get which is about our agent-lanes workflows and agent messaging capability in ptah with pure and clear animation so basically we should think of scenes , scenes transitions and proper messaggings all over to get the user attention not losing it"
+
+User, verbatim: "GLM is the name i have chosen for ollama cloud cli agent and for the ideas ptah offers too many but the proper way is to create small promos about each related features together in meaningful way and the agent-lane is just the first trial to see how we will be doing"
+
+Diagnosis (reproduced in Studio and `snapshot`, `snapshots/studio-repro/`, `snapshots/engine-repro/`): v1 dive frames stacked 9-16 sibling kit mounts at fixed offsets, the camera cropped them, and no beat said one thing. 75 mounts + 11 shader seams also made Studio's transition caching slow.
+
+Choices (2026-10-01): direction A "Swimlanes" with the problem opening from B; about 30 s per promo. Truth fixes: no "2+2" canvas preset, no product toast (the toast is labelled a visualization), lanes Glm / Codex / Copilot.
 
 ## Still open
 
-1. Title copy (Frames 02, 04, 06, 08, 10, 12) — approve or rewrite.
-2. Lane names "Glm" and "Antigravity" (SPEC defaults). The CLI roster is per user; any two real CLI names work.
-3. Outro line "Coding Orchestra" (app title bar caption, SPEC 4.11) and pill "Free and open source · ptah.live" (landing page JSON-LD).
-4. Length 46.6 s (v2 was 60 s). Faster pace answers the "too slow" note on the footage promo.
-5. Frame 11 does not show the peer session receiving the message (the product cannot observe that; SPEC 4.10).
+1. Caption copy for every frame (below). Approve or rewrite.
+2. Lockup feature name: "AGENT LANES". The series lockup pattern is "Ptah" + feature name + "Free and open source · ptah.live".
+3. Peer target title "review memory work" and workspace "ptah-extension" (kit defaults).
 
-## Locked
+## Frame 01 — Waiting (0.000-1.791, 1 bar)
 
-- Storyboard v1 approved by the user on 2026-10-01 as written, including the inferred items under "Still open" (title copy, lane names, outro copy, 46.6 s length). Sketch pass skipped: build scene by scene with a preview per scene.
-- Frame 1 approved on 2026-10-01. Frame 2 approved ("continue"). Frames 3-13 built 2026-10-01, awaiting the full-preview review.
-
-## Build notes
-
-- Frames are fragments assembled into `index.html` by `node assemble.mjs` (kit mounts nested in sub-compositions collapse; see `tools/hyperframes/HANDOFF.md`).
-- Frame 1: the vignette sits under the UI (above it, it darkened corner badges below 4.5:1). Glitch = one SVG filter on a lens wrapper (RGB split + turbulence slice displacement + blur 3.5 px max), a pure function of quantized time.
-
-- Seams are declared per fragment (`data-seam-in="<shader> <s>"`, `cut` for Frame 12) and centered on the bar; music ducks come from `data-duck` (frame-local slam times).
-- Audio: one `<hf-audio-group id="sfx">` bus (compressor -18 dB 3:1, limiter -1 dB, fader 0.79) over every `sx-*` clip; the music dips to 0.63 for 0.3 s under each slam and fades over the last bar.
-- Frame 9: the agent-report-card's expanded body is shorter than its content, so "Parent Session" is clipped (kit follow-up); the frame shows "Report Delivered" and "Delivered: Yes".
-- Frame 11: the peer-send mount sits at the slot's scale (u 0.43) with its trigger over slot 0's footer Peer chip (`peer:false` on that shell hides the duplicate).
-- Frame 12 opens on Frame 11's exact last state (peer-send `preroll` 5.373, same camera pose), so the hard cut is invisible. Held line at 96 px (fits under the window at 0.82).
-
-## Frame 1 — Hook: glitch to clarity
-
-- status: animated
-- src: compositions/frames/01-hook.html
-- duration: 3.582s
+- status: planned
+- src: compositions/frames/01-wait.html
+- duration: 1.791s
 - start: 0.000
 - transition_in: cut
-- scene: A glitched macro of a running Bash badge snaps clean as the camera pulls out to four live sessions on the drop
-- voiceover: onscreen
-- poster: 2.4
-- blueprint: zoom-out-workspace-reveal (Adapt: the macro detail is a live UI badge, the reveal lands on the drop)
-- rules: chromatic-glitch, depth-of-field-blur, viewport-change, multi-phase-camera
-- kit: app-window (layout 2+2, activeTab Chat, notifications "9+"), 4 × session-shell, tool-call-row (Bash) in slot 1, chat-message streaming in slots 0, 2, 3
-- camera: 0.000-0.591 hold at 3.5 on slot 1's tool badge; 0.591-1.791 3.5 → 1.0 `expo.inOut`; 1.791-3.582 hold 1.0 with 1.0 → 1.02 drift
-- sfx: glitch-1 0.000, glitch-2 0.448, glitch-3 0.896, riser 0.300, impact-bass-1 1.791, click-soft 2.687
-- constraint: no logo, no title in the hook; the product UI is the hook
+- kit: tool-call-row (Bash, running), mounted at u 1.5, centered
+- caption: "ONE AGENT. **ONE TASK.**" (gold on "ONE TASK.")
+- camera: none; the row drifts 1.00 → 1.03
+- sfx: tick on every beat (clock), riser from 0.9
 
-On screen at 0.000: a blurred, RGB-split close-up of the `tool-call-row` badge "Bash" (info fill, spinner) with the live text "Executing Bash...". The app-window entrance cues are compressed into 0-0.3 s under the glitch, so the window is complete before it is readable.
+On screen: one large running row, "Bash" badge (info, spinner), "Executing Bash...". Under it a mono timer counts 17m 58s → 18m 04s on the beats. The caption sets on beat 1.
 
-Motion: chromatic split ±24 px and `blur(18px)` on the camera wrapper, with slice bursts on beats 1-3 (quantized hash, rule `chromatic-glitch`). Split and blur tween to 0 over 0.591-1.791 while the camera travels 3.5 → 1.0. On beat 4 (1.343) the badge flips to success and the check springs. At the drop (1.791) the frame is clean: four sessions, each streaming. On beat 4 of bar 2 (3.134) the gold focus ring fades in on slot 0 to set up the next dive.
+Motion: first motion at 0.0 (timer tick). Beat 4 (1.343): the row and the timer fade to 30%, the spinner keeps spinning.
 
-Why: the viewer sees real work before any claim, and the "clarity" moment is the product at full scale.
+Seam out: on the drop (1.791) the row shrinks into a 120 px node and moves to the left edge (x 240): that node is "Your session" for the rest of the film.
 
-## Frame 2 — Title: one prompt
+Constraint: no "slow" or "frustrating" copy; the timer says it.
 
-- status: animated
-- src: compositions/frames/02-title-team.html
-- duration: 1.791s
-- start: 3.582
-- transition_in: glitch
-- scene: Three slams on three beats, gold on the last line
-- voiceover: onscreen
-- poster: 1.2
-- blueprint: kinetic-type-beats
-- rules: kinetic-beat-slam
-- kit: none (flat `#131317` + vignette)
-- camera: none
-- sfx: impact-bass-2 0.000, click 0.448, click 0.896
-- constraint: no product UI behind the words; no gradient text
+Why: the problem in outcome language: one agent works on one thing, and you wait.
 
-On screen: "ONE PROMPT." (beat 1, scale-slam) · "A WHOLE" (beat 2, side-snap from the right) · "AI TEAM." in gold (beat 3, rise-rotate). Three lines, 130 px Archivo Black, left-aligned on a 160 px margin. Beat 4 holds.
+## Frame 02 — Split (1.791-5.373, 2 bars)
 
-Why: states the message in five words before the proof starts.
-
-## Frame 3 — The ask
-
-- status: animated
-- src: compositions/frames/03-ask.html
+- status: planned
+- src: compositions/frames/02-split.html
 - duration: 3.582s
+- start: 1.791
+- transition_in: match cut (row → node)
+- kit: none (diagram only)
+- caption: "ONE PROMPT. **THREE LANES.**"
+- camera: hold at 1.0
+- sfx: impact on the drop, three whooshes on beats 2-4
+
+On screen: node "Your session" at the left. On the drop a gold line shoots right from the node and splits into three lanes at x 640: "Glm", "Codex", "Copilot" (lane labels with a running dot each, Inter 36 px). Lanes draw on beats 2, 3, 4 (`svg-path-draw`, 0.35 s each). Bar 2: tick marks flow right along all three lanes at the same speed.
+
+Seam out: camera travels right along the lanes (5.373).
+
+Constraint: no product UI yet; the diagram explains the structure.
+
+Why: the turn: one prompt becomes three agents at work.
+
+## Frame 03 — All at once (5.373-10.746, 3 bars)
+
+- status: planned
+- src: compositions/frames/03-parallel.html
+- duration: 5.373s
 - start: 5.373
-- transition_in: cinematic-zoom
-- scene: Slot 0's composer types one prompt and sends it
-- voiceover: onscreen
-- poster: 2.9
-- blueprint: prompt-type-submit-generate (Adapt: the clip ends one beat after the submit)
-- rules: viewport-change, press-release-spring
-- kit: app-window, session-shell ×4 (slot 0 title "fix review on 579"), composer in slot 0 (typeRate 16, mode autopilot, busyFor 1.0)
-- camera: 0.000-0.448 2.0 → 2.6 `expo.out` onto slot 0's composer; hold with 2.6 → 2.65 drift; 2.687 punch 2.65 → 3.0 on `send` (`expo.out`, 0.3 s)
-- sfx: whoosh-short 0.000, typing 0.448-2.550, key-press 2.687, pop 2.800
-- constraint: no cursor pointer; the press is scale + brighten (SPEC 3.2)
+- transition_in: camera travel
+- kit: agents-panel (3 lanes: Glm, Codex, Copilot), mounted full width at u 1.2 (needs the kit change)
+- caption: "ALL **AT ONCE.**" then (bar 2) eyebrow "THE AGENTS PANEL"
+- camera: bar 1 travel right 0 → 420 px (`expo.inOut`); bar 2 the lanes turn into the panel's three columns
+- sfx: soft click on every row start (all three lanes together)
 
-On screen: the composer card with "Full Auto (YOLO)", MCP "7/12", Peer, "Claude CLI" in the status line. The prompt types from beat 2 (0.448): "fix the review on 579 and verify it" (35 chars at 16 chars/s, ends 2.64). Send press on beat 3 of bar 2 (2.687) with the `send` focus beat; the text slides up and the stop button springs in.
+On screen, bar 1: the three lane lines with their running dots, tick marks flowing. Bar 2 downbeat (7.164): match cut, the three horizontal lanes rotate into three vertical columns and become the real Agents panel: header "Agents" + count "3", tabs "Glm", "Codex", "Copilot" with info dots, three columns. Rows arrive on the same beat in all three columns, each pending → running → done. Bar 3 beat 4 (10.299): the Glm dot flips to success and its tab check springs.
 
-Why: one prompt is the only human input in the whole film.
+Seam out: at 10.746 the columns fold back into the three horizontal lanes (reverse match cut).
 
-## Frame 4 — Title: it delegates
+Constraint: the three columns move at the same time; never one after the other.
 
-- status: animated
-- src: compositions/frames/04-title-delegates.html
-- duration: 1.791s
-- start: 8.955
-- transition_in: whip-pan
-- scene: "IT DELEGATES." slams in two hits
-- voiceover: onscreen
-- poster: 1.0
-- blueprint: kinetic-type-beats
-- rules: kinetic-beat-slam
-- kit: none
-- camera: none
-- sfx: impact-bass-1 0.000, click 0.448
-- constraint: one line only; gold on "DELEGATES."
+Why: proof with the real product that the lanes run in parallel.
 
-On screen: "IT" (beat 1) then "DELEGATES." in gold (beat 2), 140 px, centered. Beats 3-4 hold.
+## Frame 04 — Pushed back (10.746-14.328, 2 bars)
 
-Why: names the first capability.
-
-## Frame 5 — Delegate: a specialist on call
-
-- status: animated
-- src: compositions/frames/05-delegate.html
-- duration: 5.373s
-- start: 10.746
-- transition_in: cinematic-zoom
-- scene: Slot 0 answers, spawns a backend-developer subagent, the user messages it, and it completes with stats
-- voiceover: onscreen
-- poster: 3.6
-- blueprint: agent-progress-theater
-- rules: viewport-change, anchored-layout-expand, spring-pop-entrance
-- kit: app-window, session-shell ×4, chat-message (assistant) + subagent-bubble (agentType backend-developer, task "Fix review on 579", state running → completed, showMessage true) in slot 0's body
-- camera: 0.000-0.448 2.0 → 2.5 onto slot 0's body; 1.791 punch 2.5 → 3.0 on `message-agent` (`expo.out`); 3.582 release 3.0 → 2.6 onto `stats`
-- sfx: whoosh-short 0.000, pop 0.896, click 1.791, typing 2.239-3.920, key-press 4.030, chime 4.925
-- constraint: no invented UI; every string from SPEC 4.2 / 4.6 defaults or the brief
-
-On screen: assistant message streams "I'll hand the review fixes to a **backend-developer** and verify after." (beats 1-2). Beat 3 (0.896): the subagent bubble settles with the agent-color avatar "B", "Streaming" badge, status row "last: Grep". Bar 2 downbeat (1.791): "Message agent" press, input expands; from 2.239 "Also check the curator fallback path." types (typeRate 22, ends 3.92); send on 4.030, "Message sent". Bar 3 beat 4 (4.925): state → completed, stats footer slides in ("Opus 5.5", "127 tokens", "$0.81", "13.2s").
-
-Why: shows delegation and that you can steer a running specialist.
-
-## Frame 6 — Title: lanes in parallel
-
-- status: animated
-- src: compositions/frames/06-title-lanes.html
-- duration: 1.791s
-- start: 16.119
-- transition_in: whip-pan
-- scene: "LANES RUN / IN PARALLEL." two slams
-- voiceover: onscreen
-- poster: 1.0
-- blueprint: kinetic-type-beats
-- rules: kinetic-beat-slam
-- kit: none
-- camera: none
-- sfx: impact-bass-2 0.000, click 0.448
-- constraint: gold on "PARALLEL."
-
-On screen: "LANES RUN" (beat 1) · "IN PARALLEL." (beat 2, gold). Beats 3-4 hold.
-
-Why: names the second capability.
-
-## Frame 7 — Lanes: two CLIs at once
-
-- status: animated
-- src: compositions/frames/07-lanes.html
-- duration: 5.373s
-- start: 17.910
-- transition_in: cinematic-zoom
-- scene: The camera travels to the Agents rail; the Agents panel opens and two lanes stream tool rows side by side
-- voiceover: onscreen
-- poster: 3.4
-- blueprint: camera-journey (sub-shape A: cause in one place, consequence in another)
-- rules: viewport-change, grid-card-assemble stagger timing, spring-pop-entrance
-- kit: app-window (Agents rail focus), session-shell ×4, agents-panel mounted over the right of the canvas (count 2, lane1 "Glm", lane2 "Antigravity", both running → completed, rowGap 0.448)
-- camera: 0.000 open at 1.0 on the window; 0.000-0.896 travel 1.0 → 1.6 to the right half (`expo.inOut`); 1.791 settle 1.6 → 1.75 onto the two lane columns; 4.478 punch 1.75 → 2.2 on `lane-1` status dot
-- sfx: whoosh 0.000, click-soft on every row start (0.896 + n × 0.448), ping 4.478, ping 4.925
-- constraint: both columns must visibly move at the same time; no sequential "one then the other"
-
-On screen: the "Agents" header with count badge "2", tabs "Glm" and "Antigravity" with info dots, two lane columns. Rows arrive one per beat in both lanes at once: Read `.../git/run-stage-failure.spec.ts`, Thinking, Bash "Show git operation constants", Write `.../reviews/p1-approval.md` (lane 1); `view_file`, `write_to_file`, `call_mcp_tool` (lane 2). Each row runs pending → running → done. Bar 3 beats 3-4: both dots flip to success, tab checks spring.
-
-Why: proves parallel lanes with the real panel, not a diagram.
-
-## Frame 8 — Title: no polling
-
-- status: animated
-- src: compositions/frames/08-title-push.html
-- duration: 1.791s
-- start: 23.283
-- transition_in: whip-pan
-- scene: "NO POLLING." slams, a sub-line settles under it
-- voiceover: onscreen
-- poster: 1.2
-- blueprint: kinetic-type-beats
-- rules: kinetic-beat-slam, waterfall-entry
-- kit: none
-- camera: none
-- sfx: impact-bass-1 0.000, whoosh-short 0.896
-- constraint: sub-line >= 56 px
-
-On screen: "NO POLLING." in gold (beat 1, 140 px). Beat 3: "The result is pushed to the session that spawned the lane." (56 px Inter 600, muted).
-
-Why: names the third capability in plain words.
-
-## Frame 9 — Report delivered, pushed back
-
-- status: animated
-- src: compositions/frames/09-report-push.html
-- duration: 5.373s
-- start: 25.074
-- transition_in: chromatic-split
-- scene: Lane Glm's report row expands to "Report Delivered"; the camera swoops to slot 0 where the lane toast lands
-- voiceover: onscreen
-- poster: 4.2
-- blueprint: camera-journey (sub-shape A)
-- rules: viewport-change, anchored-layout-expand, spring-pop-entrance
-- kit: app-window, session-shell ×4, agents-panel (held completed state), agent-report-card in lane 1, lane-completion-toast (agent Glm, verdict delivered) anchored bottom-right of slot 0
-- camera: 0.000 open at 2.4 on lane 1's last row; 1.343 punch 2.4 → 2.8 on `heading`; 2.687-3.582 swoop to slot 0 at 2.4 (`expo.inOut`); 4.030 punch 2.4 → 2.9 on `chip-verdict`
-- sfx: click 0.000, sparkle 1.343, whoosh-cinematic 2.687, notification 3.582, pop 4.030
-- constraint: the toast carries the eyebrow "PUSHED TO THE PARENT SESSION"; no fake notification chrome
-
-On screen: gold two-badge row "Ptah Superpower" + "ptah agent report", spinner, check, expand: "Report Delivered", "Delivered: Yes", "Parent Session: 903993f2-…". Swoop. Toast: "Lane Glm finished: completed", chip "delivered", "Task: Review batch 5 code logic", ".../reviews/batch-5-code-logic-review.md - 4120 bytes".
-
-Why: shows the result coming back without the user asking for it.
-
-## Frame 10 — Title: sessions talk
-
-- status: animated
-- src: compositions/frames/10-title-peer.html
-- duration: 1.791s
-- start: 30.448
-- transition_in: whip-pan
-- scene: "SESSIONS / TALK TO / EACH OTHER." three slams
-- voiceover: onscreen
-- poster: 1.2
-- blueprint: kinetic-type-beats
-- rules: kinetic-beat-slam
-- kit: none
-- camera: none
-- sfx: impact-bass-2 0.000, click 0.448, click 0.896
-- constraint: gold on "EACH OTHER."
-
-On screen: "SESSIONS" (beat 1) · "TALK TO" (beat 2) · "EACH OTHER." gold (beat 3), 130 px. Beat 4 holds.
-
-Why: names the fourth capability.
-
-## Frame 11 — Peer: accepted
-
-- status: animated
-- src: compositions/frames/11-peer.html
-- duration: 5.373s
-- start: 32.239
-- transition_in: cinematic-zoom
-- scene: Slot 0's Peer chip opens "Message Peer Session", a message types to "review memory work", and the status reads Accepted
-- voiceover: onscreen
-- poster: 4.6
-- blueprint: cursor-ui-demo (Adapt: cursorless; presses are scale + brighten)
-- rules: viewport-change, press-release-spring, anchored-layout-expand
-- kit: app-window, session-shell ×4 (slot 3 title "review memory work"), peer-send (target "review memory work", workspace "ptah-extension", outcome accepted)
-- camera: 0.000 open at 2.6 on slot 0's footer `Peer` chip; 0.448-0.896 pull 2.6 → 1.35 as the dialog opens (dialog at u >= 1 on screen); 3.582 punch 1.35 → 1.9 on `outcome`
-- sfx: click 0.448, whoosh-short 0.500, typing 1.343-3.020, key-press 3.134, ping 3.582
-- constraint: the words "delivered", "received", "acknowledged" never appear
-
-On screen: dialog "Message Peer Session", "Target Peer Session: review memory work", "Workspace: ptah-extension" + "reachable", the notice box, message "Batch 5 review is approved. Start P2." (37 chars, typeRate 22, 1.343-3.02). Send press on 3.134, spinner, bar 3 downbeat (3.582): outcome panel, "Status: Accepted", "Target: review memory work"; first caveat line streams.
-
-Why: shows cross-session messaging with the product's own honest wording.
-
-## Frame 12 — Pull-back: one window (held frame)
-
-- status: animated
-- src: compositions/frames/12-pullback.html
+- status: planned
+- src: compositions/frames/04-pushed.html
 - duration: 3.582s
-- start: 37.612
-- transition_in: cut
-- scene: The camera pulls back from the Peer outcome to the full window; four sessions live; a line lands and the frame holds
-- voiceover: onscreen
-- poster: 3.0
-- blueprint: zoom-out-workspace-reveal
-- rules: viewport-change, multi-phase-camera, kinetic-beat-slam
-- kit: app-window, session-shell ×4 (all streaming), agents-panel closed to the rail, lane toast still visible in slot 0
-- camera: 0.000 open on Frame 11's last camera (1.9 on `outcome`); 0.000-1.343 one decelerating pull 1.9 → 0.82 (`expo.out`); 1.791-3.582 locked, no drift
-- sfx: whoosh-cinematic 0.000, impact-bass-1 1.791
-- constraint: nothing but streaming text moves in bar 2
+- start: 10.746
+- transition_in: match cut (panel → lanes)
+- kit: lane-completion-toast (agent Glm, verdict delivered), grown from the session node, u 1.6
+- caption: "RESULTS **COME BACK** TO YOU." sub-line "Pushed to your session. No polling."
+- camera: hold on the whole diagram
+- sfx: pop at packet launch, notification at arrival
 
-On screen: the whole app window at scale 0.82 on the flat background with the vignette. Bar 2 downbeat (1.791): "ONE APP. THE WHOLE TEAM." slams below the window, 110 px, gold on "THE WHOLE TEAM." Held to the seam.
+On screen, bar 1: the Glm lane is green. A gold packet leaves the Glm lane end and travels left into the session node (`sine.inOut`, 0.9 s, beats 1-3); the node pulses once on arrival (beat 3). Bar 2 downbeat (12.537): the proof card grows out of the node: eyebrow "PUSHED TO THE PARENT SESSION", "Lane Glm finished: completed", chip "delivered", the deliverable path and byte count. The chip gets the gold focus ring on beat 2.
 
-Why: the scale payoff; everything shown ran in one window at once.
+Seam out: the card returns into the node (14.328).
 
-## Frame 13 — Outro lockup
+Constraint: the card says "visualization" through its eyebrow; no fake OS notification chrome.
 
-- status: animated
-- src: compositions/frames/13-outro.html
-- duration: 5.373s
-- start: 41.194
-- transition_in: light-leak
-- scene: The Ptah icon assembles, the wordmark and caption settle, the CTA pill springs, then the frame holds
-- voiceover: onscreen
-- poster: 4.5
-- blueprint: logo-assemble-lockup
-- rules: spring-pop-entrance, waterfall-entry, svg-path-draw
-- kit: none (registry `logo-outro` block adapted to the brand tokens, or a hand-built lockup if it does not fit)
+Why: the first half of the message: results come to you, you do not go to them.
+
+## Frame 05 — Lanes report while they work (14.328-17.910, 2 bars)
+
+- status: planned
+- src: compositions/frames/05-report.html
+- duration: 3.582s
+- start: 14.328
+- transition_in: caption swap on the downbeat
+- kit: agent-report-card (Codex), grown from the session node, u 1.4
+- caption: "AND THEY **TALK BACK.**" sub-line "A lane reports before it finishes."
+- camera: hold
+- sfx: impact on the caption, tick at launch, sparkle at "Report Delivered"
+
+On screen, bar 1: the Codex lane is still running (ticks flowing). From the MIDDLE of the Codex lane a gold packet travels left to the node while the lane keeps running. Bar 2 downbeat: the proof card grows from the node: gold badges "Ptah Superpower" + "ptah agent report", the row expands to "Report Delivered", "Delivered: Yes".
+
+Seam out: the card returns into the node (17.910).
+
+Constraint: the Codex lane never stops moving during this frame (the point is "before it finishes").
+
+Why: opens the messaging act: lanes talk to you without being asked.
+
+## Frame 06 — Message a running lane (17.910-21.493, 2 bars)
+
+- status: planned
+- src: compositions/frames/06-message.html
+- duration: 3.582s
+- start: 17.910
+- transition_in: caption swap on the downbeat
+- kit: tool-call-row (gold variant, tool `mcp__ptah__ptah_agent_message`), grown from the session node, u 1.6
+- caption: "**MESSAGE** A RUNNING LANE."
+- camera: hold
+- sfx: key-press at launch, ping at arrival
+
+On screen, bar 1: a gold packet leaves the session node and travels RIGHT along the Copilot lane to its running head; the Copilot dot flashes on arrival. Bar 2 downbeat: the proof row grows from the node: "Ptah Superpower" + "ptah agent message", running → done (check).
+
+Seam out: camera travels down to the peer node (21.493).
+
+Constraint: no claim of "steer", "interrupt" or a delivery mode in copy.
+
+Why: the conversation goes both ways: you can redirect work in flight.
+
+## Frame 07 — Sessions talk to each other (21.493-25.075, 2 bars)
+
+- status: planned
+- src: compositions/frames/07-peer.html
+- duration: 3.582s
+- start: 21.493
+- transition_in: camera travel down
+- kit: peer-send (target "review memory work", outcome accepted), centered, u 1.3
+- caption: "SESSIONS TALK **TO EACH OTHER.**"
+- camera: 21.493-21.941 travel down 360 px (`expo.inOut`); hold
+- sfx: whoosh on the travel, typing, key-press on send, ping on "Accepted"
+
+On screen, bar 1: a second session node "review memory work" sits below "Your session"; a gold arc draws between them (beat 2). Beat 3: the proof dialog grows from the arc's midpoint: "Message Peer Session", target "review memory work", the message types "Batch 5 review is approved. Start P2." Bar 2 beat 2: Send press; beat 3: outcome "Status: Accepted" with the focus ring.
+
+Seam out: camera pull-back to the whole diagram (25.075).
+
+Constraint: "Accepted" only. No "delivered", "received", "read".
+
+Why: the last capability: messaging is not only parent and lanes; sessions coordinate too.
+
+## Frame 08 — The line (held frame) (25.075-26.866, 1 bar)
+
+- status: planned
+- src: compositions/frames/08-line.html
+- duration: 1.791s
+- start: 25.075
+- transition_in: camera pull-back
+- kit: none
+- caption: none (the line replaces it)
+- camera: 25.075-25.523 pull back to the whole diagram (`expo.out`), then locked
+- sfx: impact on the line
+
+On screen: the whole diagram, static: "Your session", three green lanes, the peer node and its arc. Beat 2 (25.523): the line slams under the diagram, 80 px (fits title-safe): "YOUR AGENTS WORK IN PARALLEL." / "**AND THEY TALK BACK.**" (gold second line). Nothing else moves.
+
+Seam out: match cut, the session node becomes the Ptah icon (26.866).
+
+Constraint: no motion after the slam.
+
+Why: the message, stated once, over the picture that proved it.
+
+## Frame 09 — Lockup (26.866-30.448, 2 bars)
+
+- status: planned
+- src: compositions/frames/09-lockup.html
+- duration: 3.582s
+- start: 26.866
+- transition_in: match cut (node → icon), optional `light-leak` 0.5 s
+- kit: none
+- caption: none
 - camera: none
-- sfx: impact-bass-2 0.000, sparkle 0.448, pop 1.343, chime 1.791
-- constraint: no drifting glow; the last 0.9 s are still
+- sfx: chime on the icon, pop on the pill
 
-On screen: `ptah-icon.png` (220 px) assembles on beat 1; "Ptah" wordmark (Archivo Black 150 px) on beat 2; "Coding Orchestra" (Inter 44 px, muted) on beat 3; bar 2 downbeat (1.791) pill "Free and open source · ptah.live" (primary fill, 40 px) springs. Bars 2-3 hold; music fades over bar 3.
+On screen: `ptah-icon.png` (220 px) where the node was, travelling to center (beat 1); "Ptah" wordmark (Archivo Black 150 px, beat 2); "AGENT LANES" (Inter 44 px, letter-spaced, muted, beat 3); bar 2 downbeat: pill "Free and open source · ptah.live" springs. The last 0.9 s are still; music fades over bar 2.
 
-Why: brand and the one action.
+Constraint: no drifting glow.
+
+Why: brand, the feature name for the series, and the one action.

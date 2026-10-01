@@ -46,3 +46,9 @@ compositions/frames/, shader transitions, kinetic titles, outro lockup."
 - CTA facts: "Free and open source" and `ptah.live` come from
   `apps/ptah-landing-page/src/index.html:12,53-57`.
 - Render only with `node tools/hyperframes/render.mjs` after the user approves the preview.
+
+## v2 re-plan (2026-10-01)
+
+The user rejected v1's dive scenes: stacked components, no clear message. v2 keeps the workflow (general-video), aspect (1920x1080), music and kit, and re-plans scenes, seams and on-screen messaging around two capabilities only: agent lanes (parallel background CLI agents whose results are pushed back to the session) and agent messaging (steer a running lane, a lane reports mid-run, session-to-session Peer messages). Candidate message: "Your agents work in parallel lanes, and they talk back." One focus per beat; at most one kit component on screen at a time. Direction pending the user's choice (see STORYBOARD.md, "Changes from v1").
+
+Series context (user, 2026-10-01): Ptah has too many features for one film. The plan is a series of small promos, each about one group of related features; agent lanes (+ agent messaging) is the first one and the pilot for the series grammar. "Glm" is the user's name for their Ollama Cloud CLI lane and may appear on screen.
