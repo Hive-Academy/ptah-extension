@@ -221,3 +221,43 @@ them polling, and 1.23 billion input tokens in total.
   of exploring. Exploration is the calls you pay for twice — once to search, once as context.
 - A lane whose context balloons from a log or a whole-file read pays that context on every call
   after; the scoped-verification and tail rules in §6 apply inside the lane too.
+
+## 9. Agent sessions (`ptah_session_*`)
+
+A child session is a chat session in its own git worktree on a new branch. It opens as a tab in the
+user's window, and the user can read and type in that tab as well. It is not a CLI lane: it has no
+process to resume (§5), and it never exits, it goes idle. Use a lane for a bounded task on a vendor
+CLI; use a child session when the work needs the full chat runtime, slash commands such as
+`/orchestrate TASK_…`, or a branch the user can open and review.
+
+| Tool | Use |
+| --- | --- |
+| `ptah_session_start({ task, branch, … })` | Create the worktree and branch, open the tab, run `task` |
+| `ptah_session_send({ sessionId, message, mode? })` | Steer. `queue` (default), `steer` (interrupts the turn in flight), `if-idle` (refused as busy otherwise) |
+| `ptah_session_status({ sessionId? })` | State of one or all of your children |
+| `ptah_session_read({ sessionId, tailKiB? })` | Tail of the child's transcript (default 32 KiB, max 256) |
+| `ptah_session_stop({ sessionId })` | Stop it; tab, transcript, worktree and branch remain |
+
+- **Messaging first.** Steer with `ptah_session_send`; use `ptah_session_read` to inspect. Do not poll
+  `ptah_session_status` while a completion turn is due: one is pushed into your session each time a
+  child settles, as `<agent-lane-completed … cli="ptah-session" …>`, with a `verdict` of `delivered`,
+  `no-deliverable`, `unverified` or `failed`. Verify the deliverables yourself; a file existing is not
+  proof its content is right.
+- **Call `ptah_session_status` after a resume.** Children keep running while you are not live and a
+  completion that arrived then is held, not lost. Every `ptah_session_*` result ends with those held
+  completions under "Held while this session was not live". A child's `ptah_agent_report` while you
+  are not live is refused and counted, not queued.
+- **Permissions.** There is no permission, path or parent argument. File edits inside the worktree
+  and allowlisted Bash commands run without asking; anything else waits in the child's tab for the
+  user, then is denied (`ptah_session_status` shows `awaiting-permission` with the denial time).
+- **Limits.** At most 3 live children per host by default, depth 1 (a child cannot start sessions).
+  An idle child still holds its slot until `ptah_session_stop`. A refusal is returned as text with a
+  code (`cap-reached`, `depth-exceeded`, `branch-exists`, …); act on it, do not retry blindly.
+- **The user owns the result.** The worktree and the branch remain after the child ends. Never merge,
+  push or clean up on the user's behalf.
+- **Hosts.** Child sessions need the chat runtime and the Ptah MCP server. In a host without the
+  session spawner the tools fail with an error that says so.
+- **Reports.** A child reports with `ptah_agent_report`; it arrives as
+  `<agent-report … cli="ptah-session">`, the same envelope a lane's report uses.
+
+Settings, limits and the full tool reference: the "Agent Sessions" page in the Ptah docs.
