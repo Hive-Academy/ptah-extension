@@ -7,6 +7,23 @@
  * `rpc-handlers` and the host composition roots.
  */
 
+// DI tokens
+export { SESSION_ORGANIZATION_TOKENS } from './lib/di/tokens';
+export type { SessionOrganizationDIToken } from './lib/di/tokens';
+
+// Service (recorder port adapter + RPC query/mutation API)
+export {
+  SessionOrganizationInputError,
+  SessionOrganizationService,
+  toSessionOrganizationSummary,
+} from './lib/session-organization.service';
+export type {
+  SessionOrganizationChange,
+  SessionOrganizationMetadataReader,
+  SessionPrLinkMutation,
+  SessionTaskLinkMutation,
+} from './lib/session-organization.service';
+
 // Store
 export { SessionOrganizationStore } from './lib/session-organization.store';
 export type {
