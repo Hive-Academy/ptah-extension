@@ -194,8 +194,8 @@ function resolveArgs(
 
 /**
  * One driver per tool this dispatcher recognises (`protocol-dispatcher.ts`
- * `handleIndividualTool`/`dispatchToolsCall`), 54 entries — matches the r1
- * review's live probe (56 HTTP tools with IDE capabilities minus
+ * `handleIndividualTool`/`dispatchToolsCall`), 55 entries — the r1
+ * review's live probe plus `ptah_session_link_task` (57 HTTP tools with IDE capabilities minus
  * `execute_code` and `approval_prompt`, which are driven separately below).
  *
  * - Most namespace calls go straight through `JSON.stringify` — any large
@@ -844,6 +844,22 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
     args: {},
     mock: (api, marker) => {
       api.tasks = { check: async () => bigJsonBlob(marker) };
+    },
+  },
+  ptah_session_link_task: {
+    // The success text is one fixed line around the echoed ids; an oversized
+    // task id (the real namespace would refuse it) is the only way to push
+    // it past the budget.
+    args: { taskId: 'TASK_1' },
+    mock: (api, marker) => {
+      api.sessionOrganization = {
+        linkTask: () => ({
+          ok: true,
+          sessionId: 'sdk-session-1',
+          taskId: `${marker}-${filler(280000, 'k')}`,
+          role: 'primary',
+        }),
+      };
     },
   },
   ptah_dashboard_propose_spec: {
@@ -1681,7 +1697,7 @@ describe('independently pinned budgets (TASK_2026_559 Batch 21 r1, defect 3)', (
 // ---------------------------------------------------------------------------
 
 describe('coverage matrix — served tools across host, caller and transport (defect 1)', () => {
-  it('HTTP with IDE capabilities serves 56 identically-named tools across every caller kind', async () => {
+  it('HTTP with IDE capabilities serves 57 identically-named tools across every caller kind', async () => {
     const deps = buildDeps({}, { hasIDECapabilities: true });
     const callers: Array<Partial<MCPRequest>> = [
       {},
@@ -1704,10 +1720,12 @@ describe('coverage matrix — served tools across host, caller and transport (de
     }
     // Pinned at this HEAD (2026-09-27): update deliberately if the served
     // set legitimately changes.
-    expect(namesPerCaller[0]).toHaveLength(56);
+    // 57: +1 ptah_session_link_task (TASK_2026_580). A merge point with
+    // TASK_2026_584, which also adds a tool: the second to merge adds both.
+    expect(namesPerCaller[0]).toHaveLength(57);
   });
 
-  it('HTTP without IDE capabilities serves 53 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
+  it('HTTP without IDE capabilities serves 54 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
     const deps = buildDeps({}, { hasIDECapabilities: false });
     const callers: Array<Partial<MCPRequest>> = [
       {},
@@ -1728,7 +1746,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
     for (const names of namesPerCaller.slice(1)) {
       expect(names).toEqual(namesPerCaller[0]);
     }
-    expect(namesPerCaller[0]).toHaveLength(53);
+    // 54: +1 ptah_session_link_task (TASK_2026_580); see the merge note above.
+    expect(namesPerCaller[0]).toHaveLength(54);
     for (const ideOnly of [
       'ptah_lsp_references',
       'ptah_lsp_definitions',
@@ -2109,6 +2128,8 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_agent_message: 591,
       execute_code: 567,
       ptah_agent_read: 553,
+      // TASK_2026_580: measured 522 chars (2026-10-01).
+      ptah_session_link_task: 585,
       // Pre-24b budget restored (Batch 24c fix round, review r1 on ruling
       // R2): measured 524 chars (2026-09-27) with every required item kept
       // (asserted item by item in tool-description.builder.spec.ts).

@@ -123,6 +123,11 @@ import {
   buildSurfaceUpdateTool,
 } from './surface-tools';
 import { handleSurfaceToolCall } from './surface-tool-handlers';
+import {
+  SESSION_LINK_TASK_TOOL_NAME,
+  buildSessionLinkTaskTool,
+  formatSessionLinkTaskResult,
+} from './session-organization-tools';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 import { buildServerInstructions } from './server-instructions';
@@ -326,6 +331,7 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * Always-on core tools (never disabled by namespace toggles):
  * - workspace_analyze, search_files, get_diagnostics, count_tokens,
  *   web_search, execute_code, approval_prompt
+ * - ptah_session_link_task (TASK_2026_580), beside the task tools.
  * - ptah_task_create/update/get/list/check (TASK_2026_179, step 17). These sit
  *   in the core set on purpose and have NO entry in the namespace-toggle list
  *   below: an agent that cannot rely on the task tools being present will fall
@@ -412,6 +418,9 @@ function buildToolDefinitions(
     buildTaskGetTool(),
     buildTaskListTool(),
     buildTaskCheckTool(),
+    // Always-on beside the task tools (TASK_2026_580, D12): an agent that
+    // cannot rely on it would leave its session unlinked from the task.
+    buildSessionLinkTaskTool(),
     // Always-on for the same reason as the task tools, and with no namespace
     // toggle (TASK_2026_493_9f58): the tool's success result is a plain-text
     // rendering of the dashboard, so it is the answer on a host with no
@@ -2325,6 +2334,30 @@ async function handleIndividualTool(
         return await createToolSuccessResponse(
           request,
           JSON.stringify(result),
+          deps,
+        );
+      }
+
+      // -- Session organization (TASK_2026_580, D12) ----------------------
+      //
+      // The namespace validates the args and resolves the CALLER from the
+      // request context, never from args. A refusal is data, as with the task
+      // tools. `link-failed` carries the recorder's own message, which is
+      // logged here and replaced by fixed text for the agent.
+      case SESSION_LINK_TASK_TOOL_NAME: {
+        const result = ptahAPI.sessionOrganization.linkTask(args);
+        if (!result.ok && result.error === 'link-failed') {
+          runObserver(() =>
+            logger.warn(
+              '[MCP] ptah_session_link_task: the recorder threw',
+              'CodeExecutionMCP',
+              { message: result.message },
+            ),
+          );
+        }
+        return await createToolSuccessResponse(
+          request,
+          formatSessionLinkTaskResult(result),
           deps,
         );
       }
