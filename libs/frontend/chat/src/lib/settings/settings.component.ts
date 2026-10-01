@@ -8,38 +8,20 @@ import {
   effect,
   untracked,
 } from '@angular/core';
-import {
-  LucideAngularModule,
-  ArrowLeft,
-  Sparkles,
-  Key,
-  Cpu,
-  Download,
-  Upload,
-  ArrowLeftRight,
-  Globe,
-} from 'lucide-angular';
+import { LucideAngularModule, ArrowLeft, Sparkles, Key, Cpu, Globe } from 'lucide-angular';
 import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { ProvidersSettingsComponent, type ProvidersSettingsFocusTarget } from './providers/providers-settings.component';
 import { ProvidersModelsLoader } from './providers/providers-models-loader.service';
 import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.service';
 import { SettingsToastComponent } from './feedback/settings-toast.component';
-import { LicenseStatusCardComponent } from './license/license-status-card.component';
-import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
-import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
-import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
-import { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
-import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 import {
   OrchestrationSettingsComponent,
   type OrchestrationSettingsFocusTarget,
 } from './ptah-ai/orchestration-settings.component';
-import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
-import { VoiceConfigComponent } from './ptah-ai/voice-config.component';
-import { GoVetConsentConfigComponent } from './ptah-ai/go-vet-consent-config.component';
+import { AdvancedSettingsComponent } from './advanced-settings.component';
+import { SearchVoiceSettingsComponent } from './search-voice-settings.component';
 import {
   AppStateManager,
-  ClaudeRpcService,
   AuthStateService,
   ProvidersSettingsStateService,
   VSCodeService,
@@ -83,8 +65,8 @@ const isOrchestrationSection = (section: PendingSection | undefined): section is
  * Child Components:
  * - ProvidersSettingsComponent: Providers tab
  * - OrchestrationSettingsComponent: Agent Orchestration tab (policy, background roles, CLI agents)
- * - LicenseStatusCardComponent: Membership status, user profile, actions
- * - EnhancedPromptsConfigComponent: System prompt mode, preview, regenerate
+ * - AdvancedSettingsComponent: Advanced tab (membership, data portability, agent behaviour, MCP, VS Code LM)
+ * - SearchVoiceSettingsComponent: Search & Voice tab (web search, voice, go vet consent)
  *
  * Deep links (`AppStateManager.requestSettingsTab`) are routed by section to the tab that owns
  * it (implementation-plan.md Component 10); an unknown or missing section opens the requested tab.
@@ -94,16 +76,9 @@ const isOrchestrationSection = (section: PendingSection | undefined): section is
   standalone: true,
   imports: [
     ProvidersSettingsComponent,
-    LicenseStatusCardComponent,
-    EnhancedPromptsConfigComponent,
-    VscodeLmConfigComponent,
-    McpPortConfigComponent,
-    WorkflowsConfigComponent,
-    OutputStyleConfigComponent,
     OrchestrationSettingsComponent,
-    WebSearchConfigComponent,
-    VoiceConfigComponent,
-    GoVetConsentConfigComponent,
+    AdvancedSettingsComponent,
+    SearchVoiceSettingsComponent,
     SettingsToastComponent,
     LucideAngularModule,
   ],
@@ -117,7 +92,6 @@ const isOrchestrationSection = (section: PendingSection | undefined): section is
 })
 export class SettingsComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
-  private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly providersState = inject(ProvidersSettingsStateService);
   readonly authState = inject(AuthStateService);
@@ -125,12 +99,7 @@ export class SettingsComponent implements OnInit {
   readonly SparklesIcon = Sparkles;
   readonly KeyIcon = Key;
   readonly CpuIcon = Cpu;
-  readonly DownloadIcon = Download;
-  readonly UploadIcon = Upload;
-  readonly ArrowLeftRightIcon = ArrowLeftRight;
   readonly GlobeIcon = Globe;
-  readonly isExporting = signal(false);
-  readonly isImporting = signal(false);
   readonly activeSettingsTab = signal<
     'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
@@ -221,61 +190,10 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * Export settings to a JSON file.
-   * Uses platform-aware RPC: command:execute for VS Code, settings:export for Electron.
-   */
-  async exportSettings(): Promise<void> {
-    if (this.isExporting()) return;
-    this.isExporting.set(true);
-    try {
-      if (this.vscodeService.isElectron) {
-        await this.rpcService.call('settings:export' as never, {} as never);
-      } else {
-        await this.rpcService.call('command:execute', {
-          command: 'ptah.exportSettings',
-        });
-      }
-    } finally {
-      this.isExporting.set(false);
-    }
-  }
-
-  /**
-   * Import settings from a JSON file.
-   * Uses platform-aware RPC: command:execute for VS Code, settings:import for Electron.
-   */
-  async importSettings(): Promise<void> {
-    if (this.isImporting()) return;
-    this.isImporting.set(true);
-    try {
-      if (this.vscodeService.isElectron) {
-        await this.rpcService.call('settings:import' as never, {} as never);
-      } else {
-        await this.rpcService.call('command:execute', {
-          command: 'ptah.importSettings',
-        });
-      }
-    } finally {
-      this.isImporting.set(false);
-    }
-  }
-
-  /**
    * Navigate back to chat view
    */
   backToChat(): void {
     this.appState.setCurrentView('chat');
-  }
-
-  /**
-   * Open an external page (Ptah Builders / community) in the browser.
-   * Uses the `command:execute` RPC to run the host `ptah.openPricing` command;
-   * the target URL is resolved host-side. Reused by the Builders promotion card.
-   */
-  async openPricing(): Promise<void> {
-    await this.rpcService.call('command:execute', {
-      command: 'ptah.openPricing',
-    });
   }
 
   /**
@@ -285,5 +203,4 @@ export class SettingsComponent implements OnInit {
   onModelChanged(): void {
     void this.providersState.redetectClis();
   }
-
 }

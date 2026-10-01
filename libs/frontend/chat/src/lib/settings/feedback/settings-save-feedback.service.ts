@@ -14,6 +14,16 @@ export interface SettingsSaveRequest {
   readonly undo: (() => Promise<boolean>) | null;
 }
 
+/** Generic save entry for settings that do not flow through {@link ProvidersSettingsStateService} (G2). */
+export interface SettingsGenericSaveRequest {
+  /** Field name shown to the user, e.g. "MCP port". */
+  readonly label: string;
+  /** The save itself; `ok:false` carries the user-facing failure message. */
+  readonly write: () => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** Writes the previous value back. `null` offers no Undo. */
+  readonly undo: (() => Promise<{ ok: true } | { ok: false; message: string }>) | null;
+}
+
 export interface SettingsToast {
   /** `status` renders `role="status"` (polite); `alert` renders `role="alert"`. */
   readonly tone: 'status' | 'alert';
@@ -44,12 +54,13 @@ export class SettingsSaveFeedbackService {
     global: 'All Ptah apps',
   };
   private readonly toastState = signal<SettingsToast | null>(null);
-  private undoRequest: SettingsSaveRequest | null = null;
+  private readonly genericSaving = signal(false);
+  private undoRequest: SettingsSaveRequest | SettingsGenericSaveRequest | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   readonly toast = this.toastState.asReadonly();
-  /** Save triggers are disabled while this is true (D3). */
-  readonly saving = computed(() => this.state.commit().status === 'saving');
+  /** Save triggers are disabled while this is true (D3). Covers both Providers commits and generic writes. */
+  readonly saving = computed(() => this.state.commit().status === 'saving' || this.genericSaving());
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.clearTimer());
@@ -97,9 +108,46 @@ export class SettingsSaveFeedbackService {
   }
 
   /**
-   * Runs the current toast's Undo as a real write through `save()` (with no Undo of its own). While another save is
-   * in flight the Undo is kept: the toast says so and still offers it, and it is dismissed only when the Undo write
-   * really starts (m1, Providers 21-28 review).
+   * Generic save entry for settings outside the Providers state service (G2).
+   *
+   * Same D3 disable-while-saving, same 8 s toast timer, and the same Undo contract as `save()`. The
+   * success message is scope-less: "Saved {label}.". A failed write never shows "Saved" (D15); the
+   * failure message comes straight from the writer.
+   */
+  async saveGeneric(request: SettingsGenericSaveRequest): Promise<void> {
+    if (this.saving()) {
+      this.show({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false }, null);
+      return;
+    }
+    let result: { ok: true } | { ok: false; message: string };
+    try {
+      this.genericSaving.set(true);
+      result = await request.write();
+    } catch {
+      // The writer itself broke; nothing about the write can be confirmed.
+      this.show(
+        { tone: 'alert', message: `Could not confirm whether ${request.label} was saved.`, canUndo: false },
+        null,
+      );
+      return;
+    } finally {
+      this.genericSaving.set(false);
+    }
+    if (!result.ok) {
+      this.show({ tone: 'alert', message: result.message, canUndo: false }, null);
+      return;
+    }
+    const undo = request.undo;
+    this.show(
+      { tone: 'status', message: `Saved ${request.label}.`, canUndo: undo !== null },
+      undo ? { ...request, write: undo, undo: null } : null,
+    );
+  }
+
+  /**
+   * Runs the current toast's Undo as a real write through the same entry that created it (with no Undo
+   * of its own). While another save is in flight the Undo is kept: the toast says so and still offers
+   * it, and it is dismissed only when the Undo write really starts (m1, Providers 21-28 review).
    */
   async undo(): Promise<void> {
     const request = this.undoRequest;
@@ -109,7 +157,11 @@ export class SettingsSaveFeedbackService {
       return;
     }
     this.dismiss();
-    await this.save(request);
+    if ('scope' in request) {
+      await this.save(request);
+    } else {
+      await this.saveGeneric(request);
+    }
   }
 
   dismiss(): void {
@@ -118,7 +170,7 @@ export class SettingsSaveFeedbackService {
     this.toastState.set(null);
   }
 
-  private show(toast: SettingsToast, undoRequest: SettingsSaveRequest | null): void {
+  private show(toast: SettingsToast, undoRequest: SettingsSaveRequest | SettingsGenericSaveRequest | null): void {
     this.clearTimer();
     this.undoRequest = undoRequest;
     this.toastState.set(toast);
