@@ -1,6 +1,6 @@
 # Batches - TASK_2026_584_5e7a
 
-Total tasks: 38 | Batches: 9 | Complete: 7/9
+Total tasks: 38 | Batches: 9 | Complete: 8/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-584` (branch
 `feat/task-584-agent-sessions`, base `origin/main` a90c086d7). Every path below is
@@ -22,12 +22,14 @@ State per batch (statuses also on each batch header below):
 | B5 provisioner, spawner, contract, settings                 | COMPLETE (with B4) | 590ea1d2a | code-logic-review-b5.md APPROVED 9/10                                                            |
 | B6 MCP surface, report fallback, shutdown, lazy host lookup | COMPLETE           | 9d4086361 | code-logic-review-b6.md APPROVED 10/10                                                           |
 | B7 frontend adoption, badge, banner                         | COMPLETE           | a16d700c2 | code b7 REVISE 8 -> r1 10 -> r2 9 -> r3 10 APPROVED; visual b7 REVISE 6 -> r1 8 -> r2 9 APPROVED |
-| B8 skills + docs                                            | READY              | —         | —                                                                                                |
-| B9 real-host smoke S1-S11                                   | READY              | —         | —                                                                                                |
+| B8 skills + docs                                            | COMPLETE           | f2a0d59ed | code-logic-review-b8.md APPROVED 10/10 (copy parity restored in 5216a3331)                       |
+| B9 real-host smoke S1-S11                                   | IN_PROGRESS        | —         | — (S1-S10 BLOCKED; awaiting user decision)                                                       |
 
 Next steps, in order:
 
-1. B8 (technical-content-writer) and B9 (senior-tester, real host) in parallel; both dependencies (B6, B7) are committed. B9 must also cover follow-ups F1 and F4 below.
+1. USER DECISION: how to run B9 smoke S1-S10 (no provider credentials in an isolated host profile; no VS Code GUI driver). See Batch 9.
+2. Decide F1 (defect candidate), F2 (read budget) and O16 (settings manifest).
+3. Finish B9, then team-leader Mode 3.
 
 Review routing: cross-side CLI lane, antigravity only (Glm hit its Ollama Cloud usage limit, 429; codex unavailable until 2026-10-03); one lane at a time when TASK_2026_580's team-leader also uses antigravity. Resume a lane's CLI session for a re-review.
 
@@ -52,12 +54,15 @@ Open items and rulings:
 - O13 B6 deviations accepted (review APPROVED 10/10): (1) 3 extra Electron files `apps/ptah-electron/src/activation/boot-coordinator.ts`, `wire-runtime.ts`, and `apps/ptah-electron/src/main.quit-path.spec.ts` (shutdown wiring + quit-path spec); (2) `tool-result-budget.spec.ts` added for the five `'preformatted'` hints; (3) held-completion block placed BEFORE the transcript in `ptah_session_read` so a budget cut trims only the transcript tail; (4) held completions scoped to `ptah_session_*` results; (5) Task 6.6 uses a lazy `DI_CONTAINER` lookup instead of a new resolver registration (no `di/register.ts` change); (6) the spawner constructor takes the container.
 - O14 B7 out-of-list files accepted (code-logic-review-b7-r2): `session-loader.service.ts` (+ spec) — `requireTargetTab` checks the active tab set first (VS Code host with no workspace partition); `chat-ui` `tab-item.component.ts` — `<ng-content select="[tabItemLeading]">` slot for the badge. Visual r2 fixes (badge as icon-only 24x24 button, Floating UI cleanup when the tooltip's tab closes) re-checked by code-logic-review-b7-r3 APPROVED 10/10.
 
-Follow-ups (recorded at B6/B7 commit, 2026-10-01):
+- O15 B8 commit note: the pre-commit formatter rewrote the plugin skill copy (prettier) but not `.claude/` (prettier-ignored), so the committed copies diverged in formatting only; 5216a3331 applies the same prettier output to the `.claude/` copy; both copies byte-identical again. Specs reading them (`lane-rule-single-home`, `vendor-roster-drift`, `contract.guard`) pass.
+- O16 OPEN: no manifest declares the four `ptah.agentSessions.*` keys; they are code-only settings, not shown in the VS Code settings UI. The B8 docs page documents them. Whether to add a `contributes.configuration` entry is a USER DECISION (write-path trace due at Mode 3).
 
-- F1 With no active workspace, `findTabByIdAcrossWorkspaces` returns null everywhere (the B7 `requireTargetTab` fix covers the session loader only). B9 smoke S1b checks late adoption on a real VS Code host with no workspace partition.
-- F2 `ptah_session_read`'s default 32 KiB tail always exceeds the 8,000-char tool-result budget, so the transcript is always cut. A per-tool budget override is a design call — USER DECISION.
-- F3 The `ptah_agent_report` tool description should mention child sessions (the `childSessionId` fallback) — B8 docs.
-- F4 The spawner is constructed eagerly in Electron (`wire-runtime.ts`), so its host-wide subscriptions register from boot, not on first use. Acceptable now; B9 confirms no boot-time side effect.
+Follow-ups (recorded at B6/B7 commit, 2026-10-01; updated at B8/B9 2026-10-01):
+
+- F1 DEFECT CANDIDATE (B9 static evidence, not reproduced live): with no active workspace, `findTabByIdAcrossWorkspaces` (`libs/frontend/chat-state/src/lib/tab-workspace-partition.service.ts:318-341`) returns null for callers that do not pass `activeTabs`, e.g. `streaming-handler.service.ts:161`, `message-finalization.service.ts:130`, `permission-handler.service.ts:457` (more in `test-report.md`). The B7 `requireTargetTab` fix covers only `session-loader.service.ts`. Needs a fix batch or a live/unit repro — USER DECISION.
+- F2 `ptah_session_read`'s default 32 KiB tail (`session-spawner.service.ts:108`) exceeds the 8,000-char budget (`tool-result-budget.ts:54`): any transcript over 8,000 chars is cut (B9 static evidence; live BLOCKED). A per-tool budget override is a design call — USER DECISION.
+- F3 OPEN: B8 documents child-session reports in the skill and docs page, but the `ptah_agent_report` tool description (`vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts:853-865`) still does not mention child sessions. One-sentence code fix, outside B8's docs-only file list.
+- F4 CLEARED (B9): the spawner is constructed eagerly in Electron (`wire-runtime.ts`); the Electron dev build boots clean with it registered and shuts down gracefully (`test-report.md`, `smoke-b9/`).
 - F5 The child tab title truncates at the 200px tab cap once the 24px badge is present (visual-review-b7-r2 observation; full title stays in the `title` attribute). Minor, no change planned.
 
 ## Recorded execution defaults
@@ -704,7 +709,9 @@ Files (`...` = `D:\projects\ptah-extension\.claude-worktrees\task-584\libs\front
 
 - Files exist with real work; scoped command passes; `code-logic-review-b7.md` APPROVED; visual-reviewer before/after dark + light recorded.
 
-## Batch 8: agent-lanes skill + docs — PENDING (READY: B6 committed)
+## Batch 8: agent-lanes skill + docs — COMPLETE (commit f2a0d59ed)
+
+- Result: 3 files in f2a0d59ed, plus the formatting-only parity commit 5216a3331 (O15). Review: `code-logic-review-b8.md` APPROVED 10/10 (0 defects). Hooks passed, including the skill validation. Open follow-up F3: the tool description itself.
 
 - Recommended executor: technical-content-writer (sub-agent)
 - Fallback executor: backend-developer
@@ -720,14 +727,17 @@ Files:
 - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-584\apps\ptah-extension-vscode\assets\plugins\ptah-core\skills\agent-lanes\SKILL.md`
 - CREATE `D:\projects\ptah-extension\.claude-worktrees\task-584\apps\ptah-docs\src\content\docs\agents\agent-sessions.md` (check the docs sidebar config for an explicit page list)
 
-### Task 8.1: Skill section (both copies) — PENDING
+### Task 8.1: Skill section (both copies) — COMPLETE
 
 - Plan reference: implementation-plan.md:845-852; include "call `ptah_session_status` after a resume" (R12).
 - Also (follow-up F3): document that `ptah_agent_report` works from a child session (the `childSessionId` fallback); if the tool's own description in `session-tools.ts`/`protocol-dispatcher.ts` needs the mention, that is a code change outside B8's file list — report it, do not edit.
 
-### Task 8.2: Docs page with the four settings keys — PENDING
+### Task 8.2: Docs page with the four settings keys — COMPLETE
 
-## Batch 9: real-host smoke S1-S11 + test-report.md — PENDING (READY: B6 and B7 committed)
+## Batch 9: real-host smoke S1-S11 + test-report.md — IN_PROGRESS
+
+- Partial result (`test-report.md`, `smoke-b9/`): S11 PASS (57/59; 2 known failures: platform-core perf smoke under load, rpc-handlers harness-skill-selection known base failure). Electron dev build boot PASS (F4 cleared; idle graceful quit clean). S1-S10 BLOCKED on both hosts: no provider credentials in the isolated profile (`auth:getAuthStatus` all false); no VS Code GUI driver. A1/A3/A4/A5 NOT proven. F2 static evidence only. F1 upgraded to defect candidate (static).
+- Awaiting USER DECISION on how to run S1-S10 (e.g. user-run smoke on their own profile, or authorising a credentialed scratch profile). Not reviewed or committed as a batch; the partial report is committed as docs only.
 
 - Recommended executor: senior-tester (sub-agent), real host (Electron dev build, then VS Code), NOT a mocked run
 - Fallback executor: none; a smoke step that cannot run is reported as blocked with the reason
@@ -736,7 +746,7 @@ Files:
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk,@ptah-extension/platform-core,@ptah-extension/cli-agent-runtime,@ptah-extension/rpc-handlers,@ptah-extension/vscode-lm-tools,@ptah-extension/shared,@ptah-extension/chat-state,@ptah-extension/chat,ptah-cli` (S11) plus the smoke evidence.
 - Review: CLI lane antigravity (fallback Glm) -> `code-logic-review-b9.md` (evidence supports each S-step verdict; assumptions A1-A5 closed or reported).
 
-### Task 9.1: Smoke S1-S11 — PENDING
+### Task 9.1: Smoke S1-S11 — IN_PROGRESS
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-584\.ptah\specs\TASK_2026_584_5e7a\test-report.md`
 - Plan reference: implementation-plan.md:1067-1104
