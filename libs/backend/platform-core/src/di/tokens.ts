@@ -62,6 +62,16 @@ export const PLATFORM_TOKENS = {
   /** IMemoryWriter — upsert memory entries by stable (fingerprint, subject) identity. */
   MEMORY_WRITER: Symbol.for('PlatformMemoryWriter'),
 
+  /**
+   * ISessionOrganizationRecorder — capture port for session worktree, lineage,
+   * task and PR links. Adapter: @ptah-extension/session-organization, bound
+   * only when the SQLite connection is registered (unregistered on VS Code).
+   * Consumers inject it `{ isOptional: true }` and skip when absent.
+   */
+  SESSION_ORGANIZATION_RECORDER: Symbol.for(
+    'PlatformSessionOrganizationRecorder',
+  ),
+
   /** IMasterKeyProvider — platform-specific 32-byte AES-256 master key retrieval. */
   MASTER_KEY_PROVIDER: Symbol.for('PlatformMasterKeyProvider'),
 

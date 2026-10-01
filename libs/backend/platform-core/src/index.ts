@@ -118,6 +118,7 @@ export type {
   MemoryWriteRequest,
   MemoryWriteResult,
 } from './interfaces/memory-writer.interface';
+export type { ISessionOrganizationRecorder } from './interfaces/session-organization-recorder.interface';
 export type {
   IHttpServerProvider,
   IHttpServerHandle,
