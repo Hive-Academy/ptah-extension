@@ -62,6 +62,7 @@ import type {
   GitReviewChangesResult,
   GitReviewFileParams,
   GitReviewFileResult,
+  GitWorktreesParams,
   GitWorktreesResult,
   GitAddWorktreeParams,
   GitAddWorktreeResult,
@@ -311,14 +312,18 @@ export class GitRpcHandlers {
   }
 
   /**
-   * git:worktrees - Returns all worktrees for the active workspace.
-   * If no workspace is open, returns an empty list.
+   * git:worktrees - Returns all worktrees for the workspace folder named in
+   * `params.workspaceRoot`, falling back to the active workspace. Invalid
+   * params, an unregistered folder or no workspace return an empty list.
    */
   private registerGitWorktrees(): void {
-    this.rpcHandler.registerMethod<Record<string, never>, GitWorktreesResult>(
+    this.rpcHandler.registerMethod<GitWorktreesParams, GitWorktreesResult>(
       'git:worktrees',
-      async () => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+      async (rawParams) => {
+        const params = parseGitWorkspaceScopedParams(rawParams);
+        const wsRoot = params
+          ? this.resolveRoot(params.workspaceRoot, 'git:worktrees')
+          : undefined;
         if (!wsRoot) {
           return { worktrees: [] };
         }
@@ -344,7 +349,10 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitAddWorktreeParams, GitAddWorktreeResult>(
       'git:addWorktree',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(
+          params?.workspaceRoot,
+          'git:addWorktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -408,7 +416,10 @@ export class GitRpcHandlers {
       GitRemoveWorktreeParams,
       GitRemoveWorktreeResult
     >('git:removeWorktree', async (params) => {
-      const wsRoot = this.workspace.getWorkspaceRoot();
+      const wsRoot = this.resolveRoot(
+        params?.workspaceRoot,
+        'git:removeWorktree',
+      );
       if (!wsRoot) {
         return { success: false, error: 'No workspace folder open' };
       }

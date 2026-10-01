@@ -8,6 +8,8 @@
  * Key behaviors:
  * - WorktreeCreate returns a concrete path or throws the underlying failure
  * - Child worktrees are siblings beneath the repository's main worktree
+ * - WorktreeRemove force-removes a listed, unlocked agent worktree under
+ *   `.claude-worktrees/`, then prunes; it always returns `continue: true`
  * - Uses callback pattern (EventBus is deleted from codebase)
  * - Logging for worktree events (info level)
  *
@@ -68,15 +70,55 @@ export type WorktreeRemovedCallback = (data: {
   timestamp: number;
 }) => void;
 
+/** The path flavour of an absolute path, or null when it is not absolute. */
+function pathApiFor(absolutePath: string): path.PlatformPath | null {
+  if (path.posix.isAbsolute(absolutePath)) return path.posix;
+  if (path.win32.isAbsolute(absolutePath)) return path.win32;
+  return null;
+}
+
+/**
+ * Whether `candidate` lies strictly inside `<repositoryRoot>/.claude-worktrees/`.
+ * `relative` on win32 compares case-insensitively and accepts either slash.
+ */
+function isUnderAgentWorktreeDir(
+  repositoryRoot: string,
+  candidate: string,
+): boolean {
+  const pathApi = pathApiFor(repositoryRoot);
+  if (!pathApi) return false;
+  const relative = pathApi.relative(
+    pathApi.join(repositoryRoot, AGENT_WORKTREE_DIR),
+    candidate,
+  );
+  return (
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${pathApi.sep}`) &&
+    !pathApi.isAbsolute(relative)
+  );
+}
+
+function isSamePath(left: string, right: string): boolean {
+  const pathApi = pathApiFor(left);
+  return pathApi !== null && pathApi.relative(left, right) === '';
+}
+
+/** Which branch of the WorktreeRemove cleanup ran — logged for diagnosis. */
+type WorktreeRemovalPath =
+  | 'removed-and-pruned'
+  | 'pruned-missing-directory'
+  | 'remove-failed'
+  | 'skipped-locked'
+  | 'skipped-not-listed'
+  | 'skipped-outside-agent-dir'
+  | 'skipped-no-main-worktree';
+
 function resolveSiblingWorktreePath(
   repositoryRoot: string,
   branch: string,
 ): string {
-  const pathApi = path.posix.isAbsolute(repositoryRoot)
-    ? path.posix
-    : path.win32.isAbsolute(repositoryRoot)
-      ? path.win32
-      : null;
+  const pathApi = pathApiFor(repositoryRoot);
   if (!pathApi) {
     throw new Error(
       `Main repository worktree path must be absolute: ${repositoryRoot}`,
@@ -298,10 +340,15 @@ export class WorktreeHookHandler {
                   );
                   return { continue: true };
                 }
+                const removalPath = await this.removeAgentWorktree(
+                  input.cwd,
+                  input.worktree_path,
+                );
                 this.logger.info('[WorktreeHookHandler] Worktree removed', {
                   sessionId: input.session_id,
                   worktreePath: input.worktree_path,
                   cwd: input.cwd,
+                  removalPath,
                 });
                 if (capturedRemovedCallback) {
                   const worktreeData = {
@@ -343,6 +390,79 @@ export class WorktreeHookHandler {
         },
       ],
     };
+  }
+
+  /**
+   * Remove an agent worktree the SDK is done with, then prune its admin entry.
+   *
+   * Only a worktree that `git worktree list` (run from `cwd`) reports AND that
+   * lies under `<main>/.claude-worktrees/` is touched, so a hook naming any
+   * other directory can never delete it. A locked worktree is left in place.
+   * A worktree whose directory is already gone (`prunable`) is only pruned.
+   * Failures are logged and reported as the returned path; nothing throws.
+   */
+  private async removeAgentWorktree(
+    cwd: string,
+    worktreePath: string,
+  ): Promise<WorktreeRemovalPath> {
+    const worktrees = await this.gitInfo.getWorktrees(cwd);
+    const main = worktrees.find((worktree) => worktree.isMain)?.path;
+    if (!main) {
+      this.logger.warn(
+        '[WorktreeHookHandler] Worktree cleanup skipped: main worktree unresolved',
+        { cwd, worktreePath },
+      );
+      return 'skipped-no-main-worktree';
+    }
+
+    const entry = worktrees.find(
+      (worktree) => !worktree.isMain && isSamePath(worktree.path, worktreePath),
+    );
+    if (!entry) {
+      this.logger.warn(
+        '[WorktreeHookHandler] Worktree cleanup skipped: path not listed by git worktree list',
+        { cwd, worktreePath },
+      );
+      return 'skipped-not-listed';
+    }
+    if (!isUnderAgentWorktreeDir(main, entry.path)) {
+      this.logger.warn(
+        `[WorktreeHookHandler] Worktree cleanup skipped: path is outside ${AGENT_WORKTREE_DIR}`,
+        { main, worktreePath: entry.path },
+      );
+      return 'skipped-outside-agent-dir';
+    }
+    if (entry.locked) {
+      this.logger.warn(
+        '[WorktreeHookHandler] Worktree cleanup skipped: worktree is locked',
+        { worktreePath: entry.path, lockReason: entry.lockReason },
+      );
+      return 'skipped-locked';
+    }
+
+    let removalPath: WorktreeRemovalPath = 'pruned-missing-directory';
+    if (!entry.prunable) {
+      const removed = await this.gitInfo.removeWorktree(main, entry.path, true);
+      if (!removed.success) {
+        this.logger.warn('[WorktreeHookHandler] Worktree removal failed', {
+          worktreePath: entry.path,
+          error: removed.error,
+        });
+        return 'remove-failed';
+      }
+      removalPath = 'removed-and-pruned';
+    }
+
+    const pruned = await this.gitInfo.pruneWorktrees(main);
+    if (!pruned.success) {
+      // The entry stays labelled `prunable`; the next list or prune clears it.
+      this.logger.warn('[WorktreeHookHandler] Worktree prune failed', {
+        main,
+        error: pruned.error,
+        code: pruned.code,
+      });
+    }
+    return removalPath;
   }
 
   /**
