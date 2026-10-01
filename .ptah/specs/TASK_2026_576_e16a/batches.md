@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 19/69
+Total tasks: 87 | Batches: 69 | Complete: 20/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1110,14 +1110,14 @@ executors at once.
 | 9    | 32       | VS Code e2e; needs 31.                                                                                                    |
 | end  | P3 phase-end review | per Review cadence; card visual review against `prototype/`.                                                  |
 
-## Batch 20: Eager-bundle guard script and baseline measurements — PENDING
+## Batch 20: Eager-bundle guard script and baseline measurements — COMPLETE
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P2 complete. Must run before Batch 21 changes `app.config.ts` (baseline).
 - Verification: `npx nx run ptah-extension-webview:verify-eager-bundle` in report-only mode on the base build
 
-### Task 20.1: `assert-eager-bundle.mjs` (report-only + assert), Nx target, baseline rows — PENDING
+### Task 20.1: `assert-eager-bundle.mjs` (report-only + assert), Nx target, baseline rows — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/apps/ptah-extension-webview/scripts/assert-eager-bundle.mjs; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/project.json; CREATE D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/bundle-measurements.md
 - Plan reference: implementation-plan.md:693-697, 1473-1479
@@ -1125,6 +1125,13 @@ executors at once.
 - Quality requirements: follows static imports from `index.html` module scripts; fails on the listed selectors; prints gz of `main.js` and closure.
 - Validation notes: assertion mode is expected to FAIL on the base build (git-ui is eager); record that as the baseline, run with `--report-only`. TTI baseline: `startup-tti.spec.ts` twice, second boot recorded.
 - Implementation details: target `verify-eager-bundle` depends on `build`.
+- Outcome: executor devops-engineer; only the three listed files. The script follows static imports from the
+  `index.html` module scripts (not dynamic `import()`), prints raw/gzip sizes, fails on the plan's 8 markers;
+  `--report-only` and `--dist <dir>` flags; exit 2 when the build output is missing. Baseline (production build):
+  `main.js` 401,859 B gz (392.4 KB; research said 383.9 KB — Batch 21 compares against 401,859 B), eager closure
+  817,717 B gz over 12 files; assert mode fails on the base build (`ptah-git-`, `ptah-diff-view` in `main.js`) as
+  expected. TTI baseline (second boot, `startup-tti.spec.ts` via playwright, dev renderer) 14,557 ms; FCP 608 ms.
+  Verified by the orchestrator: `verify-eager-bundle -- --report-only` reproduces the numbers; webview lint green.
 
 ## Batch 21: `@ptah-extension/git-ui/services` narrow entry — PENDING
 
