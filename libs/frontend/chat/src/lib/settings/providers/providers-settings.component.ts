@@ -6,7 +6,9 @@ import {
   ProvidersSettingsStateService, type ProvidersConnection, type ProvidersConnectionDraft, type ProvidersEditContext,
   type ProvidersExternalAuthAction,
 } from '@ptah-extension/core';
-import type { SettingScope, AuthVerifyDraftConnectionParams, AuthCancelDraftVerificationParams } from '@ptah-extension/shared';
+import type {
+  SettingScope, AuthVerifyDraftConnectionParams, AuthCancelDraftVerificationParams, ConnectionCheckRecord,
+} from '@ptah-extension/shared';
 import { SettingScopeRowComponent } from './setting-scope-row.component';
 import { ProviderConnectionCardComponent } from './provider-connection-card.component';
 import type { ProviderConnectionCardStatus } from './provider-connection-card.state';
@@ -196,17 +198,17 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
         <!-- z-[60]: the drawer stacks above the page save toast (fixed, z-50, bottom-right), which would
              otherwise cover the drawer's footer Close. The Models & Tiers tab repeats that feedback inline. -->
         <div class="relative z-[60]">
-        <ptah-connection-detail-drawer [connection]="connection" [status]="drawerStatus(connection)"
+        <ptah-connection-detail-drawer [connection]="connection" [status]="drawerStatus(connection)" [lastCheck]="lastCheckOf(connection.id)"
           [positiveProbeEvidence]="hasProbeEvidence(connection.id)" [isActive]="activeId() === connection.id"
           [isDriver]="knownDriverId() === connection.id"
           [loading]="state.route().data === null && state.route().status !== 'error'"
-          [checking]="state.route().status === 'loading'" [saving]="saving()" [canEdit]="canStartSetup()"
+          [checking]="state.route().status === 'loading' || drawerCheckRunning(connection.id)" [saving]="saving()" [canEdit]="canStartSetup()"
           [usedBy]="usage().byProvider[connection.id] ?? []" [usageComplete]="usage().complete" [usageError]="usageError()"
           [customProtocol]="state.customEntry(connection.id)?.lane ?? null"
           [credentialsSetup]="credentialsSetup()" [credentialsSetupError]="state.connectionSetup().status === 'error'"
           [credentialsCommit]="drawerCommit()" [externalAuth]="drawerExternalAuth()"
           [verifyDraftConnection]="verifyDraftConnection" [cancelDraftVerification]="cancelDraftVerification"
-          (closed)="closeDrawer()" (checkConnectionRequested)="state.checkConnection()" (retryUsageRequested)="state.refresh()"
+          (closed)="closeDrawer()" (checkConnectionRequested)="state.checkProviderConnection(connection.id)" (retryUsageRequested)="state.refresh()"
           (setupRequested)="setupFromDrawer($event)" (replaceKeyRequested)="replaceKey($event)"
           (deleteKeyRequested)="deleteKey(connection.id)" (signOutRequested)="signOutCopilot()"
           (externalActionRequested)="drawerExternalAction(connection.id, $event)" />
@@ -343,7 +345,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   /** Who uses each connection. `undefined`/`null` sources mean "not loaded" (see connection-usage.ts). */
   protected readonly usage = computed(() => {
     const route = this.state.route(), memory = this.state.memory(), lanes = this.state.lanes();
-    const judging = this.state.judging(), agents = this.state.cliAgents();
+    const judging = this.state.judging(), agents = this.state.cliAgents(), clis = this.state.orchestration();
     return connectionUsage({
       mainProviderId: route.status !== 'ready' ? undefined
         : route.data?.route !== 'unresolved' ? route.data?.driverProviderId ?? null : null,
@@ -351,10 +353,12 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       lanes: lanes.status === 'ready' ? lanes.data : null,
       judgeProvider: judging.status === 'ready' ? judging.data?.judgeProvider ?? '' : null,
       cliAgents: agents.status === 'ready' ? agents.data : null,
+      // The Codex CLI's detection and on/off state (`agent:getConfig`); "Codex CLI" counts under OpenAI Codex.
+      systemClis: clis.status === 'ready' ? clis.data : null,
     });
   });
   protected readonly usageError = computed(() =>
-    [this.state.route(), this.state.memory(), this.state.lanes(), this.state.judging(), this.state.cliAgents()]
+    [this.state.route(), this.state.memory(), this.state.lanes(), this.state.judging(), this.state.cliAgents(), this.state.orchestration()]
       .some((section) => section.status === 'error'));
   /** The Main Agent region's reads other than the route (whose error and Retry live in the Main Agent node). */
   private readonly mainReads = computed(() => [
@@ -455,9 +459,23 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     if (this.state.route().status !== 'ready') return this.state.route().status === 'loading' ? 'checking' : 'check-unavailable';
     return this.state.route().data?.providers.find((provider) => provider.id === entry.id)?.status ?? 'not-checked';
   }
-  /** The drawer names a failed route read "Check failed" (retryable), not "Check unavailable". */
+  /**
+   * The drawer names a failed route read, or a failed check request for this connection, "Check failed"
+   * (retryable), not "Check unavailable"; its own running check reads "Checking…".
+   */
   protected drawerStatus(entry: ProvidersConnection): OverviewConnectionStatus {
-    return this.state.route().status === 'error' ? 'check-failed' : this.connectionStatus(entry);
+    const check = this.state.connectionCheck();
+    const own = check?.providerId === entry.id ? check.status : null;
+    if (own === 'checking') return 'checking';
+    return this.state.route().status === 'error' || own === 'failed' ? 'check-failed' : this.connectionStatus(entry);
+  }
+  protected drawerCheckRunning(id: string): boolean {
+    const check = this.state.connectionCheck();
+    return check?.providerId === id && check.status === 'checking';
+  }
+  /** The connection's last recorded check, from the route read (`auth:getEffectiveRoute` `providers[].lastCheck`). */
+  protected lastCheckOf(id: string): ConnectionCheckRecord | null {
+    return this.state.route().data?.providers.find((provider) => provider.id === id)?.lastCheck ?? null;
   }
   /** Per-provider verdict from the effective route; null when the host cannot check it (skipped/unknown). */
   protected hasProbeEvidence(id: string): boolean | null {

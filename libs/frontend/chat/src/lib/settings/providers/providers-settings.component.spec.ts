@@ -86,7 +86,11 @@ class StateStub {
   readonly cliAgents = signal(ready([]));
   readonly cliModels = signal(ready({}));
   readonly mainSources = signal(ready({}));
-  readonly orchestration = signal(ready({ codexModel: '', copilotModel: '', cursorModel: '', antigravityModel: '', opencodeModel: '', piModel: '' }));
+  readonly orchestration = signal<ProvidersSettingsSection<{ detectedClis: { cli: string; installed: boolean }[]; disabledClis: string[] }>>(
+    ready({ detectedClis: [], disabledClis: [] }));
+  /** The drawer's last check (Batch 28d); `checkProviderConnection` runs it. */
+  readonly connectionCheck = signal<{ providerId: string; status: 'checking' | 'done' | 'failed' } | null>(null);
+  readonly checkProviderConnection = jest.fn(async (_providerId: string) => undefined);
   readonly externalAuth = signal<ProvidersSettingsSection<ProvidersExternalAuth>>(unloaded());
   readonly delegatedModelOptions = signal(unloaded());
   readonly refreshDelegatedModelOptions = jest.fn(async () => undefined);
@@ -210,7 +214,70 @@ describe('ProvidersSettingsComponent', () => {
       expect(element.querySelector('[data-testid="connection-overview"]')?.textContent).not.toContain('Could not load this section');
       expect(checkButton()?.disabled).toBe(false);
       checkButton()?.click();
-      expect(state.checkConnection).toHaveBeenCalledTimes(1);
+      // Batch 28d: the drawer checks THIS connection (auth:checkConnection through the state), not a page refresh.
+      expect(state.checkProviderConnection).toHaveBeenCalledWith('second');
+      expect(state.checkConnection).not.toHaveBeenCalled();
+    });
+
+    describe('the recorded check and the key hint (Batch 28d)', () => {
+      const lastChecked = () => element.querySelector('[data-testid="connection-last-checked"]')?.textContent?.trim();
+
+      it('shows the route\'s recorded latency for this connection after a check', async () => {
+        state.route.set(ready({ ...route, providers: [route.providers[0], { ...route.providers[1],
+          lastCheck: { status: 'verified', reason: null, latencyMs: 92, checkedAt: new Date().toISOString() } }] }));
+        await render();
+        await openDrawer('second');
+        expect(statusText()).toBe('Connected & verified (92ms)');
+        expect(lastChecked()).toBe('Checked just now');
+        // Another connection's record never shows here.
+        await openDrawer('first');
+        expect(statusText()).not.toMatch(/ms\)/);
+        expect(lastChecked()).toBeUndefined();
+      });
+
+      it('its own running check reads "Checking…" with the button disabled; a failed request reads "Check failed" (D15)', async () => {
+        state.route.set(ready({ ...route, providers: [route.providers[0], { ...route.providers[1],
+          lastCheck: { status: 'verified', reason: null, latencyMs: 92, checkedAt: new Date().toISOString() } }] }));
+        await render();
+        await openDrawer('second');
+        state.connectionCheck.set({ providerId: 'second', status: 'checking' }); await render();
+        expect(statusText()).toBe('Checking…');
+        expect(checkButton()?.disabled).toBe(true);
+        state.connectionCheck.set({ providerId: 'second', status: 'failed' }); await render();
+        expect(statusText()).toBe('Check failed');
+        expect(element.querySelector('[data-testid="connection-overview"]')?.textContent).not.toContain('verified');
+        expect(checkButton()?.textContent?.trim()).toBe('Retry check');
+        // Another connection's failed check does not touch this one.
+        state.connectionCheck.set({ providerId: 'first', status: 'failed' }); await render();
+        expect(statusText()).toBe('Connected & verified (92ms)');
+      });
+
+      it('Overview "Credential storage" shows the stored key\'s masked hint', async () => {
+        state.connections.set(ready([connection('first'), { ...connection('second'), keyHint: '•••• 8f21' }]));
+        state.route.set(ready(route)); await render();
+        await openDrawer('second');
+        expect(element.querySelector('[data-testid="connection-credential-storage"]')?.textContent?.replace(/\s+/g, ' ').trim())
+          .toBe('•••• 8f21 (stored on this machine)');
+        await openDrawer('first');
+        expect(element.querySelector('[data-testid="connection-credential-storage"]')?.textContent?.trim()).toBe('Stored on this machine');
+      });
+
+      it('counts the enabled Codex CLI under OpenAI Codex, and waits for the CLI read before counting', async () => {
+        state.connections.set(ready([connection('first'), connection('second'), connection('openai-codex')]));
+        state.memory.set(ready({ curatorProvider: 'openai-codex' }));
+        state.orchestration.set({ status: 'loading', data: null, error: null });
+        state.route.set(ready(route)); await render();
+        const codexCount = () => Array.from(element.querySelectorAll('[data-testid="provider-connection-card"]'))
+          .find((card) => card.textContent?.includes('openai-codex'))?.querySelector('[data-testid="used-by-count"]')?.textContent?.trim();
+        expect(codexCount()).toBeUndefined();
+        state.orchestration.set(ready({ detectedClis: [{ cli: 'codex', installed: true }], disabledClis: ['copilot'] })); await render();
+        expect(codexCount()).toBe('Used by 2');
+        await openDrawer('openai-codex');
+        expect(element.querySelector('[data-used-by="codex-cli"]')?.textContent).toContain('Codex CLI');
+        state.orchestration.set(ready({ detectedClis: [{ cli: 'codex', installed: true }], disabledClis: ['codex'] })); await render();
+        expect(codexCount()).toBe('Used by 1');
+        expect(element.querySelector('[data-used-by="codex-cli"]')).toBeNull();
+      });
     });
 
     it('Check connection is disabled while a save is in flight', async () => {

@@ -92,12 +92,24 @@ describe('CredentialsTabComponent', () => {
   }
   async function flush() { await fixture.whenStable(); fixture.detectChanges(); }
 
-  it('shows a fixed mask for a stored key, never any part of it', () => {
+  it('without a host hint, shows a fixed mask for a stored key, never any part of it', () => {
     render();
     expect(query('credentials-key-mask')?.textContent?.trim()).toBe('••••••••••••••••');
     render({ connection: connection({ hasKey: false }) });
     expect(query('credentials-key-mask')?.textContent?.trim()).toBe('No key stored');
     expect(query('credentials-delete')).toBeNull();
+  });
+
+  it('shows the host\'s masked hint for a stored key, not selectable and with no copy action (Batch 28d)', () => {
+    render({ connection: connection({ keyHint: '•••• 8f21' }) });
+    const mask = query('credentials-key-mask');
+    expect(mask?.textContent?.trim()).toBe('•••• 8f21');
+    expect(mask?.className).toContain('select-none');
+    expect(mask?.className).toContain('text-base-content');
+    expect(mask?.parentElement?.querySelector('[aria-label^="Copy"], [data-testid^="credentials-copy"]')).toBeNull();
+    // A hint left over without a stored key is never shown.
+    render({ connection: connection({ hasKey: false, keyHint: '•••• 8f21' }) });
+    expect(query('credentials-key-mask')?.textContent?.trim()).toBe('No key stored');
   });
 
   it('show/hide toggles the new key field between password and text (#49)', () => {

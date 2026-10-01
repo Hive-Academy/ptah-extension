@@ -104,6 +104,17 @@ export async function readSection<T>(
   }
 }
 
+/** The host's masked key hint: four U+2022 bullets, a space, then the key's last 4 characters. */
+const KEY_HINT = /^•{4} \S{4}$/u;
+
+/**
+ * A host key hint enters state only in its documented shape. Anything else (a longer tail, or a whole
+ * key sent by mistake) is dropped, so the view can never show more of a key than the hint allows.
+ */
+export function hostKeyHint(value: unknown): { readonly keyHint?: string } {
+  return typeof value === 'string' && KEY_HINT.test(value) ? { keyHint: value } : {};
+}
+
 /**
  * Calls an RPC and returns its data. A failed call throws a fixed message, so host error text
  * (which can carry a credential) never reaches a caller.

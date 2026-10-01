@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal, untracked } from '@angular/core';
 import type { ProvidersConnection, ProvidersConnectionDraft } from '@ptah-extension/core';
+import type { ConnectionCheckRecord } from '@ptah-extension/shared';
 import { NativeDrawerComponent, NativeTabGroupComponent } from '@ptah-extension/ui';
 import type { UsedBy } from './connection-usage';
 import {
@@ -83,6 +84,7 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
               @case ('overview') {
                 <ptah-connection-overview-tab [status]="status()" [positiveProbeEvidence]="positiveProbeEvidence()"
                   [isActive]="isActive()" [kind]="kind()" [authModeLabel]="authModeRowLabel()" [credentialLabel]="credentialLabel()"
+                  [keyHint]="overviewKeyHint()" [lastCheck]="lastCheck()"
                   [loading]="loading()" [checking]="checking()" [saving]="saving()" [usedBy]="usedBy()" [usageComplete]="usageComplete()"
                   [usageError]="usageError()" (checkConnectionRequested)="checkConnectionRequested.emit()"
                   (retryUsageRequested)="retryUsageRequested.emit()" />
@@ -132,6 +134,8 @@ export class ConnectionDetailDrawerComponent {
   /** The connection shown; `null` closes the drawer. */
   readonly connection = input<ProvidersConnection | null>(null);
   readonly status = input<OverviewConnectionStatus>('not-checked');
+  /** The connection's last recorded check (`route.providers[].lastCheck`), shown on Overview. */
+  readonly lastCheck = input<ConnectionCheckRecord | null>(null);
   readonly positiveProbeEvidence = input<boolean | null>(null);
   readonly isActive = input(false);
   /**
@@ -212,6 +216,11 @@ export class ConnectionDetailDrawerComponent {
       case 'local': return current?.hasKey ? 'Optional key stored on this machine' : 'No key needed';
       default: return current?.hasKey ? 'Stored on this machine' : 'No key stored';
     }
+  });
+  /** Overview "Credential storage" shows a stored key's masked hint (prototype "•••• 8f21 (stored on this machine)"). */
+  protected readonly overviewKeyHint = computed(() => {
+    const current = this.connection();
+    return current?.hasKey && (this.kind() === 'api-key' || this.kind() === 'custom') ? current.keyHint ?? null : null;
   });
   /** "Edit in setup" (D14) stays on a tab whose body does not yet hold every edit it replaces. */
   protected readonly setupFallback = computed(() => {

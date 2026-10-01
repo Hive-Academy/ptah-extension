@@ -14,11 +14,17 @@ const PROTOTYPE: ConnectionUsageSources = {
   lanes: lanes({ judge: 'moonshot' }),
   judgeProvider: '',
   cliAgents: [{ id: 'glm-instance-1', name: 'Glm', providerId: 'ollama-cloud' }],
+  // BRIEF: Codex and Copilot installed, Copilot switched off.
+  systemClis: {
+    detectedClis: [{ cli: 'codex', installed: true }, { cli: 'copilot', installed: true }, { cli: 'cursor', installed: false }],
+    disabledClis: ['copilot'],
+  },
 };
 
 const NOTHING_LOADED: ConnectionUsageSources = {
-  mainProviderId: undefined, curatorProvider: null, lanes: null, judgeProvider: null, cliAgents: null,
+  mainProviderId: undefined, curatorProvider: null, lanes: null, judgeProvider: null, cliAgents: null, systemClis: null,
 };
+const CODEX_CLI: UsedBy = { id: 'codex-cli', label: 'Codex CLI', kind: 'system-cli', followsMain: false };
 
 const usageOf = (sources: ConnectionUsageSources) => connectionUsage(sources).byProvider;
 const labels = (entries: readonly UsedBy[] | undefined) => (entries ?? []).map((entry) => entry.label);
@@ -44,10 +50,31 @@ describe('connectionUsage', () => {
     expect(Object.keys(usage).sort()).toEqual(['claude-cli', 'moonshot', 'ollama-cloud', 'openai-codex']);
   });
 
-  it('excludes system CLIs: OpenAI Codex lists only the memory curator (Codex CLI has its own auth)', () => {
+  it('OpenAI Codex lists the memory curator, then the enabled Codex CLI ("Used by 2", Gate V 28 reversal of Batch 19 (a))', () => {
     expect(usageOf(PROTOTYPE)['openai-codex']).toEqual([
       { id: 'memory-curator', label: 'Memory curator', kind: 'background-role', followsMain: false },
+      CODEX_CLI,
     ]);
+  });
+
+  it('lists no other system CLI anywhere: Copilot, Cursor and the rest authenticate on their own', () => {
+    const usage = usageOf({ ...PROTOTYPE, systemClis: {
+      detectedClis: ['codex', 'copilot', 'cursor', 'antigravity', 'opencode', 'pi'].map((cli) => ({ cli: cli as 'codex', installed: true })),
+      disabledClis: [],
+    } });
+    expect(Object.values(usage).flat().filter((entry) => entry.kind === 'system-cli')).toEqual([CODEX_CLI]);
+    expect(usage['github-copilot']).toBeUndefined();
+  });
+
+  it.each<[string, NonNullable<ConnectionUsageSources['systemClis']>]>([
+    ['switched off in the CLI matrix', { detectedClis: [{ cli: 'codex', installed: true }], disabledClis: ['codex'] }],
+    ['flagged disabled by detection', { detectedClis: [{ cli: 'codex', installed: true, disabled: true }], disabledClis: [] }],
+    ['not installed', { detectedClis: [{ cli: 'codex', installed: false }], disabledClis: [] }],
+    ['not detected at all', { detectedClis: [], disabledClis: [] }],
+  ])('does not list the Codex CLI when it is %s', (_name, systemClis) => {
+    const result = connectionUsage({ ...PROTOTYPE, systemClis });
+    expect(result.complete).toBe(true);
+    expect(labels(result.byProvider['openai-codex'])).toEqual(['Memory curator']);
   });
 
   it('keeps a fixed order: main agent, curator, lanes, judging, then Ptah CLI agents in list order', () => {
@@ -57,6 +84,7 @@ describe('connectionUsage', () => {
       lanes: lanes({ archaeologist: 'p', synthesis: 'p', judge: 'p', replay: 'p' }),
       judgeProvider: 'p',
       cliAgents: [{ id: 'b', name: 'Beta', providerId: 'p' }, { id: 'a', name: 'Alpha', providerId: 'p' }],
+      systemClis: null,
     });
     expect(labels(usage['p'])).toEqual([
       'Main agent', 'Memory curator', 'Archaeologist lane', 'Synthesis lane', 'Judge lane', 'Replay lane',
@@ -94,6 +122,8 @@ describe('connectionUsage', () => {
     ['lanes', { lanes: null }],
     ['judging', { judgeProvider: null }],
     ['Ptah CLI agents', { cliAgents: null }],
+    // While agent:getConfig loads, the Codex CLI is not counted and the count stays "Loading…" (Batch 20 rule).
+    ['system CLIs', { systemClis: null }],
   ])('an unloaded %s section makes the result incomplete and contributes nothing', (_name, unloaded) => {
     const loaded = connectionUsage(PROTOTYPE).byProvider;
     const result = connectionUsage({ ...PROTOTYPE, ...unloaded });

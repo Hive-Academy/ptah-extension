@@ -4,6 +4,7 @@ import { RpcResult } from './claude-rpc.service';
 import {
   createSectionStore,
   effortFreshSectionView,
+  hostKeyHint,
   readSection,
   requireRpcData,
   SECTION_LOAD_ERROR,
@@ -127,6 +128,28 @@ describe('providers-settings-sections', () => {
         throw new Error('failed');
       });
       expect(view()).toEqual({ status: 'error', data: null, error: SECTION_LOAD_ERROR });
+    });
+  });
+
+  describe('hostKeyHint (Batch 28d)', () => {
+    it('keeps the documented shape: four bullets, a space, the last 4 characters', () => {
+      expect(hostKeyHint('•••• 8f21')).toEqual({ keyHint: '•••• 8f21' });
+      // Code points, not UTF-16 units: an astral last character still counts as one.
+      expect(hostKeyHint('•••• ab\u{1F511}c')).toEqual({ keyHint: '•••• ab\u{1F511}c' });
+    });
+
+    it.each([
+      ['absent', undefined],
+      ['not a string', 1234],
+      ['empty', ''],
+      ['a whole key', 'sk-0123456789abcdefghij'],
+      ['a longer tail', '•••• 0123456789'],
+      ['a shorter tail', '•••• 12'],
+      ['three bullets', '••• 8f21'],
+      ['no space', '••••8f21'],
+      ['whitespace in the tail', '•••• 8f 1'],
+    ])('drops %s', (_name, value) => {
+      expect(hostKeyHint(value)).toEqual({});
     });
   });
 

@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   CustomProviderEntryChangesSchema,
   CustomProviderEntryInputSchema,
@@ -26,6 +26,7 @@ import {
 } from './providers-settings-sections';
 import type {
   ProvidersConnection,
+  ProvidersConnectionCheck,
   ProvidersCustomEntry,
   ProvidersEffectiveRoute,
   ProvidersConnectionDraft,
@@ -43,6 +44,8 @@ import { WorkspaceScopeService } from './workspace-scope.service';
  * never sent one for either) and writes no main-agent tiers (those pin ANTHROPIC_DEFAULT_*_MODEL).
  */
 const NATIVE_ANTHROPIC_IDS: ReadonlySet<string> = new Set(['anthropic', 'claude-cli']);
+/** The host's stored-key probe allows up to 30 s, plus its queue wait (as `auth:verifyDraftConnection`). */
+const CHECK_TIMEOUT_MS = 35000;
 
 /** What connection setup needs from the page state that owns the other sections. */
 export interface ProvidersConnectionSetupHooks {
@@ -88,6 +91,40 @@ export class ProvidersConnectionSetupService {
 
   readonly verification = sectionView(this.probeStore, this.workspace);
   readonly externalAuth = sectionView(this.externalAuthStore, this.workspace);
+  private readonly checkState = signal<(ProvidersConnectionCheck & { readonly scopeKey: string }) | null>(null);
+  private checkGeneration = 0;
+  /** The drawer's last "Check connection" in this workspace; null before one ran. */
+  readonly connectionCheck = computed<ProvidersConnectionCheck | null>(() => {
+    const state = this.checkState();
+    return state && state.scopeKey === this.workspace.scopeKey() ? { providerId: state.providerId, status: state.status } : null;
+  });
+
+  /**
+   * The drawer's "Check connection". A connection the host can check (`auth:checkConnection`: API-key, custom,
+   * CLI and sign-in connections) is checked there, which records the result; the route is then re-read, and its
+   * `providers[].lastCheck` carries that record to the Overview. Local servers and key-optional routes (Ollama,
+   * LM Studio, Ollama Cloud), which the host refuses, keep the route re-read alone. A failed check RPC publishes
+   * `failed` only, never its text. The latest check wins; an earlier one that settles late publishes nothing.
+   */
+  async checkConnection(providerId: string, hooks: ProvidersConnectionSetupHooks): Promise<void> {
+    if (!this.hostCheckable(providerId, hooks)) {
+      await hooks.refreshRoute();
+      return;
+    }
+    const generation = ++this.checkGeneration;
+    const scopeKey = this.workspace.scopeKey();
+    this.checkState.set({ providerId, status: 'checking', scopeKey });
+    let status: ProvidersConnectionCheck['status'] = 'done';
+    try {
+      await this.require('auth:checkConnection', { providerId }, CHECK_TIMEOUT_MS);
+    } catch {
+      // `require()` throws a fixed message; the host's error text never enters state.
+      status = 'failed';
+    }
+    // Re-read before publishing, so "Checking…" lasts until the recorded result can be shown.
+    await hooks.refreshRoute();
+    if (generation === this.checkGeneration) this.checkState.set({ providerId, status, scopeKey });
+  }
 
   /** Only supported host login operations run; launch acknowledgements are not authentication. */
   async performExternalAuth(
@@ -400,6 +437,19 @@ export class ProvidersConnectionSetupService {
       write: async () => (await this.require('llm:setProviderBaseUrl', { provider: providerId, baseUrl })).success,
       readBack: async () => (await this.require('llm:getProviderBaseUrl', { provider: providerId })).baseUrl === baseUrl,
     }], context, hooks.commit);
+  }
+
+  /**
+   * Mirrors the host's `connectionCheckKind` (rpc-handlers `connection-check.ts`): the Claude API key, custom
+   * entries, the Claude CLI, GitHub Copilot, OpenAI Codex and key-required remote providers. Local servers and
+   * key-optional routes are not checkable there.
+   */
+  private hostCheckable(providerId: string, hooks: ProvidersConnectionSetupHooks): boolean {
+    if (providerId === 'anthropic' || hooks.connections().data?.some((entry) => entry.id === providerId && entry.custom)) return true;
+    const entry = getAnthropicProvider(providerId);
+    if (!entry) return false;
+    return !!entry.nativeAuth || !!entry.isCustom || providerId === 'github-copilot' || providerId === 'openai-codex'
+      || ((entry.authType ?? 'apiKey') === 'apiKey' && !entry.isLocal);
   }
 
   /** The last check finished `verified`, for this probe and this provider (#27). */

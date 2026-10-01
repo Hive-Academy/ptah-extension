@@ -141,6 +141,21 @@ export interface ProvidersConnection {
   readonly accountLabel: string | null;
   /** The OpenAI Codex login exists but its token expired. Always false for other connections. */
   readonly tokenStale: boolean;
+  /**
+   * Masked hint of the stored key (four bullets, a space, the last 4 characters), computed by the host
+   * (`auth:getApiKeyStatus` `keyHint`, `auth:getAuthStatus` `apiKeyHint`). Display only: never sent back,
+   * logged or offered to a copy action. Absent when the host sends none, or anything but that shape.
+   */
+  readonly keyHint?: string;
+}
+/**
+ * The drawer's last "Check connection" (`auth:checkConnection`). `checking` while it and the route re-read
+ * run; `failed` when the check RPC itself failed (fixed copy only). The recorded result is the route's
+ * `providers[].lastCheck`, not this.
+ */
+export interface ProvidersConnectionCheck {
+  readonly providerId: string;
+  readonly status: 'checking' | 'done' | 'failed';
 }
 export type ProvidersCliModels = Readonly<Record<string, Pick<PtahCliConfig, 'selectedModel' | 'tierMappings'>>>;
 export type ProvidersMainSources = Readonly<Partial<Record<'model' | 'effort', ScopedSettingEntry>>>;

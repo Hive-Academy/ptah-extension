@@ -19,7 +19,7 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import {
   AGENT_CONFIG_FIXTURE, baseSettingsFixtures, getFixtureState, installHost,
-  installRpcAutoResponder, INVALID_PROBE_KEY, SETTINGS_TAB_LABELS,
+  installRpcAutoResponder, INVALID_PROBE_KEY, MOONSHOT_KEY_HINT, SETTINGS_TAB_LABELS,
 } from './settings.fixtures';
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
@@ -905,6 +905,37 @@ const regressedUx: readonly ReachabilityEntry[] = [
         await closeConnectionDrawer(page);
       }
     } },
+  // Gate V 28 follow-ups (Batch 28d, task.md "Gate V 28 (2026-10-01, user)"): the deviations the user did not accept.
+  { id: 'GV28-1', capability: 'Stored key shown as its masked hint (bullets + last 4) in Credentials and Overview', status: 'restored',
+    reach: async (page) => {
+      try {
+        const tab = await credentialsOf(page, 'Moonshot');
+        await expect(tab.locator('[data-testid="credentials-key-mask"]')).toHaveText(MOONSHOT_KEY_HINT);
+        await page.getByRole('tab', { name: 'Overview & Used By', exact: true }).click();
+        await expect(page.locator('[data-testid="connection-key-hint"]')).toHaveText(MOONSHOT_KEY_HINT);
+        await expect(page.locator('[data-testid="connection-credential-storage"]')).toContainText('(stored on this machine)');
+      } finally {
+        await closeConnectionDrawer(page);
+      }
+    } },
+  { id: 'GV28-2', capability: 'Overview shows the latency and time of a connection check (auth:checkConnection)', status: 'restored',
+    reach: (page) => inDrawerTab(page, 'sovereigneg', 'Overview & Used By', 'connection-overview', async (panel) => {
+      const status = panel.locator('[data-testid="connection-status"]');
+      await expect(status).toHaveText('Connected & verified');
+      const before = getFixtureState(page).calls.length;
+      const check = panel.locator('[data-testid="connection-check"]');
+      await visibleEnabled(check);
+      await check.click();
+      await expectCall(page, before, 'auth:checkConnection', { providerId: 'sovereigneg' });
+      await expect(status).toHaveText('Connected & verified (140ms)');
+      await expect(panel.locator('[data-testid="connection-last-checked"]')).toHaveText('Checked just now');
+    }) },
+  { id: 'GV28-3', capability: 'Codex CLI listed under "Used by" for OpenAI Codex (Used by 2)', status: 'restored',
+    reach: (page) => inDrawerTab(page, 'OpenAI Codex', 'Overview & Used By', 'connection-overview', async (panel) => {
+      await expect(card(page, 'OpenAI Codex').locator('[data-testid="used-by-count"]')).toHaveText('Used by 2');
+      await expect(panel.locator('[data-used-by="codex-cli"]')).toContainText('Codex CLI');
+      await expect(panel.locator('[data-testid="connection-used-by-count"]')).toHaveText('2 active routes');
+    }) },
 ];
 
 // ---------------------------------------------------------------------------
@@ -938,8 +969,9 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
  * Guard constant (D14 rule 2): S4 set it to 81; later batches may only grow it. Batch 21 added the
  * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84. Batch 22 added RUX-2: 85. Batch 23 added
  * RUX-5 and RUX-6: 87. Batch 27 added RUX-3: 88. Batch 28 added the routing-map node actions RM-1..3: 91.
+ * Batch 28d added the Gate V 28 follow-ups GV28-1..3 (key hint, check latency, Codex CLI under "Used by"): 94.
  */
-export const EXPECTED_CAPABILITY_COUNT = 91;
+export const EXPECTED_CAPABILITY_COUNT = 94;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

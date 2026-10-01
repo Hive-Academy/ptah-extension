@@ -1549,6 +1549,27 @@ describe('ProvidersSettingsStateService', () => {
       expect(byId('github-copilot')?.accountLabel).toBeNull();
     });
 
+    it('maps the host\'s masked key hints onto stored-key connections and drops any other shape (Batch 28d)', async () => {
+      const hint = '•••• 8f21';
+      handlers.set('auth:getApiKeyStatus', async () => success({ providers: [
+        { provider: 'moonshot', displayName: 'Moonshot', hasApiKey: true, isDefault: false, keyHint: hint },
+        // A whole key, a longer tail and a hint without a stored key never enter state.
+        { provider: 'openrouter', displayName: 'OpenRouter', hasApiKey: true, isDefault: false, keyHint: 'sk-or-v1-0123456789abcdef' },
+        { provider: 'z-ai', displayName: 'Z.AI', hasApiKey: true, isDefault: false, keyHint: '•••• abcdefgh' },
+        { provider: 'sakana', displayName: 'Sakana', hasApiKey: false, isDefault: false, keyHint: hint },
+      ] }));
+      handlers.set('auth:getAuthStatus', async () => success({ authMethod: 'apiKey', hasApiKey: true, apiKeyHint: '•••• wxyz' }));
+      await service.refreshConnections();
+      const byId = (id: string) => service.connections().data?.find((entry) => entry.id === id);
+      expect(byId('moonshot')?.keyHint).toBe(hint);
+      expect(byId('anthropic')?.keyHint).toBe('•••• wxyz');
+      for (const id of ['openrouter', 'z-ai', 'sakana']) {
+        expect(byId(id)).toBeDefined();
+        expect(Object.hasOwn(byId(id) ?? {}, 'keyHint')).toBe(false);
+      }
+      expect(JSON.stringify(service.connections())).not.toContain('sk-or-v1');
+    });
+
     it('reads custom connection metadata with the connections, in one host call', async () => {
       const stored = { id: 'my-endpoint', name: 'My endpoint', baseUrl: 'https://llm.example.test', lane: 'openai',
         authEnvVar: 'ANTHROPIC_AUTH_TOKEN', keyPrefix: 'sk-', helpUrl: 'https://help.example.test',

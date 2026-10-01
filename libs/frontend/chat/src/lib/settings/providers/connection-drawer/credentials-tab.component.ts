@@ -85,7 +85,8 @@ let PROBE_COUNTER = 0;
 
 /**
  * Drawer tab "Credentials" (design-spec §2.3, plan :645-658). What it holds depends on the connection:
- * - api-key / custom: a fixed mask (never a hint of the key), Replace (verify, then save), Delete key;
+ * - api-key / custom: the host's masked hint ("•••• 8f21", Batch 28d) or a fixed mask, Replace (verify, then
+ *   save), Delete key;
  * - GitHub Copilot: the account and Sign out; OpenAI Codex: login state and Open login;
  * - claude-cli: the `claude login` / install commands with Copy;
  * - local: "no key needed".
@@ -180,9 +181,11 @@ let PROBE_COUNTER = 0;
           <div class="space-y-2" data-testid="credentials-key">
             <span class="block font-semibold text-base-content" id="credentials-key-label">Stored API key</span>
             <div class="flex flex-wrap items-center gap-2">
-              <span class="min-w-0 flex-1 rounded border border-base-300 bg-base-200 px-3 py-1.5 font-mono text-xs text-base-content"
+              <!-- The host's masked hint (bullets + last 4) when it sent one, else a fixed mask. Display only:
+                   not selectable and never offered to a copy action. -->
+              <span class="min-w-0 flex-1 select-none rounded border border-base-300 bg-base-200 px-3 py-1.5 font-mono text-xs text-base-content"
                 aria-labelledby="credentials-key-label" data-testid="credentials-key-mask">
-                {{ connection().hasKey ? '••••••••••••••••' : 'No key stored' }}
+                {{ connection().hasKey ? (connection().keyHint ?? '••••••••••••••••') : 'No key stored' }}
               </span>
               @if (canReplace()) {
                 <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || replacing()"

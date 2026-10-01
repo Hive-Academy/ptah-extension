@@ -57,10 +57,13 @@ export const AUTH_STATUS_FIXTURE = {
   claudeCliInstalled: true,
 };
 
-/** `auth:getApiKeyStatus` — per-provider key presence (BRIEF connections table). */
+/** The host's masked hint of Moonshot's stored key (prototype "•••• 8f21"; four U+2022, a space, the last 4). */
+export const MOONSHOT_KEY_HINT = '•••• 8f21';
+
+/** `auth:getApiKeyStatus` — per-provider key presence (BRIEF connections table); Moonshot carries a key hint (28c). */
 export const API_KEY_STATUS_FIXTURE = {
   providers: [
-    { provider: 'moonshot', displayName: 'Moonshot (Kimi)', hasApiKey: true, isDefault: false },
+    { provider: 'moonshot', displayName: 'Moonshot (Kimi)', hasApiKey: true, isDefault: false, keyHint: MOONSHOT_KEY_HINT },
     { provider: 'ollama-cloud', displayName: 'Ollama Cloud', hasApiKey: true, isDefault: false },
     { provider: 'sovereigneg', displayName: 'sovereigneg', hasApiKey: true, isDefault: false },
   ],
@@ -239,6 +242,38 @@ export const EFFECTIVE_ROUTE_FIXTURE = {
   fromCache: false,
 };
 
+/** One recorded connection check (`ConnectionCheckRecord`, Batch 28c), as `auth:getEffectiveRoute` reports it. */
+export interface FixtureCheckRecord {
+  readonly status: 'verified' | 'failed';
+  readonly reason: string | null;
+  readonly latencyMs: number | null;
+  readonly checkedAt: string;
+}
+
+/**
+ * Latency `auth:checkConnection` records per connection: Moonshot is the prototype's "(92ms)"; CLI and sign-in
+ * connections time no request (`latencyMs: null`, 28c).
+ */
+const CHECK_LATENCY_MS: Readonly<Record<string, number | null>> = {
+  moonshot: 92, sovereigneg: 140, anthropic: 75, 'claude-cli': null, 'github-copilot': null, 'openai-codex': null,
+};
+
+/**
+ * `auth:checkConnection` resolver: records the call and a verified check for a connection the host can check (the
+ * route then reports it as `lastCheck`). A local or key-optional connection is refused by the real host; the UI
+ * must never send one, so it is recorded and left unanswered (a spec asserting it was never called sees it).
+ */
+function checkConnectionResolver(state: FixtureState): RpcFixtureResolver {
+  return (params) => {
+    record(state, 'auth:checkConnection', params);
+    const providerId = (params as { providerId?: string } | null)?.providerId ?? '';
+    if (!Object.hasOwn(CHECK_LATENCY_MS, providerId)) throw new Error(`This connection cannot be checked here: ${providerId}`);
+    const check: FixtureCheckRecord = { status: 'verified', reason: null, latencyMs: CHECK_LATENCY_MS[providerId], checkedAt: new Date().toISOString() };
+    state.connectionChecks.set(providerId, check);
+    return check;
+  };
+}
+
 /**
  * `llm:getProviderBaseUrl` resolver — most local/native providers have no
  * override; Ollama Cloud is the only BRIEF connection whose base URL is
@@ -368,6 +403,8 @@ export interface FixtureState {
   readonly clearedOverrides: Set<string>;
   /** `provider:listCustomEntries`, mutated by `provider:updateCustomEntry` (Batch 22 drawer Advanced tab). */
   customEntries: Array<(typeof CUSTOM_ENTRIES_FIXTURE)['entries'][number] & Record<string, unknown>>;
+  /** Recorded checks by provider id (`auth:checkConnection`), read back as the route's `providers[].lastCheck`. */
+  readonly connectionChecks: Map<string, FixtureCheckRecord>;
 }
 
 function createFixtureState(): FixtureState {
@@ -381,6 +418,8 @@ function createFixtureState(): FixtureState {
     modelTiers: new Map(),
     clearedOverrides: new Set(),
     customEntries: CUSTOM_ENTRIES_FIXTURE.entries.map((entry) => ({ ...entry })),
+    // The prototype's Moonshot drawer: "Connected & verified (92ms)", checked in this session (boot time).
+    connectionChecks: new Map([['moonshot', { status: 'verified', reason: null, latencyMs: 92, checkedAt: new Date().toISOString() }]]),
   };
 }
 
@@ -433,7 +472,15 @@ function statefulSettingsFixtures(
     },
     'auth:getAuthStatus': () => ({ ...state.authStatus }),
     'auth:getApiKeyStatus': API_KEY_STATUS_FIXTURE,
-    'auth:getEffectiveRoute': EFFECTIVE_ROUTE_FIXTURE,
+    // Each provider carries its recorded check (`lastCheck`), as the host's route read does (28c).
+    'auth:getEffectiveRoute': () => ({
+      ...EFFECTIVE_ROUTE_FIXTURE,
+      providers: EFFECTIVE_ROUTE_FIXTURE.providers.map((provider) => {
+        const lastCheck = state.connectionChecks.get(provider.id);
+        return lastCheck ? { ...provider, lastCheck } : { ...provider };
+      }),
+    }),
+    'auth:checkConnection': checkConnectionResolver(state),
     'provider:listCustomEntries': () => ({ entries: state.customEntries.map((entry) => ({ ...entry })) }),
     'provider:updateCustomEntry': (params: unknown) => {
       record(state, 'provider:updateCustomEntry', params);

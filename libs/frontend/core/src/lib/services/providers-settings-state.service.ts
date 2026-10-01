@@ -25,6 +25,7 @@ import {
 import {
   createSectionStore,
   effortFreshSectionView,
+  hostKeyHint,
   readSection,
   requireRpcData,
   sectionView,
@@ -302,7 +303,7 @@ export class ProvidersSettingsStateService {
           : entry.id === 'openai-codex' ? auth.codexAuthenticated === true && !auth.codexTokenStale
           : entry.nativeAuth ? auth.claudeCliInstalled === true : false;
         return {
-          id: entry.id, name: entry.name, hasKey: host?.hasApiKey === true,
+          id: entry.id, name: entry.name, hasKey: host?.hasApiKey === true, ...hostKeyHint(host?.hasApiKey ? host.keyHint : undefined),
           configured: host?.hasApiKey === true || customIds.has(entry.id) || savedSetupIds.has(entry.id) || authenticated,
           custom: customIds.has(entry.id), defaultsResolvable: !!entry.defaultTiers,
           authMode: entry.nativeAuth ? 'cli' : entry.authType === 'oauth' ? 'oauth'
@@ -313,13 +314,14 @@ export class ProvidersSettingsStateService {
       });
       connections.unshift({ id: 'anthropic', name: 'Claude API', authMode: 'apiKey',
         hasKey: auth.hasApiKey, configured: auth.hasApiKey, custom: false, defaultsResolvable: false,
-        accountLabel: null, tokenStale: false });
+        accountLabel: null, tokenStale: false, ...hostKeyHint(auth.hasApiKey ? auth.apiKeyHint : undefined) });
       return connections;
     });
   }
 
-
-
+  /** The drawer's "Check connection": the host check when it has one, then the route re-read carrying `lastCheck`. */
+  readonly connectionCheck = this.setup.connectionCheck;
+  checkProviderConnection(providerId: string): Promise<void> { return this.setup.checkConnection(providerId, this.setupHooks); }
   /** Only supported host login operations run; launch acknowledgements are not authentication. */
   performExternalAuth(providerId: string | null, action: ProvidersExternalAuthAction): Promise<void> {
     return this.setup.performExternalAuth(providerId, action, this.setupHooks);
@@ -640,7 +642,6 @@ export class ProvidersSettingsStateService {
       () => this.scopeEntry(key)?.hasOverride === true,
     );
   }
-
 
   /** The commit pipeline reads and refreshes the sections this facade owns, in this order. */
   private readonly commitHooks: ProvidersCommitHooks = {

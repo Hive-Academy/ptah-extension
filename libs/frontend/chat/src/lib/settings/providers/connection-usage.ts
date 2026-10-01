@@ -1,12 +1,12 @@
-import type { PtahCliSummary, SkillLaneDto, SkillLaneIdDto } from '@ptah-extension/shared';
+import type { CliDetectionResult, PtahCliSummary, SkillLaneDto, SkillLaneIdDto } from '@ptah-extension/shared';
 import type { BackgroundConsumerId } from './provider-consumer-assignments.component';
 
 /** One consumer of a connection, for the drawer's "Used by" list and the card's count. */
 export interface UsedBy {
-  /** Stable key: `main-agent`, a background role id, or `ptah-cli:{agent id}`. */
-  readonly id: 'main-agent' | BackgroundConsumerId | `ptah-cli:${string}`;
+  /** Stable key: `main-agent`, a background role id, `ptah-cli:{agent id}`, or `codex-cli`. */
+  readonly id: 'main-agent' | BackgroundConsumerId | `ptah-cli:${string}` | 'codex-cli';
   readonly label: string;
-  readonly kind: 'main-agent' | 'background-role' | 'ptah-cli';
+  readonly kind: 'main-agent' | 'background-role' | 'ptah-cli' | 'system-cli';
   /** Assigned by inheritance (no provider of its own): it uses whatever the main agent uses. */
   readonly followsMain: boolean;
 }
@@ -29,6 +29,20 @@ export interface ConnectionUsageSources {
   readonly judgeProvider: string | null;
   /** Ptah CLI agents; each uses its own provider connection. */
   readonly cliAgents: readonly Pick<PtahCliSummary, 'id' | 'name' | 'providerId'>[] | null;
+  /** The system CLIs' detection and on/off policy (`agent:getConfig`); `null` while it loads or after it failed. */
+  readonly systemClis: {
+    readonly detectedClis: readonly Pick<CliDetectionResult, 'cli' | 'installed' | 'disabled'>[];
+    readonly disabledClis: readonly string[];
+  } | null;
+}
+
+/** The OpenAI Codex connection: the sign-in the Codex CLI shares (`~/.codex/auth.json`). */
+const CODEX_PROVIDER_ID = 'openai-codex';
+
+/** The Codex CLI is installed and not switched off. */
+function codexCliEnabled(systemClis: NonNullable<ConnectionUsageSources['systemClis']>): boolean {
+  return !systemClis.disabledClis.includes('codex')
+    && systemClis.detectedClis.some((entry) => entry.cli === 'codex' && entry.installed && entry.disabled !== true);
 }
 
 /** Background roles in the order the Orchestration tab lists them. */
@@ -51,10 +65,11 @@ export interface ConnectionUsage {
 
 /**
  * Builds the usage map in a fixed order per connection: main agent, memory curator, the four lanes,
- * Judging & enhancement, then Ptah CLI agents in list order.
+ * Judging & enhancement, Ptah CLI agents in list order, then the Codex CLI.
  *
- * System CLIs (Codex, Copilot, Cursor, …) are excluded: they authenticate on their own and do not use
- * a Settings connection (implementation-plan.md :673-677; confirmed for Codex CLI in the Batch 19 review).
+ * System CLIs authenticate on their own and are not listed, with one exception: the Codex CLI counts
+ * under OpenAI Codex, the sign-in it shares, while it is installed and enabled (task.md "Gate V 28
+ * (2026-10-01, user)", which reverses Batch 19 decision (a)). Copilot, Cursor and the others stay out.
  */
 export function connectionUsage(sources: ConnectionUsageSources): ConnectionUsage {
   const usage = new Map<string, UsedBy[]>();
@@ -85,9 +100,12 @@ export function connectionUsage(sources: ConnectionUsageSources): ConnectionUsag
       add(provider, { id: `ptah-cli:${agent.id}`, label: `${agent.name} (Ptah CLI agent)`, kind: 'ptah-cli', followsMain: false });
     }
   }
+  if (sources.systemClis && codexCliEnabled(sources.systemClis)) {
+    add(CODEX_PROVIDER_ID, { id: 'codex-cli', label: 'Codex CLI', kind: 'system-cli', followsMain: false });
+  }
   return {
     byProvider: Object.fromEntries(usage),
     complete: sources.mainProviderId !== undefined && sources.curatorProvider !== null && sources.lanes !== null
-      && sources.judgeProvider !== null && sources.cliAgents !== null,
+      && sources.judgeProvider !== null && sources.cliAgents !== null && sources.systemClis !== null,
   };
 }

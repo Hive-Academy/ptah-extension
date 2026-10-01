@@ -372,4 +372,71 @@ describe('ProvidersConnectionSetupService', () => {
       expect(methods()).toEqual([]);
     });
   });
+
+  describe('drawer "Check connection" (Batch 28d, auth:checkConnection)', () => {
+    const record = { status: 'verified', reason: null, latencyMs: 92, checkedAt: '2026-10-01T12:00:00.000Z' };
+    beforeEach(() => handlers.set('auth:checkConnection', async () => success(record)));
+
+    it.each([
+      ['a built-in API-key connection', 'moonshot'],
+      ['the Claude API key', 'anthropic'],
+      ['the Claude CLI', 'claude-cli'],
+      ['GitHub Copilot', 'github-copilot'],
+      ['OpenAI Codex', 'openai-codex'],
+    ])('checks %s on the host, then re-reads the route that carries the record', async (_name, providerId) => {
+      const order: string[] = [];
+      handlers.set('auth:checkConnection', async () => { order.push('check'); return success(record); });
+      hooks = { ...hooks, refreshRoute: async () => void order.push('refreshRoute') };
+      await service.checkConnection(providerId, hooks);
+      expect(call).toHaveBeenCalledWith('auth:checkConnection', { providerId }, { timeout: 35000 });
+      expect(order).toEqual(['check', 'refreshRoute']);
+      expect(service.connectionCheck()).toEqual({ providerId, status: 'done' });
+    });
+
+    it('checks a custom entry on the host', async () => {
+      connections.set({ status: 'ready', error: null, data: [{ ...openrouter, id: 'my-endpoint', name: 'My endpoint', custom: true }] });
+      await service.checkConnection('my-endpoint', hooks);
+      expect(methods()).toEqual(['auth:checkConnection']);
+    });
+
+    it.each([['Ollama', 'ollama'], ['LM Studio', 'lm-studio'], ['Ollama Cloud (key-optional)', 'ollama-cloud'], ['an unknown id', 'nope']])(
+      '%s keeps the route re-read alone: no host check, never auth:testConnection', async (_name, providerId) => {
+        await service.checkConnection(providerId, hooks);
+        expect(methods()).toEqual([]);
+        expect(events).toEqual(['refreshRoute']);
+        expect(service.connectionCheck()).toBeNull();
+      });
+
+    it('reads "checking" until the route re-read finished', async () => {
+      const reread = deferred<void>();
+      hooks = { ...hooks, refreshRoute: () => reread.promise };
+      const running = service.checkConnection('moonshot', hooks);
+      await Promise.resolve();
+      expect(service.connectionCheck()).toEqual({ providerId: 'moonshot', status: 'checking' });
+      await new Promise((done) => setTimeout(done, 0));
+      expect(service.connectionCheck()?.status).toBe('checking');
+      reread.resolve();
+      await running;
+      expect(service.connectionCheck()?.status).toBe('done');
+    });
+
+    it('a failed check request publishes "failed" only, never the host text, and still re-reads the route', async () => {
+      handlers.set('auth:checkConnection', async () => new RpcResult(false, undefined, 'raw host error sk-secret-123'));
+      await service.checkConnection('moonshot', hooks);
+      expect(service.connectionCheck()).toEqual({ providerId: 'moonshot', status: 'failed' });
+      expect(JSON.stringify(service.connectionCheck())).not.toContain('raw host error');
+      expect(events).toEqual(['refreshRoute']);
+    });
+
+    it('the latest check wins: an earlier one that settles late publishes nothing', async () => {
+      const slow = deferred<RpcResult<unknown>>();
+      handlers.set('auth:checkConnection', (params) =>
+        (params as { providerId: string }).providerId === 'moonshot' ? slow.promise : Promise.resolve(success(record)));
+      const first = service.checkConnection('moonshot', hooks);
+      await service.checkConnection('z-ai', hooks);
+      slow.resolve(new RpcResult(false, undefined, 'late failure'));
+      await first;
+      expect(service.connectionCheck()).toEqual({ providerId: 'z-ai', status: 'done' });
+    });
+  });
 });

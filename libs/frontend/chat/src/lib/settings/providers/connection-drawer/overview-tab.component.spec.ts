@@ -1,11 +1,63 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { AppStateManager } from '@ptah-extension/core';
+import type { ConnectionCheckRecord } from '@ptah-extension/shared';
 import type { UsedBy } from '../connection-usage';
-import { OverviewTabComponent, overviewStatus, usedByBadge } from './overview-tab.component';
+import {
+  OverviewTabComponent, checkedAgo, overviewCheckedStatus, overviewStatus, usedByBadge, type OverviewStatus,
+} from './overview-tab.component';
 
 const MAIN: UsedBy = { id: 'main-agent', label: 'Main agent', kind: 'main-agent', followsMain: false };
 const ARCHAEOLOGIST: UsedBy = { id: 'archaeologist', label: 'Archaeologist lane', kind: 'background-role', followsMain: true };
 const JUDGE: UsedBy = { id: 'judge', label: 'Judge lane', kind: 'background-role', followsMain: false };
+const CODEX_CLI: UsedBy = { id: 'codex-cli', label: 'Codex CLI', kind: 'system-cli', followsMain: false };
+const NOW = Date.parse('2026-10-01T12:00:00.000Z');
+const verified = (latencyMs: number | null, checkedAt = new Date(NOW).toISOString()): ConnectionCheckRecord =>
+  ({ status: 'verified', reason: null, latencyMs, checkedAt });
+const failed = (reason: ConnectionCheckRecord['reason'], checkedAt = new Date(NOW).toISOString()): ConnectionCheckRecord =>
+  ({ status: 'failed', reason, latencyMs: null, checkedAt });
+
+describe('overviewCheckedStatus (Batch 28d: the recorded check on the status line)', () => {
+  const CONNECTED: OverviewStatus = { label: 'Connected & verified', tone: 'success' };
+  it.each<[string, OverviewStatus, Parameters<typeof overviewCheckedStatus>[1], ConnectionCheckRecord | null, OverviewStatus]>([
+    ['no record: unchanged, never a latency', CONNECTED, 'connected', null, CONNECTED],
+    ['verified: the latency in the prototype format', CONNECTED, 'connected', verified(92), { label: 'Connected & verified (92ms)', tone: 'success' }],
+    ['verified latency is whole ms', CONNECTED, 'connected', verified(91.6), { label: 'Connected & verified (92ms)', tone: 'success' }],
+    ['verified without a timed request (CLI, sign-in): no latency', CONNECTED, 'connected', verified(null), CONNECTED],
+    ['never "0ms"', CONNECTED, 'connected', verified(0), CONNECTED],
+    ['a negative or non-finite latency is not shown', CONNECTED, 'connected', verified(Number.NaN), CONNECTED],
+    ['verified confirms a route without a verdict', { label: 'Not checked', tone: 'neutral' }, 'unknown', verified(40),
+      { label: 'Connected & verified (40ms)', tone: 'success' }],
+    ['the active driver keeps its label', { label: 'Active for main agent', tone: 'success' }, 'active', verified(30),
+      { label: 'Active for main agent (30ms)', tone: 'success' }],
+    ['a route warning is never overridden by an earlier check', { label: 'Unreachable', tone: 'warning' }, 'unreachable', verified(92),
+      { label: 'Unreachable', tone: 'warning' }],
+    ['a failed record reads "Check failed" (D15), never verified', CONNECTED, 'connected', failed('credential-rejected'),
+      { label: 'Check failed', tone: 'error' }],
+    ['a running check wins over a record', { label: 'Checking…', tone: 'neutral' }, 'checking', verified(92),
+      { label: 'Checking…', tone: 'neutral' }],
+    ['a failed check request wins over an older verified record', { label: 'Check failed', tone: 'error' }, 'check-failed', verified(92),
+      { label: 'Check failed', tone: 'error' }],
+  ])('%s', (_name, base, status, check, expected) => {
+    expect(overviewCheckedStatus(base, status, check)).toEqual(expected);
+  });
+});
+
+describe('checkedAgo', () => {
+  it.each([
+    [0, 'Checked just now'],
+    [44_000, 'Checked just now'],
+    [-5_000, 'Checked just now'],
+    [2 * 60_000, 'Checked 2 min ago'],
+    [59 * 60_000, 'Checked 59 min ago'],
+    [3 * 3_600_000, 'Checked 3 h ago'],
+  ])('%d ms ago reads %s', (age, text) => {
+    expect(checkedAgo(new Date(NOW - age).toISOString(), NOW)).toBe(text);
+  });
+  it('a day or more shows the date; an unreadable time shows nothing', () => {
+    expect(checkedAgo(new Date(NOW - 2 * 86_400_000).toISOString(), NOW)).toMatch(/^Checked on /);
+    expect(checkedAgo('not a time', NOW)).toBeNull();
+  });
+});
 
 describe('overviewStatus', () => {
   it.each([
@@ -112,6 +164,97 @@ describe('OverviewTabComponent', () => {
     expect((query('connection-check') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  describe('the last recorded check (Batch 28d)', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.setSystemTime(NOW);
+    });
+    afterEach(() => {
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    });
+
+    it('shows the latency on the status line and when it ran, in base-content text (deviation 6)', () => {
+      render({ status: 'connected', positiveProbeEvidence: true, lastCheck: verified(92) });
+      const status = query('connection-status');
+      expect(status?.textContent?.trim()).toBe('Connected & verified (92ms)');
+      expect(status?.className).toContain('text-base-content');
+      expect(status?.className).not.toMatch(/text-(success|error|warning|primary)/);
+      const when = query('connection-last-checked');
+      expect(when?.textContent?.trim()).toBe('Checked just now');
+      expect(when?.getAttribute('title')).toMatch(/^Last checked /);
+    });
+
+    it('shows no latency and no time line without a record', () => {
+      render({ status: 'connected', positiveProbeEvidence: true, lastCheck: null });
+      expect(query('connection-status')?.textContent?.trim()).toBe('Connected & verified');
+      expect(query('connection-status')?.textContent).not.toMatch(/ms\)/);
+      expect(query('connection-last-checked')).toBeNull();
+    });
+
+    it('a failed record reads "Check failed" with its fixed reason, never "verified" (D15)', () => {
+      render({ status: 'connected', positiveProbeEvidence: true, lastCheck: failed('credential-rejected') });
+      expect(query('connection-status')?.textContent?.trim()).toBe('Check failed');
+      expect(query('connection-status')?.querySelector('[aria-hidden="true"]')?.className).toContain('bg-error');
+      expect(query('connection-last-checked')?.textContent?.trim()).toBe('The provider rejected the stored key. Checked just now');
+      expect(element.textContent).not.toContain('verified');
+      expect(query('connection-check')?.textContent?.trim()).toBe('Check connection');
+    });
+
+    it('an unknown reason from the host falls back to fixed copy, never the host value', () => {
+      render({ status: 'connected', lastCheck: failed('<raw host text>' as ConnectionCheckRecord['reason']) });
+      expect(query('connection-last-checked')?.textContent?.trim()).toBe('The check failed. Checked just now');
+      expect(element.textContent).not.toContain('raw host text');
+    });
+
+    it('while a new check runs the record is hidden behind "Checking…"', () => {
+      render({ status: 'checking', checking: true, lastCheck: verified(92) });
+      expect(query('connection-status')?.textContent?.trim()).toBe('Checking…');
+      expect(query('connection-last-checked')).toBeNull();
+    });
+
+    /** The age timers this tab started (its 30 s interval), with their ids. */
+    const ageTimers = (spy: jest.SpyInstance) => spy.mock.calls
+      .map((args, index) => ({ ms: args[1] as unknown, id: spy.mock.results[index]?.value as unknown }))
+      .filter((timer) => timer.ms === 30000);
+
+    it('refreshes the age while shown, and releases its one timer on destroy', () => {
+      const started = jest.spyOn(globalThis, 'setInterval');
+      const cleared = jest.spyOn(globalThis, 'clearInterval');
+      render({ status: 'connected', positiveProbeEvidence: true, lastCheck: verified(92) });
+      expect(ageTimers(started)).toHaveLength(1);
+      jest.advanceTimersByTime(2 * 60_000);
+      fixture.detectChanges();
+      expect(query('connection-last-checked')?.textContent?.trim()).toBe('Checked 2 min ago');
+      fixture.destroy();
+      expect(cleared).toHaveBeenCalledWith(ageTimers(started)[0].id);
+    });
+
+    it('runs no timer without a record, and stops it when the record goes', () => {
+      const started = jest.spyOn(globalThis, 'setInterval');
+      const cleared = jest.spyOn(globalThis, 'clearInterval');
+      render({ status: 'connected', lastCheck: null });
+      expect(ageTimers(started)).toHaveLength(0);
+      render({ lastCheck: verified(92) });
+      expect(ageTimers(started)).toHaveLength(1);
+      render({ lastCheck: null });
+      expect(cleared).toHaveBeenCalledWith(ageTimers(started)[0].id);
+    });
+  });
+
+  it('Credential storage shows the masked key hint, not selectable; without one it keeps the label', () => {
+    render({ keyHint: '•••• 8f21' });
+    const hint = query('connection-key-hint');
+    expect(hint?.textContent?.trim()).toBe('•••• 8f21');
+    expect(hint?.className).toContain('select-none');
+    expect(query('connection-credential-storage')?.textContent?.replace(/\s+/g, ' ').trim())
+      .toBe('•••• 8f21 (stored on this machine)');
+    expect(element.querySelector('button[aria-label*="Copy"], [data-testid*="copy"]')).toBeNull();
+    render({ keyHint: null });
+    expect(query('connection-key-hint')).toBeNull();
+    expect(query('connection-credential-storage')?.textContent?.trim()).toBe('Stored on this machine');
+  });
+
   describe('Used-by states', () => {
     it('incomplete: Loading… with aria-busy, never "Not used yet", even with no entries', () => {
       render({ usageComplete: false, usedBy: [] });
@@ -161,6 +304,17 @@ describe('OverviewTabComponent', () => {
       .toBe('Active (Memory curator)');
     expect(usedByBadge({ id: 'ptah-cli:a1', label: 'Reviewer (Ptah CLI agent)', kind: 'ptah-cli', followsMain: false }))
       .toBe('Active (Ptah CLI)');
+    expect(usedByBadge(CODEX_CLI)).toBe('Active (Codex CLI)');
+  });
+
+  it('lists the Codex CLI under "Used by" with its own detail and badge, and no role link', () => {
+    render({ usageComplete: true, usedBy: [{ id: 'memory-curator', label: 'Memory curator', kind: 'background-role', followsMain: false }, CODEX_CLI] });
+    const row = element.querySelector<HTMLElement>('[data-used-by="codex-cli"]');
+    expect(row?.textContent).toContain('Codex CLI');
+    expect(row?.textContent).toContain('Uses this sign-in');
+    expect(row?.querySelector('[data-testid="connection-used-by-badge"]')?.textContent?.trim()).toBe('Active (Codex CLI)');
+    expect(row?.querySelector('[data-testid="connection-follows-main"]')).toBeNull();
+    expect(query('connection-used-by-count')?.textContent?.trim()).toBe('2 active routes');
   });
 
   it('"Follows main agent →" opens that role on Agent Orchestration; own-provider rows have no chip', () => {
