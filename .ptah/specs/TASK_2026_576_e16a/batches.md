@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 20/69
+Total tasks: 87 | Batches: 69 | Complete: 22/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1133,14 +1133,14 @@ executors at once.
   expected. TTI baseline (second boot, `startup-tti.spec.ts` via playwright, dev renderer) 14,557 ms; FCP 608 ms.
   Verified by the orchestrator: `verify-eager-bundle -- --report-only` reproduces the numbers; webview lint green.
 
-## Batch 21: `@ptah-extension/git-ui/services` narrow entry — PENDING
+## Batch 21: `@ptah-extension/git-ui/services` narrow entry — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 20
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui ptah-extension-webview` then `verify-eager-bundle` (assert mode passes; `main.js` gz ≤ baseline)
 
-### Task 21.1: Entry file, path alias, app import switch, routing specs — PENDING
+### Task 21.1: Entry file, path alias, app import switch, routing specs — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/services.ts; MODIFY D:/projects/ptah-extension/tsconfig.base.json; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/git-status-message-routing.spec.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/git-dock-arming-identity.spec.ts; MODIFY D:/projects/ptah-extension/eslint.config.mjs (only if lint requires)
 - Plan reference: implementation-plan.md:684-714
@@ -1148,6 +1148,12 @@ executors at once.
 - Quality requirements: routing spec assertions unchanged; dynamic full-barrel imports at `workspace-coordinator.service.ts:122`, `electron-shell.component.ts:372`, `file-link-router.service.ts:121` untouched.
 - Validation notes: R11.
 - Implementation details: exports GitStatusService, GitBranchesService, WorktreeService, DiffTabsService.
+- Outcome: executor frontend-developer; listed files only (`eslint.config.mjs` not needed). The four services' own
+  imports reach no component file. `verify-eager-bundle` assert mode passes (no forbidden markers). `main.js`
+  362,218 B gz (−39,641 B vs the Batch 20 baseline); eager closure 778,076 B gz (−39,629 B). Deviation:
+  `git-dock-arming-identity.spec.ts` imports `GitDockComponent`/`GitReviewService` from the full barrel and the four
+  services from the narrow entry (same module files; identity assertions unchanged and green). Verified: git-ui 516
+  tests, webview 232 tests, typecheck and lint green (executor); orchestrator re-ran the checks before commit.
 
 ## Batch 22: Pierre renderer host and hunk mapping (A1, A2 gate) — PENDING
 
@@ -1208,14 +1214,14 @@ executors at once.
 - Validation notes: design-spec §13a resolved by default (a).
 - Implementation details: inputs `status`, `conflictKind?`.
 
-## Batch 25: Change-set shared types and facade delegates — PENDING
+## Batch 25: Change-set shared types and facade delegates — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P2 complete
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core`
 
-### Task 25.1: `rpc-change-set.types.ts`, push message type, `readChangeSetNumstat`, `readHeadText` — PENDING
+### Task 25.1: `rpc-change-set.types.ts`, push message type, `readChangeSetNumstat`, `readHeadText` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-change-set.types.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/messages/message-constants.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/messages/payload-map.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/index.ts (only if rpc type files are exported individually); MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.spec.ts
 - Plan reference: implementation-plan.md:809-813, 821-822, 915
@@ -1223,6 +1229,18 @@ executors at once.
 - Quality requirements: no `RpcMethodRegistry` change here (V5); `readHeadText` capped at 2 MiB; unborn HEAD uses the empty-tree SHA.
 - Validation notes: V5.
 - Implementation details: `TurnChangeSet`, `TurnChangeSetFile`, `GIT_TURN_CHANGE_SET = 'git:turnChangeSet'`.
+- Outcome: executor backend-developer. Types (`TurnChangeSet` + `truncatedCount`, optional `baselineMissing`;
+  `TurnChangeSetFile`, `TurnChangeSetTotals`, `GitTurnChangeSetsParams/Result`, `GitTurnChangeSetPayload`), message
+  constant and payload map entry. `rpc.types.ts` gets one barrel `export *` line (rpc type files are exported there,
+  not in `index.ts`); `RpcMethodRegistry` unchanged (V5). New collaborator `git/git-change-set-numstat.reader.ts`
+  (extra file): `diff --numstat -z --find-renames --end-of-options <sha> -- :(top,literal)<path>` in ≤16 KiB argv runs
+  (Windows command-line cap), `ls-files --others` for paths missing from the diff (untracked counter, same limits),
+  0/0 otherwise; unsafe paths and failures → null counts; unborn HEAD → empty-tree SHA. `readHeadText` reuses
+  `readBlob` (2 MiB cap, too-large, classifier). Specs: 12 unit, new `git-info.service.change-set.real-git.spec.ts`
+  (5). Verified: shared 2257 tests, vscode-core 836/837 with one `MainLoopWatchdog` timing failure under parallel
+  load that passes alone (13/13, file untouched); real-git 139 passed / 2 skipped (12 suites, executor);
+  degradation-audit green. Noted, not new: `readUntrackedNumstat` resolves against the workspace path, so untracked
+  counts can be wrong when the workspace is a repo subfolder; SHA-256 repos fall back to null counts on unborn HEAD.
 
 ## Batch 26: Turn change-set recorder and store — PENDING
 

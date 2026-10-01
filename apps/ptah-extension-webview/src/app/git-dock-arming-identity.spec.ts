@@ -36,12 +36,11 @@ import {
   MessageRouterService,
   VSCodeService,
 } from '@ptah-extension/core';
+import { GitDockComponent, GitReviewService } from '@ptah-extension/git-ui';
 import {
   GitBranchesService,
-  GitDockComponent,
-  GitReviewService,
   GitStatusService,
-} from '@ptah-extension/git-ui';
+} from '@ptah-extension/git-ui/services';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 const mockRpcCall = jest.fn();

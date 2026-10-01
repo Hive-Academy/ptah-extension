@@ -27,3 +27,14 @@ Run directly from `apps/ptah-electron-e2e`: `npx playwright test --config=playwr
 | Pass 2 (baseline)  | 276              | 608                         | **14,557**                                    |
 
 TTI baseline (second boot, pass 2): 14,557 ms. The renderer under test is the one copied by `ptah-electron:copy-renderer-dev`, not the production bundle measured above. The spec records numbers only; it asserts no budget, and the run-to-run spread is about 14%.
+
+## Batch 21 — `@ptah-extension/git-ui/services` narrow entry
+
+Build: `NX_DAEMON=false npx nx run ptah-extension-webview:verify-eager-bundle --skip-nx-cache` (assert mode, production configuration). Exit 0: "no forbidden markers in the eager closure".
+
+| Measure                    | Raw (B)   | Gzip (B) | Gzip (KB) | Delta gzip vs Batch 20 (B) |
+| -------------------------- | --------- | -------- | --------- | -------------------------- |
+| `main.js`                  | 1,480,803 | 362,218  | 353.7     | -39,641                    |
+| Eager closure (12 files)   | 3,011,139 | 778,076  | 759.8     | -39,629                    |
+
+`main.js` gz 362,218 B <= 401,859 B budget. The Angular build still warns that the initial bundle (3.33 MB) exceeds the 2.50 MB `budgets` maximum; that is a warning, not an error.

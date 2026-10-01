@@ -64,7 +64,7 @@ import {
   GitBranchesService,
   GitStatusService,
   WorktreeService,
-} from '@ptah-extension/git-ui';
+} from '@ptah-extension/git-ui/services';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
 import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
