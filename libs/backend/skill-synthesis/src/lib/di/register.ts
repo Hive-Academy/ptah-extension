@@ -19,6 +19,7 @@ import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.ser
 import { SessionTranscriptLocator } from '../cleanup/session-transcript-locator';
 import { SkillBacklogPurgeStateStore } from '../lifecycle/skill-backlog-purge-state.store';
 import { SkillRetirementService } from '../lifecycle/skill-retirement.service';
+import { SkillUmbrellaMergeService } from '../lifecycle/skill-umbrella-merge.service';
 import { SkillMdGenerator } from '../skill-md-generator';
 import { SkillPromotionService } from '../skill-promotion.service';
 import { SkillInvocationTracker } from '../skill-invocation-tracker';
@@ -73,6 +74,7 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillBacklogPurgeStateStore);
   container.registerSingleton(SkillMdGenerator);
   container.registerSingleton(SkillRetirementService);
+  container.registerSingleton(SkillUmbrellaMergeService);
   container.registerSingleton(TrajectoryExtractor);
   container.registerSingleton(SkillClusterDedupService);
   container.registerSingleton(SkillJudgeService);
@@ -120,6 +122,9 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_RETIREMENT_SERVICE, {
     useToken: SkillRetirementService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_UMBRELLA_MERGE_SERVICE, {
+    useToken: SkillUmbrellaMergeService,
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_PROMOTION_SERVICE, {
     useToken: SkillPromotionService,

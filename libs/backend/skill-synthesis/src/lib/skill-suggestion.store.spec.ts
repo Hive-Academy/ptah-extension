@@ -195,6 +195,23 @@ maybe('SkillSuggestionStore', () => {
       expect(store.findById(pending.id)?.mergedInto).toBe('umbrella-1');
     });
 
+    it('markMerged never merges the umbrella into itself', () => {
+      const store = makeStore();
+      const member = store.insertPending(newInput());
+      const umbrella = store.insertPending(newInput({ name: 'umbrella' }));
+
+      const changed = store.markMerged([umbrella.id, member.id], umbrella.id);
+
+      expect(changed).toBe(1);
+      const umbrellaRow = store.findById(umbrella.id);
+      expect(umbrellaRow?.status).toBe('pending');
+      expect(umbrellaRow?.mergedInto).toBeNull();
+      expect(umbrellaRow?.decidedAt).toBeNull();
+      expect(store.findById(member.id)?.mergedInto).toBe(umbrella.id);
+      expect(store.markMerged([umbrella.id], umbrella.id)).toBe(0);
+      expect(store.findById(umbrella.id)?.status).toBe('pending');
+    });
+
     it('markMerged with no ids changes nothing', () => {
       const store = makeStore();
       store.insertPending(newInput());

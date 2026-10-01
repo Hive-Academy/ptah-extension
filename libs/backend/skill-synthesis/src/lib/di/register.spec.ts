@@ -17,6 +17,7 @@ import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.ser
 import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
 import { SkillBacklogPurgeStateStore } from '../lifecycle/skill-backlog-purge-state.store';
 import { SkillRetirementService } from '../lifecycle/skill-retirement.service';
+import { SkillUmbrellaMergeService } from '../lifecycle/skill-umbrella-merge.service';
 import { registerSkillSynthesisServices } from './register';
 import {
   PROVIDER_AUTH_RESOLVER_TOKEN,
@@ -112,6 +113,31 @@ describe('registerSkillSynthesisServices', () => {
     expect(SKILL_SYNTHESIS_TOKENS.SKILL_RETIREMENT_SERVICE.description).toBe(
       'PtahSkillRetirementService',
     );
+  });
+
+  it('resolves the umbrella merge service token as a singleton', () => {
+    // All eight collaborators resolve through the real registration; only the
+    // host-provided tokens are stubbed (constructors store them, touch nothing).
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    container.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    container.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {});
+    container.registerInstance(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT, {});
+    registerSkillSynthesisServices(container, stubLogger);
+
+    const service = container.resolve<SkillUmbrellaMergeService>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_UMBRELLA_MERGE_SERVICE,
+    );
+
+    expect(service).toBeInstanceOf(SkillUmbrellaMergeService);
+    expect(
+      container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_UMBRELLA_MERGE_SERVICE),
+    ).toBe(service);
+    expect(container.resolve(SkillUmbrellaMergeService)).toBe(service);
+    expect(
+      SKILL_SYNTHESIS_TOKENS.SKILL_UMBRELLA_MERGE_SERVICE.description,
+    ).toBe('PtahSkillUmbrellaMergeService');
   });
 
   it('gives the queue and budget stores globally unique token descriptions', () => {

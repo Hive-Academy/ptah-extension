@@ -19,7 +19,7 @@ export type SkillStatus = 'candidate' | 'promoted' | 'rejected';
 /**
  * `rejected_reason` spellings of the skill lifecycle. The writers and the
  * `getStats` count SQL share these so the two never drift apart.
- * A member merged into an umbrella stores `MERGED_INTO_PREFIX + umbrellaSlug`.
+ * A member merged into an umbrella stores `MERGED_INTO_PREFIX + <umbrella suggestion id>` (R3).
  */
 export const MERGED_INTO_PREFIX = 'merged-into:';
 export const RETIRED_UNUSED_REASON = 'retired:unused';

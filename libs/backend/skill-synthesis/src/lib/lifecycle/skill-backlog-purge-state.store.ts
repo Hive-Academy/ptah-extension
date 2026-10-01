@@ -5,10 +5,12 @@
  * The row's presence means the one-time purge of the unclustered candidate
  * backlog has completed; its absence means it has never run.
  *
- * `read()` DEGRADES TO `null`. A missing table (a host whose database predates
- * `0051`) or a closed connection is warned and reported as "no marker". The
- * purge treats an unreadable marker as a reason to skip, never to run blind,
- * and the failure never reaches the curator.
+ * `read()` DEGRADES TO `null`. It returns `null` both when the marker is
+ * absent and when it is unreadable (a missing table on a host whose database
+ * predates `0051`, or a closed connection); the unreadable case is warned. The
+ * purge treats `null` as "absent" and runs. That stays safe for an unreadable
+ * marker: `markComplete` then throws inside the purge's transaction, the whole
+ * purge rolls back, and the failure never reaches the curator.
  *
  * `markComplete()` IS A PLAIN STATEMENT AND THROWS. It runs inside the purge's
  * `inImmediateTransaction`, so a failure must roll that unit back rather than
@@ -66,8 +68,8 @@ export class SkillBacklogPurgeStateStore {
     try {
       raw = this.db.prepare(SELECT_SQL).get() as RawPurgeStateRow | undefined;
     } catch (error: unknown) {
-      // degradation-audit: reported - warned; null makes the purge skip this
-      // pass instead of running without knowing whether it already ran.
+      // degradation-audit: reported - warned; null reads as "absent", and the
+      // purge's markComplete then throws in its transaction, rolling it back.
       this.logger.warn(
         '[skill-synthesis] backlog purge marker unreadable; purge will skip',
         { error: error instanceof Error ? error.message : String(error) },

@@ -191,11 +191,13 @@ export class SkillSuggestionStore {
 
   /**
    * `pending → dismissed` for every id in `ids`, recording `umbrellaId` as the
-   * row that absorbed it. Rows that are not `pending` are left untouched.
-   * Returns the number of rows changed.
+   * row that absorbed it. Rows that are not `pending` are left untouched, and
+   * `umbrellaId` itself is never merged into itself even when it appears in
+   * `ids`. Returns the number of rows changed; callers compare it with the
+   * count they expected.
    */
   markMerged(ids: readonly string[], umbrellaId: string): number {
-    const unique = [...new Set(ids)];
+    const unique = [...new Set(ids)].filter((id) => id !== umbrellaId);
     if (unique.length === 0) return 0;
     const placeholders = unique.map(() => '?').join(', ');
     const result = this.db
