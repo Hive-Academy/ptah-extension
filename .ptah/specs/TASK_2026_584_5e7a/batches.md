@@ -1,6 +1,6 @@
 # Batches - TASK_2026_584_5e7a
 
-Total tasks: 38 | Batches: 9 | Complete: 5/9
+Total tasks: 38 | Batches: 9 | Complete: 7/9
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-584` (branch
 `feat/task-584-agent-sessions`, base `origin/main` a90c086d7). Every path below is
@@ -9,25 +9,25 @@ absolute under that root. Plan: `implementation-plan.md` Revision 1 (APPROVED
 
 ## Handoff (session end 2026-10-01) — resume from here
 
+Draft PR: #622 (opened 2026-10-01 at the user's request; update its batch table on each push, mark ready at the PR gate).
+
 State per batch (statuses also on each batch header below):
 
-| Batch                                                       | Status                                                           | Commit    | Review                                 |
-| ----------------------------------------------------------- | ---------------------------------------------------------------- | --------- | -------------------------------------- |
-| B1 agent-sdk unattended policy + metadata cwd               | COMPLETE                                                         | 7165e2379 | code-logic-review-b1.md APPROVED 9/10  |
-| B2 MCP subagent root registrar                              | COMPLETE                                                         | 38d3e511e | code-logic-review-b2.md APPROVED 9/10  |
-| B3 link layer                                               | COMPLETE                                                         | 8fa3c7312 | b3 REVISE 6/10 -> b3-r1 APPROVED 10/10 |
-| B4 chat-path host, shared contracts, `chat:agent-sessions`  | COMPLETE (with B5)                                               | 590ea1d2a | code-logic-review-b4.md APPROVED 8/10  |
-| B5 provisioner, spawner, contract, settings                 | COMPLETE (with B4)                                               | 590ea1d2a | code-logic-review-b5.md APPROVED 9/10  |
-| B6 MCP surface, report fallback, shutdown, lazy host lookup | READY, not started                                               | —         | —                                      |
-| B7 frontend adoption, badge, banner                         | code review APPROVED; visual review NOT run; UNCOMMITTED on disk | —         | b7 REVISE 8/10 -> b7-r1 APPROVED 10/10 |
-| B8 skills + docs                                            | PENDING (after B6)                                               | —         | —                                      |
-| B9 real-host smoke S1-S11                                   | PENDING (after B6 and B7)                                        | —         | —                                      |
+| Batch                                                       | Status             | Commit    | Review                                                                                           |
+| ----------------------------------------------------------- | ------------------ | --------- | ------------------------------------------------------------------------------------------------ |
+| B1 agent-sdk unattended policy + metadata cwd               | COMPLETE           | 7165e2379 | code-logic-review-b1.md APPROVED 9/10                                                            |
+| B2 MCP subagent root registrar                              | COMPLETE           | 38d3e511e | code-logic-review-b2.md APPROVED 9/10                                                            |
+| B3 link layer                                               | COMPLETE           | 8fa3c7312 | b3 REVISE 6/10 -> b3-r1 APPROVED 10/10                                                           |
+| B4 chat-path host, shared contracts, `chat:agent-sessions`  | COMPLETE (with B5) | 590ea1d2a | code-logic-review-b4.md APPROVED 8/10                                                            |
+| B5 provisioner, spawner, contract, settings                 | COMPLETE (with B4) | 590ea1d2a | code-logic-review-b5.md APPROVED 9/10                                                            |
+| B6 MCP surface, report fallback, shutdown, lazy host lookup | COMPLETE           | 9d4086361 | code-logic-review-b6.md APPROVED 10/10                                                           |
+| B7 frontend adoption, badge, banner                         | COMPLETE           | a16d700c2 | code b7 REVISE 8 -> r1 10 -> r2 9 -> r3 10 APPROVED; visual b7 REVISE 6 -> r1 8 -> r2 9 APPROVED |
+| B8 skills + docs                                            | READY              | —         | —                                                                                                |
+| B9 real-host smoke S1-S11                                   | READY              | —         | —                                                                                                |
 
 Next steps, in order:
 
-1. B7: run visual-reviewer (dark + light; before from base a90c086d7), then commit B7's 19 files by path (`git status --short -- libs/frontend apps/ptah-extension-webview`). The uncommitted B7 files exist only in this local worktree; they are not in the pushed branch.
-2. B6: launch backend-developer with the Batch 6 section (6 tasks incl. Task 6.6). B6 and B7 share no files.
-3. B8 (technical-content-writer) and B9 (senior-tester, real host) in parallel after B6 (B9 also after B7).
+1. B8 (technical-content-writer) and B9 (senior-tester, real host) in parallel; both dependencies (B6, B7) are committed. B9 must also cover follow-ups F1 and F4 below.
 
 Review routing: cross-side CLI lane, antigravity only (Glm hit its Ollama Cloud usage limit, 429; codex unavailable until 2026-10-03); one lane at a time when TASK_2026_580's team-leader also uses antigravity. Resume a lane's CLI session for a re-review.
 
@@ -37,18 +37,28 @@ Pre-existing test failures (fail on the untouched base; not task failures): cli-
 
 Open items and rulings:
 
-- O1 B7 visual review not run; B7 uncommitted (step 1).
-- O2 Task 6.6 (lazy `CHILD_CHAT_SESSION_HOST` lookup in the spawner; lazy `SESSION_SPAWNER` in `PtahAPIBuilder`) — from the B5 review's MINOR; supersedes the Task 6.5 construction-order check; smoke S1 still confirms no `chat-runtime-unavailable` per host.
+- O1 CLOSED: B7 visual review ran (REVISE r0 -> r1 APPROVED 8/10 -> r2 APPROVED 9/10, dark + light, before from base a90c086d7); B7 committed a16d700c2.
+- O2 CLOSED: Task 6.6 implemented as a lazy `DI_CONTAINER` lookup (deviation 5 below); B6 committed 9d4086361. Smoke S1 still confirms no `chat-runtime-unavailable` per host.
 - O3 B2 review MINOR (accepted): the registrar keys retained roots by raw path string; the spawner passes the identical `worktreePath` to retain and release (B5 spec pins it).
 - O4 B2 out of scope (accepted): no `register.spec.ts` case for the registrar shim's degraded path.
 - O5 B3 ruling: `pruneEnded(20)` drops ended records; a pruned child's tab loses attribution and the depth guard, same as after a host restart (plan :950-955); TASK_2026_580's durable record closes it.
-- O6 B1 "Always Allow" ruling: no defect; a rule created from a child's prompt applies to interactive sessions only. The coordinator is raising the UX nuance with the user.
+- O6 B1 "Always Allow" ruling: no defect; a rule created from a child's prompt applies to interactive sessions only. User ruling 2026-10-01: keep the global rule (current behaviour); no change.
 - O7 B4 deviations accepted: child start keeps a precomputed `mcpServerRunning`; child start merges Smithery/OAuth MCP overrides.
 - O8 B5 deviations accepted: slash-command task goes first then the contract; `deniesAt: 'unbounded'` when no timeout; `read()` truncates by characters; "ended while working" from phase `generating`; existing target dir -> `worktree-failed`.
 - O9 B7 deviations accepted: closed-child memory; parser in the adoption service; `addTabToWorkspace(..., afterTabId)`; banner says "for a limited time" (payload has no deny window); workspace trigger is a root effect (also fires at bootstrap). A late tab that already holds streamed turns is not auto-loaded (accepted, see Batch 7).
 - O10 Assumptions still to prove in B9: A1 (push before first chunk), A3 (subagents read `<cwd>/.mcp.json`), A4 (`acceptEdits` only inside cwd), A5 (transcript by worktree cwd); A2 resolved in B7; A6 closed (no allowlist edit).
 - O11 TASK_2026_580 coordination (Batch 5 note): no SQLite in 584; whichever task merges second adds the one `recordAgentStartedSession` call.
-- O12 Completion gate (Mode 3): B7 rendered evidence (dark + light), write-path trace for metadata `workingDirectory` (B1) and persisted `TabState.agentOrigin` (B7).
+- O12 Completion gate (Mode 3): B7 rendered evidence (dark + light) — DONE (`visual-b7/`, `visual-b7/r1/`, `visual-b7/r2/`); write-path trace for metadata `workingDirectory` (B1) and persisted `TabState.agentOrigin` (B7) — still due at Mode 3.
+- O13 B6 deviations accepted (review APPROVED 10/10): (1) 3 extra Electron files `apps/ptah-electron/src/activation/boot-coordinator.ts`, `wire-runtime.ts`, and `apps/ptah-electron/src/main.quit-path.spec.ts` (shutdown wiring + quit-path spec); (2) `tool-result-budget.spec.ts` added for the five `'preformatted'` hints; (3) held-completion block placed BEFORE the transcript in `ptah_session_read` so a budget cut trims only the transcript tail; (4) held completions scoped to `ptah_session_*` results; (5) Task 6.6 uses a lazy `DI_CONTAINER` lookup instead of a new resolver registration (no `di/register.ts` change); (6) the spawner constructor takes the container.
+- O14 B7 out-of-list files accepted (code-logic-review-b7-r2): `session-loader.service.ts` (+ spec) — `requireTargetTab` checks the active tab set first (VS Code host with no workspace partition); `chat-ui` `tab-item.component.ts` — `<ng-content select="[tabItemLeading]">` slot for the badge. Visual r2 fixes (badge as icon-only 24x24 button, Floating UI cleanup when the tooltip's tab closes) re-checked by code-logic-review-b7-r3 APPROVED 10/10.
+
+Follow-ups (recorded at B6/B7 commit, 2026-10-01):
+
+- F1 With no active workspace, `findTabByIdAcrossWorkspaces` returns null everywhere (the B7 `requireTargetTab` fix covers the session loader only). B9 smoke S1b checks late adoption on a real VS Code host with no workspace partition.
+- F2 `ptah_session_read`'s default 32 KiB tail always exceeds the 8,000-char tool-result budget, so the transcript is always cut. A per-tool budget override is a design call — USER DECISION.
+- F3 The `ptah_agent_report` tool description should mention child sessions (the `childSessionId` fallback) — B8 docs.
+- F4 The spawner is constructed eagerly in Electron (`wire-runtime.ts`), so its host-wide subscriptions register from boot, not on first use. Acceptable now; B9 confirms no boot-time side effect.
+- F5 The child tab title truncates at the 200px tab cap once the 24px badge is present (visual-review-b7-r2 observation; full title stays in the `title` attribute). Minor, no change planned.
 
 ## Recorded execution defaults
 
@@ -556,9 +566,10 @@ Files:
 
 - Files exist with real work; scoped command passes (incl. the temp-repo integration spec); `code-logic-review-b5.md` APPROVED.
 
-## Batch 6: MCP surface, report fallback, shutdown hooks — PENDING
+## Batch 6: MCP surface, report fallback, shutdown hooks — COMPLETE (commit 9d4086361)
 
-- Launch state: READY, NOT launched (session ended; set IN_PROGRESS when assigned). B4+B5 committed together (590ea1d2a); file-disjoint from B7 (code-reviewed, awaiting visual review, uncommitted): B6 = vscode-lm-tools + cli-agent-runtime spawner + apps/ptah-extension-vscode + apps/ptah-electron, B7 = libs/frontend + apps/ptah-extension-webview)
+- Result: 21 files committed in 9d4086361. Review: `code-logic-review-b6.md` APPROVED 10/10 (0 defects). Pre-commit hook (lint-staged incl. `nx affected --target=lint`, `ptah-electron:validate-deps`) passed.
+- Approved deviations: extra files `apps/ptah-electron/src/activation/boot-coordinator.ts`, `wire-runtime.ts`, `apps/ptah-electron/src/main.quit-path.spec.ts`, `mcp-core/tool-result-budget.spec.ts`; executor deviations 3-6 (held block before the transcript in `ptah_session_read`; `DI_CONTAINER` lazy lookup instead of a new resolver; held completions scoped to `ptah_session_*` results; spawner constructor takes the container). `cli-agent-runtime/src/lib/di/register.ts` not modified. See O13; follow-ups F2-F4.
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: backend-developer re-run with the failing task only
@@ -582,33 +593,33 @@ Files (`...` = `D:\projects\ptah-extension\.claude-worktrees\task-584\libs\backe
 - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-584\libs\backend\cli-agent-runtime\src\lib\session-children\session-spawner.service.ts` (+ `session-spawner.service.spec.ts`) — Task 6.6
 - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-584\libs\backend\cli-agent-runtime\src\lib\di\register.ts` — Task 6.6, only if the resolver is registered there
 
-### Task 6.1: Schemas, definitions, handlers — PENDING
+### Task 6.1: Schemas, definitions, handlers — COMPLETE
 
 - Plan reference: implementation-plan.md:704-744
 - Pattern to follow: `agent-spawn-args.schema.ts:15` + parity spec; `surface-tools.ts` / `surface-tool-handlers.ts`
 - Quality requirements: five tools with the plan's schemas; Zod failure -> `isError`; refusals as plain text; `session-start-failed`/`worktree-failed` -> `isError` with rollback table; every result appends held completions.
 
-### Task 6.2: Session namespace + PtahAPI wiring — PENDING
+### Task 6.2: Session namespace + PtahAPI wiring — COMPLETE
 
 - Plan reference: implementation-plan.md:723-727
 - Quality requirements: absent spawner -> named error (`ptah-api-builder.service.ts:706-719` rule); successful start fires the worktree change handler (`:999`).
 
-### Task 6.3: Dispatcher cases + `ptah_agent_report` fallback — PENDING
+### Task 6.3: Dispatcher cases + `ptah_agent_report` fallback — COMPLETE
 
 - Plan reference: implementation-plan.md:719-735
 - Quality requirements: tools in the `agent` group; five delegating cases; report: no agent id + session id -> `childSessionId` branch; neither -> `unattributed-caller`; `AgentNamespace.report` input widened; tool list byte-identical per caller.
 
-### Task 6.4: Budget hints + sweep drivers — PENDING
+### Task 6.4: Budget hints + sweep drivers — COMPLETE
 
 - Quality requirements: five tools `'preformatted'`; sweep drivers for all five.
 
-### Task 6.5: Host shutdown — PENDING
+### Task 6.5: Host shutdown — COMPLETE
 
 - Plan reference: implementation-plan.md:830-843
 - Validation notes (carried from B5, construction order): `SessionSpawnerService` injects the optional `CHILD_CHAT_SESSION_HOST` once, at construction. In every host (VS Code, Electron, CLI engine) confirm `SESSION_SPAWNER` is first resolved AFTER `registerChatServices`; add a spec or host-level assertion. SUPERSEDED by Task 6.6 (lazy host lookup); keep only the smoke S1 confirmation.
 - Quality requirements: resolve `SESSION_SPAWNER` inside the existing non-fatal pattern, `dispose()` BEFORE `agentProcessManager.disposeAll()` (`main.ts:143`, `shutdown.ts:278`).
 
-### Task 6.6: Lazy `CHILD_CHAT_SESSION_HOST` lookup in the spawner — PENDING
+### Task 6.6: Lazy `CHILD_CHAT_SESSION_HOST` lookup in the spawner — COMPLETE
 
 - Source: `code-logic-review-b5.md` (APPROVED 9/10), its one MINOR: construction-order hazard. Today all three hosts resolve `SESSION_SPAWNER` after `registerChatServices`, but Task 6.2 makes `PtahAPIBuilder` (vscode-lm-tools, registered in an earlier phase) a new consumer of `SESSION_SPAWNER`; if it resolves the spawner before `registerChatServices`, the singleton would hold `host = null` for the process life and every start would refuse `chat-runtime-unavailable`.
 - Decision (team-leader): remove the hazard class instead of checking for it. The spawner looks up `CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST` at `start()` time (inject the tsyringe `DependencyContainer`, or a resolver function registered in cli-agent-runtime `di/register.ts` beside the spawner, following the per-call shim pattern in `vscode-lm-tools/src/lib/di/register.ts` for `MCP_SERVER_STATUS`); absent at that moment -> `chat-runtime-unavailable` as today. di-lint must still pass (no unregistered `@inject` token).
@@ -619,7 +630,12 @@ Files (`...` = `D:\projects\ptah-extension\.claude-worktrees\task-584\libs\backe
 
 - Files exist with real work; scoped command passes; `code-logic-review-b6.md` APPROVED.
 
-## Batch 7: frontend tab adoption, badge, banner, late adoption — IN_PROGRESS
+## Batch 7: frontend tab adoption, badge, banner, late adoption — COMPLETE (commit a16d700c2)
+
+- Result: 23 files committed in a16d700c2 (the 19 listed + `chat-ui/.../tab-item.component.ts`, `session-loader.service.ts` (+ spec), all approved in code-logic-review-b7-r2; see O14). Pre-commit hook passed.
+- Reviews: code `code-logic-review-b7.md` REVISE 8/10 -> `-r1` APPROVED 10/10 -> `-r2` APPROVED 9/10 (visual revise delta) -> `-r3` APPROVED 10/10 (visual r2 re-check). Visual `visual-review-b7.md` REVISE 6/10 -> `-r1` APPROVED 8/10 -> `-r2` APPROVED 9/10; screenshots dark + light in `visual-b7/` (before/after from base a90c086d7), `visual-b7/r1/`, `visual-b7/r2/`.
+- Deviations: O9 and O14. Follow-ups: F1, F5.
+- The notes below are the batch history (written before the commit).
 
 - Launch state: executor DONE (Tasks 7.1-7.7, 18 files, all inside the list, plus `chat-state/src/index.ts` in revise round 1); verified on disk. Code review: APPROVED in round 2 (see below). Visual review: after the code review is APPROVED (and after any revise), so the screenshots show the final code.
 - A2 result (executor): FALSE as assumed. A late-adopted tab loads history only on a sidebar click (app-shell `onSessionClick` :513-519 -> chat.store :202 -> `SessionLoaderService.switchSession` :597 -> `chat:resume`); activating the tab loads nothing; new turns stream either way; late tabs leave `hasLiveSession` unset so that click is not blocked (session-loader :617-624). Team-leader ruling pending the review's answer on whether a sidebar click sends `chat:resume` into a still-streaming child: if the review finds no backend risk, add (in the same revise round as any defects) auto-load of history on the first activation of a late-adopted tab through the existing `SessionLoaderService` path; smoke S1b must test both the tab activation and the sidebar click.
@@ -656,31 +672,31 @@ Files (`...` = `D:\projects\ptah-extension\.claude-worktrees\task-584\libs\front
 - MODIFY `...\chat\src\lib\components\templates\chat-view.component.ts` + `chat-view.component.html`
 - MODIFY `D:\projects\ptah-extension\.claude-worktrees\task-584\apps\ptah-extension-webview\src\app\app.config.ts` (start the adoption service, F11)
 
-### Task 7.1: `TabState.agentOrigin` + persistence — IMPLEMENTED
+### Task 7.1: `TabState.agentOrigin` + persistence — COMPLETE
 
 - Plan reference: implementation-plan.md:762-765; persisted round-trip spec.
 
-### Task 7.2: `addTabToWorkspace` — IMPLEMENTED
+### Task 7.2: `addTabToWorkspace` — COMPLETE
 
 - Plan reference: implementation-plan.md:778-780; spec for a background partition.
 
-### Task 7.3: `adoptAgentSessionTab(payload, 'live' | 'late')` — IMPLEMENTED
+### Task 7.3: `adoptAgentSessionTab(payload, 'live' | 'late')` — COMPLETE
 
 - Plan reference: implementation-plan.md:766-780; A2 — locate the sidebar history-load trigger first and cite it in the report. Idempotent, parent-absent no-op, order after parent, `titleOrigin: 'user'`, no focus change.
 
-### Task 7.4: `ChatMessageHandler` push — IMPLEMENTED
+### Task 7.4: `ChatMessageHandler` push — COMPLETE
 
 - Plan reference: :781-783; defensive checks as the gateway handlers (`:194-243`); a throw never breaks the switch.
 
-### Task 7.5: `AgentSessionAdoptionService` + bootstrap — IMPLEMENTED
+### Task 7.5: `AgentSessionAdoptionService` + bootstrap — COMPLETE
 
 - Plan reference: :784-787; RPC client as `conversation.service.ts` uses for `chat:running-agents`; bootstrap and workspace switch.
 
-### Task 7.6: Tab-bar agent badge — IMPLEMENTED
+### Task 7.6: Tab-bar agent badge — COMPLETE
 
 - Plan reference: :788-792; aria-label, tooltip, keyboard reachable, parent-gone tooltip.
 
-### Task 7.7: Agent origin banner + chat view — IMPLEMENTED
+### Task 7.7: Agent origin banner + chat view — COMPLETE
 
 - Plan reference: :793-799; `role="note"`, "Open parent" action, composer stays enabled.
 
@@ -688,7 +704,7 @@ Files (`...` = `D:\projects\ptah-extension\.claude-worktrees\task-584\libs\front
 
 - Files exist with real work; scoped command passes; `code-logic-review-b7.md` APPROVED; visual-reviewer before/after dark + light recorded.
 
-## Batch 8: agent-lanes skill + docs — PENDING
+## Batch 8: agent-lanes skill + docs — PENDING (READY: B6 committed)
 
 - Recommended executor: technical-content-writer (sub-agent)
 - Fallback executor: backend-developer
@@ -707,10 +723,11 @@ Files:
 ### Task 8.1: Skill section (both copies) — PENDING
 
 - Plan reference: implementation-plan.md:845-852; include "call `ptah_session_status` after a resume" (R12).
+- Also (follow-up F3): document that `ptah_agent_report` works from a child session (the `childSessionId` fallback); if the tool's own description in `session-tools.ts`/`protocol-dispatcher.ts` needs the mention, that is a code change outside B8's file list — report it, do not edit.
 
 ### Task 8.2: Docs page with the four settings keys — PENDING
 
-## Batch 9: real-host smoke S1-S11 + test-report.md — PENDING
+## Batch 9: real-host smoke S1-S11 + test-report.md — PENDING (READY: B6 and B7 committed)
 
 - Recommended executor: senior-tester (sub-agent), real host (Electron dev build, then VS Code), NOT a mocked run
 - Fallback executor: none; a smoke step that cannot run is reported as blocked with the reason
@@ -723,4 +740,4 @@ Files:
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-584\.ptah\specs\TASK_2026_584_5e7a\test-report.md`
 - Plan reference: implementation-plan.md:1067-1104
-- Quality requirements: each step with observed evidence (screenshots, log lines, tool results); A1-A5 marked verified or failed; scratch repo outside this worktree. S1b tests both activation of a late-adopted tab and the sidebar click (B7 A2 finding). S1 also confirms a start does NOT refuse `chat-runtime-unavailable` in each host (B5 construction-order risk).
+- Quality requirements: each step with observed evidence (screenshots, log lines, tool results); A1-A5 marked verified or failed; scratch repo outside this worktree. S1b tests both activation of a late-adopted tab and the sidebar click (B7 A2 finding). S1 also confirms a start does NOT refuse `chat-runtime-unavailable` in each host (B5 construction-order risk). Follow-up F1: S1b runs on a real VS Code host with no active workspace partition (late adoption + history load). Follow-up F4: Electron boot shows no side effect from the eagerly constructed spawner's subscriptions. Record whether `ptah_session_read` with the default tail is always budget-cut (F2 evidence for the user decision).
