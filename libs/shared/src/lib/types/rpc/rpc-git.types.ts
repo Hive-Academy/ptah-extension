@@ -223,6 +223,12 @@ export interface GitWorktreeChangedNotification {
    */
   operationId?: string;
   /**
+   * The real SDK session id whose agent created or removed the worktree.
+   * Present only for SDK-hook-driven notifications whose session id is known;
+   * absent for RPC-driven (user-initiated) worktree operations.
+   */
+  sessionId?: string;
+  /**
    * Whether the underlying git subprocess succeeded. Absent for SDK-hook
    * notifications (those are informational and always represent success).
    */

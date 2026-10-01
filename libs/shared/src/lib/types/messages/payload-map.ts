@@ -264,6 +264,20 @@ export interface SurfaceUpdatedPayload {
 }
 
 /**
+ * Payload for MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED
+ * ('session:organizationChanged').
+ *
+ * Ids only: the receiver re-reads the affected rows through `session:list`.
+ * `reason` says what caused the change — a user edit, an automatic capture
+ * (worktree, PR, task link, rekey), or the cascade of a session delete.
+ */
+export interface SessionOrganizationChangedPayload {
+  readonly workspaceRoot: string;
+  readonly sessionIds: string[];
+  readonly reason: 'user' | 'capture' | 'delete';
+}
+
+/**
  * Type mapping for message payloads - eliminates 'any' types
  */
 export interface MessagePayloadMap {
@@ -366,6 +380,7 @@ export interface MessagePayloadMap {
   'session:turnFailed': SdkTurnFailedPayload;
   'session:subagentEnded': SdkSubagentEndedPayload;
   'session:mcpStatus': SessionMcpStatusPayload;
+  'session:organizationChanged': SessionOrganizationChangedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;

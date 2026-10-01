@@ -153,6 +153,12 @@ export const MESSAGE_TYPES = {
    * already uses is the right one.
    */
   SESSION_MCP_STATUS: 'session:mcpStatus',
+  /**
+   * Backend → Frontend: organization data (priority, status, pin, archive,
+   * task links, PR links) changed for one or more sessions of a workspace.
+   * The payload carries ids only; the webview re-reads rows via `session:list`.
+   */
+  SESSION_ORGANIZATION_CHANGED: 'session:organizationChanged',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
