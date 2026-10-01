@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 17/69
+Total tasks: 87 | Batches: 69 | Complete: 18/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -972,14 +972,14 @@ under "Execution defaults".
 - Implementation details: as plan.
 - Outcome (4b458351a): new `git/git-repo-operation.reader.ts` (marker paths via one cached `rev-parse --git-path` per workspace, then fs checks only; rebase > merge > cherry-pick; `git am` not reported) and `git/git-blob-classifier.ts` (+spec; too-large / LFS / binary / text — reuse it in Batch 17). `GIT_DIFF_MAX_SIDE_BYTES = 2 MiB` in shared `git-operation.constants.ts`. Conflict kind order: submodule, symlink, delete-modify, add-add, content. Too-large size from `cat-file -s`; worktree side uses fs stat before reading. LFS `oid` keeps its `sha256:` prefix. Verified: vscode-core unit 817/817, real-git 131 passed / 2 skipped (11 suites), typecheck of vscode-core, rpc-handlers, git-ui, shared green.
 
-## Batch 17: Review reader size limit (RC12) — PENDING
+## Batch 17: Review reader size limit (RC12) — COMPLETE
 
 - Recommended executor: CLI lane | Fallback: backend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 16
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
 
-### Task 17.1: `GitReviewReaderService.readBlob` uses the 2 MiB limit and the new outcomes — PENDING
+### Task 17.1: `GitReviewReaderService.readBlob` uses the 2 MiB limit and the new outcomes — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-review-reader.service.ts; MODIFY its spec D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-review-reader.service.spec.ts
 - Plan reference: implementation-plan.md:622, 643
@@ -987,6 +987,11 @@ under "Execution defaults".
 - Quality requirements: replaces the 64 MiB cap at `:383-387`.
 - Validation notes: none beyond plan.
 - Implementation details: spec for too-large and LFS pointer.
+- Outcome: executor opencode lane (`opencode-go/kimi-k2.7-code`, backend-developer role); only the two listed files
+  changed. `git show` runs with `maxOutputBytes: GIT_DIFF_MAX_SIDE_BYTES`; exit 0 → `classifyBlobBytes` (reused, local
+  NUL sniff removed); `GitOutputLimitError` → `too-large` with the size from `cat-file -s` (falls back to the cap as a
+  lower bound). Specs: too-large (real and fallback size), LFS pointer, runner option. Verified by the orchestrator:
+  `nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core` green. Lane report: `reviews/batch-17-report.md`.
 
 ## Batch 18: One `GitInfoService` per host (RC13) — COMPLETE (e7b30b433)
 
