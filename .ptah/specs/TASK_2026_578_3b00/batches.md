@@ -1243,7 +1243,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 
 - Spec exists and passes; reviewer confirms each proof is load-bearing
 
-## Batch 14: Frontend counters and post-accept refresh (post-586) — PENDING
+## Batch 14: Frontend counters and post-accept refresh (post-586) — COMPLETE (commit 4659e2e33)
 
 - **Precondition: G-586 rebase done; Batch 11 committed.**
 - Recommended executor: frontend-developer sub-agent
@@ -1256,14 +1256,14 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Tasks: 3 | Depends on: Batch 11, G-586
 - Verification command: `npx nx run @ptah-extension/skill-synthesis-ui:test` (tail) and `:lint`
 
-### Task 14.1: Diagnostics state fields — PENDING
+### Task 14.1: Diagnostics state fields — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:898-902
 - Implementation details: `SkillByStatusCounts` + `totalMerged`, `totalRetired`, `totalDormant`; default zeros;
   three `?? 0` lines in `applySnapshot`. Nothing else.
 
-### Task 14.2: Pipeline status cells — PENDING
+### Task 14.2: Pipeline status cells — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/frontend/skill-synthesis-ui/src/lib/components/skill-pipeline-status.component.ts` (+ spec)
 - Depends on: Task 14.1
@@ -1273,7 +1273,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Implementation details: Merged, Retired, Dormant cells using the existing label/value markup inside the
   `aria-label` section; OnPush, signal inputs.
 
-### Task 14.3: Refresh stats after accept — PENDING
+### Task 14.3: Refresh stats after accept — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/frontend/skill-synthesis-ui/src/lib/services/skill-synthesis-state.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:912-913
@@ -1284,3 +1284,60 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 
 - Three files edited on 586's versions; UI tests and lint pass; logic/style reviewer and visual-reviewer accepted
   with dark + light before/after screenshots
+
+### Batch 14 on-disk verification (team-leader, 2026-10-02)
+
+- The diff touches exactly the six batch files (three sources plus their specs). No `skill-synthesis-tab.component.ts`
+  edit. No accordion touched. No new catch blocks.
+- `npx nx run-many -t test,lint,typecheck -p @ptah-extension/skill-synthesis-ui --skip-nx-cache`: all three targets
+  succeeded. Degradation audit exit 0, `libs/frontend/skill-synthesis-ui: 5 ok (baseline 5)`.
+- visual-review.md `## Batch 14`: APPROVED. Its 3 minors go to future-enhancements.md.
+
+### Batch 14 review record
+
+- Reviewer decision (user, 2026-10-02): "In-process now, lane later". No CLI vendor has quota now. An in-process
+  code-style-reviewer, covering both logic and style, is this batch's review gate. An antigravity CLI lane re-reviews
+  the same commits before the PR, and its findings land as fix-up commits.
+- In-process review (code-style-review.md `## Batch 14`): **NEEDS_REVISION**. There are no blockers.
+  - MODERATE 1: `skill-synthesis-state.service.ts:444` / `skill-pipeline-status.component.ts:203`. Accept refreshes
+    `SkillSynthesisStateService.stats` (the stats strip). The pipeline cells read `SkillDiagnosticsStateService.byStatus`,
+    which refreshes only on tab open, on manual Refresh, or on the 30 s poll. So the Promoted, Merged, Retired and
+    Dormant cells lag after accept. Fix: after a successful accept, also refresh the diagnostics service. The
+    tab-level call is in `skill-synthesis-tab.component.ts`, which needs a scope extension listed in the report.
+    Add a spec for it.
+  - MODERATE 2: `skill-synthesis-state.service.spec.ts` (accept block): add a spec for "accept succeeds, then stats
+    rejects".
+  - MINOR 1: `skill-diagnostics-state.service.spec.ts:39`. The fixture's `activeSkills` changed from 3 to 2 with no
+    stated reason. Revert it or justify it.
+  - MINOR 2 and 3 (shared error-string comment; an optional `@for` for the cells) are carries for future-enhancements.md.
+- Round 1 left the batch IN_PROGRESS. No commit was made until an APPROVED verdict was on disk.
+- Revision 1 (executor, 2026-10-02):
+  - `SkillSynthesisStateService.accept()` returns `Promise<boolean>`. Its catch carries a
+    `degradation-audit: reported` marker.
+  - `components/suggestions/skill-suggestions-view.component.ts` (+ spec), the only caller of accept, calls
+    `void diagnostics.refresh()` on success. This extends the batch from 6 to 8 files; the tab component is untouched.
+  - A failed accept now shows an error toast instead of the success toast, and the review modal stays open so the
+    user can retry. The orchestrator accepted this.
+  - New spec: the accept succeeds, then the stats read fails.
+  - The `activeSkills: 2` fixture is kept, with a comment justifying it.
+- Team-leader re-verification:
+  - `npx nx run-many -t test,lint,typecheck -p @ptah-extension/skill-synthesis-ui --skip-nx-cache`: all three
+    succeeded.
+  - Degradation audit exit 0, `skill-synthesis-ui: 5 ok (baseline 5)`.
+- In-process re-review (code-style-review.md `### Batch 14 re-review (revision 1)`): **APPROVED**. All three prior
+  findings are resolved. 4 minors are not gating.
+- Committed as 4659e2e33 (8 files, explicit paths). The antigravity lane re-reviews this commit before the PR, and
+  its findings land as fix-up commits.
+
+### Batch 14 carries (future-enhancements.md does not exist yet; listed here for the modernization pass)
+
+- Visual review `## Batch 14`: the 3 minors recorded in visual-review.md.
+- R1 MINOR 2: a stats-only failure after a successful accept shows the same shared `error` string as an accept
+  failure (`skill-synthesis-state.service.ts` accept). Add a comment or a separate signal.
+- R1 MINOR 3: the five near-identical count cells in `skill-pipeline-status.component.ts` could become an `@for`.
+- R2 M1: `skill-diagnostics-state.service.spec.ts:39`. The comment cites "Batch 11 (2c1c8840b)". State only the
+  invariant (active <= promoted).
+- R2 M2: `skill-diagnostics-state.service.ts:139`. `refresh()` has no last-request-wins guard, so an older
+  in-flight snapshot can overwrite newer counts. This predates the batch; accept adds one more caller.
+- R2 M4: each accept makes two stats-shaped reads (`loadStats` for the stats strip, diagnostics `refresh` for the
+  pipeline card). A one-line comment should say why both stay.

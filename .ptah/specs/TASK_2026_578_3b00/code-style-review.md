@@ -168,3 +168,59 @@ Default settings assertion updated from 200 to 1000 (line 1022) to align with `S
 - What a 10/10 version would do differently: The implementation is exemplary for a constrained patch; 9/10 reflects the inherited singular/plural naming difference (`candidate` vs `candidates`) originating in 586 that cannot be altered without cross-lib breakage.
 
 Verdict: APPROVED
+
+## Batch 14
+
+Scope: in-process logic and style review (replaces the CLI lane; a later lane re-review becomes fix-up commits) of the uncommitted `libs/frontend/skill-synthesis-ui` diff: `skill-diagnostics-state.service.ts` (+ spec), `skill-pipeline-status.component.ts` (+ spec), `skill-synthesis-state.service.ts` (+ spec). Read the full diff, `SkillDiagnosticsResult` in `libs/shared/.../rpc-curator-diagnostics.types.ts:248-262`, `loadStats`, the tab wiring and the diagnostics polling path. Team-leader's test/lint/typecheck and degradation audit results were taken as given.
+
+Style checks: PASS. The component stays standalone/OnPush with signal input `byStatus` (`skill-pipeline-status.component.ts:386`). The three new cells copy the sibling Promoted/Rejected cell markup exactly (interpolation only, no `[innerHTML]`). `SkillByStatusCounts` stays `readonly number` fields. The new specs follow the file's `it('refresh() ...')` naming. The tab binds the whole object (`skill-synthesis-tab.component.ts:484`, `:763`), so no tab edit was needed.
+
+Logic checks:
+- DTO: `totalMerged/totalRetired/totalDormant` are declared required `number` (`rpc-curator-diagnostics.types.ts:259-261`), so the `?? 0` in `applySnapshot` is purely defensive. It matches the existing sibling lines, which are also on required fields, and the "older backend" spec exercises it. Correct and consistent.
+- No stubs, TODOs or mock data in production code.
+- Accept then a stats failure: `loadStats` swallows its own error and sets `error`. The accept and the list refresh have already landed, and `suggestionsLoading` resets in `finally`, so the state is sensible. The only oddity is that the user sees a stats-read error after a successful accept.
+
+### BLOCKING
+None. The plan's literal criterion (implementation-plan.md:898-913, `accept` awaits `loadStats()` after `refreshSuggestions()`) is met.
+
+### MODERATE
+1. `skill-synthesis-state.service.ts:444` plus `skill-pipeline-status.component.ts:203`: the counters the user sees do not refresh on accept.
+   - The pipeline cells read `SkillDiagnosticsStateService.byStatus`, which is fed only by `diagnostics.refresh()`.
+   - `accept()` refreshes `SkillSynthesisStateService.stats`, which feeds `ptah-skill-stats-strip` (`skill-synthesis-tab.component.ts:155`), not these cells.
+   - The diagnostics snapshot refreshes on tab open (`:944`), the manual Refresh button (`:957`), or the 30 s poll (`skill-diagnostics-state.service.ts:13`, `:194`). That poll starts only from `skill-activity-feed.component.ts:83`, so it runs only while that component is mounted.
+   - So Merged/Retired/Dormant and the pipeline Promoted count can lag after accept by up to 30 s, or until a manual refresh. The batch purpose "Promoted/Active rise immediately after accept" is met for the stats strip but not for the pipeline cells.
+   - Suggested fix-up: have the tab (or `accept`'s caller) also call `diagnostics.refresh()` after `state.accept()`. Do not couple the two services inside `accept`. Add a spec for it. If the plan's literal scope is to stand, record this as an accepted limitation in the batch notes.
+2. `skill-synthesis-state.service.spec.ts` (accept block, about `:165-195`): there is no test for "accept succeeds, stats rejects". The `loadStats` error surface after a successful accept is therefore unpinned. Add one asserting that the list is refreshed, `suggestionsLoading` is false, and `error` holds the stats message.
+
+### MINOR
+1. `skill-diagnostics-state.service.spec.ts:39`: the shared fixture's `activeSkills` was changed from 3 to 2 with no stated reason. No other assertion depends on it (only the new tests at `:122` and `:132` use 2, and they override it explicitly). It looks like noise. It does not mask a defect, since `activeSkills` is passed straight through. Revert it, or explain it in the commit message.
+2. `skill-synthesis-state.service.ts:444`: `loadStats()` swallows errors by contract, so the `await` cannot throw. The `catch` stays valid for accept and list refresh, but a stats-only failure surfaces as the single shared `error` string with no distinction from an accept failure. Acceptable, with a one-line comment worth adding.
+3. `skill-pipeline-status.component.ts:229-246`: the five cells are now near-identical copy-paste blocks. Three real uses meet the plan's threshold for a small `@for` over a label/value array, but the plan explicitly asked for "the same markup pattern", so this is optional.
+
+Verdict: NEEDS_REVISION
+(No blockers. MODERATE-1 is a user-visible staleness gap against the batch's stated purpose, so a fix-up is requested. The reviewer can downgrade to APPROVED if the team records it as an accepted limitation.)
+
+### Batch 14 re-review (revision 1)
+
+Scope: the 8 files under `libs/frontend/skill-synthesis-ui/src/lib/`, read in full for the touched regions, plus `refreshSuggestions`, `loadStats` and `SkillDiagnosticsStateService.refresh`. No blocking or moderate issue remains.
+
+Prior findings:
+- MODERATE 1 (accept did not refresh pipeline counters): RESOLVED. `skill-suggestions-view.component.ts:456-458` and `:511-513` call `refreshPipelineCounts()` (`void this.diagnostics.refresh()`) only on success. Specs at `skill-suggestions-view.component.spec.ts` assert one refresh, ordered after `accept` via `invocationCallOrder`, for both the card and the modal path.
+- MODERATE 2 (no spec for accept succeeds, stats fails): RESOLVED. `skill-synthesis-state.service.spec.ts` "keeps the accept when the follow-up stats read fails" asserts `true`, the list kept, `stats()` null, `error()` 'stats-unavailable'. A failed-accept spec asserts `stats` is not called.
+- MINOR 1 (fixture activeSkills 3 to 2): RESOLVED, with a nit (M1 below).
+
+Claim verification:
+- `accept()` returns `Promise<boolean>`; the only callers are the two in the suggestions view (grep over libs/ and apps/ finds no other `state.accept(` use; backend `store.accept` is an unrelated API). Both are updated. The `degradation-audit: reported` marker is truthful: the catch sets `error`, which the view renders at line 70 and in the toast.
+- Boolean honesty: `refreshSuggestions` (365-376) and `loadStats` (331-338) both catch internally, so a successful accept followed by a failed list or stats read returns `true`. This is acceptable and correct: the accept did land, and returning `false` would invite a retry of a non-idempotent promote. The failure is not lost: `error` is set and the alert at line 70 shows. The result is a success toast plus an error alert. The docblock states this. Fine.
+- Error toast message: on `false`, the rejection came from `acceptSuggestion` itself, so `refreshSuggestions` never ran and its `error.set(null)` cannot have cleared it. `error()` is therefore the accept error. The fallback string covers an empty message. Matches the existing save-failure pattern at line 504.
+- Ordering and races: the diagnostics refresh starts only after `accept` resolved, so the backend has already promoted. Un-awaited is justified, since `refresh()` never rejects (its catch is at 149-150). The component holds no state that depends on it. Residual: `refresh()` has no sequence guard, so an in-flight activity-poll refresh that began before the accept could resolve after and overwrite with the older snapshot. This is pre-existing and narrow, and it is not introduced here (M2).
+- Modal retry: on failure `onCloseReview` is skipped, `busyId` is reset in `finally`, and a spec pins that `reviewId` stays set and `clearSuggestionDetail` is not called.
+- Standalone, OnPush, signals, inject(): unchanged and compliant. There is no `[innerHTML]` and no TODO or FIXME in the touched files. Spec stubs are typed (`StateStub`, `DiagnosticsStub`, `jest.Mock<Promise<boolean>, [string]>`), and the only cast is the existing `as unknown as` private-method access idiom.
+
+New findings (all MINOR, none gating):
+- M1 `skill-diagnostics-state.service.spec.ts:39`: the comment cites "Batch 11 (2c1c8840b)". Batch and commit ids rot; state the invariant only ("activeSkills is resident-only, so it cannot exceed totalPromoted").
+- M2 `skill-diagnostics-state.service.ts:139`: `refresh()` has no last-request-wins guard. Now that accept adds a third caller (tab open, manual Refresh, poll, accept), an out-of-order reply could show stale counts. Pre-existing; track as a follow-up only.
+- M3 scope noise: the diff also carries the Merged, Retired and Dormant additions (`skill-diagnostics-state.service.ts:84-86,109-111,264-266`, `skill-pipeline-status.component.ts:229-246`, and their specs) and an unrelated Prettier reflow of two hunks in `skill-diagnostics-state.service.spec.ts` (about lines 285 and 322). These are not in the stated revision. They are coherent and tested, with zero-defaults for older backends. Make sure they land in the right commit, and keep the reflow out of the fix-up.
+- M4 `skill-synthesis-state.service.ts:437-444`: `accept()` now reads stats itself (`loadStats`) and the view also refreshes diagnostics, so two stats-shaped reads follow each accept. Harmless, as the two stores feed different surfaces; worth one line noting why both are kept.
+
+Verdict: APPROVED
