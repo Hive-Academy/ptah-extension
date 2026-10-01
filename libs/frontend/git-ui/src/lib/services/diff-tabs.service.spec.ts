@@ -456,10 +456,11 @@ describe('DiffTabsService.refreshDiffTab', () => {
     // The response belongs to the ORIGIN workspace and must never be applied
     // once the user has navigated elsewhere — applying it would leak one
     // workspace's git content into another's tab. The drop must also not
-    // PARK the tab at 'refreshing': the pre-read status comes back.
+    // PARK the tab at 'refreshing'. The read was asked for because the
+    // content may have changed, so the tab becomes 'stale', not 'fresh'.
     const tab = tabAt(service, key);
     expect(tab?.diff?.modified).toBe('new');
-    expect(tab?.diff?.status).toBe('fresh');
+    expect(tab?.diff?.status).toBe('stale');
   });
 
   it('drops the response if the tab was closed while the request was in flight', async () => {

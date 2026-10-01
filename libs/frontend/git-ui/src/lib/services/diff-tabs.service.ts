@@ -675,9 +675,10 @@ export class DiffTabsService implements MessageHandler {
   private async runDiffTabRefresh(key: string): Promise<void> {
     try {
       await this.readDiffTabOnce(key);
-    } catch {
+    } catch (err: unknown) {
       // Same user-visible stance as a `{success:false}` answer: previous
       // content retained, status moved off 'refreshing' to 'stale'.
+      console.error('[DiffTabsService] diff refresh threw', err);
       this.patchDiff(key, (diff) => ({
         ...diff,
         status: 'stale',
@@ -700,7 +701,6 @@ export class DiffTabsService implements MessageHandler {
 
     const originWorkspace = this.activeWorkspacePath();
     const requestId = tab.diff.requestId + 1;
-    const previousStatus = tab.diff.status;
     const { comparison, path, originalPath } = tab.diff;
 
     this.patchDiff(key, (diff) => ({
@@ -720,13 +720,12 @@ export class DiffTabsService implements MessageHandler {
     // Drop the response if the world moved on: newer request, workspace
     // switched, or the tab was closed while we waited.
     if (this.activeWorkspacePath() !== originWorkspace) {
-      // The workspace-switch drop must not park the tab at 'refreshing':
-      // restore the status this read replaced when it started.
-      // A newer read owns the tab once it has bumped the requestId.
+      // The workspace-switch drop must not park the tab at 'refreshing'. The
+      // read was asked for because the content may have changed, so the tab
+      // is 'stale', not its earlier status. A newer read owns the tab once it
+      // has bumped the requestId.
       this.patchDiff(key, (diff) =>
-        diff.requestId === requestId
-          ? { ...diff, status: previousStatus }
-          : diff,
+        diff.requestId === requestId ? { ...diff, status: 'stale' } : diff,
       );
       return;
     }
