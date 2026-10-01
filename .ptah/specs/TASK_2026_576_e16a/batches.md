@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 22/69
+Total tasks: 87 | Batches: 69 | Complete: 23/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1242,14 +1242,14 @@ executors at once.
   degradation-audit green. Noted, not new: `readUntrackedNumstat` resolves against the workspace path, so untracked
   counts can be wrong when the workspace is a repo subfolder; SHA-256 repos fall back to null counts on unborn HEAD.
 
-## Batch 26: Turn change-set recorder and store — PENDING
+## Batch 26: Turn change-set recorder and store — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 18, 25
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers`
 
-### Task 26.1: Baseline at prompt submit, diff at turn end, persist under its own key — PENDING
+### Task 26.1: Baseline at prompt submit, diff at turn end, persist under its own key — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/chat/change-set/turn-change-set-recorder.service.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/chat/change-set/turn-change-set.store.ts (+ .spec.ts)
 - Plan reference: implementation-plan.md:796-845
@@ -1257,6 +1257,20 @@ executors at once.
 - Quality requirements: ≤2,000 stat paths, ≤500 files, ≤100 sets/session; no timers; baseline Map entry deleted at turn end.
 - Validation notes: A6 — read `user-prompt-submit-hook-handler.ts`; fallback to `SessionMetadata.workingDirectory`. Empty set → no record, no push; unavailable status → nothing; numstat failure → null counts + `countsUnavailable`.
 - Implementation details: key `ptah.turnChangeSets:<sessionId>`.
+- Outcome: executor backend-developer; the four listed files. Recorder listens on
+  `UserPromptSubmitCallbackRegistry.register` (baseline stored before any await; ≤2,000 paths `fs.stat`-ed, 32 at a
+  time) and on `onTurnEnded` + `onTurnFailed` (Map entry deleted before any await). Change = status/origPath/numstat
+  signature, appear/disappear, or mtime/size. ≤500 files (rest → `truncatedCount`), `countsUnavailable` on a null
+  count of a non-binary file, `baselineMissing` when no baseline. Empty set, non-git dir or unavailable status →
+  nothing. Store `{ schemaVersion: 1, changeSets }`, newest 100 per session, serialised appends. No timers, no DI or
+  RPC registration. A6: `user-prompt-submit-hook-handler.ts:54-59` sends `workspaceRoot: cwd` (the SDK query cwd,
+  i.e. the worktree when the session runs in one); fallback `SessionMetadata.workingDirectory`. Accepted deviations:
+  failed turns are recorded too; a prompt submitted mid-turn keeps the first baseline (an aborted turn without
+  Stop/StopFailure keeps its entry until that session's next turn ends; ≤1 entry per session). Verified:
+  rpc-handlers typecheck + lint green; tests 3426 passed / 1 failed (the known `harness-skill-selection` "never
+  writes state.json", fails alone, unrelated) / 4 skipped; change-set specs 26/26 (event-driven waits after a
+  timing flake); degradation-audit green. For Batch 27: Electron worker storage does not exclude
+  `ptah.turnChangeSets:` from `cacheExcludeKeyPrefixes` (several MB per session could load at startup).
 
 ## Batch 27: Change-set RPC and registration — PENDING
 
