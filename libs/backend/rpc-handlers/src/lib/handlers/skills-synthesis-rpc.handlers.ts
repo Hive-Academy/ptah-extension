@@ -55,6 +55,7 @@ import {
   type SkillGapCuratorService,
   type DigestItem,
   type QueryOrigin,
+  toSkillSynthesisEventWire,
 } from '@ptah-extension/skill-synthesis';
 import {
   CRON_TOKENS,
@@ -711,13 +712,9 @@ export class SkillsSynthesisRpcHandlers {
             prefilterRejected: snapshot.eligibilityHistogram.prefilterRejected,
             accepted: snapshot.eligibilityHistogram.accepted,
           },
-          recentEvents: snapshot.recentEvents.map((e) => ({
-            kind: e.kind,
-            timestamp: e.timestamp,
-            sessionId: e.sessionId,
-            stats: e.stats,
-            error: e.error,
-          })),
+          // Newest-first, as `getSnapshot` returns it. Same mapper as the live
+          // SKILL_SYNTHESIS_EVENT push, so an id carries one payload on both paths.
+          recentEvents: snapshot.recentEvents.map(toSkillSynthesisEventWire),
           triggers: {
             sessionEnd: snapshot.triggers.sessionEnd,
             idleMs: snapshot.triggers.idleMs,

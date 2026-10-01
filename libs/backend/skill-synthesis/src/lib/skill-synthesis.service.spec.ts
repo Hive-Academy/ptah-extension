@@ -10,7 +10,9 @@ import 'reflect-metadata';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { decodeTime } from 'ulid';
 import { SkillSynthesisService } from './skill-synthesis.service';
+import { toSkillSynthesisEventWire } from './event-wire';
 import type { SkillCandidateStore } from './skill-candidate.store';
 import type { SkillMdGenerator } from './skill-md-generator';
 import type { SkillPromotionService } from './skill-promotion.service';
@@ -65,6 +67,8 @@ describe('SkillSynthesisService', () => {
       verdict?: SessionVerdict | null;
       /** What `findLatestBySourceSession` answers — the prior draft, if any. */
       prior?: SkillCandidateRow | null;
+      /** When set, live event broadcasts go to this webview manager. */
+      webviewManager?: ConstructorParameters<typeof SkillSynthesisService>[13];
     } = {},
   ) {
     const vecLoaded = opts.vecLoaded ?? false;
@@ -198,7 +202,7 @@ describe('SkillSynthesisService', () => {
       synthesizer,
       registry,
       null,
-      null,
+      opts.webviewManager ?? null,
       null,
       verdicts,
     );
@@ -773,20 +777,166 @@ describe('SkillSynthesisService', () => {
     expect(store.registerCandidate).toHaveBeenCalledTimes(1);
   });
 
-  it('pushEvent ring-buffer caps at 200 with FIFO eviction (R5)', async () => {
-    const { svc } = setup();
-    await svc.start();
-    for (let i = 0; i < 205; i++) {
-      svc.pushEvent({
-        kind: 'idle-trigger',
-        timestamp: i,
-        sessionId: `s${i}`,
+  describe('event ring: ids and newest-first window', () => {
+    const T0 = 1_700_000_000_000;
+    const ULID_SHAPE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+
+    it('caps at 200 with FIFO eviction and still returns the newest window newest-first (R5)', async () => {
+      const { svc } = setup();
+      await svc.start();
+      for (let i = 0; i < 205; i++) {
+        svc.pushEvent({
+          kind: 'idle-trigger',
+          timestamp: T0 + i,
+          sessionId: `s${i}`,
+        });
+      }
+      const all = svc.recentEvents(500);
+      expect(all).toHaveLength(200);
+      // s0..s4 were evicted; index 0 is the latest recorded event.
+      expect(all[0].sessionId).toBe('s204');
+      expect(all[all.length - 1].sessionId).toBe('s5');
+      expect(svc.recentEvents(3).map((e) => e.sessionId)).toEqual([
+        's204',
+        's203',
+        's202',
+      ]);
+      // Ids descend along the newest-first window.
+      for (let i = 1; i < all.length; i++) {
+        expect(all[i - 1].id > all[i].id).toBe(true);
+      }
+    });
+
+    it('returns the newest `limit` events newest-first when limit < size', async () => {
+      const { svc } = setup();
+      await svc.start();
+      for (let i = 1; i <= 5; i++) {
+        svc.pushEvent({
+          kind: 'analyze-run',
+          timestamp: T0 + i * 1000,
+          sessionId: `s${i}`,
+        });
+      }
+      expect(svc.recentEvents(2).map((e) => e.sessionId)).toEqual(['s5', 's4']);
+      expect(svc.recentEvents(10).map((e) => e.sessionId)).toEqual([
+        's5',
+        's4',
+        's3',
+        's2',
+        's1',
+      ]);
+    });
+
+    it('returns a copy: reading the window twice does not reorder the ring', async () => {
+      const { svc } = setup();
+      await svc.start();
+      svc.pushEvent({ kind: 'boot-scan', timestamp: T0, sessionId: 'a' });
+      svc.pushEvent({ kind: 'boot-scan', timestamp: T0 + 1, sessionId: 'b' });
+      const first = svc.recentEvents(10);
+      (first as unknown as unknown[]).reverse();
+      expect(svc.recentEvents(10).map((e) => e.sessionId)).toEqual(['b', 'a']);
+      expect(svc.recentEvents(10).map((e) => e.sessionId)).toEqual(['b', 'a']);
+    });
+
+    it('gives two same-kind events in the same millisecond two distinct, increasing ULIDs, and broadcasts the same id', async () => {
+      const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+      const { svc } = setup({
+        webviewManager: { broadcastMessage } as unknown as ConstructorParameters<
+          typeof SkillSynthesisService
+        >[13],
       });
-    }
-    const all = svc.recentEvents(500);
-    expect(all).toHaveLength(200);
-    expect(all[0].sessionId).toBe('s5');
-    expect(all[all.length - 1].sessionId).toBe('s204');
+      await svc.start();
+      broadcastMessage.mockClear();
+
+      svc.pushEvent({ kind: 'ineligible', timestamp: T0, sessionId: 'A' });
+      svc.pushEvent({ kind: 'ineligible', timestamp: T0, sessionId: 'B' });
+
+      const [newer, older] = svc.recentEvents(2);
+      expect(newer.sessionId).toBe('B');
+      expect(older.sessionId).toBe('A');
+      expect(older.id).toMatch(ULID_SHAPE);
+      expect(newer.id).toMatch(ULID_SHAPE);
+      expect(newer.id).not.toBe(older.id);
+      expect(newer.id > older.id).toBe(true);
+      // Both ids encode the event's own millisecond (first 10 chars = time).
+      expect(newer.id.slice(0, 10)).toBe(older.id.slice(0, 10));
+
+      expect(broadcastMessage).toHaveBeenCalledTimes(2);
+      const pushedIds = broadcastMessage.mock.calls.map(
+        (call) => (call[1] as { event: { id: string } }).event.id,
+      );
+      expect(pushedIds).toEqual([older.id, newer.id]);
+      expect(broadcastMessage.mock.calls[1][1]).toEqual({
+        event: {
+          id: newer.id,
+          kind: 'ineligible',
+          timestamp: T0,
+          sessionId: 'B',
+          stats: undefined,
+          error: undefined,
+        },
+      });
+    });
+
+    it('folds reason and candidateId into the broadcast stats, identically to the snapshot mapper', async () => {
+      const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+      const { svc } = setup({
+        webviewManager: { broadcastMessage } as unknown as ConstructorParameters<
+          typeof SkillSynthesisService
+        >[13],
+      });
+      await svc.start();
+      broadcastMessage.mockClear();
+
+      svc.pushEvent({
+        kind: 'ineligible',
+        timestamp: T0 + 500,
+        sessionId: 's-a',
+        reason: 'prefilterTooThin',
+        candidateId: 'cand_1',
+        stats: { turns: 2 },
+      });
+
+      const [stored] = svc.recentEvents(1);
+      const expectedWire = {
+        id: stored.id,
+        kind: 'ineligible',
+        timestamp: T0 + 500,
+        sessionId: 's-a',
+        // Same literal the rpc-handlers diagnostics spec asserts for the
+        // snapshot path.
+        stats: { turns: 2, candidateId: 'cand_1', reason: 'prefilterTooThin' },
+        error: undefined,
+      };
+      expect(broadcastMessage).toHaveBeenCalledTimes(1);
+      expect(broadcastMessage.mock.calls[0][1]).toEqual({
+        event: expectedWire,
+      });
+      // The snapshot handler maps ring entries with this same function.
+      expect(toSkillSynthesisEventWire(stored)).toEqual(expectedWire);
+    });
+
+    it('floors a fractional timestamp into the id instead of seeding from the clock', async () => {
+      const { svc } = setup();
+      await svc.start();
+      const fractional = T0 + 0.75;
+      svc.pushEvent({ kind: 'analyze-run', timestamp: fractional });
+      const [ev] = svc.recentEvents(1);
+      expect(ev.id).toMatch(ULID_SHAPE);
+      // The event keeps its own timestamp; the id encodes its millisecond.
+      expect(ev.timestamp).toBe(fractional);
+      expect(decodeTime(ev.id)).toBe(T0);
+    });
+
+    it('keeps ids increasing in recording order even when a timestamp goes backwards', async () => {
+      const { svc } = setup();
+      await svc.start();
+      svc.pushEvent({ kind: 'error', timestamp: T0 + 5000, error: 'late' });
+      svc.pushEvent({ kind: 'error', timestamp: T0, error: 'early' });
+      const [second, first] = svc.recentEvents(2);
+      expect(second.error).toBe('early');
+      expect(second.id > first.id).toBe(true);
+    });
   });
 
   it('recordCuratorPass updates lastCuratorPassAt only (no event push)', async () => {

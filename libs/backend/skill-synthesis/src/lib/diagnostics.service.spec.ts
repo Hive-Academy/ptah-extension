@@ -79,7 +79,12 @@ describe('SkillSynthesisDiagnosticsService', () => {
   it('returns snapshot with last-run + triggers + histogram + status counts', async () => {
     const t = 1700000000000;
     const events: SkillSynthesisEvent[] = [
-      { kind: 'analyze-run', timestamp: t, sessionId: 's1' },
+      {
+        id: '01HNZXD07M5CEN5XA66EMZSRZW',
+        kind: 'analyze-run',
+        timestamp: t,
+        sessionId: 's1',
+      },
     ];
     const service = new SkillSynthesisDiagnosticsService(
       makeLogger(),
