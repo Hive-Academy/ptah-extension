@@ -1,262 +1,246 @@
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { signal } from '@angular/core';
 import {
-  createMockRpcService,
-  rpcError,
-  rpcSuccess,
-  type MockRpcService,
-} from '@ptah-extension/core/testing';
+  DeferBlockBehavior,
+  DeferBlockState,
+  TestBed,
+  type ComponentFixture,
+} from '@angular/core/testing';
+import {
+  ClaudeRpcService,
+  ProvidersSettingsStateService,
+  RpcResult,
+  VSCodeService,
+} from '@ptah-extension/core';
 import type {
   VoiceProviderCapabilityDto,
   VoiceProviderConfigDto,
 } from '@ptah-extension/shared';
-
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { VoiceConfigComponent } from './voice-config.component';
 
-function providers(): VoiceProviderCapabilityDto[] {
+function providers(elevenlabsAvailable = false): VoiceProviderCapabilityDto[] {
   return [
     {
-      id: 'local',
-      label: 'Local (Whisper / Kokoro)',
-      kind: 'local',
-      requiresDownload: true,
-      requiresApiKey: false,
-      supports: { tts: true, stt: true },
-      available: true,
+      id: 'local', label: 'Local (Whisper / Kokoro)', kind: 'local', requiresDownload: true,
+      requiresApiKey: false, supports: { tts: true, stt: true }, available: true,
     },
     {
-      id: 'elevenlabs',
-      label: 'ElevenLabs',
-      kind: 'cloud',
-      requiresDownload: false,
-      requiresApiKey: true,
-      supports: { tts: true, stt: true },
-      available: false,
-      unavailableReason: 'API key not configured',
+      id: 'elevenlabs', label: 'ElevenLabs', kind: 'cloud', requiresDownload: false, requiresApiKey: true,
+      supports: { tts: true, stt: true }, available: elevenlabsAvailable,
+      ...(elevenlabsAvailable ? {} : { unavailableReason: 'API key not configured' }),
     },
   ];
 }
 
-function config(
-  overrides: Partial<VoiceProviderConfigDto> = {},
-): VoiceProviderConfigDto {
+function config(overrides: Partial<VoiceProviderConfigDto> = {}): VoiceProviderConfigDto {
   return {
     ttsProvider: 'local',
     sttProvider: 'local',
     local: {
-      whisperModel: 'base.en',
-      modelSource: 'curated',
-      sttDownloaded: false,
-      ttsDownloaded: false,
-      ttsVoice: 'af_heart',
+      whisperModel: 'base.en', modelSource: 'curated', sttDownloaded: true, ttsDownloaded: false, ttsVoice: 'af_heart',
     },
     elevenlabs: {
-      apiKeyConfigured: false,
-      ttsModelId: 'eleven_multilingual_v2',
-      outputFormat: 'mp3_44100_128',
-      sttModelId: 'scribe_v1',
+      apiKeyConfigured: false, ttsModelId: 'eleven_multilingual_v2', outputFormat: 'mp3_44100_128', sttModelId: 'scribe_v1',
     },
     ...overrides,
   };
 }
 
-/** Route mock RPC responses by method name (order-independent). */
-function routeRpc(
-  rpc: MockRpcService,
-  routes: Record<string, () => unknown>,
-): void {
-  rpc.call.mockImplementation((method: string) => {
-    const handler = routes[method];
-    if (handler) return Promise.resolve(handler());
-    // Benign default for child-panel init calls (e.g. voice:listVoices).
-    return Promise.resolve(rpcSuccess({ ok: true, voices: [] }));
-  });
-}
+type Responder = () => RpcResult<unknown> | Promise<RpcResult<unknown>>;
+const ok = <T>(data: T) => new RpcResult<T>(true, data);
+const fail = (message: string) => new RpcResult<unknown>(false, undefined, message);
 
-function mount(rpc: MockRpcService): {
-  fixture: ComponentFixture<VoiceConfigComponent>;
-  component: VoiceConfigComponent;
-} {
-  TestBed.configureTestingModule({
-    imports: [VoiceConfigComponent],
-    providers: [{ provide: ClaudeRpcService, useValue: rpc }],
-  });
-  const fixture = TestBed.createComponent(VoiceConfigComponent);
-  return { fixture, component: fixture.componentInstance };
-}
-
-async function settle(
-  fixture: ComponentFixture<VoiceConfigComponent>,
-): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  fixture.detectChanges();
-}
-
-function sttSelect(
-  fixture: ComponentFixture<VoiceConfigComponent>,
-): HTMLSelectElement {
-  const el = fixture.nativeElement.querySelector(
-    '[data-testid="voice-stt-provider-select"]',
-  ) as HTMLSelectElement | null;
-  if (!el) throw new Error('stt provider select not found');
-  return el;
-}
-
+/** TASK_2026_555 Batch 46 — Voice engines matrix (pattern map V9-V12). */
 describe('VoiceConfigComponent', () => {
-  afterEach(() => TestBed.resetTestingModule());
+  let fixture: ComponentFixture<VoiceConfigComponent>;
+  let component: VoiceConfigComponent;
+  let feedback: SettingsSaveFeedbackService;
+  let element: HTMLElement;
+  let responses: Record<string, Responder>;
+  let currentConfig: VoiceProviderConfigDto;
+  const call = jest.fn();
 
-  it('loads providers + config and renders both provider selects', async () => {
-    const rpc = createMockRpcService();
-    routeRpc(rpc, {
-      'voice:listProviders': () =>
-        rpcSuccess({
-          ok: true,
-          providers: providers(),
-          active: { tts: 'local', stt: 'local' },
-        }),
-      'voice:getProviderConfig': () =>
-        rpcSuccess({ ok: true, config: config() }),
+  beforeEach(() => {
+    currentConfig = config();
+    responses = {
+      'voice:listProviders': () => ok({ ok: true, providers: providers(true), active: { tts: 'local', stt: 'local' } }),
+      'voice:getProviderConfig': () => ok({ ok: true, config: currentConfig }),
+      'voice:setProviderConfig': () => ok({ ok: true }),
+    };
+    call.mockReset();
+    call.mockImplementation(async (method: string) => {
+      const respond = responses[method];
+      // Benign default for the panels' own init calls (e.g. voice:listVoices).
+      return respond ? respond() : ok({ ok: true, voices: [] });
     });
-
-    const { fixture, component } = mount(rpc);
-    fixture.detectChanges();
-    await settle(fixture);
-
-    expect(rpc.call).toHaveBeenCalledWith('voice:listProviders', {});
-    expect(rpc.call).toHaveBeenCalledWith('voice:getProviderConfig', {});
-    expect(component.sttProviderId()).toBe('local');
-    expect(
-      fixture.nativeElement.querySelector(
-        '[data-testid="voice-tts-provider-select"]',
-      ),
-    ).not.toBeNull();
   });
 
-  it('disables the option for an unavailable provider (FR-6.2)', async () => {
-    const rpc = createMockRpcService();
-    routeRpc(rpc, {
-      'voice:listProviders': () =>
-        rpcSuccess({
-          ok: true,
-          providers: providers(),
-          active: { tts: 'local', stt: 'local' },
-        }),
-      'voice:getProviderConfig': () =>
-        rpcSuccess({ ok: true, config: config() }),
+  afterEach(() => {
+    feedback?.dismiss();
+    fixture?.destroy();
+    TestBed.resetTestingModule();
+  });
+
+  /** Flushes pending RPC promises (not `whenStable()`: the toast's 8 s timer would hold it open). */
+  async function settle(): Promise<void> {
+    for (let pass = 0; pass < 3; pass += 1) {
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+      fixture.detectChanges();
+    }
+  }
+
+  async function render(): Promise<void> {
+    TestBed.configureTestingModule({
+      imports: [VoiceConfigComponent],
+      providers: [
+        { provide: ClaudeRpcService, useValue: { call } },
+        { provide: ProvidersSettingsStateService, useValue: { commit: signal({ status: 'idle' }) } },
+        { provide: VSCodeService, useValue: { isElectron: true, config: signal({}) } },
+        SettingsSaveFeedbackService,
+      ],
+      deferBlockBehavior: DeferBlockBehavior.Manual,
     });
-
-    const { fixture } = mount(rpc);
+    fixture = TestBed.createComponent(VoiceConfigComponent);
+    component = fixture.componentInstance;
+    element = fixture.nativeElement as HTMLElement;
+    feedback = TestBed.inject(SettingsSaveFeedbackService);
     fixture.detectChanges();
-    await settle(fixture);
+    await settle();
+  }
 
-    const option = sttSelect(fixture).querySelector(
-      'option[value="elevenlabs"]',
-    ) as HTMLOptionElement;
+  const byTestId = <T extends HTMLElement = HTMLElement>(id: string): T => {
+    const el = element.querySelector<T>(`[data-testid="${id}"]`);
+    if (!el) throw new Error(`missing [data-testid="${id}"]`);
+    return el;
+  };
+  const queryTestId = (id: string) => element.querySelector(`[data-testid="${id}"]`);
+  const calls = (method: string) => call.mock.calls.filter(([m]) => m === method).map(([, params]) => params);
+
+  async function choose(direction: 'stt' | 'tts', id: string): Promise<void> {
+    byTestId<HTMLButtonElement>(`voice-provider-btn-${direction}`).click();
+    fixture.detectChanges();
+    byTestId<HTMLButtonElement>(`voice-provider-option-${direction}-${id}`).click();
+    await settle();
+  }
+
+  it('shows loading, then one matrix row per direction with the V9 copy', async () => {
+    let finish: () => void = () => undefined;
+    responses['voice:getProviderConfig'] = () =>
+      new Promise((resolve) => { finish = () => resolve(ok({ ok: true, config: currentConfig })); });
+    await render();
+    expect(byTestId('voice-config-loading').textContent).toContain('Loading voice providers');
+
+    finish();
+    await settle();
+    expect(queryTestId('voice-config-loading')).toBeNull();
+    expect(element.textContent).toContain('Local engines run offline;');
+    expect(element.querySelector('table.table.table-xs')).not.toBeNull();
+    expect(byTestId('voice-provider-btn-stt').textContent).toContain('Local (Whisper / Kokoro)');
+    expect(byTestId('voice-engine-model-stt').textContent).toContain('base.en');
+    expect(byTestId('voice-engine-model-tts').textContent).toContain('af_heart');
+  });
+
+  it('summarises readiness per direction with colour only on the dot (V12)', async () => {
+    currentConfig = config({ ttsProvider: 'elevenlabs' });
+    await render();
+
+    const stt = byTestId('voice-engine-status-stt');
+    const tts = byTestId('voice-engine-status-tts');
+    expect(stt.textContent).toContain('Ready');
+    expect(tts.textContent).toContain('No key');
+    expect(stt.classList).toContain('text-base-content');
+    expect(tts.querySelector('.bg-warning')).not.toBeNull();
+    expect(byTestId('voice-engine-model-tts').textContent).toContain('No voice chosen');
+  });
+
+  it('reports a not-downloaded local engine and a custom STT source', async () => {
+    currentConfig = config({
+      local: { ...config().local, modelSource: 'hf', customModel: 'org/whisper-x', sttDownloaded: false },
+    });
+    await render();
+    expect(byTestId('voice-engine-status-stt').textContent).toContain('Not downloaded');
+    expect(byTestId('voice-engine-model-stt').textContent).toContain('org/whisper-x');
+  });
+
+  it('keeps an unavailable provider disabled with its reason as visible text (V10)', async () => {
+    responses['voice:listProviders'] = () => ok({ ok: true, providers: providers(false), active: { tts: 'local', stt: 'local' } });
+    await render();
+    byTestId<HTMLButtonElement>('voice-provider-btn-stt').click();
+    fixture.detectChanges();
+
+    const option = byTestId<HTMLButtonElement>('voice-provider-option-stt-elevenlabs');
     expect(option.disabled).toBe(true);
-    expect(option.title).toBe('API key not configured');
+    expect(option.getAttribute('role')).toBe('radio');
+    expect(byTestId('voice-provider-reason-stt-elevenlabs').textContent).toContain('API key not configured');
+    expect(byTestId('voice-provider-option-stt-local').getAttribute('aria-checked')).toBe('true');
   });
 
-  it('renders the local STT panel by default via @switch', async () => {
-    const rpc = createMockRpcService();
-    routeRpc(rpc, {
-      'voice:listProviders': () =>
-        rpcSuccess({
-          ok: true,
-          providers: providers(),
-          active: { tts: 'local', stt: 'local' },
-        }),
-      'voice:getProviderConfig': () =>
-        rpcSuccess({ ok: true, config: config() }),
-    });
+  it('saves a provider on selection, re-reads config, and Undo writes the previous provider (V10/V11)', async () => {
+    responses['voice:setProviderConfig'] = () => {
+      currentConfig = config({ sttProvider: currentConfig.sttProvider === 'local' ? 'elevenlabs' : 'local' });
+      return ok({ ok: true });
+    };
+    await render();
+    await choose('stt', 'elevenlabs');
 
-    const { fixture } = mount(rpc);
-    fixture.detectChanges();
-    await settle(fixture);
-
-    expect(
-      fixture.nativeElement.querySelector(
-        '[data-testid="local-stt-model-select"]',
-      ),
-    ).not.toBeNull();
-    // No ElevenLabs panel while local is the active STT provider.
-    expect(
-      fixture.nativeElement.querySelector(
-        '[data-testid="elevenlabs-stt-model-select"]',
-      ),
-    ).toBeNull();
-  });
-
-  it('switches provider via voice:setProviderConfig and re-reads config', async () => {
-    const available = providers().map((p) =>
-      p.id === 'elevenlabs' ? { ...p, available: true } : p,
-    );
-    const rpc = createMockRpcService();
-    let currentConfig = config();
-    routeRpc(rpc, {
-      'voice:listProviders': () =>
-        rpcSuccess({
-          ok: true,
-          providers: available,
-          active: { tts: 'local', stt: 'local' },
-        }),
-      'voice:getProviderConfig': () =>
-        rpcSuccess({ ok: true, config: currentConfig }),
-      'voice:setProviderConfig': () => {
-        currentConfig = config({ sttProvider: 'elevenlabs' });
-        return rpcSuccess({ ok: true });
-      },
-    });
-
-    const { fixture, component } = mount(rpc);
-    fixture.detectChanges();
-    await settle(fixture);
-
-    const el = sttSelect(fixture);
-    el.value = 'elevenlabs';
-    el.dispatchEvent(new Event('change'));
-    await settle(fixture);
-
-    expect(rpc.call).toHaveBeenCalledWith('voice:setProviderConfig', {
-      sttProvider: 'elevenlabs',
-    });
+    expect(calls('voice:setProviderConfig')).toEqual([{ sttProvider: 'elevenlabs' }]);
+    expect(calls('voice:getProviderConfig').length).toBe(2);
     expect(component.sttProviderId()).toBe('elevenlabs');
-    // The ElevenLabs STT panel is now rendered.
-    expect(
-      fixture.nativeElement.querySelector(
-        '[data-testid="elevenlabs-stt-model-select"]',
-      ),
-    ).not.toBeNull();
+    expect(byTestId('voice-provider-btn-stt').textContent).toContain('ElevenLabs');
+    expect(feedback.toast()).toEqual({ tone: 'status', message: 'Saved speech-to-text provider.', canUndo: true });
+
+    await feedback.undo();
+    await settle();
+    expect(calls('voice:setProviderConfig')).toEqual([{ sttProvider: 'elevenlabs' }, { sttProvider: 'local' }]);
+    expect(component.sttProviderId()).toBe('local');
   });
 
-  it('reverts the optimistic provider change when the save fails', async () => {
-    const available = providers().map((p) =>
-      p.id === 'elevenlabs' ? { ...p, available: true } : p,
-    );
-    const rpc = createMockRpcService();
-    routeRpc(rpc, {
-      'voice:listProviders': () =>
-        rpcSuccess({
-          ok: true,
-          providers: available,
-          active: { tts: 'local', stt: 'local' },
-        }),
-      'voice:getProviderConfig': () =>
-        rpcSuccess({ ok: true, config: config() }),
-      'voice:setProviderConfig': () => rpcError('backend refused'),
-    });
+  it('reverts the row and raises an alert toast when the write fails (D15)', async () => {
+    responses['voice:setProviderConfig'] = () => fail('backend refused');
+    await render();
+    await choose('tts', 'elevenlabs');
 
-    const { fixture, component } = mount(rpc);
-    fixture.detectChanges();
-    await settle(fixture);
+    expect(component.ttsProviderId()).toBe('local');
+    expect(byTestId('voice-provider-btn-tts').textContent).toContain('Local');
+    expect(feedback.toast()).toEqual({ tone: 'alert', message: 'backend refused', canUndo: false });
+    const alert = byTestId('voice-config-error');
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.classList).toContain('text-base-content');
+  });
 
-    const el = sttSelect(fixture);
-    el.value = 'elevenlabs';
-    el.dispatchEvent(new Event('change'));
-    await settle(fixture);
+  it('treats { ok:false } from the host as a failed write', async () => {
+    responses['voice:setProviderConfig'] = () => ok({ ok: false, error: 'ElevenLabs key missing' });
+    await render();
+    await choose('stt', 'elevenlabs');
 
     expect(component.sttProviderId()).toBe('local');
-    expect(component.errorMessage()).toBe('backend refused');
+    expect(feedback.toast()).toEqual({ tone: 'alert', message: 'ElevenLabs key missing', canUndo: false });
+  });
+
+  it('shows a load failure as an inline alert', async () => {
+    responses['voice:getProviderConfig'] = () => fail('Could not read voice config');
+    await render();
+    expect(byTestId('voice-config-error').textContent).toContain('Could not read voice config');
+    expect(queryTestId('voice-engines-matrix')).toBeNull();
+  });
+
+  it('loads the drawer only when Details is used, on that direction\'s tab', async () => {
+    await render();
+    const [block] = await fixture.getDeferBlocks();
+    expect(queryTestId('voice-details-drawer')).toBeNull();
+
+    byTestId<HTMLButtonElement>('voice-engine-details-tts').click();
+    expect(component.drawerDirection()).toBe('tts');
+    await block.render(DeferBlockState.Complete);
+    await settle();
+
+    expect(document.querySelector('[data-testid="voice-details-drawer"]')).not.toBeNull();
+    expect(document.querySelector('ptah-local-tts-panel')).not.toBeNull();
+    expect(document.querySelector('ptah-local-stt-panel')).toBeNull();
+
+    (document.querySelector('[data-testid="voice-details-close"]') as HTMLButtonElement).click();
+    await settle();
+    expect(component.drawerDirection()).toBeNull();
+    expect(document.querySelector('[data-testid="voice-details-drawer"]')).toBeNull();
   });
 });
