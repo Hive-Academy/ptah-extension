@@ -20,7 +20,8 @@
   --b200: #1a1a20;
   --b300: #242430;
   --fg: #e8e6e1;
-  --muted: #8e8887;
+  /* SPEC 1.5 deviation: app muted is #8e8887 (4.40:1 on base-300); lifted so small overview text passes 4.5:1 */
+  --muted: #989291;
   --primary: #2563eb;
   --gold: #d4af37;
   --gold-strong: #f5d97d;
@@ -96,7 +97,7 @@
   border-radius: calc(8 * var(--u));
   font-family: var(--mono);
   font-size: calc(26 * var(--u));
-  font-weight: 400;
+  font-weight: 500; /* SPEC 4.3: mono micro 26/500 */
   white-space: nowrap;
 }
 .pu-badge > .fills {

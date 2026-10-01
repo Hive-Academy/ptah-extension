@@ -15,6 +15,9 @@ function ptahKit(root, cfg) {
   // The template's own data-duration is a default; a mounted instance takes its length from the host element.
   var host = root.parentElement && root.parentElement.closest ? root.parentElement.closest("[data-duration]") : null;
   var duration = Math.max(0.001, parseFloat((host && host.getAttribute("data-duration")) || root.dataset.duration || cfg.duration || "4"));
+  // The template's inner .clip carries the template default length; a longer mount would blank when it ends.
+  var innerClip = root.querySelector(".clip[data-duration]");
+  if (innerClip && host) innerClip.setAttribute("data-duration", String(duration));
 
   function has(name) {
     return vars[name] != null && String(vars[name]).trim() !== "";
@@ -235,7 +238,15 @@ function ptahKit(root, cfg) {
         var out = Math.min(0.45, duration * 0.25);
         tl.to(stage, { opacity: 0, y: exit === "up" ? -12 * U : 0, duration: out, ease: "power2.in" }, duration - out);
       }
-      window.__timelines[cfg.id] = tl;
+      // preroll: start the mount as if it had already played for N seconds (a settled world at a scene cut).
+      // A wrapper timeline scrubs the built one from N onward, so seeking stays a pure function of time.
+      var pre = K.num("preroll", 0, 0, 60);
+      var reg = tl;
+      if (pre > 0) {
+        reg = gsap.timeline({ paused: true });
+        reg.add(tl.tweenFromTo(pre, Math.max(pre, tl.duration()), { ease: "none" }), 0);
+      }
+      window.__timelines[cfg.id] = reg;
     },
     icon: function (name, size, color, extra) {
       var p = PU_ICONS[name] || PU_ICONS.terminal;
