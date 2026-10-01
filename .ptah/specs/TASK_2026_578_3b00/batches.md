@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 7/14
+Total tasks: 44 | Batches: 14 | Complete: 8/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -847,7 +847,7 @@ Deviation decisions:
   or sanitized slugs, or every row after the skills-root setting changes) are never retired and warn every pass
   (now counted in `skippedUncontained`) until Batch 6 / Task 9.3 align names with the materialized slug.
 
-## Batch 8: SkillUmbrellaMergeService — IN_PROGRESS
+## Batch 8: SkillUmbrellaMergeService — COMPLETE (commit ddb6e1348)
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lane x 1 (antigravity)
@@ -857,7 +857,7 @@ Deviation decisions:
 - Tasks: 3 | Depends on: Batches 4, 5
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
-### Task 8.1: Umbrella merge service and spec — PENDING
+### Task 8.1: Umbrella merge service and spec — COMPLETE
 
 - Files: CREATE `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/lifecycle/skill-umbrella-merge.service.ts` and `.spec.ts`
 - Plan reference: implementation-plan.md:503-606 (R1, R2, R3, R5, R6, R7 at :120-174)
@@ -875,12 +875,12 @@ Deviation decisions:
 - Implementation details: returns `UmbrellaPassResult` with `clustersRemaining` and `rateLimited`. Spec cases per
   plan:589-604 on a real migrated DB with a plain `skill_candidates_vec(rowid INTEGER PRIMARY KEY, embedding BLOB)`.
 
-### Task 8.2: DI token and registration — PENDING
+### Task 8.2: DI token and registration — COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/di/tokens.ts`, `.../di/register.ts` (+ `register.spec.ts` if needed)
 - Implementation details: `SKILL_UMBRELLA_MERGE_SERVICE`. R-i.
 
-### Task 8.3: markMerged self-exclusion (R-n, Batch 4 review F-1) — PENDING
+### Task 8.3: markMerged self-exclusion (R-n, Batch 4 review F-1) — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-suggestion.store.ts` (+ `skill-suggestion.store.spec.ts`)
 - Do this before Task 8.1 (Task 8.1 depends on it).
@@ -894,6 +894,106 @@ Deviation decisions:
 ### Batch 8 verification
 
 - Service and spec exist with all listed cases; tests + typecheck pass; reviewer accepted
+
+### Batch 8 on-disk verification (team-leader)
+
+- Files on disk match the report: NEW `lifecycle/skill-umbrella-merge.service.ts` (868 lines, under the 700
+  code-line `max-lines` ceiling with comments/blanks skipped) and `.spec.ts` (25 cases); `skill-suggestion.store.ts`
+  `markMerged` filters `umbrellaId` before the empty check (+1 spec); `di/tokens.ts`
+  `SKILL_UMBRELLA_MERGE_SERVICE = Symbol.for('PtahSkillUmbrellaMergeService')`; `di/register.ts` singleton +
+  `useToken` alias; `register.spec.ts` resolves all 8 deps through the real registration. No TODO/stub markers.
+- R-f: transaction callbacks hold only plain statements. `commitUmbrella` (`:518-545`): `membersUnchanged`
+  (findById reads) → `suggestions.insert(…,'pending')` → `markMerged` → `rejectIfStatus` loop.
+  `commitRejectedUmbrella` (`:558-566`): `insert(…,'dismissed')` → `rejectIfStatus` loop over candidate members only.
+  Singletons (`:659-678`): findById → `listMemberCandidateIds` → `insert`. Purge (`:717-719` → `:753-791`):
+  marker re-read → `listMemberCandidateIds({statuses:['pending','accepted']})` → `listByStatus` → `getEmbedding`
+  → `rejectIfStatus` → `markComplete` (false → throw).
+- R-f2: no catch inside any callback that swallows a store-write error. The per-cluster catch (`:276-288`) wraps
+  `mergeCluster` (synthesis, judge and the whole transaction); singleton (`:658-689`) and purge (`:716-734`)
+  catches wrap their whole `inImmediateTransaction` call. The only catch reachable from inside a callback is
+  `readCandidateBody`'s fs catch (`:811-821`, singleton callback), which never wraps a store write. Spec
+  "R-f2: a throw mid-cluster…" (spec `:535`) proves no umbrella row and no member merged.
+- R-n: `markMerged` never receives the umbrella id (store filter + caller filter `:521-523`); the returned count
+  is compared with the expected pending-suggestion count and throws inside the callback (`:528-532`). Spec `:493`
+  forces a member non-pending between re-read and UPDATE → whole cluster rolled back, warn carries
+  "merged 1 of 2 pending suggestions".
+- Batch 5 member-order carry: `buildPlan` orders by cosine similarity to the centroid (`orderByCentroidDistance`
+  `:846-868`) and `umbrellaInputs` iterates `plan.ordered` (`:461-480`); spec `:562` (14 members) proves the two
+  farthest sit at positions 12-13, past the `UMBRELLA_MAX_MEMBERS` cut. Hold-out body never reaches the synthesizer.
+- Re-run by team-leader (scoped, `--skip-nx-cache`): `--testFile=skill-umbrella-merge` 25/25;
+  `--testFile=skill-suggestion.store` 29/29; `--testFile=di/register` 12/12; `typecheck` success; eslint on the 7
+  changed files 0 problems (`--max-warnings=0` on the service, exit 0); degradation audit exit 0,
+  `libs/backend/skill-synthesis: 6 ok (baseline 6)`.
+
+Deviation decisions:
+
+1. memberSessionIds include merged suggestions' sessions — ACCEPTED. Suggestion members are always drafted, so
+   their sessions are part of what the umbrella body was written from; it is the plan's intent.
+2. `purgeSkippedReason: 'failed'` — ACCEPTED. Carry to Batches 9 and 11: the curator report and shared DTO must
+   include `'failed'` in the union.
+3. `clustersRemaining` = clusters not reached because of the cap or the rate limit (guard-skipped clusters count
+   as visited) — ACCEPTED; matches plan "eligible clusters left unprocessed".
+4. Judge anchor = drafted member closest to the centroid, else first resolvable suggestion member, else skip —
+   ACCEPTED. Minor note (follow-up, not blocking): a skipped cluster has already spent its `skill.analyze` token.
+5. Singletons in one transaction each with a re-check — ACCEPTED (plan silent; per-item rollback is the safer
+   shape). Minor fix-up F8-3 below.
+6. Copied helpers with `[skill-synthesis]` log prefix — ACCEPTED (curator copies removed in Batch 9).
+7. Authored-dominance guard uses caller `exemptSlugs` with exact-case match — ACCEPTED (identical to the current
+   curator `skill-curator.service.ts:434-448`). Carry to Batch 9: the curator builds one exempt set; if it reuses
+   the retirement lowercased set, the guard and `partitionPool` must normalise case the same way.
+
+Out-of-scope notes:
+
+- `types.ts:22` says `MERGED_INTO_PREFIX + umbrellaSlug`; R3 and the code use the umbrella suggestion id —
+  Batch 8 fix-up F8-1 (comment only).
+- `SkillBacklogPurgeStateStore` header `:8-11` and the read() catch comment `:69-70` claim an unreadable marker
+  makes the purge skip; `read()` returns `null`, which `purgePrecondition` treats as absent, so the purge runs and
+  is saved only because `markComplete` then throws and rolls the unit back (missing table) — behaviour is safe,
+  the comments are wrong. Batch 8 fix-up F8-2 (correct both comments to the actual rollback guarantee; no
+  behaviour change). A tri-state `read()` is a follow-up, not this task.
+
+Fix-up list (pending the logic-lane verdict; all small, no behaviour change except F8-3):
+
+- F8-1 `libs/backend/skill-synthesis/src/lib/types.ts:22`: "umbrellaSlug" → "umbrella suggestion id (R3)".
+- F8-2 `libs/backend/skill-synthesis/src/lib/lifecycle/skill-backlog-purge-state.store.ts:8-11, :69-70`: state that
+  `null` is indistinguishable from absent and the purge relies on `markComplete` throwing inside its transaction.
+- F8-3 (MINOR, recommended) `skill-umbrella-merge.service.ts:664-675`: read the singleton body and fingerprint
+  before `inImmediateTransaction`, so no file I/O runs while the IMMEDIATE write lock is held (the body is also
+  read twice today).
+
+### Batch 8 review verdict
+
+- Logic (antigravity CLI lane, `code-logic-review.md` `## Batch 8`): APPROVED 8/10. Moderates: exact-case
+  authored-dominance guard; mismatched-dimension members reaching the synthesizer. Minors: `types.ts:22` comment,
+  purge-state `read()` null ambiguity. Team-leader Mode 2: VERIFIED with F8-1..F8-3.
+- Fix-up applied by the executor (reviewer-own findings, no new review round) and re-verified on disk:
+  - F8-1 `types.ts:22` comment now names the umbrella suggestion id (R3).
+  - F8-2 `skill-backlog-purge-state.store.ts` header `:8-13` and catch comment `:69-70` describe the real
+    guarantee (null reads as absent; `markComplete` throws in the transaction and rolls the purge back).
+  - F8-3 `surfaceSingletons` builds the input (body read + fingerprint) before the transaction (`:683-700`).
+  - Lane moderate 1: `runPass` builds `exemptLower` once (`:208-210`); `planCluster` compares
+    `dominant.toLowerCase()` (`:339`); `partitionPool` still receives the caller's original set. Spec
+    'My-Skill' vs 'my-skill'.
+  - Lane moderate 2: `orderByCentroidDistance` returns `{ordered, mismatched}` over the majority dimension;
+    excluded members are not synthesized, not the judge anchor, not merged; warn per cluster; a cluster below
+    `suggestionMinClusterSize` after exclusion is skipped before the rate limiter (`:314-338`). Excluded members
+    stay in the purge's `clustered` set (protected, conservative). 2 specs.
+- `lifecycle/centroid-order.ts` (50 lines) decision: ACCEPTED. A named, generic, pure function
+  (`orderByCentroidDistance<T extends {embedding}>` + `CentroidOrder<T>`) with one responsibility and its own
+  doc; not a cap-only fragment. Service now 861 lines, under the 700 code-line `max-lines` ceiling.
+- R-f / R-f2 / R-n re-checked after the fix-up: `commitUmbrella` `:541-568`, `commitRejectedUmbrella` `:581-589`,
+  singleton callback `:693-700` (plain reads + insert only), purge `:739` → `purgeInTransaction`; all catches
+  wrap whole transaction calls; umbrella id filtered and count-checked with an in-callback throw (`:544-555`).
+- Re-run by team-leader (scoped, `--skip-nx-cache`): `--testFile=skill-umbrella-merge` 28/28;
+  `--testFile=skill-suggestion.store` 29/29; `--testFile=skill-backlog-purge-state` 6/6;
+  `--testFile=di/register` 12/12; `typecheck` success; eslint `--max-warnings=0` on the 10 Batch 8 files exit 0;
+  degradation audit exit 0, `libs/backend/skill-synthesis: 6 ok (baseline 6)`.
+- Carries to Batch 9: the curator builds ONE exempt set and passes it to both retirement and umbrella merge,
+  with consistent case handling (umbrella lowercases internally for the guard; `partitionPool` gets the set as
+  passed); `purgeSkippedReason: 'failed'` must surface in the curator report, and in the Batch 11 shared DTO union.
+- Follow-ups (not this task): `SkillBacklogPurgeStateStore.read()` cannot tell absent from unreadable (tri-state
+  read); its warn text still says "purge will skip" though the effect is a rollback; a cluster skipped for
+  having no judge anchor has already spent a `skill.analyze` token.
 
 ## Batch 9: SkillCuratorService rewrite (facade) — PENDING
 
@@ -951,7 +1051,7 @@ Deviation decisions:
 - Tasks: 2 | Depends on: Batch 3, G-586
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
-### Task 10.1: Diagnostics status counts — PENDING
+### Task 10.1: Diagnostics status counts — IMPLEMENTED
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/diagnostics.types.ts`, `.../diagnostics.service.ts` (+ `diagnostics.service.spec.ts`)
 - Plan reference: implementation-plan.md:863-864
@@ -959,7 +1059,7 @@ Deviation decisions:
 - Implementation details: `SkillCandidateStatusCounts` gains `active`, `dormant`, `merged`, `retired`; `readStats`
   maps with zero fallbacks.
 
-### Task 10.2: Pool default literal — PENDING
+### Task 10.2: Pool default literal — IMPLEMENTED
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-synthesis.service.ts`
 - Plan reference: implementation-plan.md:843-849
@@ -968,6 +1068,28 @@ Deviation decisions:
 ### Batch 10 verification
 
 - Rebased on 586; only the named lines changed in shared files; tests pass; reviewer accepted
+
+### Batch 10 on-disk verification (team-leader)
+
+- 586 untouched: `git diff origin/main` on the five Batch 10 files equals the working-tree diff (47+/4-);
+  no branch commit touches them (`git log origin/main..HEAD` on them is empty). Only appended fields,
+  the readStats mapping/catch, and the `:155` literal changed; `recentEvents` untouched.
+- 10.1: `diagnostics.types.ts:53-60` appends active/dormant/merged/retired (readonly number);
+  `diagnostics.service.ts:55-58` maps them; catch `:65-74` returns all eight as 0; spec types
+  `makeStore` as `SkillCandidateStats`, asserts distinct values (4/1/2/6) and the throw -> zeros path.
+- Deviation (no per-field `?? 0` in readStats) ACCEPTED: `SkillCandidateStats` fields are required
+  `number` (`types.ts:351-365`, committed), and the producer already coalesces
+  (`skill-candidate.store.ts:1668-1671` `c?.x ?? 0`), so a second fallback would be dead code.
+- 10.2: `skill-synthesis.service.ts:155` 200 -> 1000, spec `:1022` pins it; agrees with
+  `file-settings-keys.ts:535` (1000) and schema max 5000 (`skills-synthesis-rpc.schema.ts:91`).
+  Other `200` literals in spec fixtures are explicit test settings, not defaults.
+- Consumers: `index.ts:430` re-export only; rpc-handlers spec `byStatus` fixtures are untyped 4-field
+  literals; handler wiring is Batch 11.
+- Re-run: diagnostics.service.spec 4/4, skill-synthesis.service.spec 54/54 (executor's 79 included
+  the `.enqueue` sibling via pattern match); skill-synthesis:typecheck and rpc-handlers:typecheck
+  pass. A full-project run showed spec-harvester (58.7 s) and reachability.integration failing under
+  load; both pass in isolation (18/18) and neither touches Batch 10 files - flake, not a regression.
+- Not committed (awaiting antigravity style verdict; Batch 8 files unstaged and not owned here).
 
 ## Batch 11: Shared DTO and RPC handler wiring (post-586) — PENDING
 

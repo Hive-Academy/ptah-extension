@@ -975,3 +975,195 @@ Verification:
 - Serious issues: 0 (S-1 resolved)
 - Moderate issues: 2 (M-1, M-2 unchanged from earlier review; deferred to Batch 9 / future enhancements)
 - Failure modes: 3 (FM-2, FM-3, FM-4 unchanged from earlier review; FM-1 resolved)
+
+
+## Batch 8
+
+### Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 2        |
+| Failure modes found | 3        |
+
+Scope examined:
+- `libs/backend/skill-synthesis/src/lib/lifecycle/skill-umbrella-merge.service.ts` (NEW, read in full)
+- `libs/backend/skill-synthesis/src/lib/lifecycle/skill-umbrella-merge.service.spec.ts` (NEW, read in full)
+- `libs/backend/skill-synthesis/src/lib/skill-suggestion.store.ts` (`markMerged`, `insert`, `listMemberCandidateIds`, read in full)
+- `libs/backend/skill-synthesis/src/lib/skill-suggestion.store.spec.ts` (Batch 8 test updates, read in full)
+- `libs/backend/skill-synthesis/src/lib/di/tokens.ts`, `di/register.ts`, `di/register.spec.ts` (Batch 8 additions, read in full)
+- `libs/backend/skill-synthesis/src/lib/types.ts` (`MERGED_INTO_PREFIX`, `BACKLOG_PURGE_REASON`)
+
+Verification:
+- `npx nx run @ptah-extension/skill-synthesis:test --maxWorkers=2 --testFile=skill-umbrella-merge`: passed (1 suite, 25/25 passed, 0 failed, 52.1s).
+- `npx nx run @ptah-extension/skill-synthesis:test --maxWorkers=2 --testFile=skill-suggestion.store`: passed (1 suite, 29/29 passed, 0 failed, 21.0s).
+- `npx nx run @ptah-extension/skill-synthesis:test --maxWorkers=2 --testFile=register`: passed (1 suite, 12/12 passed, 0 failed, 21.2s).
+- `npx nx run @ptah-extension/skill-synthesis:typecheck`: passed with exit code 0.
+- `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts`: passed with exit code 0 (`libs/backend/skill-synthesis: 6 ok (baseline 6)`).
+
+---
+
+### Five logic questions
+
+#### 1. How does this fail silently?
+- In `SkillUmbrellaMergeService.rejectCandidates` (`skill-umbrella-merge.service.ts:578-582`), when `store.rejectIfStatus` returns `false` (because a member was concurrently transitioned by another writer), the row is omitted from `rejectedIds` and accounted for only in `lost`. The commit still succeeds with `kind: 'created'`, and the caller logs `{ skipped: commit.lost }` (`:609-614`), but the returned `UmbrellaPassResult` indicates `umbrellasCreated: 1` while one member was not merged into the umbrella. This is intentional fail-soft design so concurrent candidate transitions do not abort the entire umbrella.
+- In `readCandidateBody` (`:810-823`), if reading the markdown file on disk fails (e.g., file deleted, unreadable permissions), the error is caught at `logger.debug` level and falls back to `${candidate.name}\n\n${candidate.description}`. Umbrella synthesis continues with the placeholder description rather than failing.
+- In `planCluster` (`:316-320`), the authored-dominance guard checks `dominant && exemptSlugs.has(dominant)`. Because this is an exact-case lookup while Batch 7 retirement normalizes exempt slugs to lowercase (`skill-retirement.service.ts:281`), a case variation between `skill_invocation_events.skill_slug` and `skill_registry.slug` causes the guard to evaluate `false`, allowing umbrella synthesis to proceed over sessions dominated by an authored skill.
+
+#### 2. What user action produces unexpected behaviour?
+- If a user authoring an external skill registers it with casing (e.g. `My-Custom-Skill`) and runs sessions invoking it, the exact-case check in `planCluster` may not recognise the dominant slug if invocation logs record a different case format, generating an unwanted umbrella suggestion in Recommended.
+- If a candidate's markdown file on disk is removed by the user while the database row is still `candidate`, `readCandidateBody` falls back to the name and description. The synthesized umbrella and singleton suggestions receive the raw name/description without alerting the user that the markdown source was missing.
+
+#### 3. What input data produces a wrong answer?
+- In `orderByCentroidDistance` (`:846-868`), if a member in a cluster has an embedding vector dimension differing from `members[0]`, its similarity is assigned `Number.NEGATIVE_INFINITY`, pushing it to the end of `ordered`. However, if the total cluster size is $\le 12$ (`UMBRELLA_MAX_MEMBERS`), that mismatched member is still included in `umbrellaInputs` and passed to `synthesizeUmbrella` despite being unmeasurable in the cluster's vector space.
+- Zero-norm embeddings: `cosineSimilarity` returns 0 for zero vectors, placing them behind positively similar vectors; they are not rejected.
+
+#### 4. What happens when a dependency fails?
+- `clustering.partitionPool` throws: caught in `readPartition` (`:231-241`), logged as warning, returns `null`. `runPass` skips the pass and cleanly returns `UmbrellaPassResult` with `purgeSkippedReason: 'failed'` without throwing into the caller.
+- `rateLimiter.tryAcquire` denies acquisition: cluster loop breaks immediately, `tally.rateLimited = true` is set, and unvisited clusters are reported in `tally.clustersRemaining`.
+- `synthesizer.synthesizeUmbrella` returns `null` (lane timeout, malformed output): logged at info level (`:419-424`), cluster commit is skipped, and cluster remains untouched for future passes.
+- `judge.judge` returns `unscored`, `disabled`, or `score === null`: logged at info level (`:440-446`), cluster commit is skipped, and no database mutations occur.
+- Store error inside `commitUmbrella` transaction: `inImmediateTransaction` rolls back all changes (the umbrella insertion, suggestion markMerged, and candidate rejections). The outer `try/catch` in `mergeClusters` (`:278-288`) catches the error, logs a warning, and continues with remaining clusters.
+- `suggestions.markMerged` count mismatch (R-n): throws an explicit error inside the callback (`:528-532`), rolling back the entire transaction.
+- Store error inside `purgeInTransaction`: rolls back all candidate rejections and marker write. Outer catch in `runPurge` (`:728-734`) catches the error, sets `tally.purgeSkippedReason = 'failed'`, logs a warning, and retries on the next pass.
+
+#### 5. What is missing that the requirements never mentioned?
+- Case-folding normalization for `exemptSlugs.has(dominant)`: Batch 7's retirement service adopted lowercase normalization for registry slug comparisons, but `SkillUmbrellaMergeService` accepts caller-provided `exemptSlugs` and performs exact-case `Set.has()`.
+- Suggestion-only clusters: When a cluster consists purely of pending suggestions without candidate rows, `planClusterDraft` has no candidates to draft. `judgeAnchor` falls back to reading `memberCandidateIds` from the store. If none resolve, the cluster is skipped with an info log (`:408-414`).
+
+---
+
+### Failure modes
+
+#### FM-1: Case-Sensitive Authored-Dominance Miss
+- Trigger: Dominant skill slug returned by `getDominantSkillSlugForSessions` differs in casing from the caller-supplied `exemptSlugs` (e.g. `MySkill` vs `myskill` on Windows or across varying input sources).
+- Symptom: `exemptSlugs.has(dominant)` returns `false`; cluster is not skipped; umbrella synthesis proceeds despite authored dominance.
+- Evidence: `libs/backend/skill-synthesis/src/lib/lifecycle/skill-umbrella-merge.service.ts:316`.
+- Current handling: Exact-case `Set.has()`.
+- Recommendation: Normalize both `dominant.toLowerCase()` and `exemptSlugs` to lowercase, matching the case-insensitive exemption pattern in `skill-retirement.service.ts:281`.
+
+#### FM-2: Mismatched Embedding Dimension Inclusion Under Cap
+- Trigger: A pool member within a cluster has an embedding vector dimension differing from the first member, and the cluster size is $\le 12$.
+- Symptom: `orderByCentroidDistance` assigns `Number.NEGATIVE_INFINITY` similarity and places it at the tail, but `umbrellaInputs` still includes it because fewer than 12 members exist.
+- Evidence: `libs/backend/skill-synthesis/src/lib/lifecycle/skill-umbrella-merge.service.ts:862-864`, `:461-480`.
+- Current handling: The member is included in the synthesis prompt.
+- Recommendation: Filter out members with mismatched embedding dimensions prior to constructing `UmbrellaMemberInput` payloads.
+
+#### FM-3: Precondition False-Negative on Unreadable Purge State Table
+- Trigger: SQLite table `skill_backlog_purge_state` is unreadable or connection issues occur during `purgeState.read()`.
+- Symptom: `SkillBacklogPurgeStateStore.read()` catches the DB error, warns, and returns `null`. `purgePrecondition` treats `null` as "marker absent" and proceeds into `purgeInTransaction`, where it executes candidate selection before failing at `markComplete`.
+- Evidence: `libs/backend/skill-synthesis/src/lib/lifecycle/skill-backlog-purge-state.store.ts:68-75`, `skill-umbrella-merge.service.ts:740`.
+- Current handling: Fails safely during `markComplete`, rolls back transaction, sets `purgeSkippedReason = 'failed'`.
+- Recommendation: Conflating absent row with unreadable table is fail-safe due to the subsequent rollback, but distinguishing unreadable state in `purgeState.read()` would avoid executing candidate filtering queries.
+
+---
+
+### Blocking issues
+
+None.
+
+### Serious issues
+
+None.
+
+### Moderate and minor issues
+
+- **MODERATE (`skill-umbrella-merge.service.ts:316`):** `exemptSlugs.has(dominant)` performs exact-case matching, whereas committed Batch 7 retirement service normalizes exempt slugs case-insensitively (`toLowerCase()`). Inconsistency risks missing authored dominance when slugs diverge in case (FM-1).
+- **MODERATE (`skill-umbrella-merge.service.ts:862-864`):** Members with mismatched vector dimensions in `orderByCentroidDistance` are assigned `Number.NEGATIVE_INFINITY` but are not filtered out when cluster length $\le 12$, passing them to the synthesizer (FM-2).
+- **MINOR (`types.ts:22`):** Stale doc comment states `MERGED_INTO_PREFIX + umbrellaSlug`. The code and Plan R3 correctly store `MERGED_INTO_PREFIX + umbrella.id`.
+- **MINOR (`skill-backlog-purge-state.store.ts:68-75`):** `read()` returns `null` for both missing row and missing/corrupt table, causing `purgePrecondition` to enter transaction before failing on `markComplete` (FM-3).
+
+---
+
+### Deviation decisions
+
+| # | Deviation | Decision | Reason |
+| - | --------- | -------- | ------ |
+| 1 | `memberSessionIds` includes sessions from merged suggestions | **ACCEPT** | The plan (:529) specified `memberSessionIds = draft.draftedSessionIds`. Merging an umbrella consolidates both candidates and pending suggestions; including the underlying suggestions' session IDs ensures the umbrella preserves the complete historical lineage of sessions it was synthesized from. |
+| 2 | `purgeSkippedReason` carries `'failed'` | **ACCEPT** | The plan (:554) listed only `'already-complete' \| 'no-vec' \| 'pool-truncated'`. Adding `'failed'` allows the caller and diagnostics report to distinguish an unexecuted purge due to database or transaction errors from normal skips. |
+| 3 | `clustersRemaining` counts unvisited clusters in partition | **ACCEPT** | Accurately tracks clusters left unprocessed when the loop terminates early due to `SUGGESTION_MAX_CLUSTERS_PER_PASS` (3) or rate-limit exhaustion. |
+| 4 | Judge anchor row uses candidate closest to centroid, with fallback for suggestion-only clusters | **ACCEPT** | The judge requires a `SkillCandidateRow`. Sourcing the anchor from the candidate closest to the centroid (or the candidate underlying a suggestion member) provides an accurate representative anchor. Skipping when none resolve is fail-soft. |
+| 5 | Singletons processed in individual transactions with fresh CAS status check | **ACCEPT** | Isolating each singleton into its own transaction prevents a single corrupted or concurrently modified candidate from aborting other eligible singletons. The re-check prevents double-surfacing on concurrent hosts. |
+| 6 | Verbatim copy of `technologyFingerprint` and `readCandidateBody` with log prefix updated | **ACCEPT** | Fully adheres to implementation plan (:564) and prepares for removal of legacy curator copies in Batch 9. |
+| 7 | Exact-case matching in authored-dominance guard vs case-insensitive in Batch 7 | **ACCEPT WITH RESERVATION (MODERATE)** | While standard skill slugs follow lowercase kebab-case (`/^[a-z0-9][a-z0-9-]*$/`), the casing mismatch between Batch 7 and Batch 8 leaves an edge case. Non-blocking because suggestions are non-destructive and require user acceptance. Addressed in Batch 9 caller normalization. |
+
+---
+
+### Data flow
+
+1. **Entry:** `runPass(settings, exemptSlugs, origin, now)` -> Initializes `PassTally` with default `purgeSkippedReason: 'failed'`.
+2. **Pool Partitioning:** `readPartition()` -> Calls `clustering.partitionPool()` with exclusion sets (catches errors, logs warn, returns null on failure) `[OK]`.
+3. **Cluster Processing:** `mergeClusters()`:
+   - Sorts clusters by size descending `[OK]`.
+   - Iterates up to `SUGGESTION_MAX_CLUSTERS_PER_PASS = 3` `[OK]`.
+   - Plans cluster: orders members by centroid distance (`orderByCentroidDistance`), reserves B3.6 holdout over candidate/promoted rows, checks authored dominance `[OK]`.
+   - Acquires rate-limit permit (`skill.analyze` bucket, max 6/h) `[OK]`.
+   - Synthesizes umbrella via `synthesizer.synthesizeUmbrella` (fails soft on null) `[OK]`.
+   - Judges proposal via `judge.judge` (unscored/disabled skips cleanly) `[OK]`.
+   - Commits transaction (`inImmediateTransaction`):
+     - Below threshold: Inserts `dismissed` umbrella, rejects candidate members with `below-judge-score:umbrella:<id>`, leaves promoted and suggestion members untouched (R7) `[OK]`.
+     - Scored at or above: Re-reads members (`membersUnchanged`), aborts if changed. Inserts `pending` umbrella. Calls `markMerged(suggestionIds, umbrella.id)` and asserts returned count matches `suggestionIds.length` (R-n). Rejects candidate members with `merged-into:<umbrellaId>`. Promoted members untouched (R2) `[OK]`.
+   - Per-cluster try/catch wraps entire transaction unit (R-f2) `[OK]`.
+4. **Singleton Surfacing:** `surfaceSingletons()`:
+   - Filters orphans for judge-passed candidates (`isJudgePassed`), capped at `SINGLETON_MAX_PER_PASS = 5` `[OK]`.
+   - Each singleton runs in its own `inImmediateTransaction`, re-verifying row is still `candidate` and unrepresented in suggestions `[OK]`.
+5. **Backlog Purge:** `runPurge()`:
+   - Evaluates `purgePrecondition` (marker absent, vec available, pool not truncated) `[OK]`.
+   - Runs `purgeInTransaction`: verifies marker again, identifies candidates older than 30d, unclustered, not in pending/accepted suggestions, with embedding, not judge-passed `[OK]`.
+   - Rejects eligible candidates via `rejectCandidates(..., BACKLOG_PURGE_REASON)` `[OK]`.
+   - Writes marker via `purgeState.markComplete()` (asserts true, throws and rolls back if already written) `[OK]`.
+6. **Exit:** Calculates final counts and returns `UmbrellaPassResult` `[OK]`.
+
+---
+
+### Requirements fulfilment
+
+| Requirement | Status | Gap |
+| ----------- | ------ | --- |
+| Task 8.1: `SkillUmbrellaMergeService` orchestration, rate-limiting, synthesis, judge gate, transaction management | COMPLETE | None. All contracts and fail-soft boundaries honoured. |
+| Task 8.2: DI registration and tokens for `SKILL_UMBRELLA_MERGE_SERVICE` | COMPLETE | None. Registered as singleton alias and verified in `register.spec.ts`. |
+| Task 8.3: `markMerged` drops `umbrellaId` prior to empty check and UPDATE | COMPLETE | None. Self-exclusion verified and tested in `skill-suggestion.store.spec.ts`. |
+| Risk R-f: Transaction callbacks call only plain-statement methods | COMPLETE | None. Only `findById`, `insert`, `markMerged`, `rejectIfStatus`, and `markComplete` called inside callbacks. |
+| Risk R-f2: No try/catch inside transaction callbacks; per-unit catch wraps `inImmediateTransaction` | COMPLETE | None. All try/catch blocks wrap the transaction externally. Spec proves mid-cluster throw leaves no partial rows. |
+| Risk R-n: `umbrellaId` omitted from `markMerged`; count mismatch throws inside callback | COMPLETE | None. `suggestionIds.filter(id => id !== umbrella.id)` and count comparison throw verified by spec. |
+| Member re-read (`membersUnchanged`) before write | COMPLETE | None. Aborts if candidate not `candidate` or suggestion not `pending`. |
+| Member ordering by centroid distance prior to 12-member synthesis cut | COMPLETE | None. `orderByCentroidDistance` implemented and spec verifies 2 farthest dropped. |
+| Below-threshold umbrella handling (R7) | COMPLETE | None. `dismissed` umbrella inserted, candidate members rejected, promoted and suggestions untouched. |
+| Backlog purge rules (R5, R6) | COMPLETE | None. Preconditions (vec, truncation, marker) and candidate filter criteria (30d, unclustered, not pending/accepted, embedding, not judge-passed) verified. |
+| Clean error isolation: `runPass` never throws into caller | COMPLETE | None. Top-level and sub-routine try/catch wrappers guarantee fail-soft return. |
+
+---
+
+### Edge cases
+
+| Case | Handled | How | Concern |
+| ---- | ------- | --- | ------- |
+| Umbrella ID passed into `markMerged` | YES | Filtered out before empty check and SQL UPDATE | None |
+| Member transitions between pool partition and transaction | YES | `membersUnchanged` re-reads rows inside transaction; aborts commit if altered | None |
+| Member suggestion becomes non-pending between re-read and `markMerged` | YES | `markMerged` return count mismatches `suggestionIds.length`, throwing error and rolling back transaction (R-n) | None |
+| Candidate already decided by concurrent writer (`rejectIfStatus === false`) | YES | Filtered out of `rejectedIds`, counted in `lost`, does not abort commit | None |
+| Judge verdict unscored or disabled | YES | Cluster skipped cleanly, no rows written, retried next pass | None |
+| Rate-limit bucket exhausted mid-pass | YES | Halts cluster iteration, sets `rateLimited: true`, records `clustersRemaining` | None |
+| Cluster dominated by authored skill | YES | Checked before rate limit; skipped cleanly | Exact-case matching (MODERATE) |
+| Cluster has >12 members | YES | Sorted closest-to-centroid first; synthesizer drops farthest | None |
+| Cluster contains vector dimension mismatch | YES | Mismatched member assigned $-\infty$ similarity and sorted last | Included in prompt if cluster $\le 12$ (MODERATE) |
+| Suggestion-only cluster | YES | Resolves candidate anchor from suggestion members | None |
+| Pool partition read fails | YES | Caught in `readPartition`, pass skipped, returns `purgeSkippedReason: 'failed'` | None |
+| Purge run on pre-0051 DB (missing purge state table) | YES | `read()` catches error and returns null; transaction throws on `markComplete`, rolls back, logs warn | None |
+| Second purge run after completion | YES | `purgePrecondition` skips with `'already-complete'`, 0 candidates purged | None |
+
+---
+
+### Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: Exact-case matching in authored-dominance guard could miss case-divergent skill slugs on Windows/macOS.
+- What a robust implementation would add:
+  1. Case-insensitive normalization for `exemptSlugs` and `dominant` in `planCluster`.
+  2. Filtering out vector dimension mismatches in `orderByCentroidDistance` prior to slicing and prompt generation.
+  3. Updating the stale comment on `MERGED_INTO_PREFIX` in `types.ts:22`.
