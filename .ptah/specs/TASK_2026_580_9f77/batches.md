@@ -1,8 +1,10 @@
 # Batches - TASK_2026_580_9f77
 
-Total tasks: 50 | Batches: 29 | Complete: 17/29
+Total tasks: 50 | Batches: 29 | Complete: 18/29
 
 ## Resume here (session handoff, 2026-10-01)
+
+Draft PR: #623 (opened 2026-10-01 at the user's request; update its batch list on each push, mark ready at the PR gate).
 
 The run paused at the user's request after A3.4 and A3.4b. A fresh team-leader session
 resumes from this section; the batch sections below hold each batch's full task text
@@ -53,7 +55,7 @@ and review notes.
 | A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | PENDING (after A4.2)       | —         |
 | A5.2 VS Code unavailable proof                                            | PENDING (after A4.2)       | —         |
 | B1 SDK worktree hook + fork lineage                                       | COMPLETE                   | 3961f4322 |
-| B2 PR capture subscriber (+ B2.3 hardening)                               | READY (PENDING)            | —         |
+| B2 PR capture subscriber (+ B2.3 hardening)                               | COMPLETE                   | a98c1dd2c |
 | B3.1 runtime capture (cli-agent-runtime)                                  | COMPLETE                   | 8f16da0ed |
 | B3.2 MCP worktree capture (git namespace)                                 | COMPLETE                   | b45af4490 |
 | B3.3 `PtahAPI.sessionOrganization` namespace                              | COMPLETE                   | 4bbeb40f9 |
@@ -1267,7 +1269,29 @@ dropped` line and returns.
   and the source id.
 - Implementation details: call after `metadataStore.create(...)` (`:131-136`).
 
-## Batch B2: PR capture subscriber — PENDING
+## Batch B2: PR capture subscriber — COMPLETE (commit a98c1dd2c)
+
+- Result: B2.1-B2.3 plus the optional B2.4 (the three A3.4 nits in `di/register.ts`
+  and `di/start.ts`) landed; 8 files, all in session-organization.
+- Review: `code-logic-review-B2.md` APPROVED 9.5/10 with 3 minors (`--draft=false`
+  parsing, `releaseAll` disposer isolation, null payload guard). The executor fixed
+  all three; the narrow re-check `code-logic-review-B2-r1.md` APPROVED 10/10.
+  Accepted deviation: `gh pr create -d` (short flag) is captured as `open`.
+- Verification at commit: session-organization typecheck/test (6 suites, 204
+  tests)/lint pass; degradation-audit session-organization 0 (baseline 0); di-lint
+  passes; prettier clean.
+- The first commit attempt failed the pre-commit electron build, because the
+  uncommitted A4.1 import of `@ptah-extension/session-organization` had no path in
+  `apps/ptah-electron/tsconfig.build.json`. The A4.1 executor added that path to the
+  electron, cli and tui `tsconfig.build.json` files (they belong to A4.1); the retry passed.
+- Follow-ups:
+  - `SessionOrganizationPostToolUseSource` is not exported from
+    `libs/backend/session-organization/src/index.ts`. The next batch that owns
+    `index.ts` should export it.
+  - A5.1 must confirm that the PostToolUse registry
+    (`libs/backend/agent-sdk/src/lib/di/register.ts:225`,
+    `SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY`) is registered on each host. If it
+    is not, capture start fails and is reported as non-fatal, and no PR is captured.
 
 - Recommended executor: backend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -1280,7 +1304,7 @@ dropped` line and returns.
   `parsePrUrl` canonicalizes it. Do not write a second canonicalizer. The
   reachability spec flushes detached capture work before asserting.
 
-### Task B2.1: `extractGhPrCreateUrl` (pure) — PENDING
+### Task B2.1: `extractGhPrCreateUrl` (pure) — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\session-organization\src\lib\utils\pr-url.ts` (MODIFY), `...\pr-url.spec.ts` (MODIFY)
 - Plan reference: implementation-plan.md:726-732, D10, L7
@@ -1299,7 +1323,7 @@ dropped` line and returns.
   - multiple URLs.
 - Implementation details: pure function.
 
-### Task B2.2: capture service subscribes to PostToolUse; reachability + tab-id drop specs — PENDING
+### Task B2.2: capture service subscribes to PostToolUse; reachability + tab-id drop specs — COMPLETE
 
 - Depends on: Task B2.1
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\session-organization\src\lib\session-organization-capture.service.ts` (MODIFY), `...\session-organization-capture.service.spec.ts` (MODIFY)
@@ -1317,7 +1341,7 @@ dropped` line and returns.
     one drop line.
 - Implementation details: token `SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY` (`agent-sdk/src/lib/di/tokens.ts:102`).
 
-### Task B2.3: capture-service hardening (carried from `code-logic-review-A3.3.md`) — PENDING
+### Task B2.3: capture-service hardening (carried from `code-logic-review-A3.3.md`) — COMPLETE
 
 - Depends on: Task B2.2 (same two files)
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\session-organization\src\lib\session-organization-capture.service.ts` (MODIFY), `...\session-organization-capture.service.spec.ts` (MODIFY)
