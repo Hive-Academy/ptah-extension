@@ -380,6 +380,94 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
     });
   });
 
+  it('carries each event id onto the wire and keeps the newest-first order of getSnapshot', async () => {
+    const { rpcHandler, diagnostics } = buildHandlers();
+    // Two events in the same millisecond, then an older one: newest-first as
+    // `SkillSynthesisService.recentEvents` returns them.
+    const newest = {
+      id: '01HNZXD07M5CEN5XA66EMZSRZY',
+      kind: 'ineligible' as const,
+      timestamp: 1700000000500,
+      sessionId: 's-b',
+    };
+    // Realistic ineligible event: reason + candidateId live outside `stats`
+    // internally and must be folded into wire `stats`, exactly as the live
+    // SKILL_SYNTHESIS_EVENT broadcast does (see the matching literal in
+    // skill-synthesis.service.spec.ts "folds reason and candidateId ...").
+    const sameMs = {
+      id: '01HNZXD07M5CEN5XA66EMZSRZX',
+      kind: 'ineligible' as const,
+      timestamp: 1700000000500,
+      sessionId: 's-a',
+      reason: 'prefilterTooThin',
+      candidateId: 'cand_1',
+      stats: { turns: 2 },
+    };
+    const older = {
+      id: '01HNZXD07M5CEN5XA66EMZSRZW',
+      kind: 'error' as const,
+      timestamp: 1700000000000,
+      sessionId: 's-a',
+      error: 'boom',
+    };
+    diagnostics.getSnapshot.mockResolvedValue({
+      lastAnalyzeRunAt: null,
+      lastCuratorPassAt: null,
+      eligibilityHistogram: {
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
+        accepted: 0,
+      },
+      byStatus: { candidate: 0, promoted: 0, rejected: 0, invocations: 0 },
+      recentEvents: [newest, sameMs, older],
+      triggers: {
+        sessionEnd: true,
+        idleMs: 600000,
+        bootScan: true,
+        subagentStop: { enabled: true },
+        postToolUse: { enabled: true, minEditCount: 3 },
+        turnComplete: { enabled: true },
+        maxAnalyzesPerHour: 6,
+      },
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:diagnostics', {
+      workspaceRoot: '/workspace/project',
+    })) as { recentEvents: Array<Record<string, unknown>> };
+
+    expect(result.recentEvents.map((e) => e['id'])).toEqual([
+      newest.id,
+      sameMs.id,
+      older.id,
+    ]);
+    expect(result.recentEvents).toEqual([
+      {
+        id: newest.id,
+        kind: 'ineligible',
+        timestamp: 1700000000500,
+        sessionId: 's-b',
+        stats: undefined,
+        error: undefined,
+      },
+      {
+        id: sameMs.id,
+        kind: 'ineligible',
+        timestamp: 1700000000500,
+        sessionId: 's-a',
+        stats: { turns: 2, candidateId: 'cand_1', reason: 'prefilterTooThin' },
+        error: undefined,
+      },
+      {
+        id: older.id,
+        kind: 'error',
+        timestamp: 1700000000000,
+        sessionId: 's-a',
+        stats: undefined,
+        error: 'boom',
+      },
+    ]);
+  });
+
   it('rejects invalid workspaceRoot with INVALID_PARAMS', async () => {
     const { rpcHandler, diagnostics } = buildHandlers();
     await expect(

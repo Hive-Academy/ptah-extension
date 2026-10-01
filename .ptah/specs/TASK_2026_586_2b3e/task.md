@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_586_2b3e
-status: backlog
+status: in_review
 type: BUGFIX
 title: 'Thoth activity feed correctness: newest-first, real event ids, grouping, no overlapping summary, tile refresh'
 depends_on: []

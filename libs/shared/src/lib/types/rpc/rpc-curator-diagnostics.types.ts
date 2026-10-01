@@ -48,6 +48,15 @@ export type SkillSynthesisEventKind =
   | 'error';
 
 export interface SkillSynthesisEventWire {
+  /**
+   * The event's identity: a ULID assigned once, when the backend records the
+   * event. Unique per event (two events in the same millisecond get two ids),
+   * lexicographically sortable in recording order, and identical in the live
+   * `SKILL_SYNTHESIS_EVENT` push and in the diagnostics snapshot, so a consumer
+   * can dedupe and track rows by it. The shape is reserved for the durable
+   * activity ledger, which keeps the same ULID as its key.
+   */
+  readonly id: string;
   readonly kind: SkillSynthesisEventKind;
   readonly timestamp: number;
   readonly sessionId?: string;

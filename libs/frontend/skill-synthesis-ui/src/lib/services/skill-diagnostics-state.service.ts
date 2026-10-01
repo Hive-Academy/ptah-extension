@@ -12,6 +12,56 @@ import { SkillDiagnosticsRpcService } from './skill-diagnostics-rpc.service';
 
 const POLL_INTERVAL_MS = 30_000;
 
+/**
+ * How many recent skill-synthesis events the webview keeps: the cap on the
+ * live list and the `eventLimit` requested with every diagnostics snapshot, so
+ * a refresh and the live push show the same window. The feed groups repeated
+ * events, so the window must be wider than the rows it displays.
+ */
+export const SKILL_EVENT_WINDOW = 50;
+
+/**
+ * Newest-first order: later `timestamp` first; within one millisecond the
+ * greater ULID first (the backend's ids are monotonic in recording order).
+ */
+function compareNewestFirst(
+  a: SkillSynthesisEventWire,
+  b: SkillSynthesisEventWire,
+): number {
+  if (a.timestamp !== b.timestamp) return b.timestamp - a.timestamp;
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? 1 : -1;
+}
+
+/** Copy of `events` in newest-first order with repeated ids dropped. */
+function normalizeEvents(
+  events: readonly SkillSynthesisEventWire[],
+): SkillSynthesisEventWire[] {
+  const seen = new Set<string>();
+  const unique: SkillSynthesisEventWire[] = [];
+  for (const ev of events) {
+    if (seen.has(ev.id)) continue;
+    seen.add(ev.id);
+    unique.push(ev);
+  }
+  return unique.sort(compareNewestFirst).slice(0, SKILL_EVENT_WINDOW);
+}
+
+function latest(current: number | null, candidate: number): number {
+  return current === null ? candidate : Math.max(current, candidate);
+}
+
+/** Inserts `event` at its newest-first position in an already sorted list. */
+function insertNewestFirst(
+  list: readonly SkillSynthesisEventWire[],
+  event: SkillSynthesisEventWire,
+): SkillSynthesisEventWire[] {
+  const index = list.findIndex((ev) => compareNewestFirst(event, ev) < 0);
+  const next = [...list];
+  next.splice(index === -1 ? next.length : index, 0, event);
+  return next.slice(0, SKILL_EVENT_WINDOW);
+}
+
 const DEFAULT_TRIGGERS: SkillTriggersDto = {
   sessionEnd: true,
   idleMs: 600_000,
@@ -85,7 +135,10 @@ export class SkillDiagnosticsStateService {
     this._error.set(null);
     try {
       const workspaceRoot = this.appState.workspaceInfo()?.path ?? null;
-      const snapshot = await this.rpc.diagnostics({ workspaceRoot });
+      const snapshot = await this.rpc.diagnostics({
+        workspaceRoot,
+        eventLimit: SKILL_EVENT_WINDOW,
+      });
       this.applySnapshot(snapshot);
     } catch (err: unknown) {
       this._error.set(err instanceof Error ? err.message : String(err));
@@ -154,19 +207,27 @@ export class SkillDiagnosticsStateService {
   }
 
   /**
-   * Append a live skill-synthesis event pushed from the backend, keeping the
-   * recent-events list chronological and capped to the last 50. Bumps the
-   * matching last-run timestamps and, for ineligible events, the eligibility
-   * histogram bucket when the reason is derivable. The periodic poll/refresh
-   * corrects any drift, so this stays intentionally simple.
+   * Record a live skill-synthesis event pushed from the backend.
+   *
+   * `recentEvents` is newest-first: the event is inserted at its position by
+   * (timestamp desc, id desc), so a late-delivered older event does not jump
+   * to the top, and the list stays capped at {@link SKILL_EVENT_WINDOW}. An
+   * event whose id is already listed (the snapshot fetched it first, or the
+   * push was delivered twice) is ignored entirely: the backend sends the same
+   * payload for one id on both paths, and the histogram must not count it
+   * twice. For a new event, bumps the matching last-run timestamp and, for
+   * ineligible events, the eligibility histogram bucket when the reason is
+   * derivable. The periodic poll/refresh corrects any remaining drift.
    */
   public pushLiveEvent(event: SkillSynthesisEventWire): void {
-    this._recentEvents.update((list) => [...list, event].slice(-50));
+    if (this._recentEvents().some((ev) => ev.id === event.id)) return;
+    this._recentEvents.update((list) => insertNewestFirst(list, event));
 
+    // A late-delivered older event must not move "last run" backwards.
     if (event.kind === 'analyze-run') {
-      this._lastAnalyzeRunAt.set(event.timestamp);
+      this._lastAnalyzeRunAt.update((at) => latest(at, event.timestamp));
     } else if (event.kind === 'curator-pass') {
-      this._lastCuratorPassAt.set(event.timestamp);
+      this._lastCuratorPassAt.update((at) => latest(at, event.timestamp));
     } else if (event.kind === 'ineligible') {
       const reason = event.stats?.['reason'];
       if (reason === 'prefilterTooThin' || reason === 'prefilterRejected') {
@@ -181,7 +242,9 @@ export class SkillDiagnosticsStateService {
   private applySnapshot(snapshot: SkillDiagnosticsResult): void {
     this._lastAnalyzeRunAt.set(snapshot.lastAnalyzeRunAt ?? null);
     this._lastCuratorPassAt.set(snapshot.lastCuratorPassAt ?? null);
-    this._recentEvents.set(snapshot.recentEvents ?? []);
+    // The backend already sends newest-first; normalising here keeps the
+    // webview's order (and id uniqueness) independent of that contract.
+    this._recentEvents.set(normalizeEvents(snapshot.recentEvents ?? []));
     this._eligibilityHistogram.set(
       snapshot.eligibilityHistogram ?? DEFAULT_HISTOGRAM,
     );

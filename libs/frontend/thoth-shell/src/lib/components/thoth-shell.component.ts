@@ -263,9 +263,15 @@ export class ThothShellComponent implements OnInit {
   /** Active tab signal sourced from {@link AppStateManager.thothActiveTab}. */
   public readonly activeTab = this.appState.thothActiveTab;
 
-  /** Switch to a different tab. */
+  /**
+   * Switch to a different tab and reload the sidebar tiles, so a count that
+   * changed while the user was on another tab is not left frozen. Re-clicking
+   * the active tab changes nothing and fetches nothing.
+   */
   public selectTab(tabId: ThothActiveTabId): void {
+    if (tabId === this.activeTab()) return;
     this.appState.setThothActiveTab(tabId);
+    void this.thothStatus.refresh();
   }
 
   /** Leave Thoth and return to the chat view. */

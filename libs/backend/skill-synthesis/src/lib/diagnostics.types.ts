@@ -18,6 +18,12 @@ export type SkillSynthesisEventKind =
 export type SkillIneligibleReason = 'prefilterTooThin' | 'prefilterRejected';
 
 export interface SkillSynthesisEvent {
+  /**
+   * ULID assigned by `SkillSynthesisService.pushEvent` from a monotonic
+   * factory: unique per event, strictly increasing in recording order, and the
+   * same value on the live broadcast and in the diagnostics snapshot.
+   */
+  readonly id: string;
   readonly kind: SkillSynthesisEventKind;
   readonly timestamp: number;
   readonly sessionId?: string;
@@ -26,6 +32,12 @@ export interface SkillSynthesisEvent {
   readonly stats?: Readonly<Record<string, number | string | boolean | null>>;
   readonly error?: string;
 }
+
+/**
+ * What a producer hands to `SkillSynthesisService.pushEvent`. The id is not
+ * the producer's to choose; the service assigns it when it records the event.
+ */
+export type SkillSynthesisEventInput = Omit<SkillSynthesisEvent, 'id'>;
 
 export interface EligibilityHistogram {
   readonly prefilterTooThin: number;

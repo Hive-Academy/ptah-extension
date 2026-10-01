@@ -430,6 +430,7 @@ export type {
   SkillCandidateStatusCounts,
   SkillSynthesisDiagnosticsSnapshot,
 } from './lib/diagnostics.types';
+export { toSkillSynthesisEventWire } from './lib/event-wire';
 
 export {
   JUDGE_DEFAULT_MODEL_ID,
