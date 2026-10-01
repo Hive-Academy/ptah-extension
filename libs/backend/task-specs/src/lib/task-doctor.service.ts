@@ -716,6 +716,9 @@ export class TaskDoctorService {
       const entries = await this.fs.readDirectory(folderPath);
       return isResidueFolder(entries.map((e) => e.name));
     } catch {
+      // degradation-audit: optional-capability - an unreadable folder is not
+      // residue, so the doctor still plans its adoption as before. Nothing is
+      // skipped because of this failure.
       return false;
     }
   }

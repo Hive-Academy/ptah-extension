@@ -242,6 +242,9 @@ export class TaskScannerService {
       const entries = await this.fs.readDirectory(folderPath);
       return isResidueFolder(entries.map((e) => e.name));
     } catch {
+      // degradation-audit: optional-capability - an unreadable folder is not
+      // residue, so it stays visible on the board as `no_carrier`. Nothing is
+      // hidden or skipped because of this failure.
       return false;
     }
   }
