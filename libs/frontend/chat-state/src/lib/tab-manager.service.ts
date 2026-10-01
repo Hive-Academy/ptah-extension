@@ -25,6 +25,8 @@ import {
   SessionTurnPhase,
   isTerminalTurnPhase,
   GatewayPlatformId,
+  createExecutionChatMessage,
+  type AgentSessionOpenedPayload,
   type SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
@@ -32,6 +34,7 @@ import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
 import {
   TabWorkspacePartitionService,
   TabLookupResult,
+  insertTabAfter,
 } from './tab-workspace-partition.service';
 import { LiveModelStatsPayload } from './tab-state.types';
 import {
@@ -60,6 +63,26 @@ import {
 export type { LiveModelStatsPayload };
 
 export type TerminalTurnClassification = 'success' | 'error';
+
+/**
+ * How an agent-started child tab arrived (TASK_2026_584).
+ * - `live`: the backend's `agentSession:opened` push, sent before the child's
+ *   first chunk.
+ * - `late`: `chat:agent-sessions` on bootstrap or workspace switch, for a
+ *   child this webview missed the push for.
+ */
+export type AgentSessionAdoptionMode = 'live' | 'late';
+
+/**
+ * Outcome of {@link TabManagerService.adoptAgentSessionTab}.
+ * - `adopted`: the tab was created.
+ * - `exists`: a tab with the child's id is already in this panel (no-op).
+ * - `parent-absent`: this panel does not hold the parent tab (no-op; another
+ *   panel, or none, owns the child).
+ * - `invalid`: the child tab id is not a tab id (no-op).
+ */
+export type AgentSessionAdoptionResult =
+  'adopted' | 'exists' | 'parent-absent' | 'invalid';
 
 export interface TerminalTurnPulse {
   readonly seq: number;
@@ -851,6 +874,135 @@ export class TabManagerService {
     });
 
     return id;
+  }
+
+  /**
+   * Open the tab of a child session another session started with
+   * `ptah_session_start` (TASK_2026_584).
+   *
+   * - Idempotent: a tab with `payload.tabId` already in this panel (any
+   *   partition) is left exactly as it is.
+   * - Adopts ONLY when this panel holds `payload.parentTabId`, in any
+   *   workspace partition. That keeps a second panel from opening a duplicate
+   *   of a child it does not own.
+   * - The child goes into the parent's partition, directly after the parent,
+   *   under the backend's tab id (the stream key its events are routed by).
+   * - Never changes the active tab: a child opening must not steal focus.
+   *
+   * `live`: status `streaming` with the task text as the first user turn.
+   * `late`: status `loaded` bound to the child's SDK session, with no
+   * messages; history arrives through the normal session loader when the user
+   * opens the session from the sidebar. A `late` payload whose session id is
+   * not resolved yet is adopted like `live`.
+   */
+  adoptAgentSessionTab(
+    payload: AgentSessionOpenedPayload,
+    mode: AgentSessionAdoptionMode,
+  ): AgentSessionAdoptionResult {
+    const tabId = TabId.safeParse(payload.tabId);
+    if (!tabId) return 'invalid';
+    if (this.locateTabInPanel(tabId)) return 'exists';
+
+    const parent = this.locateTabInPanel(payload.parentTabId);
+    if (!parent) return 'parent-absent';
+
+    const sessionId =
+      mode === 'late'
+        ? SessionId.safeParse(payload.sessionId ?? undefined)
+        : null;
+    const tab = this.buildAgentSessionTab(tabId, payload, sessionId);
+
+    if (parent.workspacePath === null) {
+      this._tabs.update((tabs) =>
+        insertTabAfter(tabs, tab, payload.parentTabId),
+      );
+      const activePath = this.workspacePartition.activeWorkspacePath;
+      if (sessionId && activePath) {
+        this.workspacePartition.registerSessionForWorkspace(
+          sessionId,
+          activePath,
+        );
+      }
+      this.saveTabState();
+      return 'adopted';
+    }
+
+    return this.workspacePartition.addTabToWorkspace(
+      parent.workspacePath,
+      tab,
+      payload.parentTabId,
+    )
+      ? 'adopted'
+      : 'parent-absent';
+  }
+
+  /**
+   * Find a tab anywhere in this panel. `workspacePath` is `null` when the tab
+   * is in the active tab set (the `_tabs` signal — which is also the only set
+   * when no workspace is active), otherwise the background partition's path.
+   */
+  private locateTabInPanel(
+    tabId: string,
+  ): { workspacePath: string | null } | null {
+    if (this._tabs().some((t) => t.id === tabId))
+      return { workspacePath: null };
+    const found = this.workspacePartition.findTabByIdAcrossWorkspaces(
+      tabId,
+      this._tabs(),
+    );
+    if (!found) return null;
+    return {
+      workspacePath:
+        found.workspacePath === this.workspacePartition.activeWorkspacePath
+          ? null
+          : found.workspacePath,
+    };
+  }
+
+  private buildAgentSessionTab(
+    tabId: TabId,
+    payload: AgentSessionOpenedPayload,
+    sessionId: SessionId | null,
+  ): TabState {
+    const running = sessionId === null;
+    return {
+      id: tabId,
+      claudeSessionId: sessionId,
+      name: payload.label,
+      title: payload.label,
+      // The parent named it; auto-titling must not overwrite that.
+      titleOrigin: 'user',
+      order: 0, // renumbered by insertTabAfter
+      status: running ? 'streaming' : 'loaded',
+      isDirty: false,
+      lastActivityAt: Date.now(),
+      messages: running
+        ? [
+            createExecutionChatMessage({
+              // Client-only id in the optimistic `msg_` shape, so the native
+              // transcript uuid can replace it like any sent first message.
+              id: `msg_${payload.startedAt}_${tabId.slice(0, 8)}`,
+              role: 'user',
+              rawContent: payload.displayPrompt,
+              timestamp: payload.startedAt,
+            }),
+          ]
+        : [],
+      streamingState: null,
+      // Left unset for a `late` tab on purpose: `SessionLoaderService.
+      // switchSession` only switches to a tab flagged live and skips the
+      // history load, so the sidebar click could never fill this tab.
+      ...(running ? { hasLiveSession: true } : {}),
+      agentOrigin: {
+        parentTabId: payload.parentTabId,
+        parentSessionId: payload.parentSessionId,
+        label: payload.label,
+        branch: payload.branch,
+        worktreePath: payload.worktreePath,
+        ...(payload.taskId ? { taskId: payload.taskId } : {}),
+        startedAt: payload.startedAt,
+      },
+    };
   }
 
   /**

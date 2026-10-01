@@ -253,4 +253,72 @@ describe('TabWorkspacePartitionService', () => {
       expect(svc.getWorkspaceTabs('/ws/none')).toEqual([]);
     });
   });
+
+  describe('addTabToWorkspace (TASK_2026_584)', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    function backgroundA(): void {
+      svc.switchWorkspace('/ws/a', [], null);
+      svc.switchWorkspace(
+        '/ws/b',
+        [makeTab('p'), { ...makeTab('q'), order: 1 }],
+        'q',
+      );
+    }
+
+    it('inserts after the anchor in a background partition and renumbers order', () => {
+      backgroundA();
+
+      expect(
+        svc.addTabToWorkspace('/ws/a', makeTab('child', 'sess-child'), 'p'),
+      ).toBe(true);
+
+      const tabs = svc.getWorkspaceTabs('/ws/a');
+      expect(tabs.map((t) => t.id)).toEqual(['p', 'child', 'q']);
+      expect(tabs.map((t) => t.order)).toEqual([0, 1, 2]);
+      // The background partition's own active tab is untouched.
+      const back = svc.switchWorkspace('/ws/a', [], null);
+      expect(back?.activeTabId).toBe('q');
+    });
+
+    it('indexes the session and persists through the background save', () => {
+      backgroundA();
+      svc.addTabToWorkspace('/ws/a', makeTab('child', 'sess-child'), 'p');
+
+      expect(svc.findTabBySessionIdAcrossWorkspaces('sess-child')).toEqual(
+        expect.objectContaining({ workspacePath: '/ws/a' }),
+      );
+      jest.advanceTimersByTime(600);
+      const stored = JSON.parse(
+        localStorage.getItem(svc.getStorageKeyForWorkspace('/ws/a')) as string,
+      );
+      expect(stored.tabs.map((t: TabState) => t.id)).toEqual([
+        'p',
+        'child',
+        'q',
+      ]);
+    });
+
+    it('refuses the active workspace, an unloaded partition and a duplicate id', () => {
+      backgroundA();
+      expect(svc.addTabToWorkspace('/ws/b', makeTab('x'), 'p')).toBe(false);
+      expect(svc.addTabToWorkspace('/ws/none', makeTab('x'), 'p')).toBe(false);
+      expect(svc.addTabToWorkspace('/ws/a', makeTab('p'), 'q')).toBe(false);
+      expect(svc.getWorkspaceTabs('/ws/a').map((t) => t.id)).toEqual([
+        'p',
+        'q',
+      ]);
+    });
+
+    it('appends when the anchor is not in the partition', () => {
+      backgroundA();
+      svc.addTabToWorkspace('/ws/a', makeTab('child'), 'missing');
+      expect(svc.getWorkspaceTabs('/ws/a').map((t) => t.id)).toEqual([
+        'p',
+        'q',
+        'child',
+      ]);
+    });
+  });
 });

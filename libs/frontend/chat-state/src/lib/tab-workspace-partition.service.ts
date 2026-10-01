@@ -37,6 +37,27 @@ export interface WorkspaceRemovalEvent {
 }
 
 /**
+ * Insert `tab` directly after the tab with id `afterTabId` and renumber
+ * `order` to match the array position. Appends when `afterTabId` is absent.
+ * Pure: returns a new array, never touches the input.
+ *
+ * Used for agent-started child tabs (TASK_2026_584), which open next to their
+ * parent in whichever partition holds it.
+ */
+export function insertTabAfter(
+  tabs: readonly TabState[],
+  tab: TabState,
+  afterTabId: string,
+): TabState[] {
+  const anchor = tabs.findIndex((t) => t.id === afterTabId);
+  const at = anchor === -1 ? tabs.length : anchor + 1;
+  const next = [...tabs.slice(0, at), tab, ...tabs.slice(at)];
+  return next.map((t, index) =>
+    t.order === index ? t : { ...t, order: index },
+  );
+}
+
+/**
  * TabWorkspacePartitionService - Manages workspace-partitioned tab state
  *
  * Isolates workspace partitioning concerns from core tab CRUD operations.
@@ -360,6 +381,37 @@ export class TabWorkspacePartitionService {
     }
 
     return false;
+  }
+
+  /**
+   * Add a tab to a BACKGROUND workspace partition (TASK_2026_584).
+   *
+   * The background counterpart of appending to `TabManagerService._tabs`: an
+   * agent-started child tab whose parent lives in a workspace that is not
+   * active is added there, right after `afterTabId`, without touching any
+   * signal or the background partition's active tab. Persisted through the
+   * same debounced background save as `updateBackgroundTab`.
+   *
+   * Refuses (returns false) when `workspacePath` is the active workspace — the
+   * caller owns that tab set through its signal — when the partition is not
+   * loaded, or when a tab with the same id is already in it.
+   */
+  addTabToWorkspace(
+    workspacePath: string,
+    tab: TabState,
+    afterTabId: string,
+  ): boolean {
+    if (workspacePath === this._activeWorkspacePath()) return false;
+    const tabSet = this._workspaceTabSets.get(workspacePath);
+    if (!tabSet) return false;
+    if (tabSet.tabs.some((t) => t.id === tab.id)) return false;
+
+    tabSet.tabs = insertTabAfter(tabSet.tabs, tab, afterTabId);
+    if (tab.claudeSessionId) {
+      this._sessionToWorkspace.set(tab.claudeSessionId, workspacePath);
+    }
+    this._debouncedBackgroundSave(workspacePath, tabSet);
+    return true;
   }
 
   /**

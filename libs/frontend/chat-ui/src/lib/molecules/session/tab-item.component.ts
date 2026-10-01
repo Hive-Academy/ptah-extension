@@ -20,10 +20,7 @@ import { isCompactViewMode, TabState } from '@ptah-extension/chat-types';
  * is a leaf UI lib and must not depend on chat-state).
  */
 export type TabLivenessStatus =
-  | 'streaming'
-  | 'awaiting-background'
-  | 'idle'
-  | 'failed';
+  'streaming' | 'awaiting-background' | 'idle' | 'failed';
 
 /**
  * TabItemComponent - Chrome-style individual tab
@@ -50,6 +47,9 @@ export type TabLivenessStatus =
       } @else if (isStreaming()) {
         <span class="loading loading-spinner loading-xs text-primary"></span>
       }
+
+      <!-- Optional leading marker owned by the host (e.g. the agent badge) -->
+      <ng-content select="[tabItemLeading]" />
 
       <!-- Tab title -->
       <span class="truncate text-xs flex-1" [title]="tab().title">
