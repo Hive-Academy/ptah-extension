@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import * as path from 'path';
 import type { Logger, GitInfoService } from '@ptah-extension/vscode-core';
 import { worktreeDirectoryName } from '@ptah-extension/vscode-core';
+import type { ISessionOrganizationRecorder } from '@ptah-extension/platform-core';
 import { parseWorktreeList } from '@ptah-extension/shared';
 import { WorktreeHookHandler } from './worktree-hook-handler';
 import type {
@@ -12,6 +13,9 @@ import type {
 describe('WorktreeHookHandler', () => {
   let logger: jest.Mocked<Logger>;
   let gitInfo: { addWorktree: jest.Mock; getWorktrees: jest.Mock };
+  let recorder: jest.Mocked<
+    Pick<ISessionOrganizationRecorder, 'recordWorktree' | 'recordLineage'>
+  >;
   let handler: WorktreeHookHandler;
 
   const REPO = 'D:\\repo';
@@ -79,9 +83,11 @@ describe('WorktreeHookHandler', () => {
         },
       ]),
     };
+    recorder = { recordWorktree: jest.fn(), recordLineage: jest.fn() };
     handler = new WorktreeHookHandler(
       logger,
       gitInfo as unknown as GitInfoService,
+      recorder as unknown as ISessionOrganizationRecorder,
     );
   });
 
@@ -107,8 +113,96 @@ describe('WorktreeHookHandler', () => {
       continue: true,
     });
     expect(onCreated).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 's1', name: NAME }),
+      expect.objectContaining({
+        sessionId: 's1',
+        name: NAME,
+        worktreePath: expectedPath,
+        cwd: REPO,
+      }),
     );
+  });
+
+  describe('session-organization capture', () => {
+    it('records the SDK session id, created path and branch after a successful add', async () => {
+      gitInfo.addWorktree.mockResolvedValue({
+        success: true,
+        worktreePath: expectedPath,
+      });
+      const onCreated = jest.fn();
+
+      const result = await invokeCreate(onCreated);
+
+      expect(recorder.recordWorktree).toHaveBeenCalledTimes(1);
+      expect(recorder.recordWorktree).toHaveBeenCalledWith({
+        sessionId: 's1',
+        worktreePath: expectedPath,
+        branch: NAME,
+        workspaceRootHint: REPO,
+      });
+      expect(recorder.recordLineage).not.toHaveBeenCalled();
+      // Recorded before the host is notified.
+      expect(
+        recorder.recordWorktree.mock.invocationCallOrder[0],
+      ).toBeLessThan(onCreated.mock.invocationCallOrder[0]);
+      // The hook's SDK return value is unchanged by recording.
+      expect(result).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'WorktreeCreate',
+          worktreePath: expectedPath,
+        },
+        continue: true,
+      });
+    });
+
+    it('records nothing when addWorktree reports failure', async () => {
+      gitInfo.addWorktree.mockResolvedValue({
+        success: false,
+        error: 'branch already exists',
+      });
+
+      await expect(invokeCreate()).rejects.toThrow('branch already exists');
+      expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    });
+
+    it('records nothing when addWorktree succeeds without a path', async () => {
+      gitInfo.addWorktree.mockResolvedValue({ success: true });
+
+      await expect(invokeCreate()).rejects.toThrow(
+        `Git did not return a worktree path for ${NAME}`,
+      );
+      expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    });
+
+    it('records nothing when addWorktree throws', async () => {
+      gitInfo.addWorktree.mockRejectedValue(new Error('git exploded'));
+
+      await expect(invokeCreate()).rejects.toThrow('git exploded');
+      expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    });
+
+    it('creates the worktree unchanged when no recorder is registered', async () => {
+      handler = new WorktreeHookHandler(
+        logger,
+        gitInfo as unknown as GitInfoService,
+      );
+      gitInfo.addWorktree.mockResolvedValue({
+        success: true,
+        worktreePath: expectedPath,
+      });
+      const onCreated = jest.fn();
+
+      const result = await invokeCreate(onCreated);
+
+      expect(result).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'WorktreeCreate',
+          worktreePath: expectedPath,
+        },
+        continue: true,
+      });
+      expect(onCreated).toHaveBeenCalledTimes(1);
+      expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    });
   });
 
   it.each(pathCases)(
