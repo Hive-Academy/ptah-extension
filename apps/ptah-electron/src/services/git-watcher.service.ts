@@ -34,6 +34,13 @@
  * An `overflow` or `truncated` batch schedules one refresh with causes
  * `head`, `index` and `refs`.
  *
+ * ## Vanished agent worktrees are pruned (TASK_2026_576 RC10)
+ *
+ * At most once per 30 s, riding on a worktree re-list or a status refresh
+ * (a last-run timestamp, no timer of its own), the listed worktrees are
+ * audited: an unlocked `prunable` one under `<main>/.claude-worktrees/` gets
+ * `git worktree prune` and a `git:worktreeChanged` `removed` push.
+ *
  * ## The workspace feed is a batched port (TASK_2026_437 C10, INV-1)
  *
  * On 2026-09-14 removing ten agent worktrees (~7,400 files each) delivered tens
@@ -69,6 +76,7 @@ import type {
   WorkspaceChangeBatch,
 } from '@ptah-extension/platform-core';
 import {
+  AGENT_WORKTREE_DIR,
   MESSAGE_TYPES,
   NESTED_WORKSPACE_PATH_RULES,
   NestedRepoRoots,
@@ -80,6 +88,7 @@ import type {
   GitChangeKind,
   GitInfoResult,
   GitStatusUpdatePayload,
+  GitWorktreeChangedNotification,
   GitWorktreeInfo,
 } from '@ptah-extension/shared';
 
@@ -98,6 +107,13 @@ const GIT_STATUS_UPDATE = MESSAGE_TYPES.GIT_STATUS_UPDATE;
 
 /** Message type used for pushing file content change notifications to the renderer. */
 const FILE_CONTENT_CHANGED = MESSAGE_TYPES.FILE_CONTENT_CHANGED;
+
+/**
+ * Message type for worktree add/remove pushes. A literal, not a
+ * `MESSAGE_TYPES` member: every producer broadcasts this exact string and the
+ * frontend `WorktreeService` matches it the same way.
+ */
+const GIT_WORKTREE_CHANGED = 'git:worktreeChanged';
 
 /** `WATCH_IGNORED_DIRS` as the port's array channel, built once. */
 const WATCH_IGNORED_DIR_NAMES: readonly string[] = [...WATCH_IGNORED_DIRS];
@@ -248,6 +264,16 @@ export class GitWatcherService {
   /** Latch for "worktree listing failed" — logged once per service, not per refresh. */
   private worktreeListFailureLogged = false;
 
+  /**
+   * When the agent-worktree audit last ran (epoch ms), or null when no
+   * repository is armed — a non-git workspace never audits.
+   *
+   * A timestamp, not a timer: the audit rides on work that is happening
+   * anyway (a worktree re-list, a status refresh) and runs at most once per
+   * {@link WORKTREE_AUDIT_INTERVAL_MS}.
+   */
+  private lastWorktreeAuditAt: number | null = null;
+
   /** Debounce interval for file content change notifications (ms). */
   private static readonly CONTENT_CHANGE_DEBOUNCE_MS = 500;
 
@@ -320,6 +346,13 @@ export class GitWatcherService {
   /** Debounce for re-listing worktrees (ms). `git worktree add` writes several records at once. */
   private static readonly NESTED_ROOTS_REFRESH_DEBOUNCE_MS = 500;
 
+  /**
+   * Least time between two agent-worktree audits (ms). An audit is one
+   * `git worktree list` at most beyond what the watcher already runs, plus a
+   * prune only when a vanished agent worktree is listed.
+   */
+  private static readonly WORKTREE_AUDIT_INTERVAL_MS = 30_000;
+
   /** Debounce interval for workspace switches (ms). Rapid A→B→A switching re-arms watchers only once, on the final target. */
   private static readonly SWITCH_DEBOUNCE_MS = 300;
 
@@ -365,7 +398,9 @@ export class GitWatcherService {
       return;
     }
 
-    void this.refreshNestedRepoRoots(workspacePath, this.armGeneration);
+    // The arm-time listing carries the first agent-worktree audit.
+    this.lastWorktreeAuditAt = Date.now();
+    void this.refreshNestedRepoRoots(workspacePath, this.armGeneration, true);
 
     this.subscribeGitDir(this.resolveGitDirs(gitDir));
 
@@ -529,6 +564,7 @@ export class GitWatcherService {
       clearTimeout(this.nestedRootsRefreshTimer);
       this.nestedRootsRefreshTimer = null;
     }
+    this.lastWorktreeAuditAt = null;
 
     this.disposeSubscription(this.workspaceSubscription, 'workspace');
     this.workspaceSubscription = null;
@@ -756,10 +792,17 @@ export class GitWatcherService {
    *
    * Accepted cost of a resubscribe: roots the host discovered at runtime belong
    * to the old subscription and are re-detected on their next `.git` event.
+   *
+   * The same listing feeds the agent-worktree audit
+   * ({@link pruneVanishedAgentWorktrees}) when the caller already claimed it
+   * (`auditClaimed`) or when one is due, so a worktree administration change
+   * audits at most once per {@link WORKTREE_AUDIT_INTERVAL_MS} at no extra
+   * listing cost.
    */
   private async refreshNestedRepoRoots(
     workspaceRoot: string,
     generation: number,
+    auditClaimed = false,
   ): Promise<void> {
     const seq = ++this.worktreeListingSeq;
     let worktrees: GitWorktreeInfo[];
@@ -781,6 +824,16 @@ export class GitWatcherService {
       return;
     }
     if (this.armGeneration !== generation || this.isDisposed) return;
+    // Ahead of the sequence check: a claimed audit is not handed to the newer
+    // listing, and pruning is idempotent, so an older list is still a valid
+    // input.
+    if (auditClaimed || this.claimWorktreeAudit()) {
+      void this.pruneVanishedAgentWorktrees(
+        workspaceRoot,
+        generation,
+        worktrees,
+      );
+    }
     // A listing started after this one owns the answer.
     if (seq !== this.worktreeListingSeq) return;
 
@@ -808,6 +861,92 @@ export class GitWatcherService {
       roots: nestedRoots,
     });
     this.subscribeWorkspace(workspaceRoot, nestedRoots);
+  }
+
+  /**
+   * Stamp and return true when an agent-worktree audit is due: a repository is
+   * armed and the last audit is at least {@link WORKTREE_AUDIT_INTERVAL_MS}
+   * old. False otherwise, leaving the stamp alone.
+   */
+  private claimWorktreeAudit(): boolean {
+    if (this.lastWorktreeAuditAt === null) return false;
+    const now = Date.now();
+    if (
+      now - this.lastWorktreeAuditAt <
+      GitWatcherService.WORKTREE_AUDIT_INTERVAL_MS
+    ) {
+      return false;
+    }
+    this.lastWorktreeAuditAt = now;
+    return true;
+  }
+
+  /**
+   * Drop the administration entries of agent worktrees whose directories are
+   * gone, and tell the renderer each one was removed.
+   *
+   * Candidates are the listed worktrees git labels `prunable`, that are not
+   * locked, and whose path lies under `<main>/.claude-worktrees/`. Anything
+   * else — a user's own worktree elsewhere, a locked one — is never touched.
+   * After `git worktree prune`, a fresh listing decides which candidates
+   * actually disappeared; only those get a `git:worktreeChanged` `removed`
+   * push. A failed prune leaves the entries labelled `prunable` for the next
+   * audit. Every failure is logged and swallowed: this is housekeeping on top
+   * of the watcher, never a reason for it to stop.
+   */
+  private async pruneVanishedAgentWorktrees(
+    workspaceRoot: string,
+    generation: number,
+    worktrees: readonly GitWorktreeInfo[],
+  ): Promise<void> {
+    const main = worktrees.find((w) => w.isMain)?.path;
+    if (!main) return;
+    const vanished = worktrees.filter(
+      (w) =>
+        w.prunable === true &&
+        w.locked !== true &&
+        isUnderAgentWorktreeDir(main, w.path),
+    );
+    if (vanished.length === 0) return;
+
+    try {
+      const pruned = await this.gitInfo.pruneWorktrees(main);
+      if (!pruned.success) {
+        this.logger.warn('[GitWatcher] Pruning vanished agent worktrees failed', {
+          workspaceRoot,
+          paths: vanished.map((w) => w.path),
+          error: pruned.error,
+        });
+        return;
+      }
+      const remaining = new Set(
+        (await this.gitInfo.getWorktrees(main)).map((w) => w.path),
+      );
+      if (this.isDisposed || this.armGeneration !== generation) return;
+      const removed = vanished
+        .map((w) => w.path)
+        .filter((worktreePath) => !remaining.has(worktreePath));
+      if (removed.length === 0) return;
+
+      this.logger.info('[GitWatcher] Pruned vanished agent worktrees', {
+        workspaceRoot,
+        paths: removed,
+      });
+      for (const worktreePath of removed) {
+        const payload: GitWorktreeChangedNotification = {
+          action: 'removed',
+          path: worktreePath,
+        };
+        this.broadcastFn?.(GIT_WORKTREE_CHANGED, payload);
+      }
+    } catch (err) {
+      // degradation-audit: optional-capability - the audit is housekeeping;
+      // the entries stay labelled `prunable` and the next audit retries.
+      this.logger.warn('[GitWatcher] Agent worktree audit failed', {
+        workspaceRoot,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   /**
@@ -1040,6 +1179,15 @@ export class GitWatcherService {
         workspaceRoot,
       };
       this.broadcastFn(GIT_STATUS_UPDATE, payload);
+      // An agent worktree deleted from disk writes nothing a subscription
+      // sees, so a status refresh also carries the audit when one is due.
+      if (result.isGitRepo && this.claimWorktreeAudit()) {
+        void this.refreshNestedRepoRoots(
+          workspaceRoot,
+          this.armGeneration,
+          true,
+        );
+      }
     } catch (err) {
       this.logger.warn('[GitWatcher] Failed to fetch git info', {
         error: err instanceof Error ? err.message : String(err),
@@ -1074,6 +1222,27 @@ function isMissingFileError(err: unknown): boolean {
     err !== null &&
     'code' in err &&
     err.code === 'ENOENT'
+  );
+}
+
+/**
+ * Whether `candidate` lies strictly inside `<mainWorktree>/.claude-worktrees/`.
+ * `path.relative` accepts either slash on Windows and compares there
+ * case-insensitively, matching how git spells worktree paths.
+ */
+function isUnderAgentWorktreeDir(
+  mainWorktree: string,
+  candidate: string,
+): boolean {
+  const relative = path.relative(
+    path.join(mainWorktree, AGENT_WORKTREE_DIR),
+    candidate,
+  );
+  return (
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
   );
 }
 

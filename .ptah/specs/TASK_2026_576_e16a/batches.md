@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 18/69
+Total tasks: 87 | Batches: 69 | Complete: 19/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -922,14 +922,14 @@ under "Execution defaults".
 - Implementation details: worktree RPCs (`:317-460`) honour `params.workspaceRoot`.
 - Outcome (ddafac963): hook calls `removeWorktree(main, gitPath, true)` then `pruneWorktrees(main)`; prunable entry → prune only; locked → skipped. Log field `removalPath` (A5). `git:worktrees` validates with `parseGitWorkspaceScopedParams`; add/remove use `resolveRoot`. Verified: agent-sdk + rpc-handlers typecheck/lint/test green except the known unrelated `harness-skill-selection-rpc.service.spec.ts` failure (unchanged from main).
 
-## Batch 14: Worktree removal detection and frontend scoping (RC10) — PENDING
+## Batch 14: Worktree removal detection and frontend scoping (RC10) — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 3, 13
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-electron @ptah-extension/git-ui`
 
-### Task 14.1: Watcher re-lists worktrees on admin change (≤1 per 30 s piggyback); `WorktreeService` passes `workspaceRoot` — PENDING
+### Task 14.1: Watcher re-lists worktrees on admin change (≤1 per 30 s piggyback); `WorktreeService` passes `workspaceRoot` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/apps/ptah-electron/src/services/git-watcher.service.ts; MODIFY D:/projects/ptah-extension/apps/ptah-electron/src/services/git-watcher.service.spec.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/worktree.service.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/worktree.service.spec.ts
 - Plan reference: implementation-plan.md:566-570, 576, 596
@@ -937,6 +937,17 @@ under "Execution defaults".
 - Quality requirements: no free-running timer (last-run timestamp); prunable under `.claude-worktrees/` → prune + `git:worktreeChanged {action:'removed'}`.
 - Validation notes: parity row `parity-inventory.md:92` (removed worktree unregistered) stays green.
 - Implementation details: as plan.
+- Outcome: executor backend-developer; only the four listed files changed. Agent-worktree audit
+  (`pruneVanishedAgentWorktrees`) runs at arm, on a worktree admin re-list, and on a status refresh, at most once per
+  30 s (`lastWorktreeAuditAt` timestamp, no timer; cleared in `stop()`, so non-git workspaces never audit). Unlocked
+  `prunable` entries under `<main>/.claude-worktrees/` → `pruneWorktrees(main)`, re-list, `git:worktreeChanged
+  {action:'removed', path}` only for paths that left the list. Failures logged, never thrown. `WorktreeService` sends
+  `workspaceRoot` from `GitStatusService.activeWorkspacePath()` on list/add/remove. Deviation (accepted): the 30 s
+  throttle applies to the prune audit, not to the admin-change re-list — throttling the re-list would leave a second
+  new worktree inside 30 s unexcluded from the workspace watch (event-storm regression). Parity row is at
+  `parity-inventory.md:94` in this copy; still green. Verified by the orchestrator: `nx run-many -t typecheck,test,lint
+  -p ptah-electron @ptah-extension/git-ui` green; `ptah-electron:validate-deps` green (executor). One earlier executor
+  run had 7 `shell-csp.spec.ts` timeouts under load; green on rerun (file not touched).
 
 ## Batch 15: Status union growth and frontend consumers (RC12, V10) — COMPLETE (183aac6e6)
 
@@ -972,7 +983,7 @@ under "Execution defaults".
 - Implementation details: as plan.
 - Outcome (4b458351a): new `git/git-repo-operation.reader.ts` (marker paths via one cached `rev-parse --git-path` per workspace, then fs checks only; rebase > merge > cherry-pick; `git am` not reported) and `git/git-blob-classifier.ts` (+spec; too-large / LFS / binary / text — reuse it in Batch 17). `GIT_DIFF_MAX_SIDE_BYTES = 2 MiB` in shared `git-operation.constants.ts`. Conflict kind order: submodule, symlink, delete-modify, add-add, content. Too-large size from `cat-file -s`; worktree side uses fs stat before reading. LFS `oid` keeps its `sha256:` prefix. Verified: vscode-core unit 817/817, real-git 131 passed / 2 skipped (11 suites), typecheck of vscode-core, rpc-handlers, git-ui, shared green.
 
-## Batch 17: Review reader size limit (RC12) — COMPLETE
+## Batch 17: Review reader size limit (RC12) — COMPLETE (e44c7cb95)
 
 - Recommended executor: CLI lane | Fallback: backend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
