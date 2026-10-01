@@ -230,7 +230,7 @@ export class SessionOrganizationRpcHandlers {
         params,
       );
       const organization = this.organization;
-      if (!organization || !organization.isAvailable()) {
+      if (!organization?.isAvailable()) {
         return { available: false };
       }
       if (!isAuthorizedWorkspace(parsed.workspacePath, this.workspace)) {
@@ -277,7 +277,8 @@ export class SessionOrganizationRpcHandlers {
     for (const link of ordered) {
       const name = names.get(link.sessionId);
       if (name === undefined) continue;
-      (grouped[link.taskId] ??= []).push({
+      grouped[link.taskId] ??= [];
+      grouped[link.taskId].push({
         sessionId: link.sessionId,
         name,
         role: link.role,

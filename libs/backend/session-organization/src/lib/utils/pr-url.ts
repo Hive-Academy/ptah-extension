@@ -31,7 +31,10 @@ export interface ParsedPrUrl {
   number: number | null;
 }
 
-const GITHUB_HOSTS: readonly string[] = ['github.com', 'www.github.com'];
+const GITHUB_HOSTS: ReadonlySet<string> = new Set([
+  'github.com',
+  'www.github.com',
+]);
 
 /**
  * `/<owner>/<repo>/pull/<n>` with an optional sub-path. Owner: GitHub's
@@ -147,7 +150,7 @@ function outputText(toolOutput: unknown): string | null {
 
 function matchGithubPr(parsed: URL): ParsedPrUrl | null {
   // `URL` already lowercases the host.
-  if (!GITHUB_HOSTS.includes(parsed.hostname) || parsed.port !== '') {
+  if (!GITHUB_HOSTS.has(parsed.hostname) || parsed.port !== '') {
     return null;
   }
   const match = GITHUB_PR_PATH.exec(parsed.pathname);

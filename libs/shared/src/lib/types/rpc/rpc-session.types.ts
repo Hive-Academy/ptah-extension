@@ -9,6 +9,7 @@ import type { ContextCapacity } from '../../utils/pricing.utils';
 import type { SessionId } from '../branded.types';
 import type {
   ChatSessionSummary,
+  FlatStreamEventUnion,
   SessionTurnPhase,
   SessionTurnState,
 } from '../execution';
@@ -24,7 +25,6 @@ import type {
   SessionWorkflowStatus,
 } from '../session-organization.types';
 import type { CliOutputSegment } from '../agent-process.types';
-import type { FlatStreamEventUnion } from '../execution';
 import type {
   SdkCompactionCompletePayload,
   SdkSubagentEndedPayload,

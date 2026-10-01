@@ -492,7 +492,7 @@ export class SessionOrganizationStore {
     workspaceRoot: string,
     taskIds?: readonly string[],
   ): StoredSessionTaskLink[] {
-    if (taskIds && taskIds.length === 0) return [];
+    if (taskIds?.length === 0) return [];
     const rows = (
       taskIds
         ? this.db
