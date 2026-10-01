@@ -312,7 +312,7 @@ describe('SettingsSaveFeedbackService', () => {
     });
 
     it('refuses re-entry while a generic save is in flight without calling write', async () => {
-      let finishWrite: () => void = () => {};
+      let finishWrite: () => void = () => void 0;
       const write = jest.fn(() => new Promise<{ ok: true }>((resolve) => { finishWrite = () => resolve({ ok: true }); }));
       const first = service.saveGeneric(genericRequest({ write }));
       expect(service.saving()).toBe(true);

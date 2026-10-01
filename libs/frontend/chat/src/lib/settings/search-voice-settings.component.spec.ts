@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
 import { SearchVoiceSettingsComponent } from './search-voice-settings.component';
 import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
