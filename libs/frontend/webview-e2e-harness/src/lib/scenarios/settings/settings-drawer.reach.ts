@@ -4,7 +4,50 @@
  * holds the entries, and a later batch that moves a drawer control edits one helper here.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
-import { getFixtureState, gotoSettingsTab } from './settings.fixtures';
+import {
+  baseSettingsFixtures, getFixtureState, gotoSettingsTab, installHost, installRpcAutoResponder, type SETTINGS_TAB_LABELS,
+} from './settings.fixtures';
+import { installPostMessageBridge } from '../../postmessage-bridge';
+import { installCspStub } from '../../csp-stub';
+
+/**
+ * Some capabilities are gated behind data this suite's SHARED session
+ * cannot show at the same time as everything else (an empty CLI list for
+ * #77, alongside the populated one every other CLI/orchestration entry
+ * needs; a Copilot sign-in the shared fixture does not answer, #47). Rather
+ * than force that state through the shared fixture, this opens a SECOND page
+ * in the same browser context with its own fixture override, drives it, and
+ * closes it — the shared session `page` is untouched by anything that
+ * happens inside `assertion`. Moved here from the table in Batch 32 so the
+ * CLI matrix entries can use it too.
+ */
+export async function throughVariantBoot(
+  page: Page,
+  overrides: Record<string, unknown>,
+  tab: (typeof SETTINGS_TAB_LABELS)[number],
+  assertion: (variantPage: Page) => Promise<void>,
+): Promise<void> {
+  const variantPage = await page.context().newPage();
+  try {
+    await installCspStub(variantPage);
+    const bridge = await installPostMessageBridge(variantPage);
+    await installHost(variantPage, 'vscode', 'chat');
+    await installRpcAutoResponder(variantPage, { ...baseSettingsFixtures(), ...overrides });
+    await variantPage.goto(page.url());
+    // Same boot order as `bootSettings` in settings.fixtures.ts: the shell
+    // must be up BEFORE `switchView`, and `settings-back` only exists AFTER
+    // it — this used to check `settings-back` before injecting `switchView`
+    // at all, which only "worked" by outliving its own 5s timeout on a
+    // slow load, never because the check was correct.
+    await expect(variantPage.locator('ptah-app-shell').first()).toBeVisible({ timeout: 15000 });
+    await bridge.inject({ type: 'switchView', payload: { view: 'settings' } });
+    await expect(variantPage.locator('[data-testid="settings-back"]')).toBeVisible({ timeout: 15000 });
+    await variantPage.getByRole('button', { name: tab, exact: true }).click();
+    await assertion(variantPage);
+  } finally {
+    await variantPage.close();
+  }
+}
 
 export const providersTab = (page: Page) => gotoSettingsTab(page, 'Providers');
 export const orchestrationTab = (page: Page) => gotoSettingsTab(page, 'Agent Orchestration');

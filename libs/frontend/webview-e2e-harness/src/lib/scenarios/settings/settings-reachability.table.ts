@@ -18,17 +18,14 @@
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 import {
-  AGENT_CONFIG_FIXTURE, baseSettingsFixtures, getFixtureState, installHost,
-  installRpcAutoResponder, INVALID_PROBE_KEY, MOONSHOT_KEY_HINT, SETTINGS_TAB_LABELS,
+  AGENT_CONFIG_FIXTURE, getFixtureState, INVALID_PROBE_KEY, MOONSHOT_KEY_HINT, SETTINGS_TAB_LABELS,
 } from './settings.fixtures';
-import { installPostMessageBridge } from '../../postmessage-bridge';
-import { installCspStub } from '../../csp-stub';
 import { ROUTING_MAP_ENTRIES } from './settings-routing-map.entries';
 import { CLI_MATRIX_ENTRIES } from './settings-cli-matrix.entries';
 import {
   advancedTab, applyManualTierModel, card, chooseMainAgentModel, expectHostAppScope, closeCatalog, closeConnectionDrawer, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
   cliConfigSection, closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
-  throughDelegatedEdit, setupThroughDrawer, visibleEnabled, withAuthStatus,
+  throughDelegatedEdit, throughVariantBoot, setupThroughDrawer, visibleEnabled, withAuthStatus,
 } from './settings-drawer.reach';
 
 export type CapabilityStatus = 'present' | 'restored' | 'pending';
@@ -145,43 +142,6 @@ async function advanceWizardTo(page: Page, targetTestId: string, maxSteps = 6): 
     const before = await stepHeading.innerText();
     await continueButton.click();
     await expect(stepHeading).not.toHaveText(before, { timeout: 5000 });
-  }
-}
-
-/**
- * Some capabilities are gated behind data this suite's SHARED session
- * cannot show at the same time as everything else (an empty CLI list for
- * #77, alongside the populated one every other CLI/orchestration entry
- * needs). Rather than force that state through the shared fixture, this
- * opens a SECOND page in the same browser context with its own fixture
- * override, drives it, and closes it — the shared session `page` is
- * untouched by anything that happens inside `assertion`.
- */
-async function throughVariantBoot(
-  page: Page,
-  overrides: Record<string, unknown>,
-  tab: (typeof SETTINGS_TAB_LABELS)[number],
-  assertion: (variantPage: Page) => Promise<void>,
-): Promise<void> {
-  const variantPage = await page.context().newPage();
-  try {
-    await installCspStub(variantPage);
-    const bridge = await installPostMessageBridge(variantPage);
-    await installHost(variantPage, 'vscode', 'chat');
-    await installRpcAutoResponder(variantPage, { ...baseSettingsFixtures(), ...overrides });
-    await variantPage.goto(page.url());
-    // Same boot order as `bootSettings` in settings.fixtures.ts: the shell
-    // must be up BEFORE `switchView`, and `settings-back` only exists AFTER
-    // it — this used to check `settings-back` before injecting `switchView`
-    // at all, which only "worked" by outliving its own 5s timeout on a
-    // slow load, never because the check was correct.
-    await expect(variantPage.locator('ptah-app-shell').first()).toBeVisible({ timeout: 15000 });
-    await bridge.inject({ type: 'switchView', payload: { view: 'settings' } });
-    await expect(variantPage.locator('[data-testid="settings-back"]')).toBeVisible({ timeout: 15000 });
-    await variantPage.getByRole('button', { name: tab, exact: true }).click();
-    await assertion(variantPage);
-  } finally {
-    await variantPage.close();
   }
 }
 
@@ -689,15 +649,9 @@ const other: readonly ReachabilityEntry[] = [
 
 // ---------------------------------------------------------------------------
 // The 17 restored items (parity-inventory.md "Missing capabilities", minus
-// #21). `reach` is a placeholder until the batch that builds each one
-// replaces it — plan D14 rule 3 forbids a present entry regressing to
-// pending, so these start below that line and are never asserted until they
-// flip.
+// #21). Each started `pending` and flipped to `restored` in the batch that
+// built it (plan D14 rule 3); since Batch 32 none is pending.
 // ---------------------------------------------------------------------------
-
-const notYetBuilt = async (): Promise<void> => {
-  throw new Error('Not built yet — flip this entry to \'restored\' in the batch that builds it.');
-};
 
 const restoredPending: readonly ReachabilityEntry[] = [
   { id: '#7', capability: 'Delete the stored Anthropic API key', status: 'restored',
@@ -775,24 +729,7 @@ const restoredPending: readonly ReachabilityEntry[] = [
     reach: (page) => inDrawerTab(page, 'Moonshot', 'Models & Tiers', 'connection-models', async (panel) => {
       await expect(panel.locator('[data-tier="sonnet"] [data-testid="provider-model-picker-tooluse-summary"]')).toContainText('support tool use');
     }) },
-  // #43, #44, #54, #70 and #71 (restored in Batch 30) are in `settings-cli-matrix.entries.ts`.
-  { id: '#47', capability: 'Inline GitHub login when adding a Copilot-backed CLI agent', status: 'pending', reach: notYetBuilt },
-  { id: '#49', capability: 'Show/hide API key in CLI agent add/edit forms', status: 'restored',
-    // Batch 21 restores the drawer Credentials half (the Replace key field). The CLI agent add/edit
-    // forms get theirs with the add-instance modal (plan :753); that batch extends this reach.
-    reach: async (page) => {
-      try {
-        await credentialsOf(page, 'Moonshot');
-        await page.locator('[data-testid="credentials-replace"]').click();
-        const key = page.locator('[data-testid="credentials-new-key"]');
-        await expect(key).toHaveAttribute('type', 'password');
-        await page.locator('[data-testid="credentials-toggle-visibility"]').click();
-        await expect(key).toHaveAttribute('type', 'text');
-      } finally {
-        await closeConnectionDrawer(page);
-      }
-    } },
-  { id: '#53', capability: 'CLI-agent tier mapping (cliAgent scope)', status: 'pending', reach: notYetBuilt },
+  // #43, #44, #54, #70 and #71 (Batch 30) and #47, #49 and #53 (Batch 32) are in `settings-cli-matrix.entries.ts`.
 ];
 
 // ---------------------------------------------------------------------------

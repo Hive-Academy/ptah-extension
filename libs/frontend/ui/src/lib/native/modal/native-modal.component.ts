@@ -5,9 +5,12 @@
  * popover, which are plain `<div>`s and therefore hand-write their Tab-trap,
  * Escape handling and focus-restore in TypeScript, this component is a real
  * `<dialog>` element opened with `showModal()`:
- * - `showModal()` traps focus inside the dialog and, on `close()`, returns
+ * - `showModal()` makes the rest of the page inert and, on `close()`, returns
  *   focus to the element that had focus before it opened — both per the HTML
  *   Living Standard, with no extra code
+ * - Tab and Shift+Tab wrap at the dialog's first and last control. Inert alone
+ *   is not a trap: Chromium moves focus from the last control to the browser's
+ *   own UI (TASK_2026_555 Batch 32, found by the Batch 14 finding 3 scene)
  * - Escape fires a native `cancel` event, which the component only forwards
  *   to the parent
  * - a backdrop click requests closure
@@ -51,6 +54,9 @@ import {
 /** Modal width preset, mapped to a `modal-box` max-width class. */
 export type NativeModalSize = 'sm' | 'md' | 'lg';
 
+/** Controls the Tab wrap moves between (inside the panel). */
+const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 const SIZE_CLASSES: Record<NativeModalSize, string> = {
   sm: 'max-w-sm',
   md: 'max-w-lg',
@@ -61,6 +67,8 @@ const SIZE_CLASSES: Record<NativeModalSize, string> = {
   selector: 'ptah-native-modal',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Keys from inside the dialog bubble to the host (the top layer changes rendering, not the DOM tree).
+  host: { '(keydown)': 'onKeydown($event)' },
   template: `
     <dialog
       #dialog
@@ -149,6 +157,30 @@ export class NativeModalComponent implements OnDestroy {
    */
   protected onCancel(): void {
     this.closed.emit();
+  }
+
+  /**
+   * Tab from the last control goes to the first, Shift+Tab from the first to the last, so keyboard focus never leaves
+   * the open dialog. The backdrop's close button is not a stop: it is the pointer path, outside the panel.
+   */
+  protected onKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Tab') return;
+    const dialog = this.dialog()?.nativeElement;
+    if (!dialog?.open) return;
+    const panel = dialog.querySelector<HTMLElement>('.modal-box');
+    const focusables = Array.from(panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])
+      .filter((node) => !node.hasAttribute('disabled') && node.tabIndex >= 0 && node.getClientRects().length > 0);
+    if (!focusables.length) return;
+    const first = focusables[0], last = focusables[focusables.length - 1];
+    const active = dialog.ownerDocument.activeElement;
+    const outside = !panel?.contains(active);
+    if (event.shiftKey && (active === first || outside)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || outside)) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   /** Backdrop click requests closure. */

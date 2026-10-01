@@ -46,6 +46,11 @@ class StateStub {
   readonly scopes = signal<ProvidersSettingsSection<{ activePath: string; entries: unknown[] }>>(ready({ activePath: '/ws', entries: [] }));
   readonly delegatedModelOptions = signal(ready({ codex: [], copilot: [], cursor: [], antigravity: [], opencode: [], pi: [] }));
   readonly refreshDelegatedModelOptions = jest.fn(async () => undefined);
+  // Read by the Batch 32 modals (always mounted, closed).
+  readonly connections = signal(ready([]));
+  readonly externalAuth = signal({ status: 'unloaded', data: null, error: null });
+  readonly tiers = signal({ status: 'unloaded', data: null, error: null });
+  readonly refreshTiers = jest.fn(async (_params: unknown) => undefined);
   readonly reviewContext = jest.fn(() => (this.scopes().status === 'ready' ? CONTEXT : null));
   readonly saveSettings = jest.fn(async (_patch: unknown, _context: unknown) => {
     this.commit.set({ ...idle, status: 'saved' });
@@ -73,6 +78,12 @@ describe('CliOrchestrationMatrixComponent', () => {
     input.checked = checked;
     input.dispatchEvent(new Event('change'));
   }
+
+  beforeAll(() => {
+    // jsdom has no <dialog> API; the Batch 32 modals use showModal()/close().
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) { this.setAttribute('open', ''); };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) { this.removeAttribute('open'); };
+  });
 
   beforeEach(() => {
     Object.defineProperty(Element.prototype, 'scrollIntoView', { writable: true, configurable: true, value: jest.fn() });
@@ -140,11 +151,42 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(row('glm-1')?.className).not.toContain('bg-primary/5');
     });
 
-    it('renders no Add, Tiers or Edit control before Batch 32 (no dead controls)', () => {
+    it('has one Add, and Tiers / Edit on instance rows only (Batch 32); Credentials only on Cursor (Batch 31)', () => {
       const labels = Array.from(element().querySelectorAll('button')).map((button) => button.textContent?.trim() ?? '');
-      for (const name of ['Add Ptah CLI Instance', 'Tiers', 'Edit']) expect(labels).not.toContain(name);
-      // Credentials only on Cursor (Batch 31).
+      expect(labels.filter((label) => label === 'Add Ptah CLI Instance')).toHaveLength(1);
+      expect(labels.filter((label) => label === 'Tiers')).toHaveLength(1);
+      expect(labels.filter((label) => label === 'Edit')).toHaveLength(1);
+      expect(row('glm-1')?.querySelector('[data-testid="cli-matrix-tiers-glm-1"]')).not.toBeNull();
+      expect(row('codex')?.querySelector('[data-testid^="cli-matrix-tiers-"]')).toBeNull();
       expect(labels.filter((label) => label === 'Credentials')).toHaveLength(1);
+    });
+
+    it('opens the add modal empty, the edit modal on the instance, and the tier modal for it', () => {
+      const dialogOpen = (testid: string) => q(`[data-testid="${testid}"]`)?.closest('dialog')?.hasAttribute('open');
+      q<HTMLButtonElement>('[data-testid="cli-matrix-add"]')?.click();
+      fixture.detectChanges();
+      expect(dialogOpen('add-cli-instance-modal')).toBe(true);
+      expect(q('[data-testid="add-cli-instance-modal"]')?.textContent).toContain('Add Ptah CLI Agent Instance');
+      q<HTMLButtonElement>('[data-testid="add-cli-instance-modal"] button[aria-label="Close"]')?.click();
+      fixture.detectChanges();
+      expect(dialogOpen('add-cli-instance-modal')).toBe(false);
+      q<HTMLButtonElement>('[data-testid="cli-matrix-edit-glm-1"]')?.click();
+      fixture.detectChanges();
+      expect(q('[data-testid="add-cli-instance-modal"]')?.textContent).toContain('Edit Glm');
+      expect(q<HTMLInputElement>('[data-testid="add-cli-instance-name"]')?.value).toBe('Glm');
+      q<HTMLButtonElement>('[data-testid="add-cli-instance-modal"] button[aria-label="Close"]')?.click();
+      q<HTMLButtonElement>('[data-testid="cli-matrix-tiers-glm-1"]')?.click();
+      fixture.detectChanges();
+      expect(dialogOpen('cli-tier-mapping-modal')).toBe(true);
+      expect(q('[data-testid="cli-tier-mapping-modal"]')?.textContent).toContain('Glm Tier Model Mapping');
+      expect(state.refreshTiers).toHaveBeenCalledWith({ providerId: 'ollama-cloud', scope: 'cliAgent' });
+    });
+
+    it('shows an Add row when there is no Ptah CLI instance yet', () => {
+      expect(q('[data-testid="cli-matrix-no-instances"]')).toBeNull();
+      state.cliAgents.set(ready([]));
+      fixture.detectChanges();
+      expect(q('[data-testid="cli-matrix-no-instances"]')?.textContent).toContain('No Ptah CLI instance yet.');
     });
   });
 

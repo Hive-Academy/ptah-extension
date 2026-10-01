@@ -41,9 +41,9 @@ beforeAll(() => {
       [size]="size()"
       (closed)="onClosed()"
     >
-      <h3 modal-header>Header</h3>
-      <p id="modal-body">Body</p>
-      <div modal-footer><span id="modal-footer">Footer</span></div>
+      <h3 modal-header>Header <button id="modal-first" type="button">✕</button></h3>
+      <p id="modal-body">Body <button id="modal-disabled" type="button" disabled>Off</button></p>
+      <div modal-footer><span id="modal-footer">Footer</span> <button id="modal-last" type="button">Done</button></div>
     </ptah-native-modal>
   `,
 })
@@ -200,5 +200,49 @@ describe('NativeModalComponent', () => {
   it('does not emit closed when destroyed while already closed', () => {
     fixture.destroy();
     expect(host.closedCount).toBe(0);
+  });
+
+  // TASK_2026_555 Batch 32: Chromium lets Tab leave a showModal() dialog for the browser UI at its last control.
+  describe('Tab wrap', () => {
+    const button = (id: string) => root().querySelector(`#${id}`) as HTMLButtonElement;
+    const tab = (shiftKey = false): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+      (root().ownerDocument.activeElement ?? dialogEl()).dispatchEvent(event);
+      return event;
+    };
+
+    beforeEach(() => {
+      // jsdom has no layout: every control counts as rendered.
+      jest.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+      open();
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    it('moves Tab from the last control to the first', () => {
+      button('modal-last').focus();
+      const event = tab();
+      expect(event.defaultPrevented).toBe(true);
+      expect(root().ownerDocument.activeElement).toBe(button('modal-first'));
+    });
+
+    it('moves Shift+Tab from the first control to the last, skipping disabled ones', () => {
+      button('modal-first').focus();
+      const event = tab(true);
+      expect(event.defaultPrevented).toBe(true);
+      expect(root().ownerDocument.activeElement).toBe(button('modal-last'));
+    });
+
+    it('leaves Tab between inner controls to the browser', () => {
+      button('modal-first').focus();
+      expect(tab().defaultPrevented).toBe(false);
+      expect(root().ownerDocument.activeElement).toBe(button('modal-first'));
+    });
+
+    it('does nothing while the dialog is closed', () => {
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      button('modal-last').focus();
+      expect(tab().defaultPrevented).toBe(false);
+    });
   });
 });

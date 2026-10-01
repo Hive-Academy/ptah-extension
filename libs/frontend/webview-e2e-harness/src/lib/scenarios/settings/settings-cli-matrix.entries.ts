@@ -1,13 +1,33 @@
 /**
  * Gate G entries for the CLI matrix on the Orchestration tab (Batch 30): the restored #43, #44, #54, #70 and #71, and
- * the regressed-UX fixes RUX-8 and RUX-11. Batch 31 re-pointed #63 (Copilot auto-approve) and #64 (Cursor key) here. Kept apart from the table, which is over its `max-lines` budget (the
+ * the regressed-UX fixes RUX-8 and RUX-11. Batch 31 re-pointed #63 (Copilot auto-approve) and #64 (Cursor key) here;
+ * Batch 32 added #47 and #53 (the add-instance and tier modals) and moved #49 here with its CLI-form half. Kept apart from the table, which is over its `max-lines` budget (the
  * `settings-routing-map.entries.ts` precedent); `REACHABILITY_TABLE` spreads them in and `EXPECTED_CAPABILITY_COUNT`
  * counts them.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { ReachabilityEntry } from './settings-reachability.table';
-import { expectCall, orchestrationTab, visibleEnabled } from './settings-drawer.reach';
-import { getFixtureState } from './settings.fixtures';
+import {
+  closeConnectionDrawer, credentialsOf, expectCall, orchestrationTab, throughVariantBoot, visibleEnabled,
+} from './settings-drawer.reach';
+import { AUTH_STATUS_FIXTURE, getFixtureState } from './settings.fixtures';
+
+/** Opens a matrix modal (`NativeModalComponent`, a native `<dialog>`) from `opener`; returns its dialog. */
+async function openMatrixModal(page: Page, opener: Locator, testid: string): Promise<Locator> {
+  await visibleEnabled(opener);
+  await opener.click();
+  const dialog = page.locator(`dialog:has([data-testid="${testid}"])`);
+  // daisyUI keeps a closed `.modal` laid out at opacity 0: the `open` attribute is the real state.
+  await expect(dialog).toHaveAttribute('open', '');
+  return dialog;
+}
+
+/** Closes a matrix modal with Esc; focus returns to `opener` (native `<dialog>`). */
+async function closeMatrixModal(page: Page, dialog: Locator, opener: Locator): Promise<void> {
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toHaveAttribute('open');
+  await expect(opener).toBeFocused();
+}
 
 /** The fixture's one Ptah CLI instance, "Glm" (BRIEF:66-67). */
 const GLM_ID = 'glm-instance-1';
@@ -41,6 +61,78 @@ async function throughMatrixPopover(page: Page, trigger: Locator, popover: strin
 }
 
 export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
+  { id: '#47', capability: 'Inline GitHub login when adding a Copilot-backed CLI agent', status: 'restored',
+    // Batch 32: Add → GitHub Copilot → "Login with GitHub" (`auth:copilotLogin`, then `auth:getAuthStatus`); Create stays
+    // disabled until the sign-in is confirmed. The shared fixture answers no Copilot login, so a variant page does.
+    reach: (page) => throughVariantBoot(page, {
+      'auth:copilotLogin': { success: true },
+      'auth:getAuthStatus': { ...AUTH_STATUS_FIXTURE, copilotAuthenticated: true },
+    }, 'Agent Orchestration', async (variant) => {
+      const dialog = await openMatrixModal(variant, variant.locator('[data-testid="cli-matrix-add"]'), 'add-cli-instance-modal');
+      await dialog.locator('[data-testid="add-cli-instance-name"]').fill('Copilot-agent');
+      await dialog.locator('[data-testid="add-cli-instance-provider"]').selectOption('github-copilot');
+      const create = dialog.locator('[data-testid="add-cli-instance-submit"]');
+      await expect(create).toBeDisabled();
+      await expect(dialog.locator('[data-testid="add-cli-instance-copilot-state"]')).toHaveText('Awaiting sign-in');
+      await dialog.locator('[data-testid="add-cli-instance-copilot-login"]').click();
+      await expect(dialog.locator('[data-testid="add-cli-instance-copilot-state"]')).toHaveText('Signed in');
+      await expect(create).toBeEnabled();
+    }) },
+  { id: '#49', capability: 'Show/hide API key in CLI agent add/edit forms', status: 'restored',
+    // Batch 21 restored the drawer Credentials half (the Replace key field); Batch 32 adds the CLI-instance add form.
+    reach: async (page) => {
+      try {
+        await credentialsOf(page, 'Moonshot');
+        await page.locator('[data-testid="credentials-replace"]').click();
+        const key = page.locator('[data-testid="credentials-new-key"]');
+        await expect(key).toHaveAttribute('type', 'password');
+        await page.locator('[data-testid="credentials-toggle-visibility"]').click();
+        await expect(key).toHaveAttribute('type', 'text');
+      } finally {
+        await closeConnectionDrawer(page);
+      }
+      await orchestrationTab(page);
+      const add = page.locator('[data-testid="cli-matrix-add"]');
+      const dialog = await openMatrixModal(page, add, 'add-cli-instance-modal');
+      try {
+        await dialog.locator('[data-testid="add-cli-instance-provider"]').selectOption('moonshot');
+        const key = dialog.locator('[data-testid="add-cli-instance-key"]');
+        await key.fill('sk-e2e-reach-key');
+        await expect(key).toHaveAttribute('type', 'password');
+        await dialog.locator('[data-testid="add-cli-instance-toggle-visibility"]').click();
+        await expect(key).toHaveAttribute('type', 'text');
+      } finally {
+        await closeMatrixModal(page, dialog, add);
+      }
+    } },
+  { id: '#53', capability: 'CLI-agent tier mapping (cliAgent scope)', status: 'restored',
+    // Batch 32: Glm's Tiers → its own mapping; a pick sends `ptahCli:update` with the FULL tier object (D5). The
+    // shared fixture's `settings:get` is static, so the read-back cannot confirm the write: the entry asserts the
+    // write, and that the toast does not claim it was saved (D15).
+    reach: async (page) => {
+      const glm = await matrixRow(page, GLM_ID);
+      const tiers = glm.locator(`[data-testid="cli-matrix-tiers-${GLM_ID}"]`);
+      const dialog = await openMatrixModal(page, tiers, 'cli-tier-mapping-modal');
+      try {
+        await expect(dialog.locator('[data-testid="cli-tier-source-opus"]')).toContainText('This instance: glm-5.3:cloud');
+        const before = getFixtureState(page).calls.length;
+        // The compact field's last row, "Enter a model ID…", swaps in a model-ID field.
+        const search = dialog.locator('[data-tier="opus"] input[role="combobox"]');
+        await visibleEnabled(search);
+        await search.click();
+        await page.locator(`[id="${await search.getAttribute('aria-controls')}"]`).getByRole('option', { name: 'Enter a model ID…', exact: true }).click();
+        const manual = dialog.locator('[data-testid="cli-tier-manual-opus"]');
+        await expect(manual).toBeFocused();
+        await manual.fill('glm-4.7');
+        await dialog.locator('[data-testid="cli-tier-manual-apply-opus"]').click();
+        await expectCall(page, before, 'ptahCli:update',
+          { id: GLM_ID, tierMappings: { sonnet: 'glm-5.3:cloud', opus: 'glm-4.7', haiku: 'glm-5.3:cloud' } });
+        await expect(dialog.locator('[data-testid="settings-toast-message"]')).toBeVisible();
+        await expect(dialog.locator('[data-testid="settings-toast-message"]')).not.toContainText('Saved Glm');
+      } finally {
+        await closeMatrixModal(page, dialog, tiers);
+      }
+    } },
   { id: '#63', capability: 'Copilot auto-approve toggle', status: 'present',
     // Batch 31: Copilot's permission ℹ holds the moved toggle. A real write through state.saveSettings (the fixture
     // stores `copilotAutoApprove: false`), read back into the toggle, then Undo writes the value back.

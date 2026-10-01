@@ -248,6 +248,30 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
   await page.screenshot({ path: capturePath('orchestration-popover-cursor', host, theme), animations: 'disabled' });
   await page.keyboard.press('Escape');
   await expect(page.locator(cursorPopover)).toHaveCount(0);
+  // Batch 32: the add-instance modal (prototype interactions/orchestration-1, with an API-key provider chosen) and Glm's
+  // tier-mapping modal, centred and fully on screen once daisyUI's open transition has finished.
+  for (const modal of [
+    { opener: '[data-testid="cli-matrix-add"]', testid: 'add-cli-instance-modal', name: 'orchestration-modal-add' },
+    { opener: '[data-testid="cli-matrix-tiers-glm-instance-1"]', testid: 'cli-tier-mapping-modal', name: 'orchestration-modal-tiers' },
+  ]) {
+    await page.locator(modal.opener).click();
+    const dialog = page.locator(`dialog:has([data-testid="${modal.testid}"])`);
+    await expect(dialog).toHaveAttribute('open', '');
+    if (modal.testid === 'add-cli-instance-modal') {
+      await dialog.locator('[data-testid="add-cli-instance-name"]').fill('Glm-Secondary');
+      await dialog.locator('[data-testid="add-cli-instance-provider"]').selectOption('moonshot');
+    } else {
+      await expect(dialog.locator('[data-testid="cli-tier-source-haiku"]')).not.toContainText('loading');
+    }
+    await dialog.locator('.modal-box').evaluate((box) => Promise.all(box.getAnimations().map((animation) => animation.finished)));
+    const panel = await dialog.locator('.modal-box').boundingBox();
+    expect(panel && viewport && panel.y >= 0 && panel.y + panel.height <= viewport.height, `${modal.name} on screen`).toBe(true);
+    console.log(`B32 ${modal.name} ${host}/${theme}: ${Math.round(panel?.width ?? 0)}x${Math.round(panel?.height ?? 0)} @ ${Math.round(panel?.x ?? 0)},${Math.round(panel?.y ?? 0)}`);
+    await waitForSettled(page, dialog);
+    await page.screenshot({ path: capturePath(modal.name, host, theme), animations: 'disabled' });
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toHaveAttribute('open');
+  }
 }
 
 for (const host of ['vscode', 'electron'] as const) {

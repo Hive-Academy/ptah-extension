@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, signal } from '@angular/core';
-import { ChevronDown, Info, LucideAngularModule, ShieldAlert, Terminal, X } from 'lucide-angular';
+import { ChevronDown, Info, LucideAngularModule, Plus, ShieldAlert, Terminal, X } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import type { SystemCliType } from '@ptah-extension/shared';
@@ -11,6 +11,8 @@ import type { CliPermissionTone } from './cli-permission-notes';
 import { CliModelEffortPopoverComponent, type CliMatrixCellField } from './cli-model-effort-popover.component';
 import { CopilotAutoApproveToggleComponent } from './copilot-auto-approve-toggle.component';
 import { CursorCredentialPopoverComponent } from './cursor-credential-popover.component';
+import { AddCliInstanceModalComponent, type CliInstanceEditTarget } from '../providers/add-cli-instance-modal.component';
+import { CliTierMappingModalComponent, type CliTierMappingTarget } from '../providers/cli-tier-mapping-modal.component';
 
 /** Which popover of which row is open; one at a time. */
 type OpenCell = { readonly rowId: string; readonly kind: CliMatrixCellField | 'permission' | 'install' | 'credentials' };
@@ -63,14 +65,15 @@ const SAVE_SCOPE = 'global';
  *   tier badges and the last Test with its latency or failure reason (#43, #44, #54, #52, RUX-11).
  * - Permissions & Safety: badge + ℹ popover (#70). A disabled or not-installed row renders its cells as plain text.
  * Since Batch 31: Cursor's Credentials popover (#64, 551) on both its rows, and Copilot's auto-approve toggle inside its
- * permission popover. Add, Tiers and Edit are not rendered until Batch 32 lands.
+ * permission popover. Since Batch 32: "Add Ptah CLI Instance" (header, and the no-instance row) and each instance's
+ * Tiers and Edit open their centered modals (`AddCliInstanceModalComponent`, `CliTierMappingModalComponent`).
  */
 @Component({
   selector: 'ptah-cli-orchestration-matrix',
   standalone: true,
   imports: [
     LucideAngularModule, NativePopoverComponent, CliModelEffortPopoverComponent, CopilotAutoApproveToggleComponent,
-    CursorCredentialPopoverComponent,
+    CursorCredentialPopoverComponent, AddCliInstanceModalComponent, CliTierMappingModalComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -81,6 +84,12 @@ const SAVE_SCOPE = 'global';
           CLI Agents &amp; Custom Instances Matrix
         </h2>
         <span class="text-[10px] text-base-content-muted">Click model or effort cells to reassign in place</span>
+        <!-- Batch 32: opens the add-instance modal (#46-#49); focus returns here when it closes. -->
+        <button type="button" [class]="'btn btn-primary btn-xs ml-auto h-6 min-h-6 gap-1 text-[11px] ' + focusRing"
+          [disabled]="busy() || !canWrite()" (click)="openAdd()" data-testid="cli-matrix-add">
+          <lucide-angular [img]="PlusIcon" class="h-3 w-3" aria-hidden="true" />
+          Add Ptah CLI Instance
+        </button>
       </div>
 
       <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
@@ -242,7 +251,12 @@ const SAVE_SCOPE = 'global';
                 <button type="button" [class]="ACTION" (click)="confirmDelete.set(null)">Cancel</button>
               </div>
             } @else {
-              <div class="inline-flex items-center justify-end gap-1">
+              <!-- Two by two, so four actions never widen the column past the VS Code box. -->
+              <div class="ml-auto inline-flex max-w-[7.5rem] flex-wrap items-center justify-end gap-1">
+                <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="openTiers(row)"
+                  [attr.aria-label]="'Tiers for ' + row.name" [attr.data-testid]="'cli-matrix-tiers-' + row.id">Tiers</button>
+                <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="openEdit(row)"
+                  [attr.aria-label]="'Edit ' + row.name + ' name or key'" [attr.data-testid]="'cli-matrix-edit-' + row.id">Edit</button>
                 <button type="button" [class]="ACTION" [disabled]="testing()" (click)="test(row)"
                   [attr.aria-label]="'Test ' + row.name" [attr.data-testid]="'cli-matrix-test-' + row.id">
                   {{ testingId() === row.id ? 'Testing…' : 'Test' }}
@@ -304,11 +318,24 @@ const SAVE_SCOPE = 'global';
                 </td>
               </tr>
             }
+            <!-- Plan §5 empty state: no Ptah CLI instances yet. -->
+            @if (group.id === 'installed' && noInstances()) {
+              <tr data-testid="cli-matrix-no-instances">
+                <td colspan="8" class="text-base-content-muted">
+                  No Ptah CLI instance yet.
+                  <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="openAdd()">Add Ptah CLI Instance</button>
+                </td>
+              </tr>
+            }
           </tbody>
           }
         </table>
       </div>
     </section>
+
+    <!-- Batch 32: centered modals on the shared native <dialog> (design-spec §6), in this lazy chunk. -->
+    <ptah-add-cli-instance-modal [open]="addOpen()" [editing]="editTarget()" (closed)="closeAdd()" />
+    <ptah-cli-tier-mapping-modal [open]="tierTarget() !== null" [target]="tierTarget()" (closed)="tierTarget.set(null)" />
   `,
   // Container-width layout (the routing map's Q-extra-1 rule): every column in a wide box (VS Code at 1024 px, as in the
   // prototype); in a narrow one (Electron's page beside the shell sidebar) status and provider move under the agent
@@ -328,6 +355,7 @@ export class CliOrchestrationMatrixComponent {
   protected readonly InfoIcon = Info;
   protected readonly ShieldIcon = ShieldAlert;
   protected readonly CloseIcon = X;
+  protected readonly PlusIcon = Plus;
   protected readonly focusRing = FOCUS;
   protected readonly cell = CELL;
   protected readonly ACTION = ACTION;
@@ -361,6 +389,34 @@ export class CliOrchestrationMatrixComponent {
   private readonly openState = signal<OpenCell | null>(null);
   protected readonly confirmDelete = signal<string | null>(null);
   protected readonly testingId = signal<string | null>(null);
+  /** Batch 32 modals: the add/edit form (with the instance it edits, or `null` to create) and the tier mapping. */
+  protected readonly addOpen = signal(false);
+  protected readonly editTarget = signal<CliInstanceEditTarget | null>(null);
+  protected readonly tierTarget = signal<CliTierMappingTarget | null>(null);
+  protected readonly noInstances = computed(() => this.state.cliAgents().status === 'ready' && !this.state.cliAgents().data?.length);
+
+  protected openAdd(): void {
+    this.close();
+    this.editTarget.set(null);
+    this.addOpen.set(true);
+  }
+
+  protected openEdit(row: InstanceCliMatrixRow): void {
+    this.close();
+    const agent = this.state.cliAgents().data?.find((entry) => entry.id === row.id);
+    this.editTarget.set({ id: row.id, name: row.name, providerId: row.providerId, providerName: row.provider, hasStoredKey: agent?.hasStoredKey ?? false });
+    this.addOpen.set(true);
+  }
+
+  protected closeAdd(): void {
+    this.addOpen.set(false);
+    this.editTarget.set(null);
+  }
+
+  protected openTiers(row: InstanceCliMatrixRow): void {
+    this.close();
+    this.tierTarget.set({ id: row.id, name: row.name, providerId: row.providerId, providerName: row.provider });
+  }
   /** The instance whose Test ran last, for a test that failed before it produced a result. */
   private readonly lastTestedId = signal<string | null>(null);
   protected readonly testing = computed(() => this.testingId() !== null || this.state.cliTest().status === 'loading');
