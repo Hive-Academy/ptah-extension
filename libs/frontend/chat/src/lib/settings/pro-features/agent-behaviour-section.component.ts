@@ -1,0 +1,396 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import {
+  AlertCircle,
+  Bot,
+  ChevronDown,
+  LucideAngularModule,
+  Sparkles,
+} from 'lucide-angular';
+import { ClaudeRpcService, EffortStateService } from '@ptah-extension/core';
+import { NativePopoverComponent } from '@ptah-extension/ui';
+import type {
+  EffortLevel,
+  EnhancedPromptsGetStatusResponse,
+} from '@ptah-extension/shared';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { UltracodeStateService } from '../../services/ultracode-state.service';
+
+interface EffortChoice {
+  /** `''` is the SDK default (no stored effort). */
+  readonly value: EffortLevel | '';
+  readonly label: string;
+}
+
+const EFFORT_CHOICES: readonly EffortChoice[] = [
+  { value: '', label: 'Default' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'X-High' },
+  { value: 'max', label: 'Max' },
+];
+
+type WriteResult = { ok: true } | { ok: false; message: string };
+
+const PROMPT_STATUS_LOAD_FAILED = 'Could not load the system prompt status.';
+const PROMPT_MODE_SAVE_FAILED = 'Could not save the system prompt mode.';
+const WORKFLOWS_LOAD_FAILED = 'Could not load the dynamic workflows setting.';
+const WORKFLOWS_SAVE_FAILED = 'Could not save the dynamic workflows setting.';
+const EFFORT_SAVE_FAILED = 'Could not save the chat reasoning effort.';
+const EFFORT_PINNED = 'Turn Ultracode off to change the chat reasoning effort.';
+const ULTRACODE_ON_FAILED =
+  'Could not turn on Ultracode: the reasoning effort was not saved.';
+const ULTRACODE_OFF_FAILED =
+  'Could not turn off Ultracode: your previous reasoning effort was not restored.';
+
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/**
+ * "Agent behaviour" card on the Advanced tab (pattern map rows A10, A11, A26, A27, A29).
+ *
+ * One P4 `table-xs` matrix, one row per behaviour: System prompt mode, Chat reasoning
+ * effort (G9: the same value as Providers > Main Agent effort), Dynamic workflows and
+ * Ultracode. Every write is S-sel through {@link SettingsSaveFeedbackService.saveGeneric}:
+ * "Saved" appears only after the write's own result, a failed write leaves the control
+ * on the saved value and raises an alert toast (D15), and Undo is a real write of the
+ * previous value.
+ *
+ * `EffortStateService.setEffort` returns void and rolls its signal back on failure, so
+ * the effort write is decided by reading the signal back after the await (map §9 item 11).
+ * Ultracode does the same read-back inside `UltracodeStateService`.
+ */
+@Component({
+  selector: 'ptah-agent-behaviour-section',
+  standalone: true,
+  imports: [LucideAngularModule, NativePopoverComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
+  template: `
+    <section
+      class="card bg-base-200 border border-base-300 p-3"
+      aria-labelledby="agent-behaviour-heading"
+      data-testid="agent-behaviour-card"
+    >
+      <div class="flex items-center gap-1.5 mb-2">
+        <lucide-angular [img]="BotIcon" class="w-4 h-4 text-secondary" aria-hidden="true" />
+        <h2 id="agent-behaviour-heading" class="text-xs font-bold uppercase tracking-wider text-base-content">
+          Agent behaviour
+        </h2>
+      </div>
+
+      @for (message of loadErrors(); track message) {
+        <div role="alert" class="mb-2 flex items-center gap-1.5 rounded border border-error/40 p-2 text-xs text-base-content"
+          data-testid="agent-behaviour-load-error">
+          <lucide-angular [img]="AlertCircleIcon" class="w-3.5 h-3.5 text-error shrink-0" aria-hidden="true" />
+          {{ message }}
+        </div>
+      }
+
+      <div class="overflow-x-auto">
+        <table class="table table-xs">
+          <thead>
+            <tr>
+              <th class="w-10" scope="col">On</th>
+              <th scope="col">Setting</th>
+              <th scope="col">Value / status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- A10/A11: System prompt mode -->
+            <tr data-testid="agent-behaviour-row-prompt">
+              <td class="align-top">
+                <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
+                  [checked]="promptEnabled()" [disabled]="promptToggleDisabled() || saving()"
+                  (change)="onPromptModeChange($event)"
+                  aria-label="Toggle Enhanced System Prompt" aria-describedby="agent-behaviour-prompt-note" />
+              </td>
+              <td class="align-top">
+                <div class="font-bold text-base-content">System prompt mode</div>
+                <p id="agent-behaviour-prompt-note" class="text-[10px] text-base-content-muted">
+                  @if (promptToggleDisabled()) {
+                    Run the Setup Wizard to generate an AI-enhanced system prompt tailored to your project.
+                  } @else {
+                    Ptah's project-specific prompt, used for all sessions when on.
+                  }
+                </p>
+              </td>
+              <td class="align-top" data-testid="agent-behaviour-prompt-status">
+                <span class="badge badge-outline badge-sm gap-1 whitespace-nowrap text-base-content">
+                  @if (promptEnabled()) {
+                    <lucide-angular [img]="SparklesIcon" class="w-3 h-3 text-secondary" aria-hidden="true" />
+                    Ptah Enhanced
+                  } @else {
+                    Default
+                  }
+                </span>
+                <span class="ml-1 text-[10px] text-base-content-muted">
+                  {{ promptEnabled() ? 'Active for all sessions' : 'Standard system prompt' }}
+                </span>
+              </td>
+            </tr>
+
+            <!-- A26 / G9: Chat reasoning effort (P5 popover, save on selection) -->
+            <tr data-testid="agent-behaviour-row-effort">
+              <td class="align-top"></td>
+              <td class="align-top">
+                <div class="font-bold text-base-content">Chat reasoning effort</div>
+                <p id="agent-behaviour-effort-note" class="text-[10px] text-base-content-muted">
+                  Same value as Providers &gt; Main Agent effort
+                  @if (ultracode.enabled()) {
+                    · Pinned to X-High by Ultracode
+                  }
+                </p>
+              </td>
+              <td class="align-top">
+                <ptah-native-popover [isOpen]="effortPopoverOpen()" placement="bottom-start"
+                  backdropClass="transparent" (closed)="effortPopoverOpen.set(false)">
+                  <button type="button" trigger class="btn btn-ghost btn-xs gap-1 px-1.5 font-normal text-base-content"
+                    [disabled]="saving() || ultracode.enabled()" (click)="effortPopoverOpen.set(true)"
+                    [attr.aria-label]="'Chat reasoning effort: ' + effortLabel() + '. Change effort'"
+                    aria-describedby="agent-behaviour-effort-note"
+                    aria-haspopup="dialog" [attr.aria-expanded]="effortPopoverOpen()"
+                    data-testid="agent-behaviour-effort-value">
+                    <span class="font-mono">{{ effortLabel() }}</span>
+                    <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3 text-base-content-muted" aria-hidden="true" />
+                  </button>
+                  <div content class="w-56 p-3 space-y-1.5" role="dialog" aria-label="Chat reasoning effort">
+                    <p class="text-[10px] font-semibold text-base-content-muted">Reasoning effort</p>
+                    <div class="grid grid-cols-3 gap-1">
+                      @for (choice of effortChoices; track choice.value) {
+                        <button type="button" class="btn btn-xs text-[10px] popover-effort-btn"
+                          [class.btn-primary]="currentEffort() === choice.value"
+                          [class.btn-outline]="currentEffort() !== choice.value"
+                          [attr.aria-pressed]="currentEffort() === choice.value"
+                          [disabled]="saving()" (click)="selectEffort(choice.value)"
+                          [attr.data-testid]="'agent-behaviour-effort-choice-' + (choice.value || 'default')">
+                          {{ choice.label }}
+                        </button>
+                      }
+                    </div>
+                  </div>
+                </ptah-native-popover>
+              </td>
+            </tr>
+
+            <!-- A27: Dynamic workflows (PR-2: the "paid plan" sentence is removed) -->
+            <tr data-testid="agent-behaviour-row-workflows">
+              <td class="align-top">
+                <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
+                  [checked]="workflowsEnabled()" [disabled]="!workflowsLoaded() || saving()"
+                  (change)="onWorkflowsChange($event)" aria-label="Toggle dynamic workflows" />
+              </td>
+              <td class="align-top">
+                <div class="font-bold text-base-content">Dynamic workflows</div>
+                <p class="text-[10px] text-base-content-muted">
+                  Let the agent plan and run a multi-step workflow per task instead of a single-shot reply.
+                </p>
+              </td>
+              <td class="align-top text-xs text-base-content" data-testid="agent-behaviour-workflows-status">
+                @if (workflowsLoaded()) {
+                  {{ workflowsEnabled() ? 'On' : 'Off' }}
+                } @else {
+                  <span class="text-base-content-muted" aria-hidden="true">—</span>
+                  <span class="sr-only">Not loaded</span>
+                }
+              </td>
+            </tr>
+
+            <!-- A29: Ultracode (restores the previous effort when turned off) -->
+            <tr data-testid="agent-behaviour-row-ultracode">
+              <td class="align-top">
+                <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
+                  [checked]="ultracode.enabled()" [disabled]="saving()"
+                  (change)="onUltracodeChange($event)" aria-label="Toggle Ultracode mode" />
+              </td>
+              <td class="align-top">
+                <div class="font-bold text-base-content">Ultracode</div>
+                <p class="text-[10px] text-base-content-muted">
+                  X-High effort and a planned workflow for each message. The
+                  <code class="text-base-content-muted">ultracode</code> keyword only takes effect on messages you
+                  type yourself. Turning Ultracode off restores your previous reasoning effort.
+                </p>
+              </td>
+              <td class="align-top text-xs text-base-content" data-testid="agent-behaviour-ultracode-status">
+                {{ ultracode.enabled() ? 'On' : 'Off' }}
+                <span class="ml-1 text-[10px] text-base-content-muted">Pins X-High while on</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `,
+})
+export class AgentBehaviourSectionComponent implements OnInit {
+  private readonly rpcService = inject(ClaudeRpcService);
+  private readonly effortState = inject(EffortStateService);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
+  readonly ultracode = inject(UltracodeStateService);
+
+  readonly BotIcon = Bot;
+  readonly SparklesIcon = Sparkles;
+  readonly ChevronDownIcon = ChevronDown;
+  readonly AlertCircleIcon = AlertCircle;
+  readonly effortChoices = EFFORT_CHOICES;
+
+  /** Save triggers are disabled while any settings write is in flight (D3). */
+  readonly saving = this.feedback.saving;
+
+  private readonly promptStatus = signal<EnhancedPromptsGetStatusResponse | null>(null);
+  private readonly promptLoadError = signal<string | null>(null);
+  readonly promptEnabled = computed(() => this.promptStatus()?.enabled ?? false);
+  /** The mode can only be turned on once a prompt has been generated (A10). */
+  readonly promptToggleDisabled = computed(
+    () => !(this.promptStatus()?.hasGeneratedPrompt ?? false) && !this.promptEnabled(),
+  );
+
+  /** `workflows.disabled`; `null` until `agent:getConfig` answers. */
+  private readonly workflowsDisabled = signal<boolean | null>(null);
+  private readonly workflowsLoadError = signal<string | null>(null);
+  readonly workflowsLoaded = computed(() => this.workflowsDisabled() !== null);
+  readonly workflowsEnabled = computed(() => this.workflowsDisabled() === false);
+
+  readonly loadErrors = computed(() =>
+    [this.promptLoadError(), this.workflowsLoadError()].filter((message): message is string => message !== null),
+  );
+
+  readonly currentEffort = computed<EffortLevel | ''>(() => this.effortState.currentEffort() ?? '');
+  readonly effortLabel = computed(
+    () => EFFORT_CHOICES.find((choice) => choice.value === this.currentEffort())?.label ?? 'Default',
+  );
+  readonly effortPopoverOpen = signal(false);
+
+  async ngOnInit(): Promise<void> {
+    await Promise.all([this.loadPromptStatus(), this.loadWorkflows()]);
+  }
+
+  /** A10, S-sel. Undo writes the previous mode back. */
+  async onPromptModeChange(event: Event): Promise<void> {
+    const checkbox = event.target as HTMLInputElement;
+    const previous = this.promptEnabled();
+    await this.feedback.saveGeneric({
+      label: 'system prompt mode',
+      write: () => this.writePromptMode(!previous),
+      undo: () => this.writePromptMode(previous),
+    });
+    // OnPush keeps the binding when the saved value did not change: put the DOM back on it.
+    checkbox.checked = this.promptEnabled();
+  }
+
+  /** A26, S-sel from the popover. Undo writes the previous effort back. */
+  async selectEffort(value: EffortLevel | ''): Promise<void> {
+    this.effortPopoverOpen.set(false);
+    if (value === this.currentEffort()) return;
+    const previous = this.effortState.currentEffort();
+    const next = value === '' ? undefined : value;
+    await this.feedback.saveGeneric({
+      label: 'chat reasoning effort',
+      write: () => this.writeEffort(next),
+      undo: () => this.writeEffort(previous),
+    });
+  }
+
+  /** A27, S-sel. Undo writes the inverse back. */
+  async onWorkflowsChange(event: Event): Promise<void> {
+    const checkbox = event.target as HTMLInputElement;
+    const nextDisabled = !checkbox.checked;
+    await this.feedback.saveGeneric({
+      label: 'dynamic workflows',
+      write: () => this.writeWorkflowsDisabled(nextDisabled),
+      undo: () => this.writeWorkflowsDisabled(!nextDisabled),
+    });
+    checkbox.checked = this.workflowsEnabled();
+  }
+
+  /** A29, S-sel. Turning it off restores the effort Ultracode replaced; Undo switches back. */
+  async onUltracodeChange(event: Event): Promise<void> {
+    const checkbox = event.target as HTMLInputElement;
+    const next = checkbox.checked;
+    await this.feedback.saveGeneric({
+      label: 'Ultracode',
+      write: () => this.writeUltracode(next),
+      undo: () => this.writeUltracode(!next),
+    });
+    checkbox.checked = this.ultracode.enabled();
+  }
+
+  private async loadPromptStatus(): Promise<void> {
+    try {
+      const result = await this.rpcService.call('enhancedPrompts:getStatus', { workspacePath: '.' });
+      if (result.isSuccess()) {
+        this.promptStatus.set(result.data);
+        this.promptLoadError.set(null);
+      } else {
+        this.promptLoadError.set(result.error ?? PROMPT_STATUS_LOAD_FAILED);
+      }
+    } catch (error: unknown) {
+      this.promptLoadError.set(errorText(error, PROMPT_STATUS_LOAD_FAILED));
+    }
+  }
+
+  private async loadWorkflows(): Promise<void> {
+    try {
+      const result = await this.rpcService.call('agent:getConfig', undefined);
+      if (result.isSuccess()) {
+        this.workflowsDisabled.set(result.data.workflowsDisabled ?? false);
+        this.workflowsLoadError.set(null);
+      } else {
+        this.workflowsLoadError.set(result.error ?? WORKFLOWS_LOAD_FAILED);
+      }
+    } catch (error: unknown) {
+      this.workflowsLoadError.set(errorText(error, WORKFLOWS_LOAD_FAILED));
+    }
+  }
+
+  /** Writes the mode, then re-reads the status the badge and checkbox show. */
+  private async writePromptMode(enabled: boolean): Promise<WriteResult> {
+    try {
+      const result = await this.rpcService.call('enhancedPrompts:setEnabled', { workspacePath: '.', enabled });
+      if (!result.isSuccess()) return { ok: false, message: result.error ?? PROMPT_MODE_SAVE_FAILED };
+      // The host reports a parse failure or a service throw as `{success:false}` inside a successful RPC.
+      if (!result.data.success) return { ok: false, message: result.data.error ?? PROMPT_MODE_SAVE_FAILED };
+    } catch (error: unknown) {
+      return { ok: false, message: errorText(error, PROMPT_MODE_SAVE_FAILED) };
+    }
+    await this.loadPromptStatus();
+    return { ok: true };
+  }
+
+  /**
+   * Map §9 item 11: `setEffort` returns void and restores its previous value on a failed
+   * write, so the shared signal holding the request after the await is the success test.
+   * `selectEffort` never writes the current value, so a rollback cannot look like success.
+   */
+  private async writeEffort(effort: EffortLevel | undefined): Promise<WriteResult> {
+    if (this.ultracode.enabled()) return { ok: false, message: EFFORT_PINNED };
+    await this.effortState.setEffort(effort);
+    return this.effortState.currentEffort() === effort ? { ok: true } : { ok: false, message: EFFORT_SAVE_FAILED };
+  }
+
+  private async writeWorkflowsDisabled(disabled: boolean): Promise<WriteResult> {
+    try {
+      const result = await this.rpcService.call('agent:setConfig', { workflowsDisabled: disabled });
+      if (!result.isSuccess()) return { ok: false, message: result.error ?? WORKFLOWS_SAVE_FAILED };
+      if (!result.data.success) return { ok: false, message: result.data.error ?? WORKFLOWS_SAVE_FAILED };
+    } catch (error: unknown) {
+      return { ok: false, message: errorText(error, WORKFLOWS_SAVE_FAILED) };
+    }
+    this.workflowsDisabled.set(disabled);
+    return { ok: true };
+  }
+
+  /** `UltracodeStateService` reads the effort back and keeps the mode on its saved side. */
+  private async writeUltracode(enabled: boolean): Promise<WriteResult> {
+    if (await this.ultracode.toggle(enabled)) return { ok: true };
+    return { ok: false, message: enabled ? ULTRACODE_ON_FAILED : ULTRACODE_OFF_FAILED };
+  }
+}

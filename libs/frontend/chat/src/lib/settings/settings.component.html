@@ -153,17 +153,27 @@
     }
 
     <!-- ============================================ -->
-    <!-- Tab 3: Advanced (System Prompt, MCP Port, VS Code LM) -->
+    <!-- Tab 3: Advanced (membership, agent behaviour, output style, MCP, VS Code LM) -->
     <!-- ============================================ -->
+    <!-- Tabs 3 and 4 are deferred into their own chunks (the eager route is at its bundle budget);
+         the aria-busy placeholder keeps the harness waitForSettled waiting until they load. -->
     @if (activeSettingsTab() === 'pro-features') {
-      <ptah-advanced-settings (modelChanged)="onModelChanged()" />
+      @defer (on immediate) {
+        <ptah-advanced-settings (modelChanged)="onModelChanged()" />
+      } @placeholder {
+        <div class="min-h-24" aria-busy="true"></div>
+      }
     }
 
     <!-- ============================================ -->
     <!-- Tab 4: Search & Voice (web search + voice transcription) -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'tools') {
-      <ptah-search-voice-settings />
+      @defer (on immediate) {
+        <ptah-search-voice-settings />
+      } @placeholder {
+        <div class="min-h-24" aria-busy="true"></div>
+      }
     }
   </div>
 

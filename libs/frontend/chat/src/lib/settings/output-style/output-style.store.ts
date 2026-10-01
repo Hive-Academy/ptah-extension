@@ -20,7 +20,7 @@
  *     nothing else.
  *
  * `activate()` is optimistic-set-then-rollback (the shape used by
- * `workflows-config.component.ts`), which is what makes Req 2.7 — "a failed
+ * `EffortStateService.setEffort`), which is what makes Req 2.7 — "a failed
  * write leaves the previous selection intact" — structural rather than a
  * promise.
  *

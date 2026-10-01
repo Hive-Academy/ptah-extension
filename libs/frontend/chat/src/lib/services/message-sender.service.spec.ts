@@ -247,10 +247,17 @@ describe('MessageSenderService', () => {
         },
         {
           provide: EffortStateService,
-          useValue: {
-            currentEffort: jest.fn(() => 'medium'),
-            setEffort: jest.fn().mockResolvedValue(undefined),
-          },
+          // Stateful like the real service: a successful write is readable back, which
+          // UltracodeStateService.enable()/disable() check before reporting success.
+          useValue: (() => {
+            let effort: string | undefined = 'medium';
+            return {
+              currentEffort: jest.fn(() => effort),
+              setEffort: jest.fn(async (next: string | undefined) => {
+                effort = next;
+              }),
+            };
+          })(),
         },
         {
           provide: PtahCliStateService,

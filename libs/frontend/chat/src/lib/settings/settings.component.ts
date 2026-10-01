@@ -77,6 +77,8 @@ const isOrchestrationSection = (section: PendingSection | undefined): section is
   imports: [
     ProvidersSettingsComponent,
     OrchestrationSettingsComponent,
+    // Used only inside `@defer` in the template, so each tab compiles to its own lazy chunk.
+    // Referencing either class anywhere else in this file would make it eager again.
     AdvancedSettingsComponent,
     SearchVoiceSettingsComponent,
     SettingsToastComponent,

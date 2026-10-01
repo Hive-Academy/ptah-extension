@@ -5,7 +5,7 @@ import { LicenseStatusCardComponent } from './license/license-status-card.compon
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
-import { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
+import { AgentBehaviourSectionComponent } from './pro-features/agent-behaviour-section.component';
 import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 
 /** The import outcome, shown inline in the Membership & data card (A9, D15). */
@@ -16,7 +16,7 @@ interface ImportOutcome {
 }
 
 /**
- * Advanced tab shell (TASK_2026_555 Advanced / Search & Voice, Batches 39-40).
+ * Advanced tab shell (TASK_2026_555 Advanced / Search & Voice, Batches 39-41).
  *
  * Hosts the existing child components unchanged and owns the Data Portability
  * (Export/Import) actions (rows A8/A9): their buttons and results are projected
@@ -38,9 +38,9 @@ interface ImportOutcome {
   imports: [
     LucideAngularModule,
     LicenseStatusCardComponent,
+    AgentBehaviourSectionComponent,
     EnhancedPromptsConfigComponent,
     OutputStyleConfigComponent,
-    WorkflowsConfigComponent,
     McpPortConfigComponent,
     VscodeLmConfigComponent,
   ],
@@ -137,9 +137,10 @@ interface ImportOutcome {
         }
       </ptah-license-status-card>
 
+      <ptah-agent-behaviour-section />
+      <!-- Prompt details (generated-at, stack, regenerate, download, preview) until the D-SP drawer (Batch 42). -->
       <ptah-enhanced-prompts-config />
       <ptah-output-style-config />
-      <ptah-workflows-config />
       <ptah-mcp-port-config />
       <ptah-vscode-lm-config (modelChanged)="modelChanged.emit()" />
     </div>

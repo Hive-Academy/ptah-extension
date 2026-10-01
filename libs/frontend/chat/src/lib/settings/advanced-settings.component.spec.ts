@@ -13,7 +13,7 @@ import { LicenseStatusCardComponent } from './license/license-status-card.compon
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
-import { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
+import { AgentBehaviourSectionComponent } from './pro-features/agent-behaviour-section.component';
 import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 
 @Component({ selector: 'ptah-license-status-card', standalone: true,
@@ -29,9 +29,9 @@ class EnhancedPromptsStub {}
   changeDetection: ChangeDetectionStrategy.OnPush, template: '<p>Output style</p>' })
 class OutputStyleStub {}
 
-@Component({ selector: 'ptah-workflows-config', standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush, template: '<p>Workflows</p>' })
-class WorkflowsStub {}
+@Component({ selector: 'ptah-agent-behaviour-section', standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush, template: '<p>Agent behaviour</p>' })
+class AgentBehaviourStub {}
 
 @Component({ selector: 'ptah-mcp-port-config', standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush, template: '<p>MCP port</p>' })
@@ -60,8 +60,8 @@ describe('AdvancedSettingsComponent', () => {
         { provide: VSCodeService, useValue: { isElectron } },
       ],
     }).overrideComponent(AdvancedSettingsComponent, {
-      remove: { imports: [LicenseStatusCardComponent, EnhancedPromptsConfigComponent, OutputStyleConfigComponent, WorkflowsConfigComponent, McpPortConfigComponent, VscodeLmConfigComponent] },
-      add: { imports: [LicenseStub, EnhancedPromptsStub, OutputStyleStub, WorkflowsStub, McpPortStub, VsCodeLmStub] },
+      remove: { imports: [LicenseStatusCardComponent, AgentBehaviourSectionComponent, EnhancedPromptsConfigComponent, OutputStyleConfigComponent, McpPortConfigComponent, VscodeLmConfigComponent] },
+      add: { imports: [LicenseStub, AgentBehaviourStub, EnhancedPromptsStub, OutputStyleStub, McpPortStub, VsCodeLmStub] },
     });
     await TestBed.compileComponents();
     fixture = TestBed.createComponent(AdvancedSettingsComponent);
@@ -83,13 +83,14 @@ describe('AdvancedSettingsComponent', () => {
     fixture.detectChanges();
   }
 
-  it('mounts the existing children in order', async () => {
+  it('mounts the section cards in order, with Agent behaviour replacing workflows-config (D14)', async () => {
     await render(false);
+    expect(element.querySelector('ptah-workflows-config')).toBeNull();
     const selectors = [
       'ptah-license-status-card',
+      'ptah-agent-behaviour-section',
       'ptah-enhanced-prompts-config',
       'ptah-output-style-config',
-      'ptah-workflows-config',
       'ptah-mcp-port-config',
       'ptah-vscode-lm-config',
     ];

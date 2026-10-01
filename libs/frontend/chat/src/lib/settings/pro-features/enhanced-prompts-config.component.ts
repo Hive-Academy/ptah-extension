@@ -18,8 +18,9 @@ import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 
 /**
- * EnhancedPromptsConfigComponent - System prompt mode toggle, preset selection,
- * preview, regenerate/download.
+ * EnhancedPromptsConfigComponent - generated system prompt details: generated-at,
+ * detected stack, preview, regenerate/download. The on/off mode lives in the
+ * Agent behaviour card; these details move to the D-SP drawer in Batch 42.
  *
  * Extracted from SettingsComponent to reduce its complexity.
  * Self-contained: injects its own dependencies (ClaudeRpcService).
@@ -33,83 +34,17 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
   template: `
     <div class="border border-secondary/30 rounded-md bg-secondary/5">
       <div class="p-3">
-        <div class="flex items-center justify-between mb-2">
-          <div class="flex items-center gap-1.5">
-            <lucide-angular
-              [img]="SparklesIcon"
-              class="w-4 h-4 text-secondary"
-            />
-            <h2 class="text-xs font-medium uppercase tracking-wide">
-              System Prompt Mode
-            </h2>
-          </div>
-          <!-- Toggle switch -->
-          <input
-            type="checkbox"
-            class="toggle toggle-primary toggle-xs"
-            [checked]="enhancedPromptsEnabled()"
-            (change)="onToggleEnhancedPrompts($event)"
-            [disabled]="!hasGeneratedPrompt() && !enhancedPromptsEnabled()"
-            aria-label="Toggle Enhanced System Prompt"
+        <!-- The mode toggle and its status moved to the Agent behaviour card (Batch 41, A10/A11);
+             the "Default for new sessions" presets were removed (PR-1: they wrote nothing). -->
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular
+            [img]="SparklesIcon"
+            class="w-4 h-4 text-secondary"
           />
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            System Prompt
+          </h2>
         </div>
-
-        <!-- Mode description -->
-        @if (enhancedPromptsEnabled()) {
-          <div class="flex items-center gap-1 mb-2">
-            <span class="badge badge-primary badge-xs gap-1">
-              <lucide-angular [img]="SparklesIcon" class="w-2 h-2" />
-              Ptah Enhanced
-            </span>
-            <span class="text-xs text-base-content-muted"
-              >Active for all sessions</span
-            >
-          </div>
-        } @else {
-          <div class="flex items-center gap-1 mb-2">
-            <span class="badge badge-ghost badge-xs">Default</span>
-            <span class="text-xs text-base-content-muted"
-              >Standard system prompt</span
-            >
-          </div>
-        }
-
-        <!-- Preset selection (only shown once a prompt has been generated) -->
-        @if (hasGeneratedPrompt() && enhancedPromptsEnabled()) {
-          <div class="mb-2 p-2 border border-base-300 rounded bg-base-200/30">
-            <div class="text-xs font-medium mb-1.5">
-              Default for new sessions:
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <label class="flex items-center gap-2 cursor-pointer text-xs">
-                <input
-                  type="radio"
-                  name="systemPromptPreset"
-                  value="enhanced"
-                  [checked]="systemPromptPreset() === 'enhanced'"
-                  (change)="setSystemPromptPreset('enhanced')"
-                  class="radio radio-xs radio-primary"
-                />
-                <span>Enhanced (Project-specific)</span>
-              </label>
-              <label class="flex items-center gap-2 cursor-pointer text-xs">
-                <input
-                  type="radio"
-                  name="systemPromptPreset"
-                  value="claude_code"
-                  [checked]="systemPromptPreset() === 'claude_code'"
-                  (change)="setSystemPromptPreset('claude_code')"
-                  class="radio radio-xs"
-                />
-                <span>Default (Minimal)</span>
-              </label>
-            </div>
-            <div class="text-[10px] text-base-content-muted mt-1.5">
-              Both presets include MCP documentation when the MCP server is
-              running.
-            </div>
-          </div>
-        }
 
         <!-- Error display -->
         @if (enhancedPromptsError()) {
@@ -218,11 +153,6 @@ export class EnhancedPromptsConfigComponent implements OnInit {
   readonly promptPreviewContent = signal<string | null>(null);
   readonly promptPreviewExpanded = signal(false);
   readonly isDownloading = signal(false);
-  readonly systemPromptPreset = signal<'claude_code' | 'enhanced'>('enhanced');
-  readonly enhancedPromptsEnabled = computed(
-    () => this.enhancedPromptsStatus()?.enabled ?? false,
-  );
-
   readonly hasGeneratedPrompt = computed(
     () => this.enhancedPromptsStatus()?.hasGeneratedPrompt ?? false,
   );
@@ -270,28 +200,6 @@ export class EnhancedPromptsConfigComponent implements OnInit {
     }
   }
 
-  public onToggleEnhancedPrompts(event: Event): void {
-    const checked = (event.target as HTMLInputElement).checked;
-    this.toggleEnhancedPrompts(checked);
-  }
-
-  async toggleEnhancedPrompts(enabled: boolean): Promise<void> {
-    this.enhancedPromptsError.set(null);
-    const result = await this.rpcService.call('enhancedPrompts:setEnabled', {
-      workspacePath: '.',
-      enabled,
-    });
-    if (result.isSuccess()) {
-      await this.loadEnhancedPromptsStatus();
-    } else {
-      this.enhancedPromptsError.set(result.error ?? 'Failed to toggle');
-    }
-  }
-
-  setSystemPromptPreset(preset: 'claude_code' | 'enhanced'): void {
-    this.systemPromptPreset.set(preset);
-  }
-
   async regenerateEnhancedPrompt(): Promise<void> {
     this.isRegenerating.set(true);
     this.enhancedPromptsError.set(null);
@@ -301,12 +209,15 @@ export class EnhancedPromptsConfigComponent implements OnInit {
         { workspacePath: '.', force: true },
         { timeout: 120000 },
       );
-      if (result.isSuccess()) {
+      if (!result.isSuccess()) {
+        this.enhancedPromptsError.set(result.error ?? 'Regeneration failed');
+      } else if (!result.data.success) {
+        // The host reports a failed generation as `{success:false}` inside a successful RPC.
+        this.enhancedPromptsError.set(result.data.error ?? 'Regeneration failed');
+      } else {
         this.promptPreviewContent.set(null);
         this.promptPreviewExpanded.set(false);
         await this.loadEnhancedPromptsStatus();
-      } else {
-        this.enhancedPromptsError.set(result.error ?? 'Regeneration failed');
       }
     } finally {
       this.isRegenerating.set(false);
