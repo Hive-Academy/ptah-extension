@@ -71,6 +71,11 @@ Fewer, broader, used skills. Every skill is either used, merged into another ski
 ## User Decisions (2026-10-01)
 
 - CLI lanes (Gate 0.1): antigravity + Glm for cross-side reviews. Codex not used (usage limit). Max 2 lanes in flight.
+- CLI lanes revised (2026-10-01, resume session): use opencode with `opencode-go/kimi-k2.7-code`, Glm
+  (ptah-cli `pc-355b645d-35af-4974-84cf-9cf961ea0164`) and antigravity, along with in-process sub-agents. Max 2
+  lanes in flight is kept. Reviews stay cross-side.
+- 2026-10-01 18:38: opencode Go returned "Go usage limit exceeded" (Batch 7 security lane failed twice). Kimi lanes
+  are unavailable until the quota resets; antigravity and Glm carry the review lanes.
 - Flow: FEATURE at Partial depth. context.md is the requirements source (no PM, no task-description.md).
 
 ## Cross-session coordination (TASK_2026_580 / 584, coordinator session)

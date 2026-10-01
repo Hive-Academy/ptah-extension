@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 4/14
+Total tasks: 44 | Batches: 14 | Complete: 5/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -20,6 +20,10 @@ Every path is written out in full in the task entries.
 - **Executors and review (cross-side rule):** CLI lanes are antigravity only, at most 2 in flight (Codex
   unavailable, Glm at quota). A batch authored by an in-process sub-agent is reviewed by an antigravity CLI lane;
   a batch authored by an antigravity lane is reviewed by an in-process reviewer sub-agent.
+- **Lane roster revised (user, 2026-10-01, from Batch 5):** CLI lanes may be antigravity, opencode
+  (`opencode-go/kimi-k2.7-code`) or Glm (ptah-cli `pc-355b645d-35af-4974-84cf-9cf961ea0164`). Wherever a batch below
+  says "antigravity CLI lane", any of the three qualifies. Still at most 2 lanes in flight; cross-side rule unchanged.
+  Batches with a two-scope review (logic + security) split it into two lanes from different vendors.
 - **Disk:** no `npm ci`/`npm install` (node_modules is a junction). Only scoped `npx nx run <project>:<target>`
   commands; tail or filter output.
 - **No-touch list (every batch):** `libs/backend/agent-sdk`, `libs/backend/cli-agent-runtime`, rpc-handlers
@@ -460,7 +464,14 @@ Edge cases:
   R-l N+1 (QA / `future-enhancements.md`), R-h (store ≤ 1272 ESLint lines at Batch 12, currently 1302), G-586
   (rebase onto merged 586 before Batch 10).
 
-## Batch 5: Generator slugs/references, union-find clustering, umbrella synthesizer (additive) — PENDING
+### G-586 resolved (2026-10-01, before Batch 5)
+
+- PR #620 merged to `main` at `a4a3f8212` (2026-10-01T16:10:58Z). The branch had a clean tree and no agent in
+  flight, so the orchestrator ran `git fetch && git rebase origin/main` before Batch 5 instead of after Batch 9
+  (Batches 5-9 carry no 586 file, so the earlier rebase removes a later pause). 7 commits replayed with no conflict;
+  new HEAD `0726ab99d`. `skill-diagnostics-accordion.component.ts` is gone. Batches 10, 11 and 14 are unblocked.
+
+## Batch 5: Generator slugs/references, union-find clustering, umbrella synthesizer (additive) — COMPLETE (commit 985b14ccf)
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lanes x 2 (antigravity), one per file group, if the sub-agent stalls
@@ -470,7 +481,7 @@ Edge cases:
 - Tasks: 4 | Depends on: Batch 4
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
-### Task 5.1: SkillMdGenerator — DB-aware slug and references — PENDING
+### Task 5.1: SkillMdGenerator — DB-aware slug and references — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-md-generator.ts` (+ `skill-md-generator.spec.ts`)
 - Plan reference: implementation-plan.md:407-430
@@ -480,7 +491,7 @@ Edge cases:
   writes `<dir>/references/<name>.md`. Specs: `foo` taken in DB → `foo-2`; references written; `../x`, `a/b` throw;
   `removeActive` removes `references/`.
 
-### Task 5.2: Union-find agglomerate — PENDING
+### Task 5.2: Union-find agglomerate — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/cosine-similarity.ts` (+ `cosine-similarity.spec.ts`)
 - Plan reference: implementation-plan.md:432-438, 463-464
@@ -488,7 +499,7 @@ Edge cases:
   and `SS/skill-cluster-dedup.service.spec.ts` stay green. Add chain case `a~b~c`, `a≁c` → one component.
 - Implementation details: same signature, `> threshold` single linkage, one O(n²·d) sweep.
 
-### Task 5.3: SkillClusteringService.partitionPool — PENDING
+### Task 5.3: SkillClusteringService.partitionPool — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-clustering.service.ts` (+ `skill-clustering.service.spec.ts`)
 - Depends on: Task 5.2
@@ -499,7 +510,7 @@ Edge cases:
   `exclusions.suggestionMemberIds` (sets `truncated`), pending-suggestion centroids of member embeddings,
   promoted rows not pinned and not in `exclusions.exemptSlugs`; components ≥ `suggestionMinClusterSize` are clusters.
 
-### Task 5.4: SkillSynthesizerService.synthesizeUmbrella — PENDING
+### Task 5.4: SkillSynthesizerService.synthesizeUmbrella — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-synthesizer.service.ts` (+ `skill-synthesizer.service.spec.ts`)
 - Plan reference: implementation-plan.md:473-501
@@ -512,6 +523,96 @@ Edge cases:
 ### Batch 5 verification
 
 - Four files implemented; old paths still compile; skill-synthesis test + typecheck pass; reviewer accepted
+
+### Batch 5 on-disk verification (team-leader)
+
+- Diff scope: exactly the 8 Batch 5 paths (`SS/skill-md-generator.ts`, `SS/cosine-similarity.ts`,
+  `SS/skill-clustering.service.ts`, `SS/skill-synthesizer.service.ts`, each + `.spec.ts`), 1172+/78- with the docs
+  edits. No barrel (`index.ts`) edit: deferred to Batch 12 per R-e, new symbols have only in-lib consumers so far.
+  No TODO/FIXME/stub markers. Batch 7 files that appeared mid-verification (`SS/lifecycle/skill-retirement.service.ts`
+  + spec, `SS/di/tokens.ts`, `SS/di/register.ts`, `SS/di/register.spec.ts`) are the parallel Batch 7 executor's and
+  are excluded from Batch 5.
+- 5.1: `promoteToActive(input, candidatesDir?, options = {})` → `writeAtRoot(..., isSlugTaken)`
+  (`skill-md-generator.ts:245`). References validated before any disk write; occupied = dir exists OR DB taken; walk
+  base, -2..-5, throw on -5 occupied (same exhaustion point as before); `references/<name>.md` written
+  (`:275`). `SKILL_REFERENCE_NAME_PATTERN` exported and reused by the synthesizer Zod schema (one source of truth,
+  R-k). Specs: DB-taken → `-2`, exhaustion throws, references written, none → no dir, `../x`/`a/b`/`a\b`/empty/upper/
+  leading-hyphen throw, duplicate throws, `removeActive` removes `references/`.
+- 5.2: union-find with path compression, link only when `cosineSimilarity > threshold`, root = lowest index (A3).
+  Existing label-array cases unchanged; new chain, lowest-index labels (`[0,1,0,1]`) and strict-`>` cases.
+- 5.3: `partitionPool` (`skill-clustering.service.ts`) returns `{vecAvailable, truncated, clusters, orphans,
+  unembedded}`; candidates (`listByStatus` is `created_at DESC`, so newest first) minus member ids, capped,
+  `truncated` when eligible > cap; pending-suggestion centroids (dimension-mismatch skipped, null when none); promoted
+  minus pinned/exempt. `SKILL_SUGGESTION_STORE` injected with explicit `@inject`; `di/tokens.ts` has no imports,
+  so no cycle. `clusterCandidates` kept (R-d).
+- 5.4: `synthesizeUmbrella`, `UMBRELLA_SYSTEM_PROMPT`, `UMBRELLA_SKILL_JSON_SCHEMA` (maxItems 8), Zod
+  `UmbrellaSkillSchema` (regex, body 1..20000, unique, default `[]`), `UMBRELLA_MAX_MEMBERS = 12`, bodies clipped by
+  `CLUSTER_MEMBER_MAX_CHARS`, empty input → `null` without a lane call. `runSynthesis<T>` takes schema + parser; both
+  existing callers pass `SYNTHESIZED_SKILL_JSON_SCHEMA` + `parseSynthesizedSkill`. `buildSystemPrompt` untouched and
+  pinned byte-for-byte (R-l). `synthesizeFromCluster`/`buildClusterPrompt` kept (R-d).
+- Commands (team-leader re-run): `skill-synthesis:typecheck` exit 0. `skill-synthesis:lint` 0 errors, 29 warnings,
+  none in a Batch 5 file. Degradation audit exit 0, `libs/backend/skill-synthesis: 6 ok (baseline 6)`.
+  `skill-synthesis:test --maxWorkers=2`: first run was an Nx cache replay (82 passed / 1 skipped, 1693 tests); a
+  `--skip-nx-cache` re-run while the Batch 7 executor was running tests in the same worktree timed out 2 tests
+  (5000 ms) in suites Batch 5 does not touch (`cleanup/skill-backlog-cleanup.integration.spec.ts`,
+  `spec-harvester.concurrent-attribution.spec.ts`); a second fresh run passed everything: 83 passed / 1 skipped
+  suites, 1709 passed / 1 skipped tests (count includes the in-flight Batch 7 retirement spec). Load-induced, not a
+  Batch 5 defect.
+- Jest "worker process has failed to exit gracefully": pre-existing, repo-wide. Recorded before this task in
+  `.ptah/specs/TASK_2026_334/batch-b.report.md:54` and analysed in `.ptah/specs/TASK_2026_404_edeb/investigation.md`
+  (jest-worker 500 ms graceful-exit force-exit under fan-out). Not attributed to Batch 5.
+- Deviation decisions (all ACCEPTED):
+  1. `PoolMember` carries `embedding` — ACCEPT. Additive; Batch 8 needs it to order members closest-to-centroid for
+     `UMBRELLA_MAX_MEMBERS` and to compute the umbrella centroid without a second read.
+  2. Duplicate reference names rejected at both boundaries — ACCEPT. Prevents a silent overwrite of
+     `references/<name>.md`; strengthens R-k.
+  3. JSON schema lists `references` as required while Zod defaults `[]` — ACCEPT. Strict structured-output
+     providers need every property in `required`; the Zod default covers the text-extraction path. Prompt tells the
+     model to send an empty array.
+  4. `UmbrellaMemberInput.kind` is a local literal union — ACCEPT. Same literals as `PoolMember['kind']`; keeping it
+     local avoids a synthesizer → clustering dependency. Style reviewers may suggest a shared alias; not required.
+  5. Exclusions come from the caller — ACCEPT. Matches the plan (`partitionPool(settings, exclusions)`, "reads exempt
+     slugs from its caller, so no registry dependency is needed").
+- Note for Batch 8 (LOW, not a Batch 5 defect): if an I/O error hits mid-way through the reference writes
+  (`skill-md-generator.ts:275-285`), `writeAtRoot` throws after SKILL.md is on disk and the caller has no
+  `MaterializedSkill` to pass to `removeActive`. Names are validated before any write, so only filesystem errors
+  reach this. Batch 8's umbrella-merge caller should treat a `promoteToActive` throw as "directory may exist" or the
+  generator should clean up on throw; reviewers of Batch 8 check it. **Resolved in the review fix-up (item 4 below).**
+- Review: cross-side lanes in flight (logic → `code-logic-review.md ## Batch 5`, security →
+  `code-security-review.md ## Batch 5`). No commit until both verdicts are in.
+
+### Batch 5 review verdict
+
+- Logic (antigravity lane): **APPROVED 8/10**, `code-logic-review.md` `## Batch 5`. Moderate: `writeAtRoot` partial
+  write. Minor: `centroidOf` silently skips a dimension mismatch. Minor: `synthesizeUmbrella` slices the first 12 in
+  caller order (carried to Batch 8).
+- Security (opencode Kimi K2.7 lane): **APPROVED 7/10**, `code-security-review.md` `## Batch 5`. Moderate:
+  `overwriteCandidate` ignores references. Moderate: Windows reserved device names. Minor: `removeActive` has no
+  root guard.
+- Fix-up applied by the executor from the reviewers' own findings (same rule as the Batch 2 docs fix-up; no new
+  review round). Verified on disk by team-leader:
+  1. `SS/skill-md-generator.ts:49`, `:365`: `con|prn|aux|nul|com0-9|lpt0-9` reference names refused at the filesystem
+     boundary. The Zod schema does not refuse them, so such an answer parses and then fails closed at the write
+     (caller's existing write-failed policy). Acceptable.
+  2. `:203-209`: `overwriteCandidate` throws when references are passed (no silent drop).
+  3. `:259-268`: `removeActive` resolves both paths and throws unless the dir is strictly inside `activeRoot()`.
+  4. `:299-317`, `removeDirAfterFailedWrite` `:331-347`: a failed SKILL.md/reference write removes the new dir and
+     rethrows the original error (`throw error` at `:316`; no return inside the catch). A cleanup failure only warns.
+     This closes the Batch 8 note above.
+  5. `SS/skill-clustering.service.ts:240-272`: `centroidOf` counts mismatched members and warns once per suggestion
+     with `{suggestionId, expectedDimension, skipped}`.
+  - Spec: `skill-md-generator.spec.ts:10-17` `jest.mock('node:fs')` with `jest.fn(actual.*)` passthroughs (file-scoped
+    by Jest; the generator imports `node:fs` at `:21`); the two failing-write cases restore in `finally`
+    (`:349-350`, `:372-373`), so no leak into other cases.
+- Re-run after fix-up (team-leader): `--testFile=skill-clustering` 14/14 passed (14 `it` cases, including the new
+  dimension-mismatch case at spec `:354`). Full `skill-synthesis:test --maxWorkers=2 --skip-nx-cache`: 83 passed /
+  1 skipped suites, 1723 passed / 1 skipped tests (includes the uncommitted Batch 7 retirement spec). Typecheck exit 0.
+  Lint 0 errors / 29 warnings, none in a Batch 5 file. Degradation audit exit 0, skill-synthesis 6 ok (baseline 6).
+- **Batch 8 carry (HARD):** the umbrella-merge caller sorts cluster members by distance to the cluster centroid
+  (closest first) before calling `synthesizeUmbrella`, which keeps only the first `UMBRELLA_MAX_MEMBERS` (12).
+  Batch 8 review checks it.
+- **Batch 5 ACCEPTED. Committed `985b14ccf`** (8 explicit paths, 4 production files + specs; hooks passed). Batch 7 files (`SS/lifecycle/skill-retirement.*`,
+  `SS/di/*`) left unstaged.
 
 ## Batch 6: Promotion entries and judge-panel gate — PENDING
 
@@ -553,7 +654,7 @@ Edge cases:
 
 - Promotion and stage gate implemented with specs; tests + typecheck pass; reviewer accepted
 
-## Batch 7: SkillRetirementService — PENDING
+## Batch 7: SkillRetirementService — IN_PROGRESS
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lane x 1 (antigravity)
@@ -563,7 +664,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batches 2, 3, 4
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
-### Task 7.1: Retirement service and acceptance-3 spec — PENDING
+### Task 7.1: Retirement service and acceptance-3 spec — IMPLEMENTED
 
 - Files: CREATE `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/lifecycle/skill-retirement.service.ts` and `.spec.ts`
 - Plan reference: implementation-plan.md:727-810
@@ -576,7 +677,7 @@ Edge cases:
   registry row, pinned 100d untouched, authored untouched, event at day 50 resets, outside path not deleted, invalid
   settings → defaults).
 
-### Task 7.2: DI token and registration — PENDING
+### Task 7.2: DI token and registration — IMPLEMENTED
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/di/tokens.ts`, `.../di/register.ts` (+ `register.spec.ts` if needed)
 - Implementation details: `SKILL_RETIREMENT_SERVICE`. R-i.
@@ -584,6 +685,50 @@ Edge cases:
 ### Batch 7 verification
 
 - Service and spec exist; acceptance-3 cases pass; reviewer accepted
+
+### Batch 7 on-disk verification (team-leader, 2026-10-01)
+
+Result: VERIFIED (pending the two cross-side reviews: Glm logic → code-logic-review.md `## Batch 7`, opencode
+Kimi K2.7 security → code-security-review.md `## Batch 7`). Not committed.
+
+- Files on disk (real code, no TODO/FIXME/PLACEHOLDER/STUB): CREATE `SS/lifecycle/skill-retirement.service.ts`
+  (371 lines) and `.spec.ts` (459 lines, 15 tests); MODIFY `SS/di/tokens.ts` (`SKILL_RETIREMENT_SERVICE =
+  Symbol.for('PtahSkillRetirementService')`), `SS/di/register.ts` (`registerSingleton` + `useToken` alias),
+  `SS/di/register.spec.ts` (singleton + alias + description case).
+- 6 explicit `@inject` deps match plan:780-786 (registry, repropagation, workspace optional).
+- R-f / R-f2: `retire()` (`skill-retirement.service.ts:204-224`) holds only plain statements in one
+  `inImmediateTransaction` — `rejectIfStatus(id,'promoted',RETIRED_UNUSED_REASON,now)` then
+  `registry.remove('skill', name)` only when it returned true; no catch inside the callback; the per-row catch at
+  `:131-142` wraps the whole call. Spec "mid-callback throw" proves rollback and loop continuation.
+- R-j: `removeActiveDir()` (`:232-256`) requires `path.relative(activeRoot, dir) === row.name` and
+  `basename(dir) === row.name`; the root itself, nested dirs, `..` and absolute escapes all fail.
+- Zod `z.number().int().min(1).max(3650)`, default 30, warn on invalid; exempt pinned + registry
+  `authored`/`diverged`.
+- Re-run by team-leader (scoped): `test --testFile=skill-retirement` 15/15; `test --testFile=di/register` 11/11;
+  `typecheck` (skip-nx-cache) success; degradation audit exit 0, `libs/backend/skill-synthesis: 6 ok (baseline 6)`.
+  Full suite deliberately not run (Batch 5 fix-up executor running tests in parallel).
+
+Deviation decisions:
+
+1. Uncontained path → row stays promoted + warn, no DB retire — ACCEPTED. The plan (:741-744) reads as "skip the
+   FS step, still retire in DB". That would reject a row whose SKILL.md may still be live (e.g. a `-2` suffixed
+   or sanitized dir inside the root, since `promoteToActive` does not rename `row.name`), leaving an orphan active
+   skill with no DB owner. Keeping it promoted is the consistent, non-destructive choice. RESIDUAL RISK (recorded,
+   not a Batch 7 blocker): such rows — suffixed/sanitized slugs, or every row after the user changes the skills
+   root setting — are never retired and warn on every pass. Carry to Batch 9 (reconcile of suffixed slugs, A1)
+   and Batch 13 proof 3 (A4); logic reviewer may weigh it.
+2. Registry bound but unreadable → whole pass skipped — ACCEPTED. Fail-closed is required: without the
+   authored/diverged set, a pass could delete user-owned content. Unbound registry keeps the plan's pinned-only
+   fail-soft (plan:791-792).
+3. `removeMaterializations` returns the removed slugs — ACCEPTED. Additive; plan gives no return type and the
+   Batch 9 accept path can use it for logging.
+4. `registry.remove` unchanged — ACCEPTED. It already landed in Batch 4 (`bbd02ebf8`,
+   `SS/skill-registry.store.ts:196-209`) with the guarded `clone_status` delete the plan asks for; no Batch 7 change
+   needed.
+5. `fs.rmSync` directly instead of `mdGenerator.removeActive` — ACCEPTED. `removeActive` takes a
+   `MaterializedSkill` (not a row), only checks `startsWith(root + sep)` (no basename = slug rule), and sits in
+   `skill-md-generator.ts`, a Batch 5 file under fix-up; depending on it would couple the Batch 7 commit to
+   Batch 5. The stricter R-j check lives in one private method.
 
 ## Batch 8: SkillUmbrellaMergeService — PENDING
 
@@ -607,7 +752,9 @@ Edge cases:
   `rejectIfStatus` false → skip, not counted; purge only when marker absent, vec available, pool not truncated;
   never throws into the caller. 8 explicit `@inject` deps; exempt slugs passed in by the caller. R-n (hard
   requirement): never pass the umbrella id to `markMerged`; check its returned count and throw inside the callback
-  on mismatch (see Task 8.3).
+  on mismatch (see Task 8.3). Batch 5 review carry (hard): sort each cluster's members by distance to the cluster
+  centroid (closest first, using `PoolMember.embedding`) before `synthesizeUmbrella`, which keeps only the first
+  `UMBRELLA_MAX_MEMBERS`; spec case with a cluster > 12 proves the farthest members are the ones dropped.
 - Implementation details: returns `UmbrellaPassResult` with `clustersRemaining` and `rateLimited`. Spec cases per
   plan:589-604 on a real migrated DB with a plain `skill_candidates_vec(rowid INTEGER PRIMARY KEY, embedding BLOB)`.
 

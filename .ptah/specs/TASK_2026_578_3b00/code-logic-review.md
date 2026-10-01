@@ -392,3 +392,378 @@ None.
 - What a robust implementation would add:
   1. An explicit self-exclusion guard `unique.filter((id) => id !== umbrellaId)` in `SkillSuggestionStore.markMerged`.
   2. A composite SQLite index on `skill_suggestions(status, promoted_candidate_id)`.
+
+## Batch 5
+
+### Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 1        |
+| Failure modes found | 1        |
+
+Scope examined:
+- `libs/backend/skill-synthesis/src/lib/skill-md-generator.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-md-generator.spec.ts`
+- `libs/backend/skill-synthesis/src/lib/cosine-similarity.ts`
+- `libs/backend/skill-synthesis/src/lib/cosine-similarity.spec.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-clustering.service.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-clustering.service.spec.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-synthesizer.service.ts`
+- `libs/backend/skill-synthesis/src/lib/skill-synthesizer.service.spec.ts`
+
+Verification:
+- `npx nx run @ptah-extension/skill-synthesis:typecheck`: passed cleanly with exit code 0 (43.6s).
+- `npx nx run @ptah-extension/skill-synthesis:test --maxWorkers=2`: 83 test suites passed, 1 skipped; 1709 tests passed, 0 failed (1m 17s).
+- Old paths (`clusterCandidates`, `synthesizeFromCluster`, `buildClusterPrompt`) remain intact and covered by passing tests (R-d).
+- Track B prompt surface (`buildSystemPrompt`) pinned and asserted byte-for-byte in snapshot spec (R-l).
+
+---
+
+### Checkpoints & Focus Answers
+
+1. **Task 5.1: `SkillMdGenerator` Slug Collision & References (`skill-md-generator.ts:220-318`):**
+   - **Occupied check:** Slug occupancy evaluates `occupied = (slug) => fs.existsSync(path.join(root, slug)) || isSlugTaken(slug)`. When `isSlugTaken(baseSlug)` is true despite no directory on disk, it walks `-2..-5` and creates the first unoccupied suffixed directory.
+   - **Walk & collision exhaustion:** For `attempt` from 2 up to `MAX_SLUG_RETRIES` (5), if all attempts through `-5` are occupied, it throws `[skill-synthesis] slug collision: ${baseSlug} (tried up to -5)` at attempt 6, preserving the exact previous retry limit and error format.
+   - **Reference validation & containment (R-k):** `validateReferences` runs before any filesystem mutation (`fs.mkdirSync` or `fs.writeFileSync`). It checks `SKILL_REFERENCE_NAME_PATTERN` (`/^[a-z0-9][a-z0-9-]{0,59}$/`) and rejects path-traversal inputs (`../x`, `a/b`, `a\b`) as well as uppercase and empty strings before touching the disk.
+   - **Duplicate references:** Duplicate reference names are rejected in `validateReferences` via a `Set`, preventing accidental overwrites.
+   - **Directory cleanup:** `removeActive` calls `fs.rmSync(materialized.dir, { recursive: true, force: true })`, completely removing the skill directory and its `references/` subdirectory.
+   - **Partial-write evaluation:** Because `validateReferences` runs prior to directory creation, malformed or duplicate reference inputs cannot leave a half-written skill directory. However, an unhandled I/O error during writing of reference files after `SKILL.md` is written has no automatic filesystem rollback in `SkillMdGenerator`.
+
+2. **Task 5.2: Union-Find `agglomerate` (`cosine-similarity.ts:37-69`):**
+   - **Signature & linkage:** Keeps exact signature `agglomerate(embeddings: Float32Array[], threshold: number): number[]`. Implements single-linkage equivalence partitioning via union-find in a single $O(n^2 \cdot d)$ pairwise sweep.
+   - **Strict threshold:** Correctly evaluates `if (cosineSimilarity(...) <= threshold) continue;`, guaranteeing strict `> threshold` linkage. Degenerate zero-norm vectors return 0 in `cosineSimilarity` (`:21`) and are not merged.
+   - **Label stability (A3):** Implements union-by-smaller-root (`if (rootI < rootJ) parent[rootJ] = rootI; else parent[rootI] = rootJ;`). The representative root for each connected component is guaranteed to be the lowest member index in discovery order.
+   - **Chain connectivity:** An indirect chain $a \sim b$ and $b \sim c$ with $a \not\sim c$ merges into a single component with label 0.
+   - **Regression safety:** All pre-existing spec cases in `cosine-similarity.spec.ts` and downstream `skill-cluster-dedup.service.spec.ts` remain green with no weakened assertions.
+
+3. **Task 5.3: `SkillClusteringService.partitionPool` (`skill-clustering.service.ts:99-178`):**
+   - **Fail-open on missing vec:** When `!this.vecStatus.available`, returns `{ vecAvailable: false, truncated: false, clusters: [], orphans: [], unembedded: 0 }` without performing database queries.
+   - **Pool composition & ordering:**
+     1. Candidate rows: retrieved newest-first via `store.listByStatus('candidate')`, filtered against `exclusions.suggestionMemberIds`, and capped at `settings.suggestionMaxCandidates`. When `eligible.length > cap`, `truncated` is set to `true`.
+     2. Suggestion rows: retrieved via `suggestionStore.listByStatus('pending')`, embedded as the centroid of member embeddings via `centroidOf`.
+     3. Promoted rows: retrieved via `store.listByStatus('promoted')`, excluding pinned rows and `exclusions.exemptSlugs`.
+   - **Centroid math:** `centroidOf` computes vector sum and averages by count. Returns `null` on empty members or missing embeddings. Mismatched vector dimensions are skipped safely (`vec.length !== sum.length`). Scale invariance of cosine similarity avoids normalization overhead.
+   - **DI wiring:** Injects `SKILL_SYNTHESIS_TOKENS.SKILL_SUGGESTION_STORE` with explicit `@inject`.
+   - **Component classification:** Partitions connected components into `clusters` (size $\ge$ `suggestionMinClusterSize`) and `orphans` (smaller components).
+
+4. **Task 5.4: `SkillSynthesizerService.synthesizeUmbrella` (`skill-synthesizer.service.ts:281-344`):**
+   - **Prompt isolation (R-l):** Uses dedicated constant `UMBRELLA_SYSTEM_PROMPT`. `buildSystemPrompt` is completely untouched and pinned byte-for-byte in tests.
+   - **Boundary validation (R-k):** `UmbrellaSkillSchema` parses and validates output with Zod: reference names must match `SKILL_REFERENCE_NAME_PATTERN`, reference bodies must be 1..20,000 characters, duplicate names are rejected, and references default to `[]`.
+   - **Member clipping & ceiling:** Accepts up to `UMBRELLA_MAX_MEMBERS = 12` members; member bodies are clipped by `CLUSTER_MEMBER_MAX_CHARS` (3,000 chars) for prompt fairness.
+   - **Generalized synthesis execution:** `runSynthesis` parameterised by schema and JSON parser. Existing per-session and cluster synthesis paths preserve identical behaviour and error-handling.
+   - **Non-success handling:** Returns `null` on lane failure, parse failure, timeout, or empty cluster without throwing.
+
+---
+
+### Executor-Declared Deviations Evaluation
+
+1. **`PoolMember` carries `embedding` (`skill-clustering.service.ts:43-52`):**
+   - **Verdict:** ACCEPTED.
+   - **Rationale:** Storing the calculated or retrieved `Float32Array` directly on each `PoolMember` prevents downstream consumers (such as `SkillUmbrellaMergeService` in Batch 8 sorting members by distance to cluster centroid) from re-querying SQLite or recalculating centroids.
+
+2. **Duplicate reference names rejected (`skill-md-generator.ts:310-314`, `skill-synthesizer.service.ts:115-118`):**
+   - **Verdict:** ACCEPTED.
+   - **Rationale:** If multiple references had the same filename, `fs.writeFileSync` would overwrite earlier files, resulting in silent data loss. Refusing duplicates at both the Zod boundary and filesystem boundary enforces data integrity.
+
+3. **`UMBRELLA_SKILL_JSON_SCHEMA` marks `references` required while Zod defaults it (`skill-synthesizer.service.ts:120, 147`):**
+   - **Verdict:** ACCEPTED.
+   - **Rationale:** Requesting the field explicitly in the JSON schema guides LLMs to return `references: []` when no variants exist, while the Zod `.default([])` gracefully handles models that omit the key.
+
+4. **`UmbrellaMemberInput.kind` is a local union (`skill-synthesizer.service.ts:213-217`):**
+   - **Verdict:** ACCEPTED.
+   - **Rationale:** A localized union type (`'candidate' | 'promoted' | 'suggestion'`) avoids unnecessary coupling between the synthesizer and store/clustering row types.
+
+5. **Exclusions passed by caller (`skill-clustering.service.ts:55-60, 100`):**
+   - **Verdict:** ACCEPTED.
+   - **Rationale:** Passing exclusions from the orchestrating caller avoids coupling `SkillClusteringService` to `SkillRegistryStore`, keeping clustering focused solely on geometric partitioning.
+
+---
+
+### Five Logic Questions
+
+#### 1. How does this fail silently?
+- In `SkillMdGenerator.writeAtRoot` (`skill-md-generator.ts:250-291`), if an unhandled disk I/O error or process abort occurs while writing reference files after `SKILL.md` has already been written, the skill directory is left on disk in a partially populated state without an internal compensating rollback.
+- In `SkillClusteringService.centroidOf` (`skill-clustering.service.ts:239-255`), member vectors with differing vector dimensions are silently skipped without a warning log.
+
+#### 2. What user action produces unexpected behaviour?
+- Manually creating conflicting directories `foo`, `foo-2`, `foo-3`, `foo-4`, `foo-5` in the active skills directory: subsequent promotion of candidate `foo` exhausts all 5 suffix attempts and throws a fatal slug collision error.
+
+#### 3. What input data produces a wrong answer?
+- In `SkillClusteringService.partitionPool`: If candidate rows have zero-norm embeddings or if member embeddings cancel each other out to vector $\vec{0}$, `cosineSimilarity` returns 0 for those pairs, treating them as dissimilar rather than corrupt.
+
+#### 4. What happens when a dependency fails?
+- If `VecStatusService.available` is `false`: `SkillClusteringService.partitionPool` immediately returns `{ vecAvailable: false, truncated: false, clusters: [], orphans: [], unembedded: 0 }` without performing DB operations or throwing.
+- If `LaneRunnerService.run` throws, times out, or returns a non-success status: `SkillSynthesizerService.runSynthesis` logs a warning and returns `null`.
+
+#### 5. What is missing that the requirements never mentioned?
+- Internal compensating cleanup in `SkillMdGenerator` if `fs.writeFileSync` throws while writing reference documents (higher-level callers like `SkillPromotionService` must handle directory removal on exception).
+
+---
+
+### Failure Modes
+
+#### F-1: Partial Materialization Directory on Reference Write I/O Failure
+- **Trigger:** Disk full (ENOSPC), permissions error (EACCES), or process termination while writing references inside `writeAtRoot` after `SKILL.md` is written.
+- **Symptom:** Incomplete skill directory on disk containing `SKILL.md` and a subset of `references/` files.
+- **Evidence:** `libs/backend/skill-synthesis/src/lib/skill-md-generator.ts:275-285`.
+- **Current handling:** Input validation (`validateReferences`) runs first so invalid names do not create partial directories. However, filesystem write operations are not wrapped in a `try/catch` with compensating `removeActive`.
+- **Recommendation:** Upper-level callers in Batch 6 (`SkillPromotionService`) must catch promotional write failures and invoke `removeActive` (addressed by design in Batch 6 plan R-f2).
+
+---
+
+### Blocking Issues
+
+None.
+
+### Serious Issues
+
+None.
+
+### Moderate and Minor Issues
+
+- **MODERATE (`skill-md-generator.ts:275-285`):** `writeAtRoot` creates the directory and `SKILL.md` before writing reference files. An I/O error during reference writing leaves the created directory behind.
+- **MINOR (`skill-clustering.service.ts:249`):** `centroidOf` silently ignores members with mismatched embedding dimensions via `continue` without logging a warning.
+- **MINOR (`skill-synthesizer.service.ts:285`):** `synthesizeUmbrella` takes `members.slice(0, UMBRELLA_MAX_MEMBERS)` without validating that the caller sorted members by centroid distance.
+
+---
+
+### Data Flow
+
+1. **Promotion Materialization Entry:** `promoteToActive(input, candidatesDir, options)` -> Validates reference names and uniqueness upfront -> Resolves active root -> Iterates `occupied(chosen)` checking disk and `isSlugTaken` -> Suffixes `-2..-5` (throws if exhausted) -> Creates directory and writes `SKILL.md` -> Writes valid `references/*.md` -> Logs success -> Returns `MaterializedSkill` `[OK]`.
+2. **Agglomerative Clustering Entry:** `agglomerate(embeddings, threshold)` -> Initializes union-find array -> Computes pairwise cosine similarity -> Unifies components under lower index when similarity strictly `> threshold` -> Returns mapped roots `[OK]`.
+3. **Lifecycle Pool Partition Entry:** `partitionPool(settings, exclusions)` -> Checks `vecStatus.available` (returns early if false) -> Queries candidate rows, filters excluded suggestion members, caps at `suggestionMaxCandidates` (tracks `truncated`) -> Reads embeddings -> Queries pending suggestions and computes centroids -> Queries non-pinned, non-exempt promoted rows -> Agglomerates pool embeddings -> Splits components into `clusters` ($\ge$ `minClusterSize`) and `orphans` -> Returns `PoolPartition` `[OK]`.
+4. **Umbrella Synthesis Entry:** `synthesizeUmbrella(members, origin)` -> Validates non-empty input -> Slices up to 12 members -> Builds prompt with member kinds and clipped bodies -> Invokes lane runner with `UMBRELLA_SYSTEM_PROMPT` and `UMBRELLA_SKILL_JSON_SCHEMA` -> Extracts JSON -> Parses through `UmbrellaSkillSchema` (validating reference names and body lengths) -> Returns `UmbrellaSkill` or `null` `[OK]`.
+
+---
+
+### Requirements Fulfilment
+
+| Requirement | Status | Gap |
+| ----------- | ------ | --- |
+| Task 5.1: `SkillMdGenerator` DB-aware slug & references | COMPLETE | None. DB check, suffix walk, reference validation, and cleanup verified. |
+| Task 5.2: Union-find `agglomerate` with stable lowest-index labels | COMPLETE | None. $O(n^2 \cdot d)$ sweep, strict $>$, and label stability (A3) verified. |
+| Task 5.3: `SkillClusteringService.partitionPool` | COMPLETE | None. Pool ordering, exclusions, suggestion centroids, truncation, and DI verified. |
+| Task 5.4: `SkillSynthesizerService.synthesizeUmbrella` | COMPLETE | None. System prompt isolation (R-l), Zod schema (R-k), member clipping, and null fail-soft verified. |
+| Risk R-d: Preservation of legacy clustering and synthesis methods | COMPLETE | `clusterCandidates`, `synthesizeFromCluster`, and `buildClusterPrompt` remain intact. |
+| Risk R-k: Reference name path-traversal prevention | COMPLETE | Validated at Zod boundary and re-checked at filesystem boundary. |
+| Risk R-l: Track B prompt preservation | COMPLETE | `buildSystemPrompt` unchanged and pinned by snapshot spec. |
+
+---
+
+### Edge Cases
+
+| Case | Handled | How | Concern |
+| ---- | ------- | --- | ------- |
+| Slug claimed in DB but not on disk | YES | `isSlugTaken` flags slug as occupied, triggers suffixing | None |
+| All 5 slug retry attempts occupied | YES | Throws collision error on attempt 6 | None |
+| Reference name containing `../` or `/` | YES | Rejected by regex at Zod and FS boundaries before write | None |
+| Duplicate reference names in synthesis | YES | Refined in Zod schema and Set in `validateReferences` | None |
+| Vec extension unavailable | YES | Returns `{ vecAvailable: false, ... }` without querying | None |
+| Suggestion with zero embedded members | YES | `centroidOf` returns `null`; counted in `unembedded` | None |
+| Chained similarity $a \sim b \sim c$ | YES | Unified into single component with label = lowest index | None |
+| Synthesis lane timeout or malformed JSON | YES | Catches/validates and returns `null` safely | None |
+
+---
+
+### Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: Unhandled disk write failure during reference writing in `SkillMdGenerator` leaves a partial directory on disk if caller does not clean up.
+- What a robust implementation would add:
+  1. A `try/catch` block wrapping file writes in `SkillMdGenerator.writeAtRoot` to invoke `fs.rmSync(dir, { recursive: true, force: true })` on write failures.
+  2. A warning log in `SkillClusteringService.centroidOf` when member embedding dimensions mismatch.
+
+
+## Batch 7
+
+### Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 2        |
+| Minor issues        | 3        |
+| Failure modes found | 3        |
+
+Scope examined (uncommitted Batch 7 changes only; Batch 5 files in the tree were excluded):
+- `libs/backend/skill-synthesis/src/lib/lifecycle/skill-retirement.service.ts` (NEW, read in full)
+- `libs/backend/skill-synthesis/src/lib/lifecycle/skill-retirement.service.spec.ts` (NEW, read in full)
+- `libs/backend/skill-synthesis/src/lib/di/tokens.ts`, `di/register.ts`, `di/register.spec.ts` (uncommitted diff, read in full)
+- Contract reads: `skill-candidate.store.ts` (`listPromotedLastUse` :604-623, `setResidency` :476-488, `rejectIfStatus` :684-698, `inImmediateTransaction` :710-731), `skill-registry.store.ts` (`listAll` :108-114, `remove` :196-208), `skill-md-generator.ts` (`activeRoot` :165-167, `removeActive` :259-268), `skill-promotion.service.ts:502-519` (settings precedent), `platform-core/file-settings-keys.ts:245-246,536-537` (A6)
+
+Verification:
+- `npx nx run @ptah-extension/skill-synthesis:test --maxWorkers=2 --testFile=skill-retirement`: 1 suite, 15/15 passed (20s).
+- `npx nx run @ptah-extension/skill-synthesis:test --maxWorkers=2 --testFile=register`: passed (25s, includes the new singleton test).
+- `npx nx run @ptah-extension/skill-synthesis:typecheck`: passed (39.4s, exit 0).
+
+---
+
+### Five logic questions
+
+#### 1. How does this fail silently?
+
+- A row whose `bodyPath` fails the containment check at idle >= N+M is removed from no result count (`retire()` returns `false` at `skill-retirement.service.ts:205`, the row is in none of `retired`/`dormant`/`skippedPinned`/`skippedExempt`) — the only signal is a per-pass warn (`:243-251`). See MODERATE-2.
+- A repropagation failure is warned and the committed residency change stands (`:349-355`); this is by design (next activation's reconcile heals it, documented at `:330-334`) — not a defect, but the caller's result never reflects a partially propagated pass.
+- A registry read failure makes the pass return `EMPTY_RESULT` (`:102`) — indistinguishable from a no-op pass except by the warn log (`:288-291`). See MINOR-1.
+
+#### 2. What user action produces unexpected behaviour?
+
+- Hand-editing either settings key to anything that is not a whole number in 1..3650 (0, 30.5, "thirty") falls back to 30 with a warn (`:301-327`, spec `:358-383`). Expected per spec; the warn names the key and value.
+- A user authoring or diverging a skill mid-pass (after `readExemptSlugs` ran) leaves it non-exempt for that pass; the `registry.remove` `clone_status='synth'` guard (`skill-registry.store.ts:196-208`) is the defence in depth the plan names (`implementation-plan.md:745-747`). Narrow, self-limiting, accepted by the plan.
+- Pinning a skill at day 100 keeps it untouched and counted as `skippedPinned` (`:116-119`, spec `:274-289`).
+
+#### 3. What input data produces a wrong answer rather than an error?
+
+- `now < lastUsedAt` (clock-skewed future-dated invocation events): `idleDays` is negative, `idleDays < dormantAfterDays` skips the row (`:114-115`) — safe, no retirement on skew.
+- A `name` of `''` or `'..'` in a corrupted row: containment requires `row.name.length > 0`, `relative === row.name` and `!relative.startsWith('..')` (`:236-241`) — the root itself and `..`-escapes are refused. Redundant clauses, but the `..` clause closes an otherwise valid-looking path.
+- A `bodyPath` outside the active root or under a foreign basename: refused with a warn, row never retired (spec `:333-356`). Correct per R-j — see MODERATE-2 for the counting gap only.
+
+#### 4. What happens when a dependency fails?
+
+- Registry not bound: pinned-only exemption after a warn (`:268-273`) — the plan's specified fail-soft shape (`implementation-plan.md:791-792`). Sound because with no registry bound there are no `authored`/`diverged` rows this library can know about.
+- Registry bound but `listAll()` throws: the whole pass is skipped (`:287-294` -> `:102`) — the executor's deviation (2), accepted below.
+- `registry.remove` throws inside the transaction: the whole unit rolls back (callback has no catch, `:207-216`; per-row catch wraps the `inImmediateTransaction` call at `:131`), the already-removed directory is re-removed idempotently next pass (`rmSync force`, `:254`) — R-f2 proven by spec `:396-422`.
+- `rejectIfStatus` loses a race: transaction wrote nothing, registry row kept, not counted (`:217-223`, spec `:262-272`).
+- Repropagation missing or throwing: skipped/warned, committed change stands (`:335-356`).
+- Workspace missing or throwing: settings default 30 (`:302-303`), workspace root `''` with a debug log (`:359-370`).
+- **The one uncontained dependency failure is `store.listPromotedLastUse()` at `:113`** — see MODERATE-1.
+
+#### 5. What is missing that the requirements never mentioned?
+
+Nothing material against the plan (`implementation-plan.md:727-810`); the component contract is fully implemented. The extras (deviations 1-5) are judged below. The only unrequested-but-consequential gap is the result's inability to represent "skipped pass" and "stuck row" states.
+
+---
+
+### Deviation decisions
+
+| # | Deviation | Decision | Reason |
+| - | --------- | -------- | ------ |
+| 1 | Uncontained path leaves the row promoted with a warn instead of retiring it in the DB | **ACCEPT** | R-j is the HIGH risk precisely because retirement deletes a directory. A containment failure means `bodyPath` and the row disagree (migrated row, moved root); retiring the DB row then would either strand an active SKILL.md no row owns or delete a directory we could not prove is ours. Staying promoted/dormant with a per-pass warn is fail-safe, self-retrying and visible. The plan's own wording ("skip the filesystem step and warn") is ambiguous; this reading is the conservative one. Gap reduced to MODERATE-2 (counting only). |
+| 2 | A registry read failure skips the whole pass rather than continuing with an empty exemption set | **ACCEPT** | Continuing with an empty exemption set could retire an `authored`/`diverged` skill — irreversible deletion of user-owned content. Skipping costs one pass and self-heals. The plan's fail-soft precedent (`:791-792`) covers only the *missing* registry, where no authored rows can exist; the *failing* registry is unspecified, and fail-closed is the only safe reading. Documented in-code at `:258-266`. |
+| 3 | `removeMaterializations` returns the removed slugs | **ACCEPT** | Additive and useful: the Batch 9 accept path can know which materializations actually changed; rows whose removal failed are excluded from repropagation correctly (`:191`). |
+| 4 | `SkillRegistryStore.remove` unchanged | **ACCEPT** | The plan's Revision-1 `remove(kind, slug, onlyCloneStatus='synth')` already landed in Batch 4 (commit bbd02ebf8) and matches the plan exactly: one plain parameterized guarded DELETE, `changes === 1` (`skill-registry.store.ts:196-208`). Nothing to change. |
+| 5 | `fs.rmSync` directly with its own containment check instead of `mdGenerator.removeActive` | **ACCEPT** | The retirement path holds a row, not the `MaterializedSkill` that `removeActive` requires (`skill-md-generator.ts:259`), and `removeActive`'s check (`dir.startsWith(root + path.sep)`, `:262`) is *weaker* than R-j: no basename===slug check, no `..` refusal. The service's check (`relative === row.name && basename === row.name && !startsWith('..')`, `:236-241`) is strictly stronger and satisfies R-j exactly. Returning `false` instead of throwing also keeps `retire()`'s two outcomes clean. |
+
+---
+
+### Failure modes
+
+#### FM1 — Unguarded aggregate read in `run()`
+
+- Trigger: `store.listPromotedLastUse()` throws (connection closed during host teardown racing a curator pass, locked/corrupted DB file).
+- Symptom: `run()` rejects with a store error; the caller gets an exception instead of a result. Every other dependency in the method is contained (registry `:275-292`, settings `:304-319`, per-row writes `:131-142`, repropagation `:349-355`, workspace root `:361-368`).
+- Evidence: `skill-retirement.service.ts:113` — the only call outside any try/catch in `run()`.
+- Current handling: none; propagates.
+- Recommendation: wrap the loop input in the same per-pass containment shape (catch -> warn -> return `EMPTY_RESULT`), or rely on Batch 9's per-sub-pass try/catch explicitly and note it here. Impact today is bounded because Batch 9 Task 9.1 wraps each sub-pass; flagged Moderate for the broken fail-soft contract at this one seam, not Serious.
+
+#### FM2 — Containment-failed row is stuck forever and invisible in the result
+
+- Trigger: a promoted row whose `bodyPath` fails containment at idle >= N+M (host moved the active root via the Batch 5 `resolveSkillsRoot` key; imported row).
+- Symptom: every pass warns (`:243-251`) and skips; the row can never retire, and the result counts it nowhere (`retire()` returns `false` at `:205`, no counter), so the Batch 9 report shows zero changes for a permanently stuck row.
+- Evidence: `skill-retirement.service.ts:125-126`, `:242-253`.
+- Current handling: warn per pass; DB untouched (correct direction — deviation 1 accepted).
+- Recommendation: add a `skippedUncontained` counter to `SkillRetirementResult` and surface it in the curator report.
+
+#### FM3 — Skipped pass indistinguishable from a no-op pass
+
+- Trigger: registry bound but `listAll()` throws.
+- Symptom: `run()` returns all-zero `EMPTY_RESULT` (`:102`); a caller logging only counts cannot tell "nothing was due" from "the pass refused to run".
+- Evidence: `skill-retirement.service.ts:275-294`, `:67-74`, `:102`.
+- Current handling: warn log only.
+- Recommendation: a `skipped: true` field (or throwing the decision up to Batch 9's report shape) would make the fail-closed state observable without log grepping.
+
+---
+
+### Blocking issues
+
+None.
+
+### Serious issues
+
+None.
+
+### Moderate and minor issues
+
+- **MODERATE (`skill-retirement.service.ts:113`):** `listPromotedLastUse()` is the one uncontained call in `run()` — a DB-level failure escapes the otherwise complete fail-soft contract (FM1). Bounded by Batch 9's per-sub-pass catch, but the seam is real for any other caller.
+- **MODERATE (`skill-retirement.service.ts:125-126, :242-253`):** a row that can never satisfy containment is uncounted in the result and stuck forever; only the warn log tells anyone (FM2).
+- **MINOR (`skill-retirement.service.ts:102`):** registry-read-failure skip returns `EMPTY_RESULT`, indistinguishable from a no-op pass (FM3).
+- **MINOR (`skill-retirement.service.spec.ts`):** no case for a row already `residency='dormant'` at idle in [N, N+M) — the `row.residency === 'resident'` guard (`:127`) prevents a re-count/re-write but nothing pins it; and no case for a dormant row retiring at >= N+M (directory removal of a dormant row's materialization).
+- **MINOR (`skill-retirement.service.spec.ts:262-272`):** the lost-race case does not assert the directory state. Analysis says removal is correct (the row was concurrently decided by a path that owns registry cleanup), but that invariant is untested.
+
+---
+
+### Data flow
+
+1. `run(origin, now)` -> `readExemptSlugs()` (`:267-294`): registry `listAll()` filtered to `kind='skill'` + `authored`/`diverged`; not-bound -> pinned-only set + warn; read failure -> `null` -> early return `EMPTY_RESULT` (fail-closed, accepted) `[OK]`.
+2. `readDays` x2 (`:301-328`): `getConfiguration('ptah', key, 30)` in Zod `int().min(1).max(3650)`; throw/undefined/null/invalid -> 30 with a warn `[OK]` (spec `:358-394`).
+3. `listPromotedLastUse()` (`skill-candidate.store.ts:604-623`): one aggregate, `MAX(invoked_at)` else `promoted_at` else `created_at`, oldest first — **unguarded** (FM1) `[GAP]`.
+4. Per row: `idleDays = (now - lastUsedAt)/DAY_MS`; `< N` skip; pinned -> `skippedPinned`; exempt slug -> `skippedExempt` `[OK]`.
+5. `idleDays >= N+M` -> `retire()` (`:204-224`): containment check (`:236-241`, stricter than R-j) -> `fs.rmSync` (idempotent, crash between FS and DB self-heals next pass) -> ONE `inImmediateTransaction` whose body holds only plain statements `rejectIfStatus` (`skill-candidate.store.ts:684-698`) and conditional `registry.remove` (`skill-registry.store.ts:196-208`) (R-f) with no internal catch (R-f2); `false` -> not counted, registry row kept, info log `[OK]` (spec `:262-272`, `:396-422`).
+6. `N <= idleDays < N+M` and `residency='resident'` -> `setResidency('dormant')`, counted `[OK]`; already-dormant rows are skipped uncounted `[OK]` (untested, MINOR).
+7. Per-row catch wraps the whole unit including the transaction call (`:131-142`) — loop continues `[OK]`.
+8. After the loop: one info log, then `emitRepropagation` over deduped changed slugs after commit (`:153`, `:335-356`), per-slug catch, never throws `[OK]`.
+9. Result counts (`:155-162`) `[GAP]` — stuck rows and skipped passes are unrepresentable (FM2/FM3).
+
+`removeMaterializations(rows, origin)` (`:171-193`): per-row containment + removal, per-row catch, repropagation of removed slugs only, returns removed slugs `[OK]` (spec `:437-458`).
+
+---
+
+### Requirements fulfilment
+
+| Requirement | Status | Gap |
+| ----------- | -------- | --- |
+| Settings `skillSynthesis.retirement.*`, Zod `int 1..3650`, default 30 on invalid or failed read | COMPLETE | None (`:42-53`, `:301-328`; spec `:358-394`). `RETIREMENT_DAYS_DEFAULT=30` matches `FILE_BASED_SETTINGS_DEFAULTS` (`platform-core/file-settings-keys.ts:536-537`). |
+| Last use from `listPromotedLastUse()` (newest event, else promotion, else creation) | COMPLETE | None (`skill-candidate.store.ts:604-623`). |
+| Idle >= N -> dormant; idle >= N+M -> retired; boundary values exact (29d/30d/60d; clock skew safe) | COMPLETE | None (`:114-125`; spec `:206-260`; negative idleDays skips). |
+| Exempt pinned and registry `authored`/`diverged` | COMPLETE | None (`:116-123`, `:275-286`; spec `:274-308`). |
+| Event at day 50 resets the clock | COMPLETE | Spec `:310-331` proves it via the aggregate. |
+| Retire: FS first, then ONE transaction; `rejectIfStatus` -> conditional `registry.remove`; R-f plain-statement-only callback; R-f2 catch outside the callback | COMPLETE | None (`:204-224`; spec `:262-272`, `:396-422`). |
+| R-j containment (inside `activeRoot()`, basename = slug) | COMPLETE | Strictly stronger than the plan's floor (`:236-241`; spec `:333-356`). |
+| Lost race -> not counted, registry row kept | COMPLETE | Spec `:262-272`. |
+| Repropagation after commit, per-slug fail-soft | COMPLETE | `:153`, `:335-356`. |
+| Never throws into the caller | PARTIAL | `listPromotedLastUse()` at `:113` is uncontained (FM1, MODERATE); every other path is contained. |
+| R-i: `SKILL_RETIREMENT_SERVICE` token, singleton, register.spec coverage | COMPLETE | `tokens.ts:84-85`, `register.ts:75,121-123`, `register.spec.ts:94-113` resolves token and class to the same instance. |
+| A6: retirement keys readable as file-based settings | COMPLETE | Registered in Batch 2 (`file-settings-keys.ts:245-246`); read here via the workspace port (`:301-328`). |
+| 6 explicit `@inject` deps, optional handled | COMPLETE | `:78-90`; registry/repropagation/workspace `isOptional: true` with null handling at `:268-273`, `:339`, `:302-303`. |
+
+Implicit requirements not addressed: observability of the two permanent-ish states (stuck row, skipped pass) in the returned result — MODERATE-2 / MINOR-1.
+
+---
+
+### Edge cases
+
+| Case | Handled | How | Concern |
+| ---- | ------- | --- | ------- |
+| Exactly N idle (30d) | YES | `idleDays < N` is the skip, so 30.0 -> dormant (spec `:220-240`) | None |
+| Exactly N+M idle (60d) | YES | `idleDays >= retireAfterDays` -> retire (spec `:242-260`) | None |
+| `now < lastUsedAt` (clock skew) | YES | Negative idleDays fails `< N` -> skipped | None |
+| Row already dormant at idle in [N, N+M) | YES | `residency === 'resident'` guard (`:127`) — no re-count | Untested (MINOR) |
+| Dormant row at idle >= N+M | YES | Retire path removes its directory | Untested explicitly (MINOR) |
+| Empty or `..` slug in a corrupted row | YES | `name.length > 0` + `relative === name` + `!startsWith('..')` (`:236-241`) | None |
+| `bodyPath` outside root / foreign basename | YES | Containment refused, warn, row untouched (spec `:333-356`) | Row stuck + uncounted (FM2) |
+| Registry not bound | YES | Pinned-only exemption + warn (`:268-273`) | None (plan-specified) |
+| Registry bound, read fails | YES | Whole pass skipped, fail-closed (`:287-294`) | Result indistinguishable from no-op (FM3) |
+| Invalid/failed settings read | YES | Default 30 with a warn per key (spec `:358-383`) | None |
+| Crash between FS removal and DB write | YES | `rmSync force` idempotent; next pass completes the DB move (documented `:17-19`) | None |
+| Mid-callback throw (registry.remove fails) | YES | Whole transaction rolls back; per-row catch continues the loop (spec `:396-422`) | None |
+
+---
+
+### Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: `run()` is fail-soft everywhere except the one bare `listPromotedLastUse()` call (`:113`), and a row that can never satisfy containment is permanently stuck with no signal in the result — both are observability/containment gaps, not data-loss paths.
+- What a robust implementation would add:
+  1. Contain the `listPromotedLastUse()` call (warn + `EMPTY_RESULT` on failure) so `run()` never throws.
+  2. A `skippedUncontained` counter (and a `skipped` flag for registry-read failures) in `SkillRetirementResult`, surfaced in the Batch 9 curator report.
+  3. Spec cases: an already-dormant row at idle in [N, N+M) is not re-counted; a dormant row retiring at >= N+M loses its directory.
