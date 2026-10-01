@@ -224,8 +224,10 @@ export interface GitWorktreeChangedNotification {
   operationId?: string;
   /**
    * The real SDK session id whose agent created or removed the worktree.
-   * Present only for SDK-hook-driven notifications whose session id is known;
-   * absent for RPC-driven (user-initiated) worktree operations.
+   * Present for SDK-hook-driven notifications whose session id is known, and
+   * for an agent's MCP `ptah_git_worktree_add` call whose caller resolves to
+   * an SDK session id (TASK_2026_580 lane rule L15); absent for user-initiated
+   * RPC worktree operations.
    */
   sessionId?: string;
   /**
