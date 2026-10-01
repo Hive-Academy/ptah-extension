@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 24/69
+Total tasks: 87 | Batches: 69 | Complete: 26/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1201,14 +1201,14 @@ executors at once.
 - Validation notes: R2 — on failure stop and return; the `@codemirror/merge` fallback is an architecture change (BLOCKER to the orchestrator).
 - Implementation details: n/a
 
-## Batch 23: `diff-renderer` secondary entry and `TextDiffViewComponent` — PENDING
+## Batch 23: `diff-renderer` secondary entry and `TextDiffViewComponent` — COMPLETE
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 22
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui` + lazy-size row via the Batch 20 script
 
-### Task 23.1: Entry, alias, wrapper, lazy-size measurement — PENDING
+### Task 23.1: Entry, alias, wrapper, lazy-size measurement — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/text-diff-view.component.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/text-diff-view.component.spec.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/diff-renderer.ts; MODIFY D:/projects/ptah-extension/tsconfig.base.json; MODIFY D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/bundle-measurements.md
 - Plan reference: implementation-plan.md:741, 752-753, 1477
@@ -1216,6 +1216,14 @@ executors at once.
 - Quality requirements: first realistic diff ≤ 217 KB gz; Pierre not in the eager closure.
 - Validation notes: none.
 - Implementation details: `TextDiffViewComponent` uses `parseDiffFromFile(old, new)`, unified only.
+- Outcome: executor antigravity lane (frontend-developer role) after opencode Kimi failed twice ("Unknown error",
+  both models) and Glm hit its Ollama usage limit (HTTP 429) — lane-authored, so the phase-end review uses a subagent
+  reviewer. Report `reviews/batch-23-report.md`. Listed files only. Entry exports `PierreDiffHostComponent`,
+  `TextDiffViewComponent` and their types. Lazy-size (esbuild ESM bundle of `diff-renderer.ts`, Angular and
+  shared externalized — an approximation of the Angular build): first realistic diff (entry closure + the
+  TypeScript grammar chunk) 153,279 B gz ≈ 149.7 KB (bar ≤ 217 KB); eager bundle unchanged (362,218 B gz), assert
+  mode green. Orchestrator corrections before commit: error note `text-base-content/70` → `text-base-content-muted`
+  (the sanctioned muted token), `catch (err: unknown)`. Verified: git-ui 544 tests, typecheck, lint green.
 
 ## Batch 24: `FileStatusBadgeComponent` with AA contrast — PENDING
 

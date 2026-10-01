@@ -102,6 +102,9 @@
       "@ptah-extension/git-ui/services": [
         "./libs/frontend/git-ui/src/services.ts"
       ],
+      "@ptah-extension/git-ui/diff-renderer": [
+        "./libs/frontend/git-ui/src/diff-renderer.ts"
+      ],
       "@ptah-extension/platform-cli": [
         "./libs/backend/platform-cli/src/index.ts"
       ],

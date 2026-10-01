@@ -38,3 +38,28 @@ Build: `NX_DAEMON=false npx nx run ptah-extension-webview:verify-eager-bundle --
 | Eager closure (12 files)   | 3,011,139 | 778,076  | 759.8     | -39,629                    |
 
 `main.js` gz 362,218 B <= 401,859 B budget. The Angular build still warns that the initial bundle (3.33 MB) exceeds the 2.50 MB `budgets` maximum; that is a warning, not an error.
+
+## Batch 23 — `@ptah-extension/git-ui/diff-renderer` secondary entry and `TextDiffViewComponent`
+
+Eager bundle: `NX_DAEMON=false npx nx run ptah-extension-webview:verify-eager-bundle --skip-nx-cache` (assert mode, production configuration). Exit 0: "no forbidden markers in the eager closure".
+
+| Measure                    | Raw (B)   | Gzip (B) | Gzip (KB) | Delta gzip vs Batch 21 (B) |
+| -------------------------- | --------- | -------- | --------- | -------------------------- |
+| `main.js`                  | 1,480,803 | 362,218  | 353.7     | 0                          |
+| Eager closure (12 files)   | 3,011,139 | 778,076  | 759.8     | 0                          |
+
+`main.js` gz 362,218 B <= 401,859 B budget. Pierre is NOT in the eager closure.
+
+### Lazy chunk measurement (throwaway build)
+
+Method: esbuild browser ESM bundle of `libs/frontend/git-ui/src/diff-renderer.ts` with code splitting, minification, target `es2022`, and externalized `@angular/*` and `@ptah-extension/shared`. Throwaway artifacts built in `D:/tmp/batch23-out`.
+
+| Chunk / Scenario                             | Raw (B) | Gzip (B) | Gzip (KB) | Budget limit (KB gz) | Status |
+| -------------------------------------------- | ------- | -------- | --------- | -------------------- | ------ |
+| `diff-renderer.js` (entry chunk)             | 472,887 | 136,984  | 133.8     | —                    | —      |
+| Entry closure (`diff-renderer.js` + helper)  | 473,172 | 137,212  | 134.0     | —                    | —      |
+| `typescript` language grammar chunk          | 181,106 | 16,067   | 15.7      | —                    | —      |
+| **First realistic diff** (closure + TS lang) | 654,278 | 153,279  | **149.7** | **≤ 217.0**          | **PASS** |
+
+The first realistic diff loads ~149.7 KB gz (153,279 B), well within the ≤ 217 KB gz bar (research baseline 189 KB × 1.15 ≈ 217 KB). Pierre and its grammars are completely isolated in lazy chunks.
+
