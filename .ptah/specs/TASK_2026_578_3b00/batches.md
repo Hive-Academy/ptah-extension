@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 6/14
+Total tasks: 44 | Batches: 14 | Complete: 7/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -614,7 +614,7 @@ Edge cases:
 - **Batch 5 ACCEPTED. Committed `985b14ccf`** (8 explicit paths, 4 production files + specs; hooks passed). Batch 7 files (`SS/lifecycle/skill-retirement.*`,
   `SS/di/*`) left unstaged.
 
-## Batch 6: Promotion entries and judge-panel gate — IN_PROGRESS
+## Batch 6: Promotion entries and judge-panel gate — COMPLETE (commit 5c29b6fe6)
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lane x 1 (antigravity)
@@ -624,7 +624,7 @@ Edge cases:
 - Tasks: 3 | Depends on: Batches 3, 4, 5
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
-### Task 6.1: Automatic-path slug fix, shared cap selection, promoteSuggestion, adoptMaterializedSkill — PENDING
+### Task 6.1: Automatic-path slug fix, shared cap selection, promoteSuggestion, adoptMaterializedSkill — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-promotion.service.ts` (+ `skill-promotion.service.spec.ts`, `skill-promotion.repropagation.spec.ts`)
 - Plan reference: implementation-plan.md:608-657
@@ -638,7 +638,7 @@ Edge cases:
   `adoptMaterializedSkill` (same tail without materialization; link-only if slug already promoted). Specs per
   plan:650-655.
 
-### Task 6.2: Judge-panel stage decides — PENDING
+### Task 6.2: Judge-panel stage decides — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/queue/stage-handlers.service.ts` (+ `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-synthesis.stage-handlers.spec.ts`)
 - Plan reference: implementation-plan.md:812-834
@@ -646,13 +646,101 @@ Edge cases:
   `store.rejectIfStatus(id, 'candidate', 'below-judge-score')`; reason `${result.reason}:rejected` or
   `:not-candidate`. Specs: below → rejected; at threshold → unchanged; promoted meanwhile → unchanged.
 
-### Task 6.3: Update the stale stage-handlers doc comment — PENDING
+### Task 6.3: Update the stale stage-handlers doc comment — COMPLETE
 
 - Same file, `:363` references `SkillCuratorService.runSuggestionPass`; reword to the umbrella pass.
 
 ### Batch 6 verification
 
 - Promotion and stage gate implemented with specs; tests + typecheck pass; reviewer accepted
+
+### Batch 6 on-disk verification (team-leader, 2026-10-01)
+
+Result: ISSUES (one: deviation 4 below; a fix-up is required before commit). Glm logic lane reviewing in parallel →
+code-logic-review.md `## Batch 6`. Not committed.
+
+- Files on disk (real code, no TODO/FIXME/PLACEHOLDER/STUB/XXX): MODIFY `SS/skill-promotion.service.ts` (1084 raw
+  lines, 688 effective), `SS/queue/stage-handlers.service.ts`, `SS/skill-promotion.service.spec.ts`,
+  `SS/skill-promotion.repropagation.spec.ts`, `SS/skill-synthesis.stage-handlers.spec.ts`. `SS/skill-suggestion.store*`
+  in the working tree belong to Batch 8, not Batch 6.
+- 6.1 automatic path: `isSlugTaken` excludes the candidate's own name (`:324`), `promoteAtomically(..., name:
+  materialized.slug)`, repropagates `materialized.slug`. Cap selection extracted to `selectWeakestResident` (`:607`).
+- R-f / R-f2: `commitResidentPromotion` (`:537-569`) is one `inImmediateTransaction` holding `registerCandidate` →
+  re-entrant `promoteAtomically` → `linkRegistryRow` (`getBySlug` + `upsert`, plain statements) → `onCommit(row)`;
+  no catch inside. The adopt link-only path (`:490`) wraps only `onCommit(existing)`. `promoteSuggestion`'s catch
+  (`:434-448`) wraps the whole call, removes the directory and rethrows. Spec: throw after `registerCandidate`, an
+  `onCommit` throw and a UNIQUE on name each leave no row and no directory.
+- 6.2: `case 'scored'` → `applyJudgePanelGate` (`stage-handlers.service.ts:545-596`), CAS `rejectIfStatus(id,
+  'candidate','below-judge-score')`, reasons `:rejected` / `:not-candidate`; specs below/at/lost-CAS. 6.3 doc reworded.
+- Re-run by team-leader (scoped): `--testFile=skill-promotion` 2 suites 76/76; `--testFile=stage-handlers` 47/47;
+  typecheck success; lint 0 errors, no `max-lines` for the promotion file (effective 688 < 700; its only warning is
+  the pre-existing `no-useless-assignment` at `:310`); degradation audit exit 0, `skill-synthesis: 6 ok (baseline 6)`.
+  Full suite not run (Batch 8 in parallel).
+
+Deviation decisions:
+
+1. Rethrow instead of `{promoted:false, reason:'write-failed'}` — ACCEPTED. It matches the Batch 9 R-f2 rule
+   (`{accepted:false}` comes from a catch around the whole call) and keeps the original error. Carry to 9.1/9.3:
+   both callers must catch.
+2. Generic `onCommit: (row) => T` — ACCEPTED. It avoids importing Batch 8's `MergeOutcome` into the promotion file.
+3. Trailing `nowFn`; adopt repropagates with origin `{}` — ACCEPTED. The plan's adopt signature has no origin; the
+   reconcile runs with no query origin.
+4. `linkRegistryRow` sets `cloneStatus:'synth'` over any existing row (`skill-promotion.service.ts:596`) — REJECTED
+   as written. Defect: for a `diverged` row it keeps `diverged = true` but writes `clone_status = 'synth'`, an
+   inconsistent row. Retirement exempts by `clone_status` only (`lifecycle/skill-retirement.service.ts:349-350`) and
+   `registry.remove` deletes only `synth`, so a skill the user edited becomes retirable and its folder deletable. A
+   plugin `clone` row would also lose its owner. Required fix (same executor): use the precedence the catalog
+   already applies to a slug with a candidate (`skill-registry-catalog.service.ts:91-96`): (a) `existing.diverged`
+   or `cloneStatus === 'diverged'` → keep `'diverged'`; (b) `cloneStatus === 'clone'` or `originPluginId !== null` →
+   throw a named error inside the transaction (rollback; promote removes its directory, adopt keeps it); (c) otherwise
+   `'synth'`. Flipping `authored` → `synth` stays: the catalog sync does the same on its next pass once a candidate
+   holds the name, and pre-578 accepted suggestions are catalogued `authored` because they had no candidate row.
+   Add specs: adopt over a diverged row keeps `diverged` + candidate_id set; adopt over a clone row throws and
+   leaves no candidate row. Carry to 9.3 (HARD): the reconcile adopts only a slug proven to be an accepted
+   suggestion's directory, never a slug matched by name alone, since that is the only guard for hand-written skills.
+5. File size — ACCEPTED. Effective 688 lines (rule skips blanks and comments), under the 700 soft ceiling; raw 1084
+   is mostly contract docs. No split now. If Batch 9 or 12 pushes it over 700, extract the shared tail
+   (`commitResidentPromotion`, `linkRegistryRow`, `selectWeakestResident`, `afterResidencyChange`) into a
+   `ResidentPromotionWriter` collaborator under `SS/lifecycle/`, with `SkillPromotionService` staying the facade.
+
+- Carry (out of scope, from the executor): adopt on a slug held by a non-promoted row hits UNIQUE on name and throws
+  on every start. Batch 9.3 decides (skip + warn, or reuse that row).
+
+### Batch 6 review verdict
+
+- Logic (Glm lane): NEEDS_REVISION 7/10 — code-logic-review.md `## Batch 6`. S-1 `linkRegistryRow` always wrote
+  `synth`; M-1 adopt hits UNIQUE on a slug held by a non-promoted row; M-2 over-cap race. Rethrow deviation ACCEPTED on
+  condition that Batch 9 catches around `promoteSuggestion` / `adoptMaterializedSkill` and adds a spec.
+- S-1 decision (orchestrator, team-leader proposal): catalog precedence, not the reviewer's "preserve existing
+  status". Reason: `SkillRegistryCatalogService.deriveStatus` (`skill-registry-catalog.service.ts:91-96`) rewrites
+  `authored` to `synth` at the next sync once a candidate holds the name, so preserving `authored` would not last and
+  would hide pre-578 accepted suggestions (catalogued `authored`) from cap and retirement. Diverged is kept; a plugin
+  clone is refused.
+- Fix-up (same executor): `RegistrySlugOwnedByPluginError` (`skill-promotion.service.ts:161-177`); adopt doc comment
+  with the Task 9.3 rule (`:493-497`); `linkRegistryRow` (`:612-641`) keeps `diverged` (flag or status), throws on
+  `clone` / `originPluginId !== null` inside the transaction, else `synth`; 5 new real-SQLite specs.
+- Re-review (antigravity lane; Glm hit its 429 limit): APPROVED 8/10 — code-logic-review.md `### Batch 6 re-review`
+  (:945). S-1 resolved; M-1, M-2 carried.
+- Team-leader re-verification on disk: R-f/R-f2 hold — `commitResidentPromotion` (`:561-594`) unchanged, one
+  transaction, no catch inside; the new throw is deliberate and uncaught, so it rolls back the unit. Scoped re-runs:
+  `--testFile=skill-promotion` 2 suites 81/81; `--testFile=stage-handlers` 47/47; typecheck success; degradation
+  audit exit 0, `skill-synthesis: 6 ok (baseline 6)`.
+- max-lines reconciled: the reviewer's 1008 is `skill-synthesis.service.ts` (the lint line next to it), not this
+  file. `skill-promotion.service.ts` after the fix-up: 1126 raw, 707 effective (rule skips blanks and comments),
+  so it now raises a `max-lines` WARNING, 7 over the 700 soft ceiling, well under 1000. Accepted for this batch;
+  the split below becomes a required follow-up rather than optional.
+- **Batch 6 ACCEPTED. Committed `5c29b6fe6`** (5 explicit paths). Batch 8 files (`SS/skill-suggestion.store*`,
+  `SS/lifecycle/skill-umbrella-merge*`, `SS/di/*`) left unstaged.
+- Carries to Batch 9:
+  1. (HARD) 9.1 / 9.3 callers catch around the whole `promoteSuggestion` / `adoptMaterializedSkill` call
+     (including `RegistrySlugOwnedByPluginError`) and return the fail-soft answer, with a spec each.
+  2. (HARD) Task 9.3 adopts only a slug proven to be an accepted suggestion's materialized directory, never a slug
+     matched by name alone.
+  3. Task 9.3 decides adopt on a slug held by a non-promoted row (M-1): skip + warn, or reuse that row.
+- Follow-ups (future-enhancements.md): M-2 over-cap race between `selectWeakestResident` and the transaction;
+  extract the shared tail (`commitResidentPromotion`, `linkRegistryRow`, `selectWeakestResident`,
+  `afterResidencyChange`) into a `ResidentPromotionWriter` under `SS/lifecycle/` with `SkillPromotionService` as the
+  facade — due before Batch 9 or 12 adds lines to the file.
 
 ## Batch 7: SkillRetirementService — COMPLETE (commit 8c8e05bdd)
 
@@ -759,7 +847,7 @@ Deviation decisions:
   or sanitized slugs, or every row after the skills-root setting changes) are never retired and warn every pass
   (now counted in `skippedUncontained`) until Batch 6 / Task 9.3 align names with the materialized slug.
 
-## Batch 8: SkillUmbrellaMergeService — PENDING
+## Batch 8: SkillUmbrellaMergeService — IN_PROGRESS
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lane x 1 (antigravity)
@@ -852,7 +940,7 @@ Deviation decisions:
 - Curator rewritten (~550 lines), no caller of the old methods remains outside their own files; tests + typecheck
   pass; reviewer accepted
 
-## Batch 10: Diagnostics counts and SS default (post-586) — PENDING
+## Batch 10: Diagnostics counts and SS default (post-586) — IN_PROGRESS
 
 - **Precondition: G-586 rebase done.**
 - Recommended executor: backend-developer sub-agent

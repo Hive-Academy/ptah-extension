@@ -76,6 +76,8 @@ Fewer, broader, used skills. Every skill is either used, merged into another ski
   lanes in flight is kept. Reviews stay cross-side.
 - 2026-10-01 18:38: opencode Go returned "Go usage limit exceeded" (Batch 7 security lane failed twice). Kimi lanes
   are unavailable until the quota resets; antigravity and Glm carry the review lanes.
+- 2026-10-01 19:42: Glm (Ollama Cloud) returned 429 "session usage limit". Only antigravity remains for CLI review
+  lanes (it had stream interrupts, one Gemini safety-filter block and one 503 earlier in this session).
 - Flow: FEATURE at Partial depth. context.md is the requirements source (no PM, no task-description.md).
 
 ## Cross-session coordination (TASK_2026_580 / 584, coordinator session)

@@ -767,3 +767,211 @@ Implicit requirements not addressed: observability of the two permanent-ish stat
   1. Contain the `listPromotedLastUse()` call (warn + `EMPTY_RESULT` on failure) so `run()` never throws.
   2. A `skippedUncontained` counter (and a `skipped` flag for registry-read failures) in `SkillRetirementResult`, surfaced in the Batch 9 curator report.
   3. Spec cases: an already-dormant row at idle in [N, N+M) is not re-counted; a dormant row retiring at >= N+M loses its directory.
+---
+
+## Batch 6
+
+Scope: `SS/skill-promotion.service.ts` (+ both specs), `SS/queue/stage-handlers.service.ts` (+ spec), Tasks 6.1-6.3. Read in full: `skill-promotion.service.ts` (1084 raw lines), `stage-handlers.service.ts` judge-panel stage, the store primitives the tail calls (`skill-candidate.store.ts` `registerCandidate`/`promoteAtomically`/`inImmediateTransaction`/`rejectIfStatus`/`findByName`, `skill-registry.store.ts`), and the committed Batch 7 retirement exemption (`skill-retirement.service.ts`). Verification re-run by this reviewer: `test --testFile=skill-promotion` exit 0 (fresh, 0% cache), `test --testFile=stage-handlers` exit 0, `typecheck` exit 0, `lint` 0 errors (max-lines below).
+
+| Metric              | Value                                |
+| ------------------- | ------------------------------------ |
+| Overall score       | 7/10                                 |
+| Assessment          | NEEDS_REVISION                       |
+| Blocking issues     | 0                                    |
+| Serious issues      | 1                                    |
+| Moderate issues     | 2                                    |
+| Failure modes found | 4                                    |
+
+### Five logic questions
+
+#### 1. How does this fail silently?
+
+The registry link overwrites `clone_status` `'authored'`/`'diverged'` with `'synth'` and the promotion *succeeds* — the spec even asserts the wrong value (`skill-promotion.service.spec.ts` adopt case seeds an `'authored'` row and asserts `cloneStatus: 'synth'` after the adopt). The user sees nothing until the Batch 7 retirement pass, 30+30 idle days later, deletes `<activeRoot>/<slug>/` — because the retirement exemption (`skill-retirement.service.ts:343-351`) covers only `'authored'`/`'diverged'` registry rows plus pinned, and `registry.remove` (`skill-registry.store.ts:196-208`) deletes exactly the `'synth'` row the flip produced. Nothing in any log connects the deletion to the adopt.
+
+#### 2. What user action produces unexpected behaviour?
+
+Accepting (or reconciling) a suggestion whose slug is already held by a **non-promoted** `skill_candidates` row: `adoptMaterializedSkill` skips link-only only for `status === 'promoted'` (`skill-promotion.service.ts:489`), falls into the tail, and `registerCandidate` INSERTs a duplicate `name` → UNIQUE(name) violation (`skill-candidate.store.ts:310` documents the index) → throw on every start, permanently (M-1).
+
+Also: a user who authored a skill with the same name as an accepted suggestion silently loses authorship protection on the next reconcile (S-1).
+
+#### 3. What input data produces a wrong answer?
+
+None found on the suggestion path: a slug held in the DB without a directory suffixes to `-2` and stores the suffixed name (spec case); a slug held only as a live directory suffixes via `writeAtRoot`'s `existsSync`; the judge gate at-threshold and CAS-lost cases both answer correctly. The wrong-answer class in this batch is state, not input: the pre-existing registry `clone_status` (S-1) and the pre-existing same-named candidate row (M-1).
+
+#### 4. What happens when a dependency fails?
+
+- Registry unbound: `linkRegistryRow` silently returns (`skill-promotion.service.ts:583`) — documented optional-dependency pattern; the promotion lands without a registry link. Acceptable, consistent with the rest of the library.
+- Registry read/write fails inside the transaction: throws → full rollback → directory removed → rethrow. Fail-closed, correct.
+- `mdGenerator.promoteToActive` throws (slug exhaustion, disk error): propagates before the `try` — no log from this service; the caller (Batch 9) owns it. Batch 5's fix-up owns partial-write cleanup. MINOR-1.
+- Repropagation absent/fails: warn only, never throws (`:702-723`). Correct per plan.
+- Judge lane fails: unchanged pre-existing `unscored` mapping; the new gate is not on that path.
+
+#### 5. What is missing that the requirements never mentioned?
+
+The plan (implementation-plan.md:626) itself hard-codes `cloneStatus:'synth'` in the tail's `registry.upsert` and never says the link must preserve an existing `'authored'`/`'diverged'` status — the interaction with Batch 7's committed exemption rule is a plan-level hazard the executor reproduced and pinned in a spec. Second gap: the plan specifies the promoted-row skip for adopt (:634) but is silent on the non-promoted-row case (M-1).
+
+### Failure modes
+
+#### FM-1 — registry link strips authored/diverged protection
+
+- Trigger: `adoptMaterializedSkill` (or `promoteSuggestion`) on a slug whose `skill_registry` row has `clone_status` `'authored'` or `'diverged'`.
+- Symptom: no immediate symptom; 30+30 idle days later the retirement pass deletes the skill directory and the registry row; earlier, the cap may demote the skill to dormant (it also disappears from `authoredSlugs()`, `skill-promotion.service.ts:620`).
+- Evidence: `skill-promotion.service.ts:578-599` (`linkRegistryRow` upserts `cloneStatus: 'synth'` unconditionally); `skill-registry.store.ts:74` (`clone_status = excluded.clone_status`); exemption filter `skill-retirement.service.ts:343-351`; `registry.remove` default `'synth'` `skill-registry.store.ts:196-208`; spec pins the flip (`skill-promotion.service.spec.ts` adopt case).
+- Current handling: none — intended by the executor, spec-pinned.
+- Recommendation: in `linkRegistryRow`, preserve the existing status when it is `'authored'` or `'diverged'` (link `candidateId`/`userPath`, keep the status); update the adopt spec case to assert the status survives. This keeps the settings-docs promise (Batch 2 F-2: "Pinned, user-authored or user-edited skills are exempt") and Batch 7 review S1's rationale ("without the authored/diverged set, a pass could delete user-owned content").
+
+#### FM-2 — adopt on a slug held by a non-promoted row throws forever
+
+- Trigger: reconcile preconditions hold (`<activeRoot>/<slug>/SKILL.md` exists) and `findByName(slug)` returns a `candidate`- or `rejected`-status row (dormant rows are safe: `status='promoted'`).
+- Symptom: `registerCandidate` INSERT violates UNIQUE(name) → rollback → throw; the reconcile's per-row catch (Batch 9) warns; the suggestion is permanently un-adoptable and warns every start. Plan A1's "second start is a no-op" cannot hold.
+- Evidence: `skill-promotion.service.ts:488-515`; `skill-candidate.store.ts:208-250` (INSERT by name, no name guard), `:310` (UNIQUE index).
+- Current handling: none; unspecified in the plan (:634 covers only the promoted case).
+- Recommendation: define the rule before Batch 9 wires the call — reuse and promote the existing `candidate` row, or skip + warn for `rejected` (terminal decision already taken).
+
+#### FM-3 — stale cap victim fails the promotion
+
+- Trigger: another promotion demotes the selected victim (or fills the cap) between `selectWeakestResident` (`skill-promotion.service.ts:407`) and the transaction — a window that now includes the SKILL.md materialization.
+- Symptom: `promoteAtomically`'s demotion CAS throws (`skill-candidate.store.ts:544-548`) → whole unit rolls back → the accept fails and retries next pass. Fail-safe: no double-demotion (the CAS) and no orphan directory (the catch at `:434-449` removes it).
+- Current handling: correct fail-safe; the user-visible retry is the cost. No change required.
+- Recommendation: record; optionally re-check the residency count inside the transaction if accept storms appear.
+
+#### FM-4 — cap under-count race promotes over the cap
+
+- Trigger: `residentCount < maxActiveSkills` at selection time; a concurrent promotion fills the cap during materialization; this promotion then lands with no demotion.
+- Symptom: cap exceeded by one until the next pass. Pre-existing pattern (the automatic path selects outside the transaction too); the suggestion path widens the window.
+- Evidence: `skill-promotion.service.ts:407-416`.
+- Current handling: accepted as the existing cap semantics.
+- Recommendation: record for `future-enhancements.md`; not fixed in this task.
+
+### Serious issues
+
+#### S-1 — `linkRegistryRow` flips authored/diverged registry rows to synth
+
+- File: `skill-promotion.service.ts:585-598` (upsert with `cloneStatus: 'synth'`); spec adopt case asserts the flip.
+- Scenario: user-authored skill `legacy` (registry row `'authored'`); an accepted suggestion with the same slug is reconciled (Batch 9 Task 9.3; plan A1 *expects* authored rows for the 2 live accepted suggestions); adopt runs the tail and flips the row to `'synth'`.
+- Impact: silent loss of the retirement and cap exemptions the Batch 7 review fought for; 60 idle days later the retirement pass deletes the user's SKILL.md directory and the registry row. User-authored content destroyed by automation, with no signal. Data loss, gated only by Batch 9 wiring and dormancy.
+- Fix: preserve `existing.cloneStatus` when it is `'authored'` or `'diverged'` in `linkRegistryRow`; re-pin the spec. The fix is this batch's code — doing it now is cheaper than re-pinning it in Batch 9's review after Task 9.3 builds on the wrong primitive.
+
+### Moderate and minor issues
+
+- M-1 (FM-2): adopt on a slug held by a non-promoted row → UNIQUE(name) throw every start; permanent wedge; needs a defined rule before Batch 9 (plan gap).
+- M-2 (FM-4): cap-victim selection vs transaction race — stale victim fails safely (FM-3, good), under-count promotes one over the cap; pre-existing pattern, wider window; record.
+- MINOR-1: `promoteSuggestion` logs nothing when `promoteToActive` itself throws (`:408-417`, before the `try`); Batch 9's catch must log it or the failure is invisible. One-line fix: move the materialization inside the `try` (the catch is already a no-op-safe `removeActiveAfterRollback` guarded on `materialized`).
+- MINOR-2: judge-panel null-score branch (`score === null` with `'scored'` status, `stage-handlers.service.ts:577`) is untested; the plan's verification seam (plan:832-833) lists only below/at/CAS-lost, so this is coverage beyond the plan, not a gap against it.
+- MINOR-3 (file size): `skill-promotion.service.ts` is 1084 raw lines; ESLint `max-lines` warning reports **1008** (limit 700) — "File has too many lines (1008). Maximum allowed is 700". The executor's "~1145" is wrong; the plan predicted ~900 (plan:648-649). **Facade split: recommended as a follow-up, not now.** The file is one promotion contract — three entries over one shared tail plus the pre-existing gate pipeline — and cohesive; Batches 8-9 are in flight in the same lib and a split now risks conflicts. Record in the QA handoff / `future-enhancements.md` and revisit after Batch 12; do not let Batch 9 add further code here without a look.
+
+### Verification evidence
+
+- `npx nx run @ptah-extension/skill-synthesis:test --maxWorkers=2 --testFile=skill-promotion` — exit 0 (fresh run, 0% cache).
+- `--testFile=stage-handlers` — exit 0 (fresh).
+- `npx nx run @ptah-extension/skill-synthesis:typecheck` — exit 0.
+- `npx nx run @ptah-extension/skill-synthesis:lint` — 0 errors; `max-lines` for `skill-promotion.service.ts` = 1008 (also visible: `skill-candidate.store.ts` 1302, the R-h baseline).
+
+### Checked contract items (Tasks 6.1-6.3, R-f, R-f2)
+
+1. Automatic path: `isSlugTaken = slug !== candidate.name && store.findByName(slug) !== null` (`:324-325`); `name: materialized.slug` stored (`:333`); repropagation emits `materialized.slug`, not `candidate.name` (`:366`, spec-pinned in the repropagation spec). COMPLETE.
+2. `promoteSuggestion`: cap victim first (`:407`), then materialize (`:408`), then ONE `inImmediateTransaction` (`commitResidentPromotion`, `:550-569`): `registerCandidate` (trajectory `'suggestion:'+id`) → `promoteAtomically` → `linkRegistryRow` → `onCommit`. R-f: every call inside the callback is a plain statement or the re-entrant `promoteAtomically` (`registerCandidate` = SELECT + plain INSERT + `insertEmbedding` plain INSERT `skill-candidate.store.ts:1690-1697`; `promoteAtomically`'s own transaction is depth-tracked re-entrant `:710-718`; registry `getBySlug`/`upsert` are plain statements on the same connection). `onCommit` is caller-supplied. R-f2: no try/catch inside the callback or anything it calls; the catch (`:434-449`) wraps the whole call, removes the directory (`removeActiveAfterRollback`), and rethrows. Cap-victim validity inside the transaction: `promoteAtomically` CAS-demotes (`WHERE status='promoted' AND residency='resident'`, store `:529-548`) and throws on 0 changes — a stale victim fails the promotion, never double-demotes; the demotion is inside the transaction, so it rolls back on any later throw (real-store spec case asserts the resident stays `resident` after an `onCommit` throw). COMPLETE.
+3. `adoptMaterializedSkill`: link-only when the slug is already promoted (`:489-500`, spec-pinned); same tail without materialization (`:502-515`); never removes the directory — no `removeActiveAfterRollback` on this path, and the spec case "a failure rolls back and leaves the existing directory in place" pins it. COMPLETE, except S-1/M-1.
+4. Task 6.2: `applyJudgePanelGate` (`stage-handlers.service.ts:571-595`) — `score === null || score >= minJudgeScore` → no write, reason unchanged (matches the plan's `score !== null && score < min`); below → `rejectIfStatus(id,'candidate','below-judge-score')`; `true` → `${result.reason}:rejected`; `false` → `:not-candidate`; exactly-at-threshold unchanged (spec at 6.0); promoted-meanwhile → CAS lost → `:not-candidate` (spec). COMPLETE.
+5. Task 6.3 doc comment reworded (`:363`, "the curator's umbrella-merge pass"). COMPLETE.
+6. Catches audited: every catch logs or rethrows, degradation-audit markers present where a catch degrades (`runGatePipeline` write-failed, `removeActiveAfterRollback` cleanup, `emitRepropagation`, `workspaceRoot`, `winRatesBySlug`, `authoredSlugs`); no `return` inside a catch skips work — the `write-failed` return in `runGatePipeline` IS the failure contract. No catch inside any transaction callback. PASS.
+7. File size: see MINOR-3.
+
+### Deviation decisions
+
+| # | Deviation (executor notes) | Decision |
+| - | -------------------------- | -------- |
+| 1 | `promoteSuggestion`/`adoptMaterializedSkill` rethrow after rollback instead of returning `{promoted:false, reason:'write-failed'}` (plan:628) | **ACCEPT.** Consistent with Batch 9 Task 9.2's own contract — "`{accepted:false}` comes from a catch around the whole transaction call, after rollback" (batches.md:833) — and with the R-f2 rule that the catch wraps the whole call. `ResidentPromotion<T>` is a typed success; the caller owns fail-soft. HARD CONDITION on Batch 9: both calls wrapped in try/catch with the plan's spec case (a throw after the promotion write leaves the suggestion pending and no promoted row); Batch 9 review checks it. |
+| 2 | `linkRegistryRow` changes an existing registry row's `cloneStatus` from `'authored'` to `'synth'` on adopt | **REJECT — S-1.** Batch 7 retirement exempts only `'authored'`/`'diverged'` rows and `registry.remove` deletes only `'synth'` rows, so an authored skill adopted here becomes eligible for automatic retirement and directory deletion. Plan A1 says reconcile accepts either authored or synth registry rows — it does not say adopt may downgrade the row. Correct rule: preserve `authored`/`diverged` on link (link `candidateId`, keep the status). |
+| 3 | Adopt on a slug held by a non-promoted row hits UNIQUE on `name` and throws on every start | **Plan gap — M-1.** Not acceptable as shipped; define the rule (reuse the candidate row / skip + warn for rejected) before Batch 9 wires the call. Contained by the reconcile's per-row catch, but a permanent warn-forever wedge is not "idempotent, second start is a no-op". |
+| 4 | Cap victim selected outside the transaction | **ACCEPT (pre-existing pattern).** The demotion CAS inside `promoteAtomically` makes a stale victim fail the promotion safely; the demotion rolls back with the transaction. Residual over-cap race recorded as FM-4/M-2. |
+| 5 | File grew to 1008 ESLint lines (plan said ~900; repo ceiling 700) | **ACCEPT with a follow-up record — MINOR-3.** No facade split demanded now (Batches 8-9 in flight, file cohesive); revisit after Batch 12. |
+
+### Data flow (`promoteSuggestion`, entry to exit)
+
+1. `selectWeakestResident` — plain reads outside the transaction. OK.
+2. `promoteToActive` — filesystem first; occupied = dir on disk OR `findByName`; suffix walk; partial-write cleanup owned by the Batch 5 fix-up. OK.
+3. `BEGIN IMMEDIATE` (outermost, depth-tracked). OK.
+4. `registerCandidate` — trajectory `'suggestion:'+id`, UNIQUE reuse on re-accept; plain INSERT (+ embedding plain INSERT). OK.
+5. `promoteAtomically` — re-entrant transaction; CAS promote (0 changes → throw) + CAS demote (0 changes → throw). OK.
+6. `linkRegistryRow` — registry upsert, plain statement. **GAP: S-1 (status overwrite).**
+7. `onCommit(row)` — caller lineage write, inside the transaction by contract. OK (Batch 9 review checks the real callback).
+8. `COMMIT` → `afterResidencyChange` (log, dedup invalidate) → `emitRepropagation` (never throws) → `ResidentPromotion`. OK.
+
+### Requirements fulfilment
+
+| Requirement | Status | Gap |
+| ----------- | -------- | --- |
+| Automatic path: `isSlugTaken`, stored `name = materialized.slug`, repropagated materialized slug | COMPLETE | None (specs) |
+| `selectWeakestResident` shared by all three entries | COMPLETE | None |
+| `promoteSuggestion`: no dedup/judge gates, cap applies, `trajectoryHash 'suggestion:'+id`, FS first / DB one transaction / remove directory on DB throw | COMPLETE | Rethrow instead of `{promoted:false}` — ACCEPTED deviation 1 |
+| `adoptMaterializedSkill`: link-only when promoted, same tail, never removes the directory | PARTIAL | S-1 (authored→synth flip), M-1 (non-promoted-row collision) |
+| R-f: only plain-statement calls inside the callback | COMPLETE | Verified per method |
+| R-f2: no catch inside the callback; whole-call catch removes the directory and rethrows; spec proves no partial row | COMPLETE | Real-store spec cases (throw after `registerCandidate`, `onCommit` throw, UNIQUE on name) |
+| Task 6.2 judge gate: below → `:rejected`, at-threshold unchanged, CAS lost → `:not-candidate` | COMPLETE | Null-score branch untested (MINOR-2) |
+| Task 6.3 doc comment | COMPLETE | None |
+| Plan quality req: file grows to about 900 lines | PARTIAL | 1084 raw / 1008 ESLint |
+
+Implicit requirements not addressed: preserving the authored/diverged exemption on registry link (from plan A1 + Batch 7 exemption + Batch 2 F-2 docs promise) — MISSING (S-1); adopt behaviour for a slug held by a non-promoted row — MISSING (M-1).
+
+### Edge cases
+
+| Case | Handled | How | Concern |
+| ---- | ------- | --- | ------- |
+| Suggestion slug held by a DB row, no directory | YES | Suffixes `-2`, stores suffixed name (spec) | None |
+| Suggestion slug is a live directory only | YES | `writeAtRoot` `existsSync` suffixes | None |
+| Throw after `registerCandidate` | YES | Full rollback, no row, no directory, resident untouched (spec, R-f2) | None |
+| `onCommit` throw | YES | Same (spec) | None |
+| UNIQUE on `name` race | YES | Backstop rollback + directory removal (spec) | None |
+| Cap demotion on the suggestion path | YES | Weakest resident demoted (spec) | Over-cap race FM-4 |
+| Adopt slug already promoted (incl. dormant) | YES | Link-only, `onCommit` in transaction (spec) | None |
+| Adopt slug held by a candidate/rejected row | NO | UNIQUE(name) throw every start | M-1 — permanent wedge |
+| Adopt of an authored registry row | WRONG | Flips to `'synth'` (spec-pinned) | S-1 — data loss via retirement |
+| Judge below / exactly-at / CAS-lost | YES | Spec cases for all three | None |
+| Judge scored with null score | YES | No write, reason unchanged (`:577`) | Untested (MINOR-2) |
+
+### Verdict
+
+- Recommendation: **REVISE** (NEEDS_REVISION)
+- Confidence: HIGH
+- Top risk: S-1 — the spec-pinned registry flip converts user-authored content into retirement-eligible synth content; once Batch 9 wires the reconcile it is a silent deletion path for user skills.
+- What a robust implementation would add:
+  1. `linkRegistryRow` preserves `authored`/`diverged` `clone_status`; the adopt spec asserts the status survives the link (S-1, required before Batch 9).
+  2. A defined rule for adopt when the slug is held by a non-promoted row: reuse the candidate row, skip + warn for rejected (M-1, required before Batch 9).
+  3. Batch 9 hard condition: try/catch around both promotion entries, with the plan's pending-suggestion rollback spec case (deviation 1).
+  4. Follow-up record: facade split for the 1008-line file after Batch 12; null-score judge-panel spec case.
+
+
+### Batch 6 re-review
+
+Scope: Re-review of finding S-1 in Batch 6 (`skill-promotion.service.ts`, `skill-promotion.service.spec.ts`, and consistency with `skill-registry-catalog.service.ts`).
+
+Verification:
+- `npx nx run @ptah-extension/skill-synthesis:test --maxWorkers=2 --testFile=skill-promotion` passed (2 test suites, 81 tests passed, 0 failed, 100% pass rate).
+
+#### S-1 Status: RESOLVED
+
+1. **Implementation audit (`skill-promotion.service.ts:167-177, 493-497, 612-641`):**
+   - **(a) Diverged preservation:** `linkRegistryRow` evaluates `existing?.diverged === true || existing?.cloneStatus === 'diverged'` at `:625-626`. When diverged, `cloneStatus: 'diverged'` is written along with `diverged: true`, `candidateId`, and `userPath` (`:638-639`), preserving retirement and cap immunity.
+   - **(b) Plugin clone protection:** If `existing.cloneStatus === 'clone' || existing.originPluginId !== null` (`:619-624`), it throws `RegistrySlugOwnedByPluginError`. This runs directly inside the `inImmediateTransaction` callback of `commitResidentPromotion` (`:574-593`) without an inner `try/catch`. The error propagates, initiating an immediate SQLite rollback. In `promoteSuggestion`, the outer catch at `:452-458` invokes `removeActiveAfterRollback`, deleting the materialized directory. In `adoptMaterializedSkill`, the outer catch lets the existing directory remain intact without deletion (`:490-491`).
+   - **(c) Authored/Synth/New row transition to synth:** If there is no row or the status is `synth` or `authored` (without diverged or plugin ownership), `cloneStatus` resolves to `'synth'` (`:638`). This is consistent with `SkillRegistryCatalogService.deriveStatus` (`skill-registry-catalog.service.ts:91-96`), where a matching candidate row overrides `authored` to `synth`. Hand-written skills are safeguarded by Task 9.3's reconcile rule (only adopting folders proven to originate from accepted suggestions).
+
+2. **Transaction atomicity (R-f, R-f2):**
+   - No `try/catch` block exists inside the `inImmediateTransaction` callback in `commitResidentPromotion` (`:574-593`).
+   - The thrown `RegistrySlugOwnedByPluginError` rolls back candidate registration and atomic promotion cleanly.
+
+3. **Spec coverage (`skill-promotion.service.spec.ts:1602-1621, 1738-1777, 1831-1914`):**
+   - `seedRegistry` helper sets up real SQLite `skill_registry` entries.
+   - `promoteSuggestion` asserts that diverged rows retain `diverged` status and have `candidateId` linked (`:1738-1754`), while plugin clone collisions throw `RegistrySlugOwnedByPluginError`, rollback candidate creation, and delete the created active directory (`:1756-1777`).
+   - `adoptMaterializedSkill` asserts that diverged rows retain `diverged` status (`:1872-1888`), plugin clone collisions throw `RegistrySlugOwnedByPluginError` without deleting the existing directory (`:1890-1914`), and authored rows transition to `synth` while retaining history and candidate linking (`:1831-1870`).
+
+#### New Findings
+- None. Implementation matches requirements and edge cases are verified.
+
+#### Metrics & Verdict
+- Score: 8/10
+- Verdict: APPROVED
+- Blocking issues: 0
+- Serious issues: 0 (S-1 resolved)
+- Moderate issues: 2 (M-1, M-2 unchanged from earlier review; deferred to Batch 9 / future enhancements)
+- Failure modes: 3 (FM-2, FM-3, FM-4 unchanged from earlier review; FM-1 resolved)
