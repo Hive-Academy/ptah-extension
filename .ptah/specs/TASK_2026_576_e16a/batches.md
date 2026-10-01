@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 28/69
+Total tasks: 87 | Batches: 69 | Complete: 29/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1370,14 +1370,14 @@ executors at once.
   Noted: `readHeadText` paths are repository-relative, so a workspace folder that is a repo subfolder resolves the
   HEAD side at the wrong path (same root assumption as `GitInfoService`).
 
-## Batch 29: Change-set card component — PENDING
+## Batch 29: Change-set card component — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, style scope
 - Tasks: 1 | Depends on: Batches 24, 25
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
 
-### Task 29.1: `ChangeSetCardComponent` (presentational) — PENDING
+### Task 29.1: `ChangeSetCardComponent` (presentational) — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/chat-ui/src/lib/molecules/change-set/change-set-card.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/chat-ui/src/index.ts
 - Plan reference: implementation-plan.md:860-863, 886
@@ -1385,6 +1385,15 @@ executors at once.
 - Quality requirements: whole row is a button, no nested controls; keyboard reachable, visible focus; "counts unavailable" and "No longer changes HEAD" states.
 - Validation notes: none.
 - Implementation details: inputs `changeSet`, `host`, `reconciled`, `conflicted`; outputs `review`, `openFile`, `openScm`.
+- Outcome: executor frontend-developer. Presentational card (no services/RPC); exports `ChangeSetCardComponent`,
+  `ChangeSetCardHost`, helpers `formatFileCounts`/`changeSetAccent`. Each actionable row is one button with a
+  visible inset focus ring; status letters via `ptah-file-status-badge`; counts unavailable → chip + `?` per row
+  (never zeros); reconciled → plain "No longer changes HEAD" row; conflicted wins over reconciled and adds a
+  "Conflicted" chip; truncated → "N more files not listed"; baselineMissing → muted caveat line; "Open Source
+  Control" only on VS Code. Accepted deviations: no `opacity-60` on reconciled rows (AA), `reconciled`/`conflicted`
+  default to empty sets, types live at `types/rpc/rpc-change-set.types.ts`. Verified by the orchestrator: chat-ui
+  typecheck/test/lint green (no cache); webview contrast specs 70/70. Noted: the AA colour overrides exist only
+  for the anubis themes.
 
 ## Batch 30: Change-set store, actions and push routing — PENDING
 
