@@ -448,8 +448,8 @@ number | null`, `byStatus: SkillByStatusCounts | null`, `refreshing: boolean`.
 - Noted, not a defect: `state.error()` is shared, so a diagnostics refresh error also appears on the Settings
   triggers card. Parity B12 accepts this.
 - Reviewer changed from the plan: the orchestrator sends the review to a CLI lane (antigravity; Glm is at its
-- Review: antigravity CLI lane (code-logic), APPROVED 9/10, no defects, `code-logic-review.md` `## Batch 3`.
   quota) because the author ran in-process. The scope is unchanged (code-logic).
+- Review: antigravity CLI lane (code-logic), APPROVED 9/10, no defects, `code-logic-review.md` `## Batch 3`.
 
 ### Batch 3 verification
 

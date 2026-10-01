@@ -23,7 +23,7 @@
 - Requirement: live push and snapshot poll are the same wire for the same id, newest-first, ids unique/ULID/stable, window and ring cap honoured.
 - Real: `SkillSynthesisService` (event ring, ULID factory, `toSkillSynthesisEventWire`), `SkillSynthesisDiagnosticsService`, `SkillsSynthesisRpcHandlers` (`skillSynthesis:diagnostics`). Stubbed: SQLite store, webview manager (captures the broadcast), in-memory workspace provider.
 - Cases (6): live == `reverse(snapshot)` object for object including the folded `reason`/`candidateId` stats and a backwards timestamp; same-ms same-kind ids distinct and each decodes to that ms; ids stable across polls and later pushes only prepend; `eventLimit` returns the newest, 205 pushes cap at 200 and evicted ids vanish; 50-event window with latest at index 0; a throwing broadcast never loses the event.
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.activity-feed.integration.spec.ts`
+- File: `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.activity-feed.integration.spec.ts`
 
 ### Trigger toggles write path - integration
 
@@ -35,13 +35,13 @@
 
 - Requirement: real `SkillSynthesisLiveService` -> real `SkillDiagnosticsStateService` -> real `SkillActivityFeedComponent`/`SkillEventFeedComponent` merge push and poll without duplicates or reordering. The backend ring is mirrored by `FakeBackendRing` using the real `ulid` `monotonicFactory` and a newest-first snapshot.
 - Cases (8): mount refresh sends `eventLimit: 50` and renders newest first with ULID row ids; live then poll holds one row per id and does not double-count the histogram; snapshot then late push of a known id adds nothing; double delivery and double poll never duplicate; live-only, snapshot-only and shuffled-live delivery converge on the same order including same-ms and backwards timestamps; repeated drain-tick `analyze-run` collapses to one growing row; same-ms same-kind events render as two rows with no `NG0955`; more than the window keeps the newest 50 on both paths.
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.live-poll.integration.spec.ts`
+- File: `libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.live-poll.integration.spec.ts`
 
 ### Trigger card payload parity with the base accordion - integration
 
 - Requirement: the card sends exactly the base accordion's payload per control, measured at `ClaudeRpcService.call` (real component, real state service, real RPC service). Oracle transcribed from `git show c4ab013f3:.../skill-diagnostics-accordion.component.ts` lines 244-305.
 - Cases (17): guard that all 8 control keys are covered; 14 payload rows (including the `?? 1` and `?? false` fallbacks for postToolUse, 600000 and 60 defaults, 0 on switch-off); each write is followed by exactly one diagnostics refresh; ticking the min-edit-count checkbox sends nothing (as in the base); a rejected write shows the error and does not refresh.
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-triggers-settings.parity.spec.ts`
+- File: `libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-triggers-settings.parity.spec.ts`
 
 ## Execution
 
@@ -68,8 +68,8 @@
 
 ## Files created (no production file modified, nothing committed)
 
-- `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.activity-feed.integration.spec.ts`
-- `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.live-poll.integration.spec.ts`
-- `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-triggers-settings.parity.spec.ts`
-- `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/.ptah/specs/TASK_2026_586_2b3e/test-report.md` (this file)
+- `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.activity-feed.integration.spec.ts`
+- `libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.live-poll.integration.spec.ts`
+- `libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-triggers-settings.parity.spec.ts`
+- `.ptah/specs/TASK_2026_586_2b3e/test-report.md` (this file)
 - Note: `.ptah/specs/TASK_2026_586_2b3e/task.md` shows as modified in git status; I did not touch it.
