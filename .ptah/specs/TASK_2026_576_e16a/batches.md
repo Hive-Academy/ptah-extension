@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 23/69
+Total tasks: 87 | Batches: 69 | Complete: 24/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1155,14 +1155,14 @@ executors at once.
   services from the narrow entry (same module files; identity assertions unchanged and green). Verified: git-ui 516
   tests, webview 232 tests, typecheck and lint green (executor); orchestrator re-ran the checks before commit.
 
-## Batch 22: Pierre renderer host and hunk mapping (A1, A2 gate) — PENDING
+## Batch 22: Pierre renderer host and hunk mapping (A1, A2 gate) — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 21
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 22.1: Dependency, config and `PierreDiffHostComponent` — PENDING
+### Task 22.1: Dependency, config and `PierreDiffHostComponent` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/package.json (+ lockfile); CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/pierre-config.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/pierre-diff-host.component.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/pierre-diff-host.component.spec.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/pierre-hunk-mapping.real-git.spec.ts
 - Plan reference: implementation-plan.md:716-757
@@ -1170,8 +1170,28 @@ executors at once.
 - Quality requirements: `"@pierre/diffs": "1.5.1"` exact; `lineDiffType: 'word'`; imperative `FileDiff`, disposed on destroy/input change; exactly one toolbar host per hunk (hunk at line 1, adjacent hunks); CRLF bytes untouched.
 - Validation notes: A1 — read `DiffHunksRenderer.ts` and `getLineAnnotationName.ts` at tag `diffs-v1.5.1`, record in report. Mapping mismatch → `mappingError`, read-only.
 - Implementation details: separator slot else annotation slot fallback.
+- Outcome (22.1): executor frontend-developer; report `reviews/batch-22-report.md`. `"@pierre/diffs": "1.5.1"` exact;
+  lockfile +129 lines, additions only (the executor's `npm install` replaced the worktree node_modules junction,
+  hung on Electron's binary download and rolled back; the orchestrator restored the junction, ran
+  `--package-lock-only --ignore-scripts`, and placed the package with its dependencies nested under
+  `node_modules/@pierre/diffs/node_modules` in the shared main node_modules — additive only). Extra file
+  `renderer/pierre-hunk-mapping.ts` (mapping without a runtime Pierre import, so the real-git spec tests shipped
+  code). A1 (tag `diffs-v1.5.1`): a hunk gets a separator only when unchanged lines precede it (never at line 1),
+  and with `hunkSeparators: 'line-info'` the separator holds no slot (only deprecated `'custom'` does) — so every
+  toolbar lands in its `annotation-<side>-<line>` slot; the host decides from rendered slots, never from config.
+  One slot per hunk proven on real git output (hunk at line 1, hunks one line apart). Spec found and fixed a stale
+  hunk-list index on input change. Component unmounted. git-ui real-git spec runs in the normal git-ui `test`
+  target (CRLF cases local Windows only). Verified: git-ui 536 tests, typecheck, lint green; eager bundle unchanged
+  (362,218 B gz) and assert mode green.
+- Outcome (22.2, A2): no blocker. App build has no Pierre code yet (unmounted); the one `new Function` hit is zod's
+  feature test. An esbuild bundle of Pierre 1.5.1 + `pierre-config.ts` (411 chunks) has no `new Function` / `eval(`;
+  Shiki's WASM loader is present but unused (`'shiki-js'` pinned). Electron console check moves to the first batch
+  that mounts the host. **Open gate for P4, before Batch 44:** the VS Code webview `style-src` has no
+  `'unsafe-inline'`, and Pierre injects `<style>` elements and style attributes; the skills drawer (Batch 44)
+  renders `TextDiffViewComponent` in VS Code. Options to research and decide (independent lane): nonce
+  propagation, `useCSSClasses`/constructable stylesheets, or a CSP change. Electron allows inline styles.
 
-### Task 22.2: CSP check (A2) — PENDING
+### Task 22.2: CSP check (A2) — COMPLETE
 
 - Depends on: Task 22.1
 - File: none authored; evidence in the batch report
