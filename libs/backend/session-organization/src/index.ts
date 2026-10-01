@@ -11,6 +11,18 @@
 export { SESSION_ORGANIZATION_TOKENS } from './lib/di/tokens';
 export type { SessionOrganizationDIToken } from './lib/di/tokens';
 
+// DI registration + host activation
+export { registerSessionOrganizationServices } from './lib/di/register';
+export { startSessionOrganization } from './lib/di/start';
+
+// Capture service (host-wide lifecycle subscriptions)
+export { SessionOrganizationCaptureService } from './lib/session-organization-capture.service';
+export type {
+  SessionOrganizationLifecycleSink,
+  SessionOrganizationMetadataEvents,
+  SessionOrganizationSessionIdResolvedSource,
+} from './lib/session-organization-capture.service';
+
 // Service (recorder port adapter + RPC query/mutation API)
 export {
   SessionOrganizationInputError,
