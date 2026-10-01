@@ -27,7 +27,7 @@ import { test, expect } from '../../test-fixtures';
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 
-const SHOT_DIR = process.env['SHOT_DIR'] ?? 'thoth-feed-shots';
+const SHOT_DIR = process.env['SHOT_DIR'] ?? 'test-results/thoth-feed-shots';
 
 const VIEWPORTS = [
   { name: '375', width: 375, height: 812 },

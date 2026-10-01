@@ -311,9 +311,10 @@ export class ThothStatusService implements MessageHandler {
       });
       this.clearError('memory');
     } catch (err) {
-      if (!isCurrent()) return;
-      this._memory.set({ available: false, reason: 'error' });
-      this.setError('memory', err);
+      if (isCurrent()) {
+        this._memory.set({ available: false, reason: 'error' });
+        this.setError('memory', err);
+      }
     }
   }
 
@@ -339,9 +340,10 @@ export class ThothStatusService implements MessageHandler {
       });
       this.clearError('skills');
     } catch (err) {
-      if (!isCurrent()) return;
-      this._skills.set({ available: false, reason: 'error' });
-      this.setError('skills', err);
+      if (isCurrent()) {
+        this._skills.set({ available: false, reason: 'error' });
+        this.setError('skills', err);
+      }
     }
   }
 
@@ -365,9 +367,10 @@ export class ThothStatusService implements MessageHandler {
       this._cron.set({ available: true, totalJobs: jobs.length, nextRunAt });
       this.clearError('cron');
     } catch (err) {
-      if (!isCurrent()) return;
-      this._cron.set({ available: false, reason: 'error' });
-      this.setError('cron', err);
+      if (isCurrent()) {
+        this._cron.set({ available: false, reason: 'error' });
+        this.setError('cron', err);
+      }
     }
   }
 
@@ -387,9 +390,10 @@ export class ThothStatusService implements MessageHandler {
       });
       this.clearError('gateway');
     } catch (err) {
-      if (!isCurrent()) return;
-      this._gateway.set({ available: false, reason: 'error' });
-      this.setError('gateway', err);
+      if (isCurrent()) {
+        this._gateway.set({ available: false, reason: 'error' });
+        this.setError('gateway', err);
+      }
     }
   }
 
