@@ -1167,3 +1167,156 @@ None.
   1. Case-insensitive normalization for `exemptSlugs` and `dominant` in `planCluster`.
   2. Filtering out vector dimension mismatches in `orderByCentroidDistance` prior to slicing and prompt generation.
   3. Updating the stale comment on `MERGED_INTO_PREFIX` in `types.ts:22`.
+
+
+## Batch 11
+
+### Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 9/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 0        |
+| Failure modes found | 0        |
+
+Scope examined:
+- `libs/shared/src/lib/types/rpc/rpc-curator-diagnostics.types.ts`
+- `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts`
+- `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.spec.ts`
+- `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.queue.spec.ts`
+- `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.activity-feed.integration.spec.ts`
+- `libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.spec.ts`
+- `libs/frontend/skill-synthesis-ui/src/lib/components/skill-synthesis-tab.component.spec.ts`
+- `libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-triggers-settings.parity.spec.ts`
+- `libs/frontend/skill-synthesis-ui/src/lib/components/diagnostics/skill-activity-feed.live-poll.integration.spec.ts`
+
+Verification:
+- `npx nx run @ptah-extension/rpc-handlers:test --testFile=skills-synthesis-rpc --maxWorkers=2`: 5 test suites passed, 523 passed, 0 failed.
+- `npx nx run @ptah-extension/rpc-handlers:typecheck`: passed with exit code 0.
+
+---
+
+### Checkpoints & Focus Answers
+
+1. **`SkillDiagnosticsResult` Type Extension (`rpc-curator-diagnostics.types.ts:259-261`):**
+   - Appends strictly `readonly totalMerged: number;`, `readonly totalRetired: number;`, and `readonly totalDormant: number;`.
+   - Adheres strictly to the minimal-edit boundary: no existing fields modified or reordered, no touches to `rpc.types.ts`, and no unintended interface expansions.
+
+2. **RPC Handler Method Wiring (`skills-synthesis-rpc.handlers.ts`):**
+   - **`skillSynthesis:stats` (`:505-523`):**
+     - Correctly maps `activeSkills = s.active` (reflecting resident promoted skills only, excluding dormant skills) and `totalInvocations = s.invocations` (reflecting events joined by candidate slug).
+   - **`skillSynthesis:diagnostics` (`:696-745`):**
+     - Correctly projects `activeSkills: stats.active`, `totalInvocations: stats.invocations`, and the three new lifecycle totals: `totalMerged: stats.merged`, `totalRetired: stats.retired`, and `totalDormant: stats.dormant`.
+     - 586-shared lines preserved: `recentEvents: snapshot.recentEvents.map(toSkillSynthesisEventWire)` (`:720`) remains untouched.
+     - Preserves error reporting via `this.report(error, ...)` and rethrowing `RpcUserError(..., 'PERSISTENCE_UNAVAILABLE')` without swallowing.
+   - **`skillSynthesis:invocations` (`:487-503`):**
+     - Switches store read from deprecated `this.store.listInvocations` to `this.store.listInvocationEvents(skillId, limit)` (R-c).
+     - Wire mapping via `toInvocation` (`:2580-2589`) projects `notes` directly from the event `source`.
+     - Guard `if (!skillId) return { invocations: [] }` handles missing or empty `skillId` without hitting SQLite.
+     - `clampLimit(params?.limit, 200)` enforces bounds between 1 and 200.
+   - **RPC Registration Integrity:**
+     - No new RPC methods introduced.
+     - Static `METHODS` array and method prefix configurations remain unchanged.
+
+3. **Acceptance Criteria Verification (AC 2 and AC 4):**
+   - **Acceptance 2:** When a suggestion is accepted and promoted, `SkillCandidateStore` writes `status = 'promoted'` and `is_resident = 1`. In `store.getStats()`, `promoted` and `active` both increment. The RPC handler maps `totalPromoted = stats.promoted` and `activeSkills = stats.active`. When a skill is later marked dormant, `is_resident = 0`, decrementing `activeSkills` while `totalPromoted` retains the full historical count. This accurately supports UI counters.
+   - **Acceptance 4:** `store.getStats().invocations` counts rows in `skill_invocation_events` whose `skill_slug` matches a promoted candidate's `name`. The handler passes this directly as `totalInvocations: stats.invocations`. Similarly, `skillSynthesis:invocations` delegates to `listInvocationEvents`, which queries invocation events by candidate slug/id.
+
+4. **Error Handling and Re-throw Discipline:**
+   - Every catch block (`:498-501`, `:519-522`, `:734-745`) explicitly logs via `this.report(...)` and rethrows. No catch block returns a fabricated default or swallows an error.
+
+5. **Test Fixtures & Assertions:**
+   - `skills-synthesis-rpc.handlers.spec.ts` covers resident-only `activeSkills`, slug-based `invocations`, empty `skillId` defaults, and default/explicit limit bounds.
+   - Fixture updates in `skills-synthesis-rpc.queue.spec.ts`, `skills-synthesis-rpc.activity-feed.integration.spec.ts`, and frontend specs (`skill-diagnostics-state.service.spec.ts`, `skill-synthesis-tab.component.spec.ts`, `skill-triggers-settings.parity.spec.ts`, `skill-activity-feed.live-poll.integration.spec.ts`) cleanly supply default zeros for new fields. No test assertions were weakened.
+
+---
+
+### Five logic questions
+
+#### 1. How does this fail silently?
+- In `skillSynthesis:invocations` (`skills-synthesis-rpc.handlers.ts:494`), passing an empty, undefined, or whitespace-only `skillId` returns `{ invocations: [] }` with code 200 instead of returning an error or throwing `RpcUserError`. This is intentional fail-soft behavior so client widgets querying without a selected skill id do not produce disruptive toast errors.
+
+#### 2. What user action produces unexpected behaviour?
+- Selecting a non-promoted or dismissed candidate in a UI tool and invoking `skillSynthesis:invocations`: `listInvocationEvents` queries events matching that candidate ID. Since runtime invocation events record slugs of active promoted skills, unpromoted candidates return an empty list without indicating that the candidate was never promoted.
+
+#### 3. What input data produces a wrong answer?
+- In `clampLimit(params?.limit, 200)`: If an extreme non-numeric or float value (e.g. `NaN`) is passed in an unvalidated RPC environment, `Math.min(Math.max(1, limit), max)` evaluates to NaN, which could reach the store query if not parsed by schema validation upstream. However, `SkillDiagnosticsParamsSchema` and runtime guards sanitize inputs before hitting handlers.
+
+#### 4. What happens when a dependency fails?
+- If `this.store.getStats()` or `this.store.listInvocationEvents()` throws (e.g. SQLite database locked or I/O failure):
+  - In `skillSynthesis:invocations` and `skillSynthesis:stats`: caught, logged via `this.report(...)`, and re-thrown to the RPC layer, returning an RPC error to the client.
+  - In `skillSynthesis:diagnostics`: caught, reported, logged via `this.logger.error`, and re-thrown as `RpcUserError` with code `PERSISTENCE_UNAVAILABLE`.
+  - In all paths, the failure is reported and propagated; no partial or corrupt result is returned.
+
+#### 5. What is missing that the requirements never mentioned?
+- `SkillSynthesisStatsResult` (`libs/shared/src/lib/types/rpc.types.ts:2766-2772`) was deliberately not augmented with `totalMerged`, `totalRetired`, and `totalDormant` to avoid modifying no-touch core RPC definitions; those counters are instead provided via `SkillDiagnosticsResult` in `skillSynthesis:diagnostics`.
+
+---
+
+### Failure modes
+
+None detected within the review scope.
+
+---
+
+### Blocking issues
+
+None.
+
+### Serious issues
+
+None.
+
+### Moderate and minor issues
+
+- **MINOR (`libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.spec.ts:36-39`):** Pre-existing mock fixture sets `totalPromoted: 2` and `activeSkills: 3`. Under the lifecycle data model, `activeSkills` represents resident promoted skills (`is_resident = 1 AND status = 'promoted'`), which is a strict subset of `totalPromoted` (`status = 'promoted'`). An `activeSkills > totalPromoted` state is impossible in production SQLite data. While this unit test only asserts signal propagation and does not validate domain invariants, aligning mock numbers with domain constraints is recommended.
+
+---
+
+### Data flow
+
+1. **`skillSynthesis:stats`:**
+   - Client invokes `skillSynthesis:stats` -> `this.store.getStats()` executes aggregation query over `skill_candidates` and `skill_invocation_events` -> maps `totalCandidates`, `totalPromoted`, `totalRejected`, `totalInvocations: s.invocations`, `activeSkills: s.active` -> returns `SkillSynthesisStatsResult` `[OK]`.
+2. **`skillSynthesis:diagnostics`:**
+   - Client invokes `skillSynthesis:diagnostics` with params -> validates schema -> `diagnostics.getSnapshot()` -> `this.store.getStats()` -> combines snapshot metadata and event wire array with store lifecycle counts (`active`, `merged`, `retired`, `dormant`, `invocations`) -> returns `SkillDiagnosticsResult` `[OK]`.
+3. **`skillSynthesis:invocations`:**
+   - Client invokes `skillSynthesis:invocations` with `skillId` and optional `limit` -> checks non-empty `skillId` -> clamps limit to 1..200 -> `this.store.listInvocationEvents(skillId, limit)` -> maps rows via `toInvocation` -> returns `{ invocations }` `[OK]`.
+
+---
+
+### Requirements fulfilment
+
+| Requirement | Status | Gap |
+| ----------- | ------ | --- |
+| Task 11.1: Append `totalMerged`, `totalRetired`, `totalDormant` to `SkillDiagnosticsResult` | COMPLETE | None. Appended strictly to `rpc-curator-diagnostics.types.ts`. |
+| Task 11.2: `skillSynthesis:stats` maps `activeSkills = s.active`, `totalInvocations = s.invocations` | COMPLETE | None. Resident-only active count and event-based invocations wired. |
+| Task 11.2: `skillSynthesis:diagnostics` maps new lifecycle fields and active/invocations | COMPLETE | None. All 4 status fields correctly mapped from `store.getStats()`. |
+| Task 11.2: `skillSynthesis:invocations` uses `store.listInvocationEvents` | COMPLETE | None. Switches to event-based read; maps wire notes from event source. |
+| Minimal-edit boundary: 586 `recentEvents` mapping untouched | COMPLETE | None. Mapping at `:720` preserved verbatim. |
+| No new RPC methods or `ALLOWED_METHOD_PREFIXES` changes | COMPLETE | None. Preserved. |
+| Fixture compatibility in dependent spec files | COMPLETE | None. All 4 frontend specs and 2 backend integration specs updated with zero assertions weakened. |
+
+---
+
+### Edge cases
+
+| Case | Handled | How | Concern |
+| ---- | ------- | --- | ------- |
+| Missing or empty `skillId` in `skillSynthesis:invocations` | YES | Returns `{ invocations: [] }` immediately without hitting SQLite | None |
+| Non-positive or excessively large limit | YES | `clampLimit(params?.limit, 200)` constrains to [1, 200] | None |
+| Store throws on `getStats` or `listInvocationEvents` | YES | Caught, reported via `this.report(...)`, and re-thrown | None |
+| Concurrent promotion/demotion between `getSnapshot` and `getStats` | YES | Read-only point-in-time reads; benign eventual consistency | None |
+| Dormant skills present in database | YES | `activeSkills` reflects resident skills only; `totalPromoted` includes dormant | None |
+
+---
+
+### Verdict
+
+- Recommendation: APPROVE
+- Confidence: HIGH
+- Top risk: None. Changes are tightly scoped, typechecked, and fully verified by unit and integration suites.
+- What a robust implementation would add:
+  1. Align the mock numbers in `skill-diagnostics-state.service.spec.ts:36-39` so `activeSkills <= totalPromoted` reflects database invariants.

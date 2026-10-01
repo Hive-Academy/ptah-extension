@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 9/14
+Total tasks: 44 | Batches: 14 | Complete: 10/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -1027,6 +1027,16 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Same files. Plan reference: implementation-plan.md:689-696
 - Validation notes: A1 — match registry rows of either `authored` or `synth`, require `<activeRoot>/<slug>/SKILL.md`,
   slug ∈ {s, s-2..s-5}; runs before the `curatorEnabled` early return; idempotent; never throws out of `start()`.
+- Scope addition (team-leader, during Batch 9, executor-reported plan gap, verified on disk): `accept()` goes through
+  `transition()`, which returns a non-`pending` row unchanged (`SS/skill-suggestion.store.ts:305-307`), so it cannot
+  write `promoted_candidate_id` on an already-`accepted` row; without a write the "second start is a no-op" case
+  cannot hold. Approved: add `SkillSuggestionStore.linkPromotedCandidate(id, candidateId): boolean`, one plain
+  `UPDATE ... SET promoted_candidate_id = ? WHERE id = ? AND status = 'accepted' AND promoted_candidate_id IS NULL`
+  returning `changes === 1` (no own transaction, R-f; no catch, R-f2), plus specs in `skill-suggestion.store.spec.ts`
+  (links once; second call / non-accepted / already-linked → false and row unchanged). Reconcile calls it inside the
+  `inImmediateTransaction` unit and throws on `false` so the unit rolls back. Files added to Batch 9:
+  `SS/skill-suggestion.store.ts`, `SS/skill-suggestion.store.spec.ts`. Batch 12 (deletions in the same store) runs
+  later and must keep this method.
 
 ### Task 9.4: Retarget the cluster hold-out end-to-end spec — PENDING
 
@@ -1098,7 +1108,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
   58/58, `@ptah-extension/skill-synthesis:typecheck` pass.
 - Committed as 1a6c5f2fe with exactly the five Batch 10 files; Batch 9 files left unstaged.
 
-## Batch 11: Shared DTO and RPC handler wiring (post-586) — PENDING
+## Batch 11: Shared DTO and RPC handler wiring (post-586) — COMPLETE (commit 2c1c8840b)
 
 - **Precondition: G-586 rebase done.**
 - Recommended executor: backend-developer sub-agent
@@ -1110,14 +1120,14 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Verification command: `npx nx run @ptah-extension/rpc-handlers:test --testFile=skills-synthesis-rpc` (tail) and
   `npx nx run @ptah-extension/shared:typecheck`
 
-### Task 11.1: Append lifecycle fields to SkillDiagnosticsResult — PENDING
+### Task 11.1: Append lifecycle fields to SkillDiagnosticsResult — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/shared/src/lib/types/rpc/rpc-curator-diagnostics.types.ts`
 - Plan reference: implementation-plan.md:865-866, 877-878
 - Implementation details: append `readonly totalMerged`, `totalRetired`, `totalDormant: number`; nothing else.
   Not `rpc.types.ts`.
 
-### Task 11.2: RPC handler bodies — PENDING
+### Task 11.2: RPC handler bodies — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts` (+ `.spec.ts`)
 - Depends on: Task 11.1
@@ -1130,6 +1140,45 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 ### Batch 11 verification
 
 - Fields appended; handler bodies moved; rpc-handlers tests pass; reviewer accepted
+
+### Batch 11 on-disk verification (team-leader)
+
+- `rpc-curator-diagnostics.types.ts:259-261`: `totalMerged`, `totalRetired`, `totalDormant` (readonly number)
+  appended to `SkillDiagnosticsResult`; nothing else in `libs/shared` changed. `git diff HEAD --name-only` shows no
+  `rpc.types.ts`, MESSAGE_TYPES, payload-map or session-chat handler edit, and no new RPC method.
+- `skills-synthesis-rpc.handlers.ts:496` `store.listInvocationEvents(skillId, limit)` (store method at
+  `skill-candidate.store.ts:1579`, same `SkillInvocationRow` shape, so `toInvocation` unchanged); `:517` stats
+  `activeSkills: s.active`; `:709-712` diagnostics `activeSkills: stats.active` + `totalMerged/Retired/Dormant` from
+  `getStats()`. `recentEvents` mapping untouched.
+- Spec: diagnostics mapping (`handlers.spec.ts:344`), resident-only active + event-based invocations (`:537`),
+  events read by candidate id with default limit 200 and no call without a skillId (`:563`, `:614`).
+- Fixture fix-up ACCEPTED (orchestrator decision): the new required fields broke spec compilation of 4 frontend
+  fixtures and 2 rpc-handlers `getStats` mocks; fixing them here keeps this commit green (additive-first rule).
+  Each edit is +3/+4 zero-valued fields, no assertion change.
+- `skill-diagnostics-state.service.spec.ts:36,39` fixture has `activeSkills: 3 > totalPromoted: 2`, which breaks the
+  new invariant `active + dormant = promoted`. No assertion reads `activeSkills` (pass-through only), so it is not a
+  Batch 11 defect. Carried to Batch 14 (which owns the counters and their specs): make it consistent, e.g.
+  `activeSkills: 2`.
+- `purgeSkippedReason` (Batch 8 carry): no shared type mirrors it (grep: only `skill-synthesis` files), so no Batch 11
+  DTO change is needed; the carry closes with Batch 9's curator report.
+- `listInvocations` now has no production caller; Batch 12.3 deletes it.
+- Re-run by team-leader (`--skip-nx-cache`): typecheck shared + rpc-handlers + skill-synthesis-ui success;
+  `rpc-handlers:test --testFile=skills-synthesis-rpc` 5 suites, 523/523, exit 0; degradation audit exit 0.
+- Batch 9 files (`skill-curator.service*`, `gates/cluster-holdout-end-to-end.spec.ts`, `skill-suggestion.store*`,
+  `di/register.spec.ts`) are in the working tree and are NOT Batch 11; do not stage them with this batch.
+
+### Batch 11 review verdict
+
+- Reviewer: antigravity CLI lane, logic scope (cross-side; the batch was authored by an in-process sub-agent).
+  Verdict APPROVED, 9/10, 0 findings (`code-logic-review.md` `## Batch 11`, `:1172`, assessment `:1179`).
+- Fixture decision: the frontend and rpc-handlers fixture edits are part of this batch, so the commit stays green
+  (additive-first rule); accepted.
+- Committed `2c1c8840b` with the 9 Batch 11 files only; no Batch 9 file was staged.
+- Carry to Batch 14: `libs/frontend/skill-synthesis-ui/src/lib/services/skill-diagnostics-state.service.spec.ts:39`
+  `activeSkills: 3` -> `2` (the snapshot fixture at `:32-42`), so that `active + dormant = promoted` holds against
+  `totalPromoted: 2`.
+- Carry to Batch 12 (Task 12.3): delete `SkillCandidateStore.listInvocations` (`skill-candidate.store.ts:1562`);
+  it has no production caller after this batch.
 
 ## Batch 12: Remove superseded paths — PENDING
 
