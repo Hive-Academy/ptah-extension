@@ -3,6 +3,7 @@ export * from './lib/ptah-cli';
 export * from './lib/mcp-directory';
 export * from './lib/skills-directory';
 export * from './lib/roles';
+export * from './lib/session-children';
 export {
   CapabilityToggleStore,
   CapabilityToggleStoreError,

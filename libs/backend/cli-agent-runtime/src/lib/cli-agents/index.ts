@@ -41,7 +41,11 @@ export type {
   AgentReportInput,
   AgentReportRefusalReason,
 } from './agent-report-router.service';
-export { LaneCompletionNotifier } from './lane-completion-notifier.service';
+export {
+  LaneCompletionNotifier,
+  buildSessionChildCompletionEnvelope,
+  sessionChildVerdictOf,
+} from './lane-completion-notifier.service';
 export type { LaneCompletionContext } from './lane-completion-notifier.service';
 export {
   renderLaneCompletionContract,
