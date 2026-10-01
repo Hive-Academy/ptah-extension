@@ -1,6 +1,6 @@
 # Batches - TASK_2026_586_2b3e
 
-Total tasks: 22 | Batches: 6 | Complete: 4/6
+Total tasks: 22 | Batches: 6 | Complete: 5/6
 
 Worktree root (all paths below): `D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed`
 Branch: `fix/task-586-thoth-activity-feed`, base `c4ab013f3`.
@@ -46,7 +46,14 @@ Assumptions:
   exception below.
 - A3. In Electron the backend `workspaceProvider.getWorkspaceRoot()` (used by `listScope`,
   `skills-synthesis-rpc.handlers.ts:2170-2175`) already points at the workspace the webview shows when
-  `AppStateManager.workspaceInfo()` changes. UNVERIFIED - Task 5.1 checks it (stop condition below).
+  `AppStateManager.workspaceInfo()` changes. VERIFIED for workspace SWITCH by Task 5.1 (webview calls
+  `setWorkspaceInfo` only after `workspace:switch` succeeds, `electron-layout.service.ts:467-485, :719-729,
+  :794-799`; the handler sets the active folder before returning, `workspace-rpc.handlers.ts:329`; provider and
+  lifecycle are one object, `platform-electron/src/registration.ts:150-159`). FALSE for folder CLOSE, and the
+  gap predates this task: `ElectronLayoutService.removeFolder` (`electron-layout.service.ts:392-406`) picks a
+  new active folder in the webview without `workspace:switch`, while the backend falls back to `folders[0]`
+  (`electron-workspace-provider.ts:159-161`). It usually corrects itself through WORKSPACE_CHANGED
+  (`workspace-restore.ts:166-182`), but a race can leave the two roots different for good.
 - A4. No backend caller of `SkillSynthesisService.recentEvents()` depends on oldest-first order. UNVERIFIED -
   Task 1.2 greps every caller (`diagnostics.service.ts:31-32` is the known one) before reversing.
 - A5. The webview-e2e harness can rebuild `ptah-extension-webview` in development configuration with ~3 GB
@@ -59,12 +66,12 @@ Assumptions:
 | R3. Live events can arrive out of order or duplicate a snapshot row (snapshot fetched after the push, then the push message lands) | MEDIUM | Task 2.1: ordered insert by (timestamp desc, id desc) and dedupe by id; snapshot normalised to the same order |
 | R4. Snapshot carries only 10 events today (`diagnostics.service.ts:28`, frontend never passes `eventLimit`), so grouping would collapse the window to 2-3 rows | MEDIUM | Task 2.1 passes `eventLimit: 50` (same constant as the live cap); schema max is 200 (`skills-synthesis-rpc.schema.ts:258`) |
 | R5. Overlapping tile refreshes (tab switch then workspace switch) can let a stale response overwrite a newer one | MEDIUM | Task 5.1 adds a refresh generation token; results from a superseded refresh are dropped |
-| R6. Backend root differs from the webview root (A3) | MEDIUM | Task 5.1 verification. If they can diverge, the executor STOPS and reports: fixing it needs `workspaceRoot` on `SkillSynthesisListCandidatesParams` in `libs/shared/src/lib/types/rpc.types.ts:2451`, a second shared change that the orchestrator constraints forbid without a blocker |
+| R6. Backend root differs from the webview root (A3) | MEDIUM | Task 5.1 verification. If they can diverge, the executor STOPS and reports: fixing it needs `workspaceRoot` on `SkillSynthesisListCandidatesParams` in `libs/shared/src/lib/types/rpc.types.ts:2451`, a second shared change that the orchestrator constraints forbid without a blocker. RESOLUTION (Batch 5): no stop. On switch the roots cannot diverge (A3). On folder close they can, but this is not a BLOCKER. The gap predates this task, Batch 5 does not introduce it, and it affects every consumer of the backend root, including the Skills tab list that Batches 1-4 left unchanged. Adding `workspaceRoot` to `rpc.types.ts` would not fix it either, because the webview root itself is the stale one after `removeFolder`. The fix belongs in `libs/frontend/core` `electron-layout.service.ts` (`removeFolder` should go through `workspace:switch`). Recorded as an OUT-OF-SCOPE FOLLOW-UP; the orchestrator raises it at the PR gate |
 | R7. Trigger persistence differs from the Settings form: triggers save immediately per control via `skillSynthesis:setTriggers`, Settings saves one batched form (`skill-synthesis-tab.component.ts:972-985`) | MEDIUM | Task 3.5 keeps triggers as a separate card with immediate save and its own error text; it is NOT merged into `settingsForm` |
 | R8. Grouping could hide distinct failures | LOW | Grouping key includes `error` text for `error` events (recorded default) |
 | R9. Required `id` breaks a backend spec that `toEqual`s event lists | LOW | Task 1.4 updates `skill-synthesis.service.spec.ts` / handler spec to assert ids explicitly |
 | R10. Batch 1 spans 3 libs (cap is 2) | LOW | Explicit exception: the shared edit is one field; splitting leaves an intermediate commit where `rpc-handlers` fails its jest diagnostics (A2) |
-| R11. Skills tile capped at 100 (`skills-synthesis-rpc.handlers.ts:409`) | LOW | Task 5.1 passes `limit: 1000`; a residual ceiling of 1000 is documented in the code comment |
+| R11. Skills tile capped at 100 (`skills-synthesis-rpc.handlers.ts:409`) | LOW | Task 5.1 passes `limit: 1000`; a residual ceiling of 1000 is documented in the code comment. Batch 5 note: the Skills tab list still uses the default limit of 100, so with more than 100 pending candidates the tile and the list show different numbers. This is LOW and recorded as a follow-up |
 | R12. Opening Activity now makes two diagnostics calls (TAB init `:929` + feed component mount) | LOW | Accepted by the user (decision item 4: the poll owner refreshes on mount). TAB:929 stays because the Sessions hint and the Settings triggers read the same snapshot on other sub-views |
 | R13. AFTER visual run: webview rebuild on low disk; Settings shots showed only "Loading..." at base because Providers RPCs were not fixtured | MEDIUM | Task 6.1 adds the Providers/settings RPC fixtures (from `skills-lane-pickers.e2e.spec.ts`); Batch 6 review step deletes sourcemaps after build |
 
@@ -539,7 +546,7 @@ Edge cases:
   the lane checks every parity row B1-B14 against the RPC that backs it (diagnostics, analyzeNow, setTriggers)
   and confirms no capability was dropped
 
-## Batch 5: Shell tiles refresh on tab switch; Skills tile workspace scope — PENDING
+## Batch 5: Shell tiles refresh on tab switch; Skills tile workspace scope — COMPLETE (commit f71e01714)
 
 - Recommended executor: frontend-developer (in-process sub-agent)
 - Fallback executor: second frontend-developer invocation
@@ -548,7 +555,7 @@ Edge cases:
   independent of Batches 1-4
 - Tasks: 4 | Depends on: none (commits after Batch 4)
 
-### Task 5.1: Tile service - refresh on demand, stale-result guard, explicit scope — PENDING
+### Task 5.1: Tile service - refresh on demand, stale-result guard, explicit scope — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/dashboard/src/lib/services/thoth-status.service.ts
 - Plan reference: context.md root cause 6 and Scope bullet 5; parity F5, F6, F9, Key finding 4
@@ -564,7 +571,7 @@ Edge cases:
   backend `workspaceProvider` root is updated before `AppStateManager.workspaceInfo()` changes. If it can lag
   or differ, STOP and report it as a blocker (needs a `libs/shared/src/lib/types/rpc.types.ts` change).
 
-### Task 5.2: Shell refreshes tiles on tab switch — PENDING
+### Task 5.2: Shell refreshes tiles on tab switch — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts
 - Depends on: Task 5.1
@@ -572,7 +579,7 @@ Edge cases:
 - Quality requirements: `selectTab` sets the tab and triggers `thothStatus.refresh()` when the tab actually
   changes (no refresh on re-click of the active tab); first load stays `refreshIfNeeded()`.
 
-### Task 5.3: Tile service spec — PENDING
+### Task 5.3: Tile service spec — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/dashboard/src/lib/services/thoth-status.service.spec.ts
 - Depends on: Task 5.1
@@ -581,7 +588,7 @@ Edge cases:
   overwrite the newer result; Skills call carries `scope: 'workspace'` and `limit: 1000`; switch to a `null`
   root still refreshes.
 
-### Task 5.4: Shell acceptance spec - tab switch then workspace switch — PENDING
+### Task 5.4: Shell acceptance spec - tab switch then workspace switch — COMPLETE
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.spec.ts
 - Depends on: Tasks 5.2, 5.3
@@ -591,6 +598,29 @@ Edge cases:
   changes -> switch tab -> Skills tile shows the new count -> switch workspace -> tile reloads with the other
   workspace's count; the tile never shows the all-workspaces count. Fails on base (`refreshIfNeeded` no-op).
 
+### Batch 5 execution record (team-leader, Mode 2)
+
+- Verified on disk: `git diff --name-only` showed exactly the 4 batch files. The untracked e2e harness spec and
+  `screenshots/` belong to Batch 6 and were not staged.
+- R5: `refresh()` takes a generation (`thoth-status.service.ts:245-246`). Every loader checks `isCurrent()` before
+  it writes, on both success and error paths (`:305, :314, :335, :342, :356, :368, :380, :390`). The final
+  `_isLoading` write is guarded at `:270`. R11: `loadSkills` passes `scope: 'workspace'` and `limit: 1000`, and
+  the comment explains why (`:323-333`). Shell: `selectTab` calls `refresh()` (`thoth-shell.component.ts:274`),
+  and first load still uses `refreshIfNeeded()` (`:215`). No TODO, PLACEHOLDER or STUB markers.
+- A3/R6 finding reported (see A3 and the R6 resolution above).
+- Review: antigravity CLI lane (code-logic), APPROVED 8/10, `code-logic-review.md` `## Batch 5`. The dashboard
+  has 13 suites and 115 tests, and thoth-shell has 1 suite and 7 tests. All pass.
+- MODERATE-1 (each rapid tab switch starts 4 RPCs, with no debounce or abort): recorded as a follow-up and not
+  fixed. Refreshing on every tab change is what Task 5.2 and the acceptance require. The generation token (R5),
+  which this batch was meant to carry, already stops stale state, so the only cost is extra read-only RPC load,
+  limited by how fast a person can click. A debounce would delay the refresh the acceptance spec asserts.
+  Suggested fix: share the in-flight refresh, or debounce it by about 150 ms.
+- MODERATE-2 (the tile does not show when the 1000 cap is hit): recorded as a follow-up under R11. The 1000
+  ceiling was the decided default and is documented in the code. Showing `1000+` is a display change outside
+  this batch's scope.
+- MINOR-1 (with more than 100 candidates the tile and the list disagree): this is R11's recorded follow-up.
+  MINOR-2 (folder-close root divergence): this is R6's OUT-OF-SCOPE FOLLOW-UP, which existed before this task.
+
 ### Batch 5 verification
 
 - Only these 4 files changed
@@ -598,7 +628,7 @@ Edge cases:
 - A3 finding reported
 - Reviewer: code-logic-reviewer (in-process) - refresh race and scope are behavioural, single side (webview)
 
-## Batch 6: E2E harness for the AFTER visual run — PENDING
+## Batch 6: E2E harness for the AFTER visual run — IN_PROGRESS
 
 - Recommended executor: frontend-developer (in-process sub-agent)
 - Fallback executor: visual-reviewer may patch the fixtures itself during its run if locators drift
@@ -607,7 +637,7 @@ Edge cases:
   is reproducible
 - Tasks: 1 | Depends on: Batches 4 and 5
 
-### Task 6.1: Update and commit the Thoth feed visual spec — PENDING
+### Task 6.1: Update and commit the Thoth feed visual spec — IN_PROGRESS
 
 - File: D:/projects/ptah-extension/.claude-worktrees/task-586-thoth-feed/libs/frontend/webview-e2e-harness/src/lib/scenarios/thoth/thoth-feed-visual.e2e.spec.ts (currently untracked)
 - Plan reference: visual-review-before.md "Reproduce", "Limitations"; R13

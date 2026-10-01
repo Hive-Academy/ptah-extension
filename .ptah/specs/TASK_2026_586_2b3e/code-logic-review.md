@@ -778,3 +778,202 @@ Comparing `SkillTriggersSettingsComponent` (`skill-triggers-settings.component.t
 - **Confidence**: HIGH
 - **Top risk**: None remaining in Batch 4. Accordion removal is complete, all capabilities are restored in their dedicated locations, and tab-level integration is verified by 28 passing test suites.
 - **Verdict**: APPROVED
+
+
+---
+
+## Batch 5
+
+- **Batch**: Batch 5 — Shell tiles refresh on tab switch; Skills tile workspace scope
+- **Author**: frontend-developer (in-process sub-agent)
+- **Reviewer**: code-logic-reviewer (in-process)
+- **Verdict**: APPROVED
+- **Score**: 8/10
+
+### Summary
+
+| Metric              | Value    |
+| ------------------- | -------- |
+| Overall score       | 8/10     |
+| Assessment          | APPROVED |
+| Blocking issues     | 0        |
+| Serious issues      | 0        |
+| Moderate issues     | 2        |
+| Minor issues        | 2        |
+| Failure modes found | 2        |
+
+**Score justification (Band 7–8: sound)**:
+- *Evidence separating from Band 5–6 (works with real gaps)*:
+  1. **Strict Generation Guard (R5)**: The generation token (`refreshGeneration` + `isCurrent()`) guards every single state mutation in all four pillar loaders (`loadMemory`, `loadSkills`, `loadCron`, `loadGateway`), covering both success writes and `catch` error branches (`thoth-status.service.ts:305, 314, 335, 342, 356, 368, 380, 390`). A superseded refresh cannot touch `isLoading`, `lastUpdatedAt`, or `hasLoadedOnce` (`:270`).
+  2. **Never-Stuck Loading Guarantee**: Loaders encapsulate all asynchronous failures within internal `try...catch` blocks without re-throwing. `Promise.all` is guaranteed to resolve, allowing the newest refresh to reliably clear `_isLoading` to `false` and set `_hasLoadedOnce` to `true` even when all underlying RPCs fail.
+  3. **No Unhandled Rejections**: `selectTab`'s `void this.thothStatus.refresh()` in `thoth-shell.component.ts:274` is guaranteed never to reject, preventing unhandled promise rejections.
+  4. **Scoped Backend Query (R11)**: `loadSkills` passes `{ status: 'candidate', scope: 'workspace', limit: 1000 }` (`:330-334`), matching the backend handler's `clampLimit(1000, 100)` ceiling and existing `scope: 'workspace'` schema without requiring new RPC contracts.
+  5. **Comprehensive Non-Tautological Tests**: 13 suites (115 tests) pass in `@ptah-extension/dashboard` and 1 suite (7 tests) in `@ptah-extension/thoth-shell`. The new tests explicitly fail against base code (where tab switching did not refresh, superseded responses overwrote newer state, and candidates query lacked workspace scope and limit).
+- *Evidence separating from Band 9–10 (exemplary)*:
+  1. **Unthrottled RPC Bursts (MODERATE-1)**: Rapid tab switching fires bursts of 4 RPC calls per click without debouncing or `AbortController` cancellation.
+  2. **Silent Clamp Ceiling (MODERATE-2)**: Workspaces with > 1000 candidates silently clamp to 1000 without overflow indication.
+
+---
+
+### Five Logic Questions
+
+#### 1. How does this fail silently?
+1. **Per-Pillar Error Isolation via Signal State (`thoth-status.service.ts:313-317, 341-345, 367-371, 389-393`)**:
+   When any RPC call rejects, the error is caught, stored in `_errors[pillar]`, and the pillar state is set to `{ available: false, reason: 'error' }`. The `refresh()` promise resolves cleanly. To external callers (`selectTab`, `refreshIfNeeded`), the operation looks successful. The error is surfaced exclusively through reactive UI signals.
+2. **Silent Candidate Count Truncation at 1000 (`thoth-status.service.ts:330-334`)**:
+   If a workspace has > 1000 candidates, `limit: 1000` is clamped by backend `clampLimit` (`skills-synthesis-rpc.handlers.ts:2215-2220`). The tile displays `1000` without visual indication (such as `1000+` or an overflow badge) that candidates exist beyond the clamp ceiling.
+
+#### 2. What user action produces unexpected behaviour?
+1. **Rapid Tab Switching Dispatches Concurrent RPC Bursts**:
+   Rapidly clicking across tabs (e.g. Memory -> Skills -> Schedules) triggers multiple overlapping `refresh()` calls. While generation tokens drop superseded results, each tab click launches 4 new network requests simultaneously.
+2. **Folder Removal in Electron Multi-Root Workspace (Pre-Existing R6)**:
+   In Electron, removing a workspace folder via `electron-layout.service.ts:392-406` shifts the active folder in the webview, whereas `electron-workspace-provider.ts:159-161` defaults to `folders[0]`. This pre-existing divergence can temporarily cause backend-scoped queries (`scope: 'workspace'`) to evaluate against `folders[0]` until a subsequent workspace switch.
+
+#### 3. What input data produces a wrong answer?
+1. **Candidate Counts Exceeding 1000**:
+   Returns `1000` as the candidate count rather than the actual number of candidates.
+2. **Malformed Non-Number `nextRunAt` Values in Cron Jobs**:
+   Handled gracefully: `loadCron` filters with `typeof ts === 'number'` (`thoth-status.service.ts:360`), so invalid timestamps are safely discarded without NaN propagation.
+
+#### 4. What happens when a dependency fails?
+1. **Individual RPC Rejection or Timeout**:
+   Caught cleanly in each loader's `catch (err)` block. If `isCurrent()` is true, the error string is recorded in `_errors` and the specific pillar is marked `{ available: false, reason: 'error' }`. Unaffected pillars display valid data.
+2. **Superseded Refresh Fails**:
+   If a stale refresh encounters an error after a newer refresh has already started, `if (!isCurrent()) return;` intercepts the error in `catch` and drops it, preventing stale errors from corrupting current state.
+3. **All RPCs Fail**:
+   All 4 pillars record errors, `_isLoading` resets to `false`, and `_hasLoadedOnce` becomes `true`. The UI never remains stuck in a loading skeleton.
+
+#### 5. What is missing that the requirements never mentioned?
+1. **In-Flight Cancellation or Debouncing**:
+   No `AbortController` or debounce mechanism is present to abort earlier in-flight RPCs when superseded by a new tab switch.
+2. **Overflow Indicator for Skills Tile**:
+   No affordance or metadata indicating whether the candidate count was truncated at the 1000 limit.
+
+---
+
+### Failure Modes
+
+#### Failure Mode 1: Redundant Network Spikes on Rapid Tab Navigation
+- **Trigger**: User rapidly clicks through multiple tabs in the Thoth shell.
+- **Symptom**: Redundant parallel RPC requests hit the backend.
+- **Evidence**: `libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts:272-275`:
+  ```typescript
+  public selectTab(tabId: ThothActiveTabId): void {
+    if (tabId === this.activeTab()) return;
+    this.appState.setThothActiveTab(tabId);
+    void this.thothStatus.refresh();
+  }
+  ```
+- **Current handling**: Only checks `tabId === this.activeTab()`. If distinct tabs are clicked rapidly, each click unconditionally calls `refresh()`.
+- **Recommendation**: Consider debouncing tab-triggered refreshes or aborting prior pending requests if a request is already in-flight.
+
+#### Failure Mode 2: Candidate Count Clamp Ceiling Discrepancy (R11)
+- **Trigger**: Active workspace contains more than 100 candidates (or more than 1000 candidates).
+- **Symptom**: The sidebar tile displays 1000, while the Skills tab list displays 100 (default pagination limit).
+- **Evidence**: `libs/frontend/dashboard/src/lib/services/thoth-status.service.ts:330-334` passes `limit: 1000`, while `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:410` defaults to 100.
+- **Current handling**: Tile requests `limit: 1000` to capture up to 1000 pending candidates; clamped by `Math.min(limit, 1000)`.
+- **Recommendation**: Recorded as a low-severity follow-up; UI could format `1000+` if `candidates.length >= 1000`.
+
+---
+
+### Blocking Issues
+
+*None.*
+
+---
+
+### Serious Issues
+
+*None.*
+
+---
+
+### Moderate and Minor Issues
+
+#### MODERATE-1: Rapid tab switches dispatch unthrottled concurrent RPC bursts
+- **File**: `libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.ts:272-275`
+- **Scenario**: User clicks across 3 tabs within 200ms; 12 RPC calls are initiated simultaneously.
+- **Impact**: Increased backend RPC load and wasted bandwidth, though generation token safely prevents stale UI state.
+- **Fix**: Debounce tab switch refresh calls or cancel in-flight HTTP/RPC requests.
+
+#### MODERATE-2: Unindicated 1000 ceiling clamp on candidate tile count
+- **File**: `libs/frontend/dashboard/src/lib/services/thoth-status.service.ts:330-334`
+- **Scenario**: Workspace has 1,500 pending candidates; tile shows "1000".
+- **Impact**: User cannot distinguish between exactly 1000 candidates and a truncated list.
+- **Fix**: Surface truncation flag or format as `1000+` when `candidates.length === 1000`.
+
+#### MINOR-1: Tile count vs Skills tab list count divergence with > 100 candidates (R11)
+- **File**: `libs/frontend/dashboard/src/lib/services/thoth-status.service.ts:330-334`
+- **Scenario**: Workspace has 250 candidates. Tile displays 250, but default Skills tab list queries `limit: 100`.
+- **Impact**: Cosmetic discrepancy between sidebar tile and tab view until user paginates. Recorded follow-up in R11.
+
+#### MINOR-2: Pre-existing Electron folder removal divergence (R6)
+- **File**: `libs/frontend/core/src/lib/services/electron-layout.service.ts:392-406` vs `libs/backend/platform-electron/src/implementations/electron-workspace-provider.ts:159-161`
+- **Scenario**: Closing a folder in Electron can leave webview and backend roots diverged until the next switch.
+- **Impact**: Pre-existing gap; verified that Batch 5 does not worsen it and properly handles `workspaceInfo` transitioning to `null`.
+
+---
+
+### Verification Checks
+
+#### Check 1: R5 Generation Token Completeness
+- Traced `refresh()` in `thoth-status.service.ts:245-275`:
+  - `generation = ++this.refreshGeneration;`
+  - `isCurrent = () => generation === this.refreshGeneration;`
+  - Passed to all loaders: `loadMemory(isCurrent)`, `loadSkills(isCurrent)`, `loadCron(isCurrent)`, `loadGateway(isCurrent)`.
+  - Guarded before EVERY signal write in all 4 loaders (both success and error paths):
+    - `loadMemory`: line 305 (`if (!isCurrent()) return;`) and line 314 (in `catch`).
+    - `loadSkills`: line 335 (`if (!isCurrent()) return;`) and line 342 (in `catch`).
+    - `loadCron`: line 356 (`if (!isCurrent()) return;`) and line 368 (in `catch`).
+    - `loadGateway`: line 380 (`if (!isCurrent()) return;`) and line 390 (in `catch`).
+  - Guarded post-`Promise.all` at line 270:
+    ```typescript
+    if (!isCurrent()) return;
+    this._lastUpdatedAt.set(Date.now());
+    this._hasLoadedOnce.set(true);
+    this._isLoading.set(false);
+    ```
+  - Superseded refreshes exit before mutating `_lastUpdatedAt`, `_hasLoadedOnce`, or `_isLoading`.
+
+#### Check 2: No Stuck Loading State & No Unhandled Rejection
+- All loaders wrap their async logic in `try { ... } catch (err) { ... }` without rethrowing.
+- `Promise.all` in `refresh()` resolves cleanly regardless of network failures.
+- `_isLoading` is set to `false` when the latest refresh settles.
+- `selectTab` invokes `void this.thothStatus.refresh()`: because `refresh()` cannot reject, unhandled rejections are impossible.
+
+#### Check 3: Workspace Effect and Tab Switch Interplay
+- Effect runs on workspace changes:
+  - Initial evaluation sets `lastWorkspaceRoot` and returns early (`prev === undefined`), avoiding duplicate refresh on startup.
+  - When `root` changes (including transition to `null`), effect triggers `untracked(() => void this.refresh())`.
+  - If a tab switch occurs in the same tick or while in flight, generation token increments; the newest call wins and stale results are cleanly dropped.
+  - Shell `ngOnInit` calls `refreshIfNeeded()`; once `_hasLoadedOnce` is true, subsequent `refreshIfNeeded()` calls no-op, while tab switches call `refresh()` directly.
+
+#### Check 4: R11 Backend Handler Clamp & Scope Parameter
+- Verified in `libs/backend/rpc-handlers/src/lib/handlers/skills-synthesis-rpc.handlers.ts:406-416`:
+  - `SkillListCandidatesParamsSchema` accepts `status`, `limit`, and `scope: z.enum(['workspace', 'all']).optional()`.
+  - `clampLimit(parsed?.limit, 100)` clamps via `Math.min(Math.floor(raw), 1000)` (`:2219`).
+  - Passing `limit: 1000` is precisely at the clamp ceiling.
+  - `listScope('workspace')` returns `this.workspaceProvider.getWorkspaceRoot() ?? undefined` (`:2171`).
+  - Verified no new RPC contract was introduced.
+
+#### Check 5: R6 Pre-existing Divergence Confirmation
+- Inspected `electron-layout.service.ts:392-406` and `electron-workspace-provider.ts:159-161`.
+- Recorded default in `batches.md` A3/R6 confirmed: on workspace switch, webview updates only after `workspace:switch` succeeds, so roots remain synchronized. On folder close, root selection diverges in existing code. Batch 5 introduces no changes to folder close and adds explicit test coverage for `workspaceInfo` becoming `null`.
+
+#### Check 6: Spec Non-Tautology & Test Execution
+- Executed `npx nx run-many -t test -p @ptah-extension/dashboard @ptah-extension/thoth-shell --skip-nx-cache`:
+  - `@ptah-extension/dashboard`: 13 test suites passed, 115 tests passed.
+  - `@ptah-extension/thoth-shell`: 1 test suite passed, 7 tests passed.
+- Specs verified to fail on base code:
+  - Base `selectTab` did not call `refresh()`; test asserting count change on tab click fails on base.
+  - Base `thoth-status.service.ts` had no generation token; tests asserting that superseded results/errors are dropped fail on base.
+  - Base `loadSkills` omitted `scope: 'workspace'` and `limit: 1000`; test asserting these arguments fails on base.
+
+---
+
+### Verdict
+
+- **Recommendation**: APPROVE
+- **Confidence**: HIGH
+- **Top risk**: Rapid tab switches trigger bursts of 4 RPC calls per click without debouncing, but generation token guarantees eventual UI consistency without stale data corruption.
+- **Verdict**: APPROVED
