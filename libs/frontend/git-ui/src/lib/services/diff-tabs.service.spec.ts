@@ -455,10 +455,11 @@ describe('DiffTabsService.refreshDiffTab', () => {
 
     // The response belongs to the ORIGIN workspace and must never be applied
     // once the user has navigated elsewhere — applying it would leak one
-    // workspace's git content into another's tab.
+    // workspace's git content into another's tab. The drop must also not
+    // PARK the tab at 'refreshing': the pre-read status comes back.
     const tab = tabAt(service, key);
     expect(tab?.diff?.modified).toBe('new');
-    expect(tab?.diff?.status).toBe('refreshing');
+    expect(tab?.diff?.status).toBe('fresh');
   });
 
   it('drops the response if the tab was closed while the request was in flight', async () => {
@@ -789,6 +790,107 @@ describe('DiffTabsService — scoped, queued refresh (RC11)', () => {
     // Never blanked: the content the user was looking at survives the failure.
     expect(tab?.diff?.modified).toBe('new');
     expect(tab?.content).toBe('new');
+  });
+
+  it('a statusUnavailable push refreshes ALL tabs and keeps the previous file set', async () => {
+    const { service } = makeService();
+    await openFresh(service, 'a.ts');
+    await openFresh(service, 'b.ts');
+    mockRpcCall.mockResolvedValue(ok(makeResult()));
+
+    // Window 1: a scoped push establishes the previous file set.
+    service.onGitStatusUpdate(
+      '/ws',
+      ['workspace'],
+      [fileStatus('a.ts'), fileStatus('b.ts')],
+    );
+    jest.advanceTimersByTime(250);
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+    mockRpcCall.mockClear();
+
+    // Window 2: the status could not be read, so `files: []` does NOT mean
+    // clean — the degraded push refreshes every tab and must NOT replace the
+    // previous set with the empty one.
+    service.handleMessage({
+      type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      payload: {
+        workspaceRoot: '/ws',
+        causes: ['workspace'],
+        files: [],
+        statusUnavailable: 'output-too-large',
+      },
+    });
+    jest.advanceTimersByTime(250);
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+    mockRpcCall.mockClear();
+
+    // Window 3: proof the previous set survived window 2 — a plain scoped
+    // push with no files still matches both tabs.
+    service.onGitStatusUpdate('/ws', ['workspace'], []);
+    jest.advanceTimersByTime(250);
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+  });
+
+  it('a present cause with an absent or malformed files list refreshes every open tab', async () => {
+    const { service } = makeService();
+    await openFresh(service, 'a.ts');
+    await openFresh(service, 'b.ts');
+    await openFresh(service, 'c.ts');
+    mockRpcCall.mockResolvedValue(ok(makeResult()));
+
+    // `files` absent on a workspace-scoped push: the scope is unknown, so the
+    // refresh-everything contract applies rather than a zero-path match.
+    service.onGitStatusUpdate('/ws', ['workspace']);
+    jest.advanceTimersByTime(250);
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(3);
+    mockRpcCall.mockClear();
+
+    // A non-array `files` value (malformed payload) degrades the same way.
+    service.handleMessage({
+      type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+      payload: { workspaceRoot: '/ws', causes: ['workspace'], files: 'bogus' },
+    });
+    jest.advanceTimersByTime(250);
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(3);
+  });
+
+  it('a rejected rpcCall clears the rerun marker (no phantom trailing pass)', async () => {
+    const { service } = makeService();
+    await openFresh(service);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    // Run 1 rejects (a throw, not a well-formed {success:false}); run 2 is the
+    // queued request the finally still services.
+    mockRpcCall
+      .mockRejectedValueOnce(new Error('transport threw'))
+      .mockResolvedValueOnce(
+        ok(makeResult({ path: 'a.ts', modified: content('after-reject') })),
+      );
+
+    const first = service.refreshDiffTab(key);
+    // Queue a rerun while the throwing read is in flight.
+    void service.refreshDiffTab(key);
+    await first;
+
+    // The throw did not strand the marker: the queued request was serviced,
+    // and the tab did not stay parked at 'refreshing' on the way there.
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+    expect(tabAt(service, key)?.diff?.status).toBe('fresh');
+    expect(tabAt(service, key)?.diff?.modified).toBe('after-reject');
+
+    // A later refresh runs exactly ONE pass — no phantom trailing run left
+    // over from the aborted one.
+    mockRpcCall.mockResolvedValueOnce(
+      ok(makeResult({ path: 'a.ts', modified: content('v3') })),
+    );
+    await service.refreshDiffTab(key);
+    expect(mockRpcCall).toHaveBeenCalledTimes(3);
+    expect(tabAt(service, key)?.diff?.modified).toBe('v3');
   });
 });
 

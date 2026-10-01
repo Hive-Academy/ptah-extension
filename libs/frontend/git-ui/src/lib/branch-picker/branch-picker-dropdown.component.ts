@@ -19,6 +19,20 @@ interface BlockedSwitch {
   branch: string;
   track: boolean;
   conflictingPaths: readonly string[];
+  /**
+   * Set when a confirmed discard was itself refused (untracked files git will
+   * not delete): the backend's reason. Discarding again cannot help, so only
+   * stashing is offered.
+   */
+  discardRefusal: string | null;
+}
+
+/** A successful "Stash & switch" whose stash entry the user should know about. */
+interface StashNotice {
+  /** The entry's stash name right after the switch: the newest entry. */
+  label: string;
+  /** Commit SHA of the entry, for the tooltip. */
+  sha: string;
 }
 
 /** How to treat local changes when retrying a blocked switch. */
@@ -59,6 +73,11 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
               Local changes would be overwritten by switching to
               <span class="font-mono">{{ blocked.branch }}</span>.
             </p>
+            @if (blocked.discardRefusal) {
+              <p class="text-error" data-testid="discard-refusal">
+                {{ blocked.discardRefusal }}
+              </p>
+            }
             @if (blocked.conflictingPaths.length) {
               <ul
                 aria-label="Files that would be overwritten"
@@ -114,21 +133,47 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
                 >
                   Cancel
                 </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs text-error"
-                  data-testid="discard-switch"
-                  [disabled]="busy()"
-                  (click)="confirmingDiscard.set(true)"
-                >
-                  Discard &amp; switch…
-                </button>
+                @if (!blocked.discardRefusal) {
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs text-error"
+                    data-testid="discard-switch"
+                    [disabled]="busy()"
+                    (click)="confirmingDiscard.set(true)"
+                  >
+                    Discard &amp; switch…
+                  </button>
+                }
               </div>
             }
           </div>
         }
         @if (error()) {
           <div role="alert" class="p-2 text-error text-xs">{{ error() }}</div>
+        }
+        @if (stashNotice(); as notice) {
+          <div
+            role="status"
+            data-testid="stash-notice"
+            class="flex items-start gap-2 p-2 text-xs bg-info/10"
+          >
+            <p class="flex-1">
+              Changes stashed as
+              <span class="font-mono" [title]="notice.sha">{{
+                notice.label
+              }}</span>
+              — find them in Stashes.
+            </p>
+            <button
+              #stashNoticeDismiss
+              type="button"
+              class="btn btn-ghost btn-xs"
+              data-testid="dismiss-stash-notice"
+              (click)="close()"
+            >
+              Dismiss
+            </button>
+          </div>
         }
         <div class="max-h-72 overflow-auto p-1">
           @if (!query() && gitBranches.recentBranches().length) {
@@ -201,6 +246,9 @@ export class BranchPickerDropdownComponent {
   protected readonly confirmingDiscard = signal(false);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly stashNotice = signal<StashNotice | null>(null);
+  private readonly stashNoticeDismiss =
+    viewChild<ElementRef<HTMLButtonElement>>('stashNoticeDismiss');
   private readonly stashSwitchButton =
     viewChild<ElementRef<HTMLButtonElement>>('stashSwitchButton');
   private readonly discardConfirmButton = viewChild<
@@ -226,6 +274,12 @@ export class BranchPickerDropdownComponent {
     // appears and when it advances to the discard confirmation.
     effect(() => this.stashSwitchButton()?.nativeElement.focus());
     effect(() => this.discardConfirmButton()?.nativeElement.focus());
+    effect(() => this.stashNoticeDismiss()?.nativeElement.focus());
+    // The stash notice belongs to the switch that produced it: however the
+    // picker closes (Dismiss, Escape, outside click, trigger), it goes too.
+    effect(() => {
+      if (!this.isOpen()) this.stashNotice.set(null);
+    });
   }
 
   private visibleBranches<T extends { name: string; lastCommitTime?: number }>(
@@ -270,18 +324,32 @@ export class BranchPickerDropdownComponent {
     const params: GitCheckoutParams = { branch, ...mode };
     if (track) params.track = true;
     this.error.set(null);
+    this.stashNotice.set(null);
     this.busy.set(true);
     const result = await this.gitBranches.checkout(params);
     this.busy.set(false);
     if (result.success) {
       this.cancelBlocked();
-      this.completeSwitch(track ? localNameOf(branch) : branch);
-    } else if (result.dirty && !mode.force && !mode.stash) {
+      const landedOn = track ? localNameOf(branch) : branch;
+      if (result.stashRef) {
+        // Keep the picker open on the notice so the user learns where their
+        // changes went; Dismiss (or any other close) closes it.
+        this.recordSwitch(landedOn);
+        this.stashNotice.set({ label: 'stash@{0}', sha: result.stashRef });
+      } else {
+        this.completeSwitch(landedOn);
+      }
+    } else if (result.dirty && !mode.stash) {
+      // A refused discard (untracked blockers) re-prompts with git's reason
+      // and without the discard option, which cannot clear them.
       this.confirmingDiscard.set(false);
       this.blockedSwitch.set({
         branch,
         track,
         conflictingPaths: result.conflictingPaths ?? [],
+        discardRefusal: mode.force
+          ? (result.error ?? 'Git refused to discard these changes.')
+          : null,
       });
     } else {
       this.cancelBlocked();
@@ -305,9 +373,13 @@ export class BranchPickerDropdownComponent {
   }
 
   private completeSwitch(branch: string): void {
+    this.recordSwitch(branch);
+    this.close();
+  }
+
+  private recordSwitch(branch: string): void {
     this.gitBranches.recordVisitedBranch(branch);
     this.branchCheckedOut.emit(branch);
-    this.close();
   }
 
   close(): void {

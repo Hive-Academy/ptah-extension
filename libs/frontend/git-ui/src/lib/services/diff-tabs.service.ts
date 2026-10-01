@@ -14,6 +14,7 @@ import type {
   GitDiffFileParams,
   GitDiffFileResult,
   GitFileStatus,
+  GitStatusUnavailableReason,
   GitStatusUpdatePayload,
 } from '@ptah-extension/shared';
 import { GitStatusService } from './git-status.service';
@@ -160,9 +161,19 @@ export class DiffTabsService implements MessageHandler {
    * `path`/`origPath` union of the most recent `git:status-update` file set.
    * A workspace edit can REMOVE a file from `files` — reverting to clean —
    * while its open tab still needs the re-read, so a scoped refresh also
-   * matches the PREVIOUS set (RC11).
+   * matches the PREVIOUS set (RC11). Cleared when the active workspace
+   * changes ({@link previousStatusWorkspace}), because the set describes a
+   * different workspace's file lists.
    */
   private previousStatusPaths = new Set<string>();
+
+  /**
+   * The workspace {@link previousStatusPaths} was collected for. `git:status-
+   * update` pushes for a BACKGROUND workspace are ignored before this value
+   * is consulted, so only a push for the (new) active workspace can observe
+   * and clear a set that was collected elsewhere.
+   */
+  private previousStatusWorkspace: string | undefined;
 
   /** Debounce timers for diff revalidation, keyed by workspace root. */
   private readonly refreshDebounceTimers = new Map<
@@ -261,6 +272,7 @@ export class DiffTabsService implements MessageHandler {
           payload?.workspaceRoot,
           payload?.causes,
           payload?.files,
+          payload?.statusUnavailable,
         );
         return;
       }
@@ -445,12 +457,15 @@ export class DiffTabsService implements MessageHandler {
    * causes at all — can change any diff, so every open tab is revalidated.
    * A workspace-only (or stash-only) cause re-reads just the tabs whose path,
    * or pre-rename path, is in the payload's `files` or was in the previous
-   * file set.
+   * file set. A `statusUnavailable` push, or a scoped `causes` push whose
+   * `files` is not a readable array, widens to the same refresh-all: neither
+   * carries a trustworthy file list.
    */
   public onGitStatusUpdate(
     workspaceRoot?: string,
     causes?: readonly GitChangeKind[],
     files?: readonly GitFileStatus[],
+    statusUnavailable?: GitStatusUnavailableReason,
   ): void {
     const active = this.activeWorkspacePath();
     const target = workspaceRoot ?? active ?? '';
@@ -458,7 +473,14 @@ export class DiffTabsService implements MessageHandler {
     // background workspace has nothing here to refresh.
     if (active !== null && target !== active) return;
 
-    this.mergePendingRefreshScope(causes, files);
+    // A set collected for the previously active workspace matches nothing
+    // here; drop it before this push's file list replaces it.
+    if (target !== this.previousStatusWorkspace) {
+      this.previousStatusPaths.clear();
+      this.previousStatusWorkspace = target;
+    }
+
+    this.mergePendingRefreshScope(causes, files, statusUnavailable);
 
     const existing = this.refreshDebounceTimers.get(target);
     if (existing) clearTimeout(existing);
@@ -533,13 +555,22 @@ export class DiffTabsService implements MessageHandler {
    * A malformed `files` array is tolerated entry by entry, matching the
    * `toFileContentChange` guard's stance: this payload's shape is the backend's
    * to guarantee, but a bad entry must not lose the rest of the batch.
+   *
+   * Two degradations widen to refresh-all (the contract for unknown scope):
+   * `statusUnavailable` — its empty `files` list does NOT mean clean — and a
+   * present `causes` with `files` absent or not an array. Neither replaces
+   * the previous file set: a degraded push describes no readable file list.
    */
   private mergePendingRefreshScope(
     causes?: readonly GitChangeKind[],
     files?: readonly GitFileStatus[],
+    statusUnavailable?: GitStatusUnavailableReason,
   ): void {
+    const statusDegraded = statusUnavailable !== undefined;
+    const hasFileSet = Array.isArray(files);
+
     const currentPaths = new Set<string>();
-    if (Array.isArray(files)) {
+    if (hasFileSet) {
       for (const file of files) {
         if (typeof file?.path === 'string' && file.path !== '') {
           currentPaths.add(file.path);
@@ -550,7 +581,12 @@ export class DiffTabsService implements MessageHandler {
       }
     }
 
-    if (causes === undefined || causesRefreshEverything(causes)) {
+    if (
+      causes === undefined ||
+      statusDegraded ||
+      !hasFileSet ||
+      causesRefreshEverything(causes)
+    ) {
       this.pendingRefreshAllDiffs = true;
     } else if (!this.pendingRefreshAllDiffs) {
       for (const path of currentPaths) this.pendingRefreshPaths.add(path);
@@ -561,7 +597,7 @@ export class DiffTabsService implements MessageHandler {
       }
     }
 
-    if (Array.isArray(files)) this.previousStatusPaths = currentPaths;
+    if (hasFileSet && !statusDegraded) this.previousStatusPaths = currentPaths;
   }
 
   /**
@@ -629,11 +665,29 @@ export class DiffTabsService implements MessageHandler {
    * previous response was fully applied (or dropped), so the trailing run
    * reads the tab's UPDATED `requestId` and can never collide with the run
    * it follows.
+   *
+   * A throw OUT of {@link readDiffTabOnce} — `rpcCall` rejecting rather than
+   * answering `{success:false}` — cannot be allowed to leave the rerun marker
+   * behind for a later, unrelated pass to trip over, and cannot park the tab
+   * at `refreshing`: the catch maps to the same outcome the `null` transport
+   * path produces, and the finally still services the trailing pass.
    */
   private async runDiffTabRefresh(key: string): Promise<void> {
-    await this.readDiffTabOnce(key);
-    if (this.rerunRequestedDiffRefreshes.delete(key)) {
-      await this.runDiffTabRefresh(key);
+    try {
+      await this.readDiffTabOnce(key);
+    } catch {
+      // Same user-visible stance as a `{success:false}` answer: previous
+      // content retained, status moved off 'refreshing' to 'stale'.
+      this.patchDiff(key, (diff) => ({
+        ...diff,
+        status: 'stale',
+        errorMessage: GIT_READ_TRANSPORT_MESSAGE,
+        errorDetail: undefined,
+      }));
+    } finally {
+      if (this.rerunRequestedDiffRefreshes.delete(key)) {
+        await this.runDiffTabRefresh(key);
+      }
     }
   }
 
@@ -646,6 +700,7 @@ export class DiffTabsService implements MessageHandler {
 
     const originWorkspace = this.activeWorkspacePath();
     const requestId = tab.diff.requestId + 1;
+    const previousStatus = tab.diff.status;
     const { comparison, path, originalPath } = tab.diff;
 
     this.patchDiff(key, (diff) => ({
@@ -664,7 +719,17 @@ export class DiffTabsService implements MessageHandler {
 
     // Drop the response if the world moved on: newer request, workspace
     // switched, or the tab was closed while we waited.
-    if (this.activeWorkspacePath() !== originWorkspace) return;
+    if (this.activeWorkspacePath() !== originWorkspace) {
+      // The workspace-switch drop must not park the tab at 'refreshing':
+      // restore the status this read replaced when it started.
+      // A newer read owns the tab once it has bumped the requestId.
+      this.patchDiff(key, (diff) =>
+        diff.requestId === requestId
+          ? { ...diff, status: previousStatus }
+          : diff,
+      );
+      return;
+    }
     const liveTab = this._diffTabs().find((t) => t.filePath === key);
     if (!liveTab?.diff || liveTab.diff.requestId !== requestId) return;
 
@@ -814,6 +879,9 @@ export class DiffTabsService implements MessageHandler {
     this.pendingRefreshAllDiffs = false;
     this.pendingRefreshPaths.clear();
     this.rerunRequestedDiffRefreshes.clear();
+    this.previousStatusPaths.clear();
+    this.previousStatusWorkspace = undefined;
+    this.inFlightDiffRefreshes.clear();
   }
 
   // -------------------------------------------------------------------------

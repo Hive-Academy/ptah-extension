@@ -134,6 +134,111 @@ describe('BranchPickerDropdownComponent', () => {
     });
   });
 
+  it('names the stash after a successful Stash & switch and closes only on Dismiss', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, dirty: true })
+      .mockResolvedValueOnce({ success: true, stashRef: 'abc123' });
+    const { fixture, checkedOut } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    let closedCount = 0;
+    fixture.componentInstance.closed.subscribe(() => closedCount++);
+    await click(fixture, '.max-h-72 > button');
+    await click(fixture, '[data-testid="stash-switch"]');
+
+    const notice = query(fixture, '[data-testid="stash-notice"]');
+    expect(notice?.getAttribute('role')).toBe('status');
+    expect((notice?.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+      'Changes stashed as stash@{0} — find them in Stashes. Dismiss',
+    );
+    expect(notice?.querySelector('.font-mono')?.getAttribute('title')).toBe(
+      'abc123',
+    );
+    const dismiss = query(fixture, '[data-testid="dismiss-stash-notice"]');
+    expect(document.activeElement).toBe(dismiss);
+    expect(query(fixture, '[data-testid="blocked-switch"]')).toBeNull();
+    expect(checkedOut).toEqual(['feature']);
+    expect(closedCount).toBe(0);
+
+    await click(fixture, '[data-testid="dismiss-stash-notice"]');
+    expect(closedCount).toBe(1);
+
+    fixture.componentRef.setInput('isOpen', false);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('isOpen', true);
+    fixture.detectChanges();
+    expect(query(fixture, '[data-testid="stash-notice"]')).toBeNull();
+  });
+
+  it('closes straight away when Stash & switch needed no stash entry', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, dirty: true })
+      .mockResolvedValueOnce({ success: true });
+    const { fixture } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    let closedCount = 0;
+    fixture.componentInstance.closed.subscribe(() => closedCount++);
+    await click(fixture, '.max-h-72 > button');
+    await click(fixture, '[data-testid="stash-switch"]');
+
+    expect(query(fixture, '[data-testid="stash-notice"]')).toBeNull();
+    expect(closedCount).toBe(1);
+  });
+
+  it('re-prompts with the paths and reason when a confirmed discard is refused, offering only stash', async () => {
+    const reason =
+      'Untracked files would be overwritten; move or delete them first.';
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        dirty: true,
+        conflictingPaths: ['new.txt'],
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        dirty: true,
+        conflictingPaths: ['new.txt'],
+        error: reason,
+      })
+      .mockResolvedValueOnce({ success: true });
+    const { fixture, checkedOut } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    await click(fixture, '.max-h-72 > button');
+    await click(fixture, '[data-testid="discard-switch"]');
+    await click(fixture, '[data-testid="confirm-discard"]');
+
+    expect(query(fixture, '[data-testid="blocked-switch"]')).not.toBeNull();
+    expect(
+      query(fixture, '[data-testid="discard-refusal"]')?.textContent?.trim(),
+    ).toBe(reason);
+    const paths = [
+      ...(query(fixture, '[data-testid="conflicting-paths"]')?.querySelectorAll(
+        'li',
+      ) ?? []),
+    ].map((item) => item.textContent?.trim());
+    expect(paths).toEqual(['new.txt']);
+    expect(query(fixture, '[data-testid="discard-switch"]')).toBeNull();
+    expect(query(fixture, '[data-testid="confirm-discard"]')).toBeNull();
+    const stash = query(fixture, '[data-testid="stash-switch"]');
+    expect(document.activeElement).toBe(stash);
+    expect(checkedOut).toEqual([]);
+
+    await click(fixture, '[data-testid="stash-switch"]');
+    expect(checkout).toHaveBeenLastCalledWith({
+      branch: 'feature',
+      stash: true,
+    });
+    expect(checkedOut).toEqual(['feature']);
+  });
+
   it('Cancel dismisses the dirty prompt without switching', async () => {
     const checkout = jest
       .fn()
