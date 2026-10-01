@@ -430,15 +430,30 @@ export class SkillSynthesisStateService {
     }
   }
 
-  /** Accept a suggestion (materializes a skill), then refresh the list. */
-  public async accept(id: string): Promise<void> {
+  /**
+   * Accept a suggestion (materializes a skill), then refresh the list and the
+   * aggregate stats, which the acceptance changed (a new promoted skill, and
+   * any members it merged).
+   *
+   * Returns `true` once the accept itself has landed, so the caller can refresh
+   * state this service does not own; `false` when the accept failed. The two
+   * follow-up reads report their own failures through `error` and never throw,
+   * so a stats-read error after a successful accept still returns `true`.
+   */
+  public async accept(id: string): Promise<boolean> {
     this.suggestionsLoading.set(true);
     this.error.set(null);
     try {
       await this.rpc.acceptSuggestion(id);
       await this.refreshSuggestions();
+      await this.loadStats();
+      return true;
     } catch (err) {
+      // degradation-audit: reported - the failure is surfaced through `error`,
+      // which the suggestions view renders; `false` only tells the caller to
+      // skip its own follow-up refresh.
       this.error.set(this.toMessage(err));
+      return false;
     } finally {
       this.suggestionsLoading.set(false);
     }

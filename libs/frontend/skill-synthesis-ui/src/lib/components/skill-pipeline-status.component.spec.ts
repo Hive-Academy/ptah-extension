@@ -609,6 +609,9 @@ describe('SkillPipelineStatusComponent — summary band (moved from the diagnost
       totalRejected: 1,
       activeSkills: 2,
       totalInvocations: 12,
+      totalMerged: 4,
+      totalRetired: 5,
+      totalDormant: 1,
     });
     fixture.detectChanges();
     expect(row()?.getAttribute('aria-label')).toBe('Candidates by status');
@@ -618,6 +621,9 @@ describe('SkillPipelineStatusComponent — summary band (moved from the diagnost
       '7 Candidates',
       '3 Promoted',
       '1 Rejected',
+      '4 Merged',
+      '5 Retired',
+      '1 Dormant',
     ]);
   });
 

@@ -226,6 +226,24 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
               }}</span>
               <span class="text-base-content-muted"> Rejected</span>
             </span>
+            <span>
+              <span class="font-semibold tabular-nums">{{
+                counts.totalMerged
+              }}</span>
+              <span class="text-base-content-muted"> Merged</span>
+            </span>
+            <span>
+              <span class="font-semibold tabular-nums">{{
+                counts.totalRetired
+              }}</span>
+              <span class="text-base-content-muted"> Retired</span>
+            </span>
+            <span>
+              <span class="font-semibold tabular-nums">{{
+                counts.totalDormant
+              }}</span>
+              <span class="text-base-content-muted"> Dormant</span>
+            </span>
           </div>
         }
       </div>
