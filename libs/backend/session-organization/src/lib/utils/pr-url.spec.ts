@@ -1,4 +1,10 @@
-import { PR_URL_MAX_LENGTH, parsePrUrl, type ParsedPrUrl } from './pr-url';
+import {
+  PR_URL_MAX_LENGTH,
+  extractGhPrCreateUrl,
+  parsePrUrl,
+  type GhPrCreateToolUse,
+  type ParsedPrUrl,
+} from './pr-url';
 
 const CANONICAL = 'https://github.com/Hive-Academy/ptah-extension/pull/614';
 const GITHUB_PR: ParsedPrUrl = {
@@ -109,6 +115,149 @@ describe('parsePrUrl', () => {
       const url = prefix + 'a'.repeat(PR_URL_MAX_LENGTH - prefix.length);
       expect(url).toHaveLength(PR_URL_MAX_LENGTH);
       expect(parsePrUrl(url)).toEqual({ url, repo: null, number: null });
+    });
+  });
+});
+
+describe('extractGhPrCreateUrl', () => {
+  const CREATE = 'gh pr create --title "Fix" --body "Body"';
+  const OUTPUT = `Creating pull request for feat/x into main\n\n${CANONICAL}\n`;
+
+  function toolUse(
+    overrides: Partial<GhPrCreateToolUse> = {},
+  ): GhPrCreateToolUse {
+    return {
+      toolName: 'Bash',
+      toolInput: { command: CREATE },
+      toolOutput: OUTPUT,
+      success: true,
+      ...overrides,
+    };
+  }
+
+  describe('captures the created PR', () => {
+    it.each<[string, Partial<GhPrCreateToolUse>, string, 'open' | 'draft']>([
+      ['string output', {}, CANONICAL, 'open'],
+      [
+        'object output (stringified)',
+        { toolOutput: { stdout: OUTPUT, stderr: '', exit_code: 0 } },
+        CANONICAL,
+        'open',
+      ],
+      [
+        '--draft',
+        { toolInput: { command: `${CREATE} --draft` } },
+        CANONICAL,
+        'draft',
+      ],
+      [
+        '--draft=true',
+        { toolInput: { command: 'gh pr create --draft=true -f' } },
+        CANONICAL,
+        'draft',
+      ],
+      [
+        '--draft=false',
+        { toolInput: { command: 'gh pr create --draft=false -f' } },
+        CANONICAL,
+        'open',
+      ],
+      [
+        '--draft=0',
+        { toolInput: { command: 'gh pr create --fill --draft=0' } },
+        CANONICAL,
+        'open',
+      ],
+      [
+        '-d (short flag) is not read as draft',
+        { toolInput: { command: 'gh pr create -d --fill' } },
+        CANONICAL,
+        'open',
+      ],
+      [
+        'multiple URLs: the first PR URL wins',
+        {
+          toolOutput: `${CANONICAL}\nhttps://github.com/o/r/pull/2\n`,
+        },
+        CANONICAL,
+        'open',
+      ],
+      [
+        'a non-PR GitHub URL before the PR URL is skipped',
+        {
+          toolOutput: `see https://github.com/o/r/issues/5\n${CANONICAL}`,
+        },
+        CANONICAL,
+        'open',
+      ],
+      [
+        'the command is part of a chain',
+        { toolInput: { command: `git push -u origin feat/x && ${CREATE}` } },
+        CANONICAL,
+        'open',
+      ],
+      [
+        'a non-canonical URL is canonicalized by parsePrUrl',
+        {
+          toolOutput:
+            'https://www.GitHub.com/Hive-Academy/ptah-extension/pull/614',
+        },
+        CANONICAL,
+        'open',
+      ],
+    ])('%s', (_label, overrides, url, state) => {
+      expect(extractGhPrCreateUrl(toolUse(overrides))).toEqual({ url, state });
+    });
+  });
+
+  describe('captures nothing', () => {
+    it.each<[string, Partial<GhPrCreateToolUse>]>([
+      ['failed exit', { success: false }],
+      ['non-Bash tool', { toolName: 'Edit' }],
+      [
+        'gh pr view output',
+        { toolInput: { command: 'gh pr view 614 --json url' } },
+      ],
+      [
+        'a command that only mentions the words',
+        { toolInput: { command: 'echo "run ghx pr create later"' } },
+      ],
+      ['no PR URL in the output', { toolOutput: 'pull request create failed' }],
+      [
+        'a GitHub issue URL only',
+        { toolOutput: 'https://github.com/o/r/issues/5' },
+      ],
+      ['an http URL only', { toolOutput: 'http://github.com/o/r/pull/1' }],
+      ['undefined output', { toolOutput: undefined }],
+      ['null output', { toolOutput: null }],
+      ['tool input without a command', { toolInput: { cmd: CREATE } }],
+      ['tool input that is not an object', { toolInput: CREATE }],
+      ['tool input null', { toolInput: null }],
+    ])('%s', (_label, overrides) => {
+      expect(extractGhPrCreateUrl(toolUse(overrides))).toBeNull();
+    });
+
+    it.each<[string, unknown]>([
+      ['null', null],
+      ['undefined', undefined],
+      ['a string', 'gh pr create'],
+      ['a number', 42],
+    ])('returns null without throwing for a %s payload', (_label, payload) => {
+      const call = () =>
+        extractGhPrCreateUrl(payload as GhPrCreateToolUse | null | undefined);
+
+      expect(call).not.toThrow();
+      expect(call()).toBeNull();
+    });
+
+    it('does not throw on an output JSON cannot serialize', () => {
+      const cyclic: Record<string, unknown> = { stdout: CANONICAL };
+      cyclic['self'] = cyclic;
+
+      expect(() =>
+        extractGhPrCreateUrl(toolUse({ toolOutput: cyclic })),
+      ).not.toThrow();
+      expect(extractGhPrCreateUrl(toolUse({ toolOutput: cyclic }))).toBeNull();
     });
   });
 });

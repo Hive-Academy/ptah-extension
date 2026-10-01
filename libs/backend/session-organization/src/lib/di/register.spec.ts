@@ -31,6 +31,9 @@ function withHostDependencies(options: {
   c.register(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY, {
     useValue: { register: jest.fn(() => () => undefined) },
   });
+  c.register(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY, {
+    useValue: { register: jest.fn(() => () => undefined) },
+  });
   c.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, {
     useValue: createMockOutputChannel(),
   });
@@ -51,6 +54,7 @@ describe('registerSessionOrganizationServices', () => {
       c.isRegistered(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER, true),
     ).toBe(false);
     expect(c.isRegistered(SessionOrganizationCaptureService, true)).toBe(false);
+    expect(c.isRegistered(SessionOrganizationService, true)).toBe(false);
   });
 
   it('binds store, service, capture service and recorder with the connection', () => {
@@ -82,6 +86,7 @@ describe('registerSessionOrganizationServices', () => {
       service,
     );
     expect(c.resolve(SESSION_ORGANIZATION_TOKENS.SERVICE)).toBe(service);
+    expect(c.resolve(SessionOrganizationService)).toBe(service);
     expect(c.resolve(SESSION_ORGANIZATION_TOKENS.STORE)).toBe(
       c.resolve(SESSION_ORGANIZATION_TOKENS.STORE),
     );
@@ -98,11 +103,15 @@ describe('registerSessionOrganizationServices', () => {
     const registry = c.resolve<{ register: jest.Mock }>(
       SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY,
     );
+    const postToolUse = c.resolve<{ register: jest.Mock }>(
+      SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY,
+    );
 
     registerSessionOrganizationServices(c);
     c.resolve(SessionOrganizationCaptureService);
 
     expect(metadata.onMetadataChanged).not.toHaveBeenCalled();
     expect(registry.register).not.toHaveBeenCalled();
+    expect(postToolUse.register).not.toHaveBeenCalled();
   });
 });

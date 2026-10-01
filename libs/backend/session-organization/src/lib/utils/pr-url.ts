@@ -12,7 +12,11 @@
  *    canonical form is what keeps one PR from being stored twice;
  *  - any other `https:` URL (any host is allowed for manual links) is kept
  *    trimmed and otherwise unchanged, with `repo` and `number` null.
+ *
+ * `extractGhPrCreateUrl` (lane L7) finds the PR a `gh pr create` call created
+ * and canonicalizes it through `parsePrUrl` — there is one canonicalizer.
  */
+import type { SessionPrState } from '@ptah-extension/shared';
 
 /** Longest PR URL accepted, in characters. */
 export const PR_URL_MAX_LENGTH = 2048;
@@ -63,6 +67,82 @@ export function parsePrUrl(raw: unknown): ParsedPrUrl | null {
   const github = matchGithubPr(parsed);
   if (github) return github;
   return { url: trimmed, repo: null, number: null };
+}
+
+/** The PostToolUse fields {@link extractGhPrCreateUrl} reads. */
+export interface GhPrCreateToolUse {
+  readonly toolName: string;
+  readonly toolInput: unknown;
+  readonly toolOutput: unknown;
+  readonly success: boolean;
+}
+
+/** A PR that `gh pr create` reported creating. */
+export interface GhPrCreateCapture {
+  /** Canonical GitHub PR URL (from {@link parsePrUrl}). */
+  url: string;
+  state: Extract<SessionPrState, 'open' | 'draft'>;
+}
+
+/** `gh pr create` as a command word sequence, anywhere in a shell command. */
+const GH_PR_CREATE = /(?:^|[\s;&|(])gh\s+pr\s+create(?=\s|$|[;&|)])/;
+/**
+ * The `--draft` flag as its own word, bare or with a value (`--draft=true`).
+ * `--draft=false` and `--draft=0` turn it off, so they do not match.
+ */
+const DRAFT_FLAG = /(?:^|\s)--draft(?:=(?!(?:false|0)(?:\s|$))\S*)?(?=\s|$)/i;
+/** A GitHub PR URL candidate; {@link parsePrUrl} has the final word. */
+const GITHUB_PR_URL_CANDIDATE =
+  /https:\/\/(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/gi;
+
+/**
+ * Lane L7: the PR a successful `gh pr create` Bash call created, or null.
+ *
+ * Requires the `Bash` tool, a `command` containing `gh pr create`, and
+ * success. Takes the FIRST GitHub PR URL in the output (the string itself, or
+ * the JSON of a structured output) that {@link parsePrUrl} accepts as a GitHub
+ * PR, so capture and manual adds canonicalize the same way. `state` is
+ * `draft` when the command passes `--draft` (not `--draft=false`), else
+ * `open`. Pure; never throws: a null, undefined or non-object payload is null.
+ */
+export function extractGhPrCreateUrl(
+  payload: GhPrCreateToolUse | null | undefined,
+): GhPrCreateCapture | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  if (payload.toolName !== 'Bash' || payload.success !== true) return null;
+  const command = commandOf(payload.toolInput);
+  if (command === null || !GH_PR_CREATE.test(command)) return null;
+  const output = outputText(payload.toolOutput);
+  if (output === null) return null;
+  for (const [candidate] of output.matchAll(GITHUB_PR_URL_CANDIDATE)) {
+    const parsed = parsePrUrl(candidate);
+    if (parsed !== null && parsed.number !== null) {
+      return {
+        url: parsed.url,
+        state: DRAFT_FLAG.test(command) ? 'draft' : 'open',
+      };
+    }
+  }
+  return null;
+}
+
+function commandOf(toolInput: unknown): string | null {
+  if (typeof toolInput !== 'object' || toolInput === null) return null;
+  const command: unknown = (toolInput as Record<string, unknown>)['command'];
+  return typeof command === 'string' ? command : null;
+}
+
+function outputText(toolOutput: unknown): string | null {
+  if (typeof toolOutput === 'string') return toolOutput;
+  if (toolOutput === undefined || toolOutput === null) return null;
+  try {
+    return JSON.stringify(toolOutput) ?? null;
+  } catch {
+    // degradation-audit: optional-capability - PR capture is best-effort: an
+    // output that cannot be serialized (a cycle, a BigInt) carries no URL we
+    // could read, so the call simply links no PR.
+    return null;
+  }
 }
 
 function matchGithubPr(parsed: URL): ParsedPrUrl | null {

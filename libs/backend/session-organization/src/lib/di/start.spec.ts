@@ -15,10 +15,12 @@ import {
 } from '@ptah-extension/platform-core/testing';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import {
+  PostToolUseCallbackRegistry,
   SDK_TOKENS,
   SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { createMockLogger } from '@ptah-extension/shared/testing';
+import { SessionOrganizationCaptureService } from '../session-organization-capture.service';
 import { registerSessionOrganizationServices } from './register';
 import { startSessionOrganization } from './start';
 
@@ -26,20 +28,23 @@ interface Harness {
   c: DependencyContainer;
   output: MockOutputChannel;
   registry: SessionIdResolvedCallbackRegistry;
+  postToolUse: PostToolUseCallbackRegistry;
   metadataRelease: jest.Mock;
   onMetadataChanged: jest.Mock;
 }
+
+type RegistryLogger = ConstructorParameters<
+  typeof SessionIdResolvedCallbackRegistry
+>[0];
 
 function harness(
   options: { connection?: boolean; metadataThrows?: boolean } = {},
 ): Harness {
   const c = rootContainer.createChildContainer();
   const output = createMockOutputChannel();
-  const registry = new SessionIdResolvedCallbackRegistry(
-    createMockLogger() as unknown as ConstructorParameters<
-      typeof SessionIdResolvedCallbackRegistry
-    >[0],
-  );
+  const logger = createMockLogger() as unknown as RegistryLogger;
+  const registry = new SessionIdResolvedCallbackRegistry(logger);
+  const postToolUse = new PostToolUseCallbackRegistry(logger);
   const metadataRelease = jest.fn();
   const onMetadataChanged = jest.fn(() => {
     if (options.metadataThrows) throw new Error('metadata store offline');
@@ -56,9 +61,19 @@ function harness(
   c.register(SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY, {
     useValue: registry,
   });
+  c.register(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY, {
+    useValue: postToolUse,
+  });
   c.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, { useValue: output });
   registerSessionOrganizationServices(c);
-  return { c, output, registry, metadataRelease, onMetadataChanged };
+  return {
+    c,
+    output,
+    registry,
+    postToolUse,
+    metadataRelease,
+    onMetadataChanged,
+  };
 }
 
 describe('startSessionOrganization', () => {
@@ -69,6 +84,7 @@ describe('startSessionOrganization', () => {
 
     expect(h.onMetadataChanged).toHaveBeenCalledTimes(1);
     expect(h.registry.size).toBe(1);
+    expect(h.postToolUse.size).toBe(1);
     expect(h.output.__state.lines).toEqual([]);
   });
 
@@ -80,6 +96,23 @@ describe('startSessionOrganization', () => {
 
     expect(h.metadataRelease).toHaveBeenCalledTimes(1);
     expect(h.registry.size).toBe(0);
+    expect(h.postToolUse.size).toBe(0);
+  });
+
+  it('reports one line and never throws when releasing the subscriptions throws', () => {
+    const h = harness();
+    const handle = startSessionOrganization(h.c);
+    jest
+      .spyOn(h.c.resolve(SessionOrganizationCaptureService), 'dispose')
+      .mockImplementation(() => {
+        throw new Error('release failed');
+      });
+
+    expect(() => handle.dispose()).not.toThrow();
+
+    expect(h.output.__state.lines).toEqual([
+      '[SessionOrganization] capture dispose failed (non-fatal): release failed',
+    ]);
   });
 
   it('logs one line and returns a disposable when the lib was not registered', () => {

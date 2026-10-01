@@ -38,21 +38,34 @@ export function startSessionOrganization(
   if (!container.isRegistered(SessionOrganizationCaptureService, true)) {
     report(
       container,
-      'capture not started: not registered (no SQLite connection)',
+      'capture not started: the capture service is not registered in this container',
     );
     return NOOP_DISPOSABLE;
   }
   try {
     const capture = container.resolve(SessionOrganizationCaptureService);
     capture.start();
-    return { dispose: () => capture.dispose() };
+    return { dispose: () => disposeCapture(container, capture) };
   } catch (error: unknown) {
-    report(
-      container,
-      `capture not started (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
-    );
+    report(container, `capture not started (non-fatal): ${describe(error)}`);
     return NOOP_DISPOSABLE;
   }
+}
+
+/** Release the subscriptions; a failure is reported, never thrown into host shutdown. */
+function disposeCapture(
+  container: DependencyContainer,
+  capture: SessionOrganizationCaptureService,
+): void {
+  try {
+    capture.dispose();
+  } catch (error: unknown) {
+    report(container, `capture dispose failed (non-fatal): ${describe(error)}`);
+  }
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Write one line to the output channel, if the host has one. Never throws. */

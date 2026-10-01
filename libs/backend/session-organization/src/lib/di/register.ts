@@ -4,14 +4,16 @@
  * Pre-conditions (registered by the SDK and the platform before this lib in
  * both hosts):
  *  - `PERSISTENCE_TOKENS.SQLITE_CONNECTION` (persistence-sqlite);
- *  - `SDK_TOKENS.SDK_SESSION_METADATA_STORE` and
- *    `SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY` (agent-sdk);
+ *  - `SDK_TOKENS.SDK_SESSION_METADATA_STORE`,
+ *    `SDK_TOKENS.SDK_SESSION_ID_RESOLVED_CALLBACK_REGISTRY` and
+ *    `SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY` (agent-sdk);
  *  - `PLATFORM_TOKENS.OUTPUT_CHANNEL` (platform-core).
  *
  * Post-conditions, only when the SQLite connection token is registered:
  *  - store, service and capture service resolve as singletons;
- *  - `PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER` resolves to the SAME
- *    service instance as `SESSION_ORGANIZATION_TOKENS.SERVICE` (`useToken`),
+ *  - `PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER` and the
+ *    `SessionOrganizationService` class resolve to the SAME service instance
+ *    as `SESSION_ORGANIZATION_TOKENS.SERVICE` (`useToken`),
  *    so the port the producers write through and the API the RPC handlers
  *    read through share one change stream.
  *
@@ -43,6 +45,11 @@ export function registerSessionOrganizationServices(
     SESSION_ORGANIZATION_TOKENS.SERVICE,
     SessionOrganizationService,
   );
+  // The class itself aliases the SERVICE singleton too, so resolving by class
+  // can never build a second instance with its own change stream.
+  container.register(SessionOrganizationService, {
+    useToken: SESSION_ORGANIZATION_TOKENS.SERVICE,
+  });
   container.register(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER, {
     useToken: SESSION_ORGANIZATION_TOKENS.SERVICE,
   });
