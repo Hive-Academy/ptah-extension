@@ -220,4 +220,69 @@ describe('parseWorktreeList', () => {
     expect(wt.head).toBe('');
     expect(wt.branch).toBe('main');
   });
+
+  describe('locked and prunable labels', () => {
+    const main = [
+      'worktree /repo',
+      'HEAD aaaaaaaabbbbbbbb',
+      'branch refs/heads/main',
+    ];
+
+    it('leaves both labels absent on an ordinary worktree', () => {
+      const [wt] = parseWorktreeList(main.join('\n'));
+      expect(wt).not.toHaveProperty('locked');
+      expect(wt).not.toHaveProperty('lockReason');
+      expect(wt).not.toHaveProperty('prunable');
+      expect(wt).not.toHaveProperty('prunableReason');
+    });
+
+    it('reads a bare `locked` line without a reason', () => {
+      const output = [
+        ...main,
+        '',
+        'worktree /repo/.claude-worktrees/a',
+        'HEAD ccccccccdddddddd',
+        'branch refs/heads/a',
+        'locked',
+      ].join('\n');
+      const [, wt] = parseWorktreeList(output);
+      expect(wt.locked).toBe(true);
+      expect(wt).not.toHaveProperty('lockReason');
+    });
+
+    it('reads `locked <reason>` and `prunable <reason>` verbatim from NUL output', () => {
+      const output = [
+        ...main,
+        '',
+        'worktree /repo/.claude-worktrees/a',
+        'HEAD ccccccccdddddddd',
+        'detached',
+        'locked on a\nremovable drive',
+        'prunable gitdir file points to non-existent location',
+        '',
+        '',
+      ].join('\0');
+      const [first, wt] = parseWorktreeList(output);
+      expect(first.locked).toBeUndefined();
+      expect(wt).toMatchObject({
+        branch: 'HEAD (detached)',
+        locked: true,
+        lockReason: 'on a\nremovable drive',
+        prunable: true,
+        prunableReason: 'gitdir file points to non-existent location',
+      });
+    });
+
+    it('does not mistake a path containing "locked" for the label', () => {
+      const output = [
+        'worktree /repo/locked prunable',
+        'HEAD aaaaaaaabbbbbbbb',
+        'branch refs/heads/main',
+      ].join('\n');
+      const [wt] = parseWorktreeList(output);
+      expect(wt.path).toBe('/repo/locked prunable');
+      expect(wt.locked).toBeUndefined();
+      expect(wt.prunable).toBeUndefined();
+    });
+  });
 });

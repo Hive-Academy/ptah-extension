@@ -129,7 +129,7 @@ export interface GitInfoResult {
 }
 
 /** Parameters for git:worktrees RPC method */
-export type GitWorktreesParams = Record<string, never>;
+export type GitWorktreesParams = GitWorkspaceScopedParams;
 
 /** Single worktree entry */
 export interface GitWorktreeInfo {
@@ -143,6 +143,17 @@ export interface GitWorktreeInfo {
   isMain: boolean;
   /** Whether the worktree is bare */
   isBare: boolean;
+  /** Set when `git worktree lock` protects this worktree from prune and remove. */
+  locked?: boolean;
+  /** The reason given to `git worktree lock --reason`, when there is one. */
+  lockReason?: string;
+  /**
+   * Set when git reports the worktree's directory is gone (for example
+   * deleted with `rm -rf`), so `git worktree prune` would drop its entry.
+   */
+  prunable?: boolean;
+  /** Git's explanation of why the worktree is prunable. */
+  prunableReason?: string;
 }
 
 /** Response from git:worktrees RPC method */
@@ -151,7 +162,7 @@ export interface GitWorktreesResult {
 }
 
 /** Parameters for git:addWorktree RPC method */
-export interface GitAddWorktreeParams {
+export interface GitAddWorktreeParams extends GitWorkspaceScopedParams {
   /** Branch name to checkout in the new worktree */
   branch: string;
   /** Optional custom path for the worktree directory. */
@@ -180,7 +191,7 @@ export interface GitAddWorktreeResult {
 }
 
 /** Parameters for git:removeWorktree RPC method */
-export interface GitRemoveWorktreeParams {
+export interface GitRemoveWorktreeParams extends GitWorkspaceScopedParams {
   /** Absolute path to the worktree to remove */
   path: string;
   /** Whether to force removal (--force flag) */

@@ -7,7 +7,6 @@
 
 import * as path from 'path';
 import { readFile, stat as readStat } from 'fs/promises';
-import { resolveWorktreePath } from '../utils/worktree-path';
 import { createHash } from 'crypto';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { Logger } from '../logging';
@@ -18,13 +17,11 @@ import {
   GitTimeoutError,
   isIndexLockFailure,
   GIT_STATUS_MAX_OUTPUT_BYTES,
-  WORKTREE_GIT_TIMEOUT_MS,
   type ExecGitOptions,
   type ExecGitResult,
   type ExecGitBufferResult,
 } from '../utils/exec-git';
 import {
-  parseWorktreeList,
   type GitFileStatus,
   type GitInfoResult,
   type GitStatusUnavailableReason,
@@ -74,6 +71,7 @@ import { parseStatusV2Z } from './git/git-status-parser';
 import { GitRepoWriteLock } from './git/git-write-lock';
 import { GitCommitRunner } from './git/git-commit-runner';
 import { GitRemoteSync } from './git/git-remote-sync';
+import { AgentWorktreeAdmin } from './git/agent-worktree-admin';
 import { thrownOutcome, writeOutcome } from './git/git-mutation-outcome';
 import { assertSafeRef, assertSafeRevision } from './git/git-ref-guard';
 
@@ -192,8 +190,8 @@ function positionalArgs(args: readonly string[]): string[] {
  * Read commands MUST answer `false` or they invalidate the very entry they were
  * about to populate — which is why the allowlist below is exactly the set of
  * verbs this service spawns on its read paths, plus the read-only plumbing
- * (`rev-list`, `cat-file`, `ls-files`, `ls-tree`, `merge-base`) that has no
- * writing form at all.
+ * (`rev-list`, `cat-file`, `ls-files`, `ls-tree`, `merge-base`,
+ * `check-ignore`) that has no writing form at all.
  *
  * Four verbs are read-only only in some forms and are told apart by their
  * arguments rather than being trusted wholesale:
@@ -229,6 +227,7 @@ export function isMutatingGitCommand(argv: readonly string[]): boolean {
     case 'ls-files':
     case 'ls-tree':
     case 'merge-base':
+    case 'check-ignore':
       return false;
     case 'stash':
       return sub !== 'list' && sub !== 'show';
@@ -429,7 +428,9 @@ interface ReadFlight {
  * **Write lock (TASK_2026_576 RC6).** Stage, unstage, discard, commit,
  * checkout, applyHunks, stash apply/pop/drop and pull each run as ONE
  * `writeLock.run()` body per repository — its reads, its writes and its
- * rollback. Push, fetch and worktree commands are not locked. Two invariants
+ * rollback. Push, fetch and `worktree add`/`remove` are not locked;
+ * `worktree prune` and the agent-worktree exclude write are (see
+ * `AgentWorktreeAdmin`). Two invariants
  * every locked body keeps:
  * - it calls only private helpers and read methods, never another locked
  *   public method (a nested `run` throws `GitReentrantLockError`);
@@ -446,6 +447,7 @@ export class GitInfoService {
   });
   private readonly commitRunner: GitCommitRunner;
   private readonly remoteSync: GitRemoteSync;
+  private readonly worktreeAdmin: AgentWorktreeAdmin;
 
   /**
    * @param spawner Optional `IProcessSpawner`. When a host supplies one, every
@@ -471,6 +473,7 @@ export class GitInfoService {
     };
     this.commitRunner = new GitCommitRunner(deps);
     this.remoteSync = new GitRemoteSync(deps);
+    this.worktreeAdmin = new AgentWorktreeAdmin(deps);
   }
 
   /**
@@ -804,109 +807,47 @@ export class GitInfoService {
     return this.reviewReader.reviewFile(workspacePath, request);
   }
 
+  /**
+   * `git worktree list`, with each entry's `locked`/`prunable` labels. See
+   * {@link AgentWorktreeAdmin}.
+   */
   async getWorktrees(workspacePath: string): Promise<GitWorktreeInfo[]> {
-    try {
-      const { stdout, exitCode } = await this.execGit(
-        ['worktree', 'list', '--porcelain', '-z'],
-        workspacePath,
-        { timeoutMs: WORKTREE_GIT_TIMEOUT_MS },
-      );
-
-      if (exitCode !== 0) {
-        return [];
-      }
-
-      return parseWorktreeList(stdout);
-    } catch (error) {
-      this.logger.error('[GitInfoService] getWorktrees failed', {
-        workspacePath,
-        error: error instanceof Error ? error.message : String(error),
-      } as unknown as Error);
-      return [];
-    }
+    return this.worktreeAdmin.list(workspacePath);
   }
 
+  /**
+   * `git worktree add`. A target under `<workspace>/.claude-worktrees/` also
+   * gets that directory excluded in `info/exclude` (once; a failure there is
+   * warned and does not fail the add).
+   */
   async addWorktree(
     workspacePath: string,
     params: { branch: string; path?: string; createBranch?: boolean },
   ): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
-    try {
-      assertSafeRef(params.branch);
-    } catch {
-      return { success: false, error: 'Invalid branch name' };
-    }
-    try {
-      const worktreePath = resolveWorktreePath(
-        workspacePath,
-        params.branch,
-        params.path,
-      );
-
-      // `-b` binds the branch as its value; `--end-of-options` keeps the
-      // positional path and branch from being read as options.
-      const args = ['worktree', 'add'];
-      if (params.createBranch) {
-        args.push('-b', params.branch, '--end-of-options', worktreePath);
-      } else {
-        args.push('--end-of-options', worktreePath, params.branch);
-      }
-
-      const { exitCode, stderr } = await this.execGit(args, workspacePath, {
-        timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
-      });
-
-      if (exitCode !== 0) {
-        return {
-          success: false,
-          error: stderr.trim() || 'Failed to add worktree',
-        };
-      }
-
-      return { success: true, worktreePath };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error('[GitInfoService] addWorktree failed', {
-        workspacePath,
-        branch: params.branch,
-        error: message,
-      } as unknown as Error);
-      return { success: false, error: message };
-    }
+    return this.worktreeAdmin.add(workspacePath, params);
   }
 
+  /**
+   * `git worktree remove [--force] -- <path>`. A forced removal of a locked
+   * worktree is refused.
+   */
   async removeWorktree(
     workspacePath: string,
     worktreePath: string,
     force?: boolean,
   ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const args = ['worktree', 'remove'];
-      if (force) {
-        args.push('--force');
-      }
-      args.push('--', worktreePath);
+    return this.worktreeAdmin.remove(workspacePath, worktreePath, force);
+  }
 
-      const { exitCode, stderr } = await this.execGit(args, workspacePath, {
-        timeoutMs: WORKTREE_GIT_TIMEOUT_MS,
-      });
-
-      if (exitCode !== 0) {
-        return {
-          success: false,
-          error: stderr.trim() || 'Failed to remove worktree',
-        };
-      }
-
-      return { success: true };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.error('[GitInfoService] removeWorktree failed', {
-        workspacePath,
-        worktreePath,
-        error: message,
-      } as unknown as Error);
-      return { success: false, error: message };
-    }
+  /** `git worktree prune`: drop the admin entries of vanished worktrees. */
+  async pruneWorktrees(
+    workspacePath: string,
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    code?: GitMutationFailureCode;
+  }> {
+    return this.worktreeAdmin.prune(workspacePath);
   }
 
   /**
