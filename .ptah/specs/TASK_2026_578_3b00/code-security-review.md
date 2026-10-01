@@ -259,3 +259,80 @@ Verification run:
   1. Abort the retirement pass when `this.registry` is null (fail-safe like registry read failure).
   2. Guard against file deletion before transaction confirmation (two-phase status transition or DB-first locking).
   3. Case-insensitive slug normalization for `exemptSlugs`.
+
+---
+
+### Batch 7 re-review
+
+Re-review of `libs/backend/skill-synthesis/src/lib/lifecycle/skill-retirement.service.ts` and its `.spec.ts` after the fix-up. The original reviewer was unavailable; this pass takes over the earlier `## Batch 7` verdict (NEEDS_REVISION, 6/10).
+
+Verification run: `npx nx run @ptah-extension/skill-synthesis:test --maxWorkers=2 --testFile=skill-retirement` → **22 passed** (was 15 at the original review).
+
+#### Status of the earlier findings
+
+**SERIOUS 1 — Unbound registry bypasses `authored`/`diverged` exemption: RESOLVED.**
+
+- `readExemptSlugs()` now returns `null` when no registry is bound, with a warn (`skill-retirement.service.ts:335-339`), and `run()` skips the whole pass with `skippedReason: 'registry-unavailable'` (`skill-retirement.service.ts:111-114`). An unreadable registry was already `null` (`:354-359`), so both unbound and read-failure now fail closed identically.
+- Spec evidence: `'skips the pass when no registry is bound (fails closed)'` (`skill-retirement.service.spec.ts:450-471`) asserts no dormancy, no retirement, directories kept, and the warn. `'skips the pass when the registry cannot be read'` (`:561-572`) covers the read-failure twin.
+- Reachability confirmed as test-only: `SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE` is registered unconditionally in `registerSkillSynthesisServices` (`di/register.ts:151-153`), and `register.spec.ts:35-44` fails if any declared token goes unwired. The `registry === null` path requires manual construction outside the real composition.
+- Note (not a finding): this deviates from the plan's stated failure behaviour ("a missing registry means pinned-only exemption, after a warn", `implementation-plan.md:791-792`) toward fail-closed. The deviation is deliberate and strictly safer: without knowing which skills the user owns, running the sweep risks deleting authored content, and dormancy transitions on such a host are an acceptable casualty. The `skippedReason` field (`:68`, `:113`) makes the skip observable to callers.
+
+**SERIOUS 2 — Directory deletion before the DB transaction: REDUCED TO MODERATE.**
+
+- The orchestrator kept the approved folder-first order (`implementation-plan.md:741-749`: crash self-heal — `rmSync` with `force` is idempotent, the DB move retries next pass). I accept the stated reason for rejecting DB-first: a failed `rmSync` after the row left `'promoted'` leaves an orphan folder **no later pass ever finds**, because retirement only visits `status = 'promoted'` rows (`skill-candidate.store.ts:615`). That is a permanent orphan; folder-first's failure mode (promoted row, missing folder) self-heals on the next pass.
+- The added re-check `stillRetirable()` (`skill-retirement.service.ts:269-290`) runs immediately before `removeActiveDir`: it re-reads the row via `store.findById` (still `'promoted'`, not pinned, `:270-272`) and re-reads the registry via `listAll` (slug not `authored`/`diverged`, case-insensitive, `:273-275`). A failed check logs and skips with nothing deleted (`:276-287`). Spec evidence: `'decided-meanwhile'` (`spec.ts:412-429`) and `'diverged-meanwhile'` (`spec.ts:431-448`).
+- The DB side remains fully guarded: `rejectIfStatus` is a compare-and-set on `status = 'promoted'` (`skill-candidate.store.ts:684-698`), and `registry.remove` only deletes `clone_status = 'synth'` rows (`skill-registry.store.ts:196-208`), so no concurrent writer's DB state can be corrupted by a lost race — the loser writes nothing (`:255-261`, spec `:269-282`).
+- **The remaining window, precisely.** Between `stillRetirable`'s two reads returning and `fs.rmSync(dir, …)` completing at `skill-retirement.service.ts:319`, a concurrent writer on the same SQLite connection (a second sweep in another process sharing the DB, the accept path, a pin, or a user edit landing in that window) can change state that the re-check will not see:
+  - **Row decided or pinned** → the folder is deleted anyway; `rejectIfStatus` loses; the row survives in its new state without its directory. If the concurrent decision was a merge-accept, its own `removeMaterializations` would have removed the folder anyway (benign overlap). If the row was rejected with another reason, it is no longer `'promoted'`, so **no later pass retires it and the DB move never self-heals** — that is the residual irreducible loss case. If it was pinned, the row stays `'promoted'` and the next pass re-runs the whole unit (self-heal).
+  - **Registry row turned `authored`/`diverged`** → the folder — now user-owned content — is deleted; the row is still rejected (the compare-and-set only checks status); the guarded `registry.remove` keeps the `authored`/`diverged` registry row, so the ownership record survives but the content does not. This is the sharpest residual.
+  - Both require a write landing inside a window bounded by the two reads plus the recursive `rmSync` (typically low ms; more under I/O load). The pre-fix window spanned the **entire sweep** since the single snapshot at `:111`. Shrinking it by 3–4 orders of magnitude, on a code path whose DB half was never corruptible and whose crash half self-heals, takes this out of SERIOUS: the pre-fix finding was "whole-sweep window plus DB corruption on loss"; what remains is a millisecond-scale race with a concurrent writer that needs to land in exactly that gap.
+- Verdict: MODERATE. Closing it fully would need a two-phase status (e.g. a `'retiring'` state written in a transaction before `rmSync`, reconciled next pass), which is a design change beyond this fix-up and not warranted by the residual probability.
+
+**MODERATE — TOCTOU between the exemption snapshot and retirement: RESOLVED.**
+
+Covered by the same re-check: `retire()` re-reads the registry through `stillRetirable` before any deletion (`skill-retirement.service.ts:242`, `:273-275`). The spec case `'diverged-meanwhile'` (`spec.ts:431-448`) flips the registry row to `diverged` after the pass's first `listAll` and proves the directory is kept. Only the millisecond residual window of SERIOUS 2 remains.
+
+**MODERATE — Case-sensitive slug lookup misses exemptions: RESOLVED.**
+
+`entry.slug` is lowercased when the set is built (`skill-retirement.service.ts:352`) and both lookups use `row.name.toLowerCase()` (`:133` in `run()`, `:275` in `stillRetirable`). Spec case `'exempts a row whose registry slug differs only in case'` (`spec.ts:399-410`, registry row `'My-Skill'`, candidate `'my-skill'`) proves the exemption holds. One residual, filed as MINOR below: the cleanup `registry.remove` call is not case-normalized.
+
+**MINOR — Lexical `path.resolve` without symlink canonicalization: OPEN (accepted).**
+
+Unchanged, as declared. The check still fails closed: a symlink/junction mismatch between `activeRoot()` and `bodyPath` produces `..`-prefixed or absolute `relative` and the directory is kept (`skill-retirement.service.ts:300-317`). No deletion occurs through a false positive; the cost is a skill that is never retired. Remaining at MINOR is correct.
+
+#### New findings
+
+**MINOR — `stillRetirable` does not re-check the idle clock.**
+
+- **File:** `libs/backend/skill-synthesis/src/lib/lifecycle/skill-retirement.service.ts:269-290`.
+- The re-check verifies status, pin and registry ownership, but not `lastUsedAt`: a `skill_invocation_events` row recorded between the sweep's snapshot (`listPromotedLastUse`, `skill-candidate.store.ts:604-623`) and `retire()` resets the idle clock without stopping the retirement. A skill used a moment ago — but idle ≥ N+M per the stale snapshot — has its directory deleted and its row rejected. Re-checking `MAX(invoked_at)` for the slug (or reusing `listPromotedLastUse`'s join for the single row) would close it.
+- Probability is low: the row must already be idle past the full retirement threshold and be invoked inside the sweep window. Recorded as residual, not blocking.
+
+**MINOR — `registry.remove` on retirement is not case-normalized.**
+
+- **File:** `libs/backend/skill-synthesis/src/lib/lifecycle/skill-retirement.service.ts:252`.
+- The guarded delete runs against the case-sensitive `(kind, slug)` PK with the raw `row.name`, while the exemption path is now case-insensitive. A `synth` registry row whose slug casing differs from the candidate slug (conceivable via catalog sync, which derives slugs from on-disk clone folder names, `skill-registry-catalog.service.ts:58-79`, e.g. after a hand rename on a case-insensitive filesystem) survives retirement as a stale row pointing at a rejected candidate and a removed `user_path`. Catalog sync is upsert-only, so nothing reaps it. Data-hygiene residue, not deletion of user content — and note `removeActiveDir`'s strict `basename === row.name` check (`:304`) means the mismatched-casing directory itself is never deleted, failing closed.
+
+**Note (no action):** `stillRetirable` calls `readExemptSlugs()` — a full `listAll` — once per retirement-due row. O(due × registry) reads per pass is negligible at expected scale (a daily sweep over tens of skills), and the unbound-registry warn cannot fire per-row because `run()` returns early at `:111-114`.
+
+#### R-f / R-f2 confirmation
+
+Both still hold. The transaction callback at `skill-retirement.service.ts:245-254` contains only `store.rejectIfStatus` (one plain UPDATE, `skill-candidate.store.ts:684-698`) and `registry?.remove` (one plain DELETE, `skill-registry.store.ts:196-208`) — neither opens its own transaction, satisfying R-f. There is no `catch` inside the callback; a throw propagates, rolls back the `BEGIN IMMEDIATE` unit, and reaches the per-row catch at `:146-157`, satisfying R-f2. Spec case `'leaves no partial write when the transaction throws mid-callback (R-f2)'` (`spec.ts:533-559`) proves the rollback (`status` back to `'promoted'`, registry row intact) and that the loop continues to the next row.
+
+#### Summary
+
+| Metric              | Value   |
+| ------------------- | ------- |
+| Overall score       | 8/10    |
+| Verdict             | APPROVED |
+| Blocking issues     | 0       |
+| Serious issues      | 0       |
+| Moderate issues     | 1       |
+| Minor issues        | 3       |
+
+Scoring rationale: one SERIOUS resolved outright (fail-closed registry, with the unconditional DI registration verified at `register.ts:151-153`), the other reduced to MODERATE on a documented, plan-approved ordering whose residual is a millisecond race rather than a whole-sweep window, and both MODERATEs resolved with spec evidence. The 8 rather than 9–10 is separated by the three residual MINORs — the idle-clock re-check gap, the case-sensitive registry cleanup, and the open symlink item — all of which fail closed or cost hygiene rather than data.
+
+- **Recommendation:** APPROVED
+- **Confidence:** HIGH
+- **Top residual risk:** a concurrent writer landing in the millisecond gap between `stillRetirable`'s reads and `rmSync` can still cost a directory the DB then declines to retire (or, sharpest, a just-turned-`diverged` skill's folder), bounded to that gap instead of the whole sweep.
+- **What a robust implementation would add:** a `'retiring'` two-phase status to close the deletion race entirely, an idle-clock re-check inside `stillRetirable`, and a case-insensitive registry cleanup on the retirement path.

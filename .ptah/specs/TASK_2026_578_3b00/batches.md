@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 5/14
+Total tasks: 44 | Batches: 14 | Complete: 6/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -614,7 +614,7 @@ Edge cases:
 - **Batch 5 ACCEPTED. Committed `985b14ccf`** (8 explicit paths, 4 production files + specs; hooks passed). Batch 7 files (`SS/lifecycle/skill-retirement.*`,
   `SS/di/*`) left unstaged.
 
-## Batch 6: Promotion entries and judge-panel gate — PENDING
+## Batch 6: Promotion entries and judge-panel gate — IN_PROGRESS
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lane x 1 (antigravity)
@@ -654,7 +654,7 @@ Edge cases:
 
 - Promotion and stage gate implemented with specs; tests + typecheck pass; reviewer accepted
 
-## Batch 7: SkillRetirementService — IN_PROGRESS
+## Batch 7: SkillRetirementService — COMPLETE (commit 8c8e05bdd)
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lane x 1 (antigravity)
@@ -664,7 +664,7 @@ Edge cases:
 - Tasks: 2 | Depends on: Batches 2, 3, 4
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
-### Task 7.1: Retirement service and acceptance-3 spec — IMPLEMENTED
+### Task 7.1: Retirement service and acceptance-3 spec — COMPLETE
 
 - Files: CREATE `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/lifecycle/skill-retirement.service.ts` and `.spec.ts`
 - Plan reference: implementation-plan.md:727-810
@@ -677,7 +677,7 @@ Edge cases:
   registry row, pinned 100d untouched, authored untouched, event at day 50 resets, outside path not deleted, invalid
   settings → defaults).
 
-### Task 7.2: DI token and registration — IMPLEMENTED
+### Task 7.2: DI token and registration — COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/di/tokens.ts`, `.../di/register.ts` (+ `register.spec.ts` if needed)
 - Implementation details: `SKILL_RETIREMENT_SERVICE`. R-i.
@@ -729,6 +729,35 @@ Deviation decisions:
    `MaterializedSkill` (not a row), only checks `startsWith(root + sep)` (no basename = slug rule), and sits in
    `skill-md-generator.ts`, a Batch 5 file under fix-up; depending on it would couple the Batch 7 commit to
    Batch 5. The stricter R-j check lives in one private method.
+
+### Batch 7 review verdict
+
+- Logic (Glm lane): APPROVED 8/10 — code-logic-review.md `## Batch 7`. M1 `listPromotedLastUse` throw escapes
+  `run()`; M2 no `skippedUncontained` counter; minor spec gaps.
+- Filesystem safety (antigravity lane): NEEDS_REVISION 6/10 — code-security-review.md `## Batch 7`. S1 unbound
+  registry exempted pinned only; S2 folder removed before the DB move; TOCTOU between snapshot and delete; letter
+  case of exempt slugs; symlink (minor).
+- Fix-up (same executor, 6 items): `readExemptSlugs` fails closed when no registry is bound, `run()` returns
+  `skippedReason: 'registry-unavailable'` (supersedes the pinned-only half of deviation 2 above;
+  `SKILL_REGISTRY_STORE` is registered unconditionally in `di/register.ts`, so only test hosts hit it);
+  `stillRetirable()` re-reads row + registry right before `removeActiveDir`; case-insensitive exempt lookup;
+  `readPromotedLastUse` wrapper (M1); `skippedUncontained` in the result (M2); extra specs (22 total).
+- Re-review (Glm, antigravity returned 503): APPROVED 8/10 — code-security-review.md `### Batch 7 re-review`. S1,
+  TOCTOU and letter case resolved; symlink accepted (fails closed); S2 reduced to MODERATE.
+- S2 decision (orchestrator): keep the plan's order, folder first then one transaction. Reason: DB-first leaves an
+  orphan live folder with no promoted owner after a failed `rmSync`, while folder-first self-heals (`rmSync` force
+  is idempotent; the next pass finishes the DB move).
+- Team-leader re-verification of the fix-up on disk: R-f/R-f2 still hold (`skill-retirement.service.ts:241-262`,
+  no catch inside the callback, per-row catch `:146-157`). Scoped re-runs: retirement 22/22, `di/register` 11/11,
+  typecheck (skip-nx-cache) success, degradation audit exit 0 (`skill-synthesis: 6 ok, baseline 6`).
+- Follow-ups for future-enhancements.md (MINOR, not fixed):
+  1. `stillRetirable` does not re-check `lastUsedAt`; an invocation between the pass snapshot and `rmSync` can
+     still retire a just-used skill.
+  2. `registry.remove('skill', row.name)` at `skill-retirement.service.ts:252` is not case-normalized, unlike the
+     exemption lookup.
+- Remaining risk (carried from deviation 1): rows whose directory name differs from `row.name` (suffixed `-2..-5`
+  or sanitized slugs, or every row after the skills-root setting changes) are never retired and warn every pass
+  (now counted in `skippedUncontained`) until Batch 6 / Task 9.3 align names with the materialized slug.
 
 ## Batch 8: SkillUmbrellaMergeService — PENDING
 
