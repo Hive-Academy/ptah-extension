@@ -81,6 +81,8 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_BACKLOG_PURGE_STATE_STORE: Symbol.for(
     'PtahSkillBacklogPurgeStateStore',
   ),
+  /** SkillRetirementService — usage-based dormancy and retirement sweep. */
+  SKILL_RETIREMENT_SERVICE: Symbol.for('PtahSkillRetirementService'),
   /** SkillClusterDedupService — cluster-centroid dedup for promoted skills. */
   SKILL_CLUSTER_DEDUP_SERVICE: Symbol.for('PtahSkillClusterDedupService'),
   /** SkillJudgeService — LLM-as-judge gate during promotion. */

@@ -16,6 +16,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.service';
 import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
 import { SkillBacklogPurgeStateStore } from '../lifecycle/skill-backlog-purge-state.store';
+import { SkillRetirementService } from '../lifecycle/skill-retirement.service';
 import { registerSkillSynthesisServices } from './register';
 import {
   PROVIDER_AUTH_RESOLVER_TOKEN,
@@ -88,6 +89,29 @@ describe('registerSkillSynthesisServices', () => {
     expect(
       SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_PURGE_STATE_STORE.description,
     ).toBe('PtahSkillBacklogPurgeStateStore');
+  });
+
+  it('resolves the retirement service token as a singleton', () => {
+    // The optional collaborators (registry, repropagation, workspace) resolve
+    // through the real registration; only the host-provided tokens are stubbed.
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    container.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    registerSkillSynthesisServices(container, stubLogger);
+
+    const service = container.resolve<SkillRetirementService>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_RETIREMENT_SERVICE,
+    );
+
+    expect(service).toBeInstanceOf(SkillRetirementService);
+    expect(
+      container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_RETIREMENT_SERVICE),
+    ).toBe(service);
+    expect(container.resolve(SkillRetirementService)).toBe(service);
+    expect(SKILL_SYNTHESIS_TOKENS.SKILL_RETIREMENT_SERVICE.description).toBe(
+      'PtahSkillRetirementService',
+    );
   });
 
   it('gives the queue and budget stores globally unique token descriptions', () => {
