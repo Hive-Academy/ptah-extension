@@ -503,7 +503,7 @@ describe('SkillGapCuratorService', () => {
             technologyFingerprint: 'ts',
             judgeScore: 8,
           });
-          h.suggestions.accept(accepted.id);
+          h.suggestions.accept(accepted.id, null);
 
           await h.curator.runDigest({ workspaceRoot: WORKSPACE });
 

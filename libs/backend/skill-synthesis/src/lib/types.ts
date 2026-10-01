@@ -502,6 +502,15 @@ export interface RegisterCandidateResult {
 /** Lifecycle states of a cluster-level skill suggestion. */
 export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
 
+/**
+ * One modular reference document shipped beside an umbrella skill's SKILL.md
+ * (`references/<name>.md`). Persisted as `skill_suggestions.references_json`.
+ */
+export interface SkillReference {
+  name: string;
+  body: string;
+}
+
 /** Row shape for `skill_suggestions`. */
 export interface SkillSuggestionRow {
   id: string;
@@ -516,9 +525,15 @@ export interface SkillSuggestionRow {
   status: SkillSuggestionStatus;
   createdAt: number;
   decidedAt: number | null;
+  /** Umbrella suggestion id that absorbed this row, or null when unmerged (`0051`). */
+  mergedInto: string | null;
+  /** Candidate id promoted when this suggestion was accepted, or null (`0051`). */
+  promotedCandidateId: string | null;
+  /** Reference documents for an umbrella; `[]` when none or unreadable (`0051`). */
+  references: SkillReference[];
 }
 
-/** Pre-insert shape for a new pending suggestion. */
+/** Pre-insert shape for a new suggestion. */
 export interface NewSuggestionInput {
   name: string;
   description: string;
@@ -528,4 +543,5 @@ export interface NewSuggestionInput {
   clusterSize: number;
   technologyFingerprint: string;
   judgeScore: number;
+  references?: SkillReference[];
 }

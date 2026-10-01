@@ -1231,7 +1231,7 @@ describe('SkillCuratorService', () => {
         accepted: true,
         filePath: '/a/suggested-skill/SKILL.md',
       });
-      expect(suggestionStore?.accept).toHaveBeenCalledWith('sug-1');
+      expect(suggestionStore?.accept).toHaveBeenCalledWith('sug-1', null);
       expect(repropagate).toHaveBeenCalledWith(
         'skill',
         'suggested-skill',

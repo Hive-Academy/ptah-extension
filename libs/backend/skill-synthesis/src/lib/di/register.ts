@@ -17,6 +17,7 @@ import { SkillCandidateStore } from '../skill-candidate.store';
 import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
 import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.service';
 import { SessionTranscriptLocator } from '../cleanup/session-transcript-locator';
+import { SkillBacklogPurgeStateStore } from '../lifecycle/skill-backlog-purge-state.store';
 import { SkillMdGenerator } from '../skill-md-generator';
 import { SkillPromotionService } from '../skill-promotion.service';
 import { SkillInvocationTracker } from '../skill-invocation-tracker';
@@ -68,6 +69,7 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillBacklogCleanupStore);
   container.registerSingleton(SessionTranscriptLocator);
   container.registerSingleton(SkillBacklogCleanupService);
+  container.registerSingleton(SkillBacklogPurgeStateStore);
   container.registerSingleton(SkillMdGenerator);
   container.registerSingleton(TrajectoryExtractor);
   container.registerSingleton(SkillClusterDedupService);
@@ -110,6 +112,9 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE, {
     useToken: SkillBacklogCleanupService,
+  });
+  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_PURGE_STATE_STORE, {
+    useToken: SkillBacklogPurgeStateStore,
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_PROMOTION_SERVICE, {
     useToken: SkillPromotionService,

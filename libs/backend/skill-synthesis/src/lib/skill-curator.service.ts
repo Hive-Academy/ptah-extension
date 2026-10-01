@@ -599,7 +599,7 @@ export class SkillCuratorService {
         );
       }
     }
-    this.suggestionStore.accept(id);
+    this.suggestionStore.accept(id, null);
     void settings;
     await this.repropagateAccepted(slug, origin);
     return { accepted: true, filePath };

@@ -3,32 +3,28 @@ import { SkillSuggestionStore } from './skill-suggestion.store';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
 import type { NewSuggestionInput } from './types';
+import {
+  resolveOpener,
+  type TestDatabase,
+} from './queue/queue-db.test-support';
 
 const sql0025SkillSuggestions =
   MIGRATIONS.find((m) => m.version === 25)?.sql ?? '';
+const sql0051SkillLifecycle =
+  MIGRATIONS.find((m) => m.version === 51)?.sql ?? '';
 
+const warn = jest.fn();
 const noopLogger = {
   debug: jest.fn(),
   info: jest.fn(),
-  warn: jest.fn(),
+  warn,
   error: jest.fn(),
 } as unknown as ConstructorParameters<typeof SkillSuggestionStore>[0];
 
-let nativeAvailable = false;
-let Database: (new (file: string) => unknown) | null = null;
-try {
-  require.resolve('better-sqlite3');
-  Database = require('better-sqlite3');
-  const probe = new (Database as new (f: string) => { close(): void })(
-    ':memory:',
-  );
-  probe.close();
-  nativeAvailable = true;
-} catch {
-  nativeAvailable = false;
-}
+// `better-sqlite3` if it loads in this runner, else the built-in `node:sqlite`.
+const opener = resolveOpener();
 
-const maybe = nativeAvailable ? describe : describe.skip;
+const maybe = opener ? describe : describe.skip;
 
 function newInput(
   overrides: Partial<NewSuggestionInput> = {},
@@ -47,11 +43,14 @@ function newInput(
 }
 
 maybe('SkillSuggestionStore', () => {
+  let db: TestDatabase;
+
+  beforeEach(() => warn.mockClear());
+
   function makeStore(): SkillSuggestionStore {
-    const db = new (Database as new (f: string) => { exec(s: string): void })(
-      ':memory:',
-    );
+    db = (opener as (file: string) => TestDatabase)(':memory:');
     db.exec(sql0025SkillSuggestions);
+    db.exec(sql0051SkillLifecycle);
     const connection = { db } as unknown as SqliteConnectionService;
     return new SkillSuggestionStore(noopLogger, connection);
   }
@@ -62,7 +61,195 @@ maybe('SkillSuggestionStore', () => {
     expect(row.status).toBe('pending');
     expect(row.memberCandidateIds).toEqual(['c1', 'c2']);
     expect(row.decidedAt).toBeNull();
+    expect(row.mergedInto).toBeNull();
+    expect(row.promotedCandidateId).toBeNull();
+    expect(row.references).toEqual([]);
     expect(store.findById(row.id)?.id).toBe(row.id);
+  });
+
+  describe('lineage (0051)', () => {
+    it('insert(dismissed) writes decided_at and the dismissed status', () => {
+      const store = makeStore();
+      const row = store.insert(newInput(), 'dismissed');
+      expect(row.status).toBe('dismissed');
+      expect(row.decidedAt).toBe(row.createdAt);
+      expect(store.listByStatus('pending')).toHaveLength(0);
+    });
+
+    it('insert(pending) leaves decided_at null', () => {
+      const store = makeStore();
+      const row = store.insert(newInput(), 'pending');
+      expect(row.status).toBe('pending');
+      expect(row.decidedAt).toBeNull();
+    });
+
+    it('round-trips references', () => {
+      const store = makeStore();
+      const references = [
+        { name: 'testing', body: '# Testing\nRun jest.' },
+        { name: 'lint', body: '# Lint\nRun eslint.' },
+      ];
+      const row = store.insert(newInput({ references }), 'pending');
+      expect(row.references).toEqual(references);
+      expect(store.findById(row.id)?.references).toEqual(references);
+    });
+
+    it('reads a corrupt references_json as [] and warns', () => {
+      const store = makeStore();
+      const row = store.insertPending(newInput());
+      db.prepare(
+        `UPDATE skill_suggestions SET references_json = ? WHERE id = ?`,
+      ).run('{not json', row.id);
+
+      const read = store.findById(row.id);
+
+      expect(read?.references).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('references_json is not valid JSON'),
+        expect.objectContaining({ id: row.id }),
+      );
+    });
+
+    it('reads a non-array references_json as [] and warns', () => {
+      const store = makeStore();
+      const row = store.insertPending(newInput());
+      db.prepare(
+        `UPDATE skill_suggestions SET references_json = ? WHERE id = ?`,
+      ).run('{"name":"x","body":"y"}', row.id);
+
+      expect(store.findById(row.id)?.references).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('not an array'),
+        expect.objectContaining({ id: row.id }),
+      );
+    });
+
+    it('drops malformed reference entries and keeps the valid ones', () => {
+      const store = makeStore();
+      const row = store.insertPending(newInput());
+      db.prepare(
+        `UPDATE skill_suggestions SET references_json = ? WHERE id = ?`,
+      ).run(
+        JSON.stringify([{ name: 'ok', body: 'b' }, { name: 1 }, 'x', null]),
+        row.id,
+      );
+
+      expect(store.findById(row.id)?.references).toEqual([
+        { name: 'ok', body: 'b' },
+      ]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('malformed entries'),
+        expect.objectContaining({ id: row.id, dropped: 3 }),
+      );
+    });
+
+    it('accept records the promoted candidate id', () => {
+      const store = makeStore();
+      const row = store.insertPending(newInput());
+      const accepted = store.accept(row.id, 'cand-42');
+      expect(accepted?.status).toBe('accepted');
+      expect(accepted?.promotedCandidateId).toBe('cand-42');
+    });
+
+    it('accept with null leaves promoted_candidate_id null', () => {
+      const store = makeStore();
+      const row = store.insertPending(newInput());
+      expect(store.accept(row.id, null)?.promotedCandidateId).toBeNull();
+    });
+
+    it('markMerged dismisses pending rows with merged_into and returns the count', () => {
+      const store = makeStore();
+      const a = store.insertPending(newInput());
+      const b = store.insertPending(newInput());
+      const umbrella = store.insertPending(newInput({ name: 'umbrella' }));
+
+      const changed = store.markMerged([a.id, b.id, a.id], umbrella.id);
+
+      expect(changed).toBe(2);
+      for (const id of [a.id, b.id]) {
+        const row = store.findById(id);
+        expect(row?.status).toBe('dismissed');
+        expect(row?.mergedInto).toBe(umbrella.id);
+        expect(row?.decidedAt).not.toBeNull();
+      }
+      expect(store.findById(umbrella.id)?.status).toBe('pending');
+    });
+
+    it('markMerged leaves non-pending rows untouched', () => {
+      const store = makeStore();
+      const accepted = store.insertPending(newInput());
+      store.accept(accepted.id, 'cand-1');
+      const dismissed = store.insertPending(newInput());
+      store.dismiss(dismissed.id);
+      const pending = store.insertPending(newInput());
+
+      const changed = store.markMerged(
+        [accepted.id, dismissed.id, pending.id],
+        'umbrella-1',
+      );
+
+      expect(changed).toBe(1);
+      expect(store.findById(accepted.id)?.status).toBe('accepted');
+      expect(store.findById(accepted.id)?.mergedInto).toBeNull();
+      expect(store.findById(dismissed.id)?.mergedInto).toBeNull();
+      expect(store.findById(pending.id)?.mergedInto).toBe('umbrella-1');
+    });
+
+    it('markMerged with no ids changes nothing', () => {
+      const store = makeStore();
+      store.insertPending(newInput());
+      expect(store.markMerged([], 'umbrella-1')).toBe(0);
+    });
+
+    it('listMemberCandidateIds unions members across all statuses by default', () => {
+      const store = makeStore();
+      store.insertPending(newInput({ memberCandidateIds: ['c1', 'c2'] }));
+      const acc = store.insertPending(
+        newInput({ memberCandidateIds: ['c2', 'c3'] }),
+      );
+      store.accept(acc.id, null);
+      store.insert(newInput({ memberCandidateIds: ['c4'] }), 'dismissed');
+
+      expect([...store.listMemberCandidateIds()].sort()).toEqual([
+        'c1',
+        'c2',
+        'c3',
+        'c4',
+      ]);
+    });
+
+    it('listMemberCandidateIds filters by the given statuses', () => {
+      const store = makeStore();
+      store.insertPending(newInput({ memberCandidateIds: ['c1'] }));
+      const acc = store.insertPending(newInput({ memberCandidateIds: ['c2'] }));
+      store.accept(acc.id, null);
+      store.insert(newInput({ memberCandidateIds: ['c3'] }), 'dismissed');
+
+      expect(
+        [
+          ...store.listMemberCandidateIds({
+            statuses: ['pending', 'accepted'],
+          }),
+        ].sort(),
+      ).toEqual(['c1', 'c2']);
+      expect([
+        ...store.listMemberCandidateIds({ statuses: ['dismissed'] }),
+      ]).toEqual(['c3']);
+      expect(store.listMemberCandidateIds({ statuses: [] }).size).toBe(0);
+    });
+
+    it('listAcceptedWithoutPromotedCandidate returns only unlinked accepted rows', () => {
+      const store = makeStore();
+      const unlinked = store.insertPending(newInput());
+      store.accept(unlinked.id, null);
+      const linked = store.insertPending(newInput());
+      store.accept(linked.id, 'cand-9');
+      store.insertPending(newInput());
+
+      const rows = store.listAcceptedWithoutPromotedCandidate();
+
+      expect(rows.map((r) => r.id)).toEqual([unlinked.id]);
+    });
   });
 
   it('lists by status', () => {
@@ -76,7 +263,7 @@ maybe('SkillSuggestionStore', () => {
   it('accept transitions pending → accepted with decided_at', () => {
     const store = makeStore();
     const row = store.insertPending(newInput());
-    const accepted = store.accept(row.id);
+    const accepted = store.accept(row.id, null);
     expect(accepted?.status).toBe('accepted');
     expect(accepted?.decidedAt).not.toBeNull();
   });
@@ -91,7 +278,7 @@ maybe('SkillSuggestionStore', () => {
   it('does not re-transition a non-pending row', () => {
     const store = makeStore();
     const row = store.insertPending(newInput());
-    store.accept(row.id);
+    store.accept(row.id, null);
     const again = store.dismiss(row.id);
     expect(again?.status).toBe('accepted');
   });
@@ -154,7 +341,7 @@ maybe('SkillSuggestionStore', () => {
   it('updatePending: returns row unchanged (no mutation) when already accepted', () => {
     const store = makeStore();
     const row = store.insertPending(newInput({ name: 'original' }));
-    store.accept(row.id);
+    store.accept(row.id, null);
     const result = store.updatePending(row.id, { name: 'changed' });
     expect(result?.name).toBe('original');
     expect(result?.status).toBe('accepted');

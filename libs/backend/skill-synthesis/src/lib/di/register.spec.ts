@@ -15,6 +15,7 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.service';
 import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
+import { SkillBacklogPurgeStateStore } from '../lifecycle/skill-backlog-purge-state.store';
 import { registerSkillSynthesisServices } from './register';
 import {
   PROVIDER_AUTH_RESOLVER_TOKEN,
@@ -67,6 +68,26 @@ describe('registerSkillSynthesisServices', () => {
     expect(
       container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE),
     ).toBe(service);
+  });
+
+  it('resolves the backlog purge-state store token as a singleton', () => {
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    registerSkillSynthesisServices(container, stubLogger);
+
+    const store = container.resolve<SkillBacklogPurgeStateStore>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_PURGE_STATE_STORE,
+    );
+
+    expect(store).toBeInstanceOf(SkillBacklogPurgeStateStore);
+    expect(
+      container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_PURGE_STATE_STORE),
+    ).toBe(store);
+    expect(container.resolve(SkillBacklogPurgeStateStore)).toBe(store);
+    expect(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_PURGE_STATE_STORE.description,
+    ).toBe('PtahSkillBacklogPurgeStateStore');
   });
 
   it('gives the queue and budget stores globally unique token descriptions', () => {
