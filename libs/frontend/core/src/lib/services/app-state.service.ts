@@ -176,6 +176,13 @@ export interface ChatPromptRequest {
   /** Optional session/tab display name (e.g. the originating task id). */
   sessionName?: string;
   /**
+   * Board task this prompt was launched for. When set, the chat consumer
+   * remembers the created tab and links the real session to this task as
+   * its `primary` session once the session id resolves. Absent for prompts
+   * that do not come from a task.
+   */
+  taskId?: string;
+  /**
    * Internal: resolver wired by {@link AppStateManager.requestChatPrompt} so the
    * caller can `await` the launch outcome. The chat consumer resolves
    * `{ success: true }` once the prompt was submitted, or

@@ -103,7 +103,9 @@ export class TaskStartService {
 
   /**
    * Fire the `ChatPromptRequest` bridge and await the chat consumer's resolve
-   * — no timer. The consumer (`TaskPromptBridgeService`) settles `resolve`
+   * — no timer. The request carries `taskId` so the consumer can link the
+   * session it creates to this task once the session id resolves. The
+   * consumer (`TaskPromptBridgeService`) settles `resolve`
    * from its `finally` on both the prefill path and a caught tab-creation
    * throw, so a structural failure reaches the error banner and success never
    * stalls the launch.
@@ -118,6 +120,7 @@ export class TaskStartService {
       this.appState.requestChatPrompt({
         prompt,
         sessionName: taskId,
+        taskId,
         resolve: (result) => resolve(result),
       });
     });

@@ -1700,9 +1700,21 @@ describe('AppStateManager', () => {
       expect(req?.prompt).toBe('/orchestrate TASK_2026_200');
       expect(req?.sessionName).toBe('TASK_2026_200');
       expect(req?.resolve).toBe(resolve);
+      expect(req?.taskId).toBeUndefined();
 
       service.clearChatPromptRequest();
       expect(service.chatPromptRequest()).toBeNull();
+    });
+
+    it('requestChatPrompt keeps the board taskId on the published request', () => {
+      const service = createService();
+      service.requestChatPrompt({
+        prompt: '/orchestrate TASK_2026_200',
+        sessionName: 'TASK_2026_200',
+        taskId: 'TASK_2026_200',
+      });
+
+      expect(service.chatPromptRequest()?.taskId).toBe('TASK_2026_200');
     });
 
     it('publishes monotonic composer-prefill requests with their target tab', () => {
