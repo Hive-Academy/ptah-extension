@@ -794,7 +794,7 @@ in a two-batch wave the team-leader commits each batch separately by explicit pa
 | 8    | 15                  | `shared` union growth + git-ui; shared reaches every scope, so not beside 13/14.                                                                                                                                       |
 | 9    | 16                  | `git-info.service.ts` + status parser; needs 15.                                                                                                                                                                       |
 | 10   | 17                  | vscode-core review reader; needs 16.                                                                                                                                                                                   |
-| end  | P2 phase-end review | per Review cadence.                                                                                                                                                                                                    |
+| end  | P2 phase-end review | per Review cadence (DONE 2026-10-01).                                                                                                                                                                                                  |
 
 ## Review cadence (user decision 2026-09-30)
 
@@ -922,7 +922,7 @@ under "Execution defaults".
 - Implementation details: worktree RPCs (`:317-460`) honour `params.workspaceRoot`.
 - Outcome (ddafac963): hook calls `removeWorktree(main, gitPath, true)` then `pruneWorktrees(main)`; prunable entry → prune only; locked → skipped. Log field `removalPath` (A5). `git:worktrees` validates with `parseGitWorkspaceScopedParams`; add/remove use `resolveRoot`. Verified: agent-sdk + rpc-handlers typecheck/lint/test green except the known unrelated `harness-skill-selection-rpc.service.spec.ts` failure (unchanged from main).
 
-## Batch 14: Worktree removal detection and frontend scoping (RC10) — COMPLETE
+## Batch 14: Worktree removal detection and frontend scoping (RC10) — COMPLETE (6a62feb31)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
@@ -1054,7 +1054,34 @@ under "Execution defaults".
 
 ### P2 phase-end review
 
-- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P2 phase diff, the full e2e set; findings fixed in follow-up commits before the next phase starts.
+- [x] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P2 phase diff, the full e2e set; findings fixed in follow-up commits before the next phase starts.
+
+Outcome (orchestrator, 2026-10-01):
+
+- Logic review, cross-side and cross-family: Glm lane on the subagent-authored batches
+  (`reviews/p2-phase-review-glm.md`, APPROVED WITH FIXES 7/10 → round 1 APPROVED) and code-logic-reviewer subagent on
+  the lane-authored Batches 17 and 19 (`reviews/p2-phase-review-subagent.md`, APPROVED WITH FIXES 7/10 → round 1
+  APPROVED). Rejected with evidence, reviewer agreed: Glm F2 (JS `split(' ', 6)` truncates; parser is correct) and F4
+  (the exclude line always starts with `/`; real-git spec added). Decision on Glm F1: a discard blocked by untracked
+  files is refused with paths and a move-or-delete message; untracked files are never deleted.
+- Fixes: 00f21739b (untracked switch blockers, git ≥2.24 message, `git:worktrees` invalid-params log), c9a316661
+  (stash notice, discard refusal panel, degraded diff refresh), 218acd989 (stale after a dropped refresh, log
+  throws), d792cd593 (stash named by short SHA).
+- CI fixes: 8499ad4e8 (orphaned degradation-audit marker; worktree real-git spec uses `realpathSync.native` for
+  Windows 8.3 temp paths and a read-only exclude file for POSIX; review-controls e2e checkout params),
+  d83b3fbb1 (hunk-revert e2e poll tolerates the `git apply` unlink window).
+- Full e2e set: CI `electron-e2e` green on d83b3fbb1 (199 specs); `webview-e2e`, `CLI E2E`, `git-real-git` on
+  ubuntu/macos/windows green. The local full Electron run did not finish (stopped at 2 h): on this machine the
+  e2e app competes with the user's running Ptah desktop app ("Renderer did not load … ERR_FAILED"); CI is the
+  e2e evidence for this phase.
+- Visual review (visual-reviewer, `reviews/p2-visual-review.md`, screenshots `screenshots/p2/`): round 0 APPROVED WITH
+  FIXES 6/10 (error copy, destructive cue and badge letters under AA; focus ring) → fixed in 3c2d3c51e → round 1
+  APPROVED 8/10.
+- Carried to P3 Batch 24 (owns `styles.css`): light-theme focus ring 2.94–3.33:1 against the panel; error icon and
+  error border 2.56–2.93:1 (non-text cues); the `[data-theme='anubis-light'] .btn-ghost` override at
+  `styles.css:1838-1852` silently replaces any `text-*` colour on ghost buttons.
+- Carried to P3/P5: real-git spec for the review reader 2 MiB cap and an exactly-2 MiB boundary case (Component 13);
+  diff-tabs specs for the workspace-switch restore and `refs`/`initial` causes (moves with Task 35.1).
 
 ---
 

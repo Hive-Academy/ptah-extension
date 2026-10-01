@@ -94,3 +94,41 @@ Approved prototype: `.ptah/specs/TASK_2026_576_e16a/prototype/` exists for the t
 - Recommendation: APPROVE WITH FIXES (merge after Serious 1-3 are addressed or explicitly deferred as a token-level follow-up, since 3 of the 4 measured failures pre-date P2 in pattern).
 - Confidence: HIGH on measurements (computed, both themes), MEDIUM on completeness (single 1200x800 viewport, mocked RPC, BEFORE-dark badge image lost).
 - Key concern: error and destructive copy in the new blocked-switch flow does not reach 4.5:1 in either theme, and the destructive secondary action loses its red cue in the light theme.
+
+## Revise round 1
+
+Verdict: **APPROVED** (score 8/10). Visual breaking 0, Serious 0, Moderate 0 open, Minor 2 (both non-text cues, deferred to P3 Batch 24).
+
+### Environment
+
+- AFTER only, HEAD `3c2d3c51e`. Rebuilt with `npx nx run-many -t build-dev copy-renderer-dev -p ptah-electron` (succeeded, 4m52s, 0/2 cache hit, so the bundle is fresh).
+- Throwaway spec `_p2-visual-capture.spec.ts` recreated (UiDriver, mocked `git:info` / `git:branches` / `git:checkout`), run directly via `npx playwright test` in `apps/ptah-electron-e2e`, then deleted. `git status` shows only the new `screenshots/p2/round1/` folder. The user's Ptah desktop app was not touched.
+- anubis (dark) and anubis-light, 1200x800, same states as round 0. All pickers were opened and driven with real mouse clicks, then the pointer parked at (5,5) with a 600 ms settle before measuring, so the focus state is the mouse-triggered one and no hover transition skews the numbers. (My first pass measured Stash & switch mid-hover-transition at 4.19 in light; the settled re-run gives 5.20, matching round 0.)
+- Method as round 0: computed colour composited through ancestor backgrounds and cumulative opacity, canvas-converted to sRGB, WCAG 2.x ratio. Criteria: 4.5:1 text, 3:1 non-text UI.
+- Raw data: `screenshots/p2/round1/r1-measurements.json`. Screenshots: `screenshots/p2/round1/r1-{dark,light}-{picker-list,picker-blocked,picker-discard-confirm,picker-discard-refusal,picker-create-error,picker-stash-notice,badges}.png` plus `-page.png` full-window variants.
+
+### Per-finding results
+
+| Round-0 finding | Result | Measurements (dark / light) |
+| --- | --- | --- |
+| Serious 1: error-coloured copy fails AA (refusal, confirm, create-error, Discard changes label) | **RESOLVED** | Refusal copy 3.12 / 2.93 -> **11.24 / 11.41**. Confirm copy 3.12 / 2.93 -> **11.24 / 11.41**. Create-error copy 3.59 / 3.19 -> **13.00 / 12.32**. Discard changes label (outline, error border) 3.87 / 4.12 -> **11.24 / 11.41**. |
+| Serious 2: "Discard & switch..." loses red cue in light, 3.12 in dark | **RESOLVED** | Label 12.10 / 13.07 (text-base-content). Error border now renders in both themes (dark `rgb(220,38,38)`, light `rgb(254,28,85)`, 1px / 2px solid), so the destructive cue is back in light (`r1-light-picker-blocked.png`: red-outlined pill, visually secondary to the filled Stash & switch). Absent when discard is refused (count 0). |
+| Serious 3: badge letters faint, 3.31 / 2.48 | **RESOLVED** | M/A/D/R letters at 10px: **14.86 / 15.92**, opacity 1. All badges share one class string with no status-conditional opacity (source `source-control-file.component.ts` badge span), so U / ! / T / I inherit the same value; the 8-row screenshot (`r1-light-badges-page.png`) shows M A D R U ! T I legible. Aria labels unchanged: Modified, Added, Deleted, Renamed, Untracked, Conflicted, Type changed, Ignored. Limitation: my per-badge measurement loop indexed change-count spans too, so only M/A/D/R were numerically sampled. |
+| Moderate 1: no visible focus ring after mouse-triggered flow | **RESOLVED** | activeElement correct in every state (stash-switch / confirm-discard / stash-switch on refusal / dismiss-stash-notice). Computed outline on each: `solid 2px`, offset 2px, dark `oklch(0.77 0.14 91)` amber, light `oklch(0.58 0.13 75)` dark amber. Visible in `r1-light-picker-blocked.png`, `r1-light-picker-discard-confirm.png`, `r1-dark-picker-stash-notice.png`, and the -page variants. |
+| Moderate 2: lead sentence 2.02 in light | **RESOLVED** | Lead sentence 12.10 / 13.07, with the warning icon carrying the hue (icon 5.38 dark, 2.02 light, non-text). |
+| Other rows unchanged | Pass | Stash & switch label 4.82 / 5.20; conflicting paths 8.26 / 7.64; stash notice copy 12.35 / 12.87; Dismiss 12.35 / 12.87. |
+
+### New findings
+
+None at Moderate or above. Two Minor notes, same bucket as the accepted deferral (P3 Batch 24, styles.css tokens):
+
+1. Focus ring against the adjacent panel in anubis-light is about 2.9 to 3.3:1 (2.94 Stash & switch, 2.95 Discard changes, 3.33 Dismiss) versus the 3:1 non-text criterion, so two of three are marginally short. Dark ring is well above 3:1 against the panel (the 2.46 / 2.90 figures in the JSON are measured against the button fill, not the surface the offset ring sits on). The ring is clearly visible in every screenshot.
+2. Error cues (known/accepted): error icon 2.90 dark / 2.56 light, error border on the outline buttons 2.90 dark / 2.93 and 2.56 light, all non-text and redundant with the base-content copy and the label text.
+
+### Prototype fidelity and before/after
+
+Unchanged from round 0: single filled primary (Stash & switch), secondary actions outlined / ghost, destructive path behind confirmation and hidden when refused, no component substitutions. Before/after pairs are the round-0 `before-*` / `after-*` images plus the round-1 `r1-*` set.
+
+### Final verdict
+
+APPROVED. All three round-0 Serious findings and both Moderate findings are resolved with measurements; nothing unresolved apart from the two accepted non-text Minor items deferred to P3 Batch 24. Confidence HIGH on measurements, MEDIUM on completeness (single 1200x800 viewport, mocked RPC, numeric badge sampling limited to M/A/D/R with the rest confirmed by shared class and screenshot).
