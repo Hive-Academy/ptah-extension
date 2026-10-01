@@ -107,6 +107,8 @@ import type {
   CallerWorktreeRecord,
   WorktreeChangeCallback,
 } from './namespace-builders/git-namespace.builder';
+// Imported from the builder file, not the barrel, like the git types above.
+import { buildSessionOrganizationNamespace } from './namespace-builders/session-organization-namespace.builder';
 import { TASK_SPECS_TOKENS } from '@ptah-extension/task-specs';
 import { buildSessionAwareWorkspaceProvider } from './session-aware-workspace-provider';
 import {
@@ -830,6 +832,13 @@ export class PtahAPIBuilder {
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
         }),
       ),
+      sessionOrganization: this.buildNamespaceSafe('sessionOrganization', () =>
+        buildSessionOrganizationNamespace({
+          resolveCallerSessionId: () => this.resolveCallerSdkSessionId(),
+          getRecorder: () => this.sessionOrganizationRecorder,
+          getWorkspaceRootHint: () => this.resolveSessionWorkspaceRoot(),
+        }),
+      ),
       harness: this.buildNamespaceSafe('harness', () => {
         if (!this.pluginLoader) {
           throw new Error(
@@ -1010,19 +1019,29 @@ export class PtahAPIBuilder {
    * request context carries the caller's tab id; only the lifecycle manager's
    * `realSessionId` is returned, so a tab id never reaches the recorder. A
    * caller that does not resolve (unknown tab, SDK id not assigned yet, no
-   * lifecycle manager) yields `undefined` and is logged.
+   * lifecycle manager, a lookup that throws) yields `undefined` and is logged.
+   * Never throws: callers treat an unresolved caller as unattributed.
    */
   private resolveCallerSdkSessionId(): string | undefined {
     const callerId = getCallerSessionId();
     if (!callerId) {
       return undefined;
     }
-    const realSessionId =
-      this.sdkSessionLifecycleManager?.find(callerId)?.realSessionId ??
-      undefined;
+    let realSessionId: string | undefined;
+    try {
+      realSessionId =
+        this.sdkSessionLifecycleManager?.find(callerId)?.realSessionId ??
+        undefined;
+    } catch (error: unknown) {
+      this.logger.debug(
+        `[PtahAPIBuilder] Resolving the SDK session id of MCP caller ${callerId} failed; caller not attributed`,
+        error,
+      );
+      return undefined;
+    }
     if (!realSessionId) {
       this.logger.debug(
-        `[PtahAPIBuilder] MCP caller ${callerId} has no SDK session id; worktree not attributed`,
+        `[PtahAPIBuilder] MCP caller ${callerId} has no SDK session id; caller not attributed`,
       );
       return undefined;
     }
@@ -1032,7 +1051,9 @@ export class PtahAPIBuilder {
   /**
    * Record a worktree an agent's `ptah_git_worktree_add` created on the
    * calling session. The only MCP worktree capture path (L15): the shared
-   * change handler below records nothing.
+   * change handler below records nothing. Never throws: the recorder's
+   * contract is never-throw, and a faulty recorder is logged here so the git
+   * namespace can keep reporting the add as the success it was.
    */
   private recordWorktreeForCaller(record: CallerWorktreeRecord): void {
     const recorder = this.sessionOrganizationRecorder;
@@ -1042,12 +1063,19 @@ export class PtahAPIBuilder {
       );
       return;
     }
-    recorder.recordWorktree({
-      sessionId: record.sessionId,
-      worktreePath: record.worktreePath,
-      branch: record.branch,
-      workspaceRootHint: this.resolveSessionWorkspaceRoot(),
-    });
+    try {
+      recorder.recordWorktree({
+        sessionId: record.sessionId,
+        worktreePath: record.worktreePath,
+        branch: record.branch,
+        workspaceRootHint: this.resolveSessionWorkspaceRoot(),
+      });
+    } catch (error: unknown) {
+      this.logger.debug(
+        `[PtahAPIBuilder] Worktree capture failed for session ${record.sessionId} at ${record.worktreePath}`,
+        error,
+      );
+    }
   }
 
   /**

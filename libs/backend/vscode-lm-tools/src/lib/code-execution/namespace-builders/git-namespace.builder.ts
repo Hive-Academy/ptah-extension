@@ -102,11 +102,27 @@ export function buildGitNamespace(
         recordWorktreeForCaller({ sessionId, worktreePath, branch });
       }
     } catch {
-      // Recorder contract is never-throw; this guards a faulty implementation
-      // so the successful add is still reported as one.
-      void 0;
+      // Both deps are never-throw and log their own failures (PtahAPIBuilder);
+      // this only stops a faulty implementation from failing a successful add.
     }
     return sessionId;
+  }
+
+  /**
+   * Tell the frontend a worktree changed. A throwing listener must not turn a
+   * git operation that already succeeded into a reported failure.
+   */
+  function notifyWorktreeChanged(
+    event: Parameters<WorktreeChangeCallback>[0],
+  ): void {
+    if (!onWorktreeChanged) {
+      return;
+    }
+    try {
+      onWorktreeChanged(event);
+    } catch {
+      // The listener is a UI refresh; the git operation already succeeded.
+    }
   }
 
   function runGit(
@@ -183,14 +199,12 @@ export function buildGitNamespace(
           };
         }
         const sessionId = captureForCaller(worktreePath, params.branch);
-        if (onWorktreeChanged) {
-          onWorktreeChanged({
-            action: 'created',
-            worktreePath,
-            branch: params.branch,
-            ...(sessionId ? { sessionId } : {}),
-          });
-        }
+        notifyWorktreeChanged({
+          action: 'created',
+          worktreePath,
+          branch: params.branch,
+          ...(sessionId ? { sessionId } : {}),
+        });
 
         return { success: true, worktreePath };
       } catch (error) {
@@ -218,16 +232,10 @@ export function buildGitNamespace(
             error: stderr.trim() || 'Failed to remove worktree',
           };
         }
-        if (onWorktreeChanged) {
-          try {
-            onWorktreeChanged({
-              action: 'removed',
-              worktreePath: params.path,
-            });
-          } catch {
-            void 0;
-          }
-        }
+        notifyWorktreeChanged({
+          action: 'removed',
+          worktreePath: params.path,
+        });
 
         return { success: true };
       } catch (error) {
