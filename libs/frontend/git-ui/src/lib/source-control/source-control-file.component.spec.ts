@@ -249,6 +249,9 @@ describe('SourceControlFileComponent — row actions are siblings, not nested (D
     const badge = row.lastElementChild as HTMLElement;
     expect(badge.textContent?.trim()).toBe('M');
     expect(badge.closest('button')).toBeNull();
+    // The letter is the status's text: solid ink, never an opacity tier.
+    expect(badge.classList).toContain('text-base-content');
+    expect(badge.className).not.toMatch(/opacity-/);
   });
 
   it.each([

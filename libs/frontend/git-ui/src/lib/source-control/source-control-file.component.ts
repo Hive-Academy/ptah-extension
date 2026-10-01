@@ -160,9 +160,12 @@ import {
           (open)="openFile.emit($event)"
         />
       }
-      <!-- Keep the status badge as the final child for stable row semantics. -->
+      <!-- Keep the status badge as the final child for stable row semantics.
+           The letter is the status's text carrier, so it is full
+           text-base-content (the status icon keeps the hue): an opacity or
+           base-content-muted letter drops below 4.5:1 on the row hover tint. -->
       <span
-        class="text-[10px] font-mono opacity-40 flex-shrink-0"
+        class="text-[10px] font-mono text-base-content flex-shrink-0"
         [title]="statusLabel()"
         [attr.aria-label]="statusLabel()"
         >{{ statusBadge() }}</span

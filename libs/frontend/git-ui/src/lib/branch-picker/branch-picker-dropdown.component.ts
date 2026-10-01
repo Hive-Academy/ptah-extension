@@ -11,6 +11,11 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import {
+  AlertTriangle,
+  CircleAlert,
+  LucideAngularModule,
+} from 'lucide-angular';
 import type { GitCheckoutParams } from '@ptah-extension/shared';
 import { GitBranchesService } from '../services/git-branches.service';
 
@@ -41,7 +46,7 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
 @Component({
   selector: 'ptah-branch-picker-dropdown',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'relative',
@@ -63,20 +68,43 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
           [ngModel]="query()"
           (ngModelChange)="query.set($event)"
         />
+        <!-- Copy here is text-base-content: text-warning / text-error on these
+             tints, and error-content on a btn-error fill, fail AA in at least
+             one anubis theme. The hue rides on tints, borders and icons. -->
         @if (blockedSwitch(); as blocked) {
           <div
             role="alert"
             data-testid="blocked-switch"
-            class="flex flex-col gap-1 p-2 text-xs bg-warning/10"
+            class="flex flex-col gap-1 p-2 text-xs text-base-content bg-warning/10"
           >
-            <p class="text-warning">
-              Local changes would be overwritten by switching to
-              <span class="font-mono">{{ blocked.branch }}</span>.
+            <p class="flex items-start gap-1">
+              <lucide-angular
+                [img]="WarningIcon"
+                class="w-3 h-3 mt-0.5 flex-shrink-0 text-warning"
+                aria-hidden="true"
+              />
+              <span>
+                Local changes would be overwritten by switching to
+                <span class="font-mono">{{ blocked.branch }}</span
+                >.
+              </span>
             </p>
             @if (blocked.discardRefusal) {
-              <p class="text-error" data-testid="discard-refusal">
-                {{ blocked.discardRefusal }}
-              </p>
+              <div
+                class="flex items-start gap-1 rounded border border-error/60 bg-error/10 px-1.5 py-1"
+              >
+                <lucide-angular
+                  [img]="ErrorIcon"
+                  class="w-3 h-3 mt-0.5 flex-shrink-0 text-error"
+                  aria-hidden="true"
+                />
+                <p
+                  class="flex-1 min-w-0 break-words"
+                  data-testid="discard-refusal"
+                >
+                  {{ blocked.discardRefusal }}
+                </p>
+              </div>
             }
             @if (blocked.conflictingPaths.length) {
               <ul
@@ -90,14 +118,29 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
               </ul>
             }
             @if (confirmingDiscard()) {
-              <p class="text-error">
-                Discard all uncommitted changes? This cannot be undone.
-              </p>
+              <div
+                class="flex items-start gap-1 rounded border border-error/60 bg-error/10 px-1.5 py-1"
+              >
+                <lucide-angular
+                  [img]="ErrorIcon"
+                  class="w-3 h-3 mt-0.5 flex-shrink-0 text-error"
+                  aria-hidden="true"
+                />
+                <p class="flex-1 min-w-0">
+                  Discard all uncommitted changes? This cannot be undone.
+                </p>
+              </div>
               <div class="flex gap-1">
+                <!-- focus: rather than focus-visible: — focus is moved here by
+                     script after a pointer click, which Chromium does not
+                     treat as :focus-visible. The ! beats styles.css's
+                     button:focus:not(:focus-visible) { outline: none }. -->
                 <button
                   #discardConfirmButton
                   type="button"
-                  class="btn btn-error btn-xs"
+                  class="btn btn-outline btn-xs border-error bg-error/10 text-base-content
+                         focus:!outline focus:!outline-2 focus:!outline-offset-2
+                         focus:!outline-[oklch(var(--s))]"
                   data-testid="confirm-discard"
                   [disabled]="busy()"
                   (click)="retryBlocked({ force: true })"
@@ -118,7 +161,9 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
                 <button
                   #stashSwitchButton
                   type="button"
-                  class="btn btn-primary btn-xs"
+                  class="btn btn-primary btn-xs
+                         focus:!outline focus:!outline-2 focus:!outline-offset-2
+                         focus:!outline-[oklch(var(--s))]"
                   data-testid="stash-switch"
                   [disabled]="busy()"
                   (click)="retryBlocked({ stash: true })"
@@ -134,9 +179,13 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
                   Cancel
                 </button>
                 @if (!blocked.discardRefusal) {
+                  <!-- Outline, not ghost: anubis-light forces .btn-ghost to
+                       base-content ink, which erased text-error. The error
+                       border is the destructive cue; the unfilled outline keeps
+                       it secondary to the filled Stash & switch. -->
                   <button
                     type="button"
-                    class="btn btn-ghost btn-xs text-error"
+                    class="btn btn-outline btn-xs border-error text-base-content"
                     data-testid="discard-switch"
                     [disabled]="busy()"
                     (click)="confirmingDiscard.set(true)"
@@ -148,8 +197,23 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
             }
           </div>
         }
-        @if (error()) {
-          <div role="alert" class="p-2 text-error text-xs">{{ error() }}</div>
+        @if (error(); as message) {
+          <div
+            class="m-2 flex items-start gap-1 rounded border border-error/60 bg-error/10 px-1.5 py-1 text-xs text-base-content"
+          >
+            <lucide-angular
+              [img]="ErrorIcon"
+              class="w-3 h-3 mt-0.5 flex-shrink-0 text-error"
+              aria-hidden="true"
+            />
+            <p
+              role="alert"
+              data-testid="picker-error"
+              class="flex-1 min-w-0 break-words"
+            >
+              {{ message }}
+            </p>
+          </div>
         }
         @if (stashNotice(); as notice) {
           <div
@@ -167,7 +231,9 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
             <button
               #stashNoticeDismiss
               type="button"
-              class="btn btn-ghost btn-xs"
+              class="btn btn-ghost btn-xs
+                     focus:!outline focus:!outline-2 focus:!outline-offset-2
+                     focus:!outline-[oklch(var(--s))]"
               data-testid="dismiss-stash-notice"
               (click)="close()"
             >
@@ -235,6 +301,8 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
   `,
 })
 export class BranchPickerDropdownComponent {
+  protected readonly WarningIcon = AlertTriangle;
+  protected readonly ErrorIcon = CircleAlert;
   protected readonly gitBranches = inject(GitBranchesService);
   private readonly element = inject(ElementRef<HTMLElement>);
   readonly isOpen = input.required<boolean>();

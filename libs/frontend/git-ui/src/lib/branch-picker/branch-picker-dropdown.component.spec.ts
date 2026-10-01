@@ -21,7 +21,8 @@ async function setup(options: {
     localBranches: signal(options.local ?? []),
     remoteBranches: signal(options.remote ?? []),
     recentBranches: signal<string[]>([]),
-    checkout: options.checkout ?? jest.fn().mockResolvedValue({ success: true }),
+    checkout:
+      options.checkout ?? jest.fn().mockResolvedValue({ success: true }),
     recordVisitedBranch: jest.fn(),
   };
   await TestBed.configureTestingModule({
@@ -117,6 +118,18 @@ describe('BranchPickerDropdownComponent', () => {
     });
     await click(fixture, '.max-h-72 > button');
     expect(query(fixture, '[data-testid="conflicting-paths"]')).toBeNull();
+    // Destructive but secondary: an error-bordered outline with base-content
+    // ink (text-error on the warning tint fails AA; anubis-light's btn-ghost
+    // override erased it).
+    const discard = query(fixture, '[data-testid="discard-switch"]');
+    expect([...(discard?.classList ?? [])]).toEqual(
+      expect.arrayContaining([
+        'btn-outline',
+        'border-error',
+        'text-base-content',
+      ]),
+    );
+    expect(discard?.classList).not.toContain('text-error');
 
     await click(fixture, '[data-testid="discard-switch"]');
 
@@ -124,6 +137,11 @@ describe('BranchPickerDropdownComponent', () => {
     const confirm = query(fixture, '[data-testid="confirm-discard"]');
     expect(confirm?.textContent?.trim()).toBe('Discard changes');
     expect(document.activeElement).toBe(confirm);
+    // error-content on a btn-error fill is 3.87:1 / 4.12:1, below AA.
+    expect(confirm?.classList).not.toContain('btn-error');
+    expect(confirm?.classList).toContain('text-base-content');
+    // Script focus after a pointer click is not :focus-visible in Chromium.
+    expect(confirm?.classList).toContain('focus:!outline');
     expect(query(fixture, '[data-testid="stash-switch"]')).toBeNull();
 
     await click(fixture, '[data-testid="confirm-discard"]');
@@ -216,9 +234,11 @@ describe('BranchPickerDropdownComponent', () => {
     await click(fixture, '[data-testid="confirm-discard"]');
 
     expect(query(fixture, '[data-testid="blocked-switch"]')).not.toBeNull();
-    expect(
-      query(fixture, '[data-testid="discard-refusal"]')?.textContent?.trim(),
-    ).toBe(reason);
+    const refusal = query(fixture, '[data-testid="discard-refusal"]');
+    expect(refusal?.textContent?.trim()).toBe(reason);
+    // Readable ink on the error tint; the hue is on the box, not the text.
+    expect(refusal?.closest('.text-error')).toBeNull();
+    expect(refusal?.closest('.text-base-content')).not.toBeNull();
     const paths = [
       ...(query(fixture, '[data-testid="conflicting-paths"]')?.querySelectorAll(
         'li',
@@ -254,8 +274,7 @@ describe('BranchPickerDropdownComponent', () => {
         '[data-testid="blocked-switch"] button',
       ),
     ].find((button) => button.textContent?.trim() === 'Cancel') as
-      | HTMLButtonElement
-      | undefined;
+      HTMLButtonElement | undefined;
     cancel?.click();
     await fixture.whenStable();
     fixture.detectChanges();
@@ -289,7 +308,11 @@ describe('BranchPickerDropdownComponent', () => {
   it('passes track:true for a remote row and records the local branch name', async () => {
     const { fixture, branches, checkedOut } = await setup({
       remote: [
-        { ...localBranch('origin/feature/x'), isRemote: true, remote: 'origin' },
+        {
+          ...localBranch('origin/feature/x'),
+          isRemote: true,
+          remote: 'origin',
+        },
       ],
     });
 
@@ -321,9 +344,12 @@ describe('BranchPickerDropdownComponent', () => {
     await click(fixture, '.border-t > button');
 
     expect(checkout).toHaveBeenCalledWith({ branch: 'topic', createNew: true });
-    expect(query(fixture, '[role="alert"]')?.textContent?.trim()).toBe(
+    const alert = query(fixture, '[role="alert"]');
+    expect(alert?.textContent?.trim()).toBe(
       "Could not create branch topic: a branch named 'topic' already exists",
     );
+    expect(alert?.closest('.text-error')).toBeNull();
+    expect(alert?.closest('.text-base-content')).not.toBeNull();
   });
 
   it('renders the ten most recent branches per group until search is used', async () => {
