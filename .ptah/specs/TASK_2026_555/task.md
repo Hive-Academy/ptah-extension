@@ -112,4 +112,9 @@ Gate 1.7 (user) → architect → team-leader → batches with cross-side review
   - Accepted as a deviation: only the "VS Code" App-layer label (Batch 27b).
   - NOT accepted, so they become work: the drawer key hint ("•••• 8f21"), the Overview per-connection latency, and
     Codex CLI under "Used by" for OpenAI Codex (new follow-up batches after 28b).
+- Batch 28c (2026-10-01): latency source for built-in API-key connections = a new `auth:checkConnection { providerId }`
+  RPC (user choice) that runs the stored-key check against the saved endpoint and records status + latency; the
+  drawer "Check connection" calls it (one small provider request per click). CLI/OAuth connections (Claude CLI,
+  Copilot, Codex) record status + time with `latencyMs: null` (orchestrator choice). The `auth:getApiKeyStatus`
+  read-failure change (fixed "Could not read the stored keys." instead of an empty list) is accepted (D15 spirit).
   - PR 611 Sonar (same session): the 3 `ci.yml` install-step findings were accepted on SonarCloud (user choice).

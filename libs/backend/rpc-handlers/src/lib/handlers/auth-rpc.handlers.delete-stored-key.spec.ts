@@ -56,6 +56,7 @@ import type {
   AuthDeleteStoredKeyResult,
 } from '@ptah-extension/shared';
 
+import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { AuthRpcHandlers } from './auth-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -230,6 +231,7 @@ function makeHarness(
     sentry as unknown as SentryService,
     scopeResolver as unknown as WorkspaceScopeResolver,
     {} as unknown as import('@ptah-extension/auth-providers').DraftVerificationService,
+    new ConnectionCheckRecorder(),
   );
 
   return {

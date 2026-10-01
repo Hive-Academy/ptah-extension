@@ -81,6 +81,7 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
+import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { ProviderRpcHandlers } from './provider-rpc.handlers';
 
 // A thrown error whose text carries a credential and a user path; neither may
@@ -265,6 +266,7 @@ function makeHarness(
       },
       remove: async () => false,
     } as unknown as import('@ptah-extension/settings-core').CustomProviderStore,
+    new ConnectionCheckRecorder(),
   );
 
   return {

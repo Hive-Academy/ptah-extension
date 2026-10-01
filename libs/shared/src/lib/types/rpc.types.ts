@@ -162,6 +162,9 @@ import type {
   AuthCancelDraftVerificationResult,
   AuthDeleteStoredKeyParams,
   AuthDeleteStoredKeyResult,
+  AuthGetApiKeyStatusResult,
+  AuthCheckConnectionParams,
+  AuthCheckConnectionResult,
 } from './rpc/rpc-auth.types';
 
 import type {
@@ -861,6 +864,10 @@ export interface RpcMethodRegistry {
     params: AuthGetEffectiveRouteParams;
     result: AuthGetEffectiveRouteResult;
   };
+  'auth:checkConnection': {
+    params: AuthCheckConnectionParams;
+    result: AuthCheckConnectionResult;
+  };
   'config:getScopes': {
     params: ConfigGetScopesParams;
     result: ConfigGetScopesResult;
@@ -1481,14 +1488,7 @@ export interface RpcMethodRegistry {
   };
   'auth:getApiKeyStatus': {
     params: Record<string, never>;
-    result: {
-      providers: Array<{
-        provider: string;
-        displayName: string;
-        hasApiKey: boolean;
-        isDefault: boolean;
-      }>;
-    };
+    result: AuthGetApiKeyStatusResult;
   };
   'settings:get': {
     params: { key: string };
@@ -3614,6 +3614,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
   'auth:getEffectiveRoute': true,
+  'auth:checkConnection': true,
   'config:getScopes': true,
   'config:clearScopeOverride': true,
   'auth:getScope': true,

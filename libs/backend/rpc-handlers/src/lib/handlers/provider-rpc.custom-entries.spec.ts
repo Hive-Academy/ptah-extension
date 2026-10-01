@@ -36,6 +36,7 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import { clearCustomProviderEntries } from '@ptah-extension/shared';
 import type { CustomProviderStore } from '@ptah-extension/settings-core';
 
+import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { ProviderRpcHandlers } from './provider-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -67,6 +68,7 @@ interface Suite {
   store: FakeStore;
   secrets: MockAuthSecretsService;
   logger: ReturnType<typeof createMockLogger>;
+  recorder: ConnectionCheckRecorder;
 }
 
 function buildSuite(): Suite {
@@ -92,6 +94,7 @@ function buildSuite(): Suite {
     remove: jest.fn(async () => true),
   };
 
+  const recorder = new ConnectionCheckRecorder();
   const noop = {} as never;
   const providerModels = { registerDynamicFetcher: jest.fn() };
 
@@ -111,10 +114,11 @@ function buildSuite(): Suite {
     { getAccountUsage: jest.fn(), clearCache: jest.fn(), close: jest.fn() },
     { captureException: jest.fn() } as unknown as SentryService,
     store as unknown as CustomProviderStore,
+    recorder,
   );
   handlers.register();
 
-  return { rpc, store, secrets, logger };
+  return { rpc, store, secrets, logger, recorder };
 }
 
 function getHandler(
@@ -509,5 +513,171 @@ describe('provider:testCustomEntry', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// provider:testCustomEntry records the last connection check (Batch 28c)
+// ---------------------------------------------------------------------------
+
+describe('provider:testCustomEntry — last connection check', () => {
+  it('records a failed check with its reason and latencyMs: null', async () => {
+    const { rpc, store, secrets, recorder } = buildSuite();
+    await secrets.setProviderKey('my-gateway', 'sk-stored');
+    store.get.mockReturnValueOnce({
+      ...VALID_ENTRY,
+      defaultTiers: { sonnet: 'm-s', opus: 'm-o', haiku: 'm-h' },
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn().mockRejectedValue(
+      Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND'), {
+          code: 'ENOTFOUND',
+        }),
+      }),
+    ) as unknown as typeof globalThis.fetch;
+    try {
+      await getHandler(rpc, 'provider:testCustomEntry')({ id: 'my-gateway' });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(recorder.get('my-gateway')).toEqual({
+      status: 'failed',
+      reason: 'unreachable',
+      latencyMs: null,
+      checkedAt: expect.any(String),
+    });
+  });
+
+  it('a key-store throw records failed/unclassified and answers fixed text, never the error text', async () => {
+    const { rpc, secrets, recorder, logger } = buildSuite();
+    secrets.getProviderKey.mockRejectedValueOnce(
+      new Error('keychain dump sk-live-Qw8Er4Ty2Ui6Op0As'),
+    );
+
+    const result = await getHandler(
+      rpc,
+      'provider:testCustomEntry',
+    )({ id: 'my-gateway' });
+
+    expect(result).toEqual({
+      ok: false,
+      message: 'Could not test the connection.',
+    });
+    expect(recorder.get('my-gateway')).toMatchObject({
+      status: 'failed',
+      reason: 'unclassified',
+      latencyMs: null,
+    });
+    expect(JSON.stringify([result, logger.warn.mock.calls])).not.toContain(
+      'Qw8Er4',
+    );
+  });
+
+  it('an older test that finishes late does not replace a newer check', async () => {
+    const { rpc, store, secrets, recorder } = buildSuite();
+    await secrets.setProviderKey('my-gateway', 'sk-stored');
+    store.get.mockReturnValue({
+      ...VALID_ENTRY,
+      defaultTiers: { sonnet: 'm-s', opus: 'm-o', haiku: 'm-h' },
+    });
+    let releaseFirst!: () => void;
+    const originalFetch = globalThis.fetch;
+    const fetchMock = jest
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            releaseFirst = () =>
+              reject(
+                Object.assign(new Error('aborted'), { name: 'AbortError' }),
+              );
+          }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new TypeError('fetch failed'), {
+          cause: Object.assign(new Error('refused'), { code: 'ECONNREFUSED' }),
+        }),
+      );
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    try {
+      const handler = getHandler(rpc, 'provider:testCustomEntry');
+      const first = handler({ id: 'my-gateway' });
+      for (let i = 0; i < 50 && fetchMock.mock.calls.length === 0; i++) {
+        await Promise.resolve();
+      }
+      await handler({ id: 'my-gateway' });
+      const newer = recorder.get('my-gateway');
+      expect(newer).toMatchObject({ status: 'failed', reason: 'unreachable' });
+      releaseFirst();
+      await first;
+
+      // The first test (an abort = timeout) finished last but started first.
+      expect(recorder.get('my-gateway')).toBe(newer);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Entry edits forget a stale last check (Batch 28c revise round 1, S-1)
+// ---------------------------------------------------------------------------
+
+describe('custom entry edits and the last connection check', () => {
+  function checked(): Suite {
+    const suite = buildSuite();
+    suite.recorder.complete(suite.recorder.begin('my-gateway'), {
+      status: 'verified',
+      reason: null,
+      latencyMs: 92,
+      checkedAt: '2026-10-01T00:00:00.000Z',
+    });
+    return suite;
+  }
+
+  it('provider:removeCustomEntry clears the record', async () => {
+    const { rpc, recorder } = checked();
+    await getHandler(rpc, 'provider:removeCustomEntry')({ id: 'my-gateway' });
+    expect(recorder.get('my-gateway')).toBeUndefined();
+  });
+
+  it('provider:removeCustomEntry clears the record even when the key delete fails', async () => {
+    const { rpc, recorder, secrets } = checked();
+    secrets.deleteProviderKey.mockRejectedValueOnce(new Error('disk'));
+    await expect(
+      getHandler(rpc, 'provider:removeCustomEntry')({ id: 'my-gateway' }),
+    ).rejects.toThrow();
+    expect(recorder.get('my-gateway')).toBeUndefined();
+  });
+
+  it.each([
+    ['a new endpoint', { changes: { baseUrl: 'https://other.example.com' } }],
+    ['a new lane', { changes: { lane: 'openai' } }],
+    ['a replaced key', { changes: {}, apiKey: 'Zq9Wm4Xn7Bv2Lk5Hj8Gf' }],
+    ['a cleared key', { changes: {}, apiKey: '' }],
+  ])(
+    'provider:updateCustomEntry with %s clears the record',
+    async (_label, edit) => {
+      const { rpc, recorder } = checked();
+      await getHandler(
+        rpc,
+        'provider:updateCustomEntry',
+      )({ id: 'my-gateway', ...edit });
+      expect(recorder.get('my-gateway')).toBeUndefined();
+    },
+  );
+
+  it('provider:updateCustomEntry with a display-only change keeps the record', async () => {
+    const { rpc, recorder } = checked();
+    await getHandler(
+      rpc,
+      'provider:updateCustomEntry',
+    )({
+      id: 'my-gateway',
+      changes: { name: 'Renamed Gateway', helpUrl: 'https://help.example.com' },
+    });
+    expect(recorder.get('my-gateway')?.status).toBe('verified');
   });
 });

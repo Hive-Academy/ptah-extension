@@ -88,6 +88,7 @@ import {
 import type { ClaudeCliHealth } from '@ptah-extension/shared';
 import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 
+import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { AuthRpcHandlers } from './auth-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -437,6 +438,7 @@ function makeHarness(
     // Draft verification is not exercised by this harness: every probe path
     // has its own coverage. Present only to keep the positional list aligned.
     {} as unknown as import('@ptah-extension/auth-providers').DraftVerificationService,
+    new ConnectionCheckRecorder(),
     webviewManager as unknown as import('@ptah-extension/vscode-core').WebviewManager,
     adapterEvents as unknown as import('@ptah-extension/agent-sdk').SdkAdapterEvents,
   );
@@ -474,7 +476,7 @@ function probeCounts(h: Harness): {
     copilot: h.copilot.isAuthenticated.mock.calls.length,
     codex: h.codex.getTokenStatus.mock.calls.length,
     secrets:
-      h.authSecrets.hasCredential.mock.calls.length +
+      h.authSecrets.getCredential.mock.calls.length +
       h.authSecrets.hasProviderKey.mock.calls.length,
   };
 }
@@ -726,7 +728,8 @@ describe('AuthRpcHandlers', () => {
       expect(h.cliDetector.performHealthCheck).toHaveBeenCalledTimes(1);
       expect(h.copilot.isAuthenticated).toHaveBeenCalledTimes(1);
       expect(h.codex.getTokenStatus).toHaveBeenCalledTimes(1);
-      expect(h.authSecrets.hasCredential).toHaveBeenCalledTimes(1);
+      // One read serves both `hasApiKey` and `apiKeyHint` (Batch 28c).
+      expect(h.authSecrets.getCredential).toHaveBeenCalledTimes(1);
     });
 
     it('serves a second call within the TTL with ZERO probe or secret-store work', async () => {

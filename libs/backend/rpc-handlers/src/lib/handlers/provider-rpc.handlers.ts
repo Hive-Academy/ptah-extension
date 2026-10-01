@@ -33,7 +33,11 @@ import {
   SETTINGS_TOKENS,
   CustomProviderStore,
 } from '@ptah-extension/settings-core';
-import { probeCustomProvider } from '../utils/custom-provider-probe';
+import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
+import {
+  customEntryEditStalesCheck,
+  testCustomEntryAndRecord,
+} from './connection-check';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
 import { SettingsPersistError } from '@ptah-extension/platform-core';
@@ -139,6 +143,8 @@ export class ProviderRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE)
     private readonly customProviders: CustomProviderStore,
+    @inject(ConnectionCheckRecorder)
+    private readonly connectionChecks: ConnectionCheckRecorder,
   ) {}
 
   /**
@@ -807,6 +813,9 @@ export class ProviderRpcHandlers {
         return { entry };
       } catch (error: unknown) {
         throw this.describeCustomEntryFailure('updateCustomEntry', error);
+      } finally {
+        // Also after a partial write: the old result may no longer apply.
+        this.clearStaleCheck(validated);
       }
     });
   }
@@ -834,6 +843,8 @@ export class ProviderRpcHandlers {
         return { removed };
       } catch (error: unknown) {
         throw this.describeCustomEntryFailure('removeCustomEntry', error);
+      } finally {
+        this.connectionChecks.clear(validated.id);
       }
     });
   }
@@ -859,27 +870,24 @@ export class ProviderRpcHandlers {
         };
       }
 
-      const apiKey = await this.authSecretsService.getProviderKey(entry.id);
-      const result = await probeCustomProvider(entry, apiKey);
-
-      this.logger.info('RPC: provider:testCustomEntry completed', {
-        providerId: entry.id,
-        lane: entry.lane,
-        ok: result.ok,
-        failure: result.failure,
-        latencyMs: result.latencyMs,
-      });
-
-      // `failure` is an internal classification for logs and tests — the wire
-      // contract is exactly { ok, message, latencyMs? }.
-      return {
-        ok: result.ok,
-        message: result.message,
-        ...(result.latencyMs === undefined
-          ? {}
-          : { latencyMs: result.latencyMs }),
-      };
+      // Probes, records the entry's last check, and shapes the wire result.
+      return testCustomEntryAndRecord(
+        this.connectionChecks,
+        this.logger,
+        entry,
+        () => this.authSecretsService.getProviderKey(entry.id),
+      );
     });
+  }
+
+  /** An edit to the endpoint, lane, models or key makes the last check stale. */
+  private clearStaleCheck(edit: {
+    readonly id: string;
+    readonly changes: object;
+    readonly apiKey?: string;
+  }): void {
+    if (customEntryEditStalesCheck(edit.changes, edit.apiKey))
+      this.connectionChecks.clear(edit.id);
   }
 
   /** Write (or clear) the SecretStorage key for a custom entry. */
