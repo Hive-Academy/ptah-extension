@@ -41,6 +41,13 @@
  *   getGitInfo     — line counts are read for the first 200 untracked files only
  *   readUntrackedNumstat — a file over 1 MiB reports unknown line counts
  *
+ * TASK_2026_576 Batch 25 additions (change-set delegates):
+ *   readChangeSetNumstat — tracked, deleted, binary, untracked, unchanged paths;
+ *                          empty tree on an unborn branch; failures give null
+ *                          counts; unsafe paths never reach git; argv chunking
+ *   readHeadText         — HEAD sha read capped at the per-side limit;
+ *                          too-large; unborn branch is absent; traversal refused
+ *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
  * Source-under-test:
@@ -2531,6 +2538,293 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
       const fetchCall = mockSpawn.mock.calls[0];
       expect(fetchCall[2]?.env?.GIT_TERMINAL_PROMPT).toBe('0');
       expect(fetchCall[2]?.env?.GIT_ASKPASS).toBe('');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TASK_2026_576 Batch 25: change-set facade delegates
+// ---------------------------------------------------------------------------
+
+describe('GitInfoService — change-set delegates (TASK_2026_576)', () => {
+  const WS = '/fake/workspace';
+  const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+  const LITERAL = ':(top,literal)';
+  type ExecResult = { stdout: string; stderr: string; exitCode: number };
+  const ok = (stdout: string): ExecResult => ({
+    stdout,
+    stderr: '',
+    exitCode: 0,
+  });
+  const exit = (exitCode: number): ExecResult => ({
+    stdout: '',
+    stderr: 'fatal',
+    exitCode,
+  });
+
+  /** Spy the text seam; `answer` sees each argv in turn. */
+  function seamOf(
+    service: GitInfoService,
+    answer: (args: string[]) => ExecResult,
+  ) {
+    const seam = service as unknown as {
+      execGit: (args: string[], cwd: string) => Promise<ExecResult>;
+    };
+    return jest
+      .spyOn(seam, 'execGit')
+      .mockImplementation(async (args: string[]) => answer(args));
+  }
+
+  /** Spy the buffer seam used by `readBlob`. */
+  function bufferSeamOf(service: GitInfoService) {
+    return jest.spyOn(
+      service as unknown as {
+        execGitBuffer: (
+          args: string[],
+          cwd: string,
+          options?: unknown,
+        ) => Promise<unknown>;
+      },
+      'execGitBuffer',
+    );
+  }
+
+  describe('readChangeSetNumstat', () => {
+    it('counts tracked changes against HEAD and untracked files from disk', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const exec = seamOf(service, (args) => {
+        if (args[0] === 'rev-parse') return ok('abc123\n');
+        if (args[0] === 'diff') {
+          return ok(
+            '3\t1\tsrc/a.ts\0' + '0\t4\tsrc/gone.ts\0' + '-\t-\timg.png\0',
+          );
+        }
+        if (args[0] === 'ls-files') return ok('new.ts\0');
+        throw new Error(`unexpected ${args.join(' ')}`);
+      });
+      jest
+        .spyOn(
+          service as unknown as {
+            readUntrackedNumstat: (ws: string, p: string) => Promise<unknown>;
+          },
+          'readUntrackedNumstat',
+        )
+        .mockResolvedValue({ additions: 9, deletions: 0, binary: false });
+
+      const counts = await service.readChangeSetNumstat(WS, [
+        'src/a.ts',
+        'src/gone.ts',
+        'img.png',
+        'new.ts',
+        'reverted.ts',
+      ]);
+
+      expect(Object.fromEntries(counts)).toEqual({
+        'src/a.ts': { additions: 3, deletions: 1, binary: false },
+        'src/gone.ts': { additions: 0, deletions: 4, binary: false },
+        'img.png': { additions: null, deletions: null, binary: true },
+        'new.ts': { additions: 9, deletions: 0, binary: false },
+        'reverted.ts': { additions: 0, deletions: 0, binary: false },
+      });
+      const diffArgs = exec.mock.calls[1][0];
+      expect(diffArgs.slice(0, 7)).toEqual([
+        'diff',
+        '--numstat',
+        '-z',
+        '--find-renames',
+        '--end-of-options',
+        'abc123',
+        '--',
+      ]);
+      expect(diffArgs).toContain(`${LITERAL}src/a.ts`);
+      expect(exec.mock.calls[2][0]).toEqual([
+        'ls-files',
+        '-z',
+        '--others',
+        '--exclude-standard',
+        '--full-name',
+        '--',
+        `${LITERAL}new.ts`,
+        `${LITERAL}reverted.ts`,
+      ]);
+    });
+
+    it('diffs against the empty tree on an unborn branch', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const exec = seamOf(service, (args) =>
+        args[0] === 'rev-parse' ? exit(1) : ok('2\t0\ta.ts\0'),
+      );
+
+      const counts = await service.readChangeSetNumstat(WS, ['a.ts']);
+
+      expect(counts.get('a.ts')).toEqual({
+        additions: 2,
+        deletions: 0,
+        binary: false,
+      });
+      expect(exec.mock.calls[1][0]).toContain(EMPTY_TREE);
+    });
+
+    it('reports null counts for every path when git diff fails', async () => {
+      const logger = makeLogger();
+      const service = new GitInfoService(logger as never);
+      seamOf(service, (args) =>
+        args[0] === 'rev-parse' ? ok('abc123\n') : exit(128),
+      );
+
+      const counts = await service.readChangeSetNumstat(WS, ['a.ts', 'b.ts']);
+
+      expect(Object.fromEntries(counts)).toEqual({
+        'a.ts': { additions: null, deletions: null },
+        'b.ts': { additions: null, deletions: null },
+      });
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports null counts when HEAD cannot be resolved', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const exec = seamOf(service, () => exit(128));
+
+      const counts = await service.readChangeSetNumstat(WS, ['a.ts']);
+
+      expect(counts.get('a.ts')).toEqual({ additions: null, deletions: null });
+      expect(exec).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps null counts when git throws, and never rejects', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      seamOf(service, () => {
+        throw new GitOutputLimitError('diff', 16);
+      });
+
+      await expect(service.readChangeSetNumstat(WS, ['a.ts'])).resolves.toEqual(
+        new Map([['a.ts', { additions: null, deletions: null }]]),
+      );
+    });
+
+    it('gives an unsafe path null counts without passing it to git', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const exec = seamOf(service, (args) =>
+        args[0] === 'rev-parse' ? ok('abc123\n') : ok('1\t1\tok.ts\0'),
+      );
+
+      const counts = await service.readChangeSetNumstat(WS, [
+        'ok.ts',
+        '../escape.ts',
+        '/etc/passwd',
+      ]);
+
+      expect(counts.get('ok.ts')).toEqual({
+        additions: 1,
+        deletions: 1,
+        binary: false,
+      });
+      for (const unsafe of ['../escape.ts', '/etc/passwd']) {
+        expect(counts.get(unsafe)).toEqual({
+          additions: null,
+          deletions: null,
+        });
+      }
+      const argv = exec.mock.calls.flatMap(([args]) => args).join('\n');
+      expect(argv).not.toContain('escape');
+      expect(argv).not.toContain('passwd');
+    });
+
+    it('splits a long path list across git runs to stay under the argv limit', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const paths = Array.from(
+        { length: 2000 },
+        (_, i) => `packages/some-long-directory-name/file-${i}.ts`,
+      );
+      const exec = seamOf(service, (args) => {
+        if (args[0] === 'rev-parse') return ok('abc123\n');
+        const lines = args
+          .filter((arg) => arg.startsWith(LITERAL))
+          .map((arg) => `1\t0\t${arg.slice(LITERAL.length)}\0`);
+        return ok(lines.join(''));
+      });
+
+      const counts = await service.readChangeSetNumstat(WS, paths);
+
+      const diffRuns = exec.mock.calls.filter(([args]) => args[0] === 'diff');
+      expect(diffRuns.length).toBeGreaterThan(1);
+      for (const [args] of diffRuns) {
+        expect(args.join(' ').length).toBeLessThan(32 * 1024);
+      }
+      expect(counts.size).toBe(2000);
+      expect([...counts.values()].every((c) => c.additions === 1)).toBe(true);
+    });
+  });
+
+  describe('readHeadText', () => {
+    it('reads the blob at the resolved HEAD sha, capped at the per-side limit', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      seamOf(service, () => ok('abc123\n'));
+      const buffer = bufferSeamOf(service).mockResolvedValue({
+        stdout: Buffer.from('hello\n'),
+        stderr: '',
+        exitCode: 0,
+      });
+
+      const result = await service.readHeadText(WS, 'src/a.ts');
+
+      expect(result).toEqual({ outcome: 'content', content: 'hello\n' });
+      expect(buffer.mock.calls[0][0]).toEqual(['show', 'abc123:src/a.ts']);
+      expect(buffer.mock.calls[0][2]).toEqual({
+        maxOutputBytes: GIT_DIFF_MAX_SIDE_BYTES,
+      });
+    });
+
+    it('is too-large past the per-side cap', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      seamOf(service, (args) =>
+        args[0] === 'cat-file' ? ok('3145728\n') : ok('abc123\n'),
+      );
+      bufferSeamOf(service).mockRejectedValue(
+        new GitOutputLimitError('show', GIT_DIFF_MAX_SIDE_BYTES),
+      );
+
+      await expect(service.readHeadText(WS, 'big.txt')).resolves.toEqual({
+        outcome: 'too-large',
+        byteLength: 3145728,
+      });
+    });
+
+    it('reads from the empty tree on an unborn branch', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      // HEAD does not resolve, and neither does `<empty tree>:a.ts`.
+      seamOf(service, () => exit(1));
+      const buffer = bufferSeamOf(service).mockResolvedValue({
+        stdout: Buffer.alloc(0),
+        stderr: 'fatal: path does not exist',
+        exitCode: 128,
+      });
+
+      await expect(service.readHeadText(WS, 'a.ts')).resolves.toEqual({
+        outcome: 'absent',
+      });
+      expect(buffer.mock.calls[0][0]).toEqual(['show', `${EMPTY_TREE}:a.ts`]);
+    });
+
+    it('refuses path traversal before spawning git', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const exec = seamOf(service, () => ok('abc123\n'));
+
+      await expect(service.readHeadText(WS, '../x')).rejects.toThrow(
+        /traversal/,
+      );
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it('maps a git spawn failure to an error outcome', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      seamOf(service, () => {
+        throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
+      });
+
+      const result = await service.readHeadText(WS, 'a.ts');
+
+      expect(result.outcome).toBe('error');
     });
   });
 });

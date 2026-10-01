@@ -77,6 +77,11 @@ import { GitRepoOperationReader } from './git/git-repo-operation.reader';
 import { classifyBlobBytes } from './git/git-blob-classifier';
 import { thrownOutcome, writeOutcome } from './git/git-mutation-outcome';
 import { assertSafeRef, assertSafeRevision } from './git/git-ref-guard';
+import {
+  EMPTY_TREE_SHA,
+  GitChangeSetNumstatReader,
+  type ChangeSetLineCounts,
+} from './git/git-change-set-numstat.reader';
 
 /** Working-tree status: NUL-terminated, verbatim paths, no C-quoting. */
 const STATUS_Z = ['status', '--porcelain=v2', '-z'] as const;
@@ -493,6 +498,7 @@ export class GitInfoService {
   private readonly remoteSync: GitRemoteSync;
   private readonly worktreeAdmin: AgentWorktreeAdmin;
   private readonly operationReader: GitRepoOperationReader;
+  private readonly changeSetNumstat: GitChangeSetNumstatReader;
 
   /**
    * @param spawner Optional `IProcessSpawner`. When a host supplies one, every
@@ -520,6 +526,14 @@ export class GitInfoService {
     this.remoteSync = new GitRemoteSync(deps);
     this.worktreeAdmin = new AgentWorktreeAdmin(deps);
     this.operationReader = new GitRepoOperationReader(deps);
+    this.changeSetNumstat = new GitChangeSetNumstatReader({
+      exec: deps.exec,
+      logger,
+      parseNumstat: (stdout) => this.parseNumstat(stdout),
+      countUntracked: (workspacePath, relativePath) =>
+        this.readUntrackedNumstat(workspacePath, relativePath),
+      maxUntrackedFiles: MAX_UNTRACKED_NUMSTAT_FILES,
+    });
   }
 
   /**
@@ -1296,6 +1310,50 @@ export class GitInfoService {
       } as unknown as Error);
       return this.gitReadError(this.classifyExecError(error), relativePath);
     }
+  }
+
+  /**
+   * The HEAD side of a file for a read-only diff view: `git show
+   * <HEAD sha>:<path>`, capped at `GIT_DIFF_MAX_SIDE_BYTES` like
+   * {@link readBlob} (past it the side is `too-large`). On an unborn branch
+   * HEAD is the empty tree, so every path is `absent`. Rejects an invalid
+   * path before spawning git, as {@link readBlob} does.
+   */
+  async readHeadText(
+    workspacePath: string,
+    relativePath: string,
+  ): Promise<GitBlobRead> {
+    this.validatePathSegment(relativePath);
+    let head: string | null;
+    try {
+      head = await this.resolveHeadSha(workspacePath);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        '[GitInfoService] readHeadText could not resolve HEAD',
+        {
+          workspacePath,
+          relativePath,
+          error: message,
+        } as unknown as Error,
+      );
+      return this.gitReadError(this.classifyExecError(error), relativePath);
+    }
+    return this.readBlob(workspacePath, head ?? EMPTY_TREE_SHA, relativePath);
+  }
+
+  /**
+   * Line counts against HEAD (the empty tree on an unborn branch) for the
+   * paths one agent turn changed, untracked files included. Every requested
+   * path gets an entry; a count git could not produce is `null` with `binary`
+   * unset, which the change-set recorder reports as counts unavailable. Pass
+   * a rename's `origPath` too, or git sees only the added side.
+   */
+  readChangeSetNumstat(
+    workspacePath: string,
+    paths: readonly string[],
+  ): Promise<Map<string, ChangeSetLineCounts>> {
+    return this.changeSetNumstat.read(workspacePath, paths);
   }
 
   /**
