@@ -7,7 +7,7 @@ description: 'Contract for spawning, resuming and messaging background CLI agent
 
 A **lane** is one background agent started with `ptah_agent_spawn`: an installed system CLI or a
 configured ptah-cli provider. This skill is the one place lane mechanics are written. Workflows
-(orchestration, tribunal) decide *what* a lane does; this decides *how* to run it.
+(orchestration, tribunal) decide _what_ a lane does; this decides _how_ to run it.
 
 ## 1. Discover
 
@@ -34,19 +34,19 @@ That sample is one machine's output at one moment — yours will differ.
 
 ## 2. Address
 
-| Param | Use |
-| --- | --- |
-| `task` | Required. The self-contained prompt (§3). |
-| `cli` | A system CLI from an `installed` row. Omit for the user's default CLI. |
-| `ptahCliId` | A ptah-cli row's id. When set, `cli` is ignored. |
-| `model` | Raw model id. For a ptah-cli lane it overrides the tier mapping. Read ids from that lane's own model list; never invent one. |
-| `modelTier` | `opus` / `sonnet` / `haiku`, ptah-cli lanes only; the provider maps the tier to a model. |
-| `role` | Name of a role generated for this workspace. `ptah_agent_list` lists the valid names. The spawn result reports `roleDelivery` and `roleChannel`. |
-| `workingDirectory` | Inside the workspace. A worktree path when lanes edit the same files in parallel. |
-| `taskFolder`, `files` | Where the lane writes deliverables; what it should read. |
-| `deliverables` | The files the lane MUST write. Relative to `taskFolder` when set, else to `workingDirectory`. Pass it whenever the lane owes you a file — it is what makes the completion signal (§4) able to say the work was actually done. |
-| `timeout` | Inactivity window in milliseconds: the lane is stopped after this long with no output. Default one hour, no maximum; `0` disables it. Pass a value well under an hour (20 min, `1200000`, is a good default); a lane that needs more than that is too big — split it. |
-| `resume_session_id` | Only per §5. |
+| Param                 | Use                                                                                                                                                                                                                                                                   |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`                | Required. The self-contained prompt (§3).                                                                                                                                                                                                                             |
+| `cli`                 | A system CLI from an `installed` row. Omit for the user's default CLI.                                                                                                                                                                                                |
+| `ptahCliId`           | A ptah-cli row's id. When set, `cli` is ignored.                                                                                                                                                                                                                      |
+| `model`               | Raw model id. For a ptah-cli lane it overrides the tier mapping. Read ids from that lane's own model list; never invent one.                                                                                                                                          |
+| `modelTier`           | `opus` / `sonnet` / `haiku`, ptah-cli lanes only; the provider maps the tier to a model.                                                                                                                                                                              |
+| `role`                | Name of a role generated for this workspace. `ptah_agent_list` lists the valid names. The spawn result reports `roleDelivery` and `roleChannel`.                                                                                                                      |
+| `workingDirectory`    | Inside the workspace. A worktree path when lanes edit the same files in parallel.                                                                                                                                                                                     |
+| `taskFolder`, `files` | Where the lane writes deliverables; what it should read.                                                                                                                                                                                                              |
+| `deliverables`        | The files the lane MUST write. Relative to `taskFolder` when set, else to `workingDirectory`. Pass it whenever the lane owes you a file — it is what makes the completion signal (§4) able to say the work was actually done.                                         |
+| `timeout`             | Inactivity window in milliseconds: the lane is stopped after this long with no output. Default one hour, no maximum; `0` disables it. Pass a value well under an hour (20 min, `1200000`, is a good default); a lane that needs more than that is too big — split it. |
+| `resume_session_id`   | Only per §5.                                                                                                                                                                                                                                                          |
 
 A user-pinned spawn args line (lane, model) is passed through unchanged. `ptah_agent_spawn`
 rejects any key not listed here — pass only the documented parameters.
@@ -101,12 +101,12 @@ one line per declared deliverable.
 
 Act on its `verdict`, never on the exit code alone:
 
-| `verdict` | Meaning | Do this |
-| --- | --- | --- |
-| `delivered` | Terminal status `completed` and every declared deliverable exists and is non-empty | Read the files and verify the content (§6) |
-| `no-deliverable` | Exited cleanly WITHOUT writing every declared deliverable | Treat the task as not done. Read the output, then resume per §5 naming the missing paths. Never report the lane as complete |
-| `failed` | Terminal status `failed`, `timeout` or `stopped` | Recover per §5 |
-| `unverified` | Completed, but nothing was declared, so nothing was checked | Read the output and verify it. Declare `deliverables` next time |
+| `verdict`        | Meaning                                                                            | Do this                                                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `delivered`      | Terminal status `completed` and every declared deliverable exists and is non-empty | Read the files and verify the content (§6)                                                                                  |
+| `no-deliverable` | Exited cleanly WITHOUT writing every declared deliverable                          | Treat the task as not done. Read the output, then resume per §5 naming the missing paths. Never report the lane as complete |
+| `failed`         | Terminal status `failed`, `timeout` or `stopped`                                   | Recover per §5                                                                                                              |
+| `unverified`     | Completed, but nothing was declared, so nothing was checked                        | Read the output and verify it. Declare `deliverables` next time                                                             |
 
 **The `<agent-lane-completed>` signal is the primary wake; status checks are the fallback.** If
 you must check, make one `ptah_agent_status({ agentId })` call, then wait at least 60 s before the
@@ -132,32 +132,32 @@ lane (`cli` or `ptahCliId`) with `resume_session_id: <that id>` and a continuati
 the previous task. Also fix: …"). The resumed lane gets a new `agentId` and the old conversation.
 No session id → that adapter is ephemeral: respawn with the context restated in `task`.
 
-| Situation | Action |
-| --- | --- |
-| `timeout`, or `failed` / `stopped` with partial work | Resume if possible, else respawn with a smaller task |
-| `verdict: no-deliverable` | Resume naming every missing path, and say the file was never written |
-| Completed but missed items | Resume and name what was missed |
-| Wrong approach or useless output | Respawn with a sharper prompt, or do it yourself |
-| Same lane fails twice | Drop it (say so in the summary) and reassign its work to another lane |
-| No lane available at all | Do the work in-process and label it as not an outside lane |
+| Situation                                            | Action                                                                |
+| ---------------------------------------------------- | --------------------------------------------------------------------- |
+| `timeout`, or `failed` / `stopped` with partial work | Resume if possible, else respawn with a smaller task                  |
+| `verdict: no-deliverable`                            | Resume naming every missing path, and say the file was never written  |
+| Completed but missed items                           | Resume and name what was missed                                       |
+| Wrong approach or useless output                     | Respawn with a sharper prompt, or do it yourself                      |
+| Same lane fails twice                                | Drop it (say so in the summary) and reassign its work to another lane |
+| No lane available at all                             | Do the work in-process and label it as not an outside lane            |
 
 ## 6. Verify and revise
 
 Lane output is evidence, not proof.
 
-| Output | Before you use it |
-| --- | --- |
-| Research, surveys, summaries | Spot-check claims against the code |
-| Scaffolding, stubs | Read it in full — only the files the lane edited |
-| Decision artifacts (spec, design, plan) | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list only `lane-proposed` rules under `## Lane-introduced constraints`. Project rules keep their `project-rule` tag and cite their source where they appear; do not list them as lane-introduced. A cross-side review (below) runs first; then the user approves the artifact at orchestration Gate 1, 1.7 or 2 before any lane builds from it. |
-| Code that deletes, replaces or consolidates a surface | Check the supplied preserve list or `parity-inventory.md` item by item; a missing, unapproved capability blocks the batch. Proposed removals require explicit user approval before the batch is accepted. |
-| UI code | Typecheck/test/lint are not proof. Require visual-reviewer screenshots in dark + light themes, compared with the approved prototype (or — for a UI change with no added/redesigned surface and so no prototype — before/after screenshots of the affected screen, the "before" taken from the base commit before the fix lands) and shown to the user before merge. |
-| Code that will ship | Independent review routed cross-side (below), recorded in `code-logic-review.md` under the code-review role's own verdict contract. **Write-path trace**: when persisted settings/config/storage writes change, trace each write to its runtime reader (key, scope, value format, side effects such as env vars); confirm behaviour is unchanged or intended. |
+| Output                                                | Before you use it                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Research, surveys, summaries                          | Spot-check claims against the code                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Scaffolding, stubs                                    | Read it in full — only the files the lane edited                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Decision artifacts (spec, design, plan)               | A proposal, not a decision. Diff every rule against the user's request; tag rules `user-requested` / `project-rule` / `lane-proposed`, and list only `lane-proposed` rules under `## Lane-introduced constraints`. Project rules keep their `project-rule` tag and cite their source where they appear; do not list them as lane-introduced. A cross-side review (below) runs first; then the user approves the artifact at orchestration Gate 1, 1.7 or 2 before any lane builds from it. |
+| Code that deletes, replaces or consolidates a surface | Check the supplied preserve list or `parity-inventory.md` item by item; a missing, unapproved capability blocks the batch. Proposed removals require explicit user approval before the batch is accepted.                                                                                                                                                                                                                                                                                  |
+| UI code                                               | Typecheck/test/lint are not proof. Require visual-reviewer screenshots in dark + light themes, compared with the approved prototype (or — for a UI change with no added/redesigned surface and so no prototype — before/after screenshots of the affected screen, the "before" taken from the base commit before the fix lands) and shown to the user before merge.                                                                                                                        |
+| Code that will ship                                   | Independent review routed cross-side (below), recorded in `code-logic-review.md` under the code-review role's own verdict contract. **Write-path trace**: when persisted settings/config/storage writes change, trace each write to its runtime reader (key, scope, value format, side effects such as env vars); confirm behaviour is unchanged or intended.                                                                                                                              |
 
 - **Independence**: the author never reviews its own work. Same-family review is allowed when
   the user asks for it or when the fallback below is necessary; label it weaker evidence.
-- **Cross-side review**: *side* is the execution mode — in-process (orchestrator or subagent) or
-  CLI lane; *family* is the model family. A different CLI family is still the same side. The
+- **Cross-side review**: _side_ is the execution mode — in-process (orchestrator or subagent) or
+  CLI lane; _family_ is the model family. A different CLI family is still the same side. The
   orchestrator assigns the reviewer: in-process author → a CLI lane; CLI author → a subagent.
   Opposite side unavailable, lanes disabled at Gate 0.1, or the user explicitly pins a same-side
   reviewer → an independent reviewer on that side, reason disclosed; prefer another family unless
@@ -183,12 +183,12 @@ Lane output is evidence, not proof.
 
 `ptah_agent_message({ agentId, message })` reports how it was delivered. Always branch on `mode`:
 
-| `mode` | Meaning |
-| --- | --- |
-| `steer` | Injected into the turn in flight |
-| `queue-next-turn` | Held and delivered as the next turn |
+| `mode`             | Meaning                                                           |
+| ------------------ | ----------------------------------------------------------------- |
+| `steer`            | Injected into the turn in flight                                  |
+| `queue-next-turn`  | Held and delivered as the next turn                               |
 | `interrupt-resume` | The turn in flight was aborted and its **partial work discarded** |
-| `unsupported` | Nothing delivered; `detail` says why — fall back to §5 |
+| `unsupported`      | Nothing delivered; `detail` says why — fall back to §5            |
 
 `ptah_agent_list` shows each lane's declared `messaging:` capability, probed per run rather than
 fixed per vendor — read it each time. Do not interrupt a lane mid-edit to add a minor note. On a
@@ -230,13 +230,13 @@ process to resume (§5), and it never exits, it goes idle. Use a lane for a boun
 CLI; use a child session when the work needs the full chat runtime, slash commands such as
 `/orchestrate TASK_…`, or a branch the user can open and review.
 
-| Tool | Use |
-| --- | --- |
-| `ptah_session_start({ task, branch, … })` | Create the worktree and branch, open the tab, run `task` |
+| Tool                                               | Use                                                                                                      |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `ptah_session_start({ task, branch, … })`          | Create the worktree and branch, open the tab, run `task`                                                 |
 | `ptah_session_send({ sessionId, message, mode? })` | Steer. `queue` (default), `steer` (interrupts the turn in flight), `if-idle` (refused as busy otherwise) |
-| `ptah_session_status({ sessionId? })` | State of one or all of your children |
-| `ptah_session_read({ sessionId, tailKiB? })` | Tail of the child's transcript (default 32 KiB, max 256) |
-| `ptah_session_stop({ sessionId })` | Stop it; tab, transcript, worktree and branch remain |
+| `ptah_session_status({ sessionId? })`              | State of one or all of your children                                                                     |
+| `ptah_session_read({ sessionId, tailKiB? })`       | Tail of the child's transcript (default 32 KiB, max 256)                                                 |
+| `ptah_session_stop({ sessionId })`                 | Stop it; tab, transcript, worktree and branch remain                                                     |
 
 - **Messaging first.** Steer with `ptah_session_send`; use `ptah_session_read` to inspect. Do not poll
   `ptah_session_status` while a completion turn is due: one is pushed into your session each time a
