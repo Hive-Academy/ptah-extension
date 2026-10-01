@@ -75,6 +75,23 @@ describe('TaskDoctorService.plan', () => {
     expect(fs.delete).not.toHaveBeenCalled();
   });
 
+  /**
+   * A removed task leaves its git-ignored `.harvested.json` behind. Adopting
+   * that folder would put a finished task back on the board as new `backlog`.
+   */
+  it('never adopts a folder that holds only hidden residue', async () => {
+    const { fs, doctor } = makeDoctor();
+    await fs.writeFile(specPath('TASK_2026_165', '.harvested.json'), '{}');
+
+    const result = await doctor.plan(ROOT);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(
+      result.plan.actions.some((a) => a.folderName === 'TASK_2026_165'),
+    ).toBe(false);
+  });
+
   it('infers `done` — NOT `backlog` — for a folder carrying a test report', async () => {
     const { fs, doctor } = makeDoctor();
     await fs.writeFile(specPath('TASK_2026_160', 'context.md'), '# Shipped\n');

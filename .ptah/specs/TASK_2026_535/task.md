@@ -1,5 +1,5 @@
 ---
-status: planned
+status: backlog
 type: feature
 title: 'Lanes: model discovery in ptah_agent_list and a persisted lane outcome ledger'
 depends_on: []
