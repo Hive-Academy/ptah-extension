@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 10/69
+Total tasks: 87 | Batches: 69 | Complete: 17/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -857,14 +857,14 @@ under "Execution defaults".
   3. P2 with Batch 9: `vscode-core:test --coverage` 41 suites, 793 passed, thresholds met; `test-real-git` 3 runs,
      8 suites, 95 passed, 2 skipped. The kill-guard test passed in all three runs. Committed as 7800dde50.
 
-## Batch 10: Branch switching backend (RC9) — PENDING
+## Batch 10: Branch switching backend (RC9) — COMPLETE (4ff38bc5c)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 9
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core @ptah-extension/shared`
 
-### Task 10.1: `git switch` semantics with stash, force, track — PENDING
+### Task 10.1: `git switch` semantics with stash, force, track — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.switch.real-git.spec.ts
 - Plan reference: implementation-plan.md:527-549
@@ -873,14 +873,14 @@ under "Execution defaults".
 - Validation notes: switch failure after stash → pop; pop failure → both errors, stash kept.
 - Implementation details: `GitCheckoutParams.stash?/track?`, `GitCheckoutResult.conflictingPaths?/stashRef?`.
 
-## Batch 11: Branch switching handler and picker UI (RC9) — PENDING
+## Batch 11: Branch switching handler and picker UI (RC9) — COMPLETE (2ae839735)
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope; visual-reviewer (before/after picker, dark + light)
 - Tasks: 1 | Depends on: Batch 10
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers @ptah-extension/git-ui`
 
-### Task 11.1: Pass new params; "Stash & switch" primary, "Discard & switch" behind confirmation — PENDING
+### Task 11.1: Pass new params; "Stash & switch" primary, "Discard & switch" behind confirmation — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.spec.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/branch-picker/branch-picker-dropdown.component.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/branch-picker/branch-picker-dropdown.component.spec.ts
 - Plan reference: implementation-plan.md:538-540, 554-556
@@ -889,14 +889,14 @@ under "Execution defaults".
 - Validation notes: parity row `parity-inventory.md:122` (force stays as secondary confirmed action).
 - Implementation details: zod schema in `git-rpc.schema.ts` accepts the new optional fields if the handler validates with it (then that file is the 5th file).
 
-## Batch 12: Worktree admin core (RC10) — PENDING
+## Batch 12: Worktree admin core (RC10) — COMPLETE (ca36b19de)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 11
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core @ptah-extension/shared`
 
-### Task 12.1: Exclude on create, labels, prune, scoped params — PENDING
+### Task 12.1: Exclude on create, labels, prune, scoped params — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/agent-worktree-admin.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.worktrees.real-git.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/utils/git.utils.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/utils/git.utils.spec.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts
 - Plan reference: implementation-plan.md:558-577, 589-595
@@ -905,14 +905,14 @@ under "Execution defaults".
 - Validation notes: exclude write failure warns and does not block add; locked worktree never force-removed.
 - Implementation details: `GitWorktreeInfo.locked?/lockReason?/prunable?/prunableReason?`; `GitWorktreesParams = GitWorkspaceScopedParams`, add/remove params extend it.
 
-## Batch 13: Worktree remove hook and RPC scoping (RC10) — PENDING
+## Batch 13: Worktree remove hook and RPC scoping (RC10) — COMPLETE (ddafac963)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 12
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk @ptah-extension/rpc-handlers`
 
-### Task 13.1: `WorktreeRemove` hook removes + prunes; handlers use `resolveRoot` — PENDING
+### Task 13.1: `WorktreeRemove` hook removes + prunes; handlers use `resolveRoot` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/helpers/worktree-hook-handler.ts; MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/helpers/worktree-hook-handler.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.spec.ts
 - Plan reference: implementation-plan.md:565, 572-576, 585-587
@@ -920,6 +920,7 @@ under "Execution defaults".
 - Quality requirements: path must be listed by `git worktree list` and under `<main>/.claude-worktrees/`; hook always returns `continue: true`.
 - Validation notes: A5 — log which removal path fired.
 - Implementation details: worktree RPCs (`:317-460`) honour `params.workspaceRoot`.
+- Outcome (ddafac963): hook calls `removeWorktree(main, gitPath, true)` then `pruneWorktrees(main)`; prunable entry → prune only; locked → skipped. Log field `removalPath` (A5). `git:worktrees` validates with `parseGitWorkspaceScopedParams`; add/remove use `resolveRoot`. Verified: agent-sdk + rpc-handlers typecheck/lint/test green except the known unrelated `harness-skill-selection-rpc.service.spec.ts` failure (unchanged from main).
 
 ## Batch 14: Worktree removal detection and frontend scoping (RC10) — PENDING
 
@@ -937,14 +938,14 @@ under "Execution defaults".
 - Validation notes: parity row `parity-inventory.md:92` (removed worktree unregistered) stays green.
 - Implementation details: as plan.
 
-## Batch 15: Status union growth and frontend consumers (RC12, V10) — PENDING
+## Batch 15: Status union growth and frontend consumers (RC12, V10) — COMPLETE (183aac6e6)
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 12
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/git-ui`
 
-### Task 15.1: `GitFileStatus.status` gains `'U' | 'T'`, `conflict?`, `submodule?`; `GitInfoResult.operation?`; `GitBlobRead` outcomes — PENDING
+### Task 15.1: `GitFileStatus.status` gains `'U' | 'T'`, `conflict?`, `submodule?`; `GitInfoResult.operation?`; `GitBlobRead` outcomes — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/source-control/source-control-file.component.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/source-control/changed-file-tree.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/source-control/changed-file-tree.spec.ts
 - Plan reference: implementation-plan.md:612-624, 644-646
@@ -952,15 +953,16 @@ under "Execution defaults".
 - Quality requirements: every `switch` over the status is exhaustive; `U` rendered as Conflicted, `T` as Type changed.
 - Validation notes: V10; backend still emits the old values until Batch 16.
 - Implementation details: typecheck finds all switches; add spec cases for U/T rows.
+- Outcome (183aac6e6): new `GitConflictKind`, `GitRepoOperation(Kind)`, blob outcomes `too-large`/`lfs-pointer`. Badges: conflicted `!` (VS Code letters; `U` already = untracked), ignored now `I`; label carries meaning. `changed-file-tree.ts` unchanged (no status switch). Extra file: `describeBlob` cases in `git-info.service.ts`; `GitChangeKind` doc comment fixed (carried item closed). Follow-up for the change-set card: `.err-solid-text` class does not exist yet.
 
-## Batch 16: Repo operation, conflict kinds, size limit and LFS in the facade (RC12) — PENDING
+## Batch 16: Repo operation, conflict kinds, size limit and LFS in the facade (RC12) — COMPLETE (4b458351a)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 15
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
 
-### Task 16.1: `readRepoOperation`, `u` → `'U'` + conflict kind, `T`, submodule, blob too-large / LFS — PENDING
+### Task 16.1: `readRepoOperation`, `u` → `'U'` + conflict kind, `T`, submodule, blob too-large / LFS — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-repo-operation.reader.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-status-parser.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-status-parser.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.operation.real-git.spec.ts
 - Plan reference: implementation-plan.md:608-646
@@ -968,6 +970,7 @@ under "Execution defaults".
 - Quality requirements: ≤1 extra spawn per status, only when needed; `GIT_DIFF_MAX_SIDE_BYTES` (add to `git-operation.constants.ts` — if so it is a shared file; keep it in the batch report as the 6th file).
 - Validation notes: merge, rebase, cherry-pick conflicts incl. linked worktree; 3 MiB → too-large; LFS pointer labelled; `applyHunks` refuses both with `BINARY_UNSUPPORTED`.
 - Implementation details: as plan.
+- Outcome (4b458351a): new `git/git-repo-operation.reader.ts` (marker paths via one cached `rev-parse --git-path` per workspace, then fs checks only; rebase > merge > cherry-pick; `git am` not reported) and `git/git-blob-classifier.ts` (+spec; too-large / LFS / binary / text — reuse it in Batch 17). `GIT_DIFF_MAX_SIDE_BYTES = 2 MiB` in shared `git-operation.constants.ts`. Conflict kind order: submodule, symlink, delete-modify, add-add, content. Too-large size from `cat-file -s`; worktree side uses fs stat before reading. LFS `oid` keeps its `sha256:` prefix. Verified: vscode-core unit 817/817, real-git 131 passed / 2 skipped (11 suites), typecheck of vscode-core, rpc-handlers, git-ui, shared green.
 
 ## Batch 17: Review reader size limit (RC12) — PENDING
 
@@ -985,7 +988,7 @@ under "Execution defaults".
 - Validation notes: none beyond plan.
 - Implementation details: spec for too-large and LFS pointer.
 
-## Batch 18: One `GitInfoService` per host (RC13) — PENDING
+## Batch 18: One `GitInfoService` per host (RC13) — COMPLETE (e7b30b433)
 
 - Recommended executor: CLI lane | Fallback: backend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
@@ -993,7 +996,7 @@ under "Execution defaults".
 - Concurrency-eligible with: none in the single checkout (its scope compiles vscode-core); Wave 2
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-extension-vscode @ptah-extension/cli-engine`
 
-### Task 18.1: VS Code singleton registration — PENDING
+### Task 18.1: VS Code singleton registration — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/src/di/phase-3-handlers.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/src/di/container.smoke.spec.ts
 - Plan reference: implementation-plan.md:648-660
@@ -1002,7 +1005,7 @@ under "Execution defaults".
 - Validation notes: none.
 - Implementation details: replace `phase-3-handlers.ts:58-60`.
 
-### Task 18.2: CLI singleton registration + new spec (V11) — PENDING
+### Task 18.2: CLI singleton registration + new spec (V11) — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/cli-engine/src/lib/container.ts; CREATE D:/projects/ptah-extension/libs/backend/cli-engine/src/lib/container-git-info-singleton.spec.ts
 - Plan reference: implementation-plan.md:655-660
