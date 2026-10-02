@@ -1,0 +1,47 @@
+[
+  {
+    "theme": "dark",
+    "blocking": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "targets": [
+          "button[title=\"Switch to C:\\\\ptah-e2e-ws\"] > .font-mono.ml-auto.min-w-0"
+        ],
+        "summary": "Fix any of the following:\n  Element has insufficient color contrast of 4.39 (foreground color: #8e8887, background color: #242430, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1",
+        "nodes": [
+          {
+            "target": "button[title=\"Switch to C:\\\\ptah-e2e-ws\"] > .font-mono.ml-auto.min-w-0",
+            "summary": "Fix any of the following: Element has insufficient color contrast of 4.39 (foreground color: #8e8887, background color: #242430, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ]
+      }
+    ],
+    "reported": []
+  },
+  {
+    "theme": "light",
+    "blocking": [
+      {
+        "id": "color-contrast",
+        "impact": "serious",
+        "targets": [
+          ".text-info",
+          ".text-warning"
+        ],
+        "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.59 (foreground color: #00a4f2, background color: #faf7f5, font size: 10.5pt (14px), font weight: normal). Expected contrast ratio of 4.5:1",
+        "nodes": [
+          {
+            "target": ".text-info",
+            "summary": "Fix any of the following: Element has insufficient color contrast of 2.59 (foreground color: #00a4f2, background color: #faf7f5, font size: 10.5pt (14px), font weight: normal). Expected contrast ratio of 4.5:1"
+          },
+          {
+            "target": ".text-warning",
+            "summary": "Fix any of the following: Element has insufficient color contrast of 2.46 (foreground color: #f77f00, background color: #faf7f5, font size: 10.5pt (14px), font weight: normal). Expected contrast ratio of 4.5:1"
+          }
+        ]
+      }
+    ],
+    "reported": []
+  }
+]

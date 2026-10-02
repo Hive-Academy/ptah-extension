@@ -1,4 +1,6 @@
 import { test, expect } from '../../support/fixtures';
+import { test as realTest } from '../../support/real-rpc-fixtures';
+import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
 import { gitDiffFileMock } from '../../support/git-diff-mock';
 import { expectNoBlockingViolationsInBothThemes } from '../../support/axe';
 
@@ -366,7 +368,54 @@ test.describe('Git dock', () => {
       ui.page,
       'review-shell',
       testInfo,
-      'ptah-review-shell',
+      { include: 'ptah-review-shell', evidence: true },
+    );
+    await expectNoBlockingViolationsInBothThemes(
+      ui.page,
+      'review-header',
+      testInfo,
+      { include: 'ptah-git-dock-header', evidence: true },
     );
   });
+});
+
+/**
+ * The canvas audit runs against a real repository: its three hunks give three
+ * real hunk rows (the mocked `git:diffFile` replies carry no stage snapshot, so
+ * the rows are not projected there).
+ */
+realTest.describe('Review canvas a11y (TASK_2026_576 Batch 68)', () => {
+  realTest.setTimeout(300_000);
+
+  realTest(
+    'the review canvas with diffs and hunk rows has no critical or serious a11y violations in dark and light',
+    async ({ ui, rpcBridge, repo }, testInfo) => {
+      void rpcBridge;
+      void repo;
+      await ui.goto('git');
+      const section = ui.reviewFileSection(THREE_HUNK_FILE);
+      await expect(
+        section.locator('[data-testid="pierre-hunk-host"]'),
+      ).toHaveCount(3, { timeout: 60_000 });
+
+      // Pierre reads the theme when a diff mounts, so each theme gets a fresh
+      // mount: leave the Changes tab and come back.
+      await expectNoBlockingViolationsInBothThemes(
+        ui.page,
+        'review-canvas',
+        testInfo,
+        {
+          include: '[data-testid="review-shell-changes-body"]',
+          evidence: true,
+          remount: async () => {
+            await ui.reviewTab('Task').click();
+            await ui.reviewTab(/^Changes/).click();
+            await expect(
+              section.locator('[data-testid="pierre-hunk-host"]'),
+            ).toHaveCount(3, { timeout: 30_000 });
+          },
+        },
+      );
+    },
+  );
 });

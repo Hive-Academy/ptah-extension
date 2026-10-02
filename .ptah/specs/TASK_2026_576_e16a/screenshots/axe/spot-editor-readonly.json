@@ -1,0 +1,42 @@
+[
+  {
+    "theme": "dark",
+    "blocking": [
+      {
+        "id": "scrollable-region-focusable",
+        "impact": "serious",
+        "targets": [
+          ".cm-scroller"
+        ],
+        "summary": "Fix any of the following:\n  Element should have focusable content\n  Element should be focusable",
+        "nodes": [
+          {
+            "target": ".cm-scroller",
+            "summary": "Fix any of the following: Element should have focusable content Element should be focusable"
+          }
+        ]
+      }
+    ],
+    "reported": []
+  },
+  {
+    "theme": "light",
+    "blocking": [
+      {
+        "id": "scrollable-region-focusable",
+        "impact": "serious",
+        "targets": [
+          ".cm-scroller"
+        ],
+        "summary": "Fix any of the following:\n  Element should have focusable content\n  Element should be focusable",
+        "nodes": [
+          {
+            "target": ".cm-scroller",
+            "summary": "Fix any of the following: Element should have focusable content Element should be focusable"
+          }
+        ]
+      }
+    ],
+    "reported": []
+  }
+]

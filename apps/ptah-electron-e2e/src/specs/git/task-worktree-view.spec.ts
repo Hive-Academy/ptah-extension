@@ -5,6 +5,7 @@ import { test as mockedTest, expect } from '../../support/fixtures';
 import { test as realTest } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
 import type { UiDriver } from '../../support/ui-driver';
+import { expectNoBlockingViolationsInBothThemes } from '../../support/axe';
 
 /**
  * The review shell's Task tab (`ptah-task-worktree-view`) - TASK_2026_576
@@ -209,6 +210,97 @@ mockedTest.describe('task tab, mocked backend', () => {
       });
       await ui.page.locator('[data-testid="task-refresh"]').click();
       await expectQuietUnavailable(ui, 'GitHub CLI is not signed in');
+    },
+  );
+});
+
+mockedTest.describe('task tab, accessibility (TASK_2026_576 Batch 68)', () => {
+  const worktrees = {
+    worktrees: [
+      {
+        path: WORKSPACE,
+        branch: 'main',
+        head: 'abc1234',
+        isMain: true,
+        isBare: false,
+      },
+      {
+        path: WORKTREE_PATH,
+        branch: 'agent/task',
+        head: 'def5678',
+        isMain: false,
+        isBare: false,
+      },
+    ],
+  };
+
+  mockedTest(
+    'the task view with worktrees and an open PR panel has no critical or serious a11y violations in dark and light',
+    async ({ ui }, testInfo) => {
+      await ui.mockRpc({
+        'git:info': { isGitRepo: true, branch: BRANCH_STATUS, files: [] },
+        'git:worktrees': worktrees,
+        'git:prStatus': {
+          status: 'ok',
+          pr: {
+            number: 576,
+            title: 'Review canvas, spot editor and commit composer',
+            state: 'OPEN',
+            isDraft: false,
+            reviewDecision: 'CHANGES_REQUESTED',
+            url: 'https://github.com/Hive-Academy/ptah-extension/pull/576',
+            headRefName: 'feat/task-2026-576',
+          },
+          checks: { passing: 4, failing: 1, pending: 2, total: 7 },
+        },
+      });
+      await ui.goto('git');
+      await ui.pushEvent({
+        type: 'git:status-update',
+        payload: { branch: BRANCH_STATUS, files: [], isGitRepo: true },
+      });
+      await ui.reviewTab('Task').click();
+      const page = ui.page;
+      await expect(
+        page.locator('[data-testid="task-worktrees-heading"]'),
+      ).toHaveText('Worktrees (2)');
+      await expect(page.locator('[data-testid="task-pr-open"]')).toBeVisible({
+        timeout: 30_000,
+      });
+      // The add-worktree form is part of the view: audit it open.
+      await page.locator('[data-testid="task-worktree-add-toggle"]').click();
+      await page.mouse.move(2, 2);
+      await expectNoBlockingViolationsInBothThemes(
+        page,
+        'task-view-pr',
+        testInfo,
+        { include: '[data-testid="task-worktree-view"]', evidence: true },
+      );
+    },
+  );
+
+  mockedTest(
+    'the task view with the quiet PR line has no critical or serious a11y violations in dark and light',
+    async ({ ui }, testInfo) => {
+      await ui.mockRpc({
+        'git:info': { isGitRepo: true, branch: BRANCH_STATUS, files: [] },
+        'git:worktrees': worktrees,
+        'git:prStatus': { status: 'unavailable', reason: 'gh-missing' },
+      });
+      await ui.goto('git');
+      await ui.pushEvent({
+        type: 'git:status-update',
+        payload: { branch: BRANCH_STATUS, files: [], isGitRepo: true },
+      });
+      await ui.reviewTab('Task').click();
+      await expectQuietUnavailable(ui, 'GitHub CLI not available');
+      await ui.page.mouse.move(2, 2);
+      await expectNoBlockingViolationsInBothThemes(
+        ui.page,
+        'task-view-quiet',
+        testInfo,
+        { include: '[data-testid="task-worktree-view"]', evidence: true },
+      );
     },
   );
 });

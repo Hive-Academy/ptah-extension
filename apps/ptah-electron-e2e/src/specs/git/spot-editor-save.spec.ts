@@ -13,6 +13,7 @@ import {
   spotEditorContent,
   spotEditorLines,
 } from '../../support/spot-editor';
+import { expectNoBlockingViolationsInBothThemes } from '../../support/axe';
 
 /**
  * Editing and saving a file in the review shell's spot editor, end to end -
@@ -125,6 +126,57 @@ test.describe('spot editor save, end to end in Electron (TASK_2026_576 Requireme
         }),
       )
       .toBe(true);
+  });
+
+  test('the read-only spot editor has no critical or serious a11y violations in dark and light', async ({
+    ui,
+    rpcBridge,
+    repo,
+  }, testInfo) => {
+    void rpcBridge;
+    const page = ui.page;
+    await ui.goto('git');
+    await expect(ui.reviewFileSection(THREE_HUNK_FILE)).toBeVisible({
+      timeout: 60_000,
+    });
+    // Read-only: the way a chat file link opens a file.
+    await openFileInShell(page, THREE_HUNK_FILE, 1, {
+      workspaceRoot: repo.root,
+    });
+    await expect(
+      spotEditor(page).locator('[data-testid="spot-editor-ro"]'),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(spotEditorContent(page)).toBeVisible();
+    await expectNoBlockingViolationsInBothThemes(
+      page,
+      'spot-editor-readonly',
+      testInfo,
+      { include: 'ptah-spot-editor', evidence: true },
+    );
+  });
+
+  test('the editable spot editor has no critical or serious a11y violations in dark and light', async ({
+    ui,
+    rpcBridge,
+    repo,
+  }, testInfo) => {
+    void rpcBridge;
+    const page = ui.page;
+    await ui.goto('git');
+    await expect(ui.reviewFileSection(THREE_HUNK_FILE)).toBeVisible({
+      timeout: 60_000,
+    });
+    await openEditable(page, repo, THREE_HUNK_FILE);
+    await typeAtEnd(page, TYPED);
+    await expect(
+      spotEditor(page).locator('[data-testid="spot-editor-save"]'),
+    ).toBeEnabled();
+    await expectNoBlockingViolationsInBothThemes(
+      page,
+      'spot-editor-editable',
+      testInfo,
+      { include: 'ptah-spot-editor', evidence: true },
+    );
   });
 
   test('a CRLF file saves as CRLF', async ({ ui, rpcBridge, repo }) => {

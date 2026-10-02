@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import type { Page, TestInfo } from '@playwright/test';
 import { expect } from '@playwright/test';
 
@@ -36,6 +37,8 @@ export interface AxeViolation {
   targets: string[];
   /** axe's own explanation of the first failing node. */
   summary: string;
+  /** Per failing node: the selector and axe's explanation of that node. */
+  nodes: { target: string; summary: string }[];
 }
 
 /** Impacts that fail a spec. Everything else is reported only. */
@@ -65,6 +68,33 @@ export async function setTheme(page: Page, theme: AxeTheme): Promise<void> {
       document.body.removeAttribute('data-vscode-theme-kind');
       document.documentElement.setAttribute('data-theme', name);
       document.documentElement.setAttribute('data-theme-mode', mode);
+
+      // Surfaces that follow `ThemeService.isDarkMode()` (the CodeMirror
+      // editor, the Pierre diff options) never see a bare attribute flip.
+      // Drive the real service through the first component that injects it
+      // (dev build only: `ng` is the Angular debug context).
+      const angular = (
+        window as unknown as {
+          ng?: { getComponent(element: Element): unknown };
+        }
+      ).ng;
+      if (!angular) return;
+      for (const element of Array.from(document.querySelectorAll('*'))) {
+        if (!element.tagName.includes('-')) continue;
+        let component: unknown;
+        try {
+          component = angular.getComponent(element);
+        } catch {
+          continue;
+        }
+        const service = (
+          component as { theme?: { setTheme?: (theme: string) => void } } | null
+        )?.theme;
+        if (typeof service?.setTheme === 'function') {
+          service.setTheme(name);
+          return;
+        }
+      }
     },
     { name, mode },
   );
@@ -115,8 +145,60 @@ export async function runAxe(
         node.target.map((target) => String(target)),
       ),
       summary: violation.nodes[0]?.failureSummary ?? '',
+      nodes: violation.nodes.map((node) => ({
+        target: node.target.map((target) => String(target)).join(' '),
+        summary: (node.failureSummary ?? '').replace(/\s+/g, ' ').trim(),
+      })),
     }));
   }, include);
+}
+
+/**
+ * Where Batch 68 keeps its evidence: one JSON, one markdown summary and one
+ * screenshot per theme for every audited surface. Resolved from this file so
+ * it holds from any working directory.
+ */
+const EVIDENCE_DIR = path.resolve(
+  __dirname,
+  '../../../../.ptah/specs/TASK_2026_576_e16a/screenshots/axe',
+);
+
+export interface AxeAuditOptions {
+  /** CSS selector axe is limited to (default the whole `body`). */
+  include?: string;
+  /**
+   * Runs after the theme switched and before axe reads the page. Surfaces that
+   * read the theme at mount (Pierre diffs) re-mount here so the audit sees the
+   * theme's own rendering, not the previous theme's.
+   */
+  remount?: (theme: AxeTheme) => Promise<void>;
+  /** Write the JSON, markdown and per-theme screenshots under the evidence dir. */
+  evidence?: boolean;
+}
+
+function writeEvidence(label: string, audits: AxeAuditResult[]): void {
+  fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
+  fs.writeFileSync(
+    path.join(EVIDENCE_DIR, `${label}.json`),
+    JSON.stringify(audits, null, 2),
+  );
+  const lines = [`# axe: ${label}`, ''];
+  for (const audit of audits) {
+    lines.push(
+      `## ${audit.theme}`,
+      '',
+      `- critical/serious: ${audit.blocking.length}`,
+      `- moderate/minor (reported only): ${audit.reported.length}`,
+      `- screenshot: ${label}-${audit.theme}.png`,
+    );
+    for (const v of [...audit.blocking, ...audit.reported]) {
+      lines.push(
+        `- ${v.id} (${v.impact}): ${v.targets.slice(0, 5).join(' | ')}`,
+      );
+    }
+    lines.push('');
+  }
+  fs.writeFileSync(path.join(EVIDENCE_DIR, `${label}.md`), lines.join('\n'));
 }
 
 export interface AxeAuditResult {
@@ -135,12 +217,30 @@ export async function expectNoBlockingViolationsInBothThemes(
   page: Page,
   label: string,
   testInfo: TestInfo,
-  include = 'body',
+  includeOrOptions: string | AxeAuditOptions = 'body',
 ): Promise<AxeAuditResult[]> {
+  const options: AxeAuditOptions =
+    typeof includeOrOptions === 'string'
+      ? { include: includeOrOptions }
+      : includeOrOptions;
+  const include = options.include ?? 'body';
   const audits: AxeAuditResult[] = [];
+  // Audit the surface at rest: a pointer left over the last-clicked control
+  // would otherwise audit its hover colours in one run and not the next.
+  await page.mouse.move(2, 2);
   for (const theme of ['dark', 'light'] as const) {
     await setTheme(page, theme);
+    if (options.remount) {
+      await options.remount(theme);
+      await setTheme(page, theme);
+    }
     const violations = await runAxe(page, include);
+    if (options.evidence) {
+      fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
+      await page.screenshot({
+        path: path.join(EVIDENCE_DIR, `${label}-${theme}.png`),
+      });
+    }
     const blocking = violations.filter((v) =>
       BLOCKING_IMPACTS.has(v.impact ?? ''),
     );
@@ -161,6 +261,8 @@ export async function expectNoBlockingViolationsInBothThemes(
       contentType: 'application/json',
     });
   }
+
+  if (options.evidence) writeEvidence(label, audits);
 
   // Assert after BOTH themes were measured, so one failing run reports the
   // dark and the light findings together instead of hiding the second behind

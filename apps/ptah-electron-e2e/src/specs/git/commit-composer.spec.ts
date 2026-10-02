@@ -5,6 +5,7 @@ import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
 import type { ScratchRepo } from '../../support/git-scratch-repo';
 import type { UiDriver } from '../../support/ui-driver';
+import { expectNoBlockingViolationsInBothThemes } from '../../support/axe';
 
 /**
  * The review shell's Commit tab (`ptah-commit-composer`), end to end in
@@ -322,5 +323,93 @@ test.describe('commit composer, end to end in Electron (TASK_2026_576 Requiremen
       .toBe(false);
     expect(repo.git('rev-list', '--count', 'HEAD')).toBe('1');
     expect(repo.stagedDiff()).not.toBe('');
+  });
+
+  // TASK_2026_576 Batch 68: axe over the composer in each state it can show.
+  // One test per state so a violation in one never hides the others.
+  test('the idle commit composer has no critical or serious a11y violations in dark and light', async ({
+    ui,
+    rpcBridge,
+    repo,
+  }, testInfo) => {
+    void rpcBridge;
+    configureIdentity(repo);
+    repo.git('add', THREE_HUNK_FILE);
+    await openCommitTab(ui);
+    await expect(
+      ui.page.locator('[data-testid="commit-staged-count"]'),
+    ).toHaveText('Staged: 1 file');
+    await ui.page
+      .locator('[data-testid="commit-message"]')
+      .fill(COMMIT_MESSAGE);
+    await expectNoBlockingViolationsInBothThemes(
+      ui.page,
+      'commit-composer-idle',
+      testInfo,
+      { include: '[data-testid="commit-composer"]', evidence: true },
+    );
+  });
+
+  test('the running commit composer (hook log streaming) has no critical or serious a11y violations in dark and light', async ({
+    ui,
+    rpcBridge,
+    repo,
+  }, testInfo) => {
+    void rpcBridge;
+    const page = ui.page;
+    configureIdentity(repo);
+    repo.git('add', THREE_HUNK_FILE);
+    installPreCommitHook(repo, [`echo "${LONG_HOOK_MARKER}"`, 'sleep 30']);
+    await openCommitTab(ui);
+    await page.locator('[data-testid="commit-message"]').fill(COMMIT_MESSAGE);
+    await page.locator('[data-testid="commit-submit"]').click();
+    const log = page.getByRole('log', { name: 'Commit hook output' });
+    await expect(log).toContainText(LONG_HOOK_MARKER, {
+      timeout: COMMIT_ROUND_TRIP_MS,
+    });
+    await expect(page.locator('[data-testid="commit-cancel"]')).toBeVisible();
+    try {
+      await expectNoBlockingViolationsInBothThemes(
+        page,
+        'commit-composer-running',
+        testInfo,
+        { include: '[data-testid="commit-composer"]', evidence: true },
+      );
+    } finally {
+      // Release the index lock the sleeping hook holds.
+      await page.locator('[data-testid="commit-cancel"]').click();
+    }
+  });
+
+  test('the failed commit composer has no critical or serious a11y violations in dark and light', async ({
+    ui,
+    rpcBridge,
+    repo,
+  }, testInfo) => {
+    void rpcBridge;
+    const page = ui.page;
+    configureIdentity(repo);
+    repo.git('add', THREE_HUNK_FILE);
+    installPreCommitHook(repo, [
+      `echo "${FAILING_MARKER}"`,
+      'echo "ptah-e2e-hook: 1 problem" 1>&2',
+      'exit 1',
+    ]);
+    await openCommitTab(ui);
+    await page.locator('[data-testid="commit-message"]').fill(COMMIT_MESSAGE);
+    await page.locator('[data-testid="commit-submit"]').click();
+    await expect(page.locator('[data-testid="commit-failure"]')).toContainText(
+      'Your message was kept.',
+      { timeout: COMMIT_ROUND_TRIP_MS },
+    );
+    await expect(
+      page.getByRole('log', { name: 'Commit hook output' }),
+    ).toContainText(FAILING_MARKER);
+    await expectNoBlockingViolationsInBothThemes(
+      page,
+      'commit-composer-failure',
+      testInfo,
+      { include: '[data-testid="commit-composer"]', evidence: true },
+    );
   });
 });
