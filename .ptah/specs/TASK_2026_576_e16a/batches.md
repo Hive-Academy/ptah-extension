@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 35/69
+Total tasks: 87 | Batches: 69 | Complete: 36/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1700,14 +1700,14 @@ executors at once.
   shared + rpc-handlers typecheck/lint green, file-view spec 28/28; agent: shared 2257, rpc-handlers 3445 passed
   (1 known `harness-skill-selection` flake).
 
-## Batch 40: `FileEditRpcHandlers` — PENDING
+## Batch 40: `FileEditRpcHandlers` — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 39
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers`
 
-### Task 40.1: Contained atomic save with conflict detection — PENDING
+### Task 40.1: Contained atomic save with conflict detection — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/file-edit-rpc.handlers.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/file-edit-rpc.schema.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/index.ts
 - Plan reference: implementation-plan.md:1110-1116, 1127
@@ -1715,6 +1715,19 @@ executors at once.
 - Quality requirements: temp file in same dir + rename; fixed-sentence errors; refuse create.
 - Validation notes: symlink escape, rename failure keeps original, BOM re-added.
 - Implementation details: resolves through `FileLinkRootPolicy.resolveForView`.
+- Outcome: executor backend-developer. `file:saveContent` handler (`file-edit-rpc.handlers.ts` + strict zod
+  `file-edit-rpc.schema.ts`, spec 31). Order: params (`invalid-request`), content > `FILE_VIEW_MAX_BYTES` →
+  `too-large` before any IO; `FileLinkRootPolicy.resolveForView` (lexical + realpath containment) with refusals
+  mapped (`unsupported-path`/`no-base-root` → `invalid-request`, `root-not-open` → `outside-roots`,
+  `unreadable`/`binary`/`unsupported-encoding` → `unwritable`); directory → `not-a-file`; missing → `not-found`
+  (never creates); sha256 mismatch → `conflict` unless `overwrite`; UTF-16/binary/invalid UTF-8 → `unwritable`;
+  disk BOM preserved; line endings as sent; read-only → refused; exclusive temp file in the same folder, flush,
+  rename (in-root symlinks kept), temp removed on failure. Fixed refusal sentences, no paths in errors, never
+  rejects to transport. Accepted deviations: returns `invalid-request` instead of `RpcUserError` (plan result
+  type); `METHODS` gets `satisfies RpcMethodName[]` in Batch 41; BOM read from disk. For 41: root barrel export,
+  Electron/VS Code DI lists. Residual risks: hash-check→rename window, parent-dir swap after resolve, ownership not
+  preserved. Verified: typecheck/lint green; spec passes (2 real-symlink cases skipped on this Windows account);
+  rpc-handlers full run failures unrelated, pass alone except the known flake.
 
 ## Batch 41: `file:saveContent` registration and `fileEditor` capability — PENDING
 
