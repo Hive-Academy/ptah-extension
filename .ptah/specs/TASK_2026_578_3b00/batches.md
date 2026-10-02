@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 14/14
+Total tasks: 46 | Batches: 15 | Complete: 15/15
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -1560,3 +1560,82 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
   in-flight snapshot can overwrite newer counts. This predates the batch; accept adds one more caller.
 - R2 M4: each accept makes two stats-shaped reads (`loadStats` for the stats strip, diagnostics `refresh` for the
   pipeline card). A one-line comment should say why both stay.
+
+## Batch 15: Adopt legacy accepted suggestions (QA follow-up) — COMPLETE (commit 9978b040e)
+
+- Origin: QA on a copy of the live data (`test-report.md`). The startup reconcile adopted 0 of 2 legacy accepted
+  suggestions: `{"adopted":0,"missing":1,"ambiguous":0,"blockedByCandidateRow":1,"failed":0}`. This leaves Scope 3 /
+  A1 unmet. User decision: "Fix before PR".
+- Recommended executor: backend-developer sub-agent (in-process; already ran)
+- Fallback executor: none (needs design judgement on the revive path)
+- Execution mode: sequential
+- Reviewer (cross-side): antigravity CLI lane (`lane-review-batch-15.md`), plus an in-process code-logic-reviewer
+  focused on stale columns of a revived row
+- Tasks: 2 | Depends on: Batches 6, 9, 12, 13
+- Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail), `:typecheck`, `:lint`; degradation
+  audit
+
+### Task 15.1: Revive a rejected slug holder in place — COMPLETE
+
+- Files: `SS/skill-curator.service.ts` (+ spec), `SS/skill-promotion.service.ts`, `SS/skill-candidate.store.ts`, new
+  `SS/skill-candidate.row-mappers.ts` (pure move that keeps the store under its R-h budget)
+- Details: a slug held by a `rejected` candidate row is re-promoted in place through `promoteAtomically` with
+  `fromStatus: 'rejected'`. A guarded `UPDATE ... WHERE status = 'rejected'` throws when `changes !== 1`, which rolls
+  the adopt back. R-f / R-f2 apply. Any other non-promoted holder stays blocked.
+
+### Task 15.2: Adopt a diverged registry row — COMPLETE
+
+- Files: `SS/lifecycle/adoptable-slug.ts` (+ spec)
+- Details: a `diverged` registry row with no `originPluginId` and an existing `<activeRoot>/<slug>/SKILL.md` is
+  adopted without the body check, and the registry row stays `diverged`. A plugin-owned row is never adopted.
+  Retirement keeps leaving diverged skills alone.
+
+### Batch 15 verification
+
+- Both live shapes from test-report.md are adopted in specs; tests, typecheck, lint and audit pass; both reviewers
+  accept
+
+### Batch 15 on-disk verification, review and commit (team-leader)
+
+- Files (8, all under `SS/`):
+  - `lifecycle/adoptable-slug.ts` (+ spec);
+  - `skill-candidate.store.ts` (+ spec), now 1231 lines;
+  - new `skill-candidate.row-mappers.ts`, a pure move of `RawCandidateRow`/`toCandidateRow`/`toJudgeStatus` with the
+    logger passed in;
+  - `skill-curator.service.ts` (+ spec), 688 effective lines;
+  - `skill-promotion.service.ts`, 720 lines, still its one pre-existing max-lines warning.
+  - There is no change outside `libs/backend/skill-synthesis`.
+- Design as committed:
+  - `slugHolderDecision` returns one of four paths. `new-row` and `link-promoted` are unchanged. `repromote-rejected`
+    covers a rejected holder that is not `merged-into:*` or `retired:*`. `blocked` covers a live candidate, a merged
+    holder or a retired holder.
+  - The revive goes through `promoteAtomically({ fromStatus: 'rejected' })`, a compare-and-set that throws on
+    `changes !== 1`. `resetRevivedContent` then runs inside the same `inImmediateTransaction`, guarded on
+    `status = 'promoted'`. It writes the description, the source sessions and a fresh embedding (a new vec row, or
+    NULL without vec), and NULLs `display_name`, `workspace_root` and the judge/replay/trigger columns.
+  - A `diverged` registry row with no `originPluginId` plus an existing SKILL.md is adopted without the body check.
+    The row stays `diverged`, so retirement and the curator's exempt set still protect it.
+  - `listPromotedLastUse` is now MAX(last event, `promoted_at`), falling back to `created_at`. A revived or freshly
+    promoted row gets N days of grace; a long-promoted row with no events still goes dormant at N and retires at N+M.
+- Review. The antigravity lane hit a quota 429 and wrote no file, so the user's standing "in-process now, lane later"
+  rule applies:
+  - in-process code-logic-reviewer: APPROVED 7/10 (`code-logic-review.md` `## Batch 15`), with M1-M4 and minor
+    findings;
+  - the orchestrator routed M1 (old embedding), M2 (idle clock and `retired:*` holders) and M3 (stale
+    description/display name/judge/`workspace_root`) back to the executor before the commit;
+  - re-review of the delta: APPROVED 8/10 (`## Batch 15 re-review`), with no blocking, serious or moderate findings
+    and minors m5-m7. The M2 grace period was ruled a faithful reading of context.md Scope 4. Reachability proof 2
+    (dormant at 45 days, retired at 100) still holds.
+  - R-f and R-f2 hold: `insertEmbedding` and `resetRevivedContent` are plain statements with no catch inside the
+    callback.
+- Team-leader re-run after the fixes (`--skip-nx-cache`):
+  - skill-synthesis test: 86 suites passed + 1 skipped; 1828 tests passed, 1 skipped, 0 failed;
+  - typecheck passes;
+  - lint 0 errors / 27 warnings, unchanged;
+  - degradation audit exit 0 (`5 ok (baseline 5)`).
+- Committed as 9978b040e (8 files).
+- **Pending: the antigravity lane review of 9978b040e (quota reset).** The orchestrator resumes the lane on this
+  commit, and its findings land as fix-up commits.
+- Carries go to `future-enhancements.md`: items 32-37 (M4, m3, m4, m1/m6, m7, and the row-mapper silent catch) and
+  the Batch 13 lane minors (items 38-40). Item 6 was updated: both live shapes are now adoptable.
+- Next: the orchestrator re-runs QA on the live data copy, expecting the reconcile to adopt 2 of 2.

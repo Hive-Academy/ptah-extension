@@ -29,7 +29,9 @@ the plan-validation risks, `visual-review.md` and `lane-review-batches-9-12-14.m
 
 ## P2 — robustness and observability
 
-6. **Unproven legacy rows warn on every start** (Batch 9 M-3). Accepted suggestions whose SKILL.md body was edited
+6. **Unproven legacy rows warn on every start** (Batch 9 M-3). Batch 15 now adopts both live shapes (a `rejected`
+   holder, and a `diverged` row). The remaining unproven cases are a live `candidate` holder, a `merged-into:*` or
+   `retired:*` holder, an `authored`/`synth` row with an edited body, and a missing or ambiguous directory. Accepted suggestions whose SKILL.md body was edited
    after acceptance never match the exact-body proof (`SS/lifecycle/adoptable-slug.ts`). Rows blocked by a
    non-promoted candidate behave the same way. Options: warn once per row, or use a relaxed proof such as the
    frontmatter name plus a registry candidate id.
@@ -93,6 +95,44 @@ the plan-validation risks, `visual-review.md` and `lane-review-batches-9-12-14.m
     - drop the batch/commit citation from the comment at `skill-diagnostics-state.service.spec.ts:39` and state only
       the invariant (R2 M1);
     - add a comment explaining why accept makes both `loadStats` and the diagnostics `refresh` (R2 M4).
+
+## P2b — Batch 15 (legacy adopt) carries
+
+32. **A diverged adopt has no content tie-back** (Batch 15 M4, `SS/lifecycle/adoptable-slug.ts:132-134`). The proof
+    is slug + a diverged non-plugin registry row + the file existing. A different synthesized, user-edited skill that
+    happens to hold the suggestion's base slug would be adopted as that suggestion's output. The risk is narrow:
+    sidecar `pluginId: null` marks a synthesized skill, so a hand-written skill is never adopted. Fix: also require
+    the frontmatter `name` (or a candidate/suggestion link) to match.
+33. **An adopted diverged row counts toward the resident cap** (Batch 15 m3). `authoredSlugs`
+    (`SS/skill-promotion.service.ts:~980`) includes only `authored`, so cap demotion can make an edited skill
+    dormant even though retirement exempts it. This predates 578; the diverged adopt widens it. Align the cap's
+    exemption with retirement's (`authored` + `diverged`).
+34. **Spec gaps on the revive** (Batch 15 m4). The combination of a diverged registry row and a rejected holder is
+    untested; the two shapes are only tested separately. There is no spec for revive versus cap demotion. Spec (h)
+    was judged load-bearing by reading only (re-review m5).
+35. **A revived row keeps its old `trajectory_hash` and `created_at`** (Batch 15 m1, re-review m6). Dedup behaves as
+    it did before the revive, so this is harmless. But the UI title of a revived row falls back to
+    `Untitled · <old created_at>` because `display_name` is reset. Consider writing `display_name` from the
+    suggestion name on adopt.
+36. **Orphan vec rows** (Batch 15 re-review m7). Every revive and supersede leaves the old `skill_candidates_vec`
+    row behind. No reader is affected (readers go through each candidate's `embedding_rowid`). Delete the old
+    rowid in `resetRevivedContent` and in the supersede path.
+37. **Silent catch in the row mappers** (Batch 15 review, secondary check 6, `SS/skill-candidate.row-mappers.ts:101`).
+    A corrupt `source_session_ids` becomes `[]` with no log. This predates 578 and moved unchanged. Log it, or add a
+    degradation-audit marker.
+
+## P3b — lane-review minors (antigravity, Batches 9, 12, 13, 14)
+
+The minors from `lane-review-batches-9-12-14.md` are already items 7 (Batch 9, reconcile failure only in logs),
+24 (Batch 12, `CLUSTER_MEMBER_MAX_CHARS`) and 15 (Batch 14, `showToast` timer). The minors from
+`lane-review-batch-13.md` are:
+
+38. Proof 4 reassigns the suite-level `judgeCriterion = 3` (`SS/skill-lifecycle.reachability.integration.spec.ts:612`)
+    and never resets it. Restore it in `afterEach`/`afterAll`.
+39. The sandbox home is not cleaned before the run (spec `:84-85`). A leftover from an aborted run can leak into the
+    next one. Remove it in `beforeAll`.
+40. `seedCandidate` assigns a virtual `bodyPath` under `tempRoot/candidate-bodies` without writing the file (spec
+    `:273`), unlike `seedPromoted` and `seedAcceptedSuggestion`. Write the file, or document that no reader opens it.
 
 ## P5 — visual (Batch 14 visual review, all optional)
 

@@ -1645,3 +1645,194 @@ I did not open the task-description text. Coverage is judged from the batch clai
 Evidence for the band: all four proofs fail on removal of the production call they claim to reach, shown by six local mutations (plus the extra interval-by-inspection check), with no production edits left behind. The fakes (rate limit, LLM and judge) feed real inputs through real services and do not make the assertions trivially true. The gaps are order dependence and a missing positive control, not unproven claims, so this is not a 9-10.
 
 ### Verdict: APPROVED
+
+
+---
+
+## Batch 15
+
+Reviewer: code-logic-reviewer (in-process). Scope: the uncommitted diff of `adoptable-slug.ts`, `skill-curator.service.ts`, `skill-promotion.service.ts`, `skill-candidate.store.ts`, the new `skill-candidate.row-mappers.ts`, and the curator and adoptable-slug specs. Source and specs were not modified.
+
+### Verification output
+
+```
+npx jest -c libs/backend/skill-synthesis/jest.config.ts skill-curator.service.spec adoptable-slug.spec skill-candidate.store.spec
+Test Suites: 3 passed, 3 total
+Tests:       164 passed, 164 total
+```
+
+I did not run mutations, because the worktree is shared. Load-bearing judgements below come from reading the assertions against the code.
+
+- **Score:** 7/10
+- **Verdict:** APPROVED
+- **Blocking issues:** 0
+- **Serious issues:** 0
+
+The two live shapes are fixed and their rollback is proven. The revive path keeps columns it has no reason to keep. None of them re-rejects or hides the revived skill. The one real hazard is a retirement-clock edge case (M2).
+
+### Stale-column table (revived `rejected` row, `repromote-rejected` path)
+
+The revive path never calls `registerCandidate`. `commitResidentPromotion` (skill-promotion.service.ts:589-606) and the UPDATE at skill-candidate.store.ts:503-509 write only these columns:
+- `status`, `promoted_at`, `body_path`, `name`;
+- `residency = 'resident'`, `rejected_at = NULL`, `rejected_reason = NULL`.
+
+Every other column keeps the rejected row's value.
+
+| Column | Reader(s) file:line | Effect | Harmful? |
+|---|---|---|---|
+| `status`, `promoted_at`, `body_path`, `name` | store.ts:503-509 (written) | Overwritten. `body_path` is set to `args.filePath` (the SKILL.md under activeRoot), confirmed at store.ts:507 and by spec (a) asserting `bodyPath`. | No |
+| `residency`, `rejected_at`, `rejected_reason` | `getStats` store.ts:1585-1593; `listActiveOrderedByDecayScore` store.ts:386; retirement.service.ts:142 | Reset to resident and null. Without the reset, a dormant revived row would count in `dormant` and be skipped by the cap. Spec (a) seeds `dormant` and asserts `resident`. | No (the fix itself) |
+| `description` | `toSummary` rpc-handlers:2395; trigger-eval; UI list | Keeps the OLD candidate description. The suggestion's description (`input.description`, curator.ts:603) is dropped on this path. SKILL.md frontmatter is authoritative for the harness. | Acceptable. Cosmetic mismatch in the UI list (M3) |
+| `display_name` | rpc-handlers:2410 | Stale label from the old candidate. | Acceptable (cosmetic) |
+| `embedding_rowid` | `partitionPool` skill-clustering.service.ts:150-154; `searchActiveByEmbedding` store.ts:1569; trigger-eval.service.ts:529; umbrella-merge.service.ts:793 | The suggestion centroid (`input.embedding`, curator.ts:605) is silently dropped. The old candidate embedding stays, or NULL. NULL makes the promoted row `unembedded` and excluded from the umbrella pool and the dedup search. A stale vector clusters by the old candidate's content. | Acceptable but a gap (M1). Nothing breaks |
+| `source_session_ids` | umbrella-merge.service.ts:687; stage-handlers.service.ts:701 | Old candidate sessions, not the suggestion's `memberSessionIds`. An umbrella built from this row lists those sessions. | Acceptable (m1) |
+| `trajectory_hash` | `findByTrajectoryHash` store.ts:147 | Keeps the old hash. `suggestion:<id>` is not written (spec (a) asserts `rowsWithHash(...) === 0`). | Acceptable. Same dedup behaviour as before the revive |
+| `success_count` / `failure_count` | `toSummary` rpc-handlers:2397; store.ts:977, 989 | Only the DTO and two accessors read them. `getWinRates` and the decay score use `skill_invocation_events`, not these columns. | No |
+| `judge_score`, `judge_status`, `judge_reason`, `judge_*` criteria, `judge_panel_rationales`, `judged_at` | `isJudgePassed` umbrella-merge.service.ts:850-856 (fed only by `listByStatus('candidate')`, :783); `applyJudgePanelGate` stage-handlers.service.ts:578; `toSummary` rpc-handlers:2412-2420; skill-candidates-table.component.ts:605 | **Not a re-reject or hide risk.** The `judge_status` union is `scored/unscored/disabled` (types.ts:40), so a rejected status never exists. The judge gate and the purge read only `status='candidate'`. The only judge-driven write is a compare-and-set on `status = 'candidate'` (stage-handlers:578-588), which leaves a promoted row alone. The old low score and reason do render as a judge badge on an active skill in the candidates table. | Acceptable. Cosmetic and misleading (M3) |
+| `replay_*`, `trigger_*` | gates run on candidates only; DTO rpc-handlers:2429 | A promoted row is never re-gated. The values are echoed to the DTO. | No |
+| `pinned` | retirement.service.ts:134; clustering.service.ts:166; curator.ts:459 | A pinned rejected row stays pinned, so retirement, the umbrella pool and `mergeMembers` all exempt it. That is the user's explicit choice. | No |
+| `workspace_root` | scoped reads store.ts:357 | The old candidate's project root stays. The normal adopt registers `workspaceRoot: null` ("unknown", included everywhere). A revived row is hidden from other workspaces' scoped candidate lists. It does not affect skill injection. | Acceptable (M3) |
+| `created_at` | `listPromotedLastUse` store.ts:559 (last fallback only) | Old value. `promoted_at = now` is read before it, so no stale clock comes from this column. | No |
+| Idle clock (derived) | store.ts:559 `COALESCE(max invoked_at for slug, promoted_at, created_at)` | Events are keyed by slug, so OLD events survive the rejection. A non-diverged revive whose last invocation was more than N+M days ago can be retired by the next hourly sweep. Diverged revives are exempt (retirement.service.ts:134-136, :350). | Policy-consistent, but surprising for a just-adopted skill (M2) |
+
+### Findings
+
+**BLOCKING:** none.
+
+**SERIOUS:** none.
+
+**MODERATE**
+
+- **M1. The revive path drops the suggestion centroid.**
+  - `repromoteRejectedId` skips `registerCandidate` (skill-promotion.service.ts:589-599), the only writer of `embedding_rowid`. `input.embedding` is computed (curator.ts:605) and then ignored on this path.
+  - Impact: the promoted skill carries an unrelated old vector, or none. If none, it is `unembedded` and invisible to umbrella clustering and `searchActiveByEmbedding` dedup.
+  - Fix: on revive, call `store.setEmbedding(id, embedding)` inside the transaction (a plain statement), or document the loss as accepted.
+- **M2. The retirement idle clock is not reseeded for a non-diverged revive.**
+  - Old `skill_invocation_events` for the slug win over `promoted_at` (store.ts:559).
+  - A revived `synth` row whose last invocation was more than N+M days ago can be retired at the next sweep (retirement.service.ts:136-139), removing the directory the user just had adopted.
+  - A `retired:unused` holder is the sharpest case. It should not normally have a directory and a registry row, because retirement removes both. If both reappear, the sweep deletes them again.
+  - Fix: block `retired:*` holders in `slugHolderDecision` (adoptable-slug.ts:93-105), or exempt a freshly adopted row for one cycle.
+- **M3. Revived rows show stale labels and scope in the UI.**
+  - `description`, `display_name` and the judge score and reason are the old candidate's (rpc-handlers:2395-2420), and `workspace_root` hides the row from other workspaces' scoped lists.
+  - Fix: write `description = input.description` and `workspace_root = NULL`, and clear `judge_*`, in the revive UPDATE. Or leave it and note it.
+- **M4. Diverged adoption has no content tie-back.**
+  - The diverged proof is slug plus registry row plus file exists (adoptable-slug.ts:132-134).
+  - A different synthesized diverged skill that happens to share the suggestion's base slug, with no candidate holder, is adopted as this suggestion's output. The `-2` to `-5` ambiguity check does not cover a single hit.
+  - Narrow: sidecar `pluginId: null` marks a synthesized skill (origin-sidecar.types.ts:123), so a hand-written skill is not adopted.
+  - Fix: optionally require the frontmatter `name`, or a candidate or suggestion link, to match.
+
+**MINOR**
+
+- **m1.** `source_session_ids` and `trajectory_hash` stay stale on revive. No reader is harmed.
+- **m2.** No store-level spec for `promoteAtomically({ fromStatus: 'rejected' })` (skill-candidate.store.spec.ts is untouched). It is covered only through the curator spec.
+- **m3.** A diverged adopted row counts toward the resident cap and can be demoted as the weakest. `authoredSlugs` (promotion.service.ts:980) includes only `authored`, so cap demotion can hide an edited skill although retirement exempts it. This is pre-existing, but the diverged adopt widens it.
+- **m4.** The specs do not assert the stale columns, the embedding, or the cap-demotion interaction on revive. The combination of a diverged registry row and a rejected holder is untested. The two shapes compose, but only separately.
+
+### Answers to secondary checks
+
+1. **R-f / R-f2 and rollback.**
+   - Compliant. Inside `inImmediateTransaction` (skill-promotion.service.ts:589-610) there is no try/catch, and every statement is plain or the re-entrant `promoteAtomically`.
+   - The guarded UPDATE throws when `changes !== 1` (store.ts:518-523), so the adopt rolls back.
+   - Spec (b) proves it. It flips the row to `promoted` just before the transaction, then asserts:
+     - the suggestion link is unset;
+     - the registry row is unchanged;
+     - the member is still `candidate`;
+     - `outsideTransaction()` is true;
+     - `failed: 1` with `was not promotable` is logged.
+   - Spec (f) proves rollback of the registry throw (`RegistrySlugOwnedByPluginError`).
+2. **Ordinary candidate path.**
+   - The UPDATE (store.ts:503-509) now sets `residency = 'resident'` and clears `rejected_*` for every promotion.
+   - A `candidate` row cannot be dormant. The residency column defaults to `resident` (migration 0026) and `registerCandidate` does not write it.
+   - The only writers of dormant are `setResidency` (retirement, promoted rows only, retirement.service.ts:143) and the cap demotion (store.ts:483-489, promoted rows only).
+   - `rejected_*` on a `candidate` row is always NULL. So the change is a no-op on that path.
+3. **Skipped transition check.**
+   - Safe. `promoteAtomically` has exactly two callers: skill-promotion.service.ts:347 (always the default `'candidate'`) and :601 (`'rejected'` only when `args.rejectedId` is set).
+   - `rejectedId` is set only when `existing.id === input.repromoteRejectedId`, which only the curator's `repromote-rejected` decision supplies (curator.ts:610-611, promotion.service.ts:543-546).
+   - The UPDATE is a compare-and-set on `status = @fromStatus`, so a row that changed is not promoted, and the call throws.
+4. **Diverged adoption without a body check.**
+   - A hand-written skill is not adopted. A diverged row with `originPluginId === null` is a synthesized skill the user edited: sidecar `pluginId: null` marks it (origin-sidecar.types.ts:123), and `deriveStatus` yields `diverged` only from `clone.diverged` (skill-registry-catalog.service.ts:92). A hand-written skill has no sidecar.
+   - After adoption the row stays `diverged`:
+     - `linkRegistryRow` keeps it (promotion.service.ts:643, 655);
+     - retirement exempts it (retirement.service.ts:350);
+     - the curator's exempt set includes it (curator.ts:700);
+     - the umbrella pool excludes it through `exemptSlugs` (clustering.service.ts:166).
+   - It still counts toward the resident cap and can be demoted by the cap (m3). That inconsistency is pre-existing, not new.
+   - See M4 for the residual same-slug collision risk.
+5. **`slugHolderDecision`.**
+   - Reviving a judge-rejected or purge-rejected row is correct. The user accepted the suggestion, and the live proof is the directory plus the registry row.
+   - `merged-into:*` is blocked, which is correct.
+   - A `retired:*` row can fight the sweep. A retired row normally has no directory or registry row, so it is rarely adoptable. When it is, old events make it retire again (M2).
+6. **Row-mappers move.**
+   - Behaviour-identical. I diffed the mapper body line by line. The `JSON.parse` fallback to `[]`, the `?? null` normalizations, `residency === 'dormant'`, and `toJudgeStatus` downgrading unknown values to `'unscored'` are unchanged. The logger is injected, and `listPromotedLastUse` goes through the store's `toCandidateRow`.
+   - The swallowing catch (row-mappers.ts:101) is unchanged. It turns a corrupt `source_session_ids` into an empty list with no log. It is a pre-existing silent fallback with no degradation-audit marker (MINOR).
+7. **Specs (a)-(g).**
+   - Load-bearing for the two live shapes:
+     - (a) is shape 1, a rejected row plus a `synth` registry row, with the `dormant` seed, the no-second-row assertion and the merge flow.
+     - (c) is shape 2, a diverged registry row with an edited body.
+     - (b) and (f) prove rollback.
+     - (d) is the missing-file negative.
+     - (e) covers both blocked holders (live candidate, merged).
+     - (g) shows retirement leaves the diverged adoption alone, with an `idle-synth` positive control.
+   - Gaps are listed in m2 and m4. No spec pins the stale-column behaviour.
+
+## Batch 15 re-review
+
+Reviewer: code-logic-reviewer (in-process). Scope: the Batch 15 fix delta (`resetRevivedContent`, `listPromotedLastUse`, `slugHolderDecision`) and its specs. No source or spec file was modified or mutated.
+
+### Verification output
+
+```
+npx jest -c libs/backend/skill-synthesis/jest.config.ts skill-candidate.store.spec skill-curator.service.spec skill-retirement adoptable-slug.spec skill-lifecycle.reachability
+Test Suites: 5 passed, 5 total
+Tests:       198 passed, 198 total
+```
+
+- **Score:** 8/10
+- **Verdict:** APPROVED
+- **Blocking:** 0 / **Serious:** 0 / **Moderate:** 0 / **Minor:** 3
+
+### 1. M1-M3 resolution
+
+- **M1 (embedding) resolved.** `resetRevivedContent` (skill-candidate.store.ts:564-604) writes a new vec row from `input.embedding` only when `vecStatus.available`, else NULL (:572-575). `embedding_rowid` is set in the UPDATE (:579). The adopt input's centroid now replaces the stale vector.
+- **M3 (stale labels and scope) resolved.** The same UPDATE (:578-593) sets description and `source_session_ids` from the input, and NULLs `display_name`, `workspace_root`, every `judge_*` column, `judged_at`, `replay_*` and `trigger_*`. It is called inside the revive transaction (skill-promotion.service.ts:608-610), and the guard `WHERE id=? AND status='promoted'` throws when `changes !== 1` (store.ts:597-603), so the unit rolls back.
+- **M2 (idle clock) resolved.**
+  - `listPromotedLastUse` (store.ts:614-629) takes `MAX(COALESCE(event, promoted_at, created_at), COALESCE(promoted_at, created_at))`. Old events can no longer predate the promotion clock.
+  - `slugHolderDecision` blocks `retired:*` (adoptable-slug.ts:103-110, `RETIRED_REASON_PREFIX` at :36).
+
+### 2. Embedding and the vec table
+
+- **Orphan:** yes, the old vec row is orphaned. It is dead weight (one vector of storage), not a correctness problem. The pattern is pre-existing: the supersede path overwrites `embedding_rowid` the same way (store.ts:282-291), and nothing in the store ever DELETEs from `skill_candidates_vec`.
+- **kNN / similarity readers:** none read the vec table directly. The only SQL touching it is `insertEmbedding` (store.ts:1694) and `readEmbedding` (:1704, a lookup by rowid). `searchActiveByEmbedding` (:1627-1643) iterates candidate rows and reads each row's own `embeddingRowid`. `getEmbedding(rowid)` serves `partitionPool`. An orphan vec row is never returned, never attributed to a candidate, and no join can see it.
+- **R-f / R-f2:** compliant. `insertEmbedding` is a plain `INSERT` with no catch. `resetRevivedContent` has no try/catch, and a failure rolls the transaction back. The skill-promotion.service.ts:589-610 callback still has no catch.
+
+### 3. M2 grace semantics: APPROVED and intended
+
+- **Scope 4 reading.** Scope item 4 is "no use for N days". Measuring the "no use" interval from promotion for a skill that has never been used since it was promoted is a faithful reading. The previous code already fell back to `promoted_at` for rows with no events (the earlier review's table showed `COALESCE(max, promoted_at, created_at)`).
+- **Behavioural delta.** The new clause changes behaviour only when an event predates `promoted_at`. That happens on a re-promotion or an adopt, or when a slug was used before it was (re)promoted. A normally promoted row has `promoted_at <= every event`, because events are written after promotion, so it is unchanged. A skill promoted long ago and never invoked still has an old `promoted_at` and is still dormant at N days and retired at N+M. A long-idle skill is not shielded.
+- **Specs and proofs.** The reachability proof (dormant at 45 days, retired at 100 days) and the retirement specs still pass (198 tests) and mean what they claim. They seed `promoted_at` and events consistently, so the new clause is inert for them.
+- **Cost.** The only delay is one grace window for a freshly adopted or revived skill, which is the desired behaviour (M2).
+
+### 4. Are the new specs load-bearing? (reasoned, no mutation)
+
+- **curator (h):** seeds the stale columns, then asserts each is overwritten or NULL after the adopt. It would fail if any column were dropped from the UPDATE.
+- **curator (i):** seeds old events plus a revive and asserts the row is not idle at the next sweep. It fails without the `MAX(..., promoted_at)` clause.
+- **curator (e3):** the `retired:*` holder is blocked. It fails if the prefix check is removed.
+- **store specs:** cover the vec and no-vec embedding paths and the not-promoted throw (the guard).
+- **adoptable-slug spec:** the retired-to-blocked case is a direct assertion of `slugHolderDecision`.
+- **Gap (MINOR m5):** I could not confirm by mutation that (h) distinguishes a NULLed column from one never written. It does if it asserts `toBeNull()` against a non-null seed. I read it that way, but did not run a mutation.
+
+### 5. Regressions
+
+None found.
+- **R-f / R-f2:** compliant, see answer 2.
+- **Counters:** `success_count`, `failure_count` and `pinned` are kept. Stats read `status` and `residency`, which `promoteAtomically` already resets.
+- **UI DTO:** the DTO passes `displayName ?? null` (skills-synthesis-rpc.handlers.ts:2407). The table's `buildTitle` (skill-candidates-table.component.ts:542-546) renders `Untitled · <created date>` for a NULL display name. This is the same rendering a freshly adopted row gets.
+- **Judge fields:** `toJudgeStatus` maps NULL to null (row-mappers.ts:80). The old low score no longer appears on an active skill.
+
+### New findings
+
+- **MINOR m5:** see answer 4.
+- **MINOR m6:** a revived row shows `Untitled · <old created_at>`, because `created_at` is kept. The date is old, so the title can look stale. Cosmetic.
+- **MINOR m7:** orphan vec rows accumulate on every revive and supersede. They are bounded and harmless. A vacuum or DELETE of the old rowid in `resetRevivedContent` would clean it up.
+
+M4 (diverged adoption without a content tie-back) and m1-m4 from the earlier review are unchanged. M4 is accepted as a narrow residual risk.
