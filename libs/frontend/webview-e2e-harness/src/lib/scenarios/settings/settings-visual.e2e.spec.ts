@@ -274,6 +274,65 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
   }
 }
 
+/**
+ * Batch 33: logs the Orchestration fold (policy bar, matrix header, first matrix row, roles summary; budget 660 px,
+ * asserted from Batch 36), then captures the background roles `<details>` opened by its summary, and closes it again.
+ */
+async function captureRolesOpen(page: Page, host: 'vscode' | 'electron', theme: string): Promise<void> {
+  await expect(page.locator('[data-testid="cli-matrix"]')).toBeVisible();
+  const details = page.locator('[data-testid="background-roles-details"]');
+  const summary = page.locator('[data-testid="background-roles-summary"]');
+  await expect(details).not.toHaveAttribute('open');
+  console.log(`B33 fold ${host}/${theme}: bottoms policy bar ${await bottomOf(page, '[data-testid="orchestration-policy-bar"]')}, `
+    + `matrix header ${await bottomOf(page, '[data-testid="cli-matrix"] thead')}, first row ${await bottomOf(page, '[data-testid="cli-matrix"] tbody tr')}, `
+    + `roles summary ${await bottomOf(page, '[data-testid="background-roles-summary"]')} (budget 660)`);
+  await summary.click();
+  await expect(details).toHaveAttribute('open', '');
+  await expect(page.locator('[data-testid="assignments-heading"]')).toBeVisible();
+  await summary.evaluate((node) => node.scrollIntoView({ block: 'start' }));
+  await waitForSettled(page);
+  await page.screenshot({ path: capturePath('orchestration-roles-open', host, theme), animations: 'disabled' });
+  await summary.click();
+  await expect(details).not.toHaveAttribute('open');
+  await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    for (const node of Array.from(document.querySelectorAll('*'))) if (node.scrollTop) node.scrollTop = 0;
+  });
+}
+
+/**
+ * Batch 33 revise 1: the policy bar is one row in both hosts, and its order popover (opened from the chips) has ▲/▼
+ * targets of at least 24×24 px (WCAG 2.5.8). Captured open; Esc closes it and returns focus to the chips.
+ */
+async function captureOrderPopover(page: Page, host: 'vscode' | 'electron', theme: string): Promise<void> {
+  const bar = page.locator('[data-testid="orchestration-policy-bar"]');
+  const barBox = await bar.boundingBox();
+  console.log(`B33 policy bar ${host}/${theme}: ${Math.round(barBox?.width ?? 0)}x${Math.round(barBox?.height ?? 0)}`);
+  expect(barBox?.height ?? 0, 'policy bar is one row').toBeLessThanOrEqual(48);
+  const trigger = bar.locator('[data-testid="policy-order-edit"]');
+  const triggerBox = await trigger.boundingBox();
+  expect(Math.min(triggerBox?.width ?? 0, triggerBox?.height ?? 0), 'Edit order target').toBeGreaterThanOrEqual(24);
+  await trigger.click();
+  const popover = page.locator('[data-testid="policy-order-popover"]');
+  await expect(popover).toBeVisible();
+  const targets = await popover.locator('li button').evaluateAll((buttons) => buttons.map((button) => {
+    const box = button.getBoundingClientRect();
+    return Math.min(Math.round(box.width), Math.round(box.height));
+  }));
+  console.log(`B33 order popover ${host}/${theme}: ${JSON.stringify(await popover.boundingBox())}; smallest target ${Math.min(...targets)}px`);
+  for (const size of targets) expect(size, 'move button target').toBeGreaterThanOrEqual(24);
+  const box = await popover.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box && viewport && box.y >= 0 && box.y + box.height <= viewport.height && box.x + box.width <= viewport.width,
+    'order popover on screen').toBe(true);
+  await assertPopoverOnTop(page, '[data-testid="policy-order-popover"]', 'h3, li span, li button');
+  await waitForSettled(page);
+  await page.screenshot({ path: capturePath('orchestration-order-popover', host, theme), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(popover).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+}
+
 for (const host of ['vscode', 'electron'] as const) {
   for (const theme of ['anubis', 'anubis-light'] as const) {
     test(`baseline smoke — both tabs (${host}, ${theme})`, async ({ page, fixtureServer }) => {
@@ -286,7 +345,10 @@ for (const host of ['vscode', 'electron'] as const) {
         await waitForSettled(page);
         await page.screenshot({ path: capturePath(tab.name, host, theme) });
       }
-      // Batch 30: the CLI matrix's cell popovers (prototype interactions/orchestration-2/-3). The tab is still open.
+      // Batch 33: the fold numbers and the roles <details> open. The tab is still open.
+      await captureRolesOpen(page, host, theme);
+      await captureOrderPopover(page, host, theme);
+      // Batch 30: the CLI matrix's cell popovers (prototype interactions/orchestration-2/-3).
       await captureMatrixPopovers(page, host, theme);
       await gotoSettingsTab(page, 'Providers');
       await waitForSettled(page);

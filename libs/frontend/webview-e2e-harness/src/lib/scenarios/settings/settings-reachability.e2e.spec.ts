@@ -108,8 +108,9 @@ for (const host of HOSTS) {
     }) => {
       await bootSettings(page, fixtureServer.url, host);
       await waitForSettled(page);
-      for (const { selector, tab } of KEPT_SELECTORS) {
+      for (const { selector, tab, reveal } of KEPT_SELECTORS) {
         await gotoSettingsTab(page, tab);
+        if (reveal) await page.locator(reveal).click();
         await expect(page.locator(selector).first()).toBeVisible();
       }
       // Tab buttons by role and name (plan §6 finding 7's fourth kept item).

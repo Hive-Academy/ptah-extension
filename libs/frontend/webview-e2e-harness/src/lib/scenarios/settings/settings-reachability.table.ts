@@ -570,49 +570,91 @@ const cliAgents: readonly ReachabilityEntry[] = [
 // Table 4: Agent orchestration policy (#72-79)
 // ---------------------------------------------------------------------------
 
+/** Batch 33: the Orchestration tab's policy bar (`orchestration-policy-bar`). */
+const policyBar = (page: Page): Locator => page.locator('[data-testid="orchestration-policy-bar"]');
+
 const orchestrationPolicy: readonly ReachabilityEntry[] = [
+  // Batch 33: #72-#74 and #79 are the policy bar; #75-#78 the CLI matrix (Batch 30), which replaced the old cards.
   { id: '#72', capability: 'Re-detect CLIs', status: 'present',
-    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.getByRole('button', { name: 'Re-detect CLI agents' })); } },
+    reach: async (page) => {
+      await orchestrationTab(page);
+      const redetect = policyBar(page).getByRole('button', { name: 'Re-detect CLI agents' });
+      await visibleEnabled(redetect);
+      await redetect.click();
+      await visibleEnabled(redetect);
+      await expect(policyBar(page).locator('[data-testid="policy-redetect-error"]')).toHaveCount(0);
+    } },
   { id: '#73', capability: 'Preferred agent order (up/down)', status: 'present',
-    // The first row's "Move up" is always disabled by design
-    // (`agent-orchestration-config.component.ts:138`); "Move down" on the
-    // first of 4 BRIEF-ordered agents is the real enabled control.
-    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.getByRole('button', { name: 'Move down' }).first()); } },
+    // Batch 33: the bar's chips open the order popover; ▲/▼ per row (24 px, deviation 5). One move writes the whole
+    // order; Esc returns focus to the chips; the toast's Undo writes the previous order back.
+    reach: async (page) => {
+      await orchestrationTab(page);
+      const trigger = policyBar(page).locator('[data-testid="policy-order-edit"]');
+      await visibleEnabled(trigger);
+      await trigger.click();
+      const popover = page.locator('[data-testid="policy-order-popover"]');
+      await expect(popover).toBeVisible();
+      await expect(popover.getByRole('button', { name: 'Move Codex up' })).toBeDisabled();
+      const before = getFixtureState(page).calls.length;
+      const down = popover.getByRole('button', { name: 'Move Codex down' });
+      await visibleEnabled(down);
+      await down.click();
+      await expectCall(page, before, 'agent:setConfig', { preferredAgentOrder: ['antigravity', 'codex', 'glm-instance-1', 'copilot', 'opencode'] });
+      await expect(popover.getByRole('button', { name: 'Move Codex down' })).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(popover).toHaveCount(0);
+      await expect(trigger).toBeFocused();
+      await page.locator('[data-testid="settings-toast-undo"]').click();
+      await expectCall(page, before, 'agent:setConfig', { preferredAgentOrder: ['codex', 'antigravity', 'glm-instance-1', 'copilot'] });
+      await expect(policyBar(page).locator('[data-testid^="policy-order-chip-"]').first()).toHaveText('1. Codex');
+    } },
   { id: '#74', capability: 'Max concurrent agents slider', status: 'present',
-    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.locator('#agent-max-concurrent')); } },
+    reach: async (page) => {
+      await orchestrationTab(page);
+      const slider = page.locator('#agent-max-concurrent');
+      await visibleEnabled(slider);
+      const before = getFixtureState(page).calls.length;
+      await slider.fill('5');
+      await expectCall(page, before, 'agent:setConfig', { maxConcurrentAgents: 5 });
+      await expect(policyBar(page).locator('[data-testid="policy-max-concurrent-value"]')).toHaveText('5');
+      await page.locator('[data-testid="settings-toast-undo"]').click();
+      await expectCall(page, before, 'agent:setConfig', { maxConcurrentAgents: 3 });
+      await expect(policyBar(page).locator('[data-testid="policy-max-concurrent-value"]')).toHaveText('3');
+    } },
   { id: '#75', capability: 'System CLI rows with detection badges', status: 'present',
-    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.getByText(/Installed/).first()); } },
+    reach: async (page) => {
+      await orchestrationTab(page);
+      const codex = page.locator('[data-testid="cli-matrix-row-codex"]');
+      await expect(codex).toContainText('v1.4.0');
+      await expect(codex).toContainText('Ready');
+    } },
   { id: '#76', capability: 'Enable/disable toggle per system CLI', status: 'present',
-    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.getByLabel('Toggle codex agent')); } },
+    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.getByLabel('Codex enabled', { exact: true })); } },
   { id: '#77', capability: '"No CLI agents found" install help', status: 'present',
-    // `!hasInstalledCli()` is the branch that renders this
-    // (`agent-orchestration-config.component.ts:302-321`) — the shared
-    // session's fixture has installed CLIs (BRIEF data), so a SECOND page
-    // with none installed is booted to actually reach the empty state,
-    // rather than asserting the "System CLIs" heading that renders either way.
+    // A second page where detection finds no CLI installed: each system CLI sits in the Uninstalled group with its
+    // install guide (#71, #77 copy).
     reach: (page) => throughVariantBoot(
       page,
-      { 'agent:getConfig': { ...AGENT_CONFIG_FIXTURE, detectedClis: [] } },
+      { 'agent:getConfig': { ...AGENT_CONFIG_FIXTURE, detectedClis: AGENT_CONFIG_FIXTURE.detectedClis.map((cli) => ({ ...cli, installed: false })) } },
       'Agent Orchestration',
       async (variantPage) => {
-        await visibleEnabled(variantPage.getByText('No CLI agents found. Install one to enable agent'));
+        const guide = variantPage.locator('[data-testid="cli-matrix-uninstalled"] [data-testid="cli-matrix-install-codex"]');
+        await visibleEnabled(guide);
+        await guide.click();
+        await expect(variantPage.locator('[data-testid="cli-install-popover"]')).toContainText('npm install -g @openai/codex');
       },
     ) },
   { id: '#78', capability: 'Ptah CLI agents managed inside Orchestration (moved to Providers)', status: 'present',
-    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.getByRole('button', { name: 'Manage provider, model and credentials in Providers' }).first()); } },
+    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.locator('[data-testid="cli-matrix-edit-glm-instance-1"]')); } },
   { id: '#79', capability: 'Loading and error states', status: 'present',
-    // `agentConfigError()` only sets from a THROWN `agent:getConfig` call or
-    // `result.isSuccess() === false` (`agent-orchestration-config.component.ts:396-411`);
-    // this harness's RPC auto-responder always answers `success: true`
-    // (`marketplace.fixtures.ts`'s `respond()`), so that branch cannot be
-    // forced through the fixture layer — recorded here rather than asserted
-    // around. What IS real and checked: the loaded state renders with no
-    // error banner present, proving the loaded/error switch resolves to the
-    // correct branch for the data this fixture provides.
+    // The harness RPC auto-responder always answers `success: true`, so the error branches (the container's
+    // "… could not be loaded" + Retry per section, the bar's fixed Re-detect sentence) are pinned in the unit specs.
+    // Here: the loaded state settles with no loading line and no error left, and the bar shows the read value.
     reach: async (page) => {
       await orchestrationTab(page);
-      await visibleEnabled(page.getByText(/Headless agents \(Codex CLI, Copilot, Cursor, Antigravity, opencode,/));
-      await expect(page.locator('ptah-agent-orchestration-config .text-error')).toHaveCount(0);
+      await expect(page.locator('[data-read-loading]')).toHaveCount(0);
+      await expect(page.locator('[data-read-error]')).toHaveCount(0);
+      await expect(policyBar(page).locator('[data-testid="policy-max-concurrent-value"]')).toHaveText('3');
     } },
 ];
 
@@ -628,20 +670,18 @@ const other: readonly ReachabilityEntry[] = [
   { id: '#82', capability: 'Back to chat', status: 'present',
     reach: async (page) => { await visibleEnabled(page.locator('[data-testid="settings-back"]')); } },
   { id: '#83', capability: 'Deep link to a Settings tab (also while open)', status: 'present',
-    // The real deep-link trigger: `manageProviders()`
-    // (`agent-orchestration-config.component.ts:415-418`) calls
-    // `requestSettingsTab({tab:'providers', section:'cli-agents'})` while
-    // Settings is ALREADY open. Since Batch 18 the `cli-agents` section routes
-    // to the tab that hosts the CLI agents (Orchestration, plan Component 10),
-    // so the request is applied in place: the routed tab stays active and the
-    // CLI-agents heading receives focus (proof the request was consumed and
-    // routed, not just that the heading happens to be on the page).
+    // A deep link raised while Settings is ALREADY open: the routing map's Background roles action on Providers
+    // (`requestSettingsTab({tab:'orchestration', section:'background-models'})`). The routed tab becomes active, the
+    // closed roles <details> opens (Batch 33, deviation 4) and the section takes focus. Closed again for later entries.
     reach: async (page) => {
-      await orchestrationTab(page);
-      await page.getByRole('button', { name: 'Manage provider, model and credentials in Providers' }).first().click();
+      await providersTab(page);
+      await page.locator('[data-testid="routing-node-background-roles"] [data-testid="routing-node-action"]').click();
       await expect(page.getByRole('button', { name: 'Agent Orchestration', exact: true })).toHaveClass(/tab-active/);
-      await visibleEnabled(page.locator('#providers-cli-heading'));
-      await expect(page.locator('#providers-cli-heading')).toBeFocused();
+      const details = page.locator('[data-testid="background-roles-details"]');
+      await expect(details).toHaveAttribute('open', '');
+      await expect(page.locator('[data-focus="background-models"]')).toBeFocused();
+      await page.locator('[data-testid="background-roles-summary"]').click();
+      await expect(details).not.toHaveAttribute('open');
     } },
   { id: '#84', capability: 'VS Code LM model change triggers a CLI re-detect', status: 'present',
     reach: async (page) => { await advancedTab(page); await visibleEnabled(page.locator('ptah-vscode-lm-config')); } },
@@ -836,6 +876,13 @@ const regressedUx: readonly ReachabilityEntry[] = [
         await closeConnectionDrawer(page);
       }
     } },
+  { id: 'RUX-9', capability: 'No repeated "Manage … in Providers" links on Orchestration (the CLI node deep-links once)', status: 'restored',
+    // Batch 33: the old per-CLI links went with the old policy body; the matrix edits in place.
+    reach: async (page) => {
+      await orchestrationTab(page);
+      await expect(policyBar(page)).toBeVisible();
+      await expect(page.getByText(/Manage .* in Providers/)).toHaveCount(0);
+    } },
   // Gate V 28 follow-ups (Batch 28d, task.md "Gate V 28 (2026-10-01, user)"): the deviations the user did not accept.
   { id: 'GV28-1', capability: 'Stored key shown as its masked hint (bullets + last 4) in Credentials and Overview', status: 'restored',
     reach: async (page) => {
@@ -881,14 +928,16 @@ export interface KeptSelector {
   readonly selector: string;
   /** The tab that hosts it (plan §6: `assignments-heading` "on whichever tab hosts it"). */
   readonly tab: (typeof SETTINGS_TAB_LABELS)[number];
+  /** A control a user clicks first to show it (Batch 33: the roles are in a closed `<details>`). */
+  readonly reveal?: string;
 }
 
 export const KEPT_SELECTORS: readonly KeptSelector[] = [
   { selector: '[data-testid="settings-back"]', tab: 'Providers' },
   { selector: '[data-testid="provider-connection-card"]', tab: 'Providers' },
   { selector: '#providers-connections-heading', tab: 'Providers' },
-  // Moved with the background roles to Orchestration in Batch 18 (D14).
-  { selector: '[data-testid="assignments-heading"]', tab: 'Agent Orchestration' },
+  // Moved with the background roles to Orchestration in Batch 18 (D14); inside the roles <details> since Batch 33.
+  { selector: '[data-testid="assignments-heading"]', tab: 'Agent Orchestration', reveal: '[data-testid="background-roles-summary"]' },
 ];
 
 /** Every parity-inventory entry this baseline covers, frozen in S4 (D14 rule 2/3). */
@@ -903,8 +952,9 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
  * Batch 28d added the Gate V 28 follow-ups GV28-1..3 (key hint, check latency, Codex CLI under "Used by"): 94.
  * Batch 30 added the CLI matrix's regressed-UX fixes RUX-8 (2-click model/effort) and RUX-11 (inline test result), in
  * `settings-cli-matrix.entries.ts` with the restored #43, #44, #54, #70 and #71 (moved there from the pending list): 96.
+ * Batch 33 added RUX-9 (no repeated "Manage … in Providers" links): 97.
  */
-export const EXPECTED_CAPABILITY_COUNT = 96;
+export const EXPECTED_CAPABILITY_COUNT = 97;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

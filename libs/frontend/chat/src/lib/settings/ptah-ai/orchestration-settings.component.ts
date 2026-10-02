@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy, Component, ElementRef, OnInit, afterRenderEffect, computed, inject, input, output,
 } from '@angular/core';
+import { ChevronRight, LucideAngularModule } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
@@ -17,31 +18,34 @@ const BACKGROUND_CONSUMERS: readonly BackgroundConsumerId[] = [
 ];
 
 const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
 /**
- * Agent Orchestration tab, interim form (TASK_2026_555 S5, plan :559-579, D14).
+ * Agent Orchestration tab (TASK_2026_555, plan :695-701, design-spec §1.2). Opens the shared state itself, because a
+ * user can land on this tab first.
  *
- * Mounts the existing orchestration policy, the background-role assignments and the Ptah CLI
- * instance manager unchanged, moved here from the Providers page in one change so no capability
- * is ever unmounted. Opens the shared state itself, because a user can land on this tab first.
- * S6 replaces the contents (CLI matrix, policy bar, roles `<details>`); the CLI matrix is mounted since Batch 30.
+ * Order: the policy bar (Batch 33), the CLI matrix (Batch 30), then the background roles in a `<details>` that is
+ * closed by default (deviation 4: the §1.2 fold budget) and opened by the background-role deep links. The old Ptah CLI
+ * instance manager stays below until Batch 34 retires it (D14).
  */
 @Component({
   selector: 'ptah-orchestration-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AgentOrchestrationConfigComponent, CliOrchestrationMatrixComponent, ProviderConsumerAssignmentsComponent, PtahCliConfigComponent],
+  imports: [
+    LucideAngularModule, AgentOrchestrationConfigComponent, CliOrchestrationMatrixComponent, ProviderConsumerAssignmentsComponent,
+    PtahCliConfigComponent,
+  ],
   template: `
-    <div class="space-y-4 font-sans text-sm text-base-content">
-      <!-- Batch 30: the CLI matrix, above the old policy and instance manager until Batches 33-34 retire them (D14).
-           Deferred (own chunk; the eager bundle is at its budget) behind a same-footprint placeholder. -->
+    <div class="space-y-2.5 font-sans text-sm text-base-content">
+      <ptah-agent-orchestration-config />
+
+      <!-- Deferred (own chunk; the eager bundle is at its budget) behind a same-footprint placeholder. -->
       @defer (on immediate) {
         <ptah-cli-orchestration-matrix />
       } @placeholder {
         <div class="min-h-[22rem] rounded-xl border border-base-300 bg-base-200/40" aria-busy="true" data-testid="cli-matrix-placeholder"></div>
       }
-
-      <ptah-agent-orchestration-config />
 
       @for (section of readStates(); track section.id) {
         @if (section.state.status === 'error') {
@@ -54,11 +58,21 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
         }
       }
 
-      <section data-focus="background-models" tabindex="-1" aria-label="Background models" class="scroll-mt-4">
-        <ptah-provider-consumer-assignments [disabled]="saving()" [initialEditingConsumerId]="consumerTarget()"
-          (setupProviderRequested)="providerSetupRequested.emit($event)" (assignmentSaved)="state.refresh()"
-          (timeoutSaved)="state.refreshJudging()" />
-      </section>
+      <!-- Deviation 4: closed by default; the background-role deep links open it (focusTarget). -->
+      <details class="group rounded-xl border border-base-300 bg-base-200" data-testid="background-roles-details">
+        <summary [class]="'flex cursor-pointer list-none items-center gap-2 scroll-mt-2 rounded-xl px-3 py-2 select-none [&::-webkit-details-marker]:hidden ' + focusRing"
+          data-testid="background-roles-summary">
+          <lucide-angular [img]="ChevronIcon" class="block h-3.5 w-3.5 shrink-0 text-info transition-transform group-open:rotate-90" aria-hidden="true" />
+          <span class="text-xs font-bold uppercase tracking-wider text-base-content">Background Model Roles</span>
+          <span class="badge badge-outline badge-xs whitespace-nowrap border-info/30 bg-info/10 font-medium text-base-content">{{ roleCount }} roles</span>
+          <span class="ml-auto hidden min-w-0 truncate text-[10px] text-base-content-muted sm:block">Memory curator, archaeologist, synthesis, judge, replay, judging</span>
+        </summary>
+        <section data-focus="background-models" tabindex="-1" aria-label="Background models" class="scroll-mt-4 border-t border-base-300 p-3">
+          <ptah-provider-consumer-assignments [disabled]="saving()" [initialEditingConsumerId]="consumerTarget()"
+            (setupProviderRequested)="providerSetupRequested.emit($event)" (assignmentSaved)="state.refresh()"
+            (timeoutSaved)="state.refreshJudging()" />
+        </section>
+      </details>
 
       <ptah-cli-config />
 
@@ -81,6 +95,9 @@ export class OrchestrationSettingsComponent implements OnInit {
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly control = CONTROL;
+  protected readonly focusRing = FOCUS;
+  protected readonly ChevronIcon = ChevronRight;
+  protected readonly roleCount = BACKGROUND_CONSUMERS.length;
   protected readonly saving = computed(() => this.state.commit().status === 'saving');
   protected readonly consumerTarget = computed(() => {
     const target = this.focusTarget();
@@ -98,8 +115,14 @@ export class OrchestrationSettingsComponent implements OnInit {
       const target = this.focusTarget();
       if (!target) { this.focusedTarget = null; return; }
       if (target === this.focusedTarget) return;
+      const host = this.element.nativeElement;
+      if (target !== 'cli-agents') {
+        // A background-role deep link opens the roles before focusing them (a closed <details> hides its content).
+        const details = host.querySelector<HTMLDetailsElement>('[data-testid="background-roles-details"]');
+        if (details) details.open = true;
+      }
       const section = target === 'cli-agents' ? 'cli-agents' : 'background-models';
-      const node = this.element.nativeElement.querySelector<HTMLElement>(`[data-focus="${section}"]`);
+      const node = host.querySelector<HTMLElement>(`[data-focus="${section}"]`);
       if (node) { node.focus(); this.focusedTarget = target; }
     });
   }

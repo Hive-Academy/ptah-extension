@@ -211,7 +211,7 @@ describe('SettingsComponent deep-link', () => {
     await fixture.componentInstance.ngOnInit();
     fixture.componentInstance.setActiveTab('pro-features');
     fixture.detectChanges();
-    // Agent Orchestration's "Manage provider, model and credentials in Providers".
+    // A cli-agents request raised while Settings is open (the routing map's CLI agents node, RM-3).
     appState.requestSettingsTab({ tab: 'providers', section: 'cli-agents' });
     TestBed.tick();
     expect(fixture.componentInstance.activeSettingsTab()).toBe('orchestration');
@@ -245,7 +245,53 @@ describe('SettingsComponent deep-link', () => {
  * direct Orchestration landing opens the shared state without mounting the Providers page.
  */
 describe('SettingsComponent Orchestration landing', () => {
-  it('renders the interim Orchestration container, not Providers, and opens the state', async () => {
+  /** Lands on Settings with `request` and renders the real Orchestration container (its children unresolved). */
+  async function land(request: PendingSettingsTab) {
+    const state = providersStateFake();
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideSurfaceRouterTesting(),
+        AppStateManager,
+        { provide: AuthStateService, useValue: authStateFake() },
+        { provide: VSCodeService, useValue: { isElectron: false } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ProvidersSettingsStateService, useValue: state },
+      ],
+    });
+    TestBed.overrideComponent(SettingsComponent, {
+      set: { imports: [OrchestrationSettingsComponent], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+    });
+    TestBed.overrideComponent(OrchestrationSettingsComponent, {
+      set: { imports: [], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+    });
+    TestBed.inject(AppStateManager).requestSettingsTab(request);
+    const fixture = TestBed.createComponent(SettingsComponent);
+    await fixture.componentInstance.ngOnInit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+  afterEach(() => TestBed.resetTestingModule());
+
+  // Batch 33 (deviation 4): the roles sit in a <details> closed by default; a background-role deep link opens it.
+  it.each([
+    'background-models', 'memory-curator', 'archaeologist', 'synthesis', 'judge', 'replay', 'judging-enhancement',
+  ] as const)('opens the background roles <details> for the %s deep link and focuses the section', async (section) => {
+    const element = await land({ tab: 'providers', section });
+    const details = element.querySelector<HTMLDetailsElement>('[data-testid="background-roles-details"]');
+    expect(details?.open).toBe(true);
+    expect(document.activeElement).toBe(element.querySelector('[data-focus="background-models"]'));
+  });
+
+  it.each([{ tab: 'orchestration' }, { tab: 'providers', section: 'cli-agents' }] as const)(
+    'leaves the background roles closed for %o', async (request) => {
+      const element = await land(request);
+      expect(element.querySelector<HTMLDetailsElement>('[data-testid="background-roles-details"]')?.open).toBe(false);
+    },
+  );
+
+  it('renders the Orchestration container, not Providers, and opens the state', async () => {
     const state = providersStateFake();
     TestBed.configureTestingModule({
       providers: [

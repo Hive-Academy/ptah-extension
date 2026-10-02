@@ -66,7 +66,7 @@ function button(element: HTMLElement, label: string): HTMLButtonElement {
   return result;
 }
 
-describe('OrchestrationSettingsComponent (interim container)', () => {
+describe('OrchestrationSettingsComponent', () => {
   let fixture: ComponentFixture<OrchestrationSettingsComponent>;
   let element: HTMLElement;
   let state: StateStub;
@@ -87,6 +87,7 @@ describe('OrchestrationSettingsComponent (interim container)', () => {
 
   async function render() { fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); }
   const consumer = () => fixture.debugElement.query(By.directive(ConsumerStub)).injector.get(ConsumerStub);
+  const rolesDetails = () => element.querySelector<HTMLDetailsElement>('[data-testid="background-roles-details"]');
 
   it('opens the shared state once when mounted alone (a user can land here first)', async () => {
     await render();
@@ -94,30 +95,50 @@ describe('OrchestrationSettingsComponent (interim container)', () => {
     expect(state.open).toHaveBeenCalledTimes(1);
   });
 
-  it('mounts the orchestration policy, the background roles and the CLI agents, in that order', async () => {
+  // The CLI matrix sits between the bar and the roles in its own deferred chunk (not rendered by this TestBed).
+  it('mounts the policy bar, the background roles and the old CLI manager, in that order (plan :699-700)', async () => {
     await render();
-    const order = ['ptah-agent-orchestration-config', 'ptah-provider-consumer-assignments', 'ptah-cli-config']
+    const order = ['ptah-agent-orchestration-config', '[data-testid="background-roles-details"]', 'ptah-cli-config']
       .map((selector) => element.querySelector(selector));
     expect(order.every(Boolean)).toBe(true);
-    expect(order[0]?.compareDocumentPosition(order[1] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(order[1]?.compareDocumentPosition(order[2] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    for (let i = 1; i < order.length; i += 1) {
+      expect(order[i - 1]?.compareDocumentPosition(order[i] as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    }
   });
 
-  it('forwards a background-role target to the assignments and focuses the background section', async () => {
-    fixture.componentRef.setInput('focusTarget', 'judging-enhancement'); await render();
-    expect(consumer().initialEditingConsumerId()).toBe('judging-enhancement');
-    expect(document.activeElement).toBe(element.querySelector('[data-focus="background-models"]'));
+  it('wraps the background roles in a <details> that is closed by default (deviation 4)', async () => {
+    await render();
+    const details = rolesDetails();
+    expect(details?.tagName).toBe('DETAILS');
+    expect(details?.open).toBe(false);
+    expect(details?.querySelector('ptah-provider-consumer-assignments')).not.toBeNull();
+    const summary = details?.querySelector('summary');
+    expect(summary?.getAttribute('data-testid')).toBe('background-roles-summary');
+    expect(summary?.textContent).toContain('Background Model Roles');
+    expect(summary?.textContent).toContain('6 roles');
   });
 
-  it('focuses the section without preselecting a role for background-models', async () => {
+  it.each(['memory-curator', 'archaeologist', 'synthesis', 'judge', 'replay', 'judging-enhancement'] as const)(
+    'opens the roles for the %s deep link, forwards the role and focuses the background section',
+    async (target) => {
+      fixture.componentRef.setInput('focusTarget', target); await render();
+      expect(rolesDetails()?.open).toBe(true);
+      expect(consumer().initialEditingConsumerId()).toBe(target);
+      expect(document.activeElement).toBe(element.querySelector('[data-focus="background-models"]'));
+    },
+  );
+
+  it('opens the roles and focuses the section without preselecting a role for background-models', async () => {
     fixture.componentRef.setInput('focusTarget', 'background-models'); await render();
+    expect(rolesDetails()?.open).toBe(true);
     expect(consumer().initialEditingConsumerId()).toBeNull();
     expect(document.activeElement).toBe(element.querySelector('[data-focus="background-models"]'));
   });
 
-  it('focuses the CLI agents heading for cli-agents', async () => {
+  it('focuses the CLI agents heading for cli-agents and leaves the roles closed', async () => {
     fixture.componentRef.setInput('focusTarget', 'cli-agents'); await render();
     expect(document.activeElement).toBe(element.querySelector('#providers-cli-heading'));
+    expect(rolesDetails()?.open).toBe(false);
   });
 
   it('re-focuses a target requested again after being cleared', async () => {

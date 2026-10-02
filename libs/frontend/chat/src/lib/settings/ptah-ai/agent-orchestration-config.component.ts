@@ -1,625 +1,292 @@
 import {
-  Component,
-  inject,
-  ChangeDetectionStrategy,
-  computed,
-  signal,
-  OnInit,
+  ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, computed, inject, signal,
 } from '@angular/core';
+import { ChevronDown, ChevronUp, LucideAngularModule, Pencil, RefreshCw, X } from 'lucide-angular';
+import { ProvidersSettingsStateService } from '@ptah-extension/core';
+import { NativePopoverComponent } from '@ptah-extension/ui';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { cliMatrixRows } from './cli-matrix-rows';
 
-import {
-  LucideAngularModule,
-  Terminal,
-  RefreshCw,
-  ArrowUp,
-  ArrowDown,
-} from 'lucide-angular';
-import {
-  AppStateManager,
-  ClaudeRpcService,
-  ProvidersSettingsStateService,
-} from '@ptah-extension/core';
-import type {
-  AgentOrchestrationConfig,
-} from '@ptah-extension/shared';
+const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+/** ▲/▼ in the order popover: 24×24 px targets (WCAG 2.5.8). */
+const MOVE = `btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 p-0 text-base-content disabled:border-transparent disabled:bg-transparent ${FOCUS}`;
+/** Orchestration policy lives in the user settings (plan §3 rows 891-892), like the CLI matrix's writes. */
+const SAVE_SCOPE = 'global';
+const DETECT_FAILED = 'Could not re-detect CLI agents. Your saved settings have not changed.';
+const ORDER_NOT_SAVED = 'Could not save the preferred order. The order shown is the saved one.';
+
+/** One preferred-order entry: an installed system CLI or a Ptah CLI instance, in the matrix's rank order. */
+interface OrderChip {
+  readonly id: string;
+  readonly name: string;
+  readonly enabled: boolean;
+}
 
 /**
- * AgentOrchestrationConfigComponent - CLI detection, model selectors,
- * concurrency/timeout configuration for agent orchestration.
- *
- * Extracted from SettingsComponent to reduce its complexity.
- * Self-contained: injects its own dependencies (ClaudeRpcService).
- *
- * Cross-component communication:
- * Parent uses viewChild(AgentOrchestrationConfigComponent) to call redetectClis()
- * when the Providers page emits (modelChanged).
+ * Agent Orchestration policy bar (plan :702-709, design-spec §1.2 item 2, prototype `orchestration.html` :107-147).
+ * One row: max concurrent agents (range 1-20 with its live value), the preferred agent order as compact read-only chips
+ * (the prototype's `1. Codex → 2. Antigravity → …`), and Re-detect CLIs.
+ * - The chip group opens the order popover (the "popover for short choices" save model): one row per agent with ▲/▼
+ *   buttons of 24×24 px (deviation 5: chevrons, no grip, no drag; `moveAgentUp/Down` kept). Each move saves.
+ * - Reads `state.orchestration()` and `state.cliAgents()`; the chips are the CLI matrix's installed rows
+ *   (`cliMatrixRows`, same rank rule), so the bar and the matrix always show one order.
+ * - Every write is `state.saveSettings({orchestration:{…}})` through `SettingsSaveFeedbackService` (toast, Undo, D15:
+ *   the shown values are the read-back ones). Re-detect is `state.redetectClis()`. Failures show fixed sentences.
+ * Since Batch 33 the old body (system CLI cards, the Copilot toggle now in the matrix, the "Manage … in Providers"
+ * links, RUX-9) and its private `agent:*` calls are gone. Class and selector are kept (exported from the barrel).
  */
 @Component({
   selector: 'ptah-agent-orchestration-config',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, NativePopoverComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="border border-secondary/30 rounded-md bg-secondary/5">
-      <div class="p-3">
-        <div class="flex items-center justify-between mb-2">
-          <div class="flex items-center gap-1.5">
-            <lucide-angular
-              [img]="TerminalIcon"
-              class="w-4 h-4 text-secondary"
-            />
-            <h2 class="text-xs font-medium uppercase tracking-wide">
-              Agent Orchestration
-            </h2>
-          </div>
-          <button
-            class="btn btn-ghost btn-xs gap-1"
-            (click)="redetectClis()"
-            [disabled]="isDetectingClis()"
-            aria-label="Re-detect CLI agents"
-          >
-            @if (isDetectingClis()) {
-              <span class="loading loading-spinner loading-xs"></span>
-            } @else {
-              <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
-            }
-            <span>Re-detect</span>
-          </button>
+    <section class="rounded-xl border border-base-300 bg-base-200 px-3 py-2" aria-label="Orchestration policy"
+      data-testid="orchestration-policy-bar">
+      <!-- One row in both hosts: the chips clip at the end in a narrow box; the trigger names the whole order. -->
+      <div class="flex items-center gap-2.5 text-xs text-base-content">
+        <div class="flex shrink-0 items-center gap-1.5">
+          <label for="agent-max-concurrent" class="whitespace-nowrap text-xs font-bold">Max Concurrent:</label>
+          <span class="badge badge-xs border-primary/30 bg-primary/10 font-mono font-bold text-base-content"
+            aria-hidden="true" data-testid="policy-max-concurrent-value">{{ maxConcurrent() ?? '—' }}</span>
+          <input id="agent-max-concurrent" type="range" min="1" max="20" step="1"
+            [class]="'range range-xs range-primary h-3.5 w-16 ' + focusRing"
+            [value]="maxConcurrent() ?? 1" [disabled]="maxConcurrent() === null || !canWrite()"
+            [attr.aria-valuetext]="maxConcurrent() === null ? null : maxConcurrent() + ' agents at once'"
+            (input)="previewMaxConcurrent($event)" (change)="saveMaxConcurrent($event)" />
         </div>
 
-        <p class="text-xs text-base-content-muted mb-3">
-          Headless agents (Codex CLI, Copilot, Cursor, Antigravity, opencode,
-          Pi) for parallel task execution.
-        </p>
-
-        <!-- Error display -->
-        @if (agentConfigError()) {
-          <div class="text-xs text-error mb-2">{{ agentConfigError() }}</div>
-        }
-
-        <!-- Loading state -->
-        @if (agentConfigLoading()) {
-          <div
-            class="flex items-center gap-2 text-xs text-base-content-muted py-2"
-          >
-            <span class="loading loading-spinner loading-xs"></span>
-            <span>Loading agent config...</span>
-          </div>
-        }
-
-        @if (agentConfig()) {
-          <!-- ═══ Section 1: Settings (top — most commonly tweaked) ═══ -->
-          <div
-            class="border border-base-300/30 rounded bg-base-200/20 p-2.5 mb-3"
-          >
-            <div
-              class="text-[10px] font-medium text-base-content-muted uppercase tracking-wide mb-2"
-            >
-              Settings
-            </div>
-
-            <!-- Preferred Agent Order -->
-            <div class="mb-2.5">
-              <span class="text-[10px] text-base-content-muted mb-1 block">
-                Preferred Agent Order
-              </span>
-              @if (orderedAgents().length > 0) {
-                <div class="space-y-1">
-                  @for (
-                    agent of orderedAgents();
-                    track agent.id;
-                    let i = $index;
-                    let first = $first;
-                    let last = $last
-                  ) {
-                    <div
-                      class="flex items-center gap-1.5 px-2 py-1 rounded border border-base-300/40 bg-base-200/30 transition-opacity"
-                      [class.opacity-40]="agent.disabled"
-                    >
-                      <lucide-angular
-                        [img]="TerminalIcon"
-                        class="w-3 h-3 text-base-content-muted shrink-0"
-                      />
-                      <span class="text-[11px] flex-1 truncate">{{
-                        agent.name
-                      }}</span>
-                      @if (agent.disabled) {
-                        <span class="badge badge-xs badge-ghost text-[8px]"
-                          >Off</span
-                        >
-                      } @else if (agent.type === 'ptah-cli') {
-                        <span class="badge badge-xs badge-ghost text-[8px]"
-                          >Custom</span
-                        >
-                      }
-                      <div class="flex gap-0.5 shrink-0">
-                        <button
-                          class="btn btn-ghost btn-xs p-0.5"
-                          [disabled]="first"
-                          (click)="moveAgentUp(i)"
-                          aria-label="Move up"
-                        >
-                          <lucide-angular [img]="ArrowUpIcon" class="w-3 h-3" />
-                        </button>
-                        <button
-                          class="btn btn-ghost btn-xs p-0.5"
-                          [disabled]="last"
-                          (click)="moveAgentDown(i)"
-                          aria-label="Move down"
-                        >
-                          <lucide-angular
-                            [img]="ArrowDownIcon"
-                            class="w-3 h-3"
-                          />
-                        </button>
-                      </div>
-                    </div>
-                  }
-                </div>
-                <p class="text-[9px] text-base-content-muted mt-1">
-                  First available agent is used when no CLI is specified.
-                </p>
-              } @else {
-                <p class="text-[10px] text-base-content-muted italic">
-                  No agents detected. Install a CLI or add a Ptah CLI agent.
-                </p>
+        <div class="flex min-w-0 flex-1 items-center gap-1.5">
+          <span class="shrink-0 whitespace-nowrap text-[11px] font-semibold text-base-content-muted" aria-hidden="true">Order:</span>
+          @if (chips().length) {
+            <!-- Read-only chips (the prototype's row); they fade out at the end in a narrow box. The Edit button names the
+                 whole order for screen readers. -->
+            <span class="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-[11px] [mask-image:linear-gradient(to_right,black_calc(100%_-_0.75rem),transparent)]"
+              aria-hidden="true" data-testid="policy-order">
+              @for (chip of chips(); track chip.id; let i = $index, first = $first) {
+                @if (!first) { <span class="shrink-0 text-[10px] text-base-content-muted">→</span> }
+                <span class="shrink-0 whitespace-nowrap rounded border border-base-300 bg-base-100 px-1.5 py-0.5 font-bold"
+                  [class.text-base-content]="chip.enabled" [class.text-base-content-muted]="!chip.enabled"
+                  [attr.data-testid]="'policy-order-chip-' + chip.id">{{ i + 1 }}. {{ chip.name }}</span>
               }
-            </div>
-
-            <!-- Max Concurrent Agents -->
-            <div class="mb-2.5">
-              <div class="flex items-center justify-between mb-0.5">
-                <label
-                  for="agent-max-concurrent"
-                  class="text-[10px] text-base-content-muted"
-                >
-                  Max Concurrent Agents
-                </label>
-                <span class="text-[10px] text-base-content-muted">
-                  {{ agentConfig()?.maxConcurrentAgents }}
-                </span>
-              </div>
-              <input
-                id="agent-max-concurrent"
-                type="range"
-                min="1"
-                max="20"
-                [value]="
-                  $safeNavigationMigration(agentConfig()?.maxConcurrentAgents)
-                "
-                (change)="onMaxConcurrentChange($event)"
-                class="range range-xs range-secondary"
-              />
-              <div
-                class="flex justify-between text-[10px] text-base-content-muted px-0.5"
-              >
-                <span>1</span>
-                <span>10</span>
-                <span>20</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- ═══ Section 2: System CLIs (collapsible accordion) ═══ -->
-          <div
-            class="border border-base-300/30 rounded bg-base-200/20 p-2.5 mb-3"
-          >
-            <div
-              class="text-[10px] font-medium text-base-content-muted uppercase tracking-wide mb-2"
-            >
-              System CLIs
-            </div>
-
-            <div class="space-y-1.5">
-              @for (cli of systemClis(); track cli.cli) {
-                <div
-                  class="border border-base-300/40 rounded bg-base-200/30 transition-opacity"
-                  [class.opacity-40]="isCliDisabled(cli.cli)"
-                >
-                  <div class="flex items-center justify-between p-2">
-                    <div class="flex items-center gap-2">
-                      <lucide-angular
-                        [img]="TerminalIcon"
-                        class="w-3.5 h-3.5"
-                      />
-                      <span class="text-xs font-medium capitalize">{{
-                        cli.ptahCliName ?? cli.cli
-                      }}</span>
-                      @if (cli.providerName) {
-                        <span class="badge badge-primary badge-xs">{{
-                          cli.providerName
-                        }}</span>
-                      }
-                    </div>
-                    <div class="flex items-center gap-2">
-                      @if (cli.installed) {
-                        <span class="badge badge-success badge-xs gap-1">
-                          @if (cli.cli === 'cursor') {
-                            Configured
-                          } @else {
-                            Installed
-                          }
-                          @if (cli.version && cli.cli !== 'cursor') {
-                            <span class="opacity-70">v{{ cli.version }}</span>
-                          }
-                        </span>
-                      } @else if (cli.cli === 'cursor') {
-                        <span class="badge badge-warning badge-xs"
-                          >Needs API key</span
-                        >
-                      } @else {
-                        <span class="badge badge-ghost badge-xs"
-                          >Not Found</span
-                        >
-                      }
-                      <!-- Enable/Disable toggle -->
-                      @if (cli.installed) {
-                        <input
-                          type="checkbox"
-                          class="toggle toggle-xs toggle-success"
-                          [checked]="!isCliDisabled(cli.cli)"
-                          (change)="toggleCliEnabled(cli.cli)"
-                          [attr.aria-label]="'Toggle ' + cli.cli + ' agent'"
-                        />
-                      }
-                    </div>
+            </span>
+            <ptah-native-popover class="shrink-0" [isOpen]="orderOpen()" placement="bottom-end" [hasBackdrop]="true"
+              backdropClass="transparent" (closed)="closeOrder()" (opened)="focusFirstMove()">
+              <button trigger type="button" [class]="moveClass" [attr.aria-label]="orderSummary() + '. Edit order'"
+                aria-haspopup="dialog" [attr.aria-expanded]="orderOpen()" (click)="toggleOrder()" data-testid="policy-order-edit">
+                <lucide-angular [img]="EditIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+              @if (orderOpen()) {
+                <div content role="dialog" aria-labelledby="policy-order-title" class="w-[16rem] max-w-[calc(100vw-2rem)] space-y-2 p-3"
+                  data-testid="policy-order-popover">
+                  <div class="flex items-center justify-between gap-2 border-b border-base-300 pb-1.5">
+                    <h3 id="policy-order-title" class="text-xs font-bold text-base-content">Preferred order</h3>
+                    <button type="button" [class]="moveClass" aria-label="Close" (click)="closeOrder()">
+                      <lucide-angular [img]="CloseIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
                   </div>
-
-                  @if (cli.cli === 'copilot') {
-                    <label class="flex items-center justify-between gap-2 px-2 pb-2">
-                      <span class="text-[10px] text-base-content-muted">Auto-approve Copilot tool calls</span>
-                      <input
-                        type="checkbox"
-                        class="toggle toggle-xs toggle-success"
-                        [checked]="agentConfig()?.copilotAutoApprove ?? true"
-                        [disabled]="savingCopilotAutoApprove() || copilotAutoApproveUnconfirmed()"
-                        (change)="toggleCopilotAutoApprove($event)"
-                        aria-label="Auto-approve Copilot tool calls"
-                        data-testid="copilot-auto-approve"
-                      />
-                    </label>
-                    @if (copilotAutoApproveError(); as message) {
-                      <p class="px-2 pb-2 text-xs text-error" role="alert" data-testid="copilot-auto-approve-error">{{ message }}</p>
+                  <ol class="space-y-1">
+                    @for (chip of chips(); track chip.id; let i = $index, first = $first, last = $last) {
+                      <li class="flex items-center gap-1 text-xs" [attr.data-testid]="'policy-order-row-' + chip.id">
+                        <span class="min-w-0 flex-1 truncate font-bold" [class.text-base-content]="chip.enabled"
+                          [class.text-base-content-muted]="!chip.enabled">{{ i + 1 }}. {{ chip.name }}</span>
+                        @if (!chip.enabled) { <span class="text-[10px] text-base-content-muted">off</span> }
+                        <button type="button" [class]="moveClass" [disabled]="first || !canReorder()"
+                          [attr.aria-label]="'Move ' + chip.name + ' up'" [attr.data-testid]="'policy-order-up-' + chip.id"
+                          (click)="moveAgentUp(i)">
+                          <lucide-angular [img]="UpIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                        <button type="button" [class]="moveClass" [disabled]="last || !canReorder()"
+                          [attr.aria-label]="'Move ' + chip.name + ' down'" [attr.data-testid]="'policy-order-down-' + chip.id"
+                          (click)="moveAgentDown(i)">
+                          <lucide-angular [img]="DownIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </li>
                     }
-                    @if (copilotAutoApproveUnconfirmed()) {
-                      <button
-                        type="button"
-                        class="btn btn-outline btn-xs mx-2 mb-2 min-h-9"
-                        [disabled]="savingCopilotAutoApprove()"
-                        (click)="recheckCopilotAutoApprove()"
-                        data-testid="copilot-auto-approve-recheck"
-                      >
-                        Check saved setting again
-                      </button>
-                    }
+                  </ol>
+                  @if (orderError(); as message) {
+                    <p class="text-[11px] text-base-content" role="alert" data-testid="policy-order-error">{{ message }}</p>
                   }
-                  <button type="button" class="btn btn-outline min-h-9 focus-visible:outline-2" (click)="manageProviders()">Manage provider, model and credentials in Providers</button>
+                  <p class="text-[10px] text-base-content-muted">The first available agent is used when no CLI is specified.</p>
                 </div>
               }
-            </div>
+            </ptah-native-popover>
+          } @else {
+            <span class="text-[11px] text-base-content-muted" data-testid="policy-order-empty">
+              {{ loaded() ? 'No CLI agent installed yet.' : 'Loading…' }}
+            </span>
+          }
+        </div>
 
-            <!-- No CLIs found help -->
-            @if (!hasInstalledCli()) {
-              <div
-                class="border border-warning/30 rounded p-2.5 mt-2 bg-warning/5"
-              >
-                <p class="text-xs text-base-content-muted mb-1.5">
-                  No CLI agents found. Install one to enable agent
-                  orchestration:
-                </p>
-                <div class="flex flex-col gap-1 text-xs">
-                  <span class="text-base-content-muted">
-                    Codex CLI:
-                    <code>npm install -g &#64;openai/codex</code>
-                  </span>
-                  <span class="text-base-content-muted">
-                    Copilot:
-                    <code>npm install -g &#64;github/copilot</code>
-                  </span>
-                </div>
-              </div>
-            }
-          </div>
-        }
+        <button type="button" [class]="'btn btn-outline btn-xs h-6 min-h-6 shrink-0 gap-1 border-base-content-muted text-[11px] text-base-content ' + focusRing"
+          [disabled]="detecting()" (click)="redetectClis()" aria-label="Re-detect CLI agents" data-testid="policy-redetect">
+          @if (detecting()) {
+            <span class="loading loading-spinner loading-xs" aria-hidden="true"></span> Detecting…
+          } @else {
+            <lucide-angular [img]="RefreshIcon" class="h-3 w-3" aria-hidden="true" /> Re-detect CLIs
+          }
+        </button>
       </div>
-    </div>
-  `,
-  host: {
-    class: 'mt-4 block',
-  },
-})
-export class AgentOrchestrationConfigComponent implements OnInit {
-  private readonly rpcService = inject(ClaudeRpcService);
-  readonly TerminalIcon = Terminal;
-  readonly RefreshCwIcon = RefreshCw;
-  readonly ArrowUpIcon = ArrowUp;
-  readonly ArrowDownIcon = ArrowDown;
-  readonly agentConfig = signal<AgentOrchestrationConfig | null>(null);
-  readonly agentConfigLoading = signal(false);
-  readonly agentConfigError = signal<string | null>(null);
-  readonly isDetectingClis = signal(false);
-  /** System CLIs only (Ptah CLI instances are managed on the Providers page) */
-  readonly systemClis = computed(() => {
-    const config = this.agentConfig();
-    return config ? config.detectedClis.filter((c) => !c.ptahCliId) : [];
-  });
-
-  readonly hasInstalledCli = computed(() => {
-    return this.systemClis().some((c) => c.installed);
-  });
-
-  /** Ordered list of all installed/enabled agents for the reorderable UI */
-  /**
-   * Ordered list of all installed agents for the reorderable UI.
-   * Disabled agents are included (shown dimmed) to preserve their position
-   * in the preferred order when re-enabled.
-   */
-  readonly orderedAgents = computed(() => {
-    const config = this.agentConfig();
-    if (!config) return [];
-
-    const disabledClis = new Set(config.disabledClis ?? []);
-    const agents: {
-      id: string;
-      name: string;
-      type: 'system' | 'ptah-cli';
-      disabled: boolean;
-    }[] = [];
-    for (const cli of config.detectedClis) {
-      if (!cli.installed) continue;
-      const id = cli.ptahCliId ?? cli.cli;
-      const isDisabled = !cli.ptahCliId && disabledClis.has(cli.cli);
-      agents.push({
-        id,
-        name:
-          cli.ptahCliName ?? cli.cli.charAt(0).toUpperCase() + cli.cli.slice(1),
-        type: cli.ptahCliId ? 'ptah-cli' : 'system',
-        disabled: isDisabled,
-      });
-    }
-    const preferred = config.preferredAgentOrder ?? [];
-    if (preferred.length === 0) return agents;
-
-    return [...agents].sort((a, b) => {
-      const ai = preferred.indexOf(a.id);
-      const bi = preferred.indexOf(b.id);
-      const aRank = ai === -1 ? preferred.length : ai;
-      const bRank = bi === -1 ? preferred.length : bi;
-      return aRank - bRank;
-    });
-  });
-
-  async ngOnInit(): Promise<void> {
-    await this.loadAgentConfig();
-  }
-
-  async loadAgentConfig(): Promise<void> {
-    this.agentConfigLoading.set(true);
-    this.agentConfigError.set(null);
-    try {
-      const result = await this.rpcService.call('agent:getConfig', undefined);
-      if (result.isSuccess()) {
-        this.agentConfig.set(result.data);
-      } else {
-        this.agentConfigError.set(result.error ?? 'Failed to load config');
+      @if (detectFailed()) {
+        <p class="mt-1 text-[11px] text-base-content" role="alert" data-testid="policy-redetect-error">{{ detectFailedMessage }}</p>
       }
-    } catch {
-      this.agentConfigError.set('Failed to load agent orchestration config');
+      <span class="sr-only" role="status" aria-live="polite">{{ detectDone() ? 'CLI agents re-detected.' : '' }}</span>
+    </section>
+  `,
+})
+export class AgentOrchestrationConfigComponent {
+  protected readonly UpIcon = ChevronUp;
+  protected readonly DownIcon = ChevronDown;
+  protected readonly RefreshIcon = RefreshCw;
+  protected readonly EditIcon = Pencil;
+  protected readonly CloseIcon = X;
+  protected readonly focusRing = FOCUS;
+  protected readonly moveClass = MOVE;
+  protected readonly detectFailedMessage = DETECT_FAILED;
+
+  private readonly state = inject(ProvidersSettingsStateService);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
+  private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  /** The slider's value while it is dragged; `null` shows the saved (read-back) value. */
+  private readonly draft = signal<number | null>(null);
+  /** The live value: the dragged one, else the saved one, else `null` before the first read. */
+  protected readonly maxConcurrent = computed(() => this.draft() ?? this.state.orchestration().data?.maxConcurrentAgents ?? null);
+  protected readonly loaded = computed(() => this.state.orchestration().data !== null);
+  /** The installed rows of the CLI matrix, in its order (system CLIs and Ptah CLI instances). */
+  protected readonly chips = computed((): readonly OrderChip[] => cliMatrixRows({
+    orchestration: this.state.orchestration().data,
+    cliAgents: this.state.cliAgents().data,
+    cliModels: null,
+    cliTest: null,
+  }).installed.map((row) => ({ id: row.id, name: row.name, enabled: row.enabled })));
+  /** The whole order for the trigger's accessible name (the chips may clip in a narrow box). */
+  protected readonly orderSummary = computed(() => 'Preferred order: '
+    + this.chips().map((chip, i) => `${i + 1}. ${chip.name}${chip.enabled ? '' : ' (off)'}`).join(', '));
+  /** The slider stays enabled while a save runs (disabling it would drop its focus); the save is refused then (D3). */
+  protected readonly canWrite = computed(() => this.state.scopes().status === 'ready' && this.state.reviewContext() !== null);
+  /** Both lists must be read: an order written from one of them would drop the other's ids. No move while saving. */
+  protected readonly canReorder = computed(() => this.canWrite() && !this.feedback.saving()
+    && this.state.orchestration().data !== null && this.state.cliAgents().data !== null);
+
+  protected readonly orderOpen = signal(false);
+  protected readonly orderError = signal<string | null>(null);
+
+  private readonly redetecting = signal(false);
+  protected readonly detecting = computed(() => this.redetecting() || this.state.cliDetection().status === 'loading');
+  /** Set by this bar's own Re-detect only, so a failure elsewhere never shows here. */
+  protected readonly detectFailed = signal(false);
+  protected readonly detectDone = signal(false);
+
+  protected toggleOrder(): void {
+    this.orderError.set(null);
+    this.orderOpen.update((open) => !open);
+  }
+
+  /** Esc, the backdrop and Close end here; the popover returns focus to the trigger. */
+  protected closeOrder(): void {
+    this.orderOpen.set(false);
+    this.orderError.set(null);
+  }
+
+  /** The panel takes focus when positioned; then its first enabled move button does. */
+  protected focusFirstMove(): void {
+    this.element.nativeElement
+      .querySelector<HTMLButtonElement>('[data-testid="policy-order-popover"] li button:not([disabled])')?.focus();
+  }
+
+  protected previewMaxConcurrent(event: Event): void {
+    const value = (event.target as HTMLInputElement).valueAsNumber;
+    if (Number.isInteger(value)) this.draft.set(value);
+  }
+
+  /** Saves on release; the slider then shows the read-back value (the draft is dropped either way). */
+  protected async saveMaxConcurrent(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const value = input.valueAsNumber;
+    const previous = this.state.orchestration().data?.maxConcurrentAgents;
+    const context = this.state.reviewContext();
+    try {
+      if (!context || previous === undefined || !Number.isInteger(value) || value < 1 || value > 20 || value === previous) return;
+      await this.feedback.save({
+        label: 'max concurrent agents', scope: SAVE_SCOPE,
+        write: () => this.state.saveSettings({ orchestration: { maxConcurrentAgents: value } }, context),
+        undo: () => this.state.saveSettings({ orchestration: { maxConcurrentAgents: previous } }, context),
+      });
     } finally {
-      this.agentConfigLoading.set(false);
+      this.draft.set(null);
+      // The binding may not change (the same saved value), so the thumb is moved to the read-back value directly.
+      const saved = this.state.orchestration().data?.maxConcurrentAgents;
+      if (saved !== undefined) input.value = String(saved);
     }
   }
 
-  private readonly appState = inject(AppStateManager);
-  private readonly providersState = inject(ProvidersSettingsStateService);
-  manageProviders(): void {
-    this.appState.requestSettingsTab({ tab: 'providers', section: 'cli-agents' });
-    this.appState.setCurrentView('settings');
-  }
-
-  public onMaxConcurrentChange(event: Event): void {
-    const value = (event.target as HTMLInputElement).valueAsNumber;
-    this.setAgentMaxConcurrent(value);
-  }
-
-  /** Move agent up in preferred order */
+  /** Move an agent one place earlier in the preferred order. */
   moveAgentUp(index: number): void {
     if (index <= 0) return;
-    const agents = this.orderedAgents();
-    const ids = agents.map((a) => a.id);
+    const ids = this.chips().map((chip) => chip.id);
     [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]];
-    this.savePreferredOrder(ids);
+    void this.savePreferredOrder(ids, ids[index - 1], 'up');
   }
 
-  /** Move agent down in preferred order */
+  /** Move an agent one place later in the preferred order. */
   moveAgentDown(index: number): void {
-    const agents = this.orderedAgents();
-    if (index >= agents.length - 1) return;
-    const ids = agents.map((a) => a.id);
+    const ids = this.chips().map((chip) => chip.id);
+    if (index >= ids.length - 1) return;
     [ids[index], ids[index + 1]] = [ids[index + 1], ids[index]];
-    this.savePreferredOrder(ids);
-  }
-
-  /** Persist the preferred agent order */
-  private async savePreferredOrder(order: string[]): Promise<void> {
-    const result = await this.rpcService.call('agent:setConfig', {
-      preferredAgentOrder: order,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) =>
-        c ? { ...c, preferredAgentOrder: order } : c,
-      );
-    }
-  }
-
-  async setAgentMaxConcurrent(value: number): Promise<void> {
-    const result = await this.rpcService.call('agent:setConfig', {
-      maxConcurrentAgents: value,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) =>
-        c ? { ...c, maxConcurrentAgents: value } : c,
-      );
-    }
-  }
-
-  /** True while a Copilot auto-approve write is in flight; the toggle is disabled meanwhile. */
-  readonly savingCopilotAutoApprove = signal(false);
-  readonly copilotAutoApproveError = signal<string | null>(null);
-  /**
-   * True when a write's outcome is unknown AND the read-back failed: the saved
-   * value is unknown, so the toggle shows no value and accepts no writes until
-   * {@link recheckCopilotAutoApprove} reads it successfully.
-   */
-  readonly copilotAutoApproveUnconfirmed = signal(false);
-  private copilotToggle: HTMLInputElement | null = null;
-
-  /**
-   * Copilot only: AgentSpawnEnvironment.resolveAutoApprove reads
-   * `copilotAutoApprove` and ignores Codex, so Codex has no control here.
-   *
-   * agent:setConfig reports a persistence failure INSIDE a successful RPC
-   * envelope (`{ success: false }`), so both must succeed. Any other outcome
-   * (failed envelope, `success:false`, rejected call) is uncertain: the saved
-   * value is read back and the toggle shows that, with an error when the
-   * change did not take effect. When the read-back fails too, the setting is
-   * marked unconfirmed instead of guessing the pre-write value.
-   */
-  async toggleCopilotAutoApprove(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    this.copilotToggle = input;
-    const saved = this.agentConfig()?.copilotAutoApprove ?? true;
-    if (this.savingCopilotAutoApprove() || this.copilotAutoApproveUnconfirmed()) {
-      input.checked = saved;
-      return;
-    }
-    const next = !saved;
-    this.savingCopilotAutoApprove.set(true);
-    this.copilotAutoApproveError.set(null);
-    try {
-      let confirmed = false;
-      try {
-        const result = await this.rpcService.call('agent:setConfig', {
-          copilotAutoApprove: next,
-        });
-        confirmed = result.isSuccess() && result.data?.success === true;
-      } catch (error: unknown) {
-        // Outcome unknown: the write may or may not have happened. Read back below.
-        void error;
-      }
-      if (confirmed) {
-        this.agentConfig.update((c) => (c ? { ...c, copilotAutoApprove: next } : c));
-        return;
-      }
-      const actual = await this.readCopilotAutoApprove();
-      if (actual === null) {
-        this.markCopilotAutoApproveUnconfirmed(input);
-        return;
-      }
-      this.showCopilotAutoApprove(input, actual);
-      if (actual !== next) {
-        this.copilotAutoApproveError.set(
-          'Could not save Copilot auto-approve. The saved setting is unchanged.',
-        );
-      }
-    } finally {
-      this.savingCopilotAutoApprove.set(false);
-    }
-  }
-
-  /** Re-read the saved value after an unconfirmed write; re-enables the toggle on success. */
-  async recheckCopilotAutoApprove(): Promise<void> {
-    if (this.savingCopilotAutoApprove()) return;
-    this.savingCopilotAutoApprove.set(true);
-    try {
-      const actual = await this.readCopilotAutoApprove();
-      if (actual === null) {
-        this.markCopilotAutoApproveUnconfirmed(this.copilotToggle);
-        return;
-      }
-      if (this.copilotToggle) this.showCopilotAutoApprove(this.copilotToggle, actual);
-      else this.agentConfig.update((c) => (c ? { ...c, copilotAutoApprove: actual } : c));
-      this.copilotAutoApproveUnconfirmed.set(false);
-      this.copilotAutoApproveError.set(null);
-    } finally {
-      this.savingCopilotAutoApprove.set(false);
-    }
-  }
-
-  private showCopilotAutoApprove(input: HTMLInputElement, value: boolean): void {
-    this.agentConfig.update((c) => (c ? { ...c, copilotAutoApprove: value } : c));
-    // The binding value may not change, so set the element state directly.
-    input.indeterminate = false;
-    input.checked = value;
-  }
-
-  private markCopilotAutoApproveUnconfirmed(input: HTMLInputElement | null): void {
-    this.copilotAutoApproveUnconfirmed.set(true);
-    if (input) input.indeterminate = true;
-    this.copilotAutoApproveError.set(
-      'Could not confirm whether Copilot auto-approve was saved. Check the saved setting again before changing it.',
-    );
-  }
-
-  /** Persisted Copilot auto-approve, or null when it cannot be read. */
-  private async readCopilotAutoApprove(): Promise<boolean | null> {
-    try {
-      const result = await this.rpcService.call('agent:getConfig', undefined);
-      return result.isSuccess() && typeof result.data?.copilotAutoApprove === 'boolean'
-        ? result.data.copilotAutoApprove
-        : null;
-    } catch (error: unknown) {
-      void error;
-      return null;
-    }
-  }
-
-  /** Check if a CLI is disabled */
-  isCliDisabled(cliType: string): boolean {
-    return this.agentConfig()?.disabledClis?.includes(cliType) ?? false;
-  }
-
-  /** Toggle enable/disable for a system CLI */
-  async toggleCliEnabled(cliType: string): Promise<void> {
-    const current = this.agentConfig()?.disabledClis ?? [];
-    const isDisabled = current.includes(cliType);
-    const updated = isDisabled
-      ? current.filter((c) => c !== cliType)
-      : [...current, cliType];
-
-    const result = await this.rpcService.call('agent:setConfig', {
-      disabledClis: updated,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) => (c ? { ...c, disabledClis: updated } : c));
-    }
+    void this.savePreferredOrder(ids, ids[index + 1], 'down');
   }
 
   async redetectClis(): Promise<void> {
-    this.isDetectingClis.set(true);
-    this.agentConfigError.set(null);
+    if (this.detecting()) return;
+    this.redetecting.set(true);
+    this.detectFailed.set(false);
+    this.detectDone.set(false);
     try {
-      const result = await this.rpcService.call('agent:detectClis', undefined);
-      if (result.isSuccess()) {
-        this.agentConfig.update((c) =>
-          c ? { ...c, detectedClis: result.data.clis } : c,
-        );
-        // Detection changes which CLI agents exist, so anything derived from
-        // them is stale until it re-reads. PR #568 fixed that staleness by
-        // reloading this component's own model arrays; those arrays moved to
-        // the Providers page, so the refresh moves with them rather than
-        // being dropped along with the method.
-        await Promise.all([
-          this.providersState.refreshCliAgents(),
-          this.providersState.refreshCliModels(),
-        ]);
-      } else {
-        this.agentConfigError.set(result.error ?? 'Detection failed');
-      }
-    } catch {
-      this.agentConfigError.set('Failed to detect CLI agents');
+      await this.state.redetectClis();
+      const ok = this.state.cliDetection().status === 'ready';
+      this.detectFailed.set(!ok);
+      this.detectDone.set(ok);
+    } catch (error: unknown) {
+      // The state settles its own read failures; a throw means the command itself broke.
+      void error;
+      this.detectFailed.set(true);
     } finally {
-      this.isDetectingClis.set(false);
+      this.redetecting.set(false);
     }
+  }
+
+  /**
+   * One move = one write of the whole order, with Undo. The rows show the read-back order (D15); when the commit did
+   * not save, a fixed sentence says so in the popover (the toast carries the details).
+   */
+  private async savePreferredOrder(order: string[], movedId: string, direction: 'up' | 'down'): Promise<void> {
+    const context = this.state.reviewContext();
+    if (!context || !this.canReorder()) return;
+    const previous = [...(this.state.orchestration().data?.preferredAgentOrder ?? [])];
+    this.orderError.set(null);
+    await this.feedback.save({
+      label: 'preferred agent order', scope: SAVE_SCOPE,
+      write: () => this.state.saveSettings({ orchestration: { preferredAgentOrder: order } }, context),
+      undo: () => this.state.saveSettings({ orchestration: { preferredAgentOrder: previous } }, context),
+    });
+    if (this.state.commit().status !== 'saved') this.orderError.set(ORDER_NOT_SAVED);
+    this.refocus(movedId, direction);
+  }
+
+  /**
+   * The moved row changed place and its buttons were disabled while saving: once re-rendered, focus returns to the
+   * button used, or to the row's other one when that end was reached.
+   */
+  private refocus(id: string, direction: 'up' | 'down'): void {
+    afterNextRender(() => {
+      const other = direction === 'up' ? 'down' : 'up';
+      const host = this.element.nativeElement;
+      [direction, other]
+        .map((which) => host.querySelector<HTMLButtonElement>(`[data-testid="policy-order-${which}-${id}"]`))
+        .find((button) => button && !button.disabled)
+        ?.focus();
+    }, { injector: this.injector });
   }
 }
