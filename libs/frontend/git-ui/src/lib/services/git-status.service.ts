@@ -187,7 +187,12 @@ function nextSnapshot(
  * (`libs/frontend/core/src/lib/services/rpc-call.util.ts`); that prefix is
  * the only signal it gives.
  */
-const RPC_TIMEOUT_ERROR_PREFIX = 'RPC timeout';
+export const RPC_TIMEOUT_ERROR_PREFIX = 'RPC timeout';
+
+/** Whether an `rpcCall` failure is the renderer giving up waiting. */
+export function isRpcTimeout(error: string | undefined): boolean {
+  return error?.startsWith(RPC_TIMEOUT_ERROR_PREFIX) === true;
+}
 
 /**
  * Reason for a `git:info` read that produced no usable result: `timeout`
@@ -198,9 +203,7 @@ function readFailureReason(
   success: boolean,
   error: string | undefined,
 ): GitStatusUnavailableReason {
-  return !success && error?.startsWith(RPC_TIMEOUT_ERROR_PREFIX)
-    ? 'timeout'
-    : 'error';
+  return !success && isRpcTimeout(error) ? 'timeout' : 'error';
 }
 
 @Injectable({ providedIn: 'root' })

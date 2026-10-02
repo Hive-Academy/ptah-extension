@@ -108,6 +108,7 @@ describe('TaskWorktreeViewComponent', () => {
   let worktreeStub: {
     worktrees: ReturnType<typeof signal<GitWorktreeInfo[]>>;
     isLoading: ReturnType<typeof signal<boolean>>;
+    loadError: ReturnType<typeof signal<string | null>>;
     loadWorktrees: jest.Mock;
     addWorktree: jest.Mock;
     removeWorktree: jest.Mock;
@@ -155,6 +156,7 @@ describe('TaskWorktreeViewComponent', () => {
     worktreeStub = {
       worktrees: signal<GitWorktreeInfo[]>([MAIN, FEATURE]),
       isLoading: signal(false),
+      loadError: signal<string | null>(null),
       loadWorktrees: jest.fn(async () => undefined),
       addWorktree: jest.fn(async () => ({ success: true })),
       removeWorktree: jest.fn(async () => ({ success: true })),
@@ -342,6 +344,22 @@ describe('TaskWorktreeViewComponent', () => {
     );
   });
 
+  it('a failed worktree read shows an error with Retry, never "No worktrees found." (MOD-3)', async () => {
+    worktreeStub.worktrees.set([]);
+    worktreeStub.loadError.set('Could not read the worktree list.');
+    await render();
+
+    const alert = query('[data-testid="task-worktrees-error"]');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(textOf(alert)).toContain('Could not read the worktree list.');
+    expect(query('[data-testid="task-worktrees-empty"]')).toBeNull();
+
+    const calls = worktreeStub.loadWorktrees.mock.calls.length;
+    query<HTMLButtonElement>('[data-testid="task-worktrees-retry"]')?.click();
+    await settle();
+    expect(worktreeStub.loadWorktrees).toHaveBeenCalledTimes(calls + 1);
+  });
+
   it('loads worktrees and remotes when the tab opens, and again on Refresh (parity §4 row 88, §2 row 52)', async () => {
     await render(false);
     expect(worktreeStub.loadWorktrees).not.toHaveBeenCalled();
@@ -508,9 +526,9 @@ describe('TaskWorktreeViewComponent', () => {
         'Remove worktree feature/x',
       );
       // The parity defect: no interactive control nested in another.
-      expect(buttons[0].closest('[data-testid="task-worktree-switch"]')).toBe(
-        null,
-      );
+      expect(
+        buttons[0].closest('[data-testid="task-worktree-switch"]'),
+      ).toBeNull();
       expect(query('button button')).toBeNull();
     });
 
@@ -703,7 +721,7 @@ describe('TaskWorktreeViewComponent', () => {
       expect(query('[data-testid="task-pr-open"]')).toBeNull();
     });
 
-    it.each([
+    it.each<[Parameters<typeof prOk>[0], string, string]>([
       [{ state: 'OPEN', isDraft: true }, 'draft', 'badge-ghost'],
       [{ state: 'MERGED' }, 'merged', 'badge-outline'],
       [{ state: 'CLOSED' }, 'closed', 'err-solid-text'],

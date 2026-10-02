@@ -19,11 +19,16 @@ import {
 import type { RpcCallResult } from '@ptah-extension/core';
 import { GIT_LOCKED_MESSAGE } from '@ptah-extension/shared';
 import type {
+  GitCancelOperationResult,
   GitCommitMessageUnavailableReason,
   GitCommitResult,
 } from '@ptah-extension/shared';
+import { GitBranchesService } from '../services/git-branches.service';
 import { GitOperationOutputService } from '../services/git-operation-output.service';
-import { GitStatusService } from '../services/git-status.service';
+import {
+  GitStatusService,
+  isRpcTimeout,
+} from '../services/git-status.service';
 import { SourceControlService } from '../services/source-control.service';
 
 /**
@@ -50,11 +55,41 @@ const GENERATION_REASON_TEXT: Partial<
   timeout: 'The AI provider did not answer in time.',
 };
 
+/** Generation stopped waiting on the renderer side (MIN-2). */
+const GENERATION_TIMED_OUT = 'The request timed out.';
+
+const CHECKING_TEXT =
+  'Git did not answer in time — checking whether the commit was made…';
+
+/** What a commit that outlasted the RPC timeout reads as, by what the check found. */
+const UNCONFIRMED_TEXT = {
+  'not-found':
+    'Git did not answer in time and no new commit shows yet. It may still be running: cancel it, or commit again once it has stopped.',
+  unknown:
+    'Git did not answer in time and the status could not be checked. The commit may still complete: cancel it, or check the status before committing again.',
+} as const;
+
+/**
+ * What a commit that timed out is judged against: the staged paths and HEAD
+ * when it started. A moved HEAD or a changed staged set means it was made.
+ */
+interface CommitBaseline {
+  readonly stagedPaths: string;
+  /** Null when HEAD was never read; HEAD then cannot count as moved. */
+  readonly headHash: string | null;
+}
+
+/** What a status re-read says about a commit that timed out. */
+type CommitCheck = 'landed' | 'not-found' | 'unknown';
+
 /** The commit in flight; at most one at a time (git holds the index lock). */
 interface RunningCommit {
   readonly operationId: string;
   readonly workspaceRoot: string;
   readonly cancelling: boolean;
+  /** The reply timed out and the status is being re-read to decide. */
+  readonly checking: boolean;
+  readonly baseline: CommitBaseline;
 }
 
 /** Hook output of the latest commit, pinned to the workspace it ran in. */
@@ -74,6 +109,18 @@ type CommitOutcome =
       readonly subject?: string;
     }
   | { readonly kind: 'cancelled'; readonly workspaceRoot: string }
+  | {
+      /**
+       * The reply timed out and the re-read status did not show the commit:
+       * git may still be running it, so it can still be cancelled.
+       */
+      readonly kind: 'unconfirmed';
+      readonly workspaceRoot: string;
+      readonly operationId: string;
+      readonly baseline: CommitBaseline;
+      readonly text: string;
+      readonly cancelling: boolean;
+    }
   | {
       readonly kind: 'failure';
       readonly workspaceRoot: string;
@@ -160,6 +207,15 @@ function appendCapped(log: CommitLog, chunk: string): CommitLog {
   return { ...log, text: tail, trimmed: true };
 }
 
+/** HEAD moved (when both reads have one) or the staged set changed. */
+function commitLanded(before: CommitBaseline, after: CommitBaseline): boolean {
+  const headMoved =
+    before.headHash !== null &&
+    after.headHash !== null &&
+    before.headHash !== after.headHash;
+  return headMoved || before.stagedPaths !== after.stagedPaths;
+}
+
 function newOperationId(): string {
   return globalThis.crypto.randomUUID();
 }
@@ -180,6 +236,13 @@ let instanceCount = 0;
  *   {@link GitOperationOutputService} (`role="log"`), capped on screen. Cancel
  *   asks `git:cancelOperation` to stop it. A blocked commit keeps the log
  *   open; a successful one shows the hash and subject.
+ * - **Timeout.** A reply that never arrives does not mean the commit failed:
+ *   git may still be running the hooks. The composer re-reads the status and
+ *   HEAD; a moved HEAD or a changed staged set counts as committed. Otherwise
+ *   the outcome stays "unconfirmed": Cancel still reaches the operation by its
+ *   id, and Commit can be tried again.
+ * - **Announcements.** The `role="status"` regions are always in the DOM and
+ *   only their text changes, so screen readers announce it.
  */
 @Component({
   selector: 'ptah-commit-composer',
@@ -224,71 +287,83 @@ let instanceCount = 0;
       </div>
 
       <label class="sr-only" [for]="messageId">Commit message</label>
-      <textarea
-        class="textarea textarea-bordered w-full font-mono text-sm"
-        rows="4"
-        data-testid="commit-message"
-        [id]="messageId"
-        [placeholder]="placeholder()"
-        [value]="message()"
-        [disabled]="isRunning()"
-        [attr.aria-describedby]="generateNotice() ? noticeId : null"
-        (input)="onMessageInput($event)"
-      ></textarea>
-
-      @if (generateNotice(); as notice) {
-        <p
-          role="status"
-          class="m-0 flex items-start gap-1 text-xs text-base-content"
-          data-testid="commit-generate-notice"
-          [id]="noticeId"
-        >
-          <lucide-angular
-            [img]="WarningIcon"
-            class="mt-0.5 h-3 w-3 flex-shrink-0 text-warning"
-            aria-hidden="true"
-          />
-          <span>{{ notice }}</span>
-        </p>
-      }
-
-      <div class="flex justify-end gap-2">
-        @if (isRunning()) {
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm"
-            data-testid="commit-cancel"
-            [disabled]="cancelling()"
-            (click)="onCancel()"
-          >
-            {{ cancelling() ? 'Cancelling…' : 'Cancel' }}
-          </button>
-        }
-        <button
-          type="button"
-          class="btn btn-primary btn-sm"
-          data-testid="commit-submit"
-          [disabled]="!canCommit()"
-          (click)="onCommit()"
-        >
-          @if (isRunning()) {
-            <span
-              class="loading loading-spinner loading-xs"
-              aria-hidden="true"
-            ></span>
-            Committing…
-          } @else {
-            Commit
+      <!-- The status regions below stay in the DOM and only their text
+           changes: a live region inserted already filled is often not
+           announced. Their content carries its own top margin, so an empty
+           region adds no gap. -->
+      <div class="flex flex-col">
+        <textarea
+          class="textarea textarea-bordered w-full font-mono text-sm"
+          rows="4"
+          data-testid="commit-message"
+          [id]="messageId"
+          [placeholder]="placeholder()"
+          [value]="message()"
+          [disabled]="isRunning()"
+          [attr.aria-describedby]="generateNotice() ? noticeId : null"
+          (input)="onMessageInput($event)"
+        ></textarea>
+        <div role="status" data-testid="commit-generate-status">
+          @if (generateNotice(); as notice) {
+            <p
+              class="m-0 mt-2 flex items-start gap-1 text-xs text-base-content"
+              data-testid="commit-generate-notice"
+              [id]="noticeId"
+            >
+              <lucide-angular
+                [img]="WarningIcon"
+                class="mt-0.5 h-3 w-3 flex-shrink-0 text-warning"
+                aria-hidden="true"
+              />
+              <span>{{ notice }}</span>
+            </p>
           }
-        </button>
+        </div>
       </div>
 
-      @if (outcome(); as result) {
-        @switch (result.kind) {
-          @case ('success') {
+      <div class="flex flex-col">
+        <div class="flex justify-end gap-2">
+          @if (canCancel()) {
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              data-testid="commit-cancel"
+              [disabled]="cancelling()"
+              (click)="onCancel()"
+            >
+              {{ cancelling() ? 'Cancelling…' : 'Cancel' }}
+            </button>
+          }
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            data-testid="commit-submit"
+            [disabled]="!canCommit()"
+            (click)="onCommit()"
+          >
+            @if (isRunning()) {
+              <span
+                class="loading loading-spinner loading-xs"
+                aria-hidden="true"
+              ></span>
+              {{ checking() ? 'Checking…' : 'Committing…' }}
+            } @else {
+              Commit
+            }
+          </button>
+        </div>
+        <div role="status" data-testid="commit-status">
+          @if (checking()) {
+            <p
+              class="m-0 mt-2 text-xs text-base-content"
+              data-testid="commit-checking"
+            >
+              {{ checkingText }}
+            </p>
+          }
+          @if (outcome()?.kind === 'success') {
             <div
-              role="status"
-              class="flex min-w-0 items-center gap-2 text-xs"
+              class="mt-2 flex min-w-0 items-center gap-2 text-xs"
               data-testid="commit-success"
             >
               <span class="badge badge-success badge-sm gap-1">
@@ -307,34 +382,34 @@ let instanceCount = 0;
               >
             </div>
           }
-          @case ('cancelled') {
+          @if (outcome()?.kind === 'cancelled') {
             <p
-              role="status"
-              class="m-0 text-xs text-base-content"
+              class="m-0 mt-2 text-xs text-base-content"
               data-testid="commit-cancelled"
             >
               Commit cancelled. Your message was kept.
             </p>
           }
-          @default {
-            <!-- text-base-content on the error tint: text-error on base fails
-                 AA in both themes (design-spec §0). -->
-            <div
-              role="alert"
-              class="flex items-start gap-1 rounded border border-error/60 bg-error/10 px-1.5 py-1 text-xs text-base-content"
-              data-testid="commit-failure"
-            >
-              <lucide-angular
-                [img]="ErrorIcon"
-                class="mt-0.5 h-3 w-3 flex-shrink-0 text-error"
-                aria-hidden="true"
-              />
-              <span class="min-w-0 flex-1 break-words"
-                >{{ failureText() }} Your message was kept.</span
-              >
-            </div>
-          }
-        }
+        </div>
+      </div>
+
+      @if (alertText(); as text) {
+        <!-- text-base-content on the error tint: text-error on base fails
+             AA in both themes (design-spec §0). -->
+        <div
+          role="alert"
+          class="flex items-start gap-1 rounded border border-error/60 bg-error/10 px-1.5 py-1 text-xs text-base-content"
+          data-testid="commit-failure"
+        >
+          <lucide-angular
+            [img]="ErrorIcon"
+            class="mt-0.5 h-3 w-3 flex-shrink-0 text-error"
+            aria-hidden="true"
+          />
+          <span class="min-w-0 flex-1 break-words"
+            >{{ text }} Your message was kept.</span
+          >
+        </div>
       }
 
       @if (showLog()) {
@@ -354,6 +429,7 @@ let instanceCount = 0;
 })
 export class CommitComposerComponent {
   private readonly gitStatus = inject(GitStatusService);
+  private readonly gitBranches = inject(GitBranchesService);
   private readonly sourceControl = inject(SourceControlService);
   private readonly operationOutput = inject(GitOperationOutputService);
 
@@ -399,8 +475,25 @@ export class CommitComposerComponent {
   );
 
   protected readonly isRunning = computed(() => this.running() !== null);
+  protected readonly checking = computed(
+    () => this.running()?.checking === true,
+  );
+  protected readonly checkingText = CHECKING_TEXT;
+
+  /** The commit that timed out and may still be running, for this workspace. */
+  private readonly unconfirmed = computed(() => {
+    const outcome = this.outcome();
+    return outcome?.kind === 'unconfirmed' ? outcome : null;
+  });
+
+  /** Cancel reaches a running commit, and one that timed out but may still run. */
+  protected readonly canCancel = computed(
+    () => this.isRunning() || this.unconfirmed() !== null,
+  );
   protected readonly cancelling = computed(
-    () => this.running()?.cancelling === true,
+    () =>
+      this.running()?.cancelling === true ||
+      this.unconfirmed()?.cancelling === true,
   );
 
   protected readonly canCommit = computed(
@@ -439,9 +532,12 @@ export class CommitComposerComponent {
     return outcome?.kind === 'success' ? (outcome.subject ?? '') : '';
   });
 
-  protected readonly failureText = computed(() => {
+  /** The alert line: a failed commit, or one whose outcome is unconfirmed. */
+  protected readonly alertText = computed(() => {
     const outcome = this.outcome();
-    return outcome?.kind === 'failure' ? outcome.text : '';
+    return outcome?.kind === 'failure' || outcome?.kind === 'unconfirmed'
+      ? outcome.text
+      : null;
   });
 
   /**
@@ -464,10 +560,7 @@ export class CommitComposerComponent {
   protected readonly showLog = computed(() => {
     if (this.isRunning()) return true;
     const kind = this.outcome()?.kind;
-    return (
-      (kind === 'failure' || kind === 'cancelled') &&
-      this.renderedLog().length > 0
-    );
+    return kind !== undefined && kind !== 'success' && this.renderedLog() !== '';
   });
 
   constructor() {
@@ -522,21 +615,35 @@ export class CommitComposerComponent {
     if (!this.canCommit()) return;
     const workspaceRoot = this.workspaceRoot();
     const message = this.message().trim();
-    const operationId = newOperationId();
+    const run: RunningCommit = {
+      operationId: newOperationId(),
+      workspaceRoot,
+      cancelling: false,
+      checking: false,
+      baseline: this.readBaseline(),
+    };
 
-    this.running.set({ operationId, workspaceRoot, cancelling: false });
+    this.running.set(run);
     this.lastOutcome.set(null);
     this.log.set({ workspaceRoot, text: '', trimmed: false });
-    this.releaseOutput = this.operationOutput.listen(operationId, (output) =>
+    this.releaseOutput = this.operationOutput.listen(run.operationId, (output) =>
       this.log.update((log) => (log ? appendCapped(log, output.chunk) : log)),
     );
 
     let outcome: CommitOutcome;
+    // The timeout path re-reads the status itself.
+    let statusRead = false;
     try {
-      outcome = commitOutcomeFor(
-        await this.sourceControl.commit(message, operationId),
-        workspaceRoot,
+      const response = await this.sourceControl.commit(
+        message,
+        run.operationId,
       );
+      if (!response.success && isRpcTimeout(response.error)) {
+        outcome = await this.checkTimedOutCommit(run);
+        statusRead = true;
+      } else {
+        outcome = commitOutcomeFor(response, workspaceRoot);
+      }
     } catch (error: unknown) {
       outcome = {
         kind: 'failure',
@@ -545,6 +652,7 @@ export class CommitComposerComponent {
       };
     }
     // Every chunk is pushed before the commit reply, so nothing is lost here.
+    // A timed-out commit kept listening until its check ended.
     this.releaseOutput?.();
     this.releaseOutput = null;
 
@@ -553,20 +661,23 @@ export class CommitComposerComponent {
     if (outcome.kind === 'success') this.setDraft(workspaceRoot, '');
     this.lastOutcome.set(outcome);
     this.running.set(null);
-    this.refreshStatus();
+    if (!statusRead) this.refreshStatus();
   }
 
+  /** Cancel the running commit, or one that timed out but may still run. */
   protected async onCancel(): Promise<void> {
+    if (this.running()) {
+      await this.cancelRunning();
+    } else {
+      await this.cancelUnconfirmed();
+    }
+  }
+
+  private async cancelRunning(): Promise<void> {
     const run = this.running();
     if (!run || run.cancelling) return;
     this.running.set({ ...run, cancelling: true });
-    let asked = false;
-    try {
-      asked = (await this.sourceControl.cancelOperation(run.operationId))
-        .success;
-    } catch (error: unknown) {
-      console.error('[CommitComposer] git:cancelOperation threw', error);
-    }
+    const asked = (await this.askCancel(run.operationId))?.success === true;
     // The request never reached git: let the user try again. When it did, the
     // commit's own result reports CANCELLED (or that it finished first).
     const current = this.running();
@@ -575,10 +686,127 @@ export class CommitComposerComponent {
     }
   }
 
+  /**
+   * Cancel a commit whose reply timed out (MOD-1). `cancelled: false` means
+   * nothing with that id runs any more, so it ended on its own: re-read the
+   * status to tell whether it committed.
+   */
+  private async cancelUnconfirmed(): Promise<void> {
+    const pending = this.unconfirmed();
+    if (!pending || pending.cancelling) return;
+    const asking: CommitOutcome = { ...pending, cancelling: true };
+    this.lastOutcome.set(asking);
+
+    const reply = await this.askCancel(pending.operationId);
+    // A new commit replaced this outcome meanwhile.
+    if (this.lastOutcome() !== asking) return;
+    if (!reply?.success || !reply.data) {
+      this.lastOutcome.set(pending);
+      return;
+    }
+    const { workspaceRoot } = pending;
+    if (reply.data.cancelled) {
+      this.lastOutcome.set({ kind: 'cancelled', workspaceRoot });
+      this.refreshStatus();
+      return;
+    }
+
+    const check = await this.checkCommit(pending.baseline, workspaceRoot);
+    if (this.lastOutcome() !== asking) return;
+    if (check === 'landed') {
+      this.setDraft(workspaceRoot, '');
+      this.lastOutcome.set({ kind: 'success', workspaceRoot });
+      return;
+    }
+    this.lastOutcome.set({
+      kind: 'failure',
+      workspaceRoot,
+      text:
+        check === 'not-found'
+          ? 'Commit failed: git stopped without making the commit.'
+          : 'Git stopped, but the status could not be checked — check it before committing again.',
+    });
+  }
+
+  private async askCancel(
+    operationId: string,
+  ): Promise<RpcCallResult<GitCancelOperationResult> | null> {
+    try {
+      return await this.sourceControl.cancelOperation(operationId);
+    } catch (error: unknown) {
+      // degradation-audit: reported - a null reply leaves Cancel enabled so
+      // the user can ask again.
+      console.error('[CommitComposer] git:cancelOperation threw', error);
+      return null;
+    }
+  }
+
+  /**
+   * The commit reply timed out, but git may still be running it (MOD-1):
+   * keep it running (Cancel stays) while the status is re-read, then decide.
+   */
+  private async checkTimedOutCommit(run: RunningCommit): Promise<CommitOutcome> {
+    this.running.update((current) =>
+      current?.operationId === run.operationId
+        ? { ...current, checking: true }
+        : current,
+    );
+    const { workspaceRoot } = run;
+    const check = await this.checkCommit(run.baseline, workspaceRoot);
+    if (check === 'landed') return { kind: 'success', workspaceRoot };
+    // A cancel that reached git while the check ran.
+    if (this.running()?.cancelling) return { kind: 'cancelled', workspaceRoot };
+    return {
+      kind: 'unconfirmed',
+      workspaceRoot,
+      operationId: run.operationId,
+      baseline: run.baseline,
+      text: UNCONFIRMED_TEXT[check],
+      cancelling: false,
+    };
+  }
+
+  /** Re-read the status and HEAD, and compare them with `baseline`. */
+  private async checkCommit(
+    baseline: CommitBaseline,
+    workspaceRoot: string,
+  ): Promise<CommitCheck> {
+    // Both report their own read failures; the checks below read the result.
+    await Promise.allSettled([
+      this.gitStatus.refresh(),
+      this.gitBranches.refreshForCauses(['head']),
+    ]);
+    if (
+      this.gitStatus.activeWorkspacePath() !== workspaceRoot ||
+      this.gitStatus.isStatusUnavailable() ||
+      this.gitStatus.isStale()
+    ) {
+      return 'unknown';
+    }
+    return commitLanded(baseline, this.readBaseline()) ? 'landed' : 'not-found';
+  }
+
+  private readBaseline(): CommitBaseline {
+    return {
+      stagedPaths: this.gitStatus
+        .stagedFiles()
+        .map((file) => file.path)
+        .sort((a, b) => a.localeCompare(b))
+        .join('\n'),
+      headHash: this.gitBranches.lastCommit()?.hash ?? null,
+    };
+  }
+
   private async requestMessage(): Promise<GenerationAnswer> {
     try {
       const response = await this.sourceControl.generateCommitMessage();
-      if (!response.success) return { reason: 'The request failed.' };
+      if (!response.success) {
+        return {
+          reason: isRpcTimeout(response.error)
+            ? GENERATION_TIMED_OUT
+            : 'The request failed.',
+        };
+      }
       const result = response.data;
       if (result?.status === 'generated' && result.message.trim()) {
         return { message: result.message };

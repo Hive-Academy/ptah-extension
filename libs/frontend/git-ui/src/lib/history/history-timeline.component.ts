@@ -140,14 +140,16 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
         }
 
         @if (openError(); as error) {
+          <!-- text-base-content with the error icon: text-error on base
+               fails AA (design-spec §0). -->
           <p
             role="alert"
-            class="m-0 flex items-start gap-1 text-error"
+            class="m-0 flex items-start gap-1 text-base-content"
             data-testid="history-open-error"
           >
             <lucide-angular
               [img]="ErrorIcon"
-              class="mt-0.5 h-3 w-3 flex-shrink-0"
+              class="mt-0.5 h-3 w-3 flex-shrink-0 text-error"
               aria-hidden="true"
             />
             <span>{{ error }}</span>
@@ -325,7 +327,17 @@ export class HistoryTimelineComponent {
   private readonly read = signal<LogRead | null>(null);
   protected readonly loading = signal(false);
   protected readonly openingSha = signal<string | null>(null);
-  protected readonly openError = signal<string | null>(null);
+  /** The last open failure, pinned to the workspace it happened in. */
+  private readonly openFailure = signal<{
+    workspaceRoot: string | null;
+    text: string;
+  } | null>(null);
+  protected readonly openError = computed(() => {
+    const failure = this.openFailure();
+    return failure?.workspaceRoot === this.gitStatus.activeWorkspacePath()
+      ? failure.text
+      : null;
+  });
 
   /** Bumped by every read; a reply for an older request is dropped. */
   private request = 0;
@@ -409,12 +421,15 @@ export class HistoryTimelineComponent {
   }
 
   protected async select(commit: GitHistoryCommit): Promise<void> {
-    this.openError.set(null);
+    const workspaceRoot = this.gitStatus.activeWorkspacePath();
+    this.openFailure.set(null);
     this.openingSha.set(commit.sha);
     const outcome = await this.navigation.openHistorical(commit.sha);
     if (this.destroyed) return;
     if (this.openingSha() === commit.sha) this.openingSha.set(null);
-    if (!outcome.opened && outcome.error) this.openError.set(outcome.error);
+    if (!outcome.opened && outcome.error) {
+      this.openFailure.set({ workspaceRoot, text: outcome.error });
+    }
   }
 
   protected openInEditor(request: OpenInRequest): void {
@@ -436,6 +451,8 @@ export class HistoryTimelineComponent {
   private async load(root: string, key: string): Promise<void> {
     const request = ++this.request;
     this.inFlightKey = key;
+    // A reload or a moved HEAD replaces the list the error was about (MIN-3).
+    this.openFailure.set(null);
     this.loading.set(true);
     const result = await this.history.readLog(root);
     if (this.destroyed || request !== this.request) return;

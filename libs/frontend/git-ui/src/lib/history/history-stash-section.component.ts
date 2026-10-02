@@ -12,6 +12,7 @@ import {
 import {
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   LucideAngularModule,
   X,
 } from 'lucide-angular';
@@ -79,14 +80,32 @@ let instanceCount = 0;
 
       <div [id]="listId" [hidden]="!expanded()">
         @if (stash.error(); as error) {
+          <!-- text-base-content with the error icon: text-error on base
+               fails AA (design-spec §0). -->
           <p
             role="alert"
-            class="m-0 px-2 py-1 text-error"
+            class="m-0 flex items-start gap-1 px-2 py-1 text-base-content"
             data-testid="history-stash-error"
           >
-            {{ error }}
+            <lucide-angular
+              [img]="ErrorIcon"
+              class="mt-0.5 h-3 w-3 flex-shrink-0 text-error"
+              aria-hidden="true"
+            />
+            <span>{{ error }}</span>
           </p>
         }
+        <!-- Always in the DOM so a changed text is announced. -->
+        <div role="status" data-testid="history-stash-status">
+          @if (dropNotice(); as notice) {
+            <p
+              class="m-0 px-2 py-1 text-base-content"
+              data-testid="history-stash-drop-notice"
+            >
+              {{ notice }}
+            </p>
+          }
+        </div>
         @if (stash.listLoading() && stash.entries().length === 0) {
           <p
             class="m-0 px-2 py-1 text-base-content-muted"
@@ -233,6 +252,7 @@ export class HistoryStashSectionComponent {
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly ChevronRightIcon = ChevronRight;
   protected readonly DropIcon = X;
+  protected readonly ErrorIcon = CircleAlert;
 
   private readonly idBase = `history-stashes-${instanceCount++}`;
   protected readonly headingId = `${this.idBase}-heading`;
@@ -243,6 +263,18 @@ export class HistoryStashSectionComponent {
 
   protected readonly expanded = signal(true);
   protected readonly dropTarget = signal<DropTarget | null>(null);
+
+  /** Why a confirmed drop did not run, pinned to the workspace now shown. */
+  private readonly dropSkipped = signal<{
+    workspaceRoot: string | null;
+    text: string;
+  } | null>(null);
+  protected readonly dropNotice = computed(() => {
+    const skipped = this.dropSkipped();
+    return skipped?.workspaceRoot === this.gitStatus.activeWorkspacePath()
+      ? skipped.text
+      : null;
+  });
 
   protected readonly dropTitle = computed(() => {
     const target = this.dropTarget();
@@ -282,12 +314,14 @@ export class HistoryStashSectionComponent {
     kind: Exclude<GitStashMutation, 'drop'>,
     entry: StashEntry,
   ): Promise<void> {
+    this.dropSkipped.set(null);
     await this.stash.mutate(kind, entry);
   }
 
   protected askDrop(entry: StashEntry, event: Event): void {
     const root = this.gitStatus.activeWorkspacePath();
     if (!root || !(event.currentTarget instanceof HTMLElement)) return;
+    this.dropSkipped.set(null);
     this.dropTarget.set({ workspaceRoot: root, entry });
     this.dropDialog().open(event.currentTarget);
   }
@@ -295,15 +329,33 @@ export class HistoryStashSectionComponent {
   /**
    * Drop only the stash the question named: the same workspace, and an entry
    * whose hash is still listed (indices shift after a pop or drop elsewhere).
+   * When neither holds, the confirmed drop does not run and the user is told
+   * why (MOD-4).
    */
   protected async onConfirmDrop(): Promise<void> {
     const target = this.dropTarget();
     this.dropTarget.set(null);
     if (!target) return;
-    if (this.gitStatus.activeWorkspacePath() !== target.workspaceRoot) return;
+    const ref = this.stashRef(target.entry);
+    const root = this.gitStatus.activeWorkspacePath();
+    if (root !== target.workspaceRoot) {
+      this.dropSkipped.set({
+        workspaceRoot: root,
+        text: `${ref} was not dropped: the workspace changed before the drop could run.`,
+      });
+      return;
+    }
     const entry = this.stash
       .entries()
       .find(({ hash }) => hash === target.entry.hash);
-    if (entry) await this.stash.mutate('drop', entry);
+    if (entry) {
+      await this.stash.mutate('drop', entry);
+      return;
+    }
+    this.dropSkipped.set({
+      workspaceRoot: root,
+      text: `${ref} is no longer there, so nothing was dropped. The list was refreshed.`,
+    });
+    await this.stash.loadList();
   }
 }

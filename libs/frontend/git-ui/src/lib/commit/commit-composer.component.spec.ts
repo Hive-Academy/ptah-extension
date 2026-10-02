@@ -13,8 +13,10 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   GitCommitResult,
   GitGenerateCommitMessageResult,
+  GitLastCommitResult,
 } from '@ptah-extension/shared';
 import type { RpcCallResult } from '@ptah-extension/core';
+import { GitBranchesService } from '../services/git-branches.service';
 import { GitOperationOutputService } from '../services/git-operation-output.service';
 import { GitStatusService } from '../services/git-status.service';
 import { SourceControlService } from '../services/source-control.service';
@@ -46,7 +48,14 @@ describe('CommitComposerComponent', () => {
   let gitStatus: {
     activeWorkspacePath: ReturnType<typeof signal<string | null>>;
     stagedCount: ReturnType<typeof signal<number>>;
+    stagedFiles: ReturnType<typeof signal<{ path: string }[]>>;
+    isStatusUnavailable: ReturnType<typeof signal<boolean>>;
+    isStale: ReturnType<typeof signal<boolean>>;
     refresh: jest.Mock;
+  };
+  let gitBranches: {
+    lastCommit: ReturnType<typeof signal<GitLastCommitResult | null>>;
+    refreshForCauses: jest.Mock;
   };
   let sourceControl: {
     commit: jest.Mock;
@@ -59,7 +68,16 @@ describe('CommitComposerComponent', () => {
     gitStatus = {
       activeWorkspacePath: signal<string | null>('/ws/a'),
       stagedCount: signal(2),
+      stagedFiles: signal([{ path: 'src/a.ts' }, { path: 'src/b.ts' }]),
+      isStatusUnavailable: signal(false),
+      isStale: signal(false),
       refresh: jest.fn(async () => undefined),
+    };
+    gitBranches = {
+      lastCommit: signal<GitLastCommitResult | null>({
+        hash: 'head-before',
+      } as GitLastCommitResult),
+      refreshForCauses: jest.fn(async () => undefined),
     };
     sourceControl = {
       commit: jest.fn(),
@@ -77,6 +95,7 @@ describe('CommitComposerComponent', () => {
       imports: [CommitComposerComponent],
       providers: [
         { provide: GitStatusService, useValue: gitStatus },
+        { provide: GitBranchesService, useValue: gitBranches },
         { provide: SourceControlService, useValue: sourceControl },
       ],
     });
@@ -242,7 +261,10 @@ describe('CommitComposerComponent', () => {
       const notice = el('commit-generate-notice');
       expect(textarea()?.value).toBe('my own words');
       expect(textarea()?.disabled).toBe(false);
-      expect(notice?.getAttribute('role')).toBe('status');
+      // MOD-2: the text lands in the persistent live region.
+      expect(notice?.closest('[role="status"]')).toBe(
+        el('commit-generate-status'),
+      );
       expect(textOf('commit-generate-notice')).toBe(
         `Message generation unavailable — type your own. ${why}`,
       );
@@ -254,7 +276,7 @@ describe('CommitComposerComponent', () => {
     await type('draft');
     sourceControl.generateCommitMessage.mockResolvedValueOnce({
       success: false,
-      error: 'RPC timeout',
+      error: 'IPC channel closed',
     });
     generateButton()?.click();
     await settle();
@@ -269,6 +291,26 @@ describe('CommitComposerComponent', () => {
     expect(textOf('commit-generate-notice')).toContain(
       'Message generation unavailable',
     );
+  });
+
+  it('a generation timeout gets its own message (MIN-2)', async () => {
+    sourceControl.generateCommitMessage.mockResolvedValueOnce({
+      success: false,
+      error: 'RPC timeout: git:generateCommitMessage',
+    });
+    generateButton()?.click();
+    await settle();
+
+    expect(textOf('commit-generate-notice')).toBe(
+      'Message generation unavailable — type your own. The request timed out.',
+    );
+  });
+
+  it('keeps both status regions in the DOM before anything is announced (MOD-2)', () => {
+    for (const id of ['commit-generate-status', 'commit-status']) {
+      expect(el(id)?.getAttribute('role')).toBe('status');
+      expect(textOf(id)).toBe('');
+    }
   });
 
   it('never overwrites text typed while the message was being written', async () => {
@@ -368,6 +410,7 @@ describe('CommitComposerComponent', () => {
   });
 
   it('success shows hash and subject, clears the message, hides the log and re-reads status', async () => {
+    const region = el('commit-status');
     const reply = await startCommit();
     push(OPERATION_ID, 'hooks ok\n');
 
@@ -380,8 +423,9 @@ describe('CommitComposerComponent', () => {
       },
     });
 
-    const status = el('commit-success');
-    expect(status?.getAttribute('role')).toBe('status');
+    // MOD-2: announced through the region that was there all along.
+    expect(el('commit-status')).toBe(region);
+    expect(el('commit-success')?.closest('[role="status"]')).toBe(region);
     expect(textOf('commit-success')).toBe(
       'committed a1b2c3d feat: add composer',
     );
@@ -451,13 +495,128 @@ describe('CommitComposerComponent', () => {
   it('a transport failure is a failure, never a success', async () => {
     const reply = await startCommit();
 
-    await finish(reply, { success: false, error: 'RPC timeout: git:commit' });
+    await finish(reply, { success: false, error: 'IPC channel closed' });
 
     expect(textOf('commit-failure')).toBe(
-      'Commit failed: Could not reach git: RPC timeout: git:commit Your message was kept.',
+      'Commit failed: Could not reach git: IPC channel closed Your message was kept.',
     );
     expect(el('commit-success')).toBeNull();
     expect(textarea()?.value).toBe('feat: add composer');
+  });
+
+  // -- A commit that outlasts the RPC timeout (MOD-1) -------------------------
+
+  const TIMEOUT_REPLY = { success: false, error: 'RPC timeout: git:commit' };
+
+  it('on a timeout: checks the status with Cancel still available, then reads a changed staged set as committed', async () => {
+    const reply = await startCommit();
+    const refreshed = deferred<undefined>();
+    gitStatus.refresh.mockReturnValueOnce(refreshed.promise);
+
+    await finish(reply, TIMEOUT_REPLY);
+
+    expect(textOf('commit-checking')).toBe(
+      'Git did not answer in time — checking whether the commit was made…',
+    );
+    expect(el('commit-checking')?.closest('[role="status"]')).toBe(
+      el('commit-status'),
+    );
+    expect(textOf('commit-submit')).toBe('Checking…');
+    expect(el('commit-cancel')).not.toBeNull();
+    expect(el('commit-failure')).toBeNull();
+    expect(gitBranches.refreshForCauses).toHaveBeenCalledWith(['head']);
+
+    gitStatus.stagedFiles.set([]);
+    refreshed.resolve(undefined);
+    await settle();
+
+    expect(textOf('commit-success')).toBe('committed');
+    expect(textarea()?.value).toBe('');
+    expect(el('commit-cancel')).toBeNull();
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('on a timeout: a moved HEAD reads as committed', async () => {
+    const reply = await startCommit();
+    gitBranches.refreshForCauses.mockImplementationOnce(async () => {
+      gitBranches.lastCommit.set({ hash: 'head-after' } as GitLastCommitResult);
+    });
+
+    await finish(reply, TIMEOUT_REPLY);
+
+    expect(el('commit-success')).not.toBeNull();
+    expect(textarea()?.value).toBe('');
+  });
+
+  it('on a timeout with nothing changed: says the outcome is unconfirmed, keeps Cancel by operationId, and allows a retry', async () => {
+    const reply = await startCommit();
+    await finish(reply, TIMEOUT_REPLY);
+
+    expect(el('commit-failure')?.getAttribute('role')).toBe('alert');
+    expect(textOf('commit-failure')).toBe(
+      'Git did not answer in time and no new commit shows yet. It may still be running: cancel it, or commit again once it has stopped. Your message was kept.',
+    );
+    expect(textOf('commit-failure')).not.toContain('Commit failed');
+    expect(textarea()?.value).toBe('feat: add composer');
+    expect(commitButton()?.disabled).toBe(false);
+
+    el<HTMLButtonElement>('commit-cancel')?.click();
+    await settle();
+
+    expect(sourceControl.cancelOperation).toHaveBeenCalledWith(OPERATION_ID);
+    expect(textOf('commit-cancelled')).toBe(
+      'Commit cancelled. Your message was kept.',
+    );
+    expect(el('commit-cancel')).toBeNull();
+  });
+
+  it('on a timeout whose status cannot be read: says the status could not be checked', async () => {
+    const reply = await startCommit();
+    gitStatus.refresh.mockImplementationOnce(async () => {
+      gitStatus.isStale.set(true);
+    });
+
+    await finish(reply, TIMEOUT_REPLY);
+
+    expect(textOf('commit-failure')).toContain(
+      'the status could not be checked',
+    );
+    expect(el('commit-cancel')).not.toBeNull();
+  });
+
+  it('cancelling an unconfirmed commit that already ended re-checks the status', async () => {
+    const reply = await startCommit();
+    await finish(reply, TIMEOUT_REPLY);
+    sourceControl.cancelOperation.mockResolvedValueOnce({
+      success: true,
+      data: { cancelled: false },
+    });
+    gitBranches.refreshForCauses.mockImplementationOnce(async () => {
+      gitBranches.lastCommit.set({ hash: 'head-after' } as GitLastCommitResult);
+    });
+
+    el<HTMLButtonElement>('commit-cancel')?.click();
+    await settle();
+
+    expect(el('commit-success')).not.toBeNull();
+    expect(textarea()?.value).toBe('');
+  });
+
+  it('cancelling an unconfirmed commit that ended without committing reports a failure', async () => {
+    const reply = await startCommit();
+    await finish(reply, TIMEOUT_REPLY);
+    sourceControl.cancelOperation.mockResolvedValueOnce({
+      success: true,
+      data: { cancelled: false },
+    });
+
+    el<HTMLButtonElement>('commit-cancel')?.click();
+    await settle();
+
+    expect(textOf('commit-failure')).toBe(
+      'Commit failed: git stopped without making the commit. Your message was kept.',
+    );
+    expect(el('commit-cancel')).toBeNull();
   });
 
   it('a held lock reads as the lock message', async () => {
@@ -502,7 +661,9 @@ describe('CommitComposerComponent', () => {
       data: { success: false, code: 'CANCELLED', error: 'cancelled' },
     });
 
-    expect(el('commit-cancelled')?.getAttribute('role')).toBe('status');
+    expect(el('commit-cancelled')?.closest('[role="status"]')).toBe(
+      el('commit-status'),
+    );
     expect(textOf('commit-cancelled')).toBe(
       'Commit cancelled. Your message was kept.',
     );

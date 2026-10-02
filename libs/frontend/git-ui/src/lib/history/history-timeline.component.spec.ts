@@ -315,12 +315,9 @@ describe('HistoryTimelineComponent', () => {
   });
 
   it('heads the list "Recent commits" on the base branch', async () => {
-    readLog.mockResolvedValue({
-      ...sinceBase([C1]),
-      mode: 'recent',
-      base: null,
-      branch: 'main',
-    });
+    readLog.mockResolvedValue(
+      sinceBase([C1], { mode: 'recent', base: null, branch: 'main' }),
+    );
     await render();
     expect(text('history-heading')).toBe('Recent commits');
   });
@@ -407,6 +404,36 @@ describe('HistoryTimelineComponent', () => {
     await settle();
     expect(query('history-open-error')?.getAttribute('role')).toBe('alert');
     expect(text('history-open-error')).toBe('Could not read this commit.');
+    // MIN-4: AA-safe ink on base; only the icon carries the error colour.
+    expect(query('history-open-error')?.classList).toContain(
+      'text-base-content',
+    );
+    expect(query('history-open-error')?.classList).not.toContain('text-error');
+  });
+
+  it('clears a stale open error on reload and hides it in another workspace (MIN-3)', async () => {
+    openHistorical.mockResolvedValue({
+      opened: false,
+      error: 'Could not read this commit.',
+    });
+    await render();
+    queryAll('history-commit')[0].click();
+    await settle();
+    expect(query('history-open-error')).not.toBeNull();
+
+    workspace.set('/ws/b');
+    await settle();
+    expect(query('history-open-error')).toBeNull();
+
+    workspace.set('/ws/a');
+    await settle();
+    queryAll('history-commit')[0].click();
+    await settle();
+    expect(query('history-open-error')).not.toBeNull();
+
+    query<HTMLButtonElement>('history-refresh')?.click();
+    await settle();
+    expect(query('history-open-error')).toBeNull();
   });
 
   it('stays quiet when a newer navigation superseded the open', async () => {
@@ -520,6 +547,44 @@ describe('HistoryTimelineComponent', () => {
     query<HTMLButtonElement>('git-confirm-confirm')?.click();
     await settle();
     expect(stash.mutate).not.toHaveBeenCalled();
+    // MOD-4: the confirmed drop is not discarded silently.
+    expect(text('history-stash-drop-notice')).toBe(
+      'stash@{0} is no longer there, so nothing was dropped. The list was refreshed.',
+    );
+    expect(
+      query('history-stash-drop-notice')?.closest('[role="status"]'),
+    ).toBe(query('history-stash-status'));
+    expect(stash.loadList).toHaveBeenCalledTimes(2);
+  });
+
+  it('says why a confirmed drop did not run after a workspace switch (MOD-4)', async () => {
+    await render();
+    const status = query('history-stash-status');
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(status?.textContent?.trim()).toBe('');
+
+    query<HTMLButtonElement>('history-stash-drop')?.click();
+    await settle();
+    workspace.set('/ws/b');
+    await settle();
+    query<HTMLButtonElement>('git-confirm-confirm')?.click();
+    await settle();
+
+    expect(stash.mutate).not.toHaveBeenCalled();
+    // The same live region, still in the DOM, now carries the reason.
+    expect(query('history-stash-status')).toBe(status);
+    expect(text('history-stash-drop-notice')).toBe(
+      'stash@{0} was not dropped: the workspace changed before the drop could run.',
+    );
+  });
+
+  it('shows the stash read error in AA-safe ink (MIN-4)', async () => {
+    stash.error.set('Could not read the stash list.');
+    await render();
+    const alert = query('history-stash-error');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.classList).toContain('text-base-content');
+    expect(alert?.classList).not.toContain('text-error');
   });
 
   it('expands a stash and opens a file diff', async () => {

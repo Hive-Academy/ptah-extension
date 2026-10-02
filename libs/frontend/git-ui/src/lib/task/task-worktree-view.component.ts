@@ -46,7 +46,7 @@ import { TaskPrPanelComponent } from './task-pr-panel.component';
 export const PR_REFRESH_INTERVAL_MS = 60_000;
 
 function normalizePath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/\/$/, '');
+  return path.replaceAll('\\', '/').replace(/\/$/, '');
 }
 
 function branchLabel(wt: GitWorktreeInfo): string {
@@ -302,6 +302,29 @@ let instanceCount = 0;
           </div>
         }
 
+        @if (worktrees.loadError(); as loadError) {
+          <div
+            role="alert"
+            class="flex items-center gap-2 rounded border border-base-content/10 px-2 py-1.5"
+            data-testid="task-worktrees-error"
+          >
+            <lucide-angular
+              [img]="ErrorIcon"
+              class="h-3 w-3 flex-shrink-0 text-error"
+              aria-hidden="true"
+            />
+            <span class="flex-1">{{ loadError }}</span>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              data-testid="task-worktrees-retry"
+              [disabled]="worktrees.isLoading()"
+              (click)="retryWorktrees()"
+            >
+              Retry
+            </button>
+          </div>
+        }
         @if (worktrees.isLoading() && worktrees.worktrees().length === 0) {
           <div
             class="flex items-center justify-center py-3"
@@ -312,12 +335,15 @@ let instanceCount = 0;
             <span class="loading loading-spinner loading-sm"></span>
           </div>
         } @else if (worktrees.worktrees().length === 0) {
-          <p
-            class="m-0 py-2 text-base-content-muted"
-            data-testid="task-worktrees-empty"
-          >
-            No worktrees found.
-          </p>
+          <!-- A failed read is not an empty list: the error above says so. -->
+          @if (!worktrees.loadError()) {
+            <p
+              class="m-0 py-2 text-base-content-muted"
+              data-testid="task-worktrees-empty"
+            >
+              No worktrees found.
+            </p>
+          }
         } @else {
           <ul class="m-0 flex list-none flex-col gap-0.5 p-0">
             @for (wt of worktrees.worktrees(); track wt.path) {
@@ -579,6 +605,10 @@ export class TaskWorktreeViewComponent {
     void this.worktrees.loadWorktrees();
     void this.gitBranches.refreshRemotes();
     void this.refreshPr(root);
+  }
+
+  protected retryWorktrees(): void {
+    void this.worktrees.loadWorktrees();
   }
 
   protected openWorkspace(request: OpenInRequest): void {
