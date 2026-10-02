@@ -385,8 +385,22 @@ Edge cases:
   Part B) could not be isolated from the user's running app (shared credentials and `~/.ptah`). It is
   deferred to a manual check by the user, with the steps from visual-review.md:110-128 going into the
   PR test plan.
+- From the superseded-abort correction review (moderate; orchestrator decision: the revise cap was
+  reached, not fixed here): if the tab is closed while `validateSessionExists` runs and the session file
+  is missing, the fallback `startNewConversation` (`message-sender.service.ts:610-621`) can still create
+  a backend session that no tab owns.
 
 ## Batch log
+
+- QA correction — senior-tester (test-report.md) found a real regression from 573f0fa54. When a newer
+  send replaced a live first-turn controller (`continueConversation` falling back to
+  `startNewConversation` on a missing session file, or a double send during `session:validate`), the
+  old listener sent `chat:abort` with the tab id and ended the NEW turn. Fix: `createAbortController`
+  aborts a replaced controller with `ABORT_REASON_SUPERSEDED`, and the listener skips `chat:abort` for
+  it; a first-turn close still sends it. A new integration spec has 12 tests, and 3 of them fail with
+  the guard removed. The independent antigravity review (code-logic-review-superseded.md) was APPROVED
+  8/10, with 1 moderate finding moved to the follow-ups. team-leader re-ran nx typecheck, lint and test
+  for chat-state, chat, core and canvas before the commits; the SHAs are in the git log.
 
 - Whole-diff correction — whole-diff cross-side review (antigravity lane) APPROVED 8/10. Fixed: MOD-3
   (closing a tab during its first turn leaked the process; the `MessageSenderService` abort listener now
