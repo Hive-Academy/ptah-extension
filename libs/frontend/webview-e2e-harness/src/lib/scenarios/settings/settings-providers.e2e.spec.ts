@@ -158,16 +158,54 @@ for (const host of HOSTS) {
       await page.keyboard.press('Enter');
       await expectCall(page, before, 'config:model-switch', expect.objectContaining({ model: 'kimi-k2.7-code' }));
       await expect(input).toHaveValue('Kimi K2.7 Code [Tool: Yes]');
-      // The save disabled the field for a moment; back on it (focus opens the list), the first Esc closes the list
-      // and the second the popover.
+      // The save made the field busy for a moment (Batch 54.1: aria-disabled, so focus stayed on it). Once it is free,
+      // ArrowDown reopens the list; the first Esc closes the list and the second the popover.
       await visibleEnabled(input);
-      await input.focus();
+      await expect(input).toBeFocused();
+      await page.keyboard.press('ArrowDown');
       await expect(input).toHaveAttribute('aria-expanded', 'true');
       await page.keyboard.press('Escape');
       await expect(input).toHaveAttribute('aria-expanded', 'false');
       await expect(popover).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(popover).toHaveCount(0);
+    });
+  });
+
+  test.describe(`webview > settings > providers, the drawer check keeps focus (Batch 54.1, ${host})`, () => {
+    test('N1: while the drawer check runs, Check connection keeps focus; Esc after the check closes the drawer and focus returns to the card', async ({ page, fixtureServer }) => {
+      // The host answers the check only when the test releases it, so the running state can be observed.
+      let release: () => void = () => undefined;
+      const answered = new Promise<void>((resolve) => { release = resolve; });
+      await bootSettings(page, fixtureServer.url, host, 'anubis', {
+        'auth:checkConnection': async (params: unknown) => {
+          const state = getFixtureState(page);
+          state.calls.push({ method: 'auth:checkConnection', params });
+          await answered;
+          const check = { status: 'verified' as const, reason: null, latencyMs: 92, checkedAt: new Date().toISOString() };
+          state.connectionChecks.set('moonshot', check);
+          return check;
+        },
+      });
+      await waitForSettled(page);
+      await providersTab(page);
+      await openCardDrawer(page, 'Moonshot');
+      const check = page.locator('[data-testid="connection-check"]');
+      await check.focus();
+      await page.keyboard.press('Enter');
+      // Running: aria-disabled, never natively disabled, and the focus stays on the button.
+      await expect(check).toHaveAttribute('aria-disabled', 'true');
+      // (Playwright's toBeEnabled counts aria-disabled as disabled; the native property is what drops focus.)
+      expect(await check.evaluate((node) => (node as HTMLButtonElement).disabled)).toBe(false);
+      await expect(check).toBeFocused();
+      release();
+      await expect(page.locator('[data-testid="connection-status"]')).toContainText('Connected & verified');
+      await expect(check).not.toHaveAttribute('aria-disabled', 'true');
+      await expect(check).toBeFocused();
+      // Esc still reaches the drawer, and focus returns to the card that opened it.
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[data-testid="connection-detail-drawer"]')).toHaveCount(0);
+      await expect(card(page, 'Moonshot').locator('[role="button"]').first()).toBeFocused();
     });
   });
 
