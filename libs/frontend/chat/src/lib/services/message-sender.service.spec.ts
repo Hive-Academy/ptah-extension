@@ -33,7 +33,10 @@ import {
 } from '@ptah-extension/core';
 import { MessageSenderService } from './message-sender.service';
 import { UltracodeStateService } from './ultracode-state.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  ABORT_REASON_SUPERSEDED,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import {
   SessionManager,
   StreamingHandlerService,
@@ -975,6 +978,24 @@ describe('MessageSenderService', () => {
       const aborts = rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort');
       expect(aborts).toHaveLength(1);
       expect(aborts[0][1]).toEqual({ sessionId: 'sess-X' });
+    });
+  });
+
+  describe('abort listener (superseded by a newer send)', () => {
+    it('does not send chat:abort when the controller was replaced, not closed', () => {
+      rpcCall.mockImplementation(() => Promise.resolve({ success: true }));
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      const controller = new AbortController();
+      tabManager.createAbortController.mockReturnValueOnce(controller.signal);
+      (
+        service as unknown as { wireAbortDispatch(id: string): AbortSignal }
+      ).wireAbortDispatch('tab-1');
+
+      controller.abort(ABORT_REASON_SUPERSEDED);
+
+      expect(rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort')).toEqual(
+        [],
+      );
     });
   });
 

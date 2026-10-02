@@ -34,6 +34,7 @@ import {
   EffortLevel,
 } from '@ptah-extension/shared';
 import {
+  ABORT_REASON_SUPERSEDED,
   ConversationRegistry,
   deriveSessionTitle,
   TabId,
@@ -218,6 +219,10 @@ export class MessageSenderService {
     signal.addEventListener(
       'abort',
       () => {
+        // A newer send replaced this controller (`createAbortController`): the
+        // old turn is not being closed, and the new turn registers under the
+        // same tab id, so a `chat:abort` here would end the NEW turn.
+        if (signal.reason === ABORT_REASON_SUPERSEDED) return;
         const tab = this.tabManager.tabs().find((t) => t.id === tabId);
         // During the first turn the real session id is not bound yet. The
         // backend registers the live record under the tab id (chat:start
