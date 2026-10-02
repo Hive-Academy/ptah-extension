@@ -929,6 +929,24 @@ describe('GitWatcherService', () => {
       expect(removedPushes()).toEqual([{ action: 'removed', path: gone.path }]);
     });
 
+    it('pushes nothing when the confirming listing fails after a prune', async () => {
+      // `getWorktrees` reports a failed listing as `[]`: no main worktree, so
+      // it confirms nothing about the candidates.
+      gitInfo.getWorktrees
+        .mockResolvedValueOnce([main(), agentWorktree('agent-1', { prunable: true })])
+        .mockResolvedValueOnce([]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(1);
+      expect(removedPushes()).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Could not confirm pruned agent worktrees: listing failed',
+        expect.objectContaining({ workspaceRoot: root }),
+      );
+    });
+
     it('never prunes a prunable worktree outside .claude-worktrees', async () => {
       gitInfo.getWorktrees.mockResolvedValueOnce([
         main(),

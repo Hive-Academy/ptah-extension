@@ -919,10 +919,19 @@ export class GitWatcherService {
         });
         return;
       }
-      const remaining = new Set(
-        (await this.gitInfo.getWorktrees(main)).map((w) => w.path),
-      );
+      const listing = await this.gitInfo.getWorktrees(main);
       if (this.isDisposed || this.armGeneration !== generation) return;
+      // `getWorktrees` answers a failed listing with `[]`. A real listing
+      // always reports the main worktree, so its absence means the listing
+      // failed and cannot confirm that any candidate is gone.
+      if (!listing.some((w) => w.isMain && w.path === main)) {
+        this.logger.warn(
+          '[GitWatcher] Could not confirm pruned agent worktrees: listing failed',
+          { workspaceRoot, paths: vanished.map((w) => w.path) },
+        );
+        return;
+      }
+      const remaining = new Set(listing.map((w) => w.path));
       const removed = vanished
         .map((w) => w.path)
         .filter((worktreePath) => !remaining.has(worktreePath));
