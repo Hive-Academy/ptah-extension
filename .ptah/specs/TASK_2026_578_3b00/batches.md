@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 13/14
+Total tasks: 44 | Batches: 14 | Complete: 14/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -111,7 +111,7 @@ Edge cases:
 
 ---
 
-## Batch 1: Migration 0051_skill_lifecycle — COMPLETE (commit faa550fb0)
+## Batch 1: Migration 0051_skill_lifecycle — COMPLETE (commit faa550fb0; rebased as a8d25b538)
 
 - Recommended executor: CLI lane x 1 (antigravity) — mechanical, fully specified DDL and one-line bumps
 - Fallback executor: backend-developer sub-agent
@@ -180,7 +180,7 @@ Edge cases:
 - Commit was held for G-580 until the coordinator replied (2026-10-01, see Gates). Pre-commit re-check:
   persistence-sqlite test 46 suites / 541 passed / 3 skipped. **Committed `faa550fb0`** (15 explicit paths).
 
-## Batch 2: File-based settings keys and docs — COMPLETE (commit 3b739b40f)
+## Batch 2: File-based settings keys and docs — COMPLETE (commit 3b739b40f; rebased as 3bd24475f)
 
 - Recommended executor: CLI lane x 1 (antigravity)
 - Fallback executor: backend-developer sub-agent
@@ -269,7 +269,7 @@ Edge cases:
   stash anywhere, because the stash stack is shared across worktrees.
 - If G-580 is still unsent when Batch 3 passes review, stop and escalate to the user: three held batches is the limit.
 
-## Batch 3: SkillCandidateStore lifecycle primitives — COMPLETE (commit 3a3cfcc85)
+## Batch 3: SkillCandidateStore lifecycle primitives — COMPLETE (commit 3a3cfcc85; rebased as 69ed95213)
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lane x 1 (antigravity)
@@ -374,7 +374,7 @@ Edge cases:
   `3a3cfcc85`** (3 explicit paths), after Batch 2. Hooks (lint-staged, electron validate-deps, commitlint) passed
   on all three commits. Batch 4 started.
 
-## Batch 4: Suggestion, registry and purge-state stores + DI — COMPLETE (commit 6dbf1a5b4)
+## Batch 4: Suggestion, registry and purge-state stores + DI — COMPLETE (commit 6dbf1a5b4; rebased as bbd02ebf8)
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: CLI lane x 1 (antigravity)
@@ -1371,7 +1371,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
   the barrel is trimmed.
 - These go to the antigravity pre-PR re-review / `future-enhancements.md` at Mode 3, together with the Batch 9 carries.
 
-## Batch 13: Lifecycle reachability integration spec — PENDING
+## Batch 13: Lifecycle reachability integration spec — COMPLETE (commit eb7693b19)
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: senior-tester sub-agent
@@ -1381,7 +1381,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Tasks: 1 | Depends on: Batches 9-12
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test --testFile=skill-lifecycle.reachability` (tail)
 
-### Task 13.1: Reachability spec — PENDING
+### Task 13.1: Reachability spec — COMPLETE
 
 - Files: CREATE `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-lifecycle.reachability.integration.spec.ts`; optional helper in `.../skill-synthesis.reachability.test-support.ts` (`seedVecTable`)
 - Plan reference: implementation-plan.md:932-978
@@ -1394,6 +1394,73 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 ### Batch 13 verification
 
 - Spec exists and passes; reviewer confirms each proof is load-bearing
+
+### Batch 13 on-disk verification, review and commit (team-leader)
+
+- The only change is the new `SS/skill-lifecycle.reachability.integration.spec.ts` (649 lines). There is no
+  production change and `skill-synthesis.reachability.test-support.ts` is untouched.
+- Review (same user decision: in-process now, antigravity lane before the PR): code-logic-reviewer APPROVED 8/10
+  (`code-logic-review.md` `## Batch 13`). The reviewer mutated each production call one at a time and restored it
+  from a backup afterwards. `git diff -- libs/` was empty after the review.
+  - Proof 1 fails without `startReconciliation`.
+  - Proof 2 fails without `runPurge`, without `runRetirementStep`, and without `runUmbrellaStep`. It fires the real
+    `setInterval` through fake timers.
+  - Proof 3 fails when the row is named by its base slug (`skill-promotion.service.ts:576,588`).
+  - Proof 4 fails when `rejectIfStatus` is short-circuited (`stage-handlers.service.ts:578`).
+- Deviation (a), `openAndMigrate` called before `start()`: ACCEPTED. `start()` opens only when the connection is not
+  already open (`skill-synthesis.service.ts:351`), and `openAndMigrate` is idempotent, so the pre-call runs the real
+  migration runner and proof 1 depends only on the later `startReconciliation`. In real use, `start()` still runs
+  the production migrate path. Deviation (b), the proof 4 candidate created inside proof 4: ACCEPTED, because proof 2
+  consumes the earlier rows.
+- Team-leader re-run: my first run overlapped the reviewer's temporary mutations and its results were discarded.
+  The clean re-run was done with `git diff -- libs` empty before and after:
+  - new spec: 4/4;
+  - full `skill-synthesis:test --skip-nx-cache`: 85 suites passed + 1 skipped; 1796 tests passed, 1 skipped,
+    1 failed;
+  - the 1 failure was `cleanup/skill-backlog-cleanup.integration.spec`, the known load flake (106.9 s), which passes
+    alone (2/2, 28.8 s);
+  - typecheck passes; lint 0 errors / 27 warnings, none in the new spec; degradation audit exit 0 (`5 ok (baseline 5)`).
+- Committed as eb7693b19 (1 file).
+
+### Batch 13 carries
+
+- MODERATE 1: the proofs depend on running in order. Proof 3 needs proof 2's `umbrellaId`, and proof 4 needs the
+  stage handlers that proof 1 registers through `start()`. Running with `-t` or `--randomize` breaks them. Move the
+  shared setup into `beforeAll` or document the order.
+- MODERATE 2: proof 4 has no positive control (spec `:609-648`). Add a candidate that scores at or above the floor
+  and survives.
+- MODERATE 3: proof 2 waits on the log string `'[skill-curator] report written'` (spec `:222-225`, `:500`). If the
+  message is renamed, the failure shows up as a misleading timeout.
+- MINOR: the `settle` return value is unchecked (`:477`). `describe.skip` on a missing sqlite factory (`:97-98`)
+  silently skips all four proofs. The `beforeAll` cost is about 112 s against a 30 s per-test timeout under CI load.
+
+## Mode 3 completion checks (team-leader, 2026-10-02)
+
+- Every batch and all 44 tasks are COMPLETE, and every batch carries a commit SHA.
+  - Batches 1-4 were rewritten by the pre-Batch-5 rebase. Their current SHAs are a8d25b538, 3bd24475f, 69ed95213
+    and bbd02ebf8, noted in each header. The original SHAs are no longer ancestors of HEAD.
+  - Every other SHA is an ancestor of HEAD (`git merge-base --is-ancestor`).
+  - All 80 files changed in `libs`/`tools`/`apps` since the merge base exist on disk.
+- Parity: the curator was rebuilt, but no user-facing surface was replaced.
+  - Compared against the merge base a4a3f8212: the `SkillCuratorService` public API (`start`, `stop`, `runManual`,
+    `acceptSuggestion`, `dismissSuggestion`, `listSuggestions`) is identical. The `skillSynthesis:*` RPC method set is
+    identical. `rpc.types.ts` is unchanged. `CuratorReport` keeps its 4 fields and adds `lifecycle`.
+  - Removed internal behaviours: `runSuggestionPass` was replaced by the umbrella pass. The report-only LLM overlap
+    review was removed; its `overlaps` were already omitted by the RPC. Both removals are in implementation-plan.md
+    Revision 1 (`:106`, `:182-183`, `:227`, rule tag `:1108`), which the user approved at Gate 2 (context.md:100-102).
+  - No `parity-inventory.md` is required for this backend rebuild behind an unchanged surface.
+- Rendered visual evidence (Batch 14, a UI change that adds no surface and so needs no prototype): `visual-review.md`
+  APPROVED, with 24 before/after PNGs in `visual/batch-14/` (dark `anubis` and light `anubis-light`, 320/400/1280).
+  The "before" screenshots come from `HEAD` before Batch 14.
+- Write-path trace: Batch 2's trace is recorded above.
+  - `skillSynthesis.retirement.dormantAfterDays` and `retireAfterDormantDays` are registered at
+    `file-settings-keys.ts:245-246,536-537` and read at runtime in `lifecycle/skill-retirement.service.ts:44-46`.
+  - The `suggestionMaxCandidates` default of 1000 agrees between `file-settings-keys.ts:535` and
+    `skill-synthesis.service.ts:155` (Batch 10).
+  - Migration 0051 writes are exactly-once through the runner (Batch 1).
+- Antigravity lane (pre-PR, cross-side): `lane-review-batches-9-12-14.md` APPROVED 678db0b17, 9a16da40f and
+  4659e2e33, each with 1 MINOR. Batch 13 (eb7693b19) is not yet lane-reviewed.
+- Carries are consolidated in `future-enhancements.md`.
 
 ## Batch 14: Frontend counters and post-accept refresh (post-586) — COMPLETE (commit 4659e2e33)
 

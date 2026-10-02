@@ -1566,3 +1566,82 @@ the fail-open hole is closed with a matching spec, and drift between the sanitiz
 the carried M-2 (boot-time directory removal) and M-3/M-4 are unresolved by decision.
 
 ### Verdict: APPROVED
+
+## Batch 13
+
+Reviewed: `libs/backend/skill-synthesis/src/lib/skill-lifecycle.reachability.integration.spec.ts` (read in full), against `skill-synthesis.service.ts:334-430`, `skill-curator.service.ts:216-356,504-556`, `skill-promotion.service.ts:417-600`, `queue/stage-handlers.service.ts:560-600`, `SqliteConnectionService.openAndMigrate` (`sqlite-connection.service.ts:194`).
+
+### Verification output
+
+- Unmutated: `npx jest -c libs/backend/skill-synthesis/jest.config.ts skill-lifecycle.reachability` gives `Tests: 4 passed, 4 total` (112 s).
+- Mutations. Each was applied to production, the spec re-run, then restored from a backup. `git diff --stat -- libs/` was empty afterwards; only the untracked spec remains.
+
+| Mutation | Result |
+| --- | --- |
+| `skill-curator.service.ts:224` `startReconciliation` commented out | 1 failed, 3 passed (proof 1) |
+| `skill-umbrella-merge.service.ts:220` `runPurge` commented out | 1 failed, 3 passed (proof 2) |
+| `skill-curator.service.ts:274` `runRetirementStep` replaced by a not-run stub | 1 failed, 3 passed (proof 2) |
+| `skill-curator.service.ts:275` `runUmbrellaStep` replaced by a not-run stub | 2 failed, 2 passed (proofs 2 and 3; proof 3 needs the umbrella id) |
+| `stage-handlers.service.ts:578` `rejectIfStatus` short-circuited with `false &&` | 1 failed, 3 passed (proof 4) |
+| `skill-promotion.service.ts:576,588` row named by the base slug instead of the suffixed slug | 1 failed (proof 3, `findByName(suffixed)` returns null), 3 passed |
+
+My first slug mutation, at `skill-promotion.service.ts:351`, did not compile (`suggestion` is out of scope there), so it gave `Tests: 0 total`. It was also the wrong site: line 351 is the candidate path, and `acceptSuggestion` goes through `commitResidentPromotion` at 576/588. I replaced it with the 576/588 mutation above.
+
+I did not mutate the interval itself (`curator.start` `setInterval`). Without it, `advanceTimersByTime` fires nothing, so `report written` is never logged and the umbrella/purge/retirement assertions fail. That is by inspection, not run.
+
+### Per-proof load-bearing judgement
+
+- **Proof 1: load-bearing.**
+  - The only caller of `startReconciliation` is `curator.start`, at `skill-curator.service.ts:224`, reached from `synthesis.start()` at `skill-synthesis.service.ts:426`. The seeded accepted suggestion has `promotedCandidateId` null and no candidate row, so nothing else can link it. Removing the call fails the proof.
+  - The `settle()` at spec:477 does not assert its return value. The `expect`s that follow are what carry the proof, so this is harmless.
+- **Proof 2: load-bearing.**
+  - `jest.useFakeTimers` fakes only the interval clock; `Date` and `setTimeout` stay real (spec:458). `start()` is called after the fakes are installed, so the production `setInterval` is captured. `advanceTimersByTime(HOUR_MS)` at spec:499 fires the production callback, not `runPass` directly.
+  - Pre-conditions are asserted: `purgeState.read()` is null and no report has been logged. Without the interval nothing fires.
+  - Removing `runPurge`, `runRetirementStep` or `runUmbrellaStep` each fails the proof.
+  - Pinned and recently-used negative controls exist, and the retired skill's directory and synth registry row are asserted gone.
+- **Proof 3: load-bearing.**
+  - Mutating the row name fails it.
+  - The collision is staged by the test creating the base directory (spec:561). Production then picks `-2` through `promoteToActive`. This is a legitimate way to force the collision.
+  - The base-slug event is a real negative control: the base slug has no row, and `invocations` rises by exactly 1.
+- **Proof 4: load-bearing.**
+  - Short-circuiting `rejectIfStatus` fails it: the rejection is not written, and `reason` ends in `:not-candidate`.
+  - The fake judge gives criterion 3, below the floor, through the real panel and the real drain.
+  - Positive control is missing (see MODERATE below).
+
+### Deviation rulings
+
+- **(a) `openAndMigrate()` before `start()`: ACCEPTED, does not weaken proof 1.**
+  - `start()` guards with `if (!this.connection.isOpen) await this.connection.openAndMigrate()` (`skill-synthesis.service.ts:351`), and `openAndMigrate` is idempotent (`sqlite-connection.service.ts:195`).
+  - Production migration is exercised, not mocked. The spec calls the real `SqliteConnectionService.openAndMigrate` with the real migration runner. Only the vec table is a plain-table substitute.
+  - Proof 1's claim is `curator.start` to `startReconciliation`, which sits well after line 353. The skipped branch is an unrelated no-op guard, and the proof does not depend on it.
+  - Residual: no proof asserts that `start()` itself opens the DB (line 352). That is out of this batch's claim.
+- **(b) Proof 4 candidate created inside the proof: ACCEPTED.** It must be a fresh `candidate` row, and the earlier rows are consumed by proof 2. See MODERATE for the related order dependence.
+
+### Acceptance coverage (2, 4, 5)
+
+I did not open the task-description text. Coverage is judged from the batch claims and the code paths exercised.
+
+- Reconcile, retirement, umbrella merge, backlog purge and its marker, the suffixed slug (A4), and the judge-panel rejection all have a production-entry proof that fails on mutation.
+- Promoted and Active +1 are asserted (spec:579-580).
+
+### Findings
+
+**BLOCKING:** none.
+
+**SERIOUS:** none.
+
+**MODERATE**
+1. spec:136-649 — The proofs are order-dependent. Proof 3 needs `umbrellaId`, set in proof 2 (guarded by `expect(umbrellaId).not.toBe('')`, so it fails loudly rather than silently). Proof 4 depends on `start()` from proof 1, which registers the stage handlers (`skill-synthesis.service.ts:343`). Running with `-t` or `--randomize` breaks them. Either document this at the top of the file or move `start()` and the umbrella pass into `beforeAll`.
+2. spec:609-648 — There is no positive control for proof 4. The proof shows the below-threshold rejection, but not that a candidate at or above the threshold survives. A mutation that always rejects, for example `score !== null`, would pass. Add a second candidate with score at or above the floor and assert it stays `candidate`.
+3. spec:222-225 (`loggedInfo`) and spec:500 — The report-written signal is a log string from `logger.info`. A renamed message would fail proof 2 with a misleading timeout-shaped assertion. Acceptable, but brittle.
+
+**MINOR**
+1. spec:477 — the return value of `settle` is unchecked in proofs 1 and 2. The following assertions cover it, but an explicit `expect(await settle(...)).toBe(true)` would give a clearer failure.
+2. spec:97-98 — `describe.skip` when the sqlite factory is unavailable. A CI environment without it would silently skip all four proofs. Confirm that CI resolves the factory.
+3. Run time is about 112 s for 4 tests; `PROOF_TIMEOUT_MS` is 30 s per test, so the cost sits in `beforeAll`. Check that `beforeAll` has a sufficient timeout under CI load.
+
+### Score: 8/10
+
+Evidence for the band: all four proofs fail on removal of the production call they claim to reach, shown by six local mutations (plus the extra interval-by-inspection check), with no production edits left behind. The fakes (rate limit, LLM and judge) feed real inputs through real services and do not make the assertions trivially true. The gaps are order dependence and a missing positive control, not unproven claims, so this is not a 9-10.
+
+### Verdict: APPROVED
