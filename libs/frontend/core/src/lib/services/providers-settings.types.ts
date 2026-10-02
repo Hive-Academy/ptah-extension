@@ -115,7 +115,7 @@ export type ProvidersOrchestration = Pick<
   | 'cursorApiKeyEnvSet'
 >;
 export type ProvidersDetectedClis = RpcMethodResult<'agent:detectClis'>['clis'];
-/** Result of the last Ptah CLI connection test. `reason` is the host's sanitized error text only. */
+/** Result of the last Ptah CLI connection test. `reason` is fixed copy for a known registry failure, else null. */
 export interface ProvidersCliTest {
   readonly id: string;
   readonly success: boolean;

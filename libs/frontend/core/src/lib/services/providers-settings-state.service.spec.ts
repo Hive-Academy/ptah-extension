@@ -1519,10 +1519,17 @@ describe('ProvidersSettingsStateService', () => {
       expect(call.mock.calls.filter(([method]) => method === 'settings:get')).toHaveLength(1);
     });
 
-    it('keeps the test latency and only the host-sanitized reason of a failed CLI test', async () => {
-      handlers.set('ptahCli:testConnection', async () => success({ success: false, latencyMs: 812, error: 'Invalid API key' }));
+    it('keeps the test latency; a failure reason is fixed copy for the registry fixed strings, never host text (M1)', async () => {
+      handlers.set('ptahCli:testConnection', async () => success({ success: false, latencyMs: 812, error: 'Invalid API key for org acme-corp' }));
       await service.testCliConnection('agent-1');
-      expect(service.cliTest().data).toEqual({ id: 'agent-1', success: false, latencyMs: 812, reason: 'Invalid API key' });
+      expect(service.cliTest().data).toEqual({ id: 'agent-1', success: false, latencyMs: 812, reason: null });
+      expect(JSON.stringify(service.cliTest())).not.toContain('acme');
+      handlers.set('ptahCli:testConnection', async () => success({ success: false, error: 'API key not configured' }));
+      await service.testCliConnection('agent-1');
+      expect(service.cliTest().data?.reason).toBe('No API key is stored for this instance.');
+      handlers.set('ptahCli:testConnection', async () => success({ success: false, error: 'No response received from provider' }));
+      await service.testCliConnection('agent-1');
+      expect(service.cliTest().data?.reason).toBe('The provider did not respond.');
       handlers.set('ptahCli:testConnection', async () => success({ success: true, latencyMs: 90, error: 'ignored' }));
       await service.testCliConnection('agent-1');
       expect(service.cliTest().data).toEqual({ id: 'agent-1', success: true, latencyMs: 90, reason: null });
@@ -1533,6 +1540,44 @@ describe('ProvidersSettingsStateService', () => {
       await service.testCliConnection('agent-3');
       expect(service.cliTest().status).toBe('error');
       expect(JSON.stringify(service.cliTest())).not.toContain('raw transport text');
+    });
+
+    it('S1: a new Test drops the earlier pass at once, and a failed or timed-out run never keeps it', async () => {
+      handlers.set('ptahCli:testConnection', async () => success({ success: true, latencyMs: 900 }));
+      await service.testCliConnection('agent-1');
+      expect(service.cliTest().data).toMatchObject({ id: 'agent-1', success: true });
+      const pending = deferred<RpcResult<unknown>>();
+      handlers.set('ptahCli:testConnection', () => pending.promise);
+      const run = service.testCliConnection('agent-1');
+      // While this run is loading, nothing of the earlier pass is visible.
+      expect(service.cliTest()).toMatchObject({ status: 'loading', data: null });
+      pending.resolve(new RpcResult(false, undefined, 'Request timed out'));
+      await run;
+      expect(service.cliTest()).toMatchObject({ status: 'error', data: null });
+    });
+
+    it('S1: the Test RPC timeout is above the host 30 s abort', async () => {
+      handlers.set('ptahCli:testConnection', async () => success({ success: true, latencyMs: 1 }));
+      call.mockClear();
+      await service.testCliConnection('agent-1');
+      const testCall = call.mock.calls.find(([method]) => method === 'ptahCli:testConnection');
+      expect(testCall?.[2]).toEqual({ timeout: 45_000 });
+    });
+
+    it('M8: clearCliTest drops that instance result (and an in-flight run for it), never another instance result', async () => {
+      handlers.set('ptahCli:testConnection', async () => success({ success: true, latencyMs: 5 }));
+      await service.testCliConnection('agent-1');
+      service.clearCliTest('agent-2');
+      expect(service.cliTest().data?.id).toBe('agent-1');
+      service.clearCliTest('agent-1');
+      expect(service.cliTest()).toMatchObject({ status: 'unloaded', data: null });
+      const pending = deferred<RpcResult<unknown>>();
+      handlers.set('ptahCli:testConnection', () => pending.promise);
+      const run = service.testCliConnection('agent-1');
+      service.clearCliTest('agent-1');
+      pending.resolve(success({ success: true, latencyMs: 7 }));
+      await run;
+      expect(service.cliTest().data).toBeNull();
     });
 
     it('labels the signed-in Copilot account and flags a stale Codex token', async () => {

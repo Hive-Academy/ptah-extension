@@ -72,6 +72,15 @@ export type {
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
 const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set(['connected', 'reachable', 'unknown', 'skipped']);
 
+/** Above the host's own 30 s abort of `ptahCli:testConnection` (`ptah-cli-registry.ts`). */
+const CLI_TEST_TIMEOUT_MS = 45_000;
+/** The registry's own FIXED test errors → fixed copy. Any other text (pattern-redacted host text) is dropped (M1). */
+const CLI_TEST_REASONS: Readonly<Record<string, string>> = {
+  'API key not configured': 'No API key is stored for this instance.',
+  'No response received from provider': 'The provider did not respond.',
+  'Agent configuration not found': 'This instance was not found. Refresh and try again.',
+};
+
 /** Page-owned lifecycle: call open() on entry. No constructor I/O or polling. */
 @Injectable({ providedIn: 'root' })
 export class ProvidersSettingsStateService {
@@ -248,13 +257,32 @@ export class ProvidersSettingsStateService {
 
   private readonly cliTestStore = createSectionStore<ProvidersCliTest>();
   readonly cliTest = this.view(this.cliTestStore);
-  /** `reason` is the host's sanitized `error`, kept only for a failed test; no other RPC text enters state. */
+  /** The instance the current (or last) Test ran for. */
+  private cliTestRunId: string | null = null;
+  /**
+   * One run's result only (Gate V 36 S1): the previous result is dropped before the call and never retained after a
+   * failure, so a failed or timed-out run can never show an earlier pass. The RPC timeout is above the host's own 30 s
+   * abort, so a slow host answer is still this run's. `reason` is fixed copy for the registry's own fixed strings and
+   * `null` otherwise (M1): `sanitizeErrorMessage` is pattern-based, so host text never enters state.
+   */
   async testCliConnection(id: string): Promise<void> {
-    await this.read(this.cliTestStore, async () => {
-      const result = await this.require('ptahCli:testConnection', { id });
+    this.cliTestStore.value.set({ status: 'unloaded', data: null, error: null });
+    this.cliTestRunId = id;
+    await readSection(this.cliTestStore, this.workspace, async () => {
+      const result = await this.require('ptahCli:testConnection', { id }, CLI_TEST_TIMEOUT_MS);
       return { id, success: result.success, latencyMs: result.latencyMs ?? null,
-        reason: result.success ? null : result.error ?? null };
-    });
+        reason: result.success ? null : CLI_TEST_REASONS[result.error ?? ''] ?? null };
+    }, false);
+  }
+  /**
+   * M8: the last Test describes the key, name and tiers it ran with; a write to any of them drops it (and discards an
+   * in-flight run for that instance, which started before the change).
+   */
+  clearCliTest(id: string): void {
+    if (this.cliTestRunId !== id) return;
+    this.cliTestRunId = null;
+    this.cliTestStore.generation += 1;
+    this.cliTestStore.value.set({ status: 'unloaded', data: null, error: null });
   }
   /**
    * An empty key clears the stored secret. Read-back checks the secrets store alone
