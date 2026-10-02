@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 58/69 (P5 closed)
+Total tasks: 87 | Batches: 69 | Complete: 61/69 (P5 closed)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2404,14 +2404,14 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
   mocks `@pierre/diffs` (was failing since Batch 43). Verified: git-ui 1140, chat 1737, webview 313 tests,
   typecheck/lint green; eager guard `main.js` 370,866 B gz (+251 B, the two relays).
 
-## Batch 59: E2E successors I — PENDING
+## Batch 59: E2E successors I — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 58
 - Verification: `npx nx run-many -t lint,typecheck -p ptah-electron-e2e` + `npx nx e2e ptah-electron-e2e --grep "git"` scoped to these specs (tail)
 
-### Task 59.1: axe helper, dock/shell, hunk specs — PENDING
+### Task 59.1: axe helper, dock/shell, hunk specs — COMPLETE
 
 - Files (under D:/projects/ptah-extension/apps/ptah-electron-e2e/src/): CREATE `support/axe.ts`; MODIFY `specs/git/git-dock.spec.ts`, `specs/git/hunk-apply-real-rpc.spec.ts`, `specs/git/hunk-widget-mouse.spec.ts`, `specs/git/glyph-margin-visual.spec.ts`, `specs/git/hunk-revert-top-layer.spec.ts`
 - Plan reference: implementation-plan.md:1043, 1058
@@ -2419,15 +2419,22 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: axe dark + light, no critical/serious.
 - Validation notes: successor tests referenced by `parity-tests.md`.
 - Implementation details: as plan.
+- Outcome (`f8d9c2052`): executor senior-tester. `support/axe.ts` (`setTheme`, `runAxe`,
+  `expectNoBlockingViolationsInBothThemes`); ui-driver helpers `reviewShell`, `reviewTab`, `reviewFileSection`, `hunkHost`,
+  `hunkAction`. Retargeted dock, hunk-apply (real RPC), hunk mouse, revert top-layer and theme specs; Monaco glyph margin
+  and floating widget have successors in the hunk rows (VS Code high-contrast case dropped: webview-only). Product
+  defects found and fixed: hunk mapping used jsdiff's 4 context lines (`d9702a514`); axe `scrollable-region-focusable`
+  on Pierre code panes and light `color-contrast` on header counts/comparison totals (`8bb06fccb`). Out of scope: the
+  older "C# AST reaches the packaged app" test fails with `indexing:start not accepted: never-indexed`.
 
-## Batch 60: E2E successors II — PENDING
+## Batch 60: E2E successors II — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 59
 - Verification: as Batch 59
 
-### Task 60.1: state, controls, rail, perf, large canvas, comments — PENDING
+### Task 60.1: state, controls, rail, perf, large canvas, comments — COMPLETE
 
 - Files (under D:/projects/ptah-extension/apps/ptah-electron-e2e/src/specs/git/): MODIFY `diff-view-state.spec.ts`, `git-review-controls.spec.ts`, `git-rail-collapse.spec.ts`, `perf-m1-diff-redisplay.spec.ts`; CREATE `review-canvas-large.spec.ts`, `review-comments.spec.ts`
 - Plan reference: implementation-plan.md:1039, 1043-1044
@@ -2435,15 +2442,21 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: ≥50 fps, no long task >200 ms on the 200-file/10,000-line fixture (recorded).
 - Validation notes: A9 result confirmed.
 - Implementation details: as plan.
+- Outcome (`370fcd109`): executor senior-tester. Retargeted state, review controls, rail collapse and re-display perf
+  (Changes → Task → Changes, median 129.7 ms / max 191.7 ms); new `review-canvas-large` (200 files / 10,000 lines) and
+  `review-comments` (3/3). Folding has no successor (Pierre has none). Defect found and fixed: reading position lost
+  after tab/comparison round trips (`d2d1928f5`, per-comparison anchor + frame re-anchor). A9 on this loaded machine:
+  41.4-50.0 fps, longest task 104-242 ms (target ≥50 fps, ≤200 ms) — see `bundle-measurements.md`; re-measured after
+  the fix in the verification run.
 
-## Batch 61: E2E successors III — PENDING
+## Batch 61: E2E successors III — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 60
 - Verification: as Batch 59
 
-### Task 61.1: file view, links, spot-editor save, commit composer, worktree view — PENDING
+### Task 61.1: file view, links, spot-editor save, commit composer, worktree view — COMPLETE
 
 - Files (under D:/projects/ptah-extension/apps/ptah-electron-e2e/src/specs/git/): MODIFY `file-view-tab.spec.ts`, `agent-file-links.spec.ts`; CREATE `spot-editor-save.spec.ts`, `commit-composer.spec.ts`, `task-worktree-view.spec.ts`
 - Plan reference: implementation-plan.md:1128-1129, 1235, 1281
@@ -2451,6 +2464,12 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: hook prints three lines over 2 s, all arrive before completion.
 - Validation notes: none.
 - Implementation details: as plan.
+- Outcome (`83595fa0c`): executor senior-tester. All pass: `file-view-tab` 1/1, `agent-file-links` 3/3 (no background-
+  session successor: the old spec never covered it), `spot-editor-save` 4/4 (disk read-back, CRLF kept, conflict
+  dialog, unsaved Back asks), `commit-composer` 4/4 (three hook lines over 2 s arrive before success; failing hook
+  keeps message and log; Cancel leaves no `index.lock`), `task-worktree-view` 3/3 (switch only on click, confirmed
+  Remove, quiet PR line). New `support/spot-editor.ts`. Stale `commit-hook-failure.spec.ts` retargeted in the
+  verification run.
 
 ## Batch 62: Parity matrix — PENDING
 
