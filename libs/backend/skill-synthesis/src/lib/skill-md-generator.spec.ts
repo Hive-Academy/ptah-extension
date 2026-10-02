@@ -4,10 +4,46 @@
  * Pure file-system contract — verifies frontmatter shape, slug-collision
  * retry, and the candidate vs. active root layout.
  */
+// `writeFileSync`/`rmSync` are real by default; two cases swap in a failing
+// implementation to prove the partial-write cleanup. A spy on the imported
+// namespace cannot do this (its bindings are non-configurable getters).
+jest.mock('node:fs', () => {
+  const actual = jest.requireActual<typeof import('node:fs')>('node:fs');
+  return {
+    ...actual,
+    writeFileSync: jest.fn(actual.writeFileSync),
+    rmSync: jest.fn(actual.rmSync),
+  };
+});
+
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { SkillMdGenerator } from './skill-md-generator';
+
+const actualFs = jest.requireActual<typeof import('node:fs')>('node:fs');
+const writeFileSyncMock = fs.writeFileSync as unknown as jest.Mock;
+const rmSyncMock = fs.rmSync as unknown as jest.Mock;
+
+/** Real writes, except the reference named `second` fails. */
+function failSecondReferenceWrite(): void {
+  writeFileSyncMock.mockImplementation(
+    (file: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
+      if (String(file).endsWith(`${path.sep}second.md`)) {
+        throw new Error('disk full');
+      }
+      return (actualFs.writeFileSync as (...a: unknown[]) => void)(
+        file,
+        ...rest,
+      );
+    },
+  );
+}
+
+function restoreFsMocks(): void {
+  writeFileSyncMock.mockImplementation(actualFs.writeFileSync);
+  rmSyncMock.mockImplementation(actualFs.rmSync);
+}
 
 interface MockLogger {
   info: jest.Mock;
@@ -130,6 +166,21 @@ describe('SkillMdGenerator', () => {
     expect(fs.existsSync(result.filePath)).toBe(true);
   });
 
+  it('overwriteCandidate refuses references before touching the disk', () => {
+    expect(() =>
+      gen.overwriteCandidate(
+        {
+          slug: 'with-refs',
+          description: 'd',
+          body: 'b',
+          references: [{ name: 'ref', body: 'r' }],
+        },
+        tmpRoot,
+      ),
+    ).toThrow(/does not write references/);
+    expect(fs.existsSync(path.join(tmpRoot, 'with-refs'))).toBe(false);
+  });
+
   it('sanitizes a noisy slug input into kebab-case', () => {
     const result = gen.writeCandidate(
       {
@@ -154,5 +205,230 @@ describe('SkillMdGenerator', () => {
     const content = fs.readFileSync(result.filePath, 'utf8');
     expect(content).toContain("description: Has 'quotes' and newlines");
     expect(content.split('description:')[1].split('\n')[0]).not.toContain('\n');
+  });
+
+  describe('promoteToActive', () => {
+    let activeGen: SkillMdGenerator;
+    let logger: MockLogger;
+
+    beforeEach(() => {
+      const workspace = { getConfiguration: () => tmpRoot };
+      logger = makeLogger();
+      activeGen = new SkillMdGenerator(logger as never, workspace as never);
+    });
+
+    it('skips a slug the database already holds even with no directory on disk', () => {
+      const taken = new Set(['foo']);
+      const result = activeGen.promoteToActive(
+        { slug: 'foo', description: 'd', body: 'b' },
+        undefined,
+        { isSlugTaken: (slug) => taken.has(slug) },
+      );
+      expect(result.slug).toBe('foo-2');
+      expect(result.dir).toBe(path.join(tmpRoot, 'foo-2'));
+      expect(fs.existsSync(path.join(tmpRoot, 'foo'))).toBe(false);
+      expect(fs.readFileSync(result.filePath, 'utf8')).toContain('name: foo-2');
+    });
+
+    it('throws when the DB and the disk together exhaust -2..-5', () => {
+      fs.mkdirSync(path.join(tmpRoot, 'foo'), { recursive: true });
+      fs.mkdirSync(path.join(tmpRoot, 'foo-3'), { recursive: true });
+      const taken = new Set(['foo-2', 'foo-4', 'foo-5']);
+      expect(() =>
+        activeGen.promoteToActive(
+          { slug: 'foo', description: 'd', body: 'b' },
+          undefined,
+          { isSlugTaken: (slug) => taken.has(slug) },
+        ),
+      ).toThrow(/slug collision/);
+    });
+
+    it('writes each reference to references/<name>.md', () => {
+      const result = activeGen.promoteToActive({
+        slug: 'umbrella',
+        description: 'd',
+        body: 'b',
+        references: [
+          { name: 'variant-one', body: '# One\n\nfirst' },
+          { name: 'variant-2', body: 'second' },
+        ],
+      });
+      const refsDir = path.join(result.dir, 'references');
+      expect(fs.readdirSync(refsDir).sort()).toEqual([
+        'variant-2.md',
+        'variant-one.md',
+      ]);
+      expect(
+        fs.readFileSync(path.join(refsDir, 'variant-one.md'), 'utf8'),
+      ).toBe('# One\n\nfirst\n');
+    });
+
+    it('does not create references/ when there are none', () => {
+      const result = activeGen.promoteToActive({
+        slug: 'plain',
+        description: 'd',
+        body: 'b',
+      });
+      expect(fs.existsSync(path.join(result.dir, 'references'))).toBe(false);
+    });
+
+    it.each(['../x', 'a/b', 'a\\b', '', 'Upper', '-lead'])(
+      'throws on reference name %j and writes nothing',
+      (name) => {
+        expect(() =>
+          activeGen.promoteToActive({
+            slug: 'evil',
+            description: 'd',
+            body: 'b',
+            references: [{ name, body: 'x' }],
+          }),
+        ).toThrow(/invalid reference name/);
+        expect(fs.existsSync(path.join(tmpRoot, 'evil'))).toBe(false);
+        expect(fs.existsSync(path.join(tmpRoot, 'x.md'))).toBe(false);
+      },
+    );
+
+    it('throws on a duplicate reference name', () => {
+      expect(() =>
+        activeGen.promoteToActive({
+          slug: 'dup',
+          description: 'd',
+          body: 'b',
+          references: [
+            { name: 'same', body: '1' },
+            { name: 'same', body: '2' },
+          ],
+        }),
+      ).toThrow(/duplicate reference name/);
+    });
+
+    it.each(['con', 'prn', 'aux', 'nul', 'com1', 'com0', 'lpt9'])(
+      'throws on Windows reserved reference name %j and writes nothing',
+      (name) => {
+        expect(() =>
+          activeGen.promoteToActive({
+            slug: 'reserved',
+            description: 'd',
+            body: 'b',
+            references: [{ name, body: 'x' }],
+          }),
+        ).toThrow(/reserved reference name/);
+        expect(fs.existsSync(path.join(tmpRoot, 'reserved'))).toBe(false);
+      },
+    );
+
+    it('accepts names that only start like a reserved device name', () => {
+      const result = activeGen.promoteToActive({
+        slug: 'not-reserved',
+        description: 'd',
+        body: 'b',
+        references: [
+          { name: 'console', body: 'c' },
+          { name: 'com10', body: 'c' },
+        ],
+      });
+      expect(
+        fs.readdirSync(path.join(result.dir, 'references')).sort(),
+      ).toEqual(['com10.md', 'console.md']);
+    });
+
+    it('removes the skill directory and rethrows when a reference write fails', () => {
+      failSecondReferenceWrite();
+      try {
+        expect(() =>
+          activeGen.promoteToActive({
+            slug: 'partial',
+            description: 'd',
+            body: 'b',
+            references: [
+              { name: 'first', body: '1' },
+              { name: 'second', body: '2' },
+            ],
+          }),
+        ).toThrow('disk full');
+      } finally {
+        restoreFsMocks();
+      }
+      expect(fs.existsSync(path.join(tmpRoot, 'partial'))).toBe(false);
+    });
+
+    it('rethrows the original write error even when cleanup also fails', () => {
+      failSecondReferenceWrite();
+      rmSyncMock.mockImplementation(() => {
+        throw new Error('locked');
+      });
+      try {
+        expect(() =>
+          activeGen.promoteToActive({
+            slug: 'partial-locked',
+            description: 'd',
+            body: 'b',
+            references: [
+              { name: 'first', body: '1' },
+              { name: 'second', body: '2' },
+            ],
+          }),
+        ).toThrow('disk full');
+      } finally {
+        restoreFsMocks();
+      }
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('partially written skill directory'),
+        expect.objectContaining({ slug: 'partial-locked', error: 'locked' }),
+      );
+    });
+
+    it('removeActive refuses a directory outside the active root and deletes nothing', () => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-outside-'));
+      try {
+        expect(() =>
+          activeGen.removeActive({
+            slug: 'x',
+            dir: outside,
+            filePath: path.join(outside, 'SKILL.md'),
+          }),
+        ).toThrow(/outside the active root/);
+        expect(fs.existsSync(outside)).toBe(true);
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it('removeActive refuses the active root itself and deletes nothing', () => {
+      const kept = activeGen.promoteToActive({
+        slug: 'keep-me',
+        description: 'd',
+        body: 'b',
+      });
+      expect(() =>
+        activeGen.removeActive({
+          slug: '',
+          dir: tmpRoot,
+          filePath: path.join(tmpRoot, 'SKILL.md'),
+        }),
+      ).toThrow(/outside the active root/);
+      expect(() =>
+        activeGen.removeActive({
+          slug: '',
+          dir: `${tmpRoot}${path.sep}`,
+          filePath: path.join(tmpRoot, 'SKILL.md'),
+        }),
+      ).toThrow(/outside the active root/);
+      expect(fs.existsSync(kept.filePath)).toBe(true);
+    });
+
+    it('removeActive removes the skill directory including references/', () => {
+      const result = activeGen.promoteToActive({
+        slug: 'to-remove',
+        description: 'd',
+        body: 'b',
+        references: [{ name: 'ref', body: 'r' }],
+      });
+      expect(fs.existsSync(path.join(result.dir, 'references', 'ref.md'))).toBe(
+        true,
+      );
+      activeGen.removeActive(result);
+      expect(fs.existsSync(result.dir)).toBe(false);
+    });
   });
 });

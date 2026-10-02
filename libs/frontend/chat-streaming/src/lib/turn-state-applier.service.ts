@@ -54,7 +54,7 @@ import { PermissionHandlerService } from './permission-handler.service';
 
 interface ResolvedTab {
   readonly tab: TabState;
-  /** The workspace that owns the tab; `undefined` only when unknown. */
+  /** The workspace that owns the tab; `undefined` when unknown or none. */
   readonly workspacePath: string | undefined;
 }
 
@@ -195,7 +195,9 @@ export class TurnStateApplier {
     if (tabId) {
       const byId = this.tabManager.findTabByIdAcrossWorkspaces(tabId);
       if (byId) {
-        return [{ tab: byId.tab, workspacePath: byId.workspacePath }];
+        return [
+          { tab: byId.tab, workspacePath: byId.workspacePath ?? undefined },
+        ];
       }
     }
     // `SessionId.from` throws on a non-UUID and the event can carry no session
@@ -207,13 +209,14 @@ export class TurnStateApplier {
     if (bound.length > 0) {
       return bound.map((tab) => ({
         tab,
-        workspacePath: this.tabManager.findTabByIdAcrossWorkspaces(tab.id)
-          ?.workspacePath,
+        workspacePath:
+          this.tabManager.findTabByIdAcrossWorkspaces(tab.id)?.workspacePath ??
+          undefined,
       }));
     }
     const lookup = this.tabManager.findTabBySessionIdAcrossWorkspaces(session);
     return lookup
-      ? [{ tab: lookup.tab, workspacePath: lookup.workspacePath }]
+      ? [{ tab: lookup.tab, workspacePath: lookup.workspacePath ?? undefined }]
       : [];
   }
 

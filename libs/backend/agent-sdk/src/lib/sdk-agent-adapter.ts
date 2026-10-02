@@ -766,7 +766,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
     );
 
     const resolvedProjectPath = config?.projectPath || os.homedir();
+    // The workspace a session is LISTED under can differ from the directory
+    // it RUNS in: an agent child session runs in a worktree of its parent's
+    // workspace (TASK_2026_584). Callers that omit `workspaceId` get today's
+    // record, where both are the project path.
     const sessionIdCallback = this.createSessionIdCallback(
+      blankToUndefined(config.workspaceId) ?? resolvedProjectPath,
       resolvedProjectPath,
       resolvedSessionName,
       sessionToken,
@@ -1101,6 +1106,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   private createSessionIdCallback(
     workspaceId: string,
+    workingDirectory: string,
     sessionName: string,
     sessionToken: string,
     statsGeneration: number,
@@ -1145,7 +1151,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.statsOwner.rebind(tabId, realSessionId, statsGeneration);
       }
 
-      await this.metadataStore.create(realSessionId, workspaceId, sessionName);
+      // The extra arguments are passed only when the cwd differs, so every
+      // caller with `workspaceId === projectPath` writes exactly today's call.
+      if (workingDirectory === workspaceId) {
+        await this.metadataStore.create(
+          realSessionId,
+          workspaceId,
+          sessionName,
+        );
+      } else {
+        await this.metadataStore.create(
+          realSessionId,
+          workspaceId,
+          sessionName,
+          'created',
+          workingDirectory,
+        );
+      }
 
       if (tabId) {
         // The bind above is what makes `resolveActivityIds` answer with the

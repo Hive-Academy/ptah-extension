@@ -11,6 +11,8 @@
 export {
   TabManagerService,
   type ClosedTabEvent,
+  type AgentSessionAdoptionMode,
+  type AgentSessionAdoptionResult,
   type TerminalTurnPulse,
   type TerminalTurnClassification,
 } from './lib/tab-manager.service';

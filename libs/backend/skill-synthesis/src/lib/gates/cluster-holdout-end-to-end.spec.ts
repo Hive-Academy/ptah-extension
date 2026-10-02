@@ -2,10 +2,11 @@
  * The hold-out, end to end: cluster → draft → persisted row → replay gate.
  *
  * The unit specs beside this file prove `planClusterDraft` agrees with
- * `selectHoldoutSessionId`. That agreement is worth nothing if the CURATOR does
- * not actually route the plan into the row it persists, or if the two persisted
- * lists cannot be turned back into the gate's two arguments. This file runs the
- * whole chain with a REAL `SkillCuratorService`, a REAL SQLite-backed
+ * `selectHoldoutSessionId`. That agreement is worth nothing if the UMBRELLA
+ * MERGE does not actually route the plan into the row it persists, or if the
+ * two persisted lists cannot be turned back into the gate's two arguments. This
+ * file runs the whole chain with a REAL `SkillUmbrellaMergeService` (the only
+ * cluster-synthesis path since TASK_2026_578), a REAL SQLite-backed
  * `SkillCandidateStore`, and a REAL `ReplayValidatorService`, and asserts the
  * one thing the batch exists for:
  *
@@ -42,21 +43,26 @@ import {
   resolveOpener,
   type TestDatabase,
 } from '../queue/queue-db.test-support';
-import {
-  makeBudgetStub,
-  makeLogger,
-  makeResolverStub,
-  resolvedLane,
-} from '../lanes/lane-runner.test-support';
-import { LaneRunnerService } from '../lanes/lane-runner.service';
+import { makeLogger, resolvedLane } from '../lanes/lane-runner.test-support';
+import type { LaneRunnerService } from '../lanes/lane-runner.service';
 import type {
   LaneRunRequest,
   LaneRunResult,
 } from '../lanes/lane-runner.service';
 import { SkillCandidateStore } from '../skill-candidate.store';
-import { SkillCuratorService } from '../skill-curator.service';
-import type { SkillCandidateCluster } from '../skill-clustering.service';
-import type { ClusterMemberInput } from '../skill-synthesizer.service';
+import type {
+  PoolMember,
+  PoolPartition,
+  SkillClusteringService,
+} from '../skill-clustering.service';
+import type {
+  SkillSynthesizerService,
+  UmbrellaMemberInput,
+} from '../skill-synthesizer.service';
+import type { SkillJudgeService } from '../skill-judge.service';
+import type { SkillSuggestionStore } from '../skill-suggestion.store';
+import type { SkillBacklogPurgeStateStore } from '../lifecycle/skill-backlog-purge-state.store';
+import { SkillUmbrellaMergeService } from '../lifecycle/skill-umbrella-merge.service';
 import type { SessionVerdictStore } from '../archaeology/session-verdict.store';
 import type {
   ExtractedTrajectory,
@@ -135,7 +141,7 @@ function makeCandidateStore(db: TestDatabase): SkillCandidateStore {
   );
 }
 
-// ── Curator collaborators ───────────────────────────────────────────────────
+// ── Umbrella-merge collaborators ────────────────────────────────────────────
 
 function settings(
   overrides: Partial<SkillSynthesisSettings> = {},
@@ -163,46 +169,33 @@ function settings(
   };
 }
 
-/** A curator whose host registered no LLM. The overlap pass never runs here. */
-function hostlessLaneRunner(): LaneRunnerService {
-  return new LaneRunnerService(
-    makeLogger(),
-    makeResolverStub(resolvedLane('synthesis')).service,
-    makeBudgetStub().store,
-    null,
-    null,
-  );
-}
-
-const noopMdGenerator = {
-  promoteToActive: jest.fn(() => ({
-    slug: 'x',
-    dir: '/d',
-    filePath: '/d/SKILL.md',
-  })),
-  candidatesRoot: jest.fn(() => '/c'),
-  activeRoot: jest.fn(() => '/a'),
-  writeCandidate: jest.fn(),
-} as unknown as ConstructorParameters<typeof SkillCuratorService>[10];
-
 const allowingRateLimiter = {
   tryAcquire: jest.fn(() => ({ allowed: true })),
   snapshot: jest.fn(() => null),
-} as unknown as ConstructorParameters<typeof SkillCuratorService>[3];
+};
+
+/** The purge already ran, so the pass writes nothing but the umbrella. */
+const purgeAlreadyComplete = {
+  read: jest.fn(() => ({ cutoffCreatedAt: 0, completedAt: 1, rejected: 0 })),
+  markComplete: jest.fn(() => false),
+};
+
+/** Every member shares one embedding: centroid ties keep discovery order. */
+const SHARED_EMBEDDING = new Float32Array([1, 0, 0, 0]);
 
 interface DraftRun {
-  /** What `insertPending` was handed. The persisted shape under test. */
+  /** What `insert` was handed. The persisted shape under test. */
   readonly suggestion: NewSuggestionInput;
-  /** The member descriptions the synthesizer was actually allowed to see. */
-  readonly synthesizerSaw: readonly ClusterMemberInput[];
+  /** The member inputs the synthesizer was actually allowed to see. */
+  readonly synthesizerSaw: readonly UmbrellaMemberInput[];
   readonly body: string;
 }
 
 /**
- * Register `sessionIds.length` real candidates, cluster them, and run ONE real
- * curator suggestion pass over that cluster.
+ * Register `sessionIds.length` real candidates, partition them into one
+ * cluster, and run ONE real umbrella merge pass over that cluster.
  */
-async function runCuratorDraft(
+async function runUmbrellaDraft(
   store: SkillCandidateStore,
   sessionIds: readonly string[],
   minClusterSize: number,
@@ -220,24 +213,36 @@ async function runCuratorDraft(
       }).candidate,
   );
 
-  const cluster: SkillCandidateCluster = { members };
+  const cluster: PoolMember[] = members.map((row) => ({
+    kind: 'candidate',
+    row,
+    embedding: SHARED_EMBEDDING,
+  }));
+  const partition: PoolPartition = {
+    vecAvailable: true,
+    truncated: false,
+    clusters: [cluster],
+    orphans: [],
+    unembedded: 0,
+  };
   const body = '1. Read the migration registry.\n2. Bump every ratchet.';
-  let synthesizerSaw: readonly ClusterMemberInput[] = [];
+  let synthesizerSaw: readonly UmbrellaMemberInput[] = [];
 
   const clustering = {
-    clusterCandidates: jest.fn(() => [cluster]),
-  } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
+    partitionPool: jest.fn(() => partition),
+  } as unknown as SkillClusteringService;
 
   const synthesizer = {
-    synthesizeFromCluster: jest.fn(async (seen: ClusterMemberInput[]) => {
+    synthesizeUmbrella: jest.fn(async (seen: UmbrellaMemberInput[]) => {
       synthesizerSaw = seen;
       return {
         name: 'bump-the-migration-ratchet',
         description: 'Use when a new migration needs its ratchets bumped.',
         body,
+        references: [],
       };
     }),
-  } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
+  } as unknown as SkillSynthesizerService;
 
   const judge = {
     judge: jest.fn(async () => ({
@@ -246,38 +251,37 @@ async function runCuratorDraft(
       criteria: null,
       reason: 'judge-verdict',
     })),
-  } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
+  } as unknown as SkillJudgeService;
 
   const inserted: NewSuggestionInput[] = [];
   const suggestionStore = {
-    hasExistingForCluster: jest.fn(() => false),
-    insertPending: jest.fn((input: NewSuggestionInput) => {
+    insert: jest.fn((input: NewSuggestionInput) => {
       inserted.push(input);
       return { id: 'sug-1' };
     }),
-    listByStatus: jest.fn(() => []),
-  } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
+    markMerged: jest.fn(() => 0),
+    findById: jest.fn(() => null),
+    listMemberCandidateIds: jest.fn(() => new Set<string>()),
+  } as unknown as SkillSuggestionStore;
 
-  const curator = new SkillCuratorService(
+  const umbrella = new SkillUmbrellaMergeService(
     makeLogger() as never,
     store,
-    hostlessLaneRunner(),
-    allowingRateLimiter,
-    null,
-    null,
     suggestionStore,
     clustering,
     synthesizer,
     judge,
-    noopMdGenerator,
+    allowingRateLimiter as never,
+    purgeAlreadyComplete as unknown as SkillBacklogPurgeStateStore,
   );
-  curator.start(settings({ suggestionMinClusterSize: minClusterSize }));
-  await curator.runManual();
-  curator.stop();
+  const result = await umbrella.runPass(
+    settings({ suggestionMinClusterSize: minClusterSize }),
+    new Set<string>(),
+  );
 
-  if (inserted.length !== 1) {
+  if (inserted.length !== 1 || result.umbrellasCreated !== 1) {
     throw new Error(
-      `[spec] expected exactly one suggestion, got ${inserted.length}`,
+      `[spec] expected exactly one umbrella suggestion, got ${inserted.length}`,
     );
   }
   return { suggestion: inserted[0], synthesizerSaw, body };
@@ -400,7 +404,7 @@ describe('hold-out end to end: cluster → draft → row → replay gate', () =>
     'a cluster with a member to spare yields a NON-null replay_holdout_session_id',
     async () => {
       const store = makeCandidateStore(createDb());
-      const draft = await runCuratorDraft(store, ['s-a', 's-b', 's-c'], 2);
+      const draft = await runUmbrellaDraft(store, ['s-a', 's-b', 's-c'], 2);
 
       // 1. The draft never saw the held-out member.
       expect(draft.synthesizerSaw).toHaveLength(2);
@@ -450,7 +454,7 @@ describe('hold-out end to end: cluster → draft → row → replay gate', () =>
     'a cluster at suggestionMinClusterSize yields a null replay_holdout_session_id',
     async () => {
       const store = makeCandidateStore(createDb());
-      const draft = await runCuratorDraft(store, ['s-a', 's-b'], 2);
+      const draft = await runUmbrellaDraft(store, ['s-a', 's-b'], 2);
 
       // Drafted from EVERY member: the floor is never traded for a number.
       expect(draft.synthesizerSaw).toHaveLength(2);
@@ -492,7 +496,7 @@ describe('hold-out end to end: cluster → draft → row → replay gate', () =>
     'lowering the floor to 1 makes the SAME two-member cluster measurable',
     async () => {
       const store = makeCandidateStore(createDb());
-      const draft = await runCuratorDraft(store, ['s-a', 's-b'], 1);
+      const draft = await runUmbrellaDraft(store, ['s-a', 's-b'], 1);
 
       expect(draft.synthesizerSaw).toHaveLength(1);
       expect(draft.suggestion.memberSessionIds).toEqual(['s-a']);

@@ -76,6 +76,7 @@ import { sql as sql0047MemoryRetentionHealth } from './0047_memory_retention_hea
 import { sql as sql0048MemoryQuarantine } from './0048_memory_quarantine';
 import { sql as sql0049MemorySedimentQuarantine } from './0049_memory_sediment_quarantine';
 import { sql as sql0050SessionOrganization } from './0050_session_organization';
+import { sql as sql0051SkillLifecycle } from './0051_skill_lifecycle';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -370,5 +371,10 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 50,
     name: '0050_session_organization',
     sql: sql0050SessionOrganization,
+  },
+  {
+    version: 51,
+    name: '0051_skill_lifecycle',
+    sql: sql0051SkillLifecycle,
   },
 ];

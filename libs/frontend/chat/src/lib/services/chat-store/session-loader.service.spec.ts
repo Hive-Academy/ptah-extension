@@ -3459,6 +3459,48 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
     expect(JSON.stringify(target?.messages)).not.toContain('/compact compact');
   });
 
+  // TASK_2026_584 B7 visual review, finding 1: a host that never activates a
+  // workspace partition (the VS Code panel) holds its tabs only in the active
+  // set. A targeted history load into an empty agent tab must still find it.
+  it('loads history into a targeted tab when no workspace partition is active', async () => {
+    const sessionId = SessionId.create();
+    const rpcCall = jest.fn(async (method: string) =>
+      method === 'chat:resume'
+        ? {
+            success: true,
+            data: {
+              events: [
+                event(sessionId, 'a-start', 'message_start', 'a', {
+                  role: 'assistant',
+                }),
+                event(sessionId, 'a-text', 'text_delta', 'a', {
+                  blockIndex: 0,
+                  delta: restoredText,
+                }),
+                event(sessionId, 'a-complete', 'message_complete', 'a', {
+                  stopReason: 'end_turn',
+                }),
+              ],
+            },
+          }
+        : { success: true, data: {} },
+    );
+    const { loader, tabManager } = configureRealPipeline(rpcCall);
+    expect(tabManager.activeWorkspacePath).toBeNull();
+    const targetTabId = tabManager.createTab('agent child') as TabId;
+
+    await loader.switchSession(sessionId, { targetTabId });
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'chat:resume',
+      expect.objectContaining({ sessionId, tabId: targetTabId }),
+      expect.anything(),
+    );
+    const target = tabManager.tabs().find((tab) => tab.id === targetTabId);
+    expect(target?.claudeSessionId).toBe(sessionId);
+    expect(JSON.stringify(target?.messages)).toContain(restoredText);
+  });
+
   // TASK_2026_437 C15 equivalence oracle: chunking changes WHEN the renderer
   // gets a turn, never WHAT the tab ends up holding.
   it('replays 2,000 history events with 8 yields into the same final tab state as a single pass', async () => {

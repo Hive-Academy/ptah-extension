@@ -241,6 +241,93 @@ describe('TabManagerService — persistence payload + write cadence', () => {
   });
 
   // ==========================================================================
+  // Agent origin (TASK_2026_584): persisted, unlike attachedBinding, and
+  // validated on the way back in.
+  // ==========================================================================
+
+  describe('agentOrigin', () => {
+    const CHILD_TAB = '44444444-4444-4444-8444-444444444444';
+
+    function adoptChild(): string {
+      const parent = service.createTab('parent');
+      service.adoptAgentSessionTab(
+        {
+          tabId: CHILD_TAB,
+          sessionId: null,
+          parentTabId: parent,
+          parentSessionId: null,
+          workspaceRoot: '/ws',
+          worktreePath: '/ws/.worktrees/child',
+          branch: 'feat/child',
+          label: 'Child',
+          displayPrompt: 'Do the thing',
+          startedAt: 42,
+        },
+        'live',
+      );
+      return parent;
+    }
+
+    it('is written to storage with the tab', () => {
+      const parent = adoptChild();
+      jest.advanceTimersByTime(600);
+
+      const stored = readStored().tabs.find((t) => t['id'] === CHILD_TAB);
+      expect(stored?.['agentOrigin']).toEqual({
+        parentTabId: parent,
+        parentSessionId: null,
+        label: 'Child',
+        branch: 'feat/child',
+        worktreePath: '/ws/.worktrees/child',
+        startedAt: 42,
+      });
+    });
+
+    it('round-trips through save and restore', () => {
+      const parent = adoptChild();
+      service.flushPendingSave();
+
+      service.loadTabState();
+
+      const child = service.tabs().find((t) => t.id === CHILD_TAB);
+      expect(child?.agentOrigin?.parentTabId).toBe(parent);
+      expect(child?.agentOrigin?.worktreePath).toBe('/ws/.worktrees/child');
+      expect(child?.agentOrigin?.startedAt).toBe(42);
+    });
+
+    it('drops a malformed stored record and restores an ordinary tab', () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          version: 2,
+          activeTabId: null,
+          tabs: [
+            {
+              id: CHILD_TAB,
+              claudeSessionId: null,
+              name: 'x',
+              title: 'x',
+              titleOrigin: 'user',
+              order: 0,
+              status: 'loaded',
+              isDirty: false,
+              lastActivityAt: 0,
+              messages: [],
+              streamingState: null,
+              agentOrigin: { parentTabId: 7, label: 'x' },
+            },
+          ],
+        }),
+      );
+
+      service.loadTabState();
+
+      expect(service.tabs()).toHaveLength(1);
+      expect(service.tabs()[0].agentOrigin).toBeUndefined();
+    });
+  });
+
+  // ==========================================================================
   // Teardown flush (TASK_2026_335 / defect 2)
   //
   // `setTimeout` timers do not survive a document unload or an injector

@@ -19,6 +19,7 @@
  *   HISTORY_READ              ← (no chat deps)
  *   SESSION                   ← all of the above
  *   SURFACE_SUBMIT_TURN       ← STREAM_BROADCASTER
+ *   CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST ← SESSION
  *
  * `SESSION` also resolves `OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION`, which is
  * NOT registered here — `registerOutputStyleServices` owns it, because the
@@ -35,6 +36,7 @@ import {
   SDK_TOKENS,
   type SessionIdResolvedCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
+import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 
 import { CHAT_TOKENS } from './tokens';
 import { ChatSdkContextService } from './session/chat-sdk-context.service';
@@ -45,6 +47,7 @@ import { ChatSlashCommandRouterService } from './session/chat-slash-command-rout
 import { ChatSessionService } from './session/chat-session.service';
 import { ChatHistoryReadService } from './session/chat-history-read.service';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
+import { ChildChatSessionHostAdapter } from './session/child-chat-session-host.adapter';
 import {
   SURFACE_SUBMIT_DISPATCH_DEADLINE_MS,
   SURFACE_SUBMIT_TURN_OPTIONS,
@@ -89,6 +92,13 @@ export function registerChatServices(container: DependencyContainer): void {
   container.registerSingleton(
     CHAT_TOKENS.SURFACE_SUBMIT_TURN,
     SurfaceSubmitTurnService,
+  );
+  // The chat-path host port for child sessions (TASK_2026_584). Bound under
+  // the `cli-agent-runtime` token because the spawner that consumes it lives
+  // there and cannot import this lib. Resolves `SESSION` lazily.
+  container.registerSingleton(
+    CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST,
+    ChildChatSessionHostAdapter,
   );
 
   // A fresh session streams under its tabId until the SDK reports the real

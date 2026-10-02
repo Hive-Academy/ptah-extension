@@ -11,8 +11,15 @@ import {
   afterNextRender,
   Injector,
   NgZone,
+  untracked,
 } from '@angular/core';
-import { LucideAngularModule, ChevronLeft, ChevronRight } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-angular';
+import type { TabAgentOrigin } from '@ptah-extension/chat-types';
 import {
   AwaitingBackgroundIndicatorComponent,
   TabItemComponent,
@@ -22,6 +29,29 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
+import { FloatingUIService } from '@ptah-extension/ui';
+
+/** Text of the agent badge's tooltip, for the one badge it is shown for. */
+interface AgentBadgeTip {
+  readonly tabId: string;
+  readonly by: string;
+  readonly branch: string;
+  readonly path: string;
+}
+
+/** Instance counter so each tab bar's tooltip id is unique in the page. */
+let nextTabBarId = 0;
+
+/**
+ * Shorten a worktree path to its last two segments (`…/.worktrees/x`), keeping
+ * the separator the path uses. The banner of the tab shows the full path.
+ */
+export function tailPath(path: string, segments = 2): string {
+  const separator = path.includes('\\') ? '\\' : '/';
+  const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
+  if (parts.length <= segments) return path;
+  return `…${separator}${parts.slice(-segments).join(separator)}`;
+}
 
 /**
  * TabBarComponent - Chrome-style scrollable tab bar
@@ -40,6 +70,7 @@ import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
     LucideAngularModule,
   ],
   host: { class: 'block min-w-0 overflow-hidden h-full' },
+  providers: [FloatingUIService],
   template: `
     <div class="relative flex items-center h-full">
       <!-- Left scroll arrow -->
@@ -68,7 +99,45 @@ import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
             (tabSelect)="onSelectTab($event)"
             (tabClose)="onCloseTab($event)"
             (viewModeToggle)="onToggleViewMode($event)"
-          />
+          >
+            @if (tab.agentOrigin; as origin) {
+              <!-- Agent-started tab (TASK_2026_584), inside its own tab before
+                   the title: activating the badge opens the parent tab.
+                   Icon only, so the title keeps its width; the 12px icon plus
+                   6px padding gives a 24x24 hit area, and the negative block
+                   margin keeps the tab height unchanged. Focusable even when
+                   the parent is gone so the label and the tooltip still tell a
+                   keyboard user where it came from. -->
+              <button
+                tabItemLeading
+                type="button"
+                class="inline-flex items-center justify-center p-1.5 -my-1 -ml-1 rounded text-base-content flex-shrink-0"
+                [class.cursor-pointer]="tabTitles().has(origin.parentTabId)"
+                [class.cursor-default]="!tabTitles().has(origin.parentTabId)"
+                [class.opacity-60]="!tabTitles().has(origin.parentTabId)"
+                [attr.aria-label]="agentBadgeLabel(origin.parentTabId)"
+                [attr.aria-disabled]="
+                  tabTitles().has(origin.parentTabId) ? null : 'true'
+                "
+                [attr.aria-describedby]="
+                  visibleBadgeTip()?.tabId === tab.id ? badgeTipId : null
+                "
+                (click)="onAgentBadge($event, origin.parentTabId)"
+                (mouseenter)="showBadgeTip($event, tab.id, origin)"
+                (focus)="showBadgeTip($event, tab.id, origin)"
+                (mouseleave)="hideBadgeTip()"
+                (blur)="hideBadgeTip()"
+                (keydown.escape)="hideBadgeTip()"
+                data-test="tab-bar-agent-badge"
+              >
+                <lucide-angular
+                  [img]="BotIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
+              </button>
+            }
+          </ptah-tab-item>
         }
       </div>
 
@@ -95,6 +164,24 @@ import { WorkflowSessionClaimService } from '@ptah-extension/chat-routing';
           />
         </div>
       }
+
+      <!-- One tooltip for the whole bar, shown for the hovered or focused
+           agent badge. Fixed-positioned by Floating UI so the tab strip's
+           overflow does not clip it. -->
+      @if (visibleBadgeTip(); as tip) {
+        <div
+          #badgeTooltip
+          role="tooltip"
+          [id]="badgeTipId"
+          class="z-50 max-w-xs px-2 py-1 rounded border border-base-300 bg-base-200 text-base-content text-[11px] leading-snug shadow-lg pointer-events-none"
+          style="position: fixed; visibility: hidden"
+          data-test="tab-bar-agent-badge-tooltip"
+        >
+          <div class="truncate">Started by {{ tip.by }}</div>
+          <div class="font-mono truncate">{{ tip.branch }}</div>
+          <div class="font-mono truncate">{{ tip.path }}</div>
+        </div>
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -106,6 +193,7 @@ export class TabBarComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);
+  private readonly floatingUI = inject(FloatingUIService);
 
   readonly tabs = computed(() =>
     this.tabManager.tabs().filter((t) => this.claims.surfaceFor(t.id) === null),
@@ -122,11 +210,35 @@ export class TabBarComponent {
       : null;
   });
 
+  /**
+   * Title by tab id over every tab in the active set (claimed ones included,
+   * a parent may be one). Read by the agent badge; one map per tab-set
+   * change rather than a scan per badge per check.
+   */
+  protected readonly tabTitles = computed(
+    () =>
+      new Map<string, string>(
+        this.tabManager.tabs().map((t) => [t.id, t.title || 'New Chat']),
+      ),
+  );
+
   protected readonly ChevronLeftIcon = ChevronLeft;
   protected readonly ChevronRightIcon = ChevronRight;
+  protected readonly BotIcon = Bot;
 
   private readonly tabContainerRef =
     viewChild<ElementRef<HTMLDivElement>>('tabContainer');
+  private readonly badgeTooltipRef =
+    viewChild<ElementRef<HTMLDivElement>>('badgeTooltip');
+
+  /** The agent badge tooltip's content while one badge shows it, else null. */
+  protected readonly badgeTip = signal<AgentBadgeTip | null>(null);
+  protected readonly badgeTipId = `ptah-tab-bar-agent-tip-${nextTabBarId++}`;
+  /** The tooltip, dropped as soon as its tab leaves the bar. */
+  protected readonly visibleBadgeTip = computed(() => {
+    const tip = this.badgeTip();
+    return tip && this.tabs().some((t) => t.id === tip.tabId) ? tip : null;
+  });
 
   protected readonly canScrollLeft = signal(false);
   protected readonly canScrollRight = signal(false);
@@ -141,6 +253,13 @@ export class TabBarComponent {
   private wheelHandler: ((e: WheelEvent) => void) | null = null;
 
   constructor() {
+    // The tooltip's tab left the bar while it was open: release Floating
+    // UI's autoUpdate listeners along with the tooltip.
+    effect(() => {
+      if (this.badgeTip() !== null && this.visibleBadgeTip() === null) {
+        untracked(() => this.hideBadgeTip());
+      }
+    });
     effect(() => {
       this.tabs(); // track dependency
       const activeId = this.activeTabId();
@@ -197,6 +316,65 @@ export class TabBarComponent {
 
   protected onToggleViewMode(tabId: string): void {
     this.tabManager.toggleTabViewMode(tabId);
+  }
+
+  /** Accessible name of the icon-only badge: the tooltip's first line. */
+  protected agentBadgeLabel(parentTabId: string): string {
+    return `Started by ${this.agentBadgeBy(parentTabId)}`;
+  }
+
+  private agentBadgeBy(parentTabId: string): string {
+    return (
+      this.tabTitles().get(parentTabId) ??
+      'an agent session (parent tab closed)'
+    );
+  }
+
+  /**
+   * Show the tooltip for one agent badge, on hover or keyboard focus, and
+   * anchor it to that badge once it is rendered.
+   */
+  protected showBadgeTip(
+    event: Event,
+    tabId: string,
+    origin: TabAgentOrigin,
+  ): void {
+    const anchor = event.currentTarget;
+    if (!(anchor instanceof HTMLElement)) return;
+    this.badgeTip.set({
+      tabId,
+      by: this.agentBadgeBy(origin.parentTabId),
+      branch: origin.branch,
+      path: tailPath(origin.worktreePath),
+    });
+    afterNextRender(
+      () => {
+        const tooltip = this.badgeTooltipRef()?.nativeElement;
+        if (!tooltip || !anchor.isConnected) return;
+        void this.floatingUI.position(anchor, tooltip, {
+          placement: 'bottom-start',
+          offset: 4,
+        });
+      },
+      { injector: this.injector },
+    );
+  }
+
+  protected hideBadgeTip(): void {
+    if (this.badgeTip() === null) return;
+    this.floatingUI.cleanup();
+    this.badgeTip.set(null);
+  }
+
+  /**
+   * Switch to the parent tab; a no-op when it is no longer open. Never
+   * selects the child tab the badge sits in.
+   */
+  protected onAgentBadge(event: Event, parentTabId: string): void {
+    event.stopPropagation();
+    if (!this.tabTitles().has(parentTabId)) return;
+    this.hideBadgeTip();
+    this.tabManager.switchTab(parentTabId);
   }
 
   /**

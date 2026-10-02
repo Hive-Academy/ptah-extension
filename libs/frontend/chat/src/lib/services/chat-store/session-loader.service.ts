@@ -947,7 +947,11 @@ export class SessionLoaderService {
   }
 
   private requireTargetTab(sessionId: SessionId, targetTabId: TabId): TabState {
+    // Active set first: on a host that never activates a workspace partition
+    // (the VS Code panel) it is the only set, and the cross-workspace lookup
+    // finds nothing there (TASK_2026_584).
     const target =
+      this.tabManager.tabs().find((t) => t.id === targetTabId) ??
       this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
     const ownsDifferentSession =
       target?.claudeSessionId != null && target.claudeSessionId !== sessionId;

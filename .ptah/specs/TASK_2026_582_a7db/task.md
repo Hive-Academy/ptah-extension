@@ -6,13 +6,14 @@ title: >-
   Extract the video projects into a separate repository for an Nx plugin and a marketplace
 description: >-
   Move apps/ptah-video-studio, libs/showcase-manifest, the showcase capture
-  harness, tools/video-editor and their skills and agents into a new public
+  harness, tools/video-editor, the generic parts of tools/hyperframes and their
+  skills and agents into a new public
   repository. The new repository ships an Nx plugin (generators, executors,
   doctor checks) and a Claude plugin marketplace manifest. Ptah keeps only
   what it needs to record its own videos, consumed from the new package.
 depends_on: []
 created: 2026-09-30T00:00:00.000Z
-updated: 2026-09-30T00:00:00.000Z
+updated: 2026-10-01T00:00:00.000Z
 ---
 
 ## Description

@@ -15,6 +15,7 @@
  * - ASK_USER_QUESTION_REQUEST: AskUserQuestion tool from SDK
  * - PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution
  * - PERMISSION_SESSION_CLEANUP: Session abort cleanup
+ * - AGENT_SESSION_OPENED: Agent-started child session tab (TASK_2026_584)
  */
 
 import { Injectable, inject } from '@angular/core';
@@ -36,6 +37,10 @@ import {
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
+import {
+  AgentSessionAdoptionService,
+  parseAgentSessionOpenedPayload,
+} from './agent-session-adoption.service';
 import {
   AgentMonitorStore,
   TurnStateApplier,
@@ -65,6 +70,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   private readonly boardTaskLinkCapture = inject(BoardTaskLinkCaptureService);
+  private readonly agentSessionAdoption = inject(AgentSessionAdoptionService);
   /**
    * Authoritative StreamRouter.
    *
@@ -123,6 +129,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.SESSION_SUBAGENT_ENDED,
     MESSAGE_TYPES.GATEWAY_SESSION_ATTACHED,
     MESSAGE_TYPES.GATEWAY_SESSION_DETACHED,
+    MESSAGE_TYPES.AGENT_SESSION_OPENED,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -187,7 +194,30 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.GATEWAY_SESSION_DETACHED:
         this.handleGatewaySessionDetached(message.payload);
         break;
+      case MESSAGE_TYPES.AGENT_SESSION_OPENED:
+        this.handleAgentSessionOpened(message.payload);
+        break;
     }
+  }
+
+  /**
+   * `agentSession:opened` — a parent session started a child chat session
+   * with `ptah_session_start` (TASK_2026_584). Pushed before the child's first
+   * chunk, so the tab exists when its stream arrives. The panel that holds the
+   * parent tab adopts it; every other panel's adoption is a no-op.
+   */
+  private handleAgentSessionOpened(payload: unknown): void {
+    const parsed = parseAgentSessionOpenedPayload(payload);
+    if (!parsed) {
+      console.warn(
+        '[ChatMessageHandler] agentSession:opened payload rejected — dropped',
+        ChatMessageHandler.describePayload(payload),
+      );
+      return;
+    }
+    // Never throws (the service catches an adoption fault), so the switch
+    // keeps handling the messages that follow.
+    this.agentSessionAdoption.adopt(parsed, 'live');
   }
 
   /**
@@ -279,9 +309,8 @@ export class ChatMessageHandler implements MessageHandler {
     if (memoized !== undefined) return memoized;
 
     const workspacePath =
-      this.tabManager.findTabBySessionIdAcrossWorkspaces(
-        sessionId,
-      )?.workspacePath;
+      this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)
+        ?.workspacePath ?? undefined;
     if (workspacePath !== undefined) {
       this._workspaceBySession.set(sessionId, workspacePath);
     }

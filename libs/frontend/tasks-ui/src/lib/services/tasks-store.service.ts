@@ -55,6 +55,9 @@ export const TASKS_CHANGED_MESSAGE_TYPE = 'tasks:changed';
 /** Full scans may cover hundreds of task folders and need a batch-sized budget. */
 const REINDEX_TIMEOUT_MS = 120_000;
 
+/** A sweep may delete dozens of folders; the 30s default is too tight. */
+const SWEEP_TIMEOUT_MS = 60_000;
+
 /**
  * One rendered board column: a status, the tasks currently visible in it, and
  * how many the workspace holds for that status regardless of the filter.
@@ -1306,11 +1309,11 @@ export class TasksStore implements MessageHandler {
     this._sweeping.set(true);
     this._error.set(null);
     try {
-      const result = await this.rpc.call('tasks:sweepFinished', {
-        olderThanDays,
-        apply,
-        ...this.workspaceParam(),
-      });
+      const result = await this.rpc.call(
+        'tasks:sweepFinished',
+        { olderThanDays, apply, ...this.workspaceParam() },
+        { timeout: SWEEP_TIMEOUT_MS },
+      );
       if (result.isSuccess() && result.data) {
         this._sweep.set(result.data);
       } else {
