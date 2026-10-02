@@ -1,49 +1,25 @@
 /**
- * OutputStyleListComponent — the picker half of the output-style section.
+ * OutputStyleListComponent — the matrix picker half of the output-style section (A19-A24).
  *
- * Purely presentational: every input arrives from `OutputStyleConfigComponent`,
- * every action leaves as an output. It holds exactly one piece of local state,
- * the pending delete confirmation, because that is view state and nothing else
- * needs to know about it.
+ * Rebuilt as a P4 matrix (`table table-xs`) with an Active radio column (G7) and
+ * collapsed Command-line parity `<details>` (P9):
+ *  - **A19**: P4 matrix with Active (radio), Name, Tier, Description, Actions columns.
+ *    Retains `role="radiogroup"` on the table.
+ *  - **A20**: Status/tier badges in outline form (`badge badge-outline badge-xs text-base-content`),
+ *    preserving deviation #6 (colour on dot/border only).
+ *  - **A22**: Edit opens drawer D-OS; Delete opens P8 inline confirm in the row.
+ *  - **A23**: Inline alert banners for write error, missing-active, collision, fallback,
+ *    and unreadable invalid files list with "Rewrite it here".
+ *  - **A24**: Command-line parity in a closed `<details>` (P9); S-confirm before writing
+ *    settings file outside Ptah, with exact display path before write and no Undo.
  *
- * Copy rules baked into this template, all of them load-bearing:
- *
- *  - **R1** — a style *influences* how the agent writes. Ptah's own engineering
- *    prompt is appended to every session unconditionally and is the stronger
- *    voice, so nothing here may claim a style governs or guarantees behaviour.
- *  - **Req 4.2** — an immutable style shows a *disabled* control plus the
- *    reason, never a silently missing button.
- *  - **E4/M1** — a *shadowed* row gets that same treatment. The name it carries
- *    resolves to the winning entry under SDK merge order, so a click on the
- *    losing row would light up a DIFFERENT row. Rather than give misleading
- *    feedback, the row is disabled and says which copy wins and why.
- *  - **E5/N1** — the missing-active banner must not claim the file was removed.
- *    `resolveActive` sets `missing` whenever the name is absent from the winners
- *    map, which is ALSO true when the file is still on disk but no longer
- *    parses. The copy names both causes, and only the cause the list can
- *    actually corroborate.
- *  - **Req 5.4 (rev 2)** — the fallback banner's trigger is only "user-tier
- *    style file + localhost provider", and it says the provider does not read
- *    user-level style FILES. It must not say settings are ignored: the settings
- *    key rides the flag tier and always applies.
- *  - **Req 2.5** — the footer states the change lands on the next session.
- *
- * ## The CLI-parity control (B7, §4.1/§4.2, R6)
- *
- * The checkbox is default OFF and its state lives here, in the view, because
- * it is a property of THIS activation and not of the style. A user who never
- * touches it emits `parity: undefined`, the backend calls no settings writer,
- * and no `.claude/settings*.json` is created or modified.
- *
- * Two copy rules on top of the ones above:
- *
- *  - **R6/E2** — the label names the EXACT file before it is written, and that
- *    name is a relative display path (`.claude/settings.json`,
- *    `.claude/settings.local.json`, `~/.claude/settings.json`). No absolute
- *    host path is ever rendered (Req 7.6).
- *  - **§4.1** — the outcome is reported as a plain note or a warning, never as
- *    an error. A parity failure does not mean the style failed to apply, and
- *    the copy must not imply the user should try their selection again.
+ * Copy rules baked into this template (load-bearing):
+ *  - **R1** — style influences how the agent writes; Ptah's prompt is always appended.
+ *  - **Req 4.2** — immutable style shows disabled control + reason.
+ *  - **E4/M1** — shadowed row shows disabled control + winner reason.
+ *  - **E5/N1** — missing-active banner names both causes unless invalid list is empty.
+ *  - **Req 5.4** — fallback banner triggered for user-tier + localhost provider.
+ *  - **Req 2.5** — footer states change lands on the next session.
  */
 
 import {
@@ -56,10 +32,10 @@ import {
 } from '@angular/core';
 import {
   LucideAngularModule,
+  AlertCircle,
   AlertTriangle,
   Check,
   Pencil,
-  Plus,
   RotateCcw,
   Trash2,
 } from 'lucide-angular';
@@ -72,6 +48,13 @@ import type {
   SettingsTier,
   WritableOutputStyleTier,
 } from '@ptah-extension/shared';
+import {
+  OutputStyleParitySectionComponent,
+  PARITY_TIERS,
+  type ParityTierOption,
+} from './output-style-parity-section.component';
+
+export { PARITY_TIERS, type ParityTierOption };
 
 /** A style the user asked to edit or delete, identified the only way that binds (E1). */
 export interface OutputStyleRef {
@@ -81,9 +64,7 @@ export interface OutputStyleRef {
 
 /**
  * One selection request: the style, plus whether to also mirror it for the
- * command line. `parity` is absent unless the user ticked the box, which is
- * what makes "no opt-in, no settings file" true at the wire level and not just
- * in the backend's branching.
+ * command line. `parity` is absent unless the user ticked the box.
  */
 export interface OutputStyleSelectionRequest {
   readonly name: string | null;
@@ -97,12 +78,6 @@ const TIER_LABELS: Readonly<Record<OutputStyleTier, string>> = {
   plugin: 'Plugin',
 };
 
-/**
- * How the WINNER of a shadowed name is described in prose (E4/M1).
- *
- * The badge labels above are noun-phrase-hostile — "the You copy" does not read
- * — so the sentence form is spelled out separately instead of reusing them.
- */
 const SHADOW_WINNER_LABELS: Readonly<Record<OutputStyleTier, string>> = {
   builtin: 'the built-in style of the same name',
   user: 'your own copy of the same name',
@@ -110,59 +85,34 @@ const SHADOW_WINNER_LABELS: Readonly<Record<OutputStyleTier, string>> = {
   plugin: 'a plugin copy of the same name',
 };
 
-/** Distinguishes the `aria-describedby` targets of two lists on one page. */
 let listInstanceCounter = 0;
 
-/**
- * The exact file each parity tier writes, as a display path (E2, Req 7.6).
- *
- * These are the same three strings `ClaudeSettingsWriter` reports back in
- * `writtenPath`, so the name the user reads BEFORE the write is the name they
- * read after it. Relative and `~`-relative by construction — the frontend never
- * learns an absolute host path and could not render one if it wanted to.
- */
-const PARITY_TIERS: ReadonlyArray<{
-  readonly tier: SettingsTier;
-  readonly displayPath: string;
-  readonly scope: string;
-}> = [
-  {
-    tier: 'project',
-    displayPath: '.claude/settings.json',
-    scope: 'this project, shared with anyone who clones it',
-  },
-  {
-    tier: 'local',
-    displayPath: '.claude/settings.local.json',
-    scope: 'this project, only on this machine',
-  },
-  {
-    tier: 'user',
-    displayPath: '~/.claude/settings.json',
-    scope: 'every project on this machine',
-  },
-];
+const OUTPUT_STYLE_ACTIVATE_FAILED = 'Could not change the active output style.';
+const OUTPUT_STYLE_DELETE_FAILED = 'Could not delete the output style.';
+const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project.';
 
 @Component({
   selector: 'ptah-output-style-list',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, OutputStyleParitySectionComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (error(); as message) {
+    <!-- Write / Operation Error Alert -->
+    @if (error()) {
       <div
-        class="flex items-start gap-2 rounded border border-error/40 bg-error/10 p-2 mb-2"
+        class="flex items-start gap-2 rounded border border-error/40 bg-error/10 p-2 mb-3 text-xs text-base-content"
         role="alert"
+        data-testid="output-style-error"
       >
         <lucide-angular
-          [img]="AlertTriangleIcon"
+          [img]="AlertCircleIcon"
           class="w-3.5 h-3.5 mt-0.5 shrink-0 text-error"
           aria-hidden="true"
         />
-        <span class="text-xs text-error flex-1">{{ message }}</span>
+        <span class="flex-1">{{ fixedErrorMessage() }}</span>
         <button
           type="button"
-          class="btn btn-ghost btn-xs"
+          class="btn btn-ghost btn-xs text-base-content"
           (click)="dismissError.emit()"
         >
           Dismiss
@@ -170,10 +120,12 @@ const PARITY_TIERS: ReadonlyArray<{
       </div>
     }
 
+    <!-- Missing-active banner (E5/N1) -->
     @if (activeMissing()) {
       <div
-        class="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 p-2 mb-2"
+        class="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 p-2 mb-3 text-xs text-base-content"
         role="status"
+        data-testid="output-style-missing-banner"
       >
         <lucide-angular
           [img]="AlertTriangleIcon"
@@ -188,9 +140,10 @@ const PARITY_TIERS: ReadonlyArray<{
           </p>
           <button
             type="button"
-            class="btn btn-ghost btn-xs mt-1 gap-1"
-            (click)="emitSelection(null)"
+            class="btn btn-ghost btn-xs mt-1 gap-1 text-base-content"
+            (click)="onSelectNull()"
             [disabled]="saving()"
+            data-testid="output-style-clear-selection"
           >
             <lucide-angular
               [img]="RotateCcwIcon"
@@ -203,10 +156,12 @@ const PARITY_TIERS: ReadonlyArray<{
       </div>
     }
 
+    <!-- Collision banner (E4) -->
     @if (hasCollision()) {
       <div
-        class="rounded border border-warning/40 bg-warning/10 p-2 mb-2"
+        class="rounded border border-warning/40 bg-warning/10 p-2 mb-3 text-xs text-base-content"
         role="status"
+        data-testid="output-style-collision-banner"
       >
         <p class="text-xs">
           More than one file uses the name
@@ -218,10 +173,12 @@ const PARITY_TIERS: ReadonlyArray<{
       </div>
     }
 
+    <!-- Fallback injection banner (Req 5.4) -->
     @if (usingFallback()) {
       <div
-        class="rounded border border-info/40 bg-info/10 p-2 mb-2"
+        class="rounded border border-info/40 bg-info/10 p-2 mb-3 text-xs text-base-content"
         role="status"
+        data-testid="output-style-fallback-banner"
       >
         <p class="text-xs">
           This provider does not read style files from your home folder, so Ptah
@@ -233,9 +190,10 @@ const PARITY_TIERS: ReadonlyArray<{
         @if (activeName(); as name) {
           <button
             type="button"
-            class="btn btn-ghost btn-xs mt-1"
+            class="btn btn-ghost btn-xs mt-1 text-base-content"
             (click)="copyToProject.emit(name)"
             [disabled]="saving()"
+            data-testid="output-style-copy-to-project"
           >
             Copy to this project
           </button>
@@ -243,208 +201,217 @@ const PARITY_TIERS: ReadonlyArray<{
       </div>
     }
 
-    <div class="flex items-center justify-between mb-1.5">
-      <span class="text-[11px] text-base-content-muted">
-        {{ styles().length }} available
-      </span>
-      <button
-        type="button"
-        class="btn btn-ghost btn-xs gap-1"
-        (click)="create.emit()"
-        [disabled]="saving()"
-      >
-        <lucide-angular [img]="PlusIcon" class="w-3 h-3" aria-hidden="true" />
-        New style
-      </button>
-    </div>
-
+    <!-- Matrix Table (A19, A20, A22, G7) -->
     @if (loading()) {
-      <div class="flex items-center gap-2 py-3 text-xs text-base-content-muted">
-        <span class="loading loading-spinner loading-xs"></span>
+      <div class="flex items-center gap-2 py-3 text-xs text-base-content-muted" role="status">
+        <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
         Reading your style files…
       </div>
     } @else {
-      <ul
-        class="rounded border border-base-300 divide-y divide-base-300/50"
-        role="radiogroup"
-        aria-label="Active output style"
-      >
-        @for (
-          style of styles();
-          track style.tier + '/' + style.name;
-          let i = $index
-        ) {
-          <li class="p-2" role="presentation">
-            <div class="flex items-start gap-2">
-              <button
-                type="button"
-                role="radio"
-                class="flex-1 min-w-0 text-left rounded px-1 py-0.5 hover:bg-base-200/60 transition-colors disabled:cursor-not-allowed"
-                [attr.aria-checked]="isActive(style)"
-                [attr.title]="shadowNote(style)"
-                [attr.aria-describedby]="
-                  isShadowed(style) ? shadowNoteId(i) : null
-                "
-                [disabled]="saving() || isShadowed(style)"
-                (click)="emitSelection(selectionValue(style))"
+      <div class="overflow-x-auto">
+        <table
+          class="table table-xs w-full"
+          role="radiogroup"
+          aria-label="Active output style"
+          data-testid="output-style-matrix"
+        >
+          <thead>
+            <tr>
+              <th class="w-12 text-center" scope="col">Active</th>
+              <th scope="col">Name</th>
+              <th scope="col">Tier</th>
+              <th scope="col">Description</th>
+              <th class="text-right" scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (
+              style of styles();
+              track style.tier + '/' + style.name;
+              let i = $index
+            ) {
+              <tr
+                [class.opacity-60]="isShadowed(style)"
+                [attr.data-testid]="'output-style-row-' + style.name"
               >
-                <span class="flex items-center gap-1.5 flex-wrap">
-                  @if (isActive(style)) {
-                    <lucide-angular
-                      [img]="CheckIcon"
-                      class="w-3.5 h-3.5 text-success shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span class="sr-only">Active style:</span>
-                  }
-                  <span class="text-xs font-medium">{{ style.name }}</span>
-                  <span
-                    class="badge badge-xs"
-                    [class.badge-primary]="style.tier === 'project'"
-                    [class.badge-secondary]="style.tier === 'user'"
-                    [class.badge-ghost]="
-                      style.tier === 'builtin' || style.tier === 'plugin'
-                    "
-                  >
-                    {{ tierLabel(style.tier) }}
-                  </span>
-                  @if (style.shadowed) {
-                    <span class="badge badge-xs badge-warning">
-                      Overridden
-                    </span>
-                  }
-                  @if (!style.keepCodingInstructions) {
-                    <span class="badge badge-xs badge-outline">
-                      Drops the default coding instructions
-                    </span>
-                  }
-                </span>
-                <span
-                  class="block text-[11px] text-base-content-muted mt-0.5 leading-relaxed"
-                >
-                  {{ style.description }}
-                </span>
-              </button>
-
-              <div class="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs px-1"
-                  [disabled]="!style.editable || saving()"
-                  [attr.aria-label]="'Edit ' + style.name"
-                  [attr.title]="actionTitle(style, 'Edit')"
-                  (click)="emitEdit(style)"
-                >
-                  <lucide-angular
-                    [img]="PencilIcon"
-                    class="w-3.5 h-3.5"
-                    aria-hidden="true"
+                <!-- Active Radio Column -->
+                <td class="text-center align-middle">
+                  <input
+                    type="radio"
+                    name="active-output-style"
+                    role="radio"
+                    class="radio radio-xs radio-primary cursor-pointer disabled:cursor-not-allowed"
+                    [checked]="isActive(style)"
+                    [disabled]="saving() || isShadowed(style)"
+                    [attr.aria-checked]="isActive(style)"
+                    [attr.aria-label]="'Activate ' + style.name"
+                    [attr.title]="shadowNote(style)"
+                    [attr.aria-describedby]="isShadowed(style) ? shadowNoteId(i) : null"
+                    (click)="onSelectStyle(style)"
                   />
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs px-1"
-                  [disabled]="!style.deletable || saving()"
-                  [attr.aria-label]="'Delete ' + style.name"
-                  [attr.title]="actionTitle(style, 'Delete')"
-                  (click)="askDelete(style)"
-                >
-                  <lucide-angular
-                    [img]="Trash2Icon"
-                    class="w-3.5 h-3.5"
-                    aria-hidden="true"
-                  />
-                </button>
-              </div>
-            </div>
+                </td>
 
-            @if (shadowNote(style); as note) {
-              <p
-                class="text-[10px] text-base-content-muted mt-1 pl-1"
-                [id]="shadowNoteId(i)"
-              >
-                {{ note }}
-              </p>
+                <!-- Name Column -->
+                <td class="font-medium align-middle whitespace-nowrap text-base-content">
+                  <div class="flex items-center gap-1.5">
+                    @if (isActive(style)) {
+                      <lucide-angular
+                        [img]="CheckIcon"
+                        class="w-3.5 h-3.5 text-success shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span class="sr-only">Active style:</span>
+                    }
+                    <span>{{ style.name }}</span>
+                  </div>
+                </td>
+
+                <!-- Tier Column (A20: outline badges, colour on dot/border only) -->
+                <td class="align-middle whitespace-nowrap">
+                  <div class="flex items-center gap-1 flex-wrap">
+                    <span
+                      class="badge badge-outline badge-xs text-base-content"
+                      [class.border-primary]="style.tier === 'project'"
+                      [class.border-secondary]="style.tier === 'user'"
+                    >
+                      {{ tierLabel(style.tier) }}
+                    </span>
+                    @if (style.shadowed) {
+                      <span class="badge badge-outline badge-xs border-warning text-base-content">
+                        Overridden
+                      </span>
+                    }
+                    @if (!style.keepCodingInstructions) {
+                      <span class="badge badge-outline badge-xs text-base-content">
+                        Drops default coding instructions
+                      </span>
+                    }
+                  </div>
+                </td>
+
+                <!-- Description Column + Notes + Delete Confirmation -->
+                <td class="align-middle text-xs text-base-content-muted">
+                  <div>{{ style.description }}</div>
+                  @if (shadowNote(style); as note) {
+                    <p class="text-[10px] text-base-content-muted mt-0.5" [id]="shadowNoteId(i)">
+                      {{ note }}
+                    </p>
+                  }
+                  @if (immutableNote(style); as note) {
+                    <p class="text-[10px] text-base-content-muted mt-0.5">
+                      {{ note }}
+                    </p>
+                  }
+                  @if (isPendingDelete(style)) {
+                    <div
+                      class="flex items-center gap-2 mt-1.5 rounded border border-error/40 bg-error/10 px-2 py-1.5 text-base-content"
+                      role="alertdialog"
+                      [attr.aria-label]="'Confirm deleting ' + style.name"
+                      data-testid="output-style-delete-confirm"
+                    >
+                      <span class="text-[11px] flex-1">
+                        Delete
+                        <code class="text-base-content-muted">{{
+                          style.fileName ?? style.name
+                        }}</code
+                        >? This removes the file from disk.
+                      </span>
+                      <button
+                        type="button"
+                        class="btn btn-error btn-xs"
+                        [disabled]="saving()"
+                        (click)="confirmDelete(style)"
+                        data-testid="output-style-confirm-delete"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs text-base-content"
+                        (click)="pendingDelete.set(null)"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  }
+                </td>
+
+                <!-- Actions Column -->
+                <td class="text-right align-middle whitespace-nowrap">
+                  <div class="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs btn-square disabled:bg-transparent disabled:border-transparent disabled:opacity-40 text-base-content"
+                      [disabled]="!style.editable || saving()"
+                      [attr.aria-label]="'Edit ' + style.name"
+                      [attr.title]="actionTitle(style, 'Edit')"
+                      (click)="emitEdit(style)"
+                      data-testid="output-style-edit-button"
+                    >
+                      <lucide-angular
+                        [img]="PencilIcon"
+                        class="w-3.5 h-3.5"
+                        aria-hidden="true"
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs btn-square disabled:bg-transparent disabled:border-transparent disabled:opacity-40 text-base-content"
+                      [disabled]="!style.deletable || saving()"
+                      [attr.aria-label]="'Delete ' + style.name"
+                      [attr.title]="actionTitle(style, 'Delete')"
+                      (click)="askDelete(style)"
+                      data-testid="output-style-delete-button"
+                    >
+                      <lucide-angular
+                        [img]="Trash2Icon"
+                        class="w-3.5 h-3.5"
+                        aria-hidden="true"
+                      />
+                    </button>
+                  </div>
+                </td>
+              </tr>
             }
+          </tbody>
+        </table>
+      </div>
 
-            @if (immutableNote(style); as note) {
-              <p class="text-[10px] text-base-content-muted mt-1 pl-1">
-                {{ note }}
-              </p>
-            }
-
-            @if (isPendingDelete(style)) {
-              <div
-                class="flex items-center gap-2 mt-1.5 rounded border border-error/40 bg-error/10 px-2 py-1.5"
-                role="alertdialog"
-                [attr.aria-label]="'Confirm deleting ' + style.name"
-              >
-                <span class="text-[11px] flex-1">
-                  Delete
-                  <code class="text-base-content-muted">{{
-                    style.fileName ?? style.name
-                  }}</code
-                  >? This removes the file from disk.
-                </span>
-                <button
-                  type="button"
-                  class="btn btn-error btn-xs"
-                  [disabled]="saving()"
-                  (click)="confirmDelete(style)"
-                >
-                  Delete
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  (click)="pendingDelete.set(null)"
-                >
-                  Cancel
-                </button>
-              </div>
-            }
-          </li>
-        }
-      </ul>
-
+      <!-- Invalid Files List (A23) -->
       @if (invalid().length > 0) {
-        <div class="mt-3">
-          <h3 class="text-[11px] font-medium uppercase tracking-wide mb-1">
+        <div class="mt-3" data-testid="output-style-invalid-section">
+          <h3 class="text-[11px] font-medium uppercase tracking-wide mb-1 text-base-content">
             Files Ptah could not read
           </h3>
-          <ul
-            class="rounded border border-warning/40 divide-y divide-base-300/50"
-          >
+          <ul class="rounded border border-warning/40 divide-y divide-base-300/50">
             @for (entry of invalid(); track entry.relativePath) {
-              <li class="p-2">
+              <li class="p-2 text-xs text-base-content">
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <lucide-angular
                     [img]="AlertTriangleIcon"
                     class="w-3.5 h-3.5 text-warning shrink-0"
                     aria-hidden="true"
                   />
-                  <span class="text-xs font-medium">{{ entry.fileName }}</span>
-                  <span class="badge badge-xs badge-ghost">
+                  <span class="font-medium text-base-content">{{ entry.fileName }}</span>
+                  <span class="badge badge-outline badge-xs text-base-content">
                     {{ tierLabel(entry.tier) }}
                   </span>
                 </div>
-                <p
-                  class="text-[11px] text-base-content-muted mt-1 leading-relaxed"
-                >
+                <p class="text-[11px] text-base-content-muted mt-1 leading-relaxed">
                   {{ entry.error.message }}
                 </p>
                 <code class="text-[10px] text-base-content-muted break-all">
                   {{ entry.relativePath }}
                 </code>
                 <p class="text-[10px] text-base-content-muted mt-0.5">
-                  It is listed here rather than hidden, and it cannot be
-                  selected until it parses.
+                  It is listed here rather than hidden, and it cannot be selected until it parses.
                 </p>
                 @if (entry.openable) {
                   <button
                     type="button"
-                    class="btn btn-ghost btn-xs mt-1"
+                    class="btn btn-ghost btn-xs mt-1 text-base-content"
                     (click)="openInvalid.emit(entry)"
+                    data-testid="output-style-rewrite-button"
                   >
                     Rewrite it here
                   </button>
@@ -456,99 +423,23 @@ const PARITY_TIERS: ReadonlyArray<{
       }
     }
 
-    <div class="mt-3 rounded border border-base-300 p-2">
-      <label class="flex items-start gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          class="checkbox checkbox-xs mt-0.5"
-          [checked]="parityEnabled()"
-          (change)="onParityToggle($event)"
-        />
-        <span class="flex-1">
-          <span class="text-xs">
-            Also apply this style when I run <code>claude</code> in this project
-          </span>
-          <span
-            class="block text-[11px] text-base-content-muted mt-0.5 leading-relaxed"
-          >
-            Ptah applies your choice on its own. Tick this to additionally write
-            <code class="text-base-content-muted">{{
-              parityDisplayPath()
-            }}</code>
-            so the command-line tool picks up the same style. Ptah keeps every
-            other setting in that file as it is.
-          </span>
-        </span>
-      </label>
+    <!-- Command-Line Parity Section (A24, P9) -->
+    <ptah-output-style-parity-section
+      [parityEnabled]="parityEnabled()"
+      [parityTier]="parityTier()"
+      [parityDisplayPath]="parityDisplayPath()"
+      [pendingParitySelection]="pendingParitySelection()"
+      [parityWrittenPath]="parityWrittenPath()"
+      [parityWarning]="parityWarning()"
+      [saving]="saving()"
+      (parityToggled)="onParityToggled($event)"
+      (tierChanged)="onParityTierChanged($event)"
+      (confirmed)="confirmParitySelection()"
+      (cancelled)="cancelParitySelection()"
+      (dismissParity)="dismissParity.emit()"
+    />
 
-      @if (parityEnabled()) {
-        <div class="mt-2 pl-6">
-          <label
-            class="block text-[11px] text-base-content-muted mb-1"
-            for="output-style-parity-tier"
-          >
-            Where to write it
-          </label>
-          <select
-            id="output-style-parity-tier"
-            class="select select-bordered select-xs w-full max-w-xs"
-            [value]="parityTier()"
-            (change)="onParityTierChange($event)"
-          >
-            @for (option of parityTiers; track option.tier) {
-              <option
-                [value]="option.tier"
-                [selected]="option.tier === parityTier()"
-              >
-                {{ option.displayPath }} — {{ option.scope }}
-              </option>
-            }
-          </select>
-          <p class="text-[10px] text-base-content-muted mt-1 leading-relaxed">
-            The file is written the next time you pick a style. Nothing is
-            written while this box is unticked.
-          </p>
-        </div>
-      }
-
-      @if (parityWrittenPath(); as written) {
-        <p
-          class="text-[11px] text-success mt-2 pl-6 leading-relaxed"
-          role="status"
-        >
-          Saved to <code>{{ written }}</code
-          >.
-        </p>
-      }
-
-      @if (parityWarning(); as warning) {
-        <div
-          class="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 p-2 mt-2"
-          role="status"
-        >
-          <lucide-angular
-            [img]="AlertTriangleIcon"
-            class="w-3.5 h-3.5 mt-0.5 shrink-0 text-warning"
-            aria-hidden="true"
-          />
-          <div class="flex-1">
-            <p class="text-[11px] leading-relaxed">{{ warning }}</p>
-            <p class="text-[10px] text-base-content-muted mt-0.5">
-              Your chosen style is still active in Ptah — only the extra copy
-              for the command line was skipped.
-            </p>
-          </div>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs"
-            (click)="dismissParity.emit()"
-          >
-            Dismiss
-          </button>
-        </div>
-      }
-    </div>
-
+    <!-- Footer Note (Req 2.5) -->
     <p class="text-[10px] text-base-content-muted mt-2 leading-relaxed">
       A style applies from your next session onwards — a conversation that is
       already running keeps the style it started with. Styles influence tone and
@@ -571,11 +462,7 @@ export class OutputStyleListComponent {
   /** A parity failure. A WARNING — the selection itself succeeded (§4.1). */
   readonly parityWarning = input<string | null>(null);
 
-  /**
-   * A style selection, plus the opt-in parity request when the box is ticked.
-   * `name: null` clears the selection and returns the SDK to unmodified
-   * behaviour.
-   */
+  /** Style selection event, including parity opt-in when configured. */
   readonly activate = output<OutputStyleSelectionRequest>();
   readonly create = output<void>();
   readonly edit = output<OutputStyleRef>();
@@ -585,14 +472,14 @@ export class OutputStyleListComponent {
   readonly dismissError = output<void>();
   readonly dismissParity = output<void>();
 
+  readonly AlertCircleIcon = AlertCircle;
   readonly AlertTriangleIcon = AlertTriangle;
   readonly CheckIcon = Check;
   readonly PencilIcon = Pencil;
-  readonly PlusIcon = Plus;
   readonly RotateCcwIcon = RotateCcw;
   readonly Trash2Icon = Trash2;
 
-  /** View state only: which row is showing its delete confirmation. */
+  /** View state: which row is showing its delete confirmation. */
   readonly pendingDelete = signal<string | null>(null);
 
   readonly parityTiers = PARITY_TIERS;
@@ -602,6 +489,9 @@ export class OutputStyleListComponent {
 
   /** The committable tier is the one that serves parity (§4.2). */
   readonly parityTier = signal<SettingsTier>('project');
+
+  /** Style name pending confirmation before parity write (A24, S-confirm). */
+  readonly pendingParitySelection = signal<string | null | undefined>(undefined);
 
   /** The exact file the current tier would write, named before any write. */
   readonly parityDisplayPath = computed<string>(
@@ -615,35 +505,56 @@ export class OutputStyleListComponent {
   );
   readonly activeMissing = computed(() => this.active()?.missing === true);
 
-  /** Suffix that keeps this instance's `aria-describedby` targets its own. */
+  /** Fixed error message mapper to ensure host error text is never exposed (D15). */
+  readonly fixedErrorMessage = computed<string | null>(() => {
+    const raw = this.error();
+    if (!raw) return null;
+    const lower = raw.toLowerCase();
+    if (lower.includes('delete')) return OUTPUT_STYLE_DELETE_FAILED;
+    if (lower.includes('copy')) return OUTPUT_STYLE_COPY_FAILED;
+    return OUTPUT_STYLE_ACTIVATE_FAILED;
+  });
+
   private readonly instanceId = `output-style-${listInstanceCounter++}`;
 
-  /**
-   * E5/N1 — why the active style stopped resolving, stated to the limit of what
-   * is knowable here and no further.
-   *
-   * `missing` means only "the active name is absent from the winners map". Two
-   * things produce that: the file is gone, or the file is still there and no
-   * longer parses. The second case is exactly the case that puts a file in
-   * `invalid`, so an EMPTY invalid list rules it out and removal can be named
-   * outright; a non-empty one cannot single out a cause, and the copy says so
-   * rather than guessing. Matching the active name against `InvalidOutputStyle`
-   * is not available as a tiebreak: an unparseable file has no frontmatter
-   * `name` to match on, and its filename need not equal the style name (E1).
-   */
+  /** E5/N1 explanation of why the active style stopped resolving. */
   readonly missingActiveExplanation = computed<string>(() =>
     this.invalid().length === 0
       ? 'is no longer available. Its file was removed or renamed outside Ptah, so new sessions run with the default behaviour.'
       : 'is no longer available. Its file was either removed outside Ptah, or it is one of the files Ptah could not read, listed below — repairing that file brings the style back. Until then, new sessions run with the default behaviour.',
   );
 
-  /**
-   * The one place a selection leaves this component.
-   *
-   * `parity` is OMITTED, not sent as `{ enabled: false }`, when the box is
-   * unticked — the absent field is what guarantees the backend's settings
-   * writer is never reached on the default path.
-   */
+  onSelectStyle(style: OutputStyleEntry): void {
+    if (this.saving() || this.isShadowed(style)) return;
+    const name = this.selectionValue(style);
+    if (this.parityEnabled()) {
+      this.pendingParitySelection.set(name);
+    } else {
+      this.emitSelection(name);
+    }
+  }
+
+  onSelectNull(): void {
+    if (this.saving()) return;
+    if (this.parityEnabled()) {
+      this.pendingParitySelection.set(null);
+    } else {
+      this.emitSelection(null);
+    }
+  }
+
+  confirmParitySelection(): void {
+    const name = this.pendingParitySelection();
+    this.pendingParitySelection.set(undefined);
+    if (name !== undefined) {
+      this.emitSelection(name);
+    }
+  }
+
+  cancelParitySelection(): void {
+    this.pendingParitySelection.set(undefined);
+  }
+
   emitSelection(name: string | null): void {
     this.activate.emit(
       this.parityEnabled()
@@ -652,8 +563,17 @@ export class OutputStyleListComponent {
     );
   }
 
+  onParityToggled(checked: boolean): void {
+    this.parityEnabled.set(checked);
+    this.pendingParitySelection.set(undefined);
+  }
+
   onParityToggle(event: Event): void {
-    this.parityEnabled.set((event.target as HTMLInputElement).checked);
+    this.onParityToggled((event.target as HTMLInputElement).checked);
+  }
+
+  onParityTierChanged(tier: SettingsTier): void {
+    this.parityTier.set(tier);
   }
 
   onParityTierChange(event: Event): void {
@@ -669,10 +589,6 @@ export class OutputStyleListComponent {
       : selected === style.name && style.shadowed !== true;
   }
 
-  /**
-   * `default` is the SDK's null sentinel rather than a style object, so picking
-   * it clears the key instead of writing a name.
-   */
   selectionValue(style: OutputStyleEntry): string | null {
     return style.name === 'default' ? null : style.name;
   }
@@ -689,19 +605,6 @@ export class OutputStyleListComponent {
     return `${this.instanceId}-shadow-note-${index}`;
   }
 
-  /**
-   * E4/M1 — the reason a shadowed row cannot be picked.
-   *
-   * A style is selected BY NAME, and this row loses that name. Emitting it would
-   * activate the winner, putting the checkmark on a different row from the one
-   * clicked, so the control is disabled with its reason instead — the same
-   * disabled-plus-reason shape Req 4.2 already uses for immutable styles.
-   *
-   * The winner needs no merge-order knowledge to identify: discovery marks every
-   * loser `shadowed`, so the one entry sharing this name that is NOT shadowed is
-   * the winner by construction. When it somehow is not in the list, the sentence
-   * degrades to naming no tier rather than naming a wrong one.
-   */
   shadowNote(style: OutputStyleEntry): string | null {
     if (!this.isShadowed(style)) return null;
 
@@ -718,7 +621,6 @@ export class OutputStyleListComponent {
     return `Selecting this name activates ${winnerLabel}, which outranks this file, so this row cannot be chosen on its own. Rename this file to make it selectable.`;
   }
 
-  /** Req 4.2 — the reason an immutable style has no edit or delete action. */
   immutableNote(style: OutputStyleEntry): string | null {
     if (style.editable) return null;
 
@@ -759,7 +661,6 @@ export class OutputStyleListComponent {
     return `${style.tier}/${style.name}`;
   }
 
-  /** Only the two writable tiers can be edited or deleted (Req 4.1/4.2). */
   private toRef(style: OutputStyleEntry): OutputStyleRef | null {
     return style.tier === 'user' || style.tier === 'project'
       ? { name: style.name, tier: style.tier }

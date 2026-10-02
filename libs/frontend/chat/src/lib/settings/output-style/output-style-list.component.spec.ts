@@ -1,24 +1,12 @@
 /**
- * OutputStyleListComponent — the CLI-parity control (B7, plan §4.1/§4.2, R6, E2)
- * plus the two review follow-ups, M1 (shadowed rows) and N1 (E5 banner copy).
+ * OutputStyleListComponent specs.
  *
- * The list has plenty of other behaviour, but only these carry a risk worth a
- * spec. Each claim below is the difference between the UI being honest and the
- * UI merely looking right:
- *
- *   1. The box starts UNTICKED, and a selection made while it is unticked emits
- *      **no `parity` field at all** — not `{ enabled: false }`. The absent field
- *      is what stops the backend from ever reaching its settings writer, so it
- *      is the thing worth pinning.
- *   2. The exact file is named BEFORE anything is written, and it changes with
- *      the tier — the user is never asked to trust an unnamed write (R6).
- *   3. Nothing rendered here is an absolute host path (Req 7.6).
- *   4. **M1** — a shadowed row's control is DISABLED and carries its reason.
- *      Clicking it would have activated the winning entry, checkmarking a
- *      different row from the one clicked. The reason names the winner.
- *   5. **N1** — the missing-active banner is accurate for BOTH causes of
- *      `missing: true`. It may only claim removal when the invalid list is
- *      empty, because a parse failure would have put the file in that list.
+ * Covers:
+ *   1. P4 matrix table with radio column and `role="radiogroup"` (G7, A19).
+ *   2. CLI parity in `<details>` (P9, A24) with S-confirm before file write and no Undo.
+ *   3. M1 — shadowed rows are disabled with reason naming the winner (E4/M1).
+ *   4. N1 — missing-active banner names both causes unless invalid list is empty (E5/N1).
+ *   5. D15 fixed error copy — never surfaces host error text in alert banner.
  */
 
 import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
@@ -70,6 +58,7 @@ const NO_SELECTION: ActiveOutputStyleState = {
       [styles]="styles()"
       [invalid]="invalid()"
       [active]="active()"
+      [error]="error()"
       [parityWrittenPath]="parityWrittenPath()"
       [parityWarning]="parityWarning()"
       (activate)="emitted.push($event)"
@@ -83,6 +72,7 @@ class HostComponent {
   ]);
   readonly invalid = signal<readonly InvalidOutputStyle[]>([]);
   readonly active = signal<ActiveOutputStyleState>(NO_SELECTION);
+  readonly error = signal<string | null>(null);
   readonly parityWrittenPath = signal<string | null>(null);
   readonly parityWarning = signal<string | null>(null);
   readonly emitted: OutputStyleSelectionRequest[] = [];
@@ -101,10 +91,10 @@ describe('OutputStyleListComponent — CLI parity control', () => {
     return fixture.nativeElement.textContent ?? '';
   }
 
-  /** The style row buttons carry `role="radio"`; index 1 is the user style. */
+  /** The style row radios carry `role="radio"`; index 1 is the user style. */
   function clickStyleRow(index: number): void {
-    const rows: HTMLButtonElement[] = Array.from(
-      fixture.nativeElement.querySelectorAll('button[role="radio"]'),
+    const rows: HTMLElement[] = Array.from(
+      fixture.nativeElement.querySelectorAll('[role="radio"]'),
     );
     rows[index].click();
     fixture.detectChanges();
@@ -125,6 +115,17 @@ describe('OutputStyleListComponent — CLI parity control', () => {
     TestBed.resetTestingModule();
   });
 
+  it('renders a P4 matrix table with role="radiogroup"', () => {
+    const table = fixture.nativeElement.querySelector('table[role="radiogroup"]');
+    expect(table).not.toBeNull();
+    expect(table.classList).toContain('table-xs');
+    expect(text()).toContain('Active');
+    expect(text()).toContain('Name');
+    expect(text()).toContain('Tier');
+    expect(text()).toContain('Description');
+    expect(text()).toContain('Actions');
+  });
+
   it('starts unticked and emits no parity field at all (default OFF)', () => {
     expect(list().parityEnabled()).toBe(false);
     expect(parityCheckbox().checked).toBe(false);
@@ -135,15 +136,49 @@ describe('OutputStyleListComponent — CLI parity control', () => {
     expect('parity' in host.emitted[0]).toBe(false);
   });
 
-  it('emits the opt-in request once the box is ticked', () => {
+  it('asks for confirmation before emitting when parity is ticked (S-confirm, A24)', () => {
     parityCheckbox().click();
     fixture.detectChanges();
 
     clickStyleRow(1);
 
+    // Confirmation dialog is shown; selection not yet emitted
+    expect(host.emitted).toEqual([]);
+    const confirmBlock = fixture.nativeElement.querySelector(
+      '[data-testid="parity-confirm"]',
+    );
+    expect(confirmBlock).not.toBeNull();
+    expect(confirmBlock.textContent).toContain('.claude/settings.json');
+
+    // Confirm the write
+    const confirmBtn: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-testid="parity-confirm-button"]',
+    );
+    confirmBtn.click();
+    fixture.detectChanges();
+
     expect(host.emitted).toEqual([
       { name: 'Terse', parity: { enabled: true, tier: 'project' } },
     ]);
+  });
+
+  it('cancels the parity selection without emitting when Cancel is clicked', () => {
+    parityCheckbox().click();
+    fixture.detectChanges();
+
+    clickStyleRow(1);
+
+    const cancelBtn: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-testid="parity-cancel-button"]',
+    );
+    expect(cancelBtn).not.toBeNull();
+    cancelBtn.click();
+    fixture.detectChanges();
+
+    expect(host.emitted).toEqual([]);
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="parity-confirm"]'),
+    ).toBeNull();
   });
 
   it('defaults to the committable project tier (§4.2)', () => {
@@ -177,6 +212,12 @@ describe('OutputStyleListComponent — CLI parity control', () => {
     expect(list().parityTier()).toBe('local');
 
     clickStyleRow(1);
+    const confirmBtn: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-testid="parity-confirm-button"]',
+    );
+    confirmBtn.click();
+    fixture.detectChanges();
+
     expect(host.emitted).toEqual([
       { name: 'Terse', parity: { enabled: true, tier: 'local' } },
     ]);
@@ -209,6 +250,16 @@ describe('OutputStyleListComponent — CLI parity control', () => {
 
     expect(text()).not.toMatch(/[A-Za-z]:[\\/]/);
   });
+
+  it('maps raw error strings to a fixed user-facing sentence in role="alert" (D15)', () => {
+    host.error.set('Raw host exception: EACCES permission denied');
+    fixture.detectChanges();
+
+    const alert = fixture.nativeElement.querySelector('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert.textContent).toContain('Could not change the active output style.');
+    expect(alert.textContent).not.toContain('EACCES');
+  });
 });
 
 /**
@@ -237,17 +288,17 @@ describe('OutputStyleListComponent — shadowed rows (E4/M1)', () => {
     shadowed: true,
   };
 
-  function rows(): HTMLButtonElement[] {
+  function rows(): (HTMLInputElement | HTMLButtonElement)[] {
     return Array.from(
-      fixture.nativeElement.querySelectorAll('button[role="radio"]'),
+      fixture.nativeElement.querySelectorAll('[role="radio"]'),
     );
   }
 
   /** Index 1 is the project winner, index 2 the shadowed user copy. */
-  function winnerRow(): HTMLButtonElement {
+  function winnerRow(): HTMLInputElement | HTMLButtonElement {
     return rows()[1];
   }
-  function shadowedRow(): HTMLButtonElement {
+  function shadowedRow(): HTMLInputElement | HTMLButtonElement {
     return rows()[2];
   }
 

@@ -8,6 +8,9 @@
  *
  * What is asserted here, and why each one is a requirement rather than taste:
  *
+ *   - Drawer D-OS presentation with title and subtitle in NativeDrawerComponent (A25).
+ *   - Tab group with Edit | Preview via NativeTabGroupComponent (Gap G6).
+ *   - Fixed error copy: 'Could not save the output style.' (D15).
  *   - Req 3.5 — a blank or whitespace-only name blocks the submit with an
  *     inline error and never reaches the RPC surface.
  *   - Req 6.4 — the keep-coding-instructions toggle defaults ON.
@@ -68,6 +71,7 @@ import { OutputStyleStore } from './output-style.store';
 const COMPONENT_FILES = [
   'output-style-editor.component.ts',
   'output-style-list.component.ts',
+  'output-style-parity-section.component.ts',
   'output-style-config.component.ts',
 ] as const;
 
@@ -122,6 +126,67 @@ describe('OutputStyleEditorComponent', () => {
 
   afterEach(() => {
     TestBed.resetTestingModule();
+  });
+
+  describe('Drawer D-OS structure and controls (A25, Gap G6)', () => {
+    it('renders drawer header with title and subtitle', () => {
+      const header = fixture.nativeElement.querySelector('[drawer-header]');
+      expect(header).not.toBeNull();
+      expect(text()).toContain('New style');
+      expect(text()).toContain('Create a new output style');
+    });
+
+    it('renders footer buttons for Save and Cancel', () => {
+      const saveBtn = fixture.nativeElement.querySelector(
+        '[data-testid="output-style-save-button"]',
+      );
+      const cancelBtn = fixture.nativeElement.querySelector(
+        '[data-testid="output-style-cancel-button"]',
+      );
+      expect(saveBtn).not.toBeNull();
+      expect(cancelBtn).not.toBeNull();
+    });
+
+    it('switches between Edit and Preview tabs (Gap G6)', () => {
+      const tabGroup = fixture.nativeElement.querySelector(
+        'ptah-native-tab-group',
+      );
+      expect(tabGroup).not.toBeNull();
+
+      component.onTabChange('preview');
+      fixture.detectChanges();
+
+      expect(component.showPreview()).toBe(true);
+      expect(
+        fixture.nativeElement.querySelector('[data-test="body-preview"]'),
+      ).not.toBeNull();
+
+      component.onTabChange('edit');
+      fixture.detectChanges();
+
+      expect(component.showPreview()).toBe(false);
+      expect(
+        fixture.nativeElement.querySelector('#output-style-body'),
+      ).not.toBeNull();
+    });
+
+    it('shows fixed error sentence on save failure without raw host text (D15)', async () => {
+      save.mockResolvedValueOnce({
+        code: 'FS_ERROR',
+        message: 'Raw host error: disk full / ENOSPC',
+      });
+
+      setInputValue('#output-style-name', 'Brief');
+      setInputValue('#output-style-description', 'Fewer words.');
+
+      await component.submit();
+      fixture.detectChanges();
+
+      expect(component.formError()).toBe('Could not save the output style.');
+      const alert = fixture.nativeElement.querySelector('[role="alert"]');
+      expect(alert.textContent).toContain('Could not save the output style.');
+      expect(alert.textContent).not.toContain('ENOSPC');
+    });
   });
 
   describe('name validation (Req 3.5)', () => {
@@ -248,6 +313,7 @@ describe('OutputStyleEditorComponent', () => {
     it('seeds every field and carries the E8 guard stamp into the save', async () => {
       expect(component.name()).toBe('Simplified Technical English');
       expect(component.body()).toBe('# Style\n\nWrite short sentences.');
+      expect(component.tier()).toBe('user');
       expect(component.tierLocked()).toBe(true);
 
       await component.submit();
