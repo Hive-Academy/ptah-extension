@@ -93,12 +93,11 @@ async function assertAdvancedFold(page: Page, host: Host, theme: string): Promis
  * Map §3.2: the Web search card (3 provider rows + policy bar) and, on Electron, the Voice engines heading
  * and both rows end above the fold; no provider row is taller than ~48 px.
  *
- * Ratchet (execution default 3): this budget is NOT met yet (Batch 49 measured provider rows of 57-63 px and
- * the Electron voice rows ending at 686 px) and the density work belongs to Batch 50. Until then the
- * measurements are logged and attached as a `fold-pending` annotation instead of failing the run; Batch 50
- * sets this to `true` in the change that makes it pass, and it stays enforced from then on.
+ * Ratchet (execution default 3): Batch 49 measured provider rows of 57-63 px and the Electron voice rows
+ * ending at 686 px, so the budget was logged as `fold-pending`. Batch 50 made the rows compact (41 px; voice
+ * rows end at 626 px) and turned enforcement on; it stays on from now on.
  */
-const SEARCH_VOICE_FOLD_ENFORCED = false;
+const SEARCH_VOICE_FOLD_ENFORCED = true;
 
 async function assertSearchVoiceFold(page: Page, host: Host, theme: string): Promise<void> {
   const providerRows = page.locator('ptah-web-search-config tbody tr');

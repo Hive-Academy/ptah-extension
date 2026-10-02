@@ -158,6 +158,21 @@ describe('WebSearchConfigComponent', () => {
     expect(byTestId<HTMLAnchorElement>('settings-web-search-signup-exa').href).toBe('https://exa.ai/');
   });
 
+  it('keeps each provider row to one name line and one free-tier line (map §3.2 density, Batch 50)', async () => {
+    responses['webSearch:getApiKeyStatus'] = () => ok({ configured: true });
+    await render();
+    const providerCell = byTestId('settings-web-search-signup-serper').closest('td') as HTMLElement;
+    expect(providerCell.getAttribute('title')).toBe('Google Search API. Fast, reliable results. Free tier: 2,500 searches/month.');
+    expect(providerCell.querySelector('.sr-only')?.textContent).toContain('Google Search API. Fast, reliable results.');
+    const line = byTestId('settings-web-search-signup-serper').parentElement as HTMLElement;
+    expect(line.classList).toContain('whitespace-nowrap');
+    expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe('Free tier: 2,500 searches/month. Get API key');
+    // Update key and Clear share one non-wrapping row; the confirm opens below it.
+    const actions = byTestId('settings-web-search-clear-btn-serper').parentElement as HTMLElement;
+    expect(actions.classList).toContain('flex-nowrap');
+    expect(actions.contains(byTestId('settings-web-search-key-btn-serper'))).toBe(true);
+  });
+
   describe('provider selection (V1)', () => {
     it('saves on selection, toasts only after the write, and Undo writes the previous list', async () => {
       await render();
@@ -293,6 +308,20 @@ describe('WebSearchConfigComponent', () => {
       await settle();
 
       expect(queryTestId('settings-web-search-clear-group-tavily')).toBeNull();
+      expect(calls('webSearch:deleteApiKey')).toEqual([]);
+      expect(document.activeElement).toBe(clear);
+    });
+
+    it('Esc closes the confirm and returns focus to Clear (P8)', async () => {
+      await render();
+      const clear = byTestId<HTMLButtonElement>('settings-web-search-clear-btn-tavily');
+      clear.click();
+      await settle();
+      byTestId('settings-web-search-clear-group-tavily').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await settle();
+
+      expect(queryTestId('settings-web-search-clear-group-tavily')).toBeNull();
+      expect(document.activeElement).toBe(clear);
       expect(calls('webSearch:deleteApiKey')).toEqual([]);
     });
 

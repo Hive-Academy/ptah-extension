@@ -29,7 +29,10 @@ type WriteResult = { ok: true } | { ok: false; message: string };
 interface ProviderOption {
   value: ProviderId;
   label: string;
-  description: string;
+  /** What the provider is; shown in the row's tooltip and to screen readers, not as a visible line. */
+  summary: string;
+  /** The one visible line under the name (pattern map §3.2: a row stays within ~48 px). */
+  freeTier: string;
   signupUrl: string;
 }
 
@@ -43,22 +46,22 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
   {
     value: 'tavily',
     label: 'Tavily',
-    description:
-      'AI-optimized search API with built-in answer generation. Free tier: 1,000 searches/month.',
+    summary: 'AI-optimized search API with built-in answer generation.',
+    freeTier: 'Free tier: 1,000 searches/month.',
     signupUrl: 'https://tavily.com',
   },
   {
     value: 'serper',
     label: 'Serper',
-    description:
-      'Google Search API. Fast, reliable results. Free tier: 2,500 searches/month.',
+    summary: 'Google Search API. Fast, reliable results.',
+    freeTier: 'Free tier: 2,500 searches/month.',
     signupUrl: 'https://serper.dev',
   },
   {
     value: 'exa',
     label: 'Exa',
-    description:
-      'AI-powered semantic search engine. Free tier: 1,000 searches/month.',
+    summary: 'AI-powered semantic search engine.',
+    freeTier: 'Free tier: 1,000 searches/month.',
     signupUrl: 'https://exa.ai',
   },
 ] as const;
@@ -158,10 +161,12 @@ function providerLabel(provider: ProviderId): string {
                     [attr.data-testid]="'settings-toggle-web-search-provider-' + opt.value"
                     [attr.aria-label]="'Use ' + opt.label + ' for web search'" />
                 </td>
-                <td class="align-top">
-                  <div class="font-bold text-base-content">{{ opt.label }}</div>
-                  <p class="text-[10px] text-base-content-muted">
-                    {{ opt.description }}
+                <td class="align-top" [attr.title]="opt.summary + ' ' + opt.freeTier">
+                  <div class="font-bold text-base-content">
+                    {{ opt.label }}<span class="sr-only">: {{ opt.summary }}</span>
+                  </div>
+                  <p class="whitespace-nowrap text-[10px] text-base-content-muted">
+                    {{ opt.freeTier }}
                     <a [href]="opt.signupUrl" target="_blank" rel="noopener noreferrer"
                       class="link link-hover text-base-content"
                       [attr.data-testid]="'settings-web-search-signup-' + opt.value">Get API key</a>
@@ -188,7 +193,7 @@ function providerLabel(provider: ProviderId): string {
                   }
                 </td>
                 <td class="align-top text-right">
-                  <div class="flex flex-wrap justify-end gap-1.5">
+                  <div class="flex flex-nowrap justify-end gap-1.5">
                     <ptah-native-popover [isOpen]="activeKeyProvider() === opt.value" (closed)="closeKeyEditor()">
                       <button type="button" trigger class="btn btn-outline btn-xs gap-1"
                         (click)="openKeyEditor(opt.value)"
@@ -242,30 +247,30 @@ function providerLabel(provider: ProviderId): string {
                       </div>
                     </ptah-native-popover>
                     @if (apiKeyConfigured()[opt.value]) {
-                      <button #clearBtn type="button" class="btn btn-outline btn-xs border-error text-base-content"
+                      <button type="button" class="btn btn-outline btn-xs border-error text-base-content"
                         [disabled]="saving()" (click)="confirmingClear.set(opt.value)"
                         [attr.aria-label]="'Clear API key for ' + opt.label"
                         [attr.aria-expanded]="confirmingClear() === opt.value"
                         [attr.data-testid]="'settings-web-search-clear-btn-' + opt.value">Clear</button>
-                      @if (confirmingClear() === opt.value) {
-                        <div role="group" [attr.aria-label]="'Confirm clear ' + opt.label + ' API key'"
-                          class="basis-full space-y-2 rounded border border-base-300 p-3 text-left"
-                          [attr.data-testid]="'settings-web-search-clear-group-' + opt.value"
-                          (keydown.escape)="cancelClear(clearBtn)">
-                          <p class="text-xs text-base-content">
-                            Clear the stored {{ opt.label }} key from this machine? Searches through {{ opt.label }} stop until a key is added.
-                          </p>
-                          <div class="flex gap-2">
-                            <button type="button" class="btn btn-outline btn-sm border-error text-base-content"
-                              [disabled]="saving()" (click)="deleteApiKey(opt.value)"
-                              [attr.data-testid]="'settings-web-search-clear-confirm-' + opt.value">Clear key</button>
-                            <button #clearCancel type="button" class="btn btn-ghost btn-sm" (click)="cancelClear(clearBtn)"
-                              [attr.data-testid]="'settings-web-search-clear-cancel-' + opt.value">Cancel</button>
-                          </div>
-                        </div>
-                      }
                     }
                   </div>
+                  @if (apiKeyConfigured()[opt.value] && confirmingClear() === opt.value) {
+                    <div role="group" [attr.aria-label]="'Confirm clear ' + opt.label + ' API key'"
+                      class="mt-1.5 space-y-2 rounded border border-base-300 p-3 text-left"
+                      [attr.data-testid]="'settings-web-search-clear-group-' + opt.value"
+                      (keydown.escape)="cancelClear(opt.value)">
+                      <p class="text-xs text-base-content">
+                        Clear the stored {{ opt.label }} key from this machine? Searches through {{ opt.label }} stop until a key is added.
+                      </p>
+                      <div class="flex gap-2">
+                        <button type="button" class="btn btn-outline btn-sm border-error text-base-content"
+                          [disabled]="saving()" (click)="deleteApiKey(opt.value)"
+                          [attr.data-testid]="'settings-web-search-clear-confirm-' + opt.value">Clear key</button>
+                        <button #clearCancel type="button" class="btn btn-ghost btn-sm" (click)="cancelClear(opt.value)"
+                          [attr.data-testid]="'settings-web-search-clear-cancel-' + opt.value">Cancel</button>
+                      </div>
+                    </div>
+                  }
                 </td>
               </tr>
             }
@@ -289,6 +294,7 @@ function providerLabel(provider: ProviderId): string {
 export class WebSearchConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly GlobeIcon = Globe;
   readonly TEST_FAILED = TEST_FAILED;
@@ -483,9 +489,12 @@ export class WebSearchConfigComponent implements OnInit {
     }
   }
 
-  cancelClear(trigger: HTMLButtonElement): void {
+  /** Cancel and Esc close the confirm and return focus to the row's Clear button (P8). */
+  cancelClear(provider: ProviderId): void {
     this.confirmingClear.set(null);
-    trigger.focus();
+    this.host.nativeElement
+      .querySelector<HTMLButtonElement>(`[data-testid="settings-web-search-clear-btn-${provider}"]`)
+      ?.focus();
   }
 
   /** Clears a provider's key after the inline confirm (S-confirm, no Undo). */
