@@ -5,7 +5,7 @@
  * submit. Batch 36 adds the tab's validation-note scenes (batches.md Task 36.1): a matrix cell pick, on/off, the full
  * tier object, the Copilot sign-in gate, the roles collapsed by default, the `judge` deep link, the role's provider
  * setup link, and the preferred-order popover. Batch 36c adds the "More actions" menu bounds and the repeated `judge`
- * deep link.
+ * deep link. Batch 36d adds the Cursor key scenes (opt-in key store, `settings-cursor-key.fixtures.ts`).
  *
  * Runs against the real `ptah-extension-webview` build in both hosts. Each scene boots fresh, so the fixture state
  * starts from the BRIEF baseline and every RPC a scene asserts was sent by that scene's own clicks.
@@ -14,6 +14,7 @@ import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../../test-fixtures';
 import { bootSettings, getFixtureState, SKILL_LANES_FIXTURE, waitForSettled } from './settings.fixtures';
 import { expectCall, openCardDrawer, orchestrationTab, providersTab, visibleEnabled } from './settings-drawer.reach';
+import { cursorKeyStoreOverrides } from './settings-cursor-key.fixtures';
 
 test.use({ useAppBuild: true });
 
@@ -339,6 +340,65 @@ for (const host of HOSTS) {
       await page.keyboard.press('Escape');
       await expect(popover).toHaveCount(0);
       await expect(page.locator('[data-testid="consumer-edit-judge"]')).toBeFocused();
+    });
+
+    test('Cursor key (Batch 36d.b): save, then remove; the row returns to the collapsed Uninstalled group and focus lands on its toggle', async ({ page, fixtureServer }) => {
+      await bootOrchestration(page, fixtureServer.url, host, cursorKeyStoreOverrides(page));
+      const toggle = page.locator('[data-testid="cli-matrix-uninstalled-toggle"]');
+      const uninstalled = page.locator('[data-testid="cli-matrix-uninstalled"]');
+      const popover = page.locator('[data-testid="cursor-credential-popover"]');
+      const key = popover.locator('[data-testid="cursor-credential-key"]');
+      // Save a key from the Uninstalled row: the row moves to the installed group.
+      await toggle.click();
+      await uninstalled.locator('[data-testid="cli-matrix-credentials-cursor"]').click();
+      await expect(key).toBeFocused();
+      await key.fill('crsr_e2e_secret_value');
+      await popover.locator('[data-testid="cursor-credential-save"]').click();
+      await expect(toastMessage(page)).toHaveText('Key stored, not verified.');
+      const installedTrigger = page.locator('tbody:not([data-testid="cli-matrix-uninstalled"]) [data-testid="cli-matrix-credentials-cursor"]');
+      await expect(installedTrigger).toBeVisible();
+      await expect(popover.locator('[data-testid="cursor-credential-status"]')).toHaveText('Set');
+      await page.keyboard.press('Escape');
+      await expect(popover).toHaveCount(0);
+      await expect(installedTrigger).toBeFocused();
+      // Collapse the Uninstalled group, then remove the key from the installed row.
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await installedTrigger.click();
+      await popover.locator('[data-testid="cursor-credential-remove"]').click();
+      await expect(popover.locator('[data-testid="cursor-credential-remove-cancel"]')).toBeFocused();
+      await popover.locator('[data-testid="cursor-credential-remove-confirm-button"]').click();
+      await expect(toastMessage(page)).toHaveText('Stored key removed.');
+      // The row moved into the collapsed group; the open popover keeps it shown, with focus inside.
+      await expect(uninstalled.locator('[data-testid="cursor-credential-popover"]')).toBeVisible();
+      await expect.poll(() => popover.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+      // Esc closes it: the group collapses again, the row leaves the DOM, and focus lands on the toggle, not body.
+      await page.keyboard.press('Escape');
+      await expect(popover).toHaveCount(0);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.locator('[data-testid="cli-matrix-credentials-cursor"]')).toHaveCount(0);
+      await expect(toggle).toBeFocused();
+      // Esc on the toggle closes nothing else: the tab stays as it is.
+      await page.keyboard.press('Escape');
+      await expect(toggle).toBeFocused();
+      await expect(page.locator('[data-testid="cli-matrix"]')).toBeVisible();
+    });
+
+    test('Cursor key (Batch 36d.a, N3): a failed save keeps focus in the popover; Esc closes it and returns focus to the trigger', async ({ page, fixtureServer }) => {
+      await bootOrchestration(page, fixtureServer.url, host, cursorKeyStoreOverrides(page, { failCursorSave: true }));
+      await page.locator('[data-testid="cli-matrix-uninstalled-toggle"]').click();
+      const trigger = page.locator('[data-testid="cli-matrix-credentials-cursor"]');
+      await trigger.click();
+      const popover = page.locator('[data-testid="cursor-credential-popover"]');
+      const key = popover.locator('[data-testid="cursor-credential-key"]');
+      await key.fill('crsr_e2e_secret_value');
+      await popover.locator('[data-testid="cursor-credential-save"]').click();
+      await expect(popover.locator('[data-testid="cursor-credential-outcome"]')).toContainText('The key was not saved.');
+      await expect(key).toBeFocused();
+      await expect(key).toHaveValue('crsr_e2e_secret_value');
+      await page.keyboard.press('Escape');
+      await expect(popover).toHaveCount(0);
+      await expect(trigger).toBeFocused();
     });
 
     test('repeated deep link judge (Gate V 36 M-1): the same role deep-linked again after Esc opens its popover again', async ({ page, fixtureServer }) => {
