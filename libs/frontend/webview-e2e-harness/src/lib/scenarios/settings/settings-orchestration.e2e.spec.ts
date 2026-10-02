@@ -121,8 +121,10 @@ for (const host of HOSTS) {
     });
 
     test('edit modal (#50): a rename sends ptahCli:update with the new name only', async ({ page }) => {
-      const edit = page.locator(`[data-testid="cli-matrix-edit-${GLM_ID}"]`);
-      await edit.click();
+      // V36-7: Edit sits in the row's "More actions" popover; focus returns to that trigger.
+      const more = page.locator(`[data-testid="cli-matrix-more-${GLM_ID}"]`);
+      await more.click();
+      await page.locator(`[data-testid="cli-matrix-edit-${GLM_ID}"]`).click();
       const dialog = dialogOf(page, 'add-cli-instance-modal');
       await expect(dialog).toHaveAttribute('open', '');
       await expect(dialog.locator('[data-testid="add-cli-instance-provider-fixed"]')).toHaveText('Ollama Cloud');
@@ -131,7 +133,7 @@ for (const host of HOSTS) {
       await dialog.locator('[data-testid="add-cli-instance-submit"]').click();
       await expectCall(page, before, 'ptahCli:update', { id: GLM_ID, name: 'Glm-Main' });
       await expect(dialog).not.toHaveAttribute('open');
-      await expect(edit).toBeFocused();
+      await expect(more).toBeFocused();
     });
 
     // ----- Batch 36 -----

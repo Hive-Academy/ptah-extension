@@ -563,6 +563,8 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
       { 'agent:getConfig': { ...AGENT_CONFIG_FIXTURE, detectedClis: AGENT_CONFIG_FIXTURE.detectedClis.map((cli) => ({ ...cli, installed: false })) } },
       'Agent Orchestration',
       async (variantPage) => {
+        // Gate V 36 decision 1: the Uninstalled group opens from its disclosure first.
+        await variantPage.locator('[data-testid="cli-matrix-uninstalled-toggle"]').click();
         const guide = variantPage.locator('[data-testid="cli-matrix-uninstalled"] [data-testid="cli-matrix-install-codex"]');
         await visibleEnabled(guide);
         await guide.click();
@@ -570,7 +572,14 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
       },
     ) },
   { id: '#78', capability: 'Ptah CLI agents managed inside Orchestration (moved to Providers)', status: 'present',
-    reach: async (page) => { await orchestrationTab(page); await visibleEnabled(page.locator('[data-testid="cli-matrix-edit-glm-instance-1"]')); } },
+    // V36-7: an instance's Edit sits in its "More actions" popover; Esc closes it again.
+    reach: async (page) => {
+      await orchestrationTab(page);
+      await page.locator('[data-testid="cli-matrix-more-glm-instance-1"]').click();
+      await visibleEnabled(page.locator('[data-testid="cli-matrix-edit-glm-instance-1"]'));
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[data-testid="cli-matrix-more-menu"]')).toHaveCount(0);
+    } },
   { id: '#79', capability: 'Loading and error states', status: 'present',
     // The harness RPC auto-responder always answers `success: true`, so the error branches (the container's
     // "… could not be loaded" + Retry per section, the bar's fixed Re-detect sentence) are pinned in the unit specs.

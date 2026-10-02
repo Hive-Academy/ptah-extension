@@ -34,12 +34,40 @@ async function closeMatrixModal(page: Page, dialog: Locator, opener: Locator): P
 /** The fixture's one Ptah CLI instance, "Glm" (BRIEF:66-67). */
 const GLM_ID = 'glm-instance-1';
 
+/** System CLIs the shared fixture reports as not installed: their rows sit in the Uninstalled group. */
+const UNINSTALLED_IN_FIXTURE: ReadonlySet<string> = new Set(['cursor', 'pi']);
+
+/**
+ * Gate V 36 decision 1: the Uninstalled group is collapsed by default behind its disclosure button. Expands it when it
+ * is collapsed (the tab keeps its state between entries); returns the toggle.
+ */
+export async function expandUninstalled(page: Page): Promise<Locator> {
+  const toggle = page.locator('[data-testid="cli-matrix-uninstalled-toggle"]');
+  await visibleEnabled(toggle);
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  return toggle;
+}
+
 /** The CLI matrix (deferred chunk) on the Orchestration tab; returns the row of `id` (`cli-matrix-row-<id>`). */
 async function matrixRow(page: Page, id: string): Promise<Locator> {
   await orchestrationTab(page);
   const row = page.locator(`[data-testid="cli-matrix-row-${id}"]`);
+  if (UNINSTALLED_IN_FIXTURE.has(id) && !(await row.count())) await expandUninstalled(page);
   await expect(row).toBeVisible();
   return row;
+}
+
+/**
+ * V36-7: an instance's Edit and Delete live in its "More actions" popover. Opens it and returns the trigger (focus
+ * returns there when the popover, or a modal opened from it, closes).
+ */
+async function openMoreActions(page: Page, row: Locator, id: string): Promise<Locator> {
+  const more = row.locator(`[data-testid="cli-matrix-more-${id}"]`);
+  await visibleEnabled(more);
+  await more.click();
+  await expect(page.locator('[data-testid="cli-matrix-more-menu"]')).toBeVisible();
+  return more;
 }
 
 /**
@@ -170,15 +198,16 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
   { id: '#50', capability: 'Edit name / replace key inline', status: 'present',
     // Batch 32: Edit opens the add modal in edit mode (name and a replacement key; the provider is fixed).
     reach: async (page) => {
+      // V36-7: More actions → Edit; focus returns to the More trigger when the modal closes.
       const glm = await matrixRow(page, GLM_ID);
-      const edit = glm.locator(`[data-testid="cli-matrix-edit-${GLM_ID}"]`);
-      const dialog = await openMatrixModal(page, edit, 'add-cli-instance-modal');
+      const more = await openMoreActions(page, glm, GLM_ID);
+      const dialog = await openMatrixModal(page, page.locator(`[data-testid="cli-matrix-edit-${GLM_ID}"]`), 'add-cli-instance-modal');
       try {
         await expect(dialog.locator('[data-testid="add-cli-instance-name"]')).toHaveValue('Glm');
         await visibleEnabled(dialog.locator('[data-testid="add-cli-instance-key"]'));
         await expect(dialog.locator('[data-testid="add-cli-instance-submit"]')).toHaveText('Save changes');
       } finally {
-        await closeMatrixModal(page, dialog, edit);
+        await closeMatrixModal(page, dialog, more);
       }
     } },
   { id: '#51', capability: 'Enable/disable agent toggle', status: 'present',
@@ -196,13 +225,17 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
     } },
   { id: '#55', capability: 'Delete with confirmation', status: 'present',
     reach: async (page) => {
+      // V36-7: More actions → Delete → the inline confirm (focus on its Cancel) → Cancel → focus back on More.
       const glm = await matrixRow(page, GLM_ID);
-      const remove = glm.locator(`[data-testid="cli-matrix-delete-${GLM_ID}"]`);
+      const more = await openMoreActions(page, glm, GLM_ID);
+      const remove = page.locator(`[data-testid="cli-matrix-delete-${GLM_ID}"]`);
       await visibleEnabled(remove);
       await remove.click();
       await visibleEnabled(glm.getByRole('button', { name: 'Confirm delete Glm', exact: true }));
-      await glm.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await visibleEnabled(remove);
+      const cancel = glm.getByRole('button', { name: 'Cancel', exact: true });
+      await expect(cancel).toBeFocused();
+      await cancel.click();
+      await expect(more).toBeFocused();
     } },
   { id: '#56', capability: 'Success/error commit feedback', status: 'present',
     // Glm's on/off (a real `ptahCli:update` write): the toast says it saved, and the read-back moves the checkbox. The
@@ -258,14 +291,30 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
     }, 'Agent Orchestration', async (variant) => {
       const dialog = await openMatrixModal(variant, variant.locator('[data-testid="cli-matrix-add"]'), 'add-cli-instance-modal');
       await dialog.locator('[data-testid="add-cli-instance-name"]').fill('Copilot-agent');
+      // Gate V 36 M6: choosing Copilot re-reads the sign-in (this variant's host says signed in), never trusting an
+      // earlier read; the inline login stays reachable (disabled once signed in).
       await dialog.locator('[data-testid="add-cli-instance-provider"]').selectOption('github-copilot');
       const create = dialog.locator('[data-testid="add-cli-instance-submit"]');
-      await expect(create).toBeDisabled();
-      await expect(dialog.locator('[data-testid="add-cli-instance-copilot-state"]')).toHaveText('Awaiting sign-in');
-      await dialog.locator('[data-testid="add-cli-instance-copilot-login"]').click();
       await expect(dialog.locator('[data-testid="add-cli-instance-copilot-state"]')).toHaveText('Signed in');
+      await expect(dialog.locator('[data-testid="add-cli-instance-copilot-login"]')).toBeVisible();
       await expect(create).toBeEnabled();
-    }) },
+    }).then(() => throughVariantBoot(page, {
+      'auth:copilotLogin': { success: true },
+      'auth:getAuthStatus': { ...AUTH_STATUS_FIXTURE, copilotAuthenticated: false },
+    }, 'Agent Orchestration', async (variant) => {
+      // Signed out: Create stays disabled; "Login with GitHub" runs the login and the re-read still says not signed in.
+      const dialog = await openMatrixModal(variant, variant.locator('[data-testid="cli-matrix-add"]'), 'add-cli-instance-modal');
+      await dialog.locator('[data-testid="add-cli-instance-name"]').fill('Copilot-agent');
+      await dialog.locator('[data-testid="add-cli-instance-provider"]').selectOption('github-copilot');
+      const create = dialog.locator('[data-testid="add-cli-instance-submit"]');
+      await expect(dialog.locator('[data-testid="add-cli-instance-copilot-state"]')).toHaveText('Awaiting sign-in');
+      await expect(create).toBeDisabled();
+      const login = dialog.locator('[data-testid="add-cli-instance-copilot-login"]');
+      await visibleEnabled(login);
+      await login.click();
+      await expect(dialog.locator('[data-testid="add-cli-instance-copilot-message"]')).toContainText('Login has not been confirmed');
+      await expect(create).toBeDisabled();
+    })) },
   { id: '#49', capability: 'Show/hide API key in CLI agent add/edit forms', status: 'restored',
     // Batch 21 restored the drawer Credentials half (the Replace key field); Batch 32 adds the CLI-instance add form.
     reach: async (page) => {
@@ -392,8 +441,11 @@ export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
   { id: '#71', capability: 'Per-CLI grouping of delegated settings, hidden when not installed', status: 'restored',
     // Installed rows first; Cursor and Pi in the "Uninstalled" group, as plain text, with an install guide.
     reach: async (page) => {
+      // Gate V 36 decision 1: the group is a disclosure ("Uninstalled CLI agents (2)"), collapsed by default.
       await orchestrationTab(page);
       const uninstalled = page.locator('[data-testid="cli-matrix-uninstalled"]');
+      const toggle = await expandUninstalled(page);
+      await expect(toggle).toHaveText('Uninstalled CLI agents (2)');
       await expect(uninstalled.locator('tr[data-testid^="cli-matrix-row-"]')).toHaveCount(2);
       await expect(uninstalled.locator('[data-testid="cli-matrix-row-cursor"]')).toBeVisible();
       await expect(uninstalled.locator('[data-testid="cli-matrix-row-pi"]')).toBeVisible();

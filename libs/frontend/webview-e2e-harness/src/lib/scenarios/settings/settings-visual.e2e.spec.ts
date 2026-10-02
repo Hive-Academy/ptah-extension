@@ -236,6 +236,9 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
   await page.screenshot({ path: capturePath('orchestration-popover-copilot', host, theme), animations: 'disabled' });
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-testid="cli-permission-popover"]')).toHaveCount(0);
+  // Gate V 36 decision 1: Cursor's row is in the Uninstalled group, collapsed by default.
+  const uninstalledToggle = page.locator('[data-testid="cli-matrix-uninstalled-toggle"]');
+  if ((await uninstalledToggle.getAttribute('aria-expanded')) === 'false') await uninstalledToggle.click();
   await page.locator('[data-testid="cli-matrix-credentials-cursor"]').click();
   const cursorPopover = '[data-testid="cursor-credential-popover"]';
   await expect(page.locator(`${cursorPopover} [data-testid="cursor-credential-key"]`)).toBeFocused();
@@ -248,6 +251,8 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
   await page.screenshot({ path: capturePath('orchestration-popover-cursor', host, theme), animations: 'disabled' });
   await page.keyboard.press('Escape');
   await expect(page.locator(cursorPopover)).toHaveCount(0);
+  await uninstalledToggle.click();
+  await expect(uninstalledToggle).toHaveAttribute('aria-expanded', 'false');
   // Batch 32: the add-instance modal (prototype interactions/orchestration-1, with an API-key provider chosen) and Glm's
   // tier-mapping modal, centred and fully on screen once daisyUI's open transition has finished.
   for (const modal of [
@@ -281,12 +286,12 @@ type OrchestrationFoldRegion = 'policyBar' | 'matrixHeader' | 'firstRow' | 'role
  * (5 installed CLIs / instances, 2 uninstalled). Ratchet (execution default 3), the track B
  * `SEARCH_VOICE_FOLD_ENFORCED` pattern:
  * - VS Code: every region is enforced (roles summary at 643 px since Batch 33).
- * - Electron: the policy bar, matrix header and first row are enforced. The roles summary sits at 779 px (119 px
- *   over, Batch 33 / Gate V 36 item 4), which is a USER decision (collapse the Uninstalled group, accept the Gate V 28
- *   precedent, or a denser narrow layout). Until it is taken the summary is measured, logged and annotated
- *   `fold-pending`, not asserted. Set `ORCHESTRATION_ELECTRON_ROLES_FOLD_ENFORCED` to true once it is.
+ * - Electron: every region is enforced since Batch 36b (fold round 2). The roles summary was at 779 px (Gate V 36
+ *   item 4). It now fits because the Uninstalled group is collapsed by default (user decision, 2026-10-02), instance
+ *   actions are on one line (V36-7), and in the narrow layout the tier badges become one summary badge and the status
+ *   and provider share one line (orchestrator decision).
  */
-const ORCHESTRATION_ELECTRON_ROLES_FOLD_ENFORCED = false;
+const ORCHESTRATION_ELECTRON_ROLES_FOLD_ENFORCED = true;
 const ORCHESTRATION_FOLD = 660;
 const ORCHESTRATION_FOLD_REGIONS: Readonly<Record<'vscode' | 'electron', readonly OrchestrationFoldRegion[]>> = {
   vscode: ['policyBar', 'matrixHeader', 'firstRow', 'rolesSummary'],
@@ -320,12 +325,16 @@ async function assertOrchestrationFold(page: Page, host: 'vscode' | 'electron', 
   const uninstalledHeader = await matrix.locator('[data-testid="cli-matrix-uninstalled"] tr').first()
     .evaluate((row) => Math.round(row.getBoundingClientRect().height));
   const installed = await matrix.locator('tbody:not([data-testid="cli-matrix-uninstalled"]) tr[data-testid^="cli-matrix-row-"]').count();
-  const uninstalled = await matrix.locator('[data-testid="cli-matrix-uninstalled"] tr[data-testid^="cli-matrix-row-"]').count();
+  // Decision 1: the group is collapsed by default; its disclosure carries the count ("Uninstalled CLI agents (2)").
+  const uninstalledToggle = matrix.locator('[data-testid="cli-matrix-uninstalled-toggle"]');
+  await expect(uninstalledToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(matrix.locator('[data-testid="cli-matrix-uninstalled"] tr[data-testid^="cli-matrix-row-"]')).toHaveCount(0);
+  const uninstalled = Number(/\((\d+)\)/.exec((await uninstalledToggle.textContent()) ?? '')?.[1] ?? NaN);
   const over = (Object.keys(bottoms) as OrchestrationFoldRegion[])
     .filter((region) => bottoms[region] > ORCHESTRATION_FOLD).map((region) => `${region} ${bottoms[region]}px > ${ORCHESTRATION_FOLD}px`);
   console.log(`B36 fold orchestration ${host}/${theme}: scroll ${scroll.window}/${scroll.page}; bottoms policy bar ${bottoms.policyBar}, `
     + `matrix header ${bottoms.matrixHeader}, first row ${bottoms.firstRow}, roles summary ${bottoms.rolesSummary} (budget ${ORCHESTRATION_FOLD}); `
-    + `reference set ${installed}+${uninstalled}; uninstalled header ${uninstalledHeader}; row heights ${rowHeights.join(', ')}; `
+    + `reference set ${installed}+${uninstalled} (collapsed); uninstalled header ${uninstalledHeader}; row heights ${rowHeights.join(', ')}; `
     + `over: ${over.length ? over.join('; ') : 'none'}`);
   expect(scroll).toEqual({ window: 0, page: 0 });
   expect({ installed, uninstalled }, 'the 5+2 reference set').toEqual({ installed: 5, uninstalled: 2 });
@@ -339,7 +348,7 @@ async function assertOrchestrationFold(page: Page, host: 'vscode' | 'electron', 
   if (pending.length) {
     test.info().annotations.push({
       type: 'fold-pending',
-      description: `${host}/${theme}: ${pending.join('; ')} — pending user decision (Gate V 36 item 4)`,
+      description: `${host}/${theme}: ${pending.join('; ')} — over after the Gate V 36 decision 1 collapse (Batch 36b)`,
     });
   }
 }
