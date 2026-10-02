@@ -3,11 +3,14 @@ import {
   createExecutableEditorDefinitions,
   detectEditorTargets,
   prepareEditorFileLaunch,
+  prepareEditorMergeLaunch,
   prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
   spawnTerminalProcess,
   type EditorDetectionDefinition,
   type EditorDetectionOptions,
+  type EditorMergeLaunchResult,
+  type EditorMergeRequest,
   type EditorTarget,
   type IEditorLauncher,
   type IProcessSpawner,
@@ -25,17 +28,7 @@ export class ElectronEditorLauncher implements IEditorLauncher {
   ) {}
 
   detect(): Promise<EditorTarget[]> {
-    const platform = this.options.platform ?? process.platform;
-    const env = this.options.env ?? process.env;
-    return detectEditorTargets(
-      this.options.definitions ??
-        createExecutableEditorDefinitions(
-          platform,
-          env,
-          this.options.homeDir ?? os.homedir(),
-        ),
-      this.options,
-    );
+    return detectEditorTargets(this.definitions(), this.options);
   }
 
   async openFile(
@@ -62,5 +55,41 @@ export class ElectronEditorLauncher implements IEditorLauncher {
     }
     const launch = prepareEditorWorkspaceLaunch(workspaceRoot);
     await spawnEditorProcess(this.spawner, target, launch.args, launch.cwd);
+  }
+
+  /**
+   * Launch the target's three-way merge view through the same argv spawn as
+   * `openFile` — no shell; a Windows `.cmd` shim is resolved by the spawner.
+   * Only a target whose definition declares `mergeArgs` is launched (A11).
+   */
+  async openMergeTool(
+    target: EditorTarget,
+    request: EditorMergeRequest,
+  ): Promise<EditorMergeLaunchResult> {
+    const mergeArgs = this.definitions().find(
+      ({ id }) => id === target.id,
+    )?.mergeArgs;
+    if (mergeArgs === undefined) return { status: 'unsupported' };
+    try {
+      const launch = prepareEditorMergeLaunch(mergeArgs, request);
+      await spawnEditorProcess(this.spawner, target, launch.args, launch.cwd);
+      return { status: 'launched' };
+    } catch (error: unknown) {
+      return {
+        status: 'failed',
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  }
+
+  private definitions(): readonly EditorDetectionDefinition[] {
+    return (
+      this.options.definitions ??
+      createExecutableEditorDefinitions(
+        this.options.platform ?? process.platform,
+        this.options.env ?? process.env,
+        this.options.homeDir ?? os.homedir(),
+      )
+    );
   }
 }

@@ -440,6 +440,31 @@ describe('WorktreeService as a MessageHandler', () => {
 
     expect(layout.removeFolder).not.toHaveBeenCalled();
   });
+  it('reports a failed list read and keeps the last list, clearing the error on a good read (MOD-3)', async () => {
+    mockRpcCall.mockResolvedValueOnce({
+      success: true,
+      data: { worktrees: [{ path: '/repo', branch: 'main', isMain: true }] },
+    });
+    await service.loadWorktrees();
+    expect(service.loadError()).toBeNull();
+
+    mockRpcCall.mockResolvedValueOnce({
+      success: false,
+      error: 'RPC timeout: git:worktrees',
+    });
+    await service.loadWorktrees();
+    expect(service.loadError()).toBe('Could not read the worktree list.');
+    expect(service.worktrees()).toHaveLength(1);
+    expect(service.isLoading()).toBe(false);
+
+    mockRpcCall.mockResolvedValueOnce({
+      success: true,
+      data: { worktrees: [] },
+    });
+    await service.loadWorktrees();
+    expect(service.loadError()).toBeNull();
+  });
+
   describe('workspace scoping (RC10)', () => {
     const ROOT = '/repo';
 

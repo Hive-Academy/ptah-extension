@@ -89,6 +89,9 @@ export const SDK_TOKENS = {
 
   SDK_PROVIDER_AUTH_RESOLVER: Symbol.for('SdkProviderAuthResolver'),
 
+  /** `CommitMessageGenerator` — staged diff to commit message (TASK_2026_576). */
+  SDK_COMMIT_MESSAGE_GENERATOR: Symbol.for('SdkCommitMessageGenerator'),
+
   SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 
   SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),

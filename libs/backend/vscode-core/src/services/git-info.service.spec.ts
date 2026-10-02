@@ -48,6 +48,11 @@
  *   readHeadText         — HEAD sha read capped at the per-side limit;
  *                          too-large; unborn branch is absent; traversal refused
  *
+ * TASK_2026_576 Batch 45 additions (commit streaming):
+ *   commit          — onOutput streams; cancelOperation / caller signal stop it;
+ *                     the operation id is freed on settle; a running id is refused
+ *   readStagedPatch — patch flags; none / failed; 48 KiB cap stops git
+ *
  * `crossSpawn` is mocked at the module boundary so no git binary is required.
  *
  * Source-under-test:
@@ -77,7 +82,8 @@ jest.mock('os', () => ({
 }));
 
 import { GitInfoService, isMutatingGitCommand } from './git-info.service';
-import { GitOutputLimitError } from '../utils/exec-git';
+import { GitCancelledError, GitOutputLimitError } from '../utils/exec-git';
+import { STAGED_PATCH_TRUNCATED_NOTE } from './git/git-staged-patch.reader';
 import { GIT_DIFF_MAX_SIDE_BYTES } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
@@ -2893,6 +2899,225 @@ describe('GitInfoService — change-set delegates (TASK_2026_576)', () => {
       const result = await service.readHeadText(WS, 'a.ts');
 
       expect(result.outcome).toBe('error');
+    });
+  });
+});
+
+describe('GitInfoService — commit streaming and staged patch (TASK_2026_576 Batch 45)', () => {
+  const WS = '/fake/workspace';
+  type ExecResult = { stdout: string; stderr: string; exitCode: number };
+  type ExecOptions = {
+    signal?: AbortSignal;
+    onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  };
+  type Answer = (
+    args: string[],
+    options: ExecOptions | undefined,
+  ) => Promise<ExecResult>;
+
+  const ok = (stdout = ''): ExecResult => ({ stdout, stderr: '', exitCode: 0 });
+
+  function seamOf(service: GitInfoService, answer: Answer) {
+    const seam = service as unknown as {
+      execGit: (
+        args: string[],
+        cwd: string,
+        options?: ExecOptions,
+      ) => Promise<ExecResult>;
+    };
+    return jest
+      .spyOn(seam, 'execGit')
+      .mockImplementation(async (args, _cwd, options) => answer(args, options));
+  }
+
+  /** A `git commit` that streams `lines`, then runs until its signal aborts. */
+  function hangingCommit(lines: string[]) {
+    let started: () => void = () => undefined;
+    const commitStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const answer: Answer = (args, options) => {
+      if (args[0] !== 'commit') {
+        // rev-parse lookups fail: no index.lock path, no hooks directory.
+        return Promise.resolve({ stdout: '', stderr: 'fatal', exitCode: 128 });
+      }
+      for (const line of lines) options?.onOutput?.('stdout', line);
+      started();
+      return new Promise<ExecResult>((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () =>
+          reject(new GitCancelledError('commit')),
+        );
+      });
+    };
+    return { answer, commitStarted };
+  }
+
+  describe('commit()', () => {
+    it('streams output to onOutput and is stopped by cancelOperation', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const { answer, commitStarted } = hangingCommit([
+        'lint 1/3\n',
+        'lint 2/3\n',
+      ]);
+      seamOf(service, answer);
+      const seen: string[] = [];
+
+      const pending = service.commit(WS, 'feat: x', {
+        operationId: 'op-1',
+        onOutput: (_stream, chunk) => seen.push(chunk),
+      });
+      await commitStarted;
+
+      expect(seen).toEqual(['lint 1/3\n', 'lint 2/3\n']);
+      expect(service.cancelOperation('op-1')).toBe(true);
+      await expect(pending).resolves.toEqual({
+        success: false,
+        code: 'CANCELLED',
+        error: 'Commit cancelled.',
+      });
+      // The registry entry went with the settled commit.
+      expect(service.cancelOperation('op-1')).toBe(false);
+    });
+
+    it('releases the operation id after a successful commit', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      seamOf(service, async (args) => {
+        if (args[0] === 'rev-parse' && args[1] === '--short') {
+          return ok('abc1234\n');
+        }
+        if (args[0] === 'log') return ok('feat: x\n');
+        return ok();
+      });
+
+      const result = await service.commit(WS, 'feat: x', {
+        operationId: 'op-ok',
+      });
+
+      expect(result).toEqual({
+        success: true,
+        commitHash: 'abc1234',
+        subject: 'feat: x',
+      });
+      expect(service.cancelOperation('op-ok')).toBe(false);
+    });
+
+    it('refuses a second commit with an operation id that is still running', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const { answer, commitStarted } = hangingCommit([]);
+      const exec = seamOf(service, answer);
+
+      const first = service.commit(WS, 'feat: one', { operationId: 'dup' });
+      await commitStarted;
+      const second = await service.commit(WS, 'feat: two', {
+        operationId: 'dup',
+      });
+
+      expect(second).toEqual({
+        success: false,
+        code: 'GIT_ERROR',
+        error: 'An operation with this id is already running.',
+      });
+      expect(
+        exec.mock.calls.filter(([args]) => args[0] === 'commit'),
+      ).toHaveLength(1);
+      service.cancelOperation('dup');
+      await expect(first).resolves.toMatchObject({ code: 'CANCELLED' });
+    });
+
+    it('cancels through the caller signal as well as the operation id', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const { answer, commitStarted } = hangingCommit([]);
+      seamOf(service, answer);
+      const caller = new AbortController();
+
+      const pending = service.commit(WS, 'feat: x', {
+        operationId: 'op-sig',
+        signal: caller.signal,
+      });
+      await commitStarted;
+      caller.abort();
+
+      await expect(pending).resolves.toMatchObject({ code: 'CANCELLED' });
+      expect(service.cancelOperation('op-sig')).toBe(false);
+    });
+
+    it('answers false for an operation id that is not running', () => {
+      const service = new GitInfoService(makeLogger() as never);
+      expect(service.cancelOperation('never-started')).toBe(false);
+    });
+  });
+
+  describe('readStagedPatch()', () => {
+    it('reads git diff --cached with the patch flags', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const patch = 'diff --git a/a.ts b/a.ts\n+x\n';
+      const exec = seamOf(service, async () => ok(patch));
+
+      await expect(service.readStagedPatch(WS)).resolves.toEqual({
+        kind: 'patch',
+        patch,
+        truncated: false,
+      });
+      expect(exec.mock.calls[0][0]).toEqual([
+        'diff',
+        '--cached',
+        '-U3',
+        '--no-color',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+      ]);
+    });
+
+    it('reports none when nothing is staged and failed when git fails', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const exec = seamOf(service, async () => ok());
+      await expect(service.readStagedPatch(WS)).resolves.toEqual({
+        kind: 'none',
+      });
+
+      exec.mockImplementation(async () => ({
+        stdout: '',
+        stderr: 'fatal: not a git repository',
+        exitCode: 128,
+      }));
+      await expect(service.readStagedPatch(WS)).resolves.toEqual({
+        kind: 'failed',
+      });
+    });
+
+    it('stops git past 48 KiB and keeps whole lines plus a truncation note', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const line = `+${'x'.repeat(99)}\n`; // 101 bytes
+      let aborted = false;
+      seamOf(service, (_args, options) => {
+        for (let i = 0; i < 1000 && !options?.signal?.aborted; i++) {
+          options?.onOutput?.('stdout', line);
+        }
+        aborted = options?.signal?.aborted ?? false;
+        return Promise.reject(new GitCancelledError('diff'));
+      });
+
+      const result = await service.readStagedPatch(WS);
+
+      expect(aborted).toBe(true);
+      if (result.kind !== 'patch') throw new Error(`got ${result.kind}`);
+      expect(result.truncated).toBe(true);
+      expect(result.patch.endsWith(STAGED_PATCH_TRUNCATED_NOTE)).toBe(true);
+      const body = result.patch.slice(0, -STAGED_PATCH_TRUNCATED_NOTE.length);
+      expect(Buffer.byteLength(body)).toBeLessThanOrEqual(48 * 1024);
+      expect(body.length % line.length).toBe(0);
+    });
+
+    it('caps a completed run whose output is over 48 KiB', async () => {
+      const service = new GitInfoService(makeLogger() as never);
+      const line = `+${'y'.repeat(99)}\n`;
+      seamOf(service, async () => ok(line.repeat(600)));
+
+      const result = await service.readStagedPatch(WS);
+
+      expect(result).toMatchObject({ kind: 'patch', truncated: true });
     });
   });
 });

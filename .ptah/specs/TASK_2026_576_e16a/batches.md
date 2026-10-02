@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 44/69
+Total tasks: 87 | Batches: 69 | Complete: 57/69 (P5 closed)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1941,14 +1941,28 @@ executors at once.
 
 # P5 — Workflow surfaces (built unmounted until cutover)
 
-## Batch 45: Commit streaming backend — PENDING
+### P5 waves (branch `feat/task-2026-576-p5`, worktree `.claude-worktrees/task-576-p5`, PR stacked on P4)
+
+| Wave | Batches | Notes |
+|---|---|---|
+| W1 | 45 | started while the P4 review round 2 ran; P4 merged forward when closed |
+| W2 | 46 | |
+| W3 | 47 | |
+| W4 | 48 ∥ 49 | |
+| W5 | 50 ∥ 51 | |
+| W6 | 52 | |
+| W7 | 53 ∥ 57 | |
+| W8 | 54 ∥ 55 | |
+| W9 | 56 | then the P5 phase-end review |
+
+## Batch 45: Commit streaming backend — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P4 complete
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core`
 
-### Task 45.1: `OperationRegistry`, commit `onOutput`/abort, `readStagedPatch`, shared types — PENDING
+### Task 45.1: `OperationRegistry`, commit `onOutput`/abort, `readStagedPatch`, shared types — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-operation.registry.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.spec.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/messages/message-constants.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/messages/payload-map.ts
 - Plan reference: implementation-plan.md:1214-1220, 1246-1248
@@ -1956,15 +1970,27 @@ executors at once.
 - Quality requirements: registry entry deleted on settle; 256 KiB tail for `hookOutput`; staged patch capped 48 KiB with a note.
 - Validation notes: no registry (`rpc.types.ts`) change here (V5).
 - Implementation details: `git:operationOutput` push type.
+- Outcome: executor backend-developer. `GitOperationRegistry` (operationId → abort control, removed on settle,
+  duplicate running id refused with GIT_ERROR, caller signal honoured); `commit` takes `operationId` + `onOutput`;
+  `cancelOperation(id)` → CANCELLED with the existing lock recovery; `hookOutput` = last 256 KiB interleaved in
+  arrival order with a truncation line; `readStagedPatch` (`git-staged-patch.reader.ts`, `git diff --cached`, cut at
+  the last whole line within 48 KiB, `none`/`failed`). Shared: `GitCommitParams.operationId`,
+  `git:operationOutput` push type/payload, cancel + generate param/result types (registry untouched, V5).
+  Accepted deviations: commit runner + spec, new reader, registry spec, hooks real-git spec, two type exports in
+  the vscode-core barrel; `git-info.service.ts` +~60 lines (facade only); `hookOutput` order changed to arrival
+  order. Notes: 46 maps `none` → `no-staged-changes`; 47 forwards operationId/onOutput with the 100 ms / 16 KiB
+  throttle and checks the strict `git:commit` schema. Verified: shared 2257 + vscode-core 859 tests,
+  typecheck/lint green; real-git 147 passed / 2 skipped (hook output streams ≥1 s before commit end, cancel leaves
+  no `index.lock`, staged diff read, 48 KiB cut).
 
-## Batch 46: Commit-message generator — PENDING
+## Batch 46: Commit-message generator — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 45
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk`
 
-### Task 46.1: `CommitMessageGenerator` on the active provider (Gate 2 default a) — PENDING
+### Task 46.1: `CommitMessageGenerator` on the active provider (Gate 2 default a) — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/commit-message/commit-message-generator.service.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/commit-message/commit-message-prompt.ts; MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/di/tokens.ts; MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/di/register.ts; MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/index.ts
 - Plan reference: implementation-plan.md:1219-1224, 1238-1242
@@ -1972,15 +1998,28 @@ executors at once.
 - Quality requirements: discriminated result, never `''`; 45 s abort; `USER_ACTION_QUERY_LANE`.
 - Validation notes: `ProviderAuthError` rides active provider; `ProviderQuotaError` → `rate-limited`.
 - Implementation details: as plan.
+- Outcome: executor backend-developer. `CommitMessageGenerator` (agent-sdk `commit-message/`, 27 tests; token
+  `SDK_COMMIT_MESSAGE_GENERATOR`, singleton beside `SDK_INTERNAL_QUERY_SERVICE`; exported with
+  `COMMIT_MESSAGE_TIMEOUT_MS`). `generate(workspaceRoot)` never throws / never returns '': `readStagedPatch` none →
+  `no-staged-changes`, failed → `unreachable`; not initialized → `no-provider`; quota → `rate-limited`; auth error →
+  active provider fallback; query `USER_ACTION_QUERY_LANE`, haiku, maxTurns 1, no MCP, cwd `os.tmpdir()`, 45 s
+  abort (inside the 75 s renderer timeout); 429 → `rate-limited`, network → `unreachable`, `AuthRequiredError` →
+  `no-provider`; reply cleaned (fences/quotes, subject ≤72 at a word boundary, no trailing period, body kept);
+  patch and reply never logged. Prompt wraps the diff in `<staged_diff>` with closing-tag neutralisation. For 47:
+  return `generate(params.workspaceRoot)` as is after schema validation. OPEN (security, before cutover):
+  `InternalQueryConfig` has no tool allow-list and internal queries bypass permissions, so a prompt-injected diff
+  could make the single turn run a built-in tool — add a tool allow-list/deny-all to `InternalQueryConfig` +
+  `SdkQueryRunner` and use it here. Verified: agent-sdk typecheck/test/lint green (2357 tests; the unrelated
+  `off-thread-process-spawner.spec.ts` timed out once under load, passes alone).
 
-## Batch 47: `GitWorkflowRpcHandlers` — commit stream, cancel, generate — PENDING
+## Batch 47: `GitWorkflowRpcHandlers` — commit stream, cancel, generate — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 46
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers ptah-electron ptah-extension-vscode @ptah-extension/cli-engine`
 
-### Task 47.1: Handler class, schema, registry, manifest — PENDING
+### Task 47.1: Handler class, schema, registry, manifest — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.handlers.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.schema.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/index.ts
 - Plan reference: implementation-plan.md:1214-1218, 1225, 1243-1245
@@ -1988,15 +2027,29 @@ executors at once.
 - Quality requirements: throttle ≤1 push/100 ms, ≤16 KiB per push; `git:commit` accepts `operationId` (existing handler forwards it — if that edit lands in `git-rpc.handlers.ts`, it replaces `handlers/index.ts` in the file count, reported).
 - Validation notes: V5, A14.
 - Implementation details: `git:cancelOperation`, `git:generateCommitMessage` (renderer timeout 75 s).
+- Outcome (`550c380e2`): executor backend-developer. `GitWorkflowRpcHandlers` (`git:cancelOperation`,
+  `git:generateCommitMessage`; manifest entry `gitWorkflow`, `requires: []`; strict schemas, `INVALID_PARAMS`;
+  generation for an unregistered folder or a throwing generator → `unavailable/unreachable`). `git:commit` stays in
+  `GitRpcHandlers` (accepted deviation: it owns the method and `WebviewManager`) under a strict schema; with an
+  `operationId` it forwards `onOutput` through `git-operation-output.throttle.ts` (≤1 push/100 ms, ≤16 KiB UTF-8
+  safe, 256 KiB queue cap with an "earlier output not shown" note, `flush()` in `finally` before the result).
+  Extra file `git-workspace-root.ts` (shared registered-folder check). Security follow-up from Batch 46 folded in:
+  `toolAccess?: 'claude-code' | 'none'` on `InternalQueryConfig`/`OneShotRunInput`; `'none'` sets `tools: []`,
+  `allowedTools: []`, `strictMcpConfig`, `skills: []`, `permissionMode: 'dontAsk'` and a deny-all `canUseTool`
+  (names checked in the SDK 0.3.278 typings); `CommitMessageGenerator` uses it. Sonar items on #629 fixed (node:os,
+  complexity split, `.at`, regex → loop, `String.raw`, `toHaveLength`). Verified: shared 2257, rpc-handlers 3515
+  (1 environment failure `harness-skill-selection`, a leftover state.json), agent-sdk 2365, cli-engine 208,
+  ptah-electron 1081, vscode 148 tests; typecheck/lint green. Notes for 48: `operationId` `^[w.:-]{1,128}$`; push
+  `{ operationId, stream, chunk }`; 75 s client timeout.
 
-## Batch 48: Commit composer UI + shell Commit tab — PENDING
+## Batch 48: Commit composer UI + shell Commit tab — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 43, 47
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 48.1: `CommitComposerComponent` — PENDING
+### Task 48.1: `CommitComposerComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/commit/commit-composer.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-shell/review-shell.component.ts (+ its spec)
 - Plan reference: implementation-plan.md:1207-1213, 1229-1234
@@ -2004,15 +2057,27 @@ executors at once.
 - Quality requirements: log `role="log" aria-live="polite"`; Commit disabled without staged files or message; Cancel while running; generation failure keeps field editable.
 - Validation notes: nothing commits without Commit; no provider call without a click.
 - Implementation details: as plan.
+- Outcome (`dfa5280c9`): executor frontend-developer. `CommitComposerComponent` (`ptah-commit-composer`): draft per
+  workspace; Commit disabled with nothing staged, a blank message, or a run in progress; new `randomUUID` per commit;
+  hook log `<pre role="log" aria-live="polite">` capped at 64 KiB; hook failure keeps the message and the log
+  (falls back to `hookOutput` when nothing streamed); `CANCELLED` status line; Generate only on click, failure keeps
+  the field and any typed text. RPCs in `SourceControlService` (`COMMIT_MESSAGE_RPC_TIMEOUT_MS = 75_000`). New root
+  `GitOperationOutputService` (MessageHandler, one listener per operationId). Shell: Commit tab ("Commit, N staged
+  files") in `@defer (when shownTab() === 'commit')`; both bodies stay mounted afterwards (closes the Batch 43
+  "keep Changes mounted" item). Accepted deviations: generation notice text in `text-base-content` with a warning
+  icon (AA); "Commit blocked by a hook" (no hook name in the result); plain streamed log, no per-hook rows. Verified:
+  git-ui 941 tests incl. axe, typecheck/lint green; eager guard passes (`main.js` 368,690 B gz). Cutover (58):
+  register `GitOperationOutputService` under `MESSAGE_HANDLERS`; in `review-navigation.service.ts` drop the
+  `tab !== current.tab` condition so a tab-only switch does not raise the unsaved-changes prompt.
 
-## Batch 49: PR status reader and `git:prStatus` — PENDING
+## Batch 49: PR status reader and `git:prStatus` — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 47
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core @ptah-extension/rpc-handlers` (3 libs: registry must ship with the handler, V5 — exception (a))
 
-### Task 49.1: `GitHubPrStatusReader` + facade delegate — PENDING
+### Task 49.1: `GitHubPrStatusReader` + facade delegate — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/github-pr-status.reader.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts
 - Plan reference: implementation-plan.md:1261-1271, 1283-1286
@@ -2021,7 +2086,7 @@ executors at once.
 - Validation notes: A10 — defensive parse; each unavailable reason quiet.
 - Implementation details: argv `gh pr view --json ... -- <branch>` after `assertSafeRef`.
 
-### Task 49.2: `git:prStatus` in the workflow handler — PENDING
+### Task 49.2: `git:prStatus` in the workflow handler — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.handlers.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts
 - Plan reference: implementation-plan.md:1272
@@ -2029,15 +2094,26 @@ executors at once.
 - Quality requirements: backend resolves the branch itself.
 - Validation notes: V5.
 - Implementation details: as plan.
+- Outcome (`6ee16b1d8`): 49.1 by antigravity (`lanes/batch-49-1-report.md`), orchestrator fixes (removed a duplicate
+  `getPrStatus` alias, `.*` regex → `includes`); 49.2 by backend-developer (antigravity hit its quota). Reader: `gh pr
+  view --json … -- <branch>` after `assertSafeRef`, no shell, non-interactive env (`GH_PROMPT_DISABLED`,
+  `GH_NO_UPDATE_NOTIFIER`, `NO_COLOR`, `GIT_TERMINAL_PROMPT=0`, `GH_PAGER=cat`), 15 s timeout with tree kill, 60 s
+  cache per (root, branch) for `ok`/`no-pr` only, defensive parse, `https:` urls only, debug-level logs. Result
+  `{status:'ok', pr, checks:{passing,failing,pending,total}} | {status:'unavailable', reason: gh-missing |
+  not-authenticated | no-pr | not-github | timeout | failed}`. Handler: branch from `getBranches(root,false).current`
+  (empty on detached HEAD → `no-pr`, no gh call); throws → `failed`; unregistered folder → `failed` (deviation:
+  catch-all of this result type); `GitPrStatusParams` = `GitWorkspaceScopedParams` (strict, client `branch`
+  rejected). Verified: reader 22, rpc-handlers 3524 (+ the known `harness-skill-selection` env failure), shared 2257,
+  cli-engine 208, ptah-electron 1081, vscode 148 tests; typecheck/lint green.
 
-## Batch 50: Worktree/PR task view UI + shell Task tab — PENDING
+## Batch 50: Worktree/PR task view UI + shell Task tab — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 49
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 50.1: `TaskWorktreeViewComponent` — PENDING
+### Task 50.1: `TaskWorktreeViewComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/task/task-worktree-view.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-shell/review-shell.component.ts (+ its spec)
 - Plan reference: implementation-plan.md:1254-1260, 1279-1280
@@ -2045,15 +2121,25 @@ executors at once.
 - Quality requirements: row switch buttons with sibling Remove (no nested buttons); one component-owned timer, cleared on hide/destroy; "Open PR" only `https:`.
 - Validation notes: spec ports every `worktree-section.component.spec.ts` case used as successor in parity.
 - Implementation details: as plan.
+- Outcome (`551baf6c5`): executor frontend-developer. `TaskWorktreeViewComponent` + display-only `TaskPrPanelComponent`
+  (split for max-lines): branch/upstream/ahead-behind with branch details inline, PR (number, title, state/draft,
+  review decision, checks), worktree rows (`<li>` with sibling switch and Remove; Remove/Force remove through the
+  Batch 33 dialog), add form. One `setTimeout` PR refresh re-armed 60 s after each read, outside the Angular zone,
+  cleared on hide/destroy; stale replies dropped. Open PR only for `https:` (`<a target=_blank rel=noopener>`).
+  `GitBranchesService.readPrStatus` (30 s) + `pushCompletions` counter. Shell Task tab in `@defer`, `[shown]` input.
+  Parity rows 51-53, 55, 87-93 mapped to tests; every old `worktree-section` spec case ported; 56/57 (Fetch/Pull)
+  stay in the shell header. Accepted deviations: ahead `text-info`/behind `text-warning` (matches the header), Merged
+  `badge-outline` (AA). Verified: git-ui 1000 tests incl. axe, typecheck/lint green; eager guard `main.js`
+  369,657 B gz. Follow-ups: PR cache after push (fixed in Batch 53), `refreshRemotes()` reply shape unchecked.
 
-## Batch 51: Conflict operation backend — PENDING
+## Batch 51: Conflict operation backend — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 49
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core`
 
-### Task 51.1: Abort/continue (re-detected server-side) and `materializeConflictStages` — PENDING
+### Task 51.1: Abort/continue (re-detected server-side) and `materializeConflictStages` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.operation-actions.real-git.spec.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-misc.types.ts
 - Plan reference: implementation-plan.md:1298-1307, 1316, 1321-1329
@@ -2061,15 +2147,24 @@ executors at once.
 - Quality requirements: under write lock with hook timeout; `GIT_EDITOR=true` for continue; stage files removed when the operation ends.
 - Validation notes: kind never taken from the client.
 - Implementation details: as plan.
+- Outcome (`255e24c57`): executor backend-developer. New collaborator `services/git/git-operation-actions.ts` + facade
+  `abortOperation`, `continueOperation`, `materializeConflictStages`. Kind re-detected under the write lock; merge
+  continue = `commit --no-edit`, rebase/cherry-pick `--continue`; `GIT_EDITOR=true`, `GIT_SEQUENCE_EDITOR=true`,
+  `GIT_MERGE_AUTOEDIT=no`, no prompt; hook timeout through `GitCommitKillGuard`; `conflicts-remain` refused without
+  git; `stopped` when a later step stops. Stages via `ls-files -u -z` + `cat-file blob` into
+  `<git-path ptah-merge>/<sha256[:16]>/`; removed after abort/continue and at the next status with no operation.
+  Path checks (absolute, `..`, NUL, outside repo). `GitConflictStagesResult` stays in vscode-core (absolute paths).
+  Deviations: revert not handled (reader detects merge/rebase/cherry-pick only); `rpc-misc.types.ts` unchanged.
+  Verified: real-git 17/17 (+ full real-git 164 passed, 2 skipped), vscode-core 881, shared 2257.
 
-## Batch 52: Editor merge launcher — PENDING
+## Batch 52: Editor merge launcher — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 51
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/platform-core @ptah-extension/platform-electron`
 
-### Task 52.1: `IEditorLauncher.openMergeTool?`, `mergeArgs`, Electron implementation, real spec — PENDING
+### Task 52.1: `IEditorLauncher.openMergeTool?`, `mergeArgs`, Electron implementation, real spec — COMPLETE
 
 - Files: MODIFY the `IEditorLauncher` file under D:/projects/ptah-extension/libs/backend/platform-core/src/interfaces/ (locate with grep); MODIFY D:/projects/ptah-extension/libs/backend/platform-core/src/utils/editor-launcher-detection.ts; MODIFY D:/projects/ptah-extension/libs/backend/platform-electron/src/implementations/electron-editor-launcher.ts (+ spec); CREATE D:/projects/ptah-extension/libs/backend/platform-electron/src/implementations/editor-merge.real.spec.ts
 - Plan reference: implementation-plan.md:1303-1313, 1325-1328
@@ -2077,15 +2172,22 @@ executors at once.
 - Quality requirements: never `shell: true`; Windows `.cmd` shim through the existing path.
 - Validation notes: A11 — only targets declaring `mergeArgs`.
 - Implementation details: fake `code.cmd` shim records argv.
+- Outcome (`a850b6496`): executor backend-developer. `openMergeTool?(target, {local, remote, base, result})` →
+  `launched | unsupported | failed` (never rejects); `mergeArgs` only on `vscode` (`--merge`, from `code --help`;
+  forks unconfirmed, they open the file); argv `[...mergeArgs, local, remote, base, result]`, cwd `dirname(result)`,
+  no `--wait`, through the existing `IProcessSpawner` (`.cmd` → `cmd.exe /d /s /c` via cross-spawn parse). Real spec
+  with PATH-detected `code`/`code.cmd` shims: argv order, spaces, `&`/`;` literal, A11 refusal. Run with
+  `npx nx test @ptah-extension/platform-electron --testPathPatterns=editor-merge.real` (2/2 on Windows). Verified:
+  platform-core 1002, platform-electron 666 tests; typecheck/lint green incl. platform-vscode/cli.
 
-## Batch 53: Conflict and history RPCs — PENDING
+## Batch 53: Conflict and history RPCs — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 52
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/cli-engine ptah-extension-vscode` (exception (a))
 
-### Task 53.1: `git:operationAbort/Continue` and `editor:openMerge` — PENDING
+### Task 53.1: `git:operationAbort/Continue` and `editor:openMerge` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.handlers.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/editor-rpc.handlers.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts
 - Plan reference: implementation-plan.md:1298-1307, 1323-1324
@@ -2094,7 +2196,7 @@ executors at once.
 - Validation notes: V4 — if `editor:openMerge` sits under `editorLauncher` and CLI/TUI lack it, add it to `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts` expected-absent (6th file).
 - Implementation details: as plan.
 
-### Task 53.2: Checked by A11 evidence from Batch 52 — PENDING
+### Task 53.2: Checked by A11 evidence from Batch 52 — COMPLETE
 
 - Depends on: Task 53.1
 - File: none authored; the report quotes Batch 52's A11 result and confirms the handler only offers merge for `mergeArgs` targets
@@ -2103,15 +2205,28 @@ executors at once.
 - Quality requirements: n/a
 - Validation notes: A11
 - Implementation details: n/a
+- Outcome (`8050c1089`, with Task 55.2): executor backend-developer. `git:operationAbort`/`git:operationContinue`
+  (strict `{workspaceRoot?}`, typed results passed through; unregistered root or throw → fixed-copy `GIT_ERROR`).
+  `editor:openMerge { target, path, workspaceRoot? }` (deviation: required `target` like the plan line 1305 and the
+  sibling `editor:*` methods, not `editorId?`): no `openMergeTool` or no `mergeArgs` → `unsupported` before any
+  detect/write/spawn; missing editor → `not-installed`; stages → `openMergeTool`; reasons `invalid-params |
+  invalid-path | not-installed | no-operation | not-conflicted | not-mergeable | failed`, fixed copy, no stage paths.
+  V4: CLI/TUI hosts have `editorLauncher`, so the method is served there and answers `unsupported`; expected-absent
+  list unchanged. 53.2: A11 confirmed — Batch 52 tests "A11: declares mergeArgs only for VS Code…", "A11: refuses
+  %s, which declares no mergeArgs, without spawning", "A11: refuses a target without mergeArgs and never runs its
+  executable"; handler tests "A11: answers unsupported for %s (no mergeArgs) without materializing stages" and
+  "A11: answers unsupported when the host launcher has no openMergeTool". Extra: a successful push invalidates the PR
+  status cache for that root (`GitHubPrStatusReader.invalidate`). Verified: shared 2257, rpc-handlers 3574 (+ known
+  env failure), vscode-core 883, real-git remote-stash 25, cli-engine 208, vscode 148, ptah-electron 1081 tests.
 
-## Batch 54: Conflict banner UI + shell banner slot — PENDING
+## Batch 54: Conflict banner UI + shell banner slot — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 50, 53
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 54.1: `ConflictBannerComponent` — PENDING
+### Task 54.1: `ConflictBannerComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/conflict/conflict-banner.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-shell/review-shell.component.ts (+ its spec)
 - Plan reference: implementation-plan.md:1292-1297, 1315
@@ -2119,15 +2234,26 @@ executors at once.
 - Quality requirements: Abort confirms (Batch 33 dialog); Continue only when no conflicted paths; delete/modify, symlink, submodule → "Open folder".
 - Validation notes: "Ask agent" via `AGENT_FEEDBACK_SENDER` (`'active'`).
 - Implementation details: as plan.
+- Outcome (`d4c247dd7`): executor frontend-developer (interrupted once by the API weekly limit, resumed).
+  `ConflictBannerComponent` (31 tests incl. axe) in the shell notice slot above the tabs: per-file Open in editor
+  (`editor:openMerge` on VS Code, else first non-terminal editor; `unsupported` → open the file) or Open folder
+  (delete/modify, symlink, submodule, or `not-mergeable`), ≤50 rows; Ask agent to `'active'` (resolve and stage,
+  never continue/abort); Abort behind the Batch 33 dialog; Continue only with no conflicted paths (`stopped`,
+  `conflicts-remain`, `completed` announced). New `GitStatusService.operation` signal (shape-checked);
+  `SourceControlService.abortOperation/continueOperation`; `EditorLauncherService.openMerge`; `refreshRemotes()`
+  hardened. Deviations: `role="region"` card (not alert); Continue hidden until resolvable; per-row Open in editor;
+  banner always mounted (hides itself) so the completion line is announced. Verified: git-ui 1099 tests,
+  typecheck/lint green, eager guard `main.js` 369,853 B gz. Cutover: bind `AGENT_FEEDBACK_SENDER` in the app root;
+  tabs' primary actions are not disabled during a conflict (design-spec §11) — open item.
 
-## Batch 55: History reader and `git:log` — PENDING
+## Batch 55: History reader and `git:log` — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 53
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core @ptah-extension/rpc-handlers` (registry with handler, V5 — exception (a))
 
-### Task 55.1: `GitHistoryReader` + facade delegate — PENDING
+### Task 55.1: `GitHistoryReader` + facade delegate — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-history.reader.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-history.reader.real-git.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts
 - Plan reference: implementation-plan.md:1341-1357
@@ -2135,8 +2261,12 @@ executors at once.
 - Quality requirements: base resolution order; ≤200 commits.
 - Validation notes: no own commits, detached HEAD, `origin/HEAD` absent.
 - Implementation details: as plan.
+- Task 55.1 done (`ed5b9f5cc`): `GitHistoryReader` + facade `getLog(root)`; base `origin/HEAD` → `main` → `master`;
+  `since-base` (≤200, `truncated`) or `recent` (50) on the base branch; `GitHistoryCommit { sha, shortSha, subject,
+  authorName, authorDate (ISO %aI), parentCount, isRoot }`; real-git 13/13. Deviations: type name, ISO dates,
+  extra `mode`/`branch`/`truncated` fields.
 
-### Task 55.2: `git:log` handler — PENDING
+### Task 55.2: `git:log` handler — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.handlers.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts
 - Plan reference: implementation-plan.md:1341, 1356-1357
@@ -2144,15 +2274,17 @@ executors at once.
 - Quality requirements: n/a beyond plan.
 - Validation notes: V5.
 - Implementation details: as plan.
+- Outcome: 55.1 `ed5b9f5cc` (above); 55.2 in `8050c1089` — `git:log` strict workspace-scoped, passes `getLog` through;
+  throw → `unavailable/git-failed`; unregistered root → `not-a-repository`.
 
-## Batch 56: History timeline UI + shell History tab — PENDING
+## Batch 56: History timeline UI + shell History tab — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 54, 55
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 56.1: `HistoryTimelineComponent` — PENDING
+### Task 56.1: `HistoryTimelineComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/history/history-timeline.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-shell/review-shell.component.ts (+ its spec)
 - Plan reference: implementation-plan.md:1335-1340, 1350
@@ -2160,15 +2292,24 @@ executors at once.
 - Quality requirements: drop confirms; root commit "Initial commit — open in editor"; empty state copy.
 - Validation notes: none.
 - Implementation details: select → `ReviewNavigationService.openHistorical(sha)`.
+- Outcome (`082174eb8`): executor frontend-developer (interrupted once by
+  the API weekly limit, resumed). `HistoryTimelineComponent` + `HistoryStashSectionComponent` + `GitHistoryService`
+  (shape-checked `git:log`, failures → `git-failed`). Rows are buttons (short hash, subject, author, `<time>` relative
+  with full date); select → `openHistorical(sha)`; merge rows labelled; root commit "Initial commit — open in
+  editor" opens the workspace in the external editor (plan names no target; accepted). States: since-base, recent,
+  empty, truncated, detached, unavailable + Retry, no workspace. Stashes ported (apply, pop, files, diff, drop confirmed
+  and re-checked by hash). Reads only while shown; re-reads on HEAD/branch/push change; no timers. Shell History tab
+  in `@defer`, `[shown]`; dead "unknown tab → Changes" fallback removed. Verified: git-ui 1102 tests incl. axe,
+  typecheck/lint green; eager guard `main.js` 370,615 B gz.
 
-## Batch 57: CI — editor merge spec in the OS matrix — PENDING
+## Batch 57: CI — editor merge spec in the OS matrix — COMPLETE
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 52
 - Verification: workflow lint as in Batch 8
 
-### Task 57.1: Add `editor-merge.real.spec.ts` run to `git-real-git` — PENDING
+### Task 57.1: Add `editor-merge.real.spec.ts` run to `git-real-git` — COMPLETE
 
 - File: MODIFY D:/projects/ptah-extension/.github/workflows/ci.yml
 - Plan reference: implementation-plan.md:1313
@@ -2176,10 +2317,29 @@ executors at once.
 - Quality requirements: runs on all three OSes.
 - Validation notes: project name `@ptah-extension/platform-electron`.
 - Implementation details: `--testPathPattern=editor-merge.real`.
+- Outcome (`2b22c9787`): executor devops-engineer. Step "platform-electron editor-merge real spec" at the end of
+  `git-real-git` (ubuntu/windows/macos): `node_modules/.bin/nx test @ptah-extension/platform-electron
+  --testPathPatterns=editor-merge.real --passWithNoTests=false` (plural flag; singular is ignored by `@nx/jest`). YAML
+  parsed with `yaml`; actionlint not installed; spec passes on Windows; first Linux/macOS run happens in CI.
 
 ### P5 phase-end review
 
-- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P5 phase diff, the full e2e set (surfaces are unmounted; their visual review happens at Batches 58-61); findings fixed in follow-up commits before the next phase starts.
+- [x] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P5 phase diff, the full e2e set (surfaces are unmounted; their visual review happens at Batches 58-61); findings fixed in follow-up commits before the next phase starts.
+- Outcome (2026-10-02): no CLI lane was available (antigravity quota ~127 h, Glm weekly limit, opencode "Unknown
+  error"; codex/copilot excluded), so per the agent-lanes fallback two independent code-logic-reviewer subagents on
+  Sonnet (authors: Opus subagents + one antigravity lane) reviewed the P5 diff — weaker evidence than a cross-family
+  lane. Backend (`reviews/p5-phase-review-backend.md`, REVISE 7/10: SER-1 PR matched by number/fork, MOD-1..5,
+  MIN-1..5) → fixes `db258914e`; round 1 (`-backend-round1.md`) APPROVE 8/10 with MIN-6..9 → `d36797f6a`. Frontend
+  (`p5-phase-review-frontend.md`, APPROVE 7/10: MOD-1..4, MIN-1..5) → fixes `ff6dbe7af`; round 1 (`-frontend-round1.md`)
+  REVISE 7/10 (SER-1 false "committed" after a timeout, MOD-5, MIN-6) → `be92f6f46`; round 2
+  (`-frontend-round2.md`) APPROVE 8/10. Revise cap reached. SonarCloud issues on #629 fixed in the same rounds.
+  e2e: surfaces are unmounted; the full set runs in CI once the stack is retargeted to `main` (PENDING); visual
+  review moves to the cutover. Open (minor, accepted): frontend MIN-7 (multi-paragraph first line or a hook that
+  rewrites the subject leaves a landed commit "unconfirmed"), MIN-8 (first commit in an empty repo cannot be
+  confirmed after a timeout); backend MIN-1 (`toolAccess: 'none'` needs a real-SDK check — manual, cutover), MIN-2
+  secret-file filtering of the staged diff (product decision), MIN-7 (no push remote → `no-pr`). Cutover items:
+  register `GitOperationOutputService` + `FileContentChangesService` under `MESSAGE_HANDLERS` (with a spec), bind
+  `AGENT_FEEDBACK_SENDER`, drop the tab-switch unsaved prompt, disable tab primary actions during a conflict.
 
 ---
 

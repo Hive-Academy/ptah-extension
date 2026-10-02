@@ -72,6 +72,54 @@ class MockSpotEditor {
   readonly confirmLeave = jest.fn<boolean | Promise<boolean>, []>(() => true);
 }
 
+@Component({
+  selector: 'ptah-commit-composer',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div data-testid="mock-composer"></div>`,
+})
+class MockCommitComposer {}
+
+@Component({
+  selector: 'ptah-task-worktree-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div data-testid="mock-task-view"></div>`,
+})
+class MockTaskWorktreeView {
+  readonly shown = input(false);
+}
+
+@Component({
+  selector: 'ptah-history-timeline',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div data-testid="mock-history"></div>`,
+})
+class MockHistoryTimeline {
+  readonly shown = input(false);
+}
+
+@Component({
+  selector: 'ptah-conflict-banner',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div data-testid="mock-conflict-banner"></div>`,
+})
+class MockConflictBanner {}
+
+jest.mock('../conflict/conflict-banner.component', () => ({
+  ConflictBannerComponent: MockConflictBanner,
+}));
+jest.mock('../commit/commit-composer.component', () => ({
+  CommitComposerComponent: MockCommitComposer,
+}));
+jest.mock('../task/task-worktree-view.component', () => ({
+  TaskWorktreeViewComponent: MockTaskWorktreeView,
+}));
+jest.mock('../history/history-timeline.component', () => ({
+  HistoryTimelineComponent: MockHistoryTimeline,
+}));
 jest.mock('../git-dock/git-dock-header.component', () => ({
   GitDockHeaderComponent: MockGitDockHeader,
 }));
@@ -122,6 +170,7 @@ function makeGitStatus() {
     statusUnavailable: signal<GitStatusUnavailableReason | null>(null),
     staleReason: signal<GitStatusUnavailableReason | null>(null),
     changedFileCount: signal(3),
+    stagedCount: signal(2),
   };
 }
 
@@ -327,6 +376,38 @@ describe('ReviewShellComponent', () => {
     expect(text(fixture)).not.toContain('not a Git repository');
   });
 
+  // -- Conflict banner slot (Batch 54) ----------------------------------------
+
+  it('mounts the conflict banner in the notice slot, above the tabs', async () => {
+    const fixture = await render();
+    const banner = query(fixture, '[data-testid="mock-conflict-banner"]');
+    const tablist = query(fixture, '[role="tablist"]');
+
+    expect(banner).not.toBeNull();
+    expect(tablist).not.toBeNull();
+    expect(
+      banner && tablist
+        ? banner.compareDocumentPosition(tablist) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        : 0,
+    ).toBeTruthy();
+  });
+
+  it('keeps the conflict banner mounted across a status re-read', async () => {
+    const fixture = await render();
+    const before = fixture.debugElement.query(By.directive(MockConflictBanner));
+
+    gitStatus.isLoading.set(true);
+    await settle(fixture);
+    gitStatus.isLoading.set(false);
+    await settle(fixture);
+
+    expect(
+      fixture.debugElement.query(By.directive(MockConflictBanner))
+        ?.componentInstance,
+    ).toBe(before.componentInstance);
+  });
+
   it('shows no stale notice for a fresh read', async () => {
     const fixture = await render();
 
@@ -351,7 +432,7 @@ describe('ReviewShellComponent', () => {
 
   // -- Tabs -----------------------------------------------------------------
 
-  it('renders the Changes tab with its count as an accessible tablist', async () => {
+  it('renders the Changes, Commit, Task and History tabs with their counts as an accessible tablist', async () => {
     const fixture = await render();
     const tablist = query(fixture, '[role="tablist"]');
     const tabs = [
@@ -360,40 +441,231 @@ describe('ReviewShellComponent', () => {
     const panel = query(fixture, '[role="tabpanel"]');
 
     expect(tablist?.getAttribute('aria-label')).toBe('Review');
-    expect(tabs).toHaveLength(1);
+    expect(tabs).toHaveLength(4);
+    expect(tabs[2].textContent?.trim()).toBe('Task');
+    expect(tabs[3].textContent?.trim()).toBe('History');
+    expect(tabs[3].getAttribute('aria-selected')).toBe('false');
+    expect(tabs[2].getAttribute('aria-selected')).toBe('false');
     expect(tabs[0].textContent?.replace(/\s+/g, '')).toBe('Changes3');
     expect(tabs[0].getAttribute('aria-label')).toBe('Changes, 3 changed files');
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
     expect(tabs[0].getAttribute('tabindex')).toBe('0');
     expect(tabs[0].getAttribute('aria-controls')).toBe(panel?.id);
+    expect(tabs[1].textContent?.replace(/\s+/g, '')).toBe('Commit2');
+    expect(tabs[1].getAttribute('aria-label')).toBe('Commit, 2 staged files');
+    expect(tabs[1].getAttribute('aria-selected')).toBe('false');
+    expect(tabs[1].getAttribute('tabindex')).toBe('-1');
     expect(panel?.getAttribute('aria-labelledby')).toBe(tabs[0].id);
     expect(panel?.contains(query(fixture, 'ptah-review-canvas'))).toBe(true);
   });
 
-  it('keeps focus and selection on the only tab under arrow keys', async () => {
-    const fixture = await render();
-    const tab = query(fixture, '[role="tab"]') as HTMLButtonElement;
-    tab.focus();
+  it('says "1 staged file" in the singular', async () => {
+    gitStatus.stagedCount.set(1);
 
-    tab.dispatchEvent(
+    const fixture = await render();
+
+    expect(
+      query(fixture, '[data-tab-id="commit"]')?.getAttribute('aria-label'),
+    ).toBe('Commit, 1 staged file');
+  });
+
+  it('moves focus and selection to the Commit tab with the arrow keys', async () => {
+    const fixture = await render();
+    const changes = query(fixture, '[data-tab-id="changes"]') as HTMLElement;
+    changes.focus();
+
+    changes.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
     );
     await settle(fixture);
 
-    expect(document.activeElement).toBe(tab);
-    expect(tab.getAttribute('aria-selected')).toBe('true');
-    expect(navigation.current().tab).toBe('changes');
+    const commit = query(fixture, '[data-tab-id="commit"]');
+    expect(document.activeElement).toBe(commit);
+    expect(commit?.getAttribute('aria-selected')).toBe('true');
+    expect(navigation.current().tab).toBe('commit');
   });
 
-  it('shows the Changes tab when navigation names a tab the shell does not have yet', async () => {
-    navigation.selectTab('history');
+  // -- Commit tab (Batch 48) --------------------------------------------------
 
+  function composer(
+    fixture: ComponentFixture<unknown>,
+  ): MockCommitComposer | null {
+    return (
+      (fixture.debugElement.query(By.directive(MockCommitComposer))
+        ?.componentInstance as MockCommitComposer | undefined) ?? null
+    );
+  }
+
+  it('does not load the commit composer until the Commit tab shows', async () => {
     const fixture = await render();
 
-    expect(query(fixture, '[role="tab"]')?.getAttribute('aria-selected')).toBe(
-      'true',
+    expect(composer(fixture)).toBeNull();
+    expect(
+      query(fixture, '[data-testid="review-shell-commit-body"]')?.classList,
+    ).toContain('hidden');
+  });
+
+  it('shows the composer in the tab panel when Commit is picked', async () => {
+    const fixture = await render();
+
+    (query(fixture, '[data-tab-id="commit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    const panel = query(fixture, '[role="tabpanel"]');
+    const body = query(fixture, '[data-testid="review-shell-commit-body"]');
+    expect(navigation.current().tab).toBe('commit');
+    expect(composer(fixture)).not.toBeNull();
+    expect(panel?.contains(query(fixture, 'ptah-commit-composer'))).toBe(true);
+    expect(panel?.getAttribute('aria-labelledby')).toBe(
+      query(fixture, '[data-tab-id="commit"]')?.id,
     );
-    expect(canvas(fixture)).not.toBeNull();
+    expect(body?.classList).toContain('flex');
+    expect(body?.classList).not.toContain('hidden');
+    expect(
+      query(fixture, '[data-testid="review-shell-changes-body"]')?.classList,
+    ).toContain('hidden');
+  });
+
+  it('keeps both bodies mounted across tab switches', async () => {
+    const fixture = await render();
+    const before = canvas(fixture);
+
+    navigation.selectTab('commit');
+    await settle(fixture);
+    const mountedComposer = composer(fixture);
+    expect(canvas(fixture)).toBe(before);
+
+    navigation.selectTab('changes');
+    await settle(fixture);
+
+    expect(canvas(fixture)).toBe(before);
+    expect(composer(fixture)).toBe(mountedComposer);
+    expect(
+      query(fixture, '[data-testid="review-shell-commit-body"]')?.classList,
+    ).toContain('hidden');
+    expect(
+      query(fixture, '[data-testid="review-shell-changes-body"]')?.classList,
+    ).toContain('flex');
+  });
+
+  // -- Task tab (Batch 50) ----------------------------------------------------
+
+  function taskView(
+    fixture: ComponentFixture<unknown>,
+  ): MockTaskWorktreeView | null {
+    return (
+      (fixture.debugElement.query(By.directive(MockTaskWorktreeView))
+        ?.componentInstance as MockTaskWorktreeView | undefined) ?? null
+    );
+  }
+
+  it('does not load the task view until the Task tab shows', async () => {
+    const fixture = await render();
+
+    expect(taskView(fixture)).toBeNull();
+    expect(
+      query(fixture, '[data-testid="review-shell-task-body"]')?.classList,
+    ).toContain('hidden');
+  });
+
+  it('shows the task view in the tab panel, told it is shown, when Task is picked', async () => {
+    const fixture = await render();
+
+    (query(fixture, '[data-tab-id="task"]') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    const panel = query(fixture, '[role="tabpanel"]');
+    const body = query(fixture, '[data-testid="review-shell-task-body"]');
+    expect(navigation.current().tab).toBe('task');
+    expect(taskView(fixture)?.shown()).toBe(true);
+    expect(panel?.contains(query(fixture, 'ptah-task-worktree-view'))).toBe(
+      true,
+    );
+    expect(panel?.getAttribute('aria-labelledby')).toBe(
+      query(fixture, '[data-tab-id="task"]')?.id,
+    );
+    expect(body?.classList).toContain('flex');
+    expect(body?.classList).not.toContain('hidden');
+  });
+
+  it('keeps the task view mounted but tells it it is hidden on another tab', async () => {
+    const fixture = await render();
+    navigation.selectTab('task');
+    await settle(fixture);
+    const mounted = taskView(fixture);
+
+    navigation.selectTab('changes');
+    await settle(fixture);
+
+    expect(taskView(fixture)).toBe(mounted);
+    expect(mounted?.shown()).toBe(false);
+    expect(
+      query(fixture, '[data-testid="review-shell-task-body"]')?.classList,
+    ).toContain('hidden');
+
+    navigation.selectTab('task');
+    await settle(fixture);
+    expect(taskView(fixture)).toBe(mounted);
+    expect(mounted?.shown()).toBe(true);
+  });
+
+  // -- History tab (Batch 56) -------------------------------------------------
+
+  function historyView(
+    fixture: ComponentFixture<unknown>,
+  ): MockHistoryTimeline | null {
+    return (
+      (fixture.debugElement.query(By.directive(MockHistoryTimeline))
+        ?.componentInstance as MockHistoryTimeline | undefined) ?? null
+    );
+  }
+
+  it('does not load the history timeline until the History tab shows', async () => {
+    const fixture = await render();
+
+    expect(historyView(fixture)).toBeNull();
+    expect(
+      query(fixture, '[data-testid="review-shell-history-body"]')?.classList,
+    ).toContain('hidden');
+  });
+
+  it('shows the history timeline in the tab panel, told it is shown, when History is picked', async () => {
+    const fixture = await render();
+
+    (query(fixture, '[data-tab-id="history"]') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    const panel = query(fixture, '[role="tabpanel"]');
+    const body = query(fixture, '[data-testid="review-shell-history-body"]');
+    expect(navigation.current().tab).toBe('history');
+    expect(historyView(fixture)?.shown()).toBe(true);
+    expect(panel?.contains(query(fixture, 'ptah-history-timeline'))).toBe(true);
+    expect(panel?.getAttribute('aria-labelledby')).toBe(
+      query(fixture, '[data-tab-id="history"]')?.id,
+    );
+    expect(body?.classList).toContain('flex');
+    expect(body?.classList).not.toContain('hidden');
+  });
+
+  it('keeps the history timeline mounted but tells it it is hidden on another tab', async () => {
+    const fixture = await render();
+    navigation.selectTab('history');
+    await settle(fixture);
+    const mounted = historyView(fixture);
+
+    navigation.selectTab('task');
+    await settle(fixture);
+
+    expect(historyView(fixture)).toBe(mounted);
+    expect(mounted?.shown()).toBe(false);
+    expect(
+      query(fixture, '[data-testid="review-shell-history-body"]')?.classList,
+    ).toContain('hidden');
+
+    navigation.selectTab('history');
+    await settle(fixture);
+    expect(historyView(fixture)).toBe(mounted);
+    expect(mounted?.shown()).toBe(true);
   });
 
   it('drops the count outside a repository', async () => {
@@ -401,10 +673,16 @@ describe('ReviewShellComponent', () => {
     navigation.openFile('/ws/a/readme.md');
 
     const fixture = await render();
-    const tab = query(fixture, '[role="tab"]');
+    const tabs = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '[role="tab"]',
+    );
 
-    expect(tab?.textContent?.trim()).toBe('Changes');
-    expect(tab?.hasAttribute('aria-label')).toBe(false);
+    expect(tabs[0]?.textContent?.trim()).toBe('Changes');
+    expect(tabs[0]?.hasAttribute('aria-label')).toBe(false);
+    expect(tabs[1]?.textContent?.trim()).toBe('Commit');
+    expect(tabs[1]?.hasAttribute('aria-label')).toBe(false);
+    expect(tabs[2]?.textContent?.trim()).toBe('Task');
+    expect(tabs[3]?.textContent?.trim()).toBe('History');
   });
 
   // -- Spot editor mode (design-spec §3.3) -----------------------------------

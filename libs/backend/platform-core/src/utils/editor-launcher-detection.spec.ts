@@ -7,6 +7,7 @@ import {
   EditorTargetCache,
   editorExecutableCandidates,
   prepareEditorFileLaunch,
+  prepareEditorMergeLaunch,
   prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
 } from './editor-launcher-detection';
@@ -410,7 +411,12 @@ describe('detectEditorTargets — bounded probes and cache', () => {
 describe('editor process launch', () => {
   it('defines each supported editor identity and command once', () => {
     expect(EDITOR_DESCRIPTORS).toEqual([
-      { id: 'vscode', displayName: 'VS Code', command: 'code' },
+      {
+        id: 'vscode',
+        displayName: 'VS Code',
+        command: 'code',
+        mergeArgs: ['--merge'],
+      },
       { id: 'cursor', displayName: 'Cursor', command: 'cursor' },
       {
         id: 'antigravity',
@@ -500,6 +506,70 @@ describe('editor process launch', () => {
         { kind: 'executable', path: '/usr/bin/zed' },
       ]),
     );
+  });
+
+  it('A11: declares mergeArgs only for VS Code and carries it into the definitions', () => {
+    expect(
+      EDITOR_DESCRIPTORS.filter((descriptor) => 'mergeArgs' in descriptor).map(
+        ({ id }) => id,
+      ),
+    ).toEqual(['vscode']);
+    const definitions = createExecutableEditorDefinitions(
+      'linux',
+      {},
+      '/home/ptah',
+    );
+    expect(
+      definitions.map(({ id, mergeArgs }) => [id, mergeArgs ?? null]),
+    ).toEqual([
+      ['vscode', ['--merge']],
+      ['cursor', null],
+      ['antigravity', null],
+      ['zed', null],
+      ['kiro', null],
+      ['terminal', null],
+    ]);
+  });
+
+  it('prepares merge argv as mergeArgs then local remote base result', () => {
+    const request = {
+      local: path.resolve('git/ptah-merge/h/local.ts'),
+      remote: path.resolve('git/ptah-merge/h/remote.ts'),
+      base: path.resolve('git/ptah-merge/h/base.ts'),
+      result: path.resolve('my repo/src/a & b.ts'),
+    };
+    expect(prepareEditorMergeLaunch(['--merge'], request)).toEqual({
+      args: [
+        '--merge',
+        request.local,
+        request.remote,
+        request.base,
+        request.result,
+      ],
+      cwd: path.dirname(request.result),
+    });
+  });
+
+  it('rejects a merge request with any relative path', () => {
+    const absolute = path.resolve('workspace/a.ts');
+    const request = {
+      local: absolute,
+      remote: absolute,
+      base: absolute,
+      result: absolute,
+    };
+    expect(() =>
+      prepareEditorMergeLaunch(['--merge'], { ...request, local: 'l.ts' }),
+    ).toThrow('Local path must be absolute');
+    expect(() =>
+      prepareEditorMergeLaunch(['--merge'], { ...request, remote: 'r.ts' }),
+    ).toThrow('Remote path must be absolute');
+    expect(() =>
+      prepareEditorMergeLaunch(['--merge'], { ...request, base: 'b.ts' }),
+    ).toThrow('Base path must be absolute');
+    expect(() =>
+      prepareEditorMergeLaunch(['--merge'], { ...request, result: 'a.ts' }),
+    ).toThrow('Result path must be absolute');
   });
 
   it('prepares editor-specific argv without constructing a shell command', () => {

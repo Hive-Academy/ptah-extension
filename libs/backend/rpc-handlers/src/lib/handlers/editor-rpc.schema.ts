@@ -21,6 +21,18 @@ export const EditorOpenFileParamsSchema = z
   })
   .strict();
 
+/**
+ * `path` is repository-relative; `GitInfoService.materializeConflictStages`
+ * is the authority on whether it names a path inside the working tree.
+ */
+export const EditorOpenMergeParamsSchema = z
+  .object({
+    target: EditorTargetIdSchema,
+    path: z.string().min(1).max(4096),
+    workspaceRoot: z.string().min(1).max(4096).optional(),
+  })
+  .strict();
+
 export const EditorOpenWorkspaceParamsSchema = z
   .object({
     target: EditorTargetIdSchema,

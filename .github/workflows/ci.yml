@@ -382,3 +382,13 @@ jobs:
           else
             node_modules/.bin/nx test ptah-electron --testPathPatterns=real-git --passWithNoTests=false --testNamePattern='^(?!.*\[slow\]).*$'
           fi
+
+      # TASK_2026_576 Batch 57: real-process spec for openMergeTool. It writes
+      # its own fake `code` (POSIX, chmod 755) / `code.cmd` (Windows) shim into
+      # a temp dir and passes its own PATH/PATHEXT to the spawn, so it needs no
+      # runner setup and must run on all three OSes (the Windows .cmd path is
+      # the point). Plural `--testPathPatterns` and `--passWithNoTests=false`
+      # for the same reasons documented above; no `[slow]` cases, so no
+      # `--testNamePattern` split.
+      - name: platform-electron editor-merge real spec
+        run: node_modules/.bin/nx test @ptah-extension/platform-electron --testPathPatterns=editor-merge.real --passWithNoTests=false

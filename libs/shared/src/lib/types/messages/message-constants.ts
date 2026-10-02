@@ -305,6 +305,12 @@ export const MESSAGE_TYPES = {
    * recorded `TurnChangeSet`; a turn that changed nothing pushes nothing.
    */
   GIT_TURN_CHANGE_SET: 'git:turnChangeSet',
+  /**
+   * Backend → Frontend: live output of a running git operation (a commit's
+   * hooks), keyed by the `operationId` its request carried. Batched; the
+   * operation's own result still settles its RPC.
+   */
+  GIT_OPERATION_OUTPUT: 'git:operationOutput',
   /** Backend → Frontend: a specific workspace file's content changed on disk. */
   FILE_CONTENT_CHANGED: 'file:content-changed',
 } as const;

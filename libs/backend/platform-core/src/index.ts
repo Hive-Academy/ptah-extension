@@ -62,6 +62,8 @@ export type { ICommandRegistry } from './interfaces/command-registry.interface';
 export type { IEditorProvider } from './interfaces/editor-provider.interface';
 export type {
   IEditorLauncher,
+  EditorMergeLaunchResult,
+  EditorMergeRequest,
   EditorTarget,
   EditorTargetId,
 } from './interfaces/editor-launcher.interface';
@@ -300,6 +302,7 @@ export {
   EditorTargetCache,
   editorExecutableCandidates,
   prepareEditorFileLaunch,
+  prepareEditorMergeLaunch,
   prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
 } from './utils/editor-launcher-detection';
@@ -309,6 +312,7 @@ export type {
   EditorDescriptor,
   EditorExecutableCandidate,
   EditorFileLaunch,
+  EditorMergeLaunch,
   EditorWorkspaceLaunch,
 } from './utils/editor-launcher-detection';
 export {

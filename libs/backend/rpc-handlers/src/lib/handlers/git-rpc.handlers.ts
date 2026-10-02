@@ -47,8 +47,11 @@ import type {
   IWorkspaceProvider,
   IFileSystemProvider,
 } from '@ptah-extension/platform-core';
+import { GitOperationOutputThrottle } from './git-operation-output.throttle';
+import { findRegisteredWorkspaceFolder } from './git-workspace-root';
 import {
   parseGitApplyHunksParams,
+  parseGitCommitParams,
   parseGitDiffFileParams,
   parseGitReviewChangesParams,
   parseGitReviewFileParams,
@@ -76,6 +79,7 @@ import type {
   GitDiscardResult,
   GitCommitParams,
   GitCommitResult,
+  GitOperationOutputPayload,
   GitShowFileParams,
   GitShowFileResult,
   GitDiffFileParams,
@@ -290,9 +294,11 @@ export class GitRpcHandlers {
     method: string,
   ): string | undefined {
     if (requested) {
-      if (this.isRegisteredFolder(requested)) {
-        return requested;
-      }
+      const registered = findRegisteredWorkspaceFolder(
+        this.workspace,
+        requested,
+      );
+      if (registered) return registered;
       this.logger.warn(
         `[GitRpc] ${method} called with unregistered workspaceRoot`,
         { workspaceRoot: requested } as unknown as Error,
@@ -300,15 +306,6 @@ export class GitRpcHandlers {
       return undefined;
     }
     return this.workspace.getWorkspaceRoot();
-  }
-
-  private isRegisteredFolder(requested: string): boolean {
-    const normalize = (p: string): string =>
-      p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-    const target = normalize(requested);
-    return this.workspace
-      .getWorkspaceFolders()
-      .some((folder) => normalize(folder) === target);
   }
 
   /**
@@ -561,23 +558,80 @@ export class GitRpcHandlers {
 
   /**
    * git:commit - Create a commit with the provided message.
+   *
+   * With an `operationId`, the hook output streams to the webview as
+   * throttled `git:operationOutput` pushes while the commit runs (see
+   * {@link GitOperationOutputThrottle}), the last of them sent before the
+   * result returns, and `git:cancelOperation` can stop it.
    */
   private registerGitCommit(): void {
     this.rpcHandler.registerMethod<GitCommitParams, GitCommitResult>(
       'git:commit',
-      async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:commit');
+      async (rawParams) => {
+        const params = parseGitCommitParams(rawParams);
+        if (!params) {
+          return { success: false, error: 'Invalid commit request.' };
+        }
+
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:commit');
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
 
-        if (!params?.message || !params.message.trim()) {
+        if (!params.message.trim()) {
           return { success: false, error: 'Commit message cannot be empty' };
         }
 
-        return this.gitInfo.commit(wsRoot, params.message);
+        if (!params.operationId) {
+          return this.gitInfo.commit(wsRoot, params.message);
+        }
+        return this.commitWithLiveOutput(
+          wsRoot,
+          params.message,
+          params.operationId,
+        );
       },
     );
+  }
+
+  private async commitWithLiveOutput(
+    wsRoot: string,
+    message: string,
+    operationId: string,
+  ): Promise<GitCommitResult> {
+    // One error log per operation: with the webview gone every push fails.
+    let failureLogged = false;
+    const output = new GitOperationOutputThrottle(operationId, (payload) =>
+      this.broadcastOperationOutput(payload, () => {
+        if (failureLogged) return false;
+        failureLogged = true;
+        return true;
+      }),
+    );
+    try {
+      return await this.gitInfo.commit(wsRoot, message, {
+        operationId,
+        onOutput: (stream, chunk) => output.push(stream, chunk),
+      });
+    } finally {
+      await output.flush();
+    }
+  }
+
+  /** Push one output chunk; a failure is logged when `shouldLog()` says so. */
+  private broadcastOperationOutput(
+    payload: GitOperationOutputPayload,
+    shouldLog: () => boolean,
+  ): Promise<void> {
+    return this.webviewManager
+      .broadcastMessage('git:operationOutput', payload)
+      .catch((error: unknown) => {
+        if (!shouldLog()) return;
+        this.logger.error(
+          '[GitRpc] Failed to broadcast git:operationOutput',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      });
   }
 
   /**

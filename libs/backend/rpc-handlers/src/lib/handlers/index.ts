@@ -48,6 +48,7 @@ export { OutputStyleRpcHandlers } from './output-style-rpc.handlers';
 export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 export { GitRpcHandlers } from './git-rpc.handlers';
 export { GitChangeSetRpcHandlers } from './git-change-set-rpc.handlers';
+export { GitWorkflowRpcHandlers } from './git-workflow-rpc.handlers';
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 export { SettingsRpcHandlers } from './settings-rpc.handlers';
 export { MemoryRpcHandlers } from './memory-rpc.handlers';

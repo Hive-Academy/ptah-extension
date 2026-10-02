@@ -129,6 +129,7 @@ export class InternalQueryService {
         outputFormat: config.outputFormat,
         abortController: config.abortController,
         auth: config.auth,
+        toolAccess: config.toolAccess,
       });
     } catch (error: unknown) {
       release();

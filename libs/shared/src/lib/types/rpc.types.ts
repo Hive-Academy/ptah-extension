@@ -348,6 +348,18 @@ import type {
   GitDiscardResult,
   GitCommitParams,
   GitCommitResult,
+  GitCancelOperationParams,
+  GitCancelOperationResult,
+  GitGenerateCommitMessageParams,
+  GitGenerateCommitMessageResult,
+  GitPrStatusParams,
+  GitPrStatusResult,
+  GitOperationAbortParams,
+  GitOperationAbortResult,
+  GitOperationContinueParams,
+  GitOperationContinueResult,
+  GitLogParams,
+  GitLogResult,
   GitShowFileParams,
   GitShowFileResult,
   GitDiffFileParams,
@@ -581,6 +593,8 @@ import type {
   EditorOpenFileParams,
   EditorOpenWorkspaceParams,
   EditorOpenResult,
+  EditorOpenMergeParams,
+  EditorOpenMergeResult,
 } from './rpc/rpc-editor.types';
 import type {
   DbHealthResult,
@@ -831,6 +845,10 @@ export interface RpcMethodRegistry {
   'editor:openWorkspace': {
     params: EditorOpenWorkspaceParams;
     result: EditorOpenResult;
+  };
+  'editor:openMerge': {
+    params: EditorOpenMergeParams;
+    result: EditorOpenMergeResult;
   };
   'file:pick': {
     params: { multiple?: boolean };
@@ -1614,6 +1632,24 @@ export interface RpcMethodRegistry {
   'git:unstage': { params: GitUnstageParams; result: GitUnstageResult };
   'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
+  'git:cancelOperation': {
+    params: GitCancelOperationParams;
+    result: GitCancelOperationResult;
+  };
+  'git:generateCommitMessage': {
+    params: GitGenerateCommitMessageParams;
+    result: GitGenerateCommitMessageResult;
+  };
+  'git:prStatus': { params: GitPrStatusParams; result: GitPrStatusResult };
+  'git:operationAbort': {
+    params: GitOperationAbortParams;
+    result: GitOperationAbortResult;
+  };
+  'git:operationContinue': {
+    params: GitOperationContinueParams;
+    result: GitOperationContinueResult;
+  };
+  'git:log': { params: GitLogParams; result: GitLogResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
   'git:diffFile': { params: GitDiffFileParams; result: GitDiffFileResult };
   'git:applyHunks': {
@@ -3656,6 +3692,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'editor:detectTargets': true,
   'editor:openFile': true,
   'editor:openWorkspace': true,
+  'editor:openMerge': true,
   'file:pick': true,
   'file:pick-images': true,
   'config:model-switch': true,
@@ -3824,6 +3861,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:unstage': true,
   'git:discard': true,
   'git:commit': true,
+  'git:cancelOperation': true,
+  'git:generateCommitMessage': true,
+  'git:prStatus': true,
+  'git:operationAbort': true,
+  'git:operationContinue': true,
+  'git:log': true,
   'git:showFile': true,
   'git:diffFile': true,
   'git:applyHunks': true,

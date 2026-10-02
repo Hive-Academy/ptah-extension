@@ -225,6 +225,78 @@ describe('ReviewShellComponent mounted with its real header and canvas', () => {
     );
   });
 
+  it('shows the real conflict banner above the tabs while an operation is in progress (Batch 54)', async () => {
+    expect(query('[data-testid="conflict-banner"]')).toBeNull();
+    const info = rpcData['git:info'] as Record<string, unknown>;
+    rpcData['git:info'] = {
+      ...info,
+      files: [
+        {
+          path: 'a.ts',
+          status: 'U',
+          staged: false,
+          conflict: { kind: 'content' },
+        },
+      ],
+      operation: { kind: 'merge', conflictedPaths: ['a.ts'] },
+    };
+    await TestBed.inject(GitStatusService).refresh();
+    await settle();
+
+    const banner = query('[data-testid="conflict-banner"]');
+    expect(banner?.getAttribute('role')).toBe('region');
+    expect(
+      banner &&
+        banner.compareDocumentPosition(
+          query('[role="tablist"]') as HTMLElement,
+        ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // Kiro has no merge view: the backend answers unsupported, the file opens.
+    rpcData['editor:openMerge'] = { status: 'unsupported' };
+    query<HTMLButtonElement>(
+      '[data-testid="conflict-banner-open-editor"]',
+    )?.click();
+    await settle();
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'editor:openMerge',
+      { target: 'kiro', path: 'a.ts', workspaceRoot: '/ws/a' },
+    );
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'editor:openFile',
+      { target: 'kiro', workspaceRoot: '/ws/a', path: 'a.ts' },
+    );
+
+    // Resolved: Continue appears, completes, and the refreshed status ends it.
+    rpcData['git:info'] = {
+      ...info,
+      operation: { kind: 'merge', conflictedPaths: [] },
+    };
+    await TestBed.inject(GitStatusService).refresh();
+    await settle();
+    rpcData['git:operationContinue'] = { status: 'completed', kind: 'merge' };
+    rpcData['git:info'] = info;
+    query<HTMLButtonElement>(
+      '[data-testid="conflict-banner-continue"]',
+    )?.click();
+    await settle();
+    await settle();
+
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:operationContinue',
+      { workspaceRoot: '/ws/a' },
+      expect.any(Number),
+    );
+    expect(query('[data-testid="conflict-banner"]')).toBeNull();
+    expect(
+      query('[data-testid="conflict-banner-ended"]')?.textContent?.trim(),
+    ).toBe('Merge completed.');
+    expect(query('[role="tabpanel"] ptah-review-canvas')).not.toBeNull();
+  });
+
   it('collapses the file tree from the header and persists the layout', async () => {
     expect(query('[data-testid="changed-file-tree"]')).not.toBeNull();
 
@@ -252,6 +324,100 @@ describe('ReviewShellComponent mounted with its real header and canvas', () => {
       'git:reviewChanges',
       { workspaceRoot: '/ws/a', base: 'main', head: 'HEAD' },
     );
+  });
+
+  it('loads the real task view on the Task tab and reads PR status for the workspace', async () => {
+    rpcData['git:prStatus'] = { status: 'unavailable', reason: 'gh-missing' };
+    rpcData['git:remotes'] = { remotes: [] };
+    rpcData['git:worktrees'] = {
+      worktrees: [
+        {
+          path: '/ws/a',
+          branch: 'main',
+          head: 'abc',
+          isMain: true,
+          isBare: false,
+        },
+      ],
+    };
+
+    query<HTMLButtonElement>('[data-tab-id="task"]')?.click();
+    await settle();
+    await settle();
+
+    expect(query('[role="tabpanel"] ptah-task-worktree-view')).not.toBeNull();
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:prStatus',
+      { workspaceRoot: '/ws/a' },
+      30_000,
+    );
+    expect(
+      query('[data-testid="task-pr-unavailable"]')?.textContent?.trim(),
+    ).toBe('GitHub CLI not available — PR status hidden.');
+
+    const results = await axe.run(
+      query('[data-testid="review-shell-task-body"]') as Parameters<
+        typeof axe.run
+      >[0],
+      {
+        rules: {
+          'color-contrast': { enabled: false },
+          'target-size': { enabled: false },
+        },
+      },
+    );
+    expect(results.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
+  it('loads the real history timeline on the History tab and reads git:log for the workspace', async () => {
+    rpcData['git:log'] = {
+      status: 'ok',
+      mode: 'since-base',
+      base: 'origin/main',
+      branch: 'feat/x',
+      commits: [
+        {
+          sha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          shortSha: 'a1b2c3d',
+          subject: 'feat: add hunk toolbar',
+          authorName: 'Ada',
+          authorDate: '2026-10-01T10:00:00+00:00',
+          parentCount: 1,
+          isRoot: false,
+        },
+      ],
+      truncated: false,
+    };
+    rpcData['git:stashList'] = { entries: [] };
+
+    query<HTMLButtonElement>('[data-tab-id="history"]')?.click();
+    await settle();
+    await settle();
+
+    expect(query('[role="tabpanel"] ptah-history-timeline')).not.toBeNull();
+    expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'git:log', {
+      workspaceRoot: '/ws/a',
+    });
+    expect(query('[data-testid="history-heading"]')?.textContent?.trim()).toBe(
+      'Commits since origin/main',
+    );
+    expect(query('[data-testid="history-commit"]')?.textContent).toContain(
+      'feat: add hunk toolbar',
+    );
+
+    const results = await axe.run(
+      query('[data-testid="review-shell-history-body"]') as Parameters<
+        typeof axe.run
+      >[0],
+      {
+        rules: {
+          'color-contrast': { enabled: false },
+          'target-size': { enabled: false },
+        },
+      },
+    );
+    expect(results.violations.map((violation) => violation.id)).toEqual([]);
   });
 
   it('has no axe violations', async () => {

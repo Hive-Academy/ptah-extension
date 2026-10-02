@@ -49,6 +49,7 @@ import {
   GatewayRpcHandlers,
   GitChangeSetRpcHandlers,
   GitRpcHandlers,
+  GitWorkflowRpcHandlers,
   HarnessRpcHandlers,
   ImagePickerRpcHandlers,
   IndexingRpcHandlers,
@@ -204,6 +205,16 @@ export const RPC_HANDLER_MANIFEST = [
     methods: GitChangeSetRpcHandlers.METHODS,
     requires: [],
     handler: GitChangeSetRpcHandlers,
+  },
+  {
+    // `requires: []`, like `git`: every host serves `git:commit`, so every
+    // host must be able to cancel it. Generation needs only the SDK's
+    // internal query, registered on every host; a host without a provider
+    // answers `unavailable: 'no-provider'` rather than hiding the method.
+    key: 'gitWorkflow',
+    methods: GitWorkflowRpcHandlers.METHODS,
+    requires: [],
+    handler: GitWorkflowRpcHandlers,
   },
   {
     key: 'harness',

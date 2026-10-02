@@ -22,6 +22,8 @@ import { GitStatusService } from './git-status.service';
 
 const ASYNC_WORKTREE_TIMEOUT_MS = 5 * 60 * 1000;
 
+const WORKTREE_LOAD_FAILED = 'Could not read the worktree list.';
+
 /**
  * Wire type of the worktree-changed push.
  *
@@ -46,10 +48,13 @@ export class WorktreeService implements MessageHandler {
 
   private readonly _worktrees = signal<GitWorktreeInfo[]>([]);
   private readonly _isLoading = signal(false);
+  private readonly _loadError = signal<string | null>(null);
   private readonly pendingOps = new Map<string, PendingOperation>();
 
   readonly worktrees = this._worktrees.asReadonly();
   readonly isLoading = this._isLoading.asReadonly();
+  /** Why the latest list read failed, or null after a good read. */
+  readonly loadError = this._loadError.asReadonly();
   readonly worktreeCount = computed(() => this._worktrees().length);
 
   /**
@@ -69,6 +74,10 @@ export class WorktreeService implements MessageHandler {
     });
   }
 
+  /**
+   * Re-read the worktree list. A failed read keeps the last list and sets
+   * {@link loadError}, so an empty list is never shown for a read that failed.
+   */
   async loadWorktrees(): Promise<void> {
     this._isLoading.set(true);
 
@@ -78,8 +87,12 @@ export class WorktreeService implements MessageHandler {
       this.scopeParams(),
     );
 
-    if (result.success && result.data) {
-      this._worktrees.set(result.data.worktrees);
+    const worktrees = result.success ? result.data?.worktrees : undefined;
+    if (Array.isArray(worktrees)) {
+      this._worktrees.set(worktrees);
+      this._loadError.set(null);
+    } else {
+      this._loadError.set(WORKTREE_LOAD_FAILED);
     }
 
     this._isLoading.set(false);

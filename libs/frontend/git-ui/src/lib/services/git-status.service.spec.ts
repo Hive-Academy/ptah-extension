@@ -253,6 +253,73 @@ describe('GitStatusService git:info result handling (TASK_2026_437)', () => {
     expect(service.changedFileCount()).toBe(1);
   });
 
+  it('publishes the operation in progress and clears it on a result without one (TASK_2026_576 Batch 54)', async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(
+        gitInfo({
+          operation: { kind: 'rebase', conflictedPaths: ['src/a.ts'] },
+        }),
+      ),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+    expect(service.operation()).toEqual({
+      kind: 'rebase',
+      conflictedPaths: ['src/a.ts'],
+    });
+
+    mockRpcCall.mockResolvedValue(rpcOk(gitInfo()));
+    await service.refresh();
+    expect(service.operation()).toBeNull();
+  });
+
+  it('keeps the operation when a later read is unavailable (stale)', async () => {
+    mockRpcCall.mockResolvedValueOnce(
+      rpcOk(gitInfo({ operation: { kind: 'merge', conflictedPaths: [] } })),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+
+    mockRpcCall.mockResolvedValueOnce(
+      rpcOk(gitInfo({ files: [], statusUnavailable: 'timeout' })),
+    );
+    await service.refresh();
+
+    expect(service.staleReason()).toBe('timeout');
+    expect(service.operation()).toEqual({ kind: 'merge', conflictedPaths: [] });
+  });
+
+  it.each([
+    ['an unknown kind', { kind: 'revert', conflictedPaths: [] }],
+    ['a non-object', 'rebase'],
+  ])('reads %s as no operation', async (_label, operation) => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(gitInfo({ operation } as unknown as Partial<GitInfoResult>)),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+    expect(service.operation()).toBeNull();
+  });
+
+  it('drops non-string conflicted paths', async () => {
+    mockRpcCall.mockResolvedValue(
+      rpcOk(
+        gitInfo({
+          operation: {
+            kind: 'merge',
+            conflictedPaths: ['a.ts', 3, ''],
+          },
+        } as unknown as Partial<GitInfoResult>),
+      ),
+    );
+    service.switchWorkspace('/ws/a');
+    await flush();
+    expect(service.operation()).toEqual({
+      kind: 'merge',
+      conflictedPaths: ['a.ts'],
+    });
+  });
+
   it('still drops a result missing branch or files', async () => {
     mockRpcCall.mockResolvedValue({
       success: true,
