@@ -142,7 +142,9 @@
         "ratio": 5.38,
         "fontPx": "12px",
         "w": 286,
-        "h": 80
+        "h": 80,
+        "invalid": true,
+        "invalidReason": "Mislabelled capture: the text, colours and box match the blocked-switch warning panel, not the create-error copy. No verified pre-P2 create-error measurement exists."
       }
     ],
     "picker-create-error-light": [
@@ -163,7 +165,9 @@
         "ratio": 2.02,
         "fontPx": "12px",
         "w": 286,
-        "h": 80
+        "h": 80,
+        "invalid": true,
+        "invalidReason": "Mislabelled capture: the text, colours and box match the blocked-switch warning panel, not the create-error copy. No verified pre-P2 create-error measurement exists."
       }
     ]
   },

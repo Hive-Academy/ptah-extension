@@ -1,6 +1,6 @@
 # Handoff — TASK_2026_576_e16a (git review UI + git reliability)
 
-Written 2026-10-01, end of session. Replaces the 2026-09-30 handoff.
+Written 2026-10-01, end of session. Replaces the 2026-09-30 handoff. Status refreshed 2026-10-02 (P2 complete, P3 in progress).
 
 ## 1. Where things stand
 
@@ -9,10 +9,11 @@ Written 2026-10-01, end of session. Replaces the 2026-09-30 handoff.
 | P1 (Batches 1–8) | MERGED into `main` (PR #611, merge `16dce8519`). Branch deleted. The `task-576-p1` worktree is stale and can be removed (`git worktree remove`). |
 | P2 branch | `feat/task-2026-576-p2`, based on `main` (merge `af0877420`). **Draft PR #619** against `main`: https://github.com/Hive-Academy/ptah-extension/pull/619 |
 | P2 worktree | `D:/projects/ptah-extension/.claude-worktrees/task-576-p2` (all task work happens here; main checkout stays on `main`) |
-| P2 batches done | 9 `7800dde50`, 18 `e7b30b433`, 10 `4ff38bc5c`, 11 `2ae839735`, 12 `ca36b19de`, 15 `183aac6e6`, 13 `ddafac963`, 16 `4b458351a`, 19 `0c3189fbc` |
-| P2 batches left | **14** (worktree removal detection + frontend scoping, depends on 13) and **17** (review reader 2 MiB limit, depends on 16). They are file-disjoint and can run in parallel. |
-| Then | P2 phase-end review → P3 (Batches 20–32) → P4 (33–44) → P5 (45–57) → Cutover (58–69), each a stacked branch + PR |
-| Progress | 17/69 batches complete (batches.md header) |
+| P2 batches done | All eleven: 9 `7800dde50`, 18 `e7b30b433`, 10 `4ff38bc5c`, 11 `2ae839735`, 12 `ca36b19de`, 15 `183aac6e6`, 13 `ddafac963`, 16 `4b458351a`, 19 `0c3189fbc`, 17 `e44c7cb95`, 14 `6a62feb31` |
+| P2 phase-end review | DONE 2026-10-01 (`reviews/p2-phase-review*.md`, `reviews/p2-visual-review.md`; closed in `ef6f18915`). P2 is complete; PR #619 now only takes review fixes. |
+| P3 | IN PROGRESS on `feat/task-2026-576-p3` (worktree `.claude-worktrees/task-576-p3`), **draft PR #625** stacked on `feat/task-2026-576-p2`. P3 batch status lives in that branch's `batches.md`. |
+| Then | P4 (33–44) → P5 (45–57) → Cutover (58–69), each a stacked branch + PR |
+| Progress | 19/69 batches complete on this branch (P1 + P2; batches.md header). P3 progress is recorded on the P3 branch. |
 
 Read first: `context.md` (Gate decisions — especially **Auto mode** and **Lanes widened**, 2026-10-01), `batches.md` (per-batch specs, Outcome notes, phase-end checkboxes).
 
@@ -25,17 +26,13 @@ Read first: `context.md` (Gate decisions — especially **Auto mode** and **Lane
 
 ## 3. Next steps, in order
 
-1. **Batch 14** (backend-developer): `apps/ptah-electron/src/services/git-watcher.service.ts` (+spec) re-lists worktrees on admin change (≤1 per 30 s, last-run timestamp, no free-running timer; pattern `scheduleNestedRootsRefresh`); a prunable entry under `.claude-worktrees/` → `pruneWorktrees` + `git:worktreeChanged {action:'removed'}`. `libs/frontend/git-ui/src/lib/services/worktree.service.ts` (+spec) passes `workspaceRoot`. Verify `npx nx run-many -t typecheck,test,lint -p ptah-electron @ptah-extension/git-ui`.
-2. **Batch 17** (CLI lane recommended, e.g. opencode Kimi or Glm; fallback backend-developer): `GitReviewReaderService.readBlob` uses `GIT_DIFF_MAX_SIDE_BYTES` (2 MiB) and the new outcomes, replacing the 64 MiB cap (`git-review-reader.service.ts:~383-387`). **Reuse `git/git-blob-classifier.ts`** from Batch 16. Spec for too-large and LFS pointer. Verify `vscode-core` typecheck/test/lint.
-3. Commit each batch (orchestrator commits; explicit paths), mark it COMPLETE with an Outcome note in batches.md, push to PR #619.
-4. **P2 phase-end review** (batches.md "P2 phase-end review"):
-   - One cross-side review lane on `git diff origin/main...HEAD` (logic scope). Subagent-authored batches → CLI-lane reviewer; lane-authored batches (19, and 17 if a lane writes it) → `code-logic-reviewer` subagent. Write to `reviews/p2-phase-review*.md`.
-   - Full e2e set.
-   - Visual review of Batch 11 branch picker (before/after, dark + light) — `visual-reviewer` subagent or antigravity (Glm has no image input).
-   - Fix findings in follow-up commits; tick the checkbox; mark PR #619 ready for review (`gh pr ready 619`).
-5. **P3**: create branch + worktree from P2, open draft PR stacked on P2, run Batches 20–32 per batches.md waves, then P3 phase-end review (includes visual review of the change-set card against `prototype/`). Repeat for P4, P5, Cutover.
+Batches 14 and 17 and the P2 phase-end review are done (see §1). What remains:
 
-## 4. Open items for the P2 phase-end review
+1. **PR #619 review fixes** land on `feat/task-2026-576-p2` (explicit paths, push; no rebase, no force push). Merge the updated P2 branch into `feat/task-2026-576-p3` so PR #625 keeps a clean diff.
+2. **P3** (in progress, PR #625): finish Batches 20–32 per the P3 branch's `batches.md` waves, then the P3 phase-end review (includes visual review of the change-set card against `prototype/`).
+3. Repeat for P4, P5 and Cutover: branch + worktree from the previous phase, draft PR stacked on it.
+
+## 4. Items raised for the P2 phase-end review (that review is done; dispositions in `reviews/p2-phase-review*.md`)
 
 - Real-git suites `remote-stash` and `hooks` (kill-guard) flake under heavy machine load; they pass alone. Gate rule used: 3 green runs of `vscode-core:test-real-git` with nothing else running.
 - `git-rpc.schema.ts:14` comment still names `validatePathSegment`.

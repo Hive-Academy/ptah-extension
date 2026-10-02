@@ -43,7 +43,7 @@ Focus (activeElement, measured): blocked -> Stash & switch; confirm -> Discard c
 | Branch row ghost text | 13.89 pass | 14.21 pass |
 | Current branch (disabled) | 1.76 (disabled, exempt) | 9.72 |
 
-Context: the warning-tint copy and the "text-error on base" failures already existed before P2 (BEFORE panel used `text-warning` on the same tint, orange "Discard changes and checkout" button, and `text-error` create error). P2 adds new error-coloured copy on the tint (confirm, refusal) and keeps the failing pattern. The source-control row error in this same task already switched to `text-base-content` on the error tint because "text-error on base fails AA in both themes" (`source-control-file.component.ts:189-191` comment), so the fix is known and local.
+Context: the warning-tint copy failure already existed before P2 (BEFORE panel used `text-warning` on the same tint, orange "Discard changes and checkout" button). The BEFORE create error also used `text-error`, but its contrast was not measured: both `picker-create-error-*` samples in `before-measurements.json` captured the warning panel instead and are marked `invalid`, so a pre-P2 create-error contrast failure is inferred from the class, not measured. P2 adds new error-coloured copy on the tint (confirm, refusal) and keeps the failing pattern. The source-control row error in this same task already switched to `text-base-content` on the error tint because "text-error on base fails AA in both themes" (`source-control-file.component.ts:189-191` comment), so the fix is known and local.
 
 ## Surface 2: source-control status badges
 
