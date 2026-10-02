@@ -81,6 +81,7 @@ function httpsUrl(url: string | undefined): string | null {
   try {
     return new URL(url).protocol === 'https:' ? url : null;
   } catch {
+    // degradation-audit: optional-capability - an unparseable URL is simply not offered as a link
     return null;
   }
 }

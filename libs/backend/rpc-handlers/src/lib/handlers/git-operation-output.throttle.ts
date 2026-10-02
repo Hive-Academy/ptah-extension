@@ -106,6 +106,7 @@ export class GitOperationOutputThrottle {
     this.lastPushAt = Date.now();
     // The sender reports its own failures; a lost push must neither reject
     // `flush` (and with it the commit result) nor go unhandled.
+    // degradation-audit: reported - the sender logs a failed push once per operation
     const sent = this.send({
       operationId: this.operationId,
       stream: head.stream,
