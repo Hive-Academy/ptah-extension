@@ -446,13 +446,27 @@ describe('ProviderModelSearchFieldComponent', () => {
       expect(input().value).toBe('saved, not in the current list');
     });
 
-    it('sizes the compact list to the field', async () => {
-      create({ compact: true });
+    it.each([true, false])('sizes the list to at least the field, compact %s (Batch 53.3, B38-3), with a 28rem cap', async (compact) => {
+      create({ compact });
       jest.spyOn(root().querySelector('.autocomplete-input') as HTMLElement, 'getBoundingClientRect')
-        .mockReturnValue({ width: 236 } as DOMRect);
+        .mockReturnValue({ width: 280 } as DOMRect);
       focus();
       await settle();
-      expect((root().querySelector('[role="listbox"]') as HTMLElement).style.width).toBe('236px');
+      const list = root().querySelector('[role="listbox"]') as HTMLElement;
+      expect(list.style.minWidth).toBe('280px');
+      expect(list.style.maxWidth).toBe('448px');
+      expect(list.style.width).toBe('');
+    });
+
+    it('a field wider than the cap keeps the list at least as wide as the field', async () => {
+      create({});
+      jest.spyOn(root().querySelector('.autocomplete-input') as HTMLElement, 'getBoundingClientRect')
+        .mockReturnValue({ width: 520 } as DOMRect);
+      focus();
+      await settle();
+      const list = root().querySelector('[role="listbox"]') as HTMLElement;
+      expect(list.style.minWidth).toBe('520px');
+      expect(list.style.maxWidth).toBe('520px');
     });
   });
 });

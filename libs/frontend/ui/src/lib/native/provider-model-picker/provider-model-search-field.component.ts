@@ -68,7 +68,7 @@ let nextPopupId = 0;
       [trackBy]="trackById"
       [suggestionTemplate]="compact() ? compactOptionTemplate : optionTemplate"
       [compact]="compact()"
-      [matchInputWidth]="compact()"
+      [matchInputWidth]="true"
       (suggestionSelected)="choose($event)"
       (closed)="close()"
     >

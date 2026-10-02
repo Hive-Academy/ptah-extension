@@ -63,6 +63,9 @@ import {
  */
 let nextAutocompleteInstanceId = 0;
 
+/** A field-matched panel may grow past its field up to this width for longer rows (28rem). */
+const MATCHED_PANEL_MAX_PX = 448;
+
 /**
  * Native autocomplete component using Floating UI and signal-based navigation.
  *
@@ -241,8 +244,9 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
   readonly suggestionTemplate = input.required<TemplateRef<{ $implicit: T }>>();
 
   /**
-   * Opt-in: the panel takes the width of the projected input, so it reads as that field's own list (TASK_2026_555
-   * Batch 30, the CLI matrix model popover). Off by default: the panel sizes to its content, as before.
+   * Opt-in: the panel is at least as wide as the projected input, so it reads as that field's own list (TASK_2026_555
+   * Batch 30; Batch 53.3 made it a minimum). Longer content may widen it up to `MATCHED_PANEL_MAX_PX` (or the field,
+   * if wider). Off by default: the panel sizes to its content, as before.
    */
   readonly matchInputWidth = input<boolean>(false);
 
@@ -343,7 +347,11 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
     const panel = this.floatingPanel()?.nativeElement;
 
     if (origin && panel) {
-      if (this.matchInputWidth()) panel.style.width = `${origin.getBoundingClientRect().width}px`;
+      if (this.matchInputWidth()) {
+        const width = origin.getBoundingClientRect().width;
+        panel.style.minWidth = `${width}px`;
+        panel.style.maxWidth = `${Math.max(width, MATCHED_PANEL_MAX_PX)}px`;
+      }
       await this.floatingUI.position(origin, panel, {
         placement: 'bottom-start',
         offset: AUTOCOMPLETE_OVERLAY_OFFSET,
