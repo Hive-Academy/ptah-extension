@@ -23,6 +23,7 @@ import type {
   GitLastCommitResult,
   GitPrStatusResult,
   GitPrUnavailableReason,
+  GitRepoOperation,
   GitWorktreeInfo,
   RemoteInfo,
 } from '@ptah-extension/shared';
@@ -95,6 +96,7 @@ describe('TaskWorktreeViewComponent', () => {
     activeWorkspacePath: ReturnType<typeof signal<string | null>>;
     branch: ReturnType<typeof signal<GitBranchInfo>>;
     branchName: () => string;
+    operation: ReturnType<typeof signal<GitRepoOperation | null>>;
   };
   let gitBranches: {
     currentBranch: ReturnType<typeof signal<string>>;
@@ -131,6 +133,7 @@ describe('TaskWorktreeViewComponent', () => {
       activeWorkspacePath: signal<string | null>('/ws/a'),
       branch,
       branchName: () => branch().branch,
+      operation: signal<GitRepoOperation | null>(null),
     };
     gitBranches = {
       currentBranch: signal('feat/task-576'),
@@ -417,6 +420,25 @@ describe('TaskWorktreeViewComponent', () => {
         query<HTMLButtonElement>('[data-testid="task-worktree-create"]')
           ?.disabled,
       ).toBe(true);
+    });
+
+    it('Create stays disabled while a merge, rebase or cherry-pick is open (design-spec §11)', async () => {
+      gitStatus.operation.set({ kind: 'rebase', conflictedPaths: ['a.ts'] });
+      await openForm();
+      type('[data-testid="task-worktree-branch"]', 'feature/y');
+      await settle();
+
+      const create = query<HTMLButtonElement>(
+        '[data-testid="task-worktree-create"]',
+      );
+      expect(create?.disabled).toBe(true);
+      press('[data-testid="task-worktree-branch"]', 'Enter');
+      await settle();
+      expect(worktreeStub.addWorktree).not.toHaveBeenCalled();
+
+      gitStatus.operation.set(null);
+      await settle();
+      expect(create?.disabled).toBe(false);
     });
 
     it('submits branch, custom path and "Create new branch" on Enter, then closes', async () => {

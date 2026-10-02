@@ -1,43 +1,45 @@
 /**
- * DI-identity regression guard for `GitDockComponent`'s arming (TASK_2026_385
- * Batch 3.1 fix pass, FIX 2).
+ * DI-identity regression guard for the dock body's arming (TASK_2026_385
+ * Batch 3.1 fix pass, FIX 2; retargeted to `ReviewShellComponent` at the
+ * TASK_2026_576 cutover, Batch 58).
  *
- * `GitDockComponent`'s constructor arms `GitStatusService.startListening()`
+ * `ReviewShellComponent`'s constructor arms `GitStatusService.startListening()`
  * and `GitBranchesService.startListening()` via plain `inject()`. That only
  * actually arms the push gate `MessageRouterService` dispatches through if
  * `inject()` resolves to the SAME singleton `app.config.ts` registers in the
  * `MESSAGE_HANDLERS` multi-provider (`useExisting: GitStatusService` /
- * `useExisting: GitBranchesService`, `app.config.ts:190-191`). Both
- * services are `@Injectable({ providedIn: 'root' })` with no component-level
- * `providers` override on `GitDockComponent`, so this holds today by
- * construction — but only by code reading, not by a test.
+ * `useExisting: GitBranchesService`). Both services are
+ * `@Injectable({ providedIn: 'root' })` with no component-level `providers`
+ * override on the shell, so this holds today by construction — but only by
+ * code reading, not by a test.
  *
- * `git-dock.component.spec.ts` (in `git-ui`) proves the component CALLS the
- * right methods, using `useValue` stubs that bypass real DI resolution
+ * `review-shell.component.spec.ts` (in `git-ui`) proves the component CALLS
+ * the right methods, using `useValue` stubs that bypass real DI resolution
  * entirely. It cannot catch a future regression — e.g. someone adding
  * `providers: [GitStatusService]` to `@Component` for an unrelated reason —
- * which would silently reintroduce the exact "push gate has no armer" bug
- * this whole batch exists to close, with every existing test (including
- * that spec) still green.
+ * which would silently reintroduce the "push gate has no armer" bug with
+ * every existing test still green.
  *
  * Lives here, not in `git-ui` or `chat`, because `MESSAGE_HANDLERS` is wired
  * in `apps/ptah-extension-webview/src/app/app.config.ts` — this is the one
- * project whose jest config exercises that composition root. Follows the
- * exact pattern of the neighbouring `editor-message-routing.spec.ts`: real
+ * project whose jest config exercises that composition root. Real
  * `MessageRouterService` + real `GitStatusService`/`GitBranchesService`
- * wired through the same `MESSAGE_HANDLERS` registrations `app.config.ts`
- * uses, `rpcCall` mocked at the module boundary.
+ * wired through the same registrations `app.config.ts` uses, `rpcCall` mocked
+ * at the module boundary. Every `@defer` body stays a placeholder (manual
+ * defer behaviour): the identity lives in the shell's constructor, and the
+ * Pierre renderer behind the canvas is ESM-only and not needed here.
  */
 
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { DeferBlockBehavior, TestBed } from '@angular/core/testing';
 import {
   MESSAGE_HANDLERS,
   MessageRouterService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { GitDockComponent, GitReviewService } from '@ptah-extension/git-ui';
+import { ReviewShellComponent } from '@ptah-extension/git-ui';
 import {
+  FileContentChangesService,
   GitBranchesService,
   GitStatusService,
 } from '@ptah-extension/git-ui/services';
@@ -53,6 +55,9 @@ jest.mock('@ptah-extension/core', () => {
     rpcCall: (...args: unknown[]) => mockRpcCall(...args),
   };
 });
+// Pierre ships ESM only; nothing here renders a diff.
+jest.mock('@pierre/diffs', () => ({}));
+jest.mock('@pierre/diffs/worker', () => ({}));
 
 function makeVscodeStub() {
   const config = signal({
@@ -79,24 +84,24 @@ function makeVscodeStub() {
   };
 }
 
-/** Access to `GitDockComponent`'s private/protected DI fields for the identity assertion only. */
-interface GitDockInternals {
+/** Access to the shell's private/protected DI fields for the identity assertion only. */
+interface ReviewShellInternals {
   gitStatus: GitStatusService;
   gitBranches: GitBranchesService;
-  review: GitReviewService;
 }
 
-describe('GitDockComponent resolves the same singletons MESSAGE_HANDLERS holds (FIX 2)', () => {
+describe('ReviewShellComponent resolves the same singletons MESSAGE_HANDLERS holds (FIX 2)', () => {
   beforeEach(() => {
     mockRpcCall.mockReset();
     mockRpcCall.mockResolvedValue({ success: true, data: {} });
 
     TestBed.configureTestingModule({
-      imports: [GitDockComponent],
+      imports: [ReviewShellComponent],
+      deferBlockBehavior: DeferBlockBehavior.Manual,
       providers: [
         { provide: VSCodeService, useValue: makeVscodeStub() },
         MessageRouterService,
-        // Mirrors app.config.ts:190-191 exactly.
+        // Mirrors app.config.ts exactly.
         {
           provide: MESSAGE_HANDLERS,
           useExisting: GitStatusService,
@@ -105,6 +110,11 @@ describe('GitDockComponent resolves the same singletons MESSAGE_HANDLERS holds (
         {
           provide: MESSAGE_HANDLERS,
           useExisting: GitBranchesService,
+          multi: true,
+        },
+        {
+          provide: MESSAGE_HANDLERS,
+          useExisting: FileContentChangesService,
           multi: true,
         },
       ],
@@ -118,17 +128,17 @@ describe('GitDockComponent resolves the same singletons MESSAGE_HANDLERS holds (
   it('injects the exact GitStatusService instance MESSAGE_HANDLERS holds', () => {
     // Constructing the router builds the handler map, which reads
     // `handledMessageTypes` off every registered handler — proves the
-    // `useExisting` registration resolves without exploding (mirrors
-    // `editor-message-routing.spec.ts`'s A-8 risk).
+    // `useExisting` registration resolves without exploding (A-8).
     const router = TestBed.inject(MessageRouterService);
     const handlers = TestBed.inject(MESSAGE_HANDLERS);
     const rootGitStatus = TestBed.inject(GitStatusService);
     expect(router).toBeTruthy();
     expect(handlers).toContain(rootGitStatus);
 
-    const fixture = TestBed.createComponent(GitDockComponent);
-    const injected = (fixture.componentInstance as unknown as GitDockInternals)
-      .gitStatus;
+    const fixture = TestBed.createComponent(ReviewShellComponent);
+    const injected = (
+      fixture.componentInstance as unknown as ReviewShellInternals
+    ).gitStatus;
 
     expect(injected).toBe(rootGitStatus);
     fixture.destroy();
@@ -141,21 +151,22 @@ describe('GitDockComponent resolves the same singletons MESSAGE_HANDLERS holds (
     expect(router).toBeTruthy();
     expect(handlers).toContain(rootGitBranches);
 
-    const fixture = TestBed.createComponent(GitDockComponent);
-    const injected = (fixture.componentInstance as unknown as GitDockInternals)
-      .gitBranches;
+    const fixture = TestBed.createComponent(ReviewShellComponent);
+    const injected = (
+      fixture.componentInstance as unknown as ReviewShellInternals
+    ).gitBranches;
 
     expect(injected).toBe(rootGitBranches);
     fixture.destroy();
   });
 
-  it('a push routed through the real MessageRouterService reaches the instance GitDockComponent armed', () => {
-    // Force the router to exist BEFORE the dock, matching real bootstrap
+  it('a push routed through the real MessageRouterService reaches the instance ReviewShellComponent armed', () => {
+    // Force the router to exist BEFORE the shell, matching real bootstrap
     // order (app.config.ts wires MESSAGE_HANDLERS before any component
     // mounts).
     TestBed.inject(MessageRouterService);
 
-    const fixture = TestBed.createComponent(GitDockComponent);
+    const fixture = TestBed.createComponent(ReviewShellComponent);
     const gitStatus = TestBed.inject(GitStatusService);
     gitStatus.switchWorkspace('/ws/a');
 
@@ -184,11 +195,33 @@ describe('GitDockComponent resolves the same singletons MESSAGE_HANDLERS holds (
     gitStatus.stopListening();
   });
 
-  it('injects the root GitReviewService used by workspace coordination', () => {
-    const fixture = TestBed.createComponent(GitDockComponent);
-    const injected = (fixture.componentInstance as unknown as GitDockInternals)
-      .review;
-    expect(injected).toBe(TestBed.inject(GitReviewService));
+  it('disarms the root GitStatusService on destroy, so the push gate closes with the dock', () => {
+    TestBed.inject(MessageRouterService);
+    const gitStatus = TestBed.inject(GitStatusService);
+    gitStatus.switchWorkspace('/ws/a');
+
+    const fixture = TestBed.createComponent(ReviewShellComponent);
     fixture.destroy();
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+          payload: {
+            branch: {
+              branch: 'after-close',
+              upstream: null,
+              ahead: 0,
+              behind: 0,
+            },
+            files: [],
+            isGitRepo: true,
+            workspaceRoot: '/ws/a',
+          },
+        },
+      }),
+    );
+
+    expect(gitStatus.branchName()).not.toBe('after-close');
   });
 });

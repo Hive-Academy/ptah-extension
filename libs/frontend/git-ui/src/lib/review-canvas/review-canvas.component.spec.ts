@@ -182,6 +182,7 @@ describe('ReviewCanvasComponent', () => {
   const navigationService = {
     current: navigation.asReadonly(),
     selectComparison: jest.fn(),
+    openFile: jest.fn(),
   };
 
   const statusFiles = signal<GitFileStatus[]>(STATUS);
@@ -598,6 +599,20 @@ describe('ReviewCanvasComponent', () => {
       await settle();
       expect(scrolled.length).toBe(2);
       expect(scrolled[1]).not.toBe(scrolled[0]);
+    });
+
+    it("a section's Edit opens the spot editor, editable, in the active workspace", async () => {
+      await create();
+
+      sectionFor('src/app.ts')
+        .querySelector<HTMLButtonElement>('[data-testid="file-section-edit"]')
+        ?.click();
+
+      expect(navigationService.openFile).toHaveBeenCalledWith(
+        'src/app.ts',
+        undefined,
+        { editable: true, workspaceRoot: '/ws' },
+      );
     });
 
     it('brings a navigation target into view', async () => {

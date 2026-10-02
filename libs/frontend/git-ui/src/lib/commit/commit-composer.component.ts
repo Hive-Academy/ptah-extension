@@ -303,6 +303,14 @@ let instanceCount = 0;
       </div>
 
       <div class="flex flex-col">
+        @if (blockingOperation(); as kind) {
+          <p
+            class="m-0 mb-1.5 text-xs text-base-content"
+            data-testid="commit-blocked-by-operation"
+          >
+            Finish or abort the {{ kind }} above before committing.
+          </p>
+        }
         <div class="flex justify-end gap-2">
           @if (canCancel()) {
             <button
@@ -477,8 +485,18 @@ export class CommitComposerComponent {
       this.unconfirmed()?.cancelling === true,
   );
 
+  /**
+   * The merge, rebase or cherry-pick in progress, or `null`. While one is
+   * open the conflict banner's actions are the only primary ones
+   * (design-spec §11), so Commit is disabled.
+   */
+  protected readonly blockingOperation = computed(
+    () => this.gitStatus.operation()?.kind ?? null,
+  );
+
   protected readonly canCommit = computed(
     () =>
+      this.blockingOperation() === null &&
       this.stagedCount() > 0 &&
       this.message().trim().length > 0 &&
       !this.isRunning() &&

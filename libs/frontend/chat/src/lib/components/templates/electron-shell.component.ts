@@ -258,7 +258,7 @@ import { NotificationFocusCoordinator } from '../../services/notification-focus-
             <ptah-app-shell class="h-full w-full" />
           </div>
 
-          <!-- Git dock (lazy-loaded to keep monaco out of the initial Electron renderer bundle) -->
+          <!-- Git dock: git-ui's review shell, lazy-loaded to keep git-ui out of the initial Electron renderer bundle -->
           @if (layout.editorPanelVisible()) {
             <!-- Resize handle: chat ↔ editor -->
             <ptah-electron-resize-handle
@@ -319,7 +319,7 @@ export class ElectronShellComponent {
     ElementRef<HTMLElement>
   >('configurationSurfaceHost');
 
-  /** Lazily loaded GitDockComponent — keeps xterm/monaco out of the initial bundle. */
+  /** Lazily loaded ReviewShellComponent — keeps git-ui out of the initial bundle. */
   readonly dockComponent = signal<Type<unknown> | null>(null);
 
   /**
@@ -370,7 +370,7 @@ export class ElectronShellComponent {
         !this.dockLoadFailed()
       ) {
         import('@ptah-extension/git-ui')
-          .then((m) => this.dockComponent.set(m.GitDockComponent))
+          .then((m) => this.dockComponent.set(m.ReviewShellComponent))
           .catch((error: unknown) => {
             console.error(
               '[ElectronShellComponent] failed to load the git dock chunk:',

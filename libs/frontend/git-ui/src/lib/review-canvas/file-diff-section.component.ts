@@ -13,7 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { LucideAngularModule, MessageSquarePlus } from 'lucide-angular';
+import { LucideAngularModule, MessageSquarePlus, Pencil } from 'lucide-angular';
 import type { EditorTarget, GitConflictKind } from '@ptah-extension/shared';
 import {
   FileStatusBadgeComponent,
@@ -61,6 +61,13 @@ export interface ReviewCanvasFile {
   readonly request: ReviewDiffRequest | null;
   /** Known from the file list alone; such a row never reads or renders text. */
   readonly label: ReviewFileLabel | null;
+}
+
+/** What the section's "Edit" action asks the canvas to open. */
+export interface ReviewFileEditRequest {
+  /** Workspace-relative path, modified side. */
+  readonly path: string;
+  readonly line?: number;
 }
 
 type DraftSide = 'additions' | 'deletions';
@@ -172,7 +179,7 @@ function splitLines(text: string): string[] {
  * (implementation-plan Component 24, design-spec §6.1).
  *
  * - A sticky header: status badge, path, rename source, hunk count, chips,
- *   +N/−N, a "Comment" action and Open-in.
+ *   +N/−N, a "Comment" action, "Edit" (working-tree files only) and Open-in.
  * - The body mounts only while the canvas reports the section {@link near} the
  *   viewport: `ReviewDiffService.mount` reads the diff lazily, and Pierre's
  *   host is created inside `@defer`, so the renderer and its observers exist
@@ -264,6 +271,22 @@ function splitLines(text: string): string[] {
               aria-hidden="true"
             />
             Comment
+          </button>
+        }
+        @if (canEdit()) {
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs {{ focusRing }}"
+            [attr.aria-label]="'Edit ' + file().path"
+            data-testid="file-section-edit"
+            (click)="onEdit()"
+          >
+            <lucide-angular
+              [img]="EditIcon"
+              class="h-3 w-3"
+              aria-hidden="true"
+            />
+            Edit
           </button>
         }
         @if (editorTargets().length > 0) {
@@ -471,8 +494,11 @@ export class FileDiffSectionComponent {
   readonly workspaceRoot = input('');
 
   readonly openFile = output<OpenInRequest>();
+  /** "Edit": open the file in the spot editor, editable (design-spec §3.3). */
+  readonly edit = output<ReviewFileEditRequest>();
 
   protected readonly CommentIcon = MessageSquarePlus;
+  protected readonly EditIcon = Pencil;
   protected readonly focusRing = FOCUS_RING;
   protected readonly readFailedMessage = 'Git could not read this file.';
   protected readonly staleMessage =
@@ -611,6 +637,21 @@ export class FileDiffSectionComponent {
     );
   });
 
+  /**
+   * Only a file that exists in the working tree can be edited: the two status
+   * comparisons, not a deleted file, and not a binary or submodule row.
+   * Historical and branch comparisons are read-only.
+   */
+  protected readonly canEdit = computed(() => {
+    const file = this.file();
+    return (
+      (file.comparison === 'worktree' || file.comparison === 'staged') &&
+      file.status !== 'D' &&
+      file.label !== 'binary' &&
+      file.label !== 'submodule'
+    );
+  });
+
   constructor() {
     effect((onCleanup) => {
       const request = this.mountRequest();
@@ -629,6 +670,17 @@ export class FileDiffSectionComponent {
         this.composer.set(null);
         this.composerError.set(null);
       }
+    });
+  }
+
+  /** Opens at the first hunk's line on the working-tree side when it is known. */
+  protected onEdit(): void {
+    const diff = this.diff();
+    const first =
+      diff && diff.status !== 'error' ? diff.hunks[0]?.modifiedStart : undefined;
+    this.edit.emit({
+      path: this.file().path,
+      ...(first !== undefined && first > 0 ? { line: first } : {}),
     });
   }
 

@@ -11,6 +11,24 @@ import type {
 } from '@ptah-extension/shared';
 import { ChangeSetStore } from './change-set.store';
 
+/**
+ * The part of git-ui's `ReviewNavigationService` these actions call. Declared
+ * structurally so this file never names git-ui outside the dynamic import.
+ */
+interface ReviewNavigation {
+  openChangeSet(request: {
+    workspaceRoot: string;
+    files: readonly { path: string; origPath?: string }[];
+    ownerSessionId?: string;
+  }): void;
+  openFile(
+    path: string,
+    line?: number,
+    options?: { readonly workspaceRoot?: string },
+  ): void;
+  selectComparison(kind: 'worktree'): void;
+}
+
 const LOG_PREFIX = '[ChangeSetActions]';
 const COMMAND_TIMEOUT_MS = 30_000;
 
@@ -29,10 +47,11 @@ export const REVIEW_COMMANDS = {
  * - VS Code: `command:execute` with the `ptah.review.*` commands, which open
  *   the native changes, diff, merge and Source Control views. The command
  *   re-validates every argument against the open workspace folders.
- * - Electron: until the review cutover (Task 58.2 moves this to
- *   `ReviewNavigationService`) the dock is revealed in working-tree mode and a
- *   file opens through the same calls `FileLinkRouterService.openInDock`
- *   makes, rooted at the change set's own working directory.
+ * - Electron: the dock is revealed and pointed through git-ui's
+ *   `ReviewNavigationService`: Review opens the Changes tab narrowed to the
+ *   turn's files (drafts go to the turn's session), a file opens in the spot
+ *   editor rooted at the change set's own working directory, and Source
+ *   Control shows the working-tree comparison.
  *
  * Every method rejects with a user-facing `Error` on failure, so the card's
  * container can show it inline. `@ptah-extension/git-ui` is imported
@@ -49,7 +68,17 @@ export class ChangeSetActionsService {
   /** Review every file of the change set. */
   async review(changeSet: TurnChangeSet): Promise<void> {
     if (this.vscode.isElectron) {
-      await this.openInDock(null);
+      await this.openInDock('Could not open the review.', (navigation) =>
+        navigation.openChangeSet({
+          workspaceRoot: changeSet.workspaceRoot,
+          files: changeSet.files.map((file) =>
+            file.origPath
+              ? { path: file.path, origPath: file.origPath }
+              : { path: file.path },
+          ),
+          ownerSessionId: changeSet.sessionId,
+        }),
+      );
       return;
     }
     await this.executeCommand(REVIEW_COMMANDS.openChanges, {
@@ -70,10 +99,11 @@ export class ChangeSetActionsService {
     if (!file) throw new Error(`${path} is not part of this change set.`);
 
     if (this.vscode.isElectron) {
-      await this.openInDock({
-        path: file.path,
-        workspaceRoot: changeSet.workspaceRoot,
-      });
+      await this.openInDock(`Could not open ${file.path}.`, (navigation) =>
+        navigation.openFile(file.path, undefined, {
+          workspaceRoot: changeSet.workspaceRoot,
+        }),
+      );
       return;
     }
     const conflicted = this.store.marksFor(changeSet).conflicted.has(file.path);
@@ -86,7 +116,9 @@ export class ChangeSetActionsService {
   /** Open the host's source-control view. */
   async openScm(): Promise<void> {
     if (this.vscode.isElectron) {
-      await this.openInDock(null);
+      await this.openInDock('Could not open the review.', (navigation) =>
+        navigation.selectComparison('worktree'),
+      );
       return;
     }
     await this.executeCommand(REVIEW_COMMANDS.openScm);
@@ -94,26 +126,24 @@ export class ChangeSetActionsService {
 
   /**
    * Reveal the dock first and synchronously (it starts the shell's lazy dock
-   * load, so the dock chunk and git-ui fetch in parallel), then switch it to
-   * working-tree mode and optionally open one file. On failure the reveal is
-   * undone when the dock was hidden before, as in `FileLinkRouterService`.
+   * load, so the dock chunk and git-ui fetch in parallel), then point the
+   * review shell with `navigate`. On failure the reveal is undone when the
+   * dock was hidden before, as in `FileLinkRouterService`, and the rejection
+   * carries `failureText`.
    */
   private async openInDock(
-    file: { path: string; workspaceRoot: string } | null,
+    failureText: string,
+    navigate: (navigation: ReviewNavigation) => void,
   ): Promise<void> {
     const dockWasVisible = this.layout.editorPanelVisible();
     this.layout.setEditorPanelVisible(true);
     try {
       const git = await import('@ptah-extension/git-ui');
-      this.injector.get(git.GitReviewService).setMode('working-tree');
-      if (file) await this.injector.get(git.DiffTabsService).openFileView(file);
+      navigate(this.injector.get(git.ReviewNavigationService));
     } catch (error: unknown) {
       if (!dockWasVisible) this.layout.setEditorPanelVisible(false);
       console.error(`${LOG_PREFIX} Failed to open the review dock`, error);
-      throw new Error(
-        file ? `Could not open ${file.path}.` : 'Could not open the review.',
-        { cause: error },
-      );
+      throw new Error(failureText, { cause: error });
     }
   }
 

@@ -25,7 +25,7 @@ import {
   ReviewNavigationService,
   type ReviewTab,
 } from '../services/review-navigation.service';
-import { statusUnavailableLabel } from '../source-control/source-control-panel.component';
+import { statusUnavailableLabel } from '../services/git-status-unavailable-label';
 import { SpotEditorComponent } from '../spot-editor/spot-editor.component';
 import { TaskWorktreeViewComponent } from '../task/task-worktree-view.component';
 
@@ -59,8 +59,8 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
 /**
  * ReviewShellComponent — the Electron dock body (implementation-plan
  * Component 23, design-spec §3): the git header, the conflict-banner slot and
- * the review tabs. It replaces `GitDockComponent` at cutover (Batch 58), which
- * keeps the lazy-mount contract of `electron-shell.component.ts`.
+ * the review tabs. `electron-shell.component.ts` loads it by dynamic import
+ * when the dock opens (cutover, Batch 58), in place of `GitDockComponent`.
  *
  * - **Arming.** The constructor arms `GitStatusService` and
  *   `GitBranchesService` (with a branch read) and detects editor targets;

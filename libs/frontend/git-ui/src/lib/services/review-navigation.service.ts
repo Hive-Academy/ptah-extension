@@ -90,6 +90,17 @@ export interface ReviewStashFileRequest {
   file: GitStashFileEntry;
 }
 
+/** How {@link ReviewNavigationService.openFile} opens a file. */
+export interface ReviewOpenFileOptions {
+  /** Open editable (the canvas "Edit" action); otherwise read-only. */
+  readonly editable?: boolean;
+  readonly column?: number;
+  /** The workspace a relative path resolves against. */
+  readonly workspaceRoot?: string;
+  /** The previewed markdown document a relative link was written in. */
+  readonly documentPath?: string;
+}
+
 /**
  * Asked before a navigation replaces the spot editor. `true` lets it land;
  * `false` (Keep editing) cancels it. A synchronous answer lands the
@@ -122,11 +133,12 @@ const INITIAL: ReviewNavigation = {
  * file sections the canvas mounts).
  *
  * **Unsaved edits.** Every navigation that would replace the spot editor (a
- * change set, a commit, a stash file, a comparison or another tab) first asks
- * the registered {@link ReviewLeaveGuard}, so no caller has to know an editor
+ * change set, a commit, a stash file or a comparison) first asks the
+ * registered {@link ReviewLeaveGuard}, so no caller has to know an editor
  * exists. Only {@link backToReview} skips it: the editor asked before it
  * emitted. A file-to-file navigation is not guarded here because the editor
- * stays mounted and asks about its own replacement. While an answer is
+ * stays mounted and asks about its own replacement; a tab-only switch is not
+ * guarded because the editor stays mounted behind the other tab. While an answer is
  * pending, the latest guarded navigation wins and any other navigation
  * supersedes it.
  */
@@ -178,15 +190,28 @@ export class ReviewNavigationService {
    * Open one file in the spot editor at an optional line. The comparison is
    * kept so "Back to review" returns to it. The editor opens read-only unless
    * `editable` is set (the canvas "Edit" action, design-spec §7).
+   *
+   * `workspaceRoot` and `documentPath` are where a relative path resolves (a
+   * chat link's session workspace, or the previewed document it was written
+   * in); the backend re-authorizes the path either way.
    */
   openFile(
     path: string,
     line?: number,
-    options?: { readonly editable?: boolean },
+    options?: ReviewOpenFileOptions,
   ): void {
+    const request: FileViewOpenRequest = {
+      path,
+      ...(line === undefined ? {} : { line }),
+      ...(options?.column === undefined ? {} : { column: options.column }),
+      ...(options?.workspaceRoot
+        ? { workspaceRoot: options.workspaceRoot }
+        : {}),
+      ...(options?.documentPath ? { documentPath: options.documentPath } : {}),
+    };
     void this.navigate('changes', this._current().scope, {
       kind: 'file',
-      request: line === undefined ? { path } : { path, line },
+      request,
       ...(options?.editable ? { editable: true as const } : {}),
     });
   }
@@ -357,9 +382,10 @@ export class ReviewNavigationService {
   ): Promise<boolean> {
     const current = this._current();
     const guard = this.leaveGuard;
+    // A tab-only switch keeps the file target: the Changes body (and the
+    // editor in it) stays mounted behind the other tabs, so nothing is lost.
     const replacesEditor =
-      current.target.kind === 'file' &&
-      (target.kind !== 'file' || tab !== current.tab);
+      current.target.kind === 'file' && target.kind !== 'file';
     if (!guard || !replacesEditor) {
       this.commit(tab, scope, target);
       return Promise.resolve(true);

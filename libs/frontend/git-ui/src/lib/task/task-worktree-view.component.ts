@@ -278,7 +278,9 @@ let instanceCount = 0;
                 type="button"
                 class="btn btn-primary btn-xs flex-1"
                 data-testid="task-worktree-create"
-                [disabled]="!newBranch().trim() || isAdding()"
+                [disabled]="
+                  !newBranch().trim() || isAdding() || operationOpen()
+                "
                 (click)="onAddWorktree()"
               >
                 @if (isAdding()) {
@@ -483,6 +485,13 @@ export class TaskWorktreeViewComponent {
   protected readonly newPath = signal('');
   protected readonly newCreateBranch = signal(false);
   protected readonly isAdding = signal(false);
+  /**
+   * A merge, rebase or cherry-pick is open: the conflict banner's actions are
+   * the only primary ones (design-spec §11), so Create is disabled.
+   */
+  protected readonly operationOpen = computed(
+    () => this.gitStatus.operation() !== null,
+  );
   protected readonly addError = signal('');
   protected readonly removeTarget = signal<GitWorktreeInfo | null>(null);
   protected readonly isRemoving = signal(false);
@@ -637,7 +646,7 @@ export class TaskWorktreeViewComponent {
 
   protected async onAddWorktree(): Promise<void> {
     const branch = this.newBranch().trim();
-    if (!branch || this.isAdding()) return;
+    if (!branch || this.isAdding() || this.operationOpen()) return;
 
     this.isAdding.set(true);
     this.addError.set('');

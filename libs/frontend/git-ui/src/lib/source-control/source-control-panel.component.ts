@@ -31,26 +31,10 @@ import type {
 import type { OpenInRequest } from '../open-in/open-in-button.component';
 import type { OpenDiffRequest } from '../types/diff-tab.types';
 import { SourceControlService } from '../services/source-control.service';
+import { statusUnavailableLabel } from '../services/git-status-unavailable-label';
 import { GitStatusService } from '../services/git-status.service';
 import { SourceControlFileComponent } from './source-control-file.component';
 import { WorktreeSectionComponent } from '../worktree/worktree-section.component';
-
-/** Wording for each reason a status read failed, completing "Git status is unavailable (…)". */
-const STATUS_UNAVAILABLE_LABELS: Readonly<
-  Record<GitStatusUnavailableReason, string>
-> = {
-  'output-too-large': 'the status output is too large to read',
-  timeout: 'git timed out',
-  locked: 'another git process is using this repository',
-  error: 'git reported an error',
-};
-
-/** Human wording for a status-unavailable reason; shared with the dock. */
-export function statusUnavailableLabel(
-  reason: GitStatusUnavailableReason,
-): string {
-  return STATUS_UNAVAILABLE_LABELS[reason];
-}
 
 /** The fields every git mutation result (stage, unstage, discard, commit) shares. */
 interface GitMutationOutcome {

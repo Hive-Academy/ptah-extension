@@ -5,10 +5,8 @@ import {
   inject,
 } from '@angular/core';
 import { DiffViewComponent } from '../diff-view/diff-view.component';
-import {
-  SourceControlPanelComponent,
-  statusUnavailableLabel,
-} from '../source-control/source-control-panel.component';
+import { SourceControlPanelComponent } from '../source-control/source-control-panel.component';
+import { statusUnavailableLabel } from '../services/git-status-unavailable-label';
 import { DiffTabsService } from '../services/diff-tabs.service';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitStatusService } from '../services/git-status.service';

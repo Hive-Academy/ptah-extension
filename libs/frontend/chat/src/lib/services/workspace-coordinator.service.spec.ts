@@ -72,6 +72,10 @@ jest.mock('@ptah-extension/core', () => {
     rpcCall: (...args: unknown[]) => mockGitRpcCall(...args),
   };
 });
+// The real git-ui barrel reaches the review canvas's Pierre renderer, which
+// ships ESM only; nothing here renders a diff.
+jest.mock('@pierre/diffs', () => ({}));
+jest.mock('@pierre/diffs/worker', () => ({}));
 
 type AuthStateSlice = Pick<AuthStateService, 'refreshAuthStatus'>;
 type ModelStateSlice = Pick<ModelStateService, 'refreshModels'>;

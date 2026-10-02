@@ -25,6 +25,7 @@ export { GitBranchesService } from './lib/services/git-branches.service';
 export { WorktreeService } from './lib/services/worktree.service';
 export { DiffTabsService } from './lib/services/diff-tabs.service';
 export { FileContentChangesService } from './lib/services/file-content-changes.service';
+export { GitOperationOutputService } from './lib/services/git-operation-output.service';
 export {
   ReviewDiffService,
   reviewDiffKey,

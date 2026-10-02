@@ -129,6 +129,35 @@ describe('ReviewNavigationService', () => {
     });
   });
 
+  it('openFile carries a link context (column, workspace root, document) into the request', () => {
+    const { service } = makeService();
+    service.openFile('./b.md', 4, {
+      column: 2,
+      workspaceRoot: '/ws',
+      documentPath: '/ws/docs/a.md',
+    });
+    expect(service.current().target).toEqual({
+      kind: 'file',
+      request: {
+        path: './b.md',
+        line: 4,
+        column: 2,
+        workspaceRoot: '/ws',
+        documentPath: '/ws/docs/a.md',
+      },
+    });
+
+    service.openFile('/ws/c.ts', undefined, {
+      editable: true,
+      workspaceRoot: '',
+    });
+    expect(service.current().target).toEqual({
+      kind: 'file',
+      request: { path: '/ws/c.ts' },
+      editable: true,
+    });
+  });
+
   it('selectTab is a no-op for the tab already shown', () => {
     const { service } = makeService();
     service.selectTab('changes');
@@ -373,7 +402,7 @@ describe('ReviewNavigationService', () => {
       expect(service.current().target).toEqual({ kind: 'none' });
     });
 
-    it('Keep editing cancels a change set, a comparison and a tab switch', () => {
+    it('Keep editing cancels a change set and a comparison', () => {
       const { service } = makeService();
       const guard = jest.fn(() => false);
       service.registerLeaveGuard(guard);
@@ -385,9 +414,37 @@ describe('ReviewNavigationService', () => {
         files: [{ path: 'a.ts' }],
       });
       service.selectComparison('staged');
-      service.selectTab('history');
 
-      expect(guard).toHaveBeenCalledTimes(3);
+      expect(guard).toHaveBeenCalledTimes(2);
+      expect(service.current()).toBe(before);
+    });
+
+    it('a tab-only switch from a file target is not asked and keeps the file', () => {
+      const { service } = makeService();
+      const guard = jest.fn(() => false);
+      service.registerLeaveGuard(guard);
+      service.openFile('/ws/a.ts', 3);
+      const target = service.current().target;
+
+      service.selectTab('commit');
+      expect(service.current()).toMatchObject({ tab: 'commit', target });
+      service.selectTab('changes');
+
+      expect(guard).not.toHaveBeenCalled();
+      expect(service.current()).toMatchObject({ tab: 'changes', target });
+    });
+
+    it('still asks when the file target is replaced after a tab switch', () => {
+      const { service } = makeService();
+      const guard = jest.fn(() => false);
+      service.registerLeaveGuard(guard);
+      service.openFile('/ws/a.ts');
+      service.selectTab('history');
+      const before = service.current();
+
+      service.selectComparison('staged');
+
+      expect(guard).toHaveBeenCalledTimes(1);
       expect(service.current()).toBe(before);
     });
 

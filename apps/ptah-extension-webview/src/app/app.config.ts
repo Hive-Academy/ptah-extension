@@ -64,7 +64,9 @@ import {
 } from '@ptah-extension/setup-wizard';
 import {
   DiffTabsService,
+  FileContentChangesService,
   GitBranchesService,
+  GitOperationOutputService,
   GitStatusService,
   ReviewDiffService,
   WorktreeService,
@@ -224,6 +226,19 @@ export const appConfig: ApplicationConfig = {
     // Beside DiffTabsService, not instead of it, until Task 64.1 deletes the
     // old dock (TASK_2026_576 V6).
     { provide: MESSAGE_HANDLERS, useExisting: ReviewDiffService, multi: true },
+    // Review shell pushes (TASK_2026_576): `file:content-changed` for the spot
+    // editor and `git:operationOutput` for the commit composer's hook log.
+    // Components cannot be handlers, so these root services relay to them.
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: FileContentChangesService,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: GitOperationOutputService,
+      multi: true,
+    },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: ElectronLayoutService,

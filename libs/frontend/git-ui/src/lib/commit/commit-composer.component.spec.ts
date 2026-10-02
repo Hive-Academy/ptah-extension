@@ -14,6 +14,7 @@ import type {
   GitCommitResult,
   GitGenerateCommitMessageResult,
   GitLastCommitResult,
+  GitRepoOperation,
 } from '@ptah-extension/shared';
 import type { RpcCallResult } from '@ptah-extension/core';
 import { GitBranchesService } from '../services/git-branches.service';
@@ -49,6 +50,7 @@ describe('CommitComposerComponent', () => {
     activeWorkspacePath: ReturnType<typeof signal<string | null>>;
     stagedCount: ReturnType<typeof signal<number>>;
     stagedFiles: ReturnType<typeof signal<{ path: string }[]>>;
+    operation: ReturnType<typeof signal<GitRepoOperation | null>>;
     refresh: jest.Mock;
   };
   let gitBranches: {
@@ -68,6 +70,7 @@ describe('CommitComposerComponent', () => {
       activeWorkspacePath: signal<string | null>('/ws/a'),
       stagedCount: signal(2),
       stagedFiles: signal([{ path: 'src/a.ts' }, { path: 'src/b.ts' }]),
+      operation: signal<GitRepoOperation | null>(null),
       refresh: jest.fn(async () => undefined),
     };
     const lastCommit = signal<GitLastCommitResult | null>({
@@ -336,6 +339,25 @@ describe('CommitComposerComponent', () => {
   });
 
   // -- Commit with streamed hook output (Requirements 9.1, 9.3) ---------------
+
+  it('disables Commit and says why while a merge, rebase or cherry-pick is open (design-spec §11)', async () => {
+    await type('feat: ready');
+    expect(commitButton()?.disabled).toBe(false);
+    expect(el('commit-blocked-by-operation')).toBeNull();
+
+    gitStatus.operation.set({ kind: 'merge', conflictedPaths: [] });
+    await settle();
+
+    expect(commitButton()?.disabled).toBe(true);
+    expect(textOf('commit-blocked-by-operation')).toBe(
+      'Finish or abort the merge above before committing.',
+    );
+
+    gitStatus.operation.set(null);
+    await settle();
+    expect(commitButton()?.disabled).toBe(false);
+    expect(el('commit-blocked-by-operation')).toBeNull();
+  });
 
   it('commits the trimmed message with a fresh operationId', async () => {
     await startCommit('  feat: add composer \n');

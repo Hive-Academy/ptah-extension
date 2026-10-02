@@ -577,6 +577,55 @@ describe('FileDiffSectionComponent', () => {
     });
   });
 
+  describe('Edit (design-spec §3.3)', () => {
+    it('emits the path and the first hunk line for a working-tree file', async () => {
+      setDiff(makeDiff());
+      await create({ near: true });
+      const emitted: unknown[] = [];
+      fixture.componentInstance.edit.subscribe((request) =>
+        emitted.push(request),
+      );
+
+      const button = byTestId<HTMLButtonElement>('file-section-edit');
+      expect(button?.getAttribute('aria-label')).toBe('Edit src/app.ts');
+      button?.click();
+
+      expect(emitted).toEqual([{ path: 'src/app.ts', line: 2 }]);
+    });
+
+    it('emits the path alone before the diff is read', async () => {
+      await create();
+      const emitted: unknown[] = [];
+      fixture.componentInstance.edit.subscribe((request) =>
+        emitted.push(request),
+      );
+
+      byTestId<HTMLButtonElement>('file-section-edit')?.click();
+
+      expect(emitted).toEqual([{ path: 'src/app.ts' }]);
+    });
+
+    it('is offered for a staged file', async () => {
+      await create();
+      fixture.componentRef.setInput('file', makeFile({ comparison: 'staged' }));
+      await settle();
+      expect(byTestId('file-section-edit')).not.toBeNull();
+    });
+
+    it.each<[string, Partial<ReviewCanvasFile>]>([
+      ['a deleted file', { status: 'D' }],
+      ['a binary file', { label: 'binary' }],
+      ['a submodule', { label: 'submodule' }],
+      ['a historical comparison', { comparison: 'historical' }],
+      ['a branch comparison', { comparison: 'branch' }],
+    ])('is not offered for %s', async (_name, overrides) => {
+      await create();
+      fixture.componentRef.setInput('file', makeFile(overrides));
+      await settle();
+      expect(byTestId('file-section-edit')).toBeNull();
+    });
+  });
+
   describe('draft comments', () => {
     async function openComposer(): Promise<void> {
       await create({ near: true, draftOwner: owner });

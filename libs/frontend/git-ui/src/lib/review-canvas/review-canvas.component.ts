@@ -43,6 +43,7 @@ import { DraftCommentsBarComponent } from './draft-comments-bar.component';
 import {
   FileDiffSectionComponent,
   type ReviewCanvasFile,
+  type ReviewFileEditRequest,
   type ReviewFileLabel,
 } from './file-diff-section.component';
 
@@ -181,6 +182,7 @@ function fileId(kind: string, path: string, originalPath?: string): string {
             [editorTargets]="launchers.targets()"
             [workspaceRoot]="workspaceRoot()"
             (openFile)="openInEditor($event)"
+            (edit)="onEdit($event)"
           />
         }
       </div>
@@ -534,6 +536,15 @@ export class ReviewCanvasComponent {
     }
     event.preventDefault();
     this.tree().selectAdjacentFile(event.key === 'ArrowDown' ? 1 : -1);
+  }
+
+  /** A section's "Edit": the spot editor, editable, in the active workspace. */
+  protected onEdit(request: ReviewFileEditRequest): void {
+    const root = this.workspaceRoot();
+    this.navigation.openFile(request.path, request.line, {
+      editable: true,
+      ...(root ? { workspaceRoot: root } : {}),
+    });
   }
 
   protected openInEditor(request: OpenInRequest): void {
