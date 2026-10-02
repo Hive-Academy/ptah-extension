@@ -12,8 +12,9 @@
  * backend batches included — a red run here blocks the commit even when the
  * batch's own tests are green.
  */
+import type { Page } from '@playwright/test';
 import { test, expect } from '../../test-fixtures';
-import { bootSettings, gotoSettingsTab, waitForSettled } from './settings.fixtures';
+import { bootSettings, gotoSettingsTab, SETTINGS_TAB_LABELS, waitForSettled } from './settings.fixtures';
 import {
   BASELINE_PRESENT_IDS,
   EXPECTED_CAPABILITY_COUNT,
@@ -61,6 +62,18 @@ test.describe('webview > settings > reachability > guards', () => {
   });
 });
 
+/** The Settings tab that is active now (`tab-active`), or `undefined` when none reads as active. Never throws. */
+async function activeTab(page: Page): Promise<(typeof SETTINGS_TAB_LABELS)[number] | undefined> {
+  for (const label of SETTINGS_TAB_LABELS) {
+    const active = await page
+      .getByRole('button', { name: label, exact: true })
+      .evaluate((node) => node.classList.contains('tab-active'))
+      .catch(() => false);
+    if (active) return label;
+  }
+  return undefined;
+}
+
 for (const host of HOSTS) {
   test.describe(`webview > settings > reachability (${host})`, () => {
     test('every present/restored capability is reachable', async ({ page, fixtureServer }) => {
@@ -76,6 +89,8 @@ for (const host of HOSTS) {
       for (const entry of REACHABILITY_TABLE) {
         if (entry.status === 'pending') continue;
         await test.step(`${entry.id} ${entry.capability}`, async () => {
+          // NW-3: the tab the entry starts on, so recovery can put the page back there.
+          const startTab = await activeTab(page);
           try {
             await entry.reach(page);
           } catch (error) {
@@ -97,6 +112,8 @@ for (const host of HOSTS) {
               // Providers (`ProvidersSettingsComponent` is torn down by the
               // `@if` in settings.component.html on tab switch).
               await page.getByRole('button', { name: 'Advanced', exact: true }).click().catch(() => undefined);
+              // NW-3: the remount detour must not leave the page on Advanced for the next entry.
+              if (startTab) await gotoSettingsTab(page, startTab).catch(() => undefined);
             }
           }
         });

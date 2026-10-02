@@ -12,7 +12,8 @@ import type { ReachabilityEntry } from './settings-reachability.table';
 import {
   bootVariant, closeConnectionDrawer, credentialsOf, expectCall, orchestrationTab, throughVariantBoot, visibleEnabled,
 } from './settings-drawer.reach';
-import { AGENT_CONFIG_FIXTURE, AUTH_STATUS_FIXTURE, getFixtureState } from './settings.fixtures';
+import { AGENT_CONFIG_FIXTURE, AUTH_STATUS_FIXTURE, getFixtureState, PROVIDER_MODELS_FIXTURE } from './settings.fixtures';
+import { rpcError } from '../marketplace/marketplace.fixtures';
 
 /** Opens a matrix modal (`NativeModalComponent`, a native `<dialog>`) from `opener`; returns its dialog. */
 async function openMatrixModal(page: Page, opener: Locator, testid: string): Promise<Locator> {
@@ -152,11 +153,28 @@ async function throughDelegatedCell(page: Page, cli: string, field: 'model' | 'e
 /** Batch 34: the old manager's capabilities, re-pointed to the matrix, its modals and its popovers (D14). */
 const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
   { id: '#39', capability: 'Refresh the model list (Retry on error)', status: 'present',
-    // The harness RPC auto-responder always answers `success: true`, so the Retry branch is pinned in unit specs. What is
-    // reachable: each Ptah CLI instance's own model picker (a distinct catalogue fetch from the main-agent one, #35).
-    reach: (page) => throughInstanceModel(page, async (panel) => {
-      await expect(panel.locator('ptah-provider-model-picker')).toBeVisible();
-    }) },
+    // Each Ptah CLI instance's own model picker (a distinct catalogue fetch from the main-agent one, #35), then its error
+    // branch on a second page where `provider:listModels` answers `success:false` (the opt-in `rpcError` envelope) until
+    // Retry: the picker shows its fixed error row, and Retry reloads the list and clears it.
+    reach: async (page) => {
+      await throughInstanceModel(page, async (panel) => {
+        await expect(panel.locator('ptah-provider-model-picker')).toBeVisible();
+      });
+      let failing = true;
+      await throughVariantBoot(
+        page,
+        { 'provider:listModels': () => (failing ? rpcError('catalogue unavailable') : PROVIDER_MODELS_FIXTURE) },
+        'Agent Orchestration',
+        (variant) => throughInstanceModel(variant, async (panel) => {
+          const error = panel.locator('[data-testid="provider-model-picker-error"]');
+          await expect(error).toContainText('Could not load provider models. Retry.');
+          await expect(error).not.toContainText('catalogue unavailable');
+          failing = false;
+          await panel.locator('[data-testid="provider-model-picker-retry"]').click();
+          await expect(error).toHaveCount(0);
+        }),
+      );
+    } },
   { id: '#42', capability: 'List Ptah CLI agents with name and provider badge', status: 'present',
     reach: async (page) => {
       const glm = await matrixRow(page, GLM_ID);
@@ -239,12 +257,17 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
     } },
   { id: '#56', capability: 'Success/error commit feedback', status: 'present',
     // Glm's on/off (a real `ptahCli:update` write): the toast says it saved, and the read-back moves the checkbox. The
-    // toggle is put back in `finally`, so later entries see Glm enabled even when an assertion fails.
+    // toggle is put back in `finally` (NW-2): through the UI first, and the `FixtureState` itself is restored whatever
+    // happens, so later entries see Glm enabled even when an assertion or the UI restore fails. A UI restore failure
+    // never replaces the failure of the body above it.
     reach: async (page) => {
       const glm = await matrixRow(page, GLM_ID);
       const state = getFixtureState(page);
       const toggle = glm.locator(`[data-testid="cli-matrix-toggle-${GLM_ID}"]`);
       const message = page.locator('[data-testid="settings-toast-message"]');
+      const glmEnabled = (): boolean | undefined => state.ptahCliAgents.find((agent) => agent.id === GLM_ID)?.enabled;
+      let failed = false;
+      let failure: unknown;
       try {
         await visibleEnabled(toggle);
         const before = state.calls.length;
@@ -252,15 +275,28 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
         await expectCall(page, before, 'ptahCli:update', { id: GLM_ID, enabled: false });
         await expect(message).toContainText('Saved Glm off');
         await expect(toggle).not.toBeChecked();
-        expect(state.ptahCliAgents.find((agent) => agent.id === GLM_ID)?.enabled).toBe(false);
-      } finally {
-        if (state.ptahCliAgents.find((agent) => agent.id === GLM_ID)?.enabled === false) {
+        expect(glmEnabled()).toBe(false);
+      } catch (error) {
+        failed = true;
+        failure = error;
+      }
+      try {
+        if (glmEnabled() === false) {
           await visibleEnabled(toggle);
           await toggle.click();
           await expect(message).toContainText('Saved Glm on');
           await expect(toggle).toBeChecked();
         }
+      } catch (restoreError) {
+        if (!failed) {
+          failed = true;
+          failure = restoreError;
+        }
       }
+      // The fixture itself is put back whatever the UI did (NW-2).
+      const agent = state.ptahCliAgents.find((candidate) => candidate.id === GLM_ID);
+      if (agent && !agent.enabled) agent.enabled = true;
+      if (failed) throw failure;
     } },
   { id: '#57', capability: 'Empty state with Add link', status: 'present',
     // A second page with no Ptah CLI instance: the matrix's "No Ptah CLI instance yet." row carries its own Add.

@@ -23,8 +23,9 @@
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 import {
-  AGENT_CONFIG_FIXTURE, getFixtureState, INVALID_PROBE_KEY, MOONSHOT_KEY_HINT, SETTINGS_TAB_LABELS,
+  AGENT_CONFIG_FIXTURE, getFixtureState, INVALID_PROBE_KEY, MOONSHOT_KEY_HINT, PTAH_CLI_LIST_FIXTURE, SETTINGS_TAB_LABELS,
 } from './settings.fixtures';
+import { rpcError } from '../marketplace/marketplace.fixtures';
 import { ROUTING_MAP_ENTRIES } from './settings-routing-map.entries';
 import { CLI_MATRIX_ENTRIES } from './settings-cli-matrix.entries';
 import { ADVANCED_ENTRIES } from './settings-advanced.entries';
@@ -110,6 +111,31 @@ async function closeWizard(page: Page): Promise<void> {
 }
 
 /**
+ * Runs `body` with the wizard open, then closes it (NW-1). `closeWizard`'s final assertion would, from a bare `finally`,
+ * replace the body's own failure with a generic "wizard-body count !== 0" timeout; here a failed body is the error the
+ * caller sees, and `closeWizard` only reports when the body itself passed.
+ */
+async function withWizardClosed(page: Page, body: () => Promise<void>): Promise<void> {
+  let failed = false;
+  let failure: unknown;
+  try {
+    await body();
+  } catch (error) {
+    failed = true;
+    failure = error;
+  }
+  try {
+    await closeWizard(page);
+  } catch (closeError) {
+    if (!failed) {
+      failed = true;
+      failure = closeError;
+    }
+  }
+  if (failed) throw failure;
+}
+
+/**
  * Drives the wizard forward from wherever it is: clicks Continue while
  * enabled, and on the Verify step (where Continue starts disabled) clicks
  * "Verify connection" first (the credential-step "Verify stored key" button
@@ -179,12 +205,10 @@ async function throughCatalog(
   await setupButton.click();
   await expectCatalogOpen(page, false);
   await visibleEnabled(wizardBody(page));
-  try {
+  await withWizardClosed(page, async () => {
     if (advance) await advancePastProviderStep(page);
     await assertion(page);
-  } finally {
-    await closeWizard(page);
-  }
+  });
 }
 
 /**
@@ -200,14 +224,12 @@ async function throughBlankWizardCustomOption(
   await visibleEnabled(customEntry);
   await customEntry.click();
   await visibleEnabled(wizardBody(page));
-  try {
+  await withWizardClosed(page, async () => {
     const radio = page.locator('[data-testid="wizard-provider-custom-radio"]');
     await visibleEnabled(radio);
     await radio.check();
     await assertion(page);
-  } finally {
-    await closeWizard(page);
-  }
+  });
 }
 
 /**
@@ -224,12 +246,10 @@ async function throughCard(
   await openCardDrawer(page, providerName);
   await setupThroughDrawer(page, providerName);
   await visibleEnabled(wizardBody(page));
-  try {
+  await withWizardClosed(page, async () => {
     if (advance) await advancePastProviderStep(page);
     await assertion(page);
-  } finally {
-    await closeWizard(page);
-  }
+  });
 }
 
 
@@ -583,14 +603,29 @@ const orchestrationPolicy: readonly ReachabilityEntry[] = [
       await expect(page.locator('[data-testid="cli-matrix-more-menu"]')).toHaveCount(0);
     } },
   { id: '#79', capability: 'Loading and error states', status: 'present',
-    // The harness RPC auto-responder always answers `success: true`, so the error branches (the container's
-    // "… could not be loaded" + Retry per section, the bar's fixed Re-detect sentence) are pinned in the unit specs.
-    // Here: the loaded state settles with no loading line and no error left, and the bar shows the read value.
+    // Loaded: the state settles with no loading line and no error left, and the bar shows the read value. Error: a
+    // second page whose `ptahCli:list` answers `success:false` (the opt-in `rpcError` envelope) until Retry shows the
+    // container's "… could not be loaded" line for that section, with Retry, and Retry clears it.
     reach: async (page) => {
       await orchestrationTab(page);
       await expect(page.locator('[data-read-loading]')).toHaveCount(0);
       await expect(page.locator('[data-read-error]')).toHaveCount(0);
       await expect(policyBar(page).locator('[data-testid="policy-max-concurrent-value"]')).toHaveText('3');
+      let failing = true;
+      await throughVariantBoot(
+        page,
+        { 'ptahCli:list': () => (failing ? rpcError('list unavailable') : PTAH_CLI_LIST_FIXTURE) },
+        'Agent Orchestration',
+        async (variant) => {
+          const section = variant.locator('[data-read-error="cli"]');
+          await expect(section).toContainText('CLI agents could not be loaded. Your saved settings have not changed.');
+          await expect(section).not.toContainText('list unavailable');
+          failing = false;
+          await section.getByRole('button', { name: 'Retry CLI agents', exact: true }).click();
+          await expect(variant.locator('[data-read-error]')).toHaveCount(0);
+          await expect(variant.locator('[data-read-loading]')).toHaveCount(0);
+        },
+      );
     } },
 ];
 
