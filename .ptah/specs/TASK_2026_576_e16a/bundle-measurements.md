@@ -110,3 +110,55 @@ Both runs meet >= 50 fps and no long task > 200 ms (full 271,000 px sweep, 200 f
 
 Related single-file e2e numbers from the same batch: `perf-m1-diff-redisplay.spec.ts` (Changes -> Task -> Changes,
 500-line file): median 129.7 ms, max 191.7 ms over 10 round trips.
+
+## Batch 67 — end of task
+
+Measured on branch `feat/task-2026-576-cutover` after Batch 66. Same methods as Batch 20 unless noted.
+
+### Eager bundle (production build)
+
+Build: `NX_DAEMON=false npx nx run ptah-extension-webview:verify-eager-bundle --skip-nx-cache` (assert mode). Exit 0: "no forbidden markers in the eager closure".
+
+| Measure                    | Raw (B)   | Gzip (B) | Gzip (KB) | Batch 20 baseline gzip (B) | Delta (B) | Result |
+| -------------------------- | --------- | -------- | --------- | -------------------------- | --------- | ------ |
+| `main.js`                  | 1,374,724 | 338,714  | 330.8     | 401,859                    | -63,145   | PASS (<= baseline; matches the guard's 338,714) |
+| Eager closure (24 files)   | 3,002,681 | 782,442  | 764.1     | 817,705                    | -35,263   | PASS (informational; file count grew 12 -> 24 as code was split into more eager chunks, total gzip still lower) |
+
+The Angular `budgets` warning for the initial bundle size remains (warning only).
+
+### TTI, second boot (`apps/ptah-electron-e2e/src/specs/perf/startup-tti.spec.ts`)
+
+Command (from `apps/ptah-electron-e2e`, single spec): `npx playwright test --config=playwright.config.ts specs/perf/startup-tti.spec.ts --reporter=list --workers=1`.
+
+| Run     | first-paint (ms) | first-contentful-paint (ms) | second boot reload -> canvas interactive (ms) |
+| ------- | ---------------- | --------------------------- | --------------------------------------------- |
+| Run 1   | 376              | 376                         | 690                                           |
+| Run 2   | 116              | 400                         | 706                                           |
+| Run 3   | 164              | 412                         | 977                                           |
+| Batch 20 baseline | 276    | 608                         | 14,557                                        |
+
+Second boot 690-977 ms vs baseline 14,557 ms: PASS (<= baseline). Caveat: the spec ran against whatever renderer was in `dist/apps/ptah-electron/renderer` (built 22:05 by another agent in this session; `main.js` 722 KB, i.e. the dev `copy-renderer-dev` output, the same kind of renderer Batch 20 used, not the production bundle). The ~20x gap versus the baseline is far larger than the baseline's ~14% run spread and is most likely dominated by the baseline having been taken under heavier machine load/older renderer state; treat the result as "not slower", not as a 20x speedup claim. The spec asserts no budget.
+
+### VSIX (webview payload)
+
+Method: production webview build above, then `node scripts/copy-webview.js` (the `project.json` copy step; prints "Skipped 126 Electron-only chunks for the VSIX"). A full extension `nx build`/`package` was not run (it would rebuild/clean the shared renderer dist during another agent's e2e run). Instead a real `.vsix` was packed offline with `npx --no-install @vscode/vsce package --allow-missing-repository --allow-star-activation --no-dependencies` from a staging dir `D:/tmp/b67-vsix` containing the copied `webview/`, the source `package.json` (icon field removed, icon asset is not in source), `.vscodeignore`, `assets/`, and a stub `main.mjs`. The numbers below are therefore the webview's contribution plus a stub host, not the full shipped `.vsix` size.
+
+| Check                                              | Value                          | Result |
+| -------------------------------------------------- | ------------------------------ | ------ |
+| `.vsix` (stub host + webview)                      | 5,367,207 B (5.12 MB), 478 files; unpacked 19,008,847 B | recorded |
+| Webview copy (`dist/apps/ptah-extension-vscode/webview`) | 18,982,434 B, 471 files in `browser/` (591 built chunks - 126 Electron-only) | recorded |
+| `@codemirror` / CodeMirror / Lezer files or content in copy and in `unzip -l` | 0 | PASS |
+| `assets/monaco` / any `monaco` path in copy and `.vsix` | 0                            | PASS |
+| Pierre chunks present                              | 319 chunks (10,833,948 B raw) with `@pierre` inputs, all present in the copy | PASS |
+
+### R12 — Skills diff drawer in VS Code
+
+- The VS Code e2e runner (`apps/ptah-extension-vscode-e2e`, suites `index.cjs` and `review-commands.cjs`) drives extension-host commands (multi-diff, `ptah-git-head:`), not the webview; there is no e2e that opens the Skills clone diff drawer, and the VS Code binary download was not attempted. No e2e evidence for R12.
+- Unit evidence: `NX_DAEMON=false npx nx test skill-synthesis-ui --testFile=lazy-diff-view --skip-nx-cache`: 1 suite, 6 passed, 0 failed (`lazy-diff-view.component.spec.ts`).
+- Chunk trace: `LazyDiffViewComponent` does `await import('@ptah-extension/git-ui/diff-renderer')`. In `stats.json` the diff-renderer/lazy-diff inputs land in `chunk-Bjcc0XY0.js` and `chunk-CbXxrUTr2.js`; both are in the VSIX copy and in the packed `.vsix`. Every relative `./chunk-*.js` import (static and dynamic) in all 471 copied JS files resolves to a file in the copy (0 unresolved). The 127 build outputs absent from the copy (126 Electron-only chunks + the inlined `lazy-diff-view.component.css`) are all outside the diff-renderer's import closure.
+- Verdict R12: PASS on unit + packaging evidence; NOT proven by a live VS Code run (no applicable e2e exists).
+
+### Notes and caveats
+
+- Another agent rebuilt `dist/apps/ptah-extension-webview` (dev config, no `stats.json`) between my first build and the copy, so the production build was run twice; both gave identical sizes.
+- Batch 66 noted a pre-existing missing static import `chunk-5JJ6SBZ6.js`; this build has no unresolved relative imports in the copy.

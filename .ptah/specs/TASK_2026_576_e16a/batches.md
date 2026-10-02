@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 66/69 (P5 closed)
+Total tasks: 87 | Batches: 69 | Complete: 67/69 (P5 closed)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2594,14 +2594,14 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
   (file-link and change-set imports are Electron-gated). Noted: review shell/canvas/conflict/history code shares
   chunks with eager services and stays in the VSIX; a pre-existing missing static import `chunk-5JJ6SBZ6.js`.
 
-## Batch 67: Final bundle, TTI and VSIX evidence — PENDING
+## Batch 67: Final bundle, TTI and VSIX evidence — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 66
 - Verification: the rows below recorded
 
-### Task 67.1: `bundle-measurements.md` end rows — PENDING
+### Task 67.1: `bundle-measurements.md` end rows — COMPLETE
 
 - File: MODIFY D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/bundle-measurements.md
 - Plan reference: implementation-plan.md:1473-1479
@@ -2609,6 +2609,11 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: `main.js` gz ≤ baseline; TTI second boot ≤ baseline; VSIX has no `@codemirror` chunk; skills diff drawer opens in VS Code (R12).
 - Validation notes: R12.
 - Implementation details: n/a
+- Outcome: executor senior-tester. `main.js` 338,714 B gz vs baseline 401,859 B (PASS); eager closure 782,442 B vs
+  817,705 B (PASS); TTI second boot 690/706/977 ms vs 14,557 ms (PASS, dev renderer under load — read as "not slower");
+  packed `.vsix` (offline `vsce package --no-dependencies`, stub host): 0 CodeMirror/Lezer, 0 monaco, 319 Pierre
+  chunks, 0 broken relative chunk imports. R12: unit (`lazy-diff-view` 6/6) + packaging evidence (the drawer's
+  diff-renderer chunks are in the VSIX); no live VS Code run covers the Skills drawer — manual check open.
 
 ## Batch 68: Axe sweep on VS Code card and review surfaces — PENDING
 
