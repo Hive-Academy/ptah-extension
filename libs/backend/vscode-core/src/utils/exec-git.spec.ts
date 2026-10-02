@@ -1005,6 +1005,32 @@ describe('git process supervision', () => {
     await expect(call).resolves.toMatchObject({ stdout: '0123456789' });
   });
 
+  it('keeps only the tail of each stream and ignores the cap with keepOutputTailBytes', async () => {
+    const seen: string[] = [];
+    const call = execGit(['commit', '-m', 'x'], WS, {
+      ...BG,
+      maxOutputBytes: 4,
+      keepOutputTailBytes: 4,
+      onOutput: (_stream, chunk) => seen.push(chunk),
+    });
+    await drain();
+    for (const part of ['aaaa', 'bbbb', 'cc', 'dd']) {
+      held[0].stdout.emit('data', Buffer.from(part));
+    }
+    held[0].stderr.emit('data', Buffer.from('eeee'));
+    held[0].stderr.emit('data', Buffer.from('ffff'));
+    held[0].emit('close', 1);
+
+    // Whole chunks: the last ones holding at least 4 bytes per stream.
+    await expect(call).resolves.toEqual({
+      stdout: 'ccdd',
+      stderr: 'ffff',
+      exitCode: 1,
+    });
+    // The observer still saw every byte.
+    expect(seen.join('')).toBe('aaaabbbbccddeeeeffff');
+  });
+
   it('frees the slot at once when the child never started', async () => {
     process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
     resetGitProcessGateForTests();

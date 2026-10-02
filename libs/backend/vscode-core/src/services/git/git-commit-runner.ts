@@ -323,6 +323,10 @@ export class GitCommitRunner {
           timeoutMs: GIT_HOOK_TIMEOUT_MS,
           signal: guard.signal,
           onExit: guard.onExit,
+          // Hooks may print without bound: `tail` keeps what `hookOutput`
+          // needs, and the result keeps only the end of each stream (still
+          // enough for the lock-retry check and a `GIT_ERROR` message).
+          keepOutputTailBytes: HOOK_OUTPUT_TAIL_BYTES,
           onOutput: (stream, chunk) => {
             tail.push(chunk);
             onOutput?.(stream, chunk);

@@ -482,6 +482,15 @@ export interface ExecGitOptions {
    */
   maxOutputBytes?: number;
   /**
+   * Keep only about the last this-many bytes of each stream (whole chunks,
+   * so at most one pipe chunk more) instead of all of it. Memory then stays
+   * bounded however much the child prints, so `maxOutputBytes` is not
+   * enforced: the timeout bounds the run. For a command whose output is
+   * watched through `onOutput` and only its end matters (`git commit` with
+   * hooks).
+   */
+  keepOutputTailBytes?: number;
+  /**
    * `'background'` lowers the child to below-normal OS priority once its pid
    * is known, best-effort. For work nobody is waiting on (a watcher-driven
    * status refresh); user-initiated commands leave it unset.
@@ -847,6 +856,27 @@ function runGitChild(
       }
     };
 
+    const keepTailBytes = options?.keepOutputTailBytes;
+    const keptBytes = { stdout: 0, stderr: 0 };
+
+    /** Keep `data`, then drop whole leading chunks the tail no longer needs. */
+    const keepTail = (
+      chunks: Buffer[],
+      stream: 'stdout' | 'stderr',
+      data: Buffer,
+      tailBytes: number,
+    ): void => {
+      chunks.push(data);
+      keptBytes[stream] += data.byteLength;
+      while (
+        chunks.length > 1 &&
+        keptBytes[stream] - chunks[0].byteLength >= tailBytes
+      ) {
+        keptBytes[stream] -= chunks[0].byteLength;
+        chunks.shift();
+      }
+    };
+
     const collect =
       (
         chunks: Buffer[],
@@ -855,12 +885,16 @@ function runGitChild(
       ) =>
       (data: Buffer): void => {
         if (settled) return;
-        outputBytes += data.byteLength;
-        if (outputBytes > maxOutputBytes) {
-          abort(new GitOutputLimitError(args[0], maxOutputBytes));
-          return;
+        if (keepTailBytes === undefined) {
+          outputBytes += data.byteLength;
+          if (outputBytes > maxOutputBytes) {
+            abort(new GitOutputLimitError(args[0], maxOutputBytes));
+            return;
+          }
+          chunks.push(data);
+        } else {
+          keepTail(chunks, stream, data, keepTailBytes);
         }
-        chunks.push(data);
         if (decoder) emitOutput(stream, decoder.decode(data, { stream: true }));
       };
     child.stdout?.on('data', collect(stdoutChunks, 'stdout', stdoutDecoder));

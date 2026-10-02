@@ -47,7 +47,7 @@ import type {
   RpcMethodName,
 } from '@ptah-extension/shared';
 
-import { isRegisteredWorkspaceFolder } from './git-workspace-root';
+import { findRegisteredWorkspaceFolder } from './git-workspace-root';
 import {
   parseGitCancelOperationParams,
   parseGitGenerateCommitMessageParams,
@@ -114,15 +114,19 @@ export class GitWorkflowRpcHandlers {
     this.rpcHandler.registerMethod<
       GitCancelOperationParams,
       GitCancelOperationResult
-    >('git:cancelOperation', async (rawParams) => {
+    >('git:cancelOperation', (rawParams) => {
       const params = parseGitCancelOperationParams(rawParams);
       if (!params) {
-        throw new RpcUserError(
-          'Invalid git:cancelOperation params (operationId)',
-          'INVALID_PARAMS',
+        return Promise.reject(
+          new RpcUserError(
+            'Invalid git:cancelOperation params (operationId)',
+            'INVALID_PARAMS',
+          ),
         );
       }
-      return { cancelled: this.gitInfo.cancelOperation(params.operationId) };
+      return Promise.resolve({
+        cancelled: this.gitInfo.cancelOperation(params.operationId),
+      });
     });
   }
 
@@ -311,9 +315,8 @@ export class GitWorkflowRpcHandlers {
     requested: string | undefined,
   ): string | undefined {
     if (!requested) return this.workspace.getWorkspaceRoot();
-    if (isRegisteredWorkspaceFolder(this.workspace, requested)) {
-      return requested;
-    }
+    const registered = findRegisteredWorkspaceFolder(this.workspace, requested);
+    if (registered) return registered;
     this.logger.warn(
       `${LOG_TAG} ${method} called with unregistered workspaceRoot`,
       { workspaceRoot: requested },

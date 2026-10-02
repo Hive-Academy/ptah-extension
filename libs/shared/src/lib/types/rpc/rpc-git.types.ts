@@ -945,14 +945,21 @@ export interface GitPrChecksSummary {
   total: number;
 }
 
+/** A GitHub PR state; any value `gh` reports beyond the known three is `UNKNOWN`. */
+export type GitPrState = 'OPEN' | 'CLOSED' | 'MERGED' | 'UNKNOWN';
+
+/** A GitHub PR review decision; any other value `gh` reports becomes `null`. */
+export type GitPrReviewDecision =
+  'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED';
+
 /** Details of a GitHub Pull Request */
 export interface GitPrInfo {
   number: number;
   title: string;
-  state: 'OPEN' | 'CLOSED' | 'MERGED' | string;
+  state: GitPrState;
   isDraft: boolean;
-  reviewDecision?:
-    'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | string | null;
+  /** `null` when GitHub reports no decision (or one this type does not know). */
+  reviewDecision?: GitPrReviewDecision | null;
   /** HTTPS URL to the pull request on GitHub; omitted if not an https: URL */
   url?: string;
   headRefName?: string;

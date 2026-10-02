@@ -13,11 +13,18 @@ export const HISTORY_SINCE_BASE_MAX = 200;
 /** Most commits listed for `recent` (plan Component 33). */
 export const HISTORY_RECENT_MAX = 50;
 
-/** Local branches tried, in order, after `origin/HEAD`. */
-const LOCAL_BASE_CANDIDATES = ['main', 'master'] as const;
-
 /** Remote whose `HEAD` symref names the default branch. */
 const DEFAULT_REMOTE = 'origin';
+
+/** Default branch names tried, in order, after `origin/HEAD`. */
+const BASE_BRANCH_CANDIDATES = ['main', 'master'] as const;
+
+/**
+ * Most bytes `git log` may print here. At most {@link HISTORY_SINCE_BASE_MAX}
+ * + 1 records of six short fields: this only stops a pathological subject
+ * from holding the default 64 MiB; past it the read is `git-failed`.
+ */
+export const HISTORY_LOG_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 /**
  * `git log` fields, NUL-separated: SHA, short SHA, parent SHAs (space
@@ -40,6 +47,11 @@ export interface GitHistoryReaderDeps {
 interface ResolvedBase {
   /** Display name: `origin/main`, `main` or `master`. */
   readonly name: string;
+  /**
+   * The full ref (`refs/remotes/origin/main`, `refs/heads/main`) used in the
+   * log range, so a tag or branch of the same short name cannot shadow it.
+   */
+  readonly ref: string;
   /** The branch name the base stands for (`main` for `origin/main`). */
   readonly branchName: string;
 }
@@ -57,7 +69,10 @@ class HistoryReadError extends Error {
  * left its base, newest first.
  *
  * Base resolution order: `refs/remotes/origin/HEAD` (when it points at a
- * commit), else local `main`, else local `master`. With a base and HEAD not
+ * commit), else `origin/main`, `origin/master`, then local `main`, `master`.
+ * A remote-tracking branch comes before the local one of the same name: the
+ * local branch may lag behind, and every commit it lacks would be listed as
+ * the task's own. With a base and HEAD not
  * on the base branch itself, the list is `<base>..HEAD` capped at
  * {@link HISTORY_SINCE_BASE_MAX}; otherwise (no base, or HEAD is the base
  * branch) it is the last {@link HISTORY_RECENT_MAX} commits of HEAD.
@@ -90,7 +105,7 @@ export class GitHistoryReader {
         mode === 'since-base' ? HISTORY_SINCE_BASE_MAX : HISTORY_RECENT_MAX;
       const range =
         mode === 'since-base' && base !== null
-          ? [`${base.name}..HEAD`]
+          ? [`${base.ref}..HEAD`]
           : ['HEAD'];
       const commits = await this.readLog(workspacePath, range, max + 1);
       return {
@@ -124,15 +139,30 @@ export class GitHistoryReader {
     this.fail('symbolic-ref HEAD', workspacePath, exitCode, stderr);
   }
 
-  /** `origin/HEAD`'s target, else `main`, else `master`; null when none. */
+  /**
+   * `origin/HEAD`'s target, else the first of `origin/main`,
+   * `origin/master`, `main`, `master` that names a commit; null when none.
+   */
   private async resolveBase(
     workspacePath: string,
   ): Promise<ResolvedBase | null> {
     const remoteDefault = await this.readRemoteDefault(workspacePath);
     if (remoteDefault !== null) return remoteDefault;
-    for (const candidate of LOCAL_BASE_CANDIDATES) {
-      if (await this.revisionExists(workspacePath, `refs/heads/${candidate}`)) {
-        return { name: candidate, branchName: candidate };
+    const candidates: ResolvedBase[] = [
+      ...BASE_BRANCH_CANDIDATES.map((branchName) => ({
+        name: `${DEFAULT_REMOTE}/${branchName}`,
+        ref: `refs/remotes/${DEFAULT_REMOTE}/${branchName}`,
+        branchName,
+      })),
+      ...BASE_BRANCH_CANDIDATES.map((branchName) => ({
+        name: branchName,
+        ref: `refs/heads/${branchName}`,
+        branchName,
+      })),
+    ];
+    for (const candidate of candidates) {
+      if (await this.revisionExists(workspacePath, candidate.ref)) {
+        return candidate;
       }
     }
     return null;
@@ -140,7 +170,7 @@ export class GitHistoryReader {
 
   /**
    * `refs/remotes/origin/HEAD` as `origin/<branch>`, when it exists and
-   * points at a commit (a dangling symref falls through to local branches).
+   * points at a commit (a dangling symref falls through to the candidates).
    */
   private async readRemoteDefault(
     workspacePath: string,
@@ -162,17 +192,16 @@ export class GitHistoryReader {
       assertSafeRef(name);
     } catch (error: unknown) {
       // degradation-audit: optional-capability - an unusable remote default
-      // falls back to the local candidates, as if origin/HEAD were absent.
+      // falls back to the other candidates, as if origin/HEAD were absent.
       this.deps.logger.warn('[GitHistoryReader] unusable origin/HEAD target', {
         workspacePath,
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
     }
-    if (!(await this.revisionExists(workspacePath, `refs/remotes/${name}`))) {
-      return null;
-    }
-    return { name, branchName: name.slice(prefix.length) };
+    const ref = `refs/remotes/${name}`;
+    if (!(await this.revisionExists(workspacePath, ref))) return null;
+    return { name, ref, branchName: name.slice(prefix.length) };
   }
 
   /** True when `revision` names a commit. */
@@ -212,6 +241,7 @@ export class GitHistoryReader {
         ...range,
       ],
       workspacePath,
+      { maxOutputBytes: HISTORY_LOG_MAX_OUTPUT_BYTES },
     );
     if (exitCode !== 0) this.fail('log', workspacePath, exitCode, stderr);
     return parseLog(stdout, (detail) =>

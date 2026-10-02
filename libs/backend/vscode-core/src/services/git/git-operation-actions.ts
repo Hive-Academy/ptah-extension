@@ -99,6 +99,14 @@ export interface GitOperationActionsDeps {
   readonly writeLock: GitRepoWriteLock;
   /** Detects the operation from git's own marker files. */
   readonly operationReader: GitRepoOperationReader;
+  /**
+   * The repository top level for a workspace folder (`rev-parse
+   * --show-toplevel`); null when git cannot say. Status paths are relative
+   * to it, and a workspace folder may be a repository subdirectory.
+   */
+  readonly resolveRepositoryRoot: (
+    workspacePath: string,
+  ) => Promise<string | null>;
   readonly logger: Logger;
 }
 
@@ -251,7 +259,11 @@ export class GitOperationActions {
     if (!conflictKind || !MERGEABLE_KINDS.has(conflictKind)) {
       return { status: 'not-mergeable', conflictKind };
     }
-    const stages = await this.readStageIds(workspacePath, relativePath);
+    // Status paths are relative to the top level, not to a workspace folder
+    // that is a subdirectory of the repository.
+    const topLevel = await this.deps.resolveRepositoryRoot(workspacePath);
+    if (!topLevel) return { status: 'failed', error: READ_FAILED.error };
+    const stages = await this.readStageIds(topLevel, relativePath);
     if (!stages) return { status: 'failed', error: READ_FAILED.error };
     const local = stages.get(2);
     const remote = stages.get(3);
@@ -285,21 +297,23 @@ export class GitOperationActions {
     return {
       status: 'ok',
       ...files,
-      result: path.resolve(workspacePath, relativePath),
+      result: path.resolve(topLevel, relativePath),
     };
   }
 
   /**
    * Object id per stage of `relativePath`'s unmerged entries
-   * (`ls-files -u -z`); null when git failed or printed an id that is not one.
+   * (`ls-files -u -z`, run from the top level so the pathspec and the
+   * printed paths are both top-level relative); null when git failed or
+   * printed an id that is not one.
    */
   private async readStageIds(
-    workspacePath: string,
+    topLevel: string,
     relativePath: string,
   ): Promise<Map<number, string> | null> {
     const run = await this.deps.exec(
       ['ls-files', '-u', '-z', '--', relativePath],
-      workspacePath,
+      topLevel,
       // The path is a literal, never a pathspec pattern or magic.
       { env: { GIT_LITERAL_PATHSPECS: '1' } },
     );

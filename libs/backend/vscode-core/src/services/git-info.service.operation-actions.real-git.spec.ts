@@ -437,6 +437,38 @@ describe('GitInfoService operation abort / continue (real git)', () => {
       expect(fs.readFileSync(stages.remote, 'utf8')).toBe('feature\n');
     });
 
+    it('writes the stages when the workspace folder is a repository subdirectory', async () => {
+      const repo = makeRepo();
+      write(repo, 'pkg/a.txt', 'base\n');
+      commitAll(repo, 'base');
+      git(repo, 'checkout', '-q', '-b', 'feature');
+      write(repo, 'pkg/a.txt', 'feature side\n');
+      commitAll(repo, 'feature edit');
+      git(repo, 'checkout', '-q', 'main');
+      write(repo, 'pkg/a.txt', 'main side\n');
+      commitAll(repo, 'main edit');
+      gitConflict(repo, 'merge', '--no-edit', 'feature');
+      const workspace = path.join(repo, 'pkg');
+
+      // Status paths are top-level relative, so the client names `pkg/a.txt`.
+      const stages = await service.materializeConflictStages(
+        workspace,
+        'pkg/a.txt',
+      );
+
+      expect(stages.status).toBe('ok');
+      if (stages.status !== 'ok') return;
+      expect(fs.readFileSync(stages.base, 'utf8')).toBe('base\n');
+      expect(fs.readFileSync(stages.local, 'utf8')).toBe('main side\n');
+      expect(fs.readFileSync(stages.remote, 'utf8')).toBe('feature side\n');
+      expect(stages.result).toBe(path.join(repo, 'pkg', 'a.txt'));
+
+      expect((await service.abortOperation(workspace)).status).toBe(
+        'completed',
+      );
+      expect(fs.existsSync(gitPath(repo, 'ptah-merge'))).toBe(false);
+    });
+
     it('refuses paths outside the work tree, clean paths and non-text conflicts', async () => {
       const repo = makeRepo();
       write(repo, 'a.txt', 'base\n');

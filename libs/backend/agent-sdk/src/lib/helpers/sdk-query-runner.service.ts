@@ -166,10 +166,11 @@ export interface OneShotRunInput {
 }
 
 /** The `canUseTool` of a `'none'` one-shot: every request is refused. */
-const denyEveryTool: CanUseTool = async (toolName) => ({
-  behavior: 'deny',
-  message: `Tools are disabled for this query; ${toolName} was not run.`,
-});
+const denyEveryTool: CanUseTool = (toolName) =>
+  Promise.resolve({
+    behavior: 'deny',
+    message: `Tools are disabled for this query; ${toolName} was not run.`,
+  });
 
 type ToolAccessOptionKeys =
   | 'tools'

@@ -353,7 +353,7 @@ describe('git:info handler', () => {
     expect(gitInfo.getGitInfo).toHaveBeenCalledWith('/other');
   });
 
-  it('matches registered folders ignoring slash direction and trailing slashes', async () => {
+  it('matches registered folders ignoring slash direction and trailing slashes, and runs on the registered one', async () => {
     const { handlers, rpc, workspace, gitInfo } = buildSuite();
     workspace.getWorkspaceFolders.mockReturnValue(['D:\\projects\\other']);
     handlers.register();
@@ -361,7 +361,7 @@ describe('git:info handler', () => {
 
     await handler({ workspaceRoot: 'D:/projects/other/' });
 
-    expect(gitInfo.getGitInfo).toHaveBeenCalledWith('D:/projects/other/');
+    expect(gitInfo.getGitInfo).toHaveBeenCalledWith('D:\\projects\\other');
   });
 
   it('returns the non-git default for an unregistered workspaceRoot', async () => {
@@ -727,7 +727,10 @@ describe('git mutation result pass-through (TASK_2026_576 RC1)', () => {
     ['an unknown key', { message: 'feat: x', amend: true }],
     ['a non-string message', { message: 42 }],
     ['a missing message', {}],
-    ['an operationId that is not a token', { message: 'm', operationId: 'a b' }],
+    [
+      'an operationId that is not a token',
+      { message: 'm', operationId: 'a b' },
+    ],
     ['an empty operationId', { message: 'm', operationId: '' }],
   ])('git:commit refuses %s without running git', async (_label, params) => {
     const { handlers, rpc, gitInfo } = buildSuite();
@@ -1409,7 +1412,10 @@ describe('git:commit live output (TASK_2026_576 Component 30)', () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
 
-    await getHandler(rpc, 'git:commit')({
+    await getHandler(
+      rpc,
+      'git:commit',
+    )({
       message: 'feat: x',
       operationId: 'op-1',
     });
@@ -1439,7 +1445,10 @@ describe('git:commit live output (TASK_2026_576 Component 30)', () => {
 
     // No timer is advanced: whatever reached the webview did so through the
     // final flush, before the handler resolved.
-    const result = await getHandler(rpc, 'git:commit')({
+    const result = await getHandler(
+      rpc,
+      'git:commit',
+    )({
       message: 'feat: x',
       operationId: 'op-1',
     });
@@ -1504,5 +1513,31 @@ describe('git:commit live output (TASK_2026_576 Component 30)', () => {
       '[GitRpc] Failed to broadcast git:operationOutput',
       expect.any(Error),
     );
+  });
+
+  it('logs a failing broadcast once per operation, not once per push', async () => {
+    const { handlers, rpc, gitInfo, webviewManager, logger } = buildSuite();
+    handlers.register();
+    webviewManager.broadcastMessage.mockRejectedValue(new Error('gone'));
+    gitInfo.commit.mockImplementationOnce(
+      async (_root: string, _message: string, options?: CommitOptions) => {
+        options?.onOutput?.('stdout', 'x');
+        options?.onOutput?.('stderr', 'y');
+        options?.onOutput?.('stdout', 'z');
+        return { success: true, commitHash: 'abc1234', subject: 'm' };
+      },
+    );
+
+    await getHandler(rpc, 'git:commit')({ message: 'm', operationId: 'op-4' });
+
+    const pushes = webviewManager.broadcastMessage.mock.calls.filter(
+      ([type]) => type === 'git:operationOutput',
+    );
+    expect(pushes.length).toBeGreaterThan(1);
+    const failureLogs = logger.error.mock.calls.filter(
+      ([message]) =>
+        message === '[GitRpc] Failed to broadcast git:operationOutput',
+    );
+    expect(failureLogs).toHaveLength(1);
   });
 });

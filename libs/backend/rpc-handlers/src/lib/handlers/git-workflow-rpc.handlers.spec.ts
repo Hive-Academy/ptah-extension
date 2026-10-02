@@ -211,17 +211,17 @@ describe('GitWorkflowRpcHandlers', () => {
       expect(generator.generate).toHaveBeenCalledWith('/workspace');
     });
 
-    it('accepts a registered folder written with other separators and case', async () => {
+    it('accepts a registered folder written with other separators and runs on the registered one', async () => {
       const { rpc, generator } = buildSuite();
 
       await getHandler(
         rpc,
         'git:generateCommitMessage',
       )({
-        workspaceRoot: 'd:/repos/other/',
+        workspaceRoot: 'D:/repos/other/',
       });
 
-      expect(generator.generate).toHaveBeenCalledWith('d:/repos/other/');
+      expect(generator.generate).toHaveBeenCalledWith('D:\\repos\\other');
     });
 
     it('never reads an unregistered folder', async () => {
@@ -375,9 +375,9 @@ describe('GitWorkflowRpcHandlers', () => {
       gitInfo[serviceMethod].mockResolvedValueOnce(failed);
 
       await expect(
-        getHandler(rpc, method)({ workspaceRoot: 'd:/repos/other/' }),
+        getHandler(rpc, method)({ workspaceRoot: 'D:/repos/other/' }),
       ).resolves.toEqual(failed);
-      expect(gitInfo[serviceMethod]).toHaveBeenCalledWith('d:/repos/other/');
+      expect(gitInfo[serviceMethod]).toHaveBeenCalledWith('D:\\repos\\other');
     });
 
     it('uses the active workspace when no folder is named', async () => {
@@ -403,7 +403,10 @@ describe('GitWorkflowRpcHandlers', () => {
     });
 
     it.each([
-      ['a client-supplied kind', { workspaceRoot: '/workspace', kind: 'merge' }],
+      [
+        'a client-supplied kind',
+        { workspaceRoot: '/workspace', kind: 'merge' },
+      ],
       ['an empty workspaceRoot', { workspaceRoot: '' }],
       ['a non-string workspaceRoot', { workspaceRoot: 7 }],
     ])('rejects %s without running git', async (_label, params) => {

@@ -185,6 +185,18 @@ describe('CommitMessageGenerator', () => {
       expect(prompt.match(/<\/staged_diff>/g)).toHaveLength(1);
       expect(prompt.endsWith('</staged_diff>')).toBe(true);
     });
+
+    it('neutralises the tag name in any case and spacing', () => {
+      const prompt = buildCommitMessageUserPrompt(
+        '+ </STAGED_DIFF> a\n+ </staged_diff > b\n+ <Staged_Diff> c\n',
+        false,
+      );
+      // Only the fence itself still names the tag.
+      expect(prompt.match(/staged_diff/gi)).toHaveLength(2);
+      expect(prompt).toContain('</STAGED\\_DIFF> a');
+      expect(prompt).toContain('</staged\\_diff > b');
+      expect(prompt).toContain('<Staged\\_Diff> c');
+    });
   });
 
   describe('generated', () => {

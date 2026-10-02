@@ -2,8 +2,9 @@
  * GitHistoryReader (via `GitInfoService.getLog`) against REAL git
  * (TASK_2026_576 Requirement 12, plan Component 33).
  *
- * - Base order: `origin/HEAD` (when it points at a commit), else `main`, else
- *   `master`; none → `recent`.
+ * - Base order: `origin/HEAD` (when it points at a commit), else
+ *   `origin/main`, `origin/master`, `main`, `master`; none → `recent`. The
+ *   range uses full refs, so a same-named tag cannot shadow the base.
  * - `since-base` lists `<base>..HEAD`, newest first, at most 200 commits;
  *   `recent` (HEAD is the base branch, or no base) lists the last 50.
  * - No own commits, detached HEAD, unborn branch, root and merge commits.
@@ -213,6 +214,41 @@ describe('GitHistoryReader against real git', () => {
       base: 'origin/main',
       branch: 'main',
     });
+  });
+
+  it('prefers origin/main over a stale local main when origin/HEAD is unset', async () => {
+    const upstream = makeRepo();
+    commit(upstream, 'root');
+    const clone = makeTempDir('ptah-history-stale-');
+    git(clone, ['clone', '-q', upstream, '.']);
+    configure(clone);
+    git(clone, ['remote', 'set-head', 'origin', '--delete']);
+    // origin/main moves on; local main stays behind.
+    commit(upstream, 'landed upstream 1');
+    commit(upstream, 'landed upstream 2');
+    git(clone, ['fetch', '-q', 'origin']);
+    git(clone, ['checkout', '-q', '-b', 'feature', 'origin/main']);
+    commit(clone, 'feature 1');
+
+    const result = expectOk(await service.getLog(clone));
+
+    expect(result).toMatchObject({
+      mode: 'since-base',
+      base: 'origin/main',
+      branch: 'feature',
+    });
+    expect(subjects(result)).toEqual(['feature 1']);
+  });
+
+  it('is not shadowed by a tag named like the base branch', async () => {
+    const { repo } = makeFeatureRepo(2);
+    // A tag `main` on the root commit would add `main second` to `main..HEAD`.
+    git(repo, ['tag', 'main', 'main~1']);
+
+    const result = expectOk(await service.getLog(repo));
+
+    expect(result).toMatchObject({ mode: 'since-base', base: 'main' });
+    expect(subjects(result)).toEqual(['feature 2', 'feature 1']);
   });
 
   it('falls back to main when origin/HEAD is absent or dangling', async () => {

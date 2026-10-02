@@ -48,7 +48,7 @@ import type {
   IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { GitOperationOutputThrottle } from './git-operation-output.throttle';
-import { isRegisteredWorkspaceFolder } from './git-workspace-root';
+import { findRegisteredWorkspaceFolder } from './git-workspace-root';
 import {
   parseGitApplyHunksParams,
   parseGitCommitParams,
@@ -294,9 +294,11 @@ export class GitRpcHandlers {
     method: string,
   ): string | undefined {
     if (requested) {
-      if (isRegisteredWorkspaceFolder(this.workspace, requested)) {
-        return requested;
-      }
+      const registered = findRegisteredWorkspaceFolder(
+        this.workspace,
+        requested,
+      );
+      if (registered) return registered;
       this.logger.warn(
         `[GitRpc] ${method} called with unregistered workspaceRoot`,
         { workspaceRoot: requested } as unknown as Error,
@@ -597,8 +599,14 @@ export class GitRpcHandlers {
     message: string,
     operationId: string,
   ): Promise<GitCommitResult> {
+    // One error log per operation: with the webview gone every push fails.
+    let failureLogged = false;
     const output = new GitOperationOutputThrottle(operationId, (payload) =>
-      this.broadcastOperationOutput(payload),
+      this.broadcastOperationOutput(payload, () => {
+        if (failureLogged) return false;
+        failureLogged = true;
+        return true;
+      }),
     );
     try {
       return await this.gitInfo.commit(wsRoot, message, {
@@ -610,12 +618,15 @@ export class GitRpcHandlers {
     }
   }
 
+  /** Push one output chunk; a failure is logged when `shouldLog()` says so. */
   private broadcastOperationOutput(
     payload: GitOperationOutputPayload,
+    shouldLog: () => boolean,
   ): Promise<void> {
     return this.webviewManager
       .broadcastMessage('git:operationOutput', payload)
       .catch((error: unknown) => {
+        if (!shouldLog()) return;
         this.logger.error(
           '[GitRpc] Failed to broadcast git:operationOutput',
           error instanceof Error ? error : new Error(String(error)),

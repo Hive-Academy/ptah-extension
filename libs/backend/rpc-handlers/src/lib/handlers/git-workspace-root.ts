@@ -1,26 +1,34 @@
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 /**
- * Whether `requested` is exactly one of the registered workspace folders
- * (separators, a trailing slash and case ignored).
+ * The registered workspace folder that `requested` names, as it is
+ * registered; undefined when it names none.
  *
- * The `git:*` handlers accept a caller-named folder only when this holds, and
- * never fall back to the active folder when it does not: a stale or hostile
+ * Separators and a trailing slash are ignored everywhere; case only on
+ * Windows and macOS, whose default file systems ignore it too. The returned
+ * string is the registered folder, never the caller's spelling, so git runs
+ * on the folder that was checked.
+ *
+ * The `git:*` handlers accept a caller-named folder only through this, and
+ * never fall back to the active folder when it finds none: a stale or hostile
  * request must not read from, or mutate, a different repository.
  */
-export function isRegisteredWorkspaceFolder(
+export function findRegisteredWorkspaceFolder(
   workspace: IWorkspaceProvider,
   requested: string,
-): boolean {
-  const target = normalizeFolder(requested);
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  const ignoreCase = platform === 'win32' || platform === 'darwin';
+  const target = normalizeFolder(requested, ignoreCase);
   return workspace
     .getWorkspaceFolders()
-    .some((folder) => normalizeFolder(folder) === target);
+    .find((folder) => normalizeFolder(folder, ignoreCase) === target);
 }
 
-function normalizeFolder(path: string): string {
+function normalizeFolder(path: string, ignoreCase: boolean): string {
   const slashed = path.replaceAll('\\', '/');
   let end = slashed.length;
   while (end > 0 && slashed[end - 1] === '/') end--;
-  return slashed.slice(0, end).toLowerCase();
+  const trimmed = slashed.slice(0, end);
+  return ignoreCase ? trimmed.toLowerCase() : trimmed;
 }

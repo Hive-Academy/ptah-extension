@@ -560,6 +560,8 @@ export class GitInfoService {
       execBuffer: (args, cwd, options) =>
         this.execGitBuffer(args, cwd, options),
       operationReader: this.operationReader,
+      resolveRepositoryRoot: (workspacePath) =>
+        this.resolveRepositoryRoot(workspacePath),
     });
     this.changeSetNumstat = new GitChangeSetNumstatReader({
       exec: deps.exec,
@@ -580,6 +582,7 @@ export class GitInfoService {
     this.prStatusReader = new GitHubPrStatusReader({
       spawner,
       logger,
+      exec: deps.exec,
     });
   }
 

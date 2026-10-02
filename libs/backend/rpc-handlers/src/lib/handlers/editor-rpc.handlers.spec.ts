@@ -379,12 +379,13 @@ describe('EditorRpcHandlers editor:openMerge', () => {
     const result = await openMerge({
       target: 'vscode',
       path: 'src/a.ts',
-      workspaceRoot: 'c:/repo/',
+      workspaceRoot: 'C:/repo/',
     });
 
     expect(result).toEqual({ status: 'ok' });
+    // The registered folder's own spelling, not the caller's.
     expect(materializeConflictStages).toHaveBeenCalledWith(
-      'c:/repo/',
+      'C:\\repo',
       'src/a.ts',
     );
     expect(openMergeTool).toHaveBeenCalledWith(vscode, {
@@ -447,7 +448,10 @@ describe('EditorRpcHandlers editor:openMerge', () => {
     ['a missing path', { target: 'vscode' }],
     ['an empty path', { target: 'vscode', path: '' }],
     ['an unknown target', { target: 'notepad', path: 'a.ts' }],
-    ['an empty workspaceRoot', { target: 'vscode', path: 'a.ts', workspaceRoot: '' }],
+    [
+      'an empty workspaceRoot',
+      { target: 'vscode', path: 'a.ts', workspaceRoot: '' },
+    ],
     ['no params', undefined],
   ])('refuses %s at the schema', async (_label, params) => {
     await expect(register(fullLauncher())(params)).resolves.toEqual({

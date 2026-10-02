@@ -8,12 +8,38 @@ import type {
 import {
   DEFAULT_GH_PR_CACHE_TTL_MS,
   GH_NON_INTERACTIVE_ENV,
-  GH_PR_VIEW_JSON_FIELDS,
+  GH_PR_LIST_JSON_FIELDS,
+  GH_PR_LIST_LIMIT,
   GitHubPrStatusReader,
+  normalizePrState,
+  normalizeReviewDecision,
+  ownerFromRemoteUrl,
   sanitizePrUrl,
   summarizeStatusCheckRollup,
 } from './github-pr-status.reader';
 import { GitInvalidRefError } from './git-ref-guard';
+import type { GitWriteRunner } from './git-write-lock';
+
+/** `gh pr list` argv for `branch`. */
+function listArgs(branch: string): string[] {
+  return [
+    'pr',
+    'list',
+    '--head',
+    branch,
+    '--state',
+    'all',
+    '--limit',
+    String(GH_PR_LIST_LIMIT),
+    '--json',
+    GH_PR_LIST_JSON_FIELDS,
+  ];
+}
+
+/** `gh pr list` stdout: one PR from `branch`, plus any `extra` fields. */
+function prList(branch: string, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify([{ headRefName: branch, ...extra }]);
+}
 
 const mockCrossSpawn = jest.fn();
 jest.mock('cross-spawn', () => ({
@@ -38,6 +64,8 @@ interface FakeProcessOptions {
   stderr?: string;
   error?: Error & { code?: string };
   hang?: boolean;
+  /** Stay open until `release()`; then behave as configured. */
+  deferred?: boolean;
 }
 
 class FakeProcessHandle extends EventEmitter implements SpawnedProcessHandle {
@@ -58,17 +86,19 @@ class FakeProcessHandle extends EventEmitter implements SpawnedProcessHandle {
       return;
     }
 
-    if (!options.hang) {
-      process.nextTick(() => {
-        if (options.stdout) this.stdout.write(options.stdout);
-        this.stdout.end();
-        if (options.stderr) this.stderr.write(options.stderr);
-        this.stderr.end();
-
-        this.exitCode = options.exitCode ?? 0;
-        this.emit('close', this.exitCode);
-      });
+    if (!options.hang && !options.deferred) {
+      process.nextTick(() => this.release());
     }
+  }
+
+  release(): void {
+    if (this.options.stdout) this.stdout.write(this.options.stdout);
+    this.stdout.end();
+    if (this.options.stderr) this.stderr.write(this.options.stderr);
+    this.stderr.end();
+
+    this.exitCode = this.options.exitCode ?? 0;
+    this.emit('close', this.exitCode);
   }
 
   kill(_signal?: NodeJS.Signals): boolean {
@@ -88,12 +118,15 @@ class FakeProcessHandle extends EventEmitter implements SpawnedProcessHandle {
 describe('GitHubPrStatusReader', () => {
   const root = '/workspace/test-repo';
   let recordedRequests: ProcessSpawnRequest[] = [];
+  let spawned: FakeProcessHandle[] = [];
   let nextProcessOptions: FakeProcessOptions = {};
 
   const fakeSpawner: IProcessSpawner = {
     spawnProcess(request: ProcessSpawnRequest): SpawnedProcessHandle {
       recordedRequests.push(request);
-      return new FakeProcessHandle(nextProcessOptions);
+      const handle = new FakeProcessHandle(nextProcessOptions);
+      spawned.push(handle);
+      return handle;
     },
   };
 
@@ -111,6 +144,7 @@ describe('GitHubPrStatusReader', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     recordedRequests = [];
+    spawned = [];
     nextProcessOptions = {};
     debugLogs.length = 0;
     warnLogs.length = 0;
@@ -118,15 +152,14 @@ describe('GitHubPrStatusReader', () => {
   });
 
   describe('argv and env shape', () => {
-    it('runs gh pr view with expected fields, safe branch after --, and non-interactive env', async () => {
-      const samplePrJson = JSON.stringify({
+    it('runs gh pr list --head <branch> with expected fields and non-interactive env', async () => {
+      const samplePrJson = prList('feat/my-branch', {
         number: 42,
         title: 'Add feature',
         state: 'OPEN',
         isDraft: false,
         reviewDecision: 'APPROVED',
         url: 'https://github.com/org/repo/pull/42',
-        headRefName: 'feat/my-branch',
         statusCheckRollup: [],
       });
       nextProcessOptions = { exitCode: 0, stdout: samplePrJson };
@@ -143,15 +176,8 @@ describe('GitHubPrStatusReader', () => {
       expect(req.command).toBe('gh');
       expect(req.cwd).toBe(root);
 
-      // Verify argv has '--' before branch
-      expect(req.args).toEqual([
-        'pr',
-        'view',
-        '--json',
-        GH_PR_VIEW_JSON_FIELDS,
-        '--',
-        'feat/my-branch',
-      ]);
+      // `--head` takes the value as a branch name, never a PR number.
+      expect(req.args).toEqual(listArgs('feat/my-branch'));
 
       // Verify non-interactive env variables
       expect(req.env).toMatchObject(GH_NON_INTERACTIVE_ENV);
@@ -218,7 +244,7 @@ describe('GitHubPrStatusReader', () => {
     });
 
     it('omits url in the PR object when gh returns a non-https url', async () => {
-      const samplePrJson = JSON.stringify({
+      const samplePrJson = prList('fix/something', {
         number: 10,
         title: 'Http link',
         state: 'OPEN',
@@ -330,15 +356,35 @@ describe('GitHubPrStatusReader', () => {
       expect(result).toEqual({ status: 'unavailable', reason: 'failed' });
       expect(warnLogs).toHaveLength(0);
       expect(errorLogs).toHaveLength(0);
-      expect(debugLogs.some((l) => l.msg.includes('Malformed JSON'))).toBe(
-        true,
-      );
+      const malformed = debugLogs.find((l) => l.msg.includes('Malformed JSON'));
+      expect(malformed).toBeDefined();
+      // Only the size is logged, never gh's output itself.
+      expect(malformed?.meta).toEqual({ stdoutBytes: 15 });
     });
 
-    it('handles unexpected JSON shapes defensively without throwing', async () => {
+    it('answers failed for a JSON value that is not a list', async () => {
       nextProcessOptions = {
         exitCode: 0,
         stdout: JSON.stringify({ unexpected: 123 }),
+      };
+      const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
+
+      const result = await reader.read(root, 'feat/x');
+      expect(result).toEqual({ status: 'unavailable', reason: 'failed' });
+    });
+
+    it('normalizes missing and unknown fields of a matching PR', async () => {
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify([
+          null,
+          { unexpected: 123 },
+          {
+            headRefName: 'feat/x',
+            state: 'weird',
+            reviewDecision: { nested: true },
+          },
+        ]),
       };
       const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
 
@@ -348,8 +394,10 @@ describe('GitHubPrStatusReader', () => {
         pr: {
           number: 0,
           title: '',
-          state: 'OPEN',
+          state: 'UNKNOWN',
           isDraft: false,
+          reviewDecision: null,
+          headRefName: 'feat/x',
         },
         checks: {
           passing: 0,
@@ -357,6 +405,16 @@ describe('GitHubPrStatusReader', () => {
           pending: 0,
           total: 0,
         },
+      });
+    });
+
+    it('answers no-pr for an empty list', async () => {
+      nextProcessOptions = { exitCode: 0, stdout: '[]' };
+      const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
+
+      expect(await reader.read(root, 'feat/x')).toEqual({
+        status: 'unavailable',
+        reason: 'no-pr',
       });
     });
   });
@@ -488,7 +546,7 @@ describe('GitHubPrStatusReader', () => {
   describe('caching and clock injection', () => {
     it('caches ok results for 60 s, serves cache hits without spawning, and misses after 60 s', async () => {
       let currentTime = 1_000_000;
-      const samplePrJson = JSON.stringify({
+      const samplePrJson = prList('feat/cache', {
         number: 1,
         title: 'Cached PR',
         state: 'OPEN',
@@ -573,7 +631,7 @@ describe('GitHubPrStatusReader', () => {
 
     it('normalizes workspaceRoot casing and separators for cache keys', async () => {
       const currentTime = 4_000_000;
-      const samplePrJson = JSON.stringify({
+      const samplePrJson = prList('feat/norm', {
         number: 99,
         title: 'Normalized',
         state: 'OPEN',
@@ -597,7 +655,10 @@ describe('GitHubPrStatusReader', () => {
     it('invalidate(root) drops every branch of that root and keeps other roots', async () => {
       nextProcessOptions = {
         exitCode: 0,
-        stdout: JSON.stringify({ number: 5, title: 'T', state: 'OPEN' }),
+        stdout: JSON.stringify([
+          { number: 5, title: 'T', state: 'OPEN', headRefName: 'feat/a' },
+          { number: 6, title: 'T', state: 'OPEN', headRefName: 'feat/b' },
+        ]),
       };
       const reader = new GitHubPrStatusReader({
         spawner: fakeSpawner,
@@ -623,7 +684,7 @@ describe('GitHubPrStatusReader', () => {
     it('invalidate() without a root clears the whole cache', async () => {
       nextProcessOptions = {
         exitCode: 0,
-        stdout: JSON.stringify({ number: 6, title: 'T', state: 'OPEN' }),
+        stdout: prList('feat/a', { number: 6, title: 'T', state: 'OPEN' }),
       };
       const reader = new GitHubPrStatusReader({
         spawner: fakeSpawner,
@@ -643,7 +704,7 @@ describe('GitHubPrStatusReader', () => {
     it('spawns through cross-spawn when no spawner is injected and never uses shell: true', async () => {
       const fakeChild = new FakeProcessHandle({
         exitCode: 0,
-        stdout: JSON.stringify({
+        stdout: prList('main', {
           number: 7,
           title: 'Via crossSpawn',
           state: 'OPEN',
@@ -662,18 +723,271 @@ describe('GitHubPrStatusReader', () => {
       expect(mockCrossSpawn).toHaveBeenCalledTimes(1);
       const [cmd, args, opts] = mockCrossSpawn.mock.calls[0];
       expect(cmd).toBe('gh');
-      expect(args).toEqual([
-        'pr',
-        'view',
-        '--json',
-        GH_PR_VIEW_JSON_FIELDS,
-        '--',
-        'main',
-      ]);
+      expect(args).toEqual(listArgs('main'));
       expect(opts.cwd).toBe(root);
       expect(opts.shell).toBeUndefined(); // NEVER shell: true
       expect(opts.env).toMatchObject(GH_NON_INTERACTIVE_ENV);
       expect(result.status).toBe('ok');
+    });
+  });
+
+  describe('branch match (SER-1)', () => {
+    /** `git remote -v` output for `urls`. */
+    function remoteList(urls: Record<string, string>): string {
+      return Object.entries(urls)
+        .flatMap(([name, url]) => [
+          `${name}\t${url} (fetch)`,
+          `${name}\t${url} (push)`,
+        ])
+        .join('\n');
+    }
+
+    /** A git runner answering `@{push}` with `pushRef` (null: no upstream). */
+    function fakeGit(
+      pushRef: string | null,
+      urls: Record<string, string>,
+    ): { exec: GitWriteRunner; calls: string[][] } {
+      const calls: string[][] = [];
+      const exec: GitWriteRunner = (args) => {
+        calls.push(args);
+        if (args[0] === 'remote') {
+          return Promise.resolve({
+            stdout: `${remoteList(urls)}\n`,
+            stderr: '',
+            exitCode: 0,
+          });
+        }
+        if (pushRef === null) {
+          return Promise.resolve({
+            stdout: '',
+            stderr: 'fatal: no upstream configured',
+            exitCode: 128,
+          });
+        }
+        return Promise.resolve({
+          stdout: `${pushRef}\n`,
+          stderr: '',
+          exitCode: 0,
+        });
+      };
+      return { exec, calls };
+    }
+
+    function pr(
+      number: number,
+      headRefName: string,
+      owner: string,
+      state = 'OPEN',
+    ): Record<string, unknown> {
+      return {
+        number,
+        title: `PR ${number}`,
+        state,
+        headRefName,
+        headRepositoryOwner: { login: owner },
+      };
+    }
+
+    it('treats an all-digit branch as a branch and rejects a PR from another head', async () => {
+      // What `gh pr view 123` would show: PR #123, from some other branch.
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify([pr(123, 'feat/other', 'org')]),
+      };
+      const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
+
+      const result = await reader.read(root, '123');
+
+      expect(recordedRequests[0].args).toEqual(listArgs('123'));
+      expect(result).toEqual({ status: 'unavailable', reason: 'no-pr' });
+    });
+
+    it('accepts the PR whose head is the all-digit branch itself', async () => {
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify([pr(77, '123', 'org')]),
+      };
+      const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
+
+      const result = await reader.read(root, '123');
+
+      expect(result.status).toBe('ok');
+      if (result.status === 'ok') expect(result.pr.number).toBe(77);
+    });
+
+    it("rejects a fork's PR from a branch of the same name (origin owner)", async () => {
+      const git = fakeGit(null, { origin: 'https://github.com/Org/repo.git' });
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify([pr(9, 'main', 'someone')]),
+      };
+      const reader = new GitHubPrStatusReader({
+        spawner: fakeSpawner,
+        exec: git.exec,
+      });
+
+      expect(await reader.read(root, 'main')).toEqual({
+        status: 'unavailable',
+        reason: 'no-pr',
+      });
+      expect(git.calls).toContainEqual([
+        'rev-parse',
+        '--symbolic-full-name',
+        'main@{push}',
+      ]);
+      expect(git.calls).toContainEqual(['remote', '-v']);
+    });
+
+    it("picks the PR from the branch's push remote among same-named heads", async () => {
+      const git = fakeGit('refs/remotes/my/fork/feat/x', {
+        origin: 'https://github.com/org/repo.git',
+        my: 'git@github.com:other/repo.git',
+        'my/fork': 'git@github.com:Me/repo.git',
+      });
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify([
+          pr(3, 'feat/x', 'org'),
+          pr(2, 'feat/x', 'me'),
+          pr(1, 'feat/x', 'other'),
+        ]),
+      };
+      const reader = new GitHubPrStatusReader({
+        spawner: fakeSpawner,
+        exec: git.exec,
+      });
+
+      const result = await reader.read(root, 'feat/x');
+
+      expect(result.status).toBe('ok');
+      if (result.status === 'ok') expect(result.pr.number).toBe(2);
+    });
+
+    it('prefers the open PR over a newer closed one', async () => {
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify([
+          pr(5, 'feat/y', 'org', 'CLOSED'),
+          pr(4, 'feat/y', 'org', 'OPEN'),
+        ]),
+      };
+      const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
+
+      const result = await reader.read(root, 'feat/y');
+
+      expect(result.status).toBe('ok');
+      if (result.status === 'ok') {
+        expect(result.pr.number).toBe(4);
+        expect(result.pr.state).toBe('OPEN');
+      }
+    });
+
+    it('matches on the branch name alone when git cannot name an owner', async () => {
+      const exec: GitWriteRunner = () => Promise.reject(new Error('git died'));
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify([pr(8, 'feat/z', 'anyone')]),
+      };
+      const reader = new GitHubPrStatusReader({
+        spawner: fakeSpawner,
+        exec,
+        logger: mockLogger,
+      });
+
+      const result = await reader.read(root, 'feat/z');
+
+      expect(result.status).toBe('ok');
+      expect(warnLogs).toHaveLength(0);
+    });
+  });
+
+  describe('in-flight reads (MOD-2)', () => {
+    it('does not cache a read that was running when invalidate was called', async () => {
+      nextProcessOptions = {
+        exitCode: 0,
+        deferred: true,
+        stdout: prList('feat/push', { number: 1, state: 'OPEN' }),
+      };
+      const reader = new GitHubPrStatusReader({
+        spawner: fakeSpawner,
+        now: () => 7_000_000,
+      });
+
+      const before = reader.read(root, 'feat/push');
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(spawned).toHaveLength(1);
+
+      reader.invalidate(root);
+      spawned[0].release();
+      expect((await before).status).toBe('ok');
+
+      // The pre-invalidate result was not stored: this read asks gh again.
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: prList('feat/push', { number: 1, state: 'OPEN' }),
+      };
+      await reader.read(root, 'feat/push');
+      expect(recordedRequests).toHaveLength(2);
+    });
+
+    it('starts a fresh gh run for a read after invalidate instead of joining the old one', async () => {
+      nextProcessOptions = {
+        exitCode: 0,
+        deferred: true,
+        stdout: prList('feat/push', { number: 1, state: 'OPEN' }),
+      };
+      const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
+
+      const before = reader.read(root, 'feat/push');
+      await new Promise((resolve) => setImmediate(resolve));
+      reader.invalidate();
+      const after = reader.read(root, 'feat/push');
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(spawned).toHaveLength(2);
+      spawned.forEach((handle) => handle.release());
+      await Promise.all([before, after]);
+    });
+
+    it('shares one gh run between concurrent reads of a branch', async () => {
+      nextProcessOptions = {
+        exitCode: 0,
+        deferred: true,
+        stdout: prList('feat/burst', { number: 3, state: 'OPEN' }),
+      };
+      const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
+
+      const first = reader.read(root, 'feat/burst');
+      const second = reader.read(root, 'feat/burst');
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(spawned).toHaveLength(1);
+
+      spawned[0].release();
+      const [a, b] = await Promise.all([first, second]);
+      expect(a).toEqual(b);
+      expect(a.status).toBe('ok');
+    });
+  });
+
+  describe('normalizers', () => {
+    it('reads the owner from https, ssh and scp-style GitHub URLs', () => {
+      expect(ownerFromRemoteUrl('https://github.com/Org/repo.git')).toBe('org');
+      expect(ownerFromRemoteUrl('https://github.com/org/repo/')).toBe('org');
+      expect(ownerFromRemoteUrl('ssh://git@github.com:22/me/repo')).toBe('me');
+      expect(ownerFromRemoteUrl('git@github.com:me/repo.git')).toBe('me');
+      expect(ownerFromRemoteUrl('https://github.com')).toBeNull();
+      expect(ownerFromRemoteUrl('/srv/git/repo')).toBeNull();
+      expect(ownerFromRemoteUrl('C:\\repos\\repo')).toBeNull();
+    });
+
+    it('closes the PR state and review decision to known values', () => {
+      expect(normalizePrState('merged')).toBe('MERGED');
+      expect(normalizePrState('DRAFTISH')).toBe('UNKNOWN');
+      expect(normalizePrState(undefined)).toBe('UNKNOWN');
+      expect(normalizeReviewDecision('approved')).toBe('APPROVED');
+      expect(normalizeReviewDecision('')).toBeNull();
+      expect(normalizeReviewDecision({ value: 'APPROVED' })).toBeNull();
+      expect(normalizeReviewDecision(null)).toBeNull();
     });
   });
 });

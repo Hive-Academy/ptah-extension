@@ -38,7 +38,7 @@ import {
 } from './editor-rpc.schema';
 import { resolveWorkspaceFilePath } from './workspace-file-path';
 import { FileLinkRootPolicy } from './file-link-root-policy';
-import { isRegisteredWorkspaceFolder } from './git-workspace-root';
+import { findRegisteredWorkspaceFolder } from './git-workspace-root';
 
 /**
  * Fixed copy for every failure that originates in a thrown error.
@@ -226,7 +226,7 @@ export class EditorRpcHandlers {
     open: (target: EditorTarget) => Promise<void>,
   ): Promise<EditorOpenResult> {
     try {
-      const [target] = (await this.launcher.detect()).filter(
+      const target = (await this.launcher.detect()).find(
         ({ id }) => id === targetId,
       );
       if (!target)
@@ -264,7 +264,7 @@ export class EditorRpcHandlers {
     if (!root) return mergeFailure('failed');
 
     try {
-      const [target] = (await this.launcher.detect()).filter(
+      const target = (await this.launcher.detect()).find(
         ({ id }) => id === targetId,
       );
       if (!target) return mergeFailure('not-installed');
@@ -310,9 +310,8 @@ export class EditorRpcHandlers {
    */
   private resolveMergeRoot(requested: string | undefined): string | undefined {
     if (!requested) return this.workspace.getWorkspaceRoot();
-    if (isRegisteredWorkspaceFolder(this.workspace, requested)) {
-      return requested;
-    }
+    const registered = findRegisteredWorkspaceFolder(this.workspace, requested);
+    if (registered) return registered;
     this.logger.warn(
       '[editor RPC] editor:openMerge called with unregistered workspaceRoot',
       { workspaceRoot: requested },
