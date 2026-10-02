@@ -1,6 +1,7 @@
 /**
- * SkillSynthesizerService — turns a session trajectory (or a cluster of them)
- * into ONE reusable, repo-agnostic skill via a single LLM pass.
+ * SkillSynthesizerService — turns a session trajectory into ONE reusable,
+ * repo-agnostic skill, or a cluster of pool members into ONE umbrella skill,
+ * via a single LLM pass.
  *
  * ## Everything runs on the `synthesis` lane
  *
@@ -78,7 +79,7 @@ export const SYNTHESIZED_SKILL_JSON_SCHEMA: Record<string, unknown> = {
 };
 
 /**
- * Per-member ceiling inside the cluster prompt.
+ * Per-member ceiling inside the umbrella prompt.
  *
  * NOT a second input budget — the lane's `maxInputChars` is the budget, and it
  * clips the assembled prompt. This is a FAIRNESS bound: without it one
@@ -187,12 +188,6 @@ export interface UmbrellaSkill extends SynthesizedSkill {
   references: SkillReference[];
 }
 
-/** One cluster member's distilled signal fed into cluster synthesis. */
-export interface ClusterMemberInput {
-  description: string;
-  body: string;
-}
-
 /** One pool member fed into umbrella synthesis. */
 export interface UmbrellaMemberInput {
   kind: 'candidate' | 'promoted' | 'suggestion';
@@ -237,35 +232,6 @@ export class SkillSynthesizerService {
       slug: trajectory.slug,
       name: parsed.name,
     });
-    return parsed;
-  }
-
-  /**
-   * Distill ONE reusable skill from a cluster of similar member trajectories
-   * (Trace2Skill pooling). Soft-fails to null — the suggestion pass simply
-   * skips the cluster on failure (no template fallback for clusters).
-   */
-  async synthesizeFromCluster(
-    members: ClusterMemberInput[],
-    settings: SkillSynthesisSettings,
-    origin: QueryOrigin = {},
-  ): Promise<SynthesizedSkill | null> {
-    void settings;
-    if (members.length === 0) return null;
-    const parsed = await this.runSynthesis(
-      this.buildSystemPrompt(),
-      this.buildClusterPrompt(members),
-      SYNTHESIZED_SKILL_JSON_SCHEMA,
-      parseSynthesizedSkill,
-      origin,
-    );
-    if (!parsed) {
-      this.logger.info(
-        '[skill-synthesis] cluster synthesis failed/parse failed; skipping',
-        { clusterSize: members.length },
-      );
-      return null;
-    }
     return parsed;
   }
 
@@ -351,22 +317,6 @@ export class SkillSynthesizerService {
     }
     const json = this.readJson(result.run);
     return json === null ? null : parseJson(json);
-  }
-
-  private buildClusterPrompt(members: ClusterMemberInput[]): string {
-    const sections = members.map((m, i) =>
-      [
-        `### Session ${i + 1} — ${m.description}`,
-        m.body.slice(0, CLUSTER_MEMBER_MAX_CHARS),
-      ].join('\n'),
-    );
-    return [
-      `These ${members.length} successful sessions are similar to each other.`,
-      `Find the SINGLE COMMON reusable workflow they share and distill it into one`,
-      `repo-agnostic skill. Ignore details specific to any one session.`,
-      ``,
-      ...sections,
-    ].join('\n\n');
   }
 
   private buildSystemPrompt(): string {
@@ -480,7 +430,7 @@ If the session has no transferable, reusable routine (pure one-off Q&A, a trivia
   }
 }
 
-/** Zod-validated per-session / cluster answer, or `null`. */
+/** Zod-validated per-session answer, or `null`. */
 function parseSynthesizedSkill(json: unknown): SynthesizedSkill | null {
   const parsed = SynthesizedSkillSchema.safeParse(json);
   if (!parsed.success) return null;
@@ -508,7 +458,7 @@ function parseUmbrellaSkill(json: unknown): UmbrellaSkill | null {
 
 /**
  * The umbrella prompt: every member labelled by what it is, each body clipped
- * by the same fairness bound the cluster prompt uses.
+ * by the `CLUSTER_MEMBER_MAX_CHARS` fairness bound.
  */
 function buildUmbrellaPrompt(members: readonly UmbrellaMemberInput[]): string {
   const sections = members.map((m, i) =>

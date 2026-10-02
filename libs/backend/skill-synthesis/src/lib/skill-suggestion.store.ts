@@ -119,10 +119,6 @@ export class SkillSuggestionStore {
     return row;
   }
 
-  insertPending(input: NewSuggestionInput): SkillSuggestionRow {
-    return this.insert(input, 'pending');
-  }
-
   findById(id: string): SkillSuggestionRow | null {
     const raw = this.db
       .prepare(`SELECT * FROM skill_suggestions WHERE id = ?`)
@@ -274,36 +270,6 @@ export class SkillSuggestionStore {
       )
       .run(candidateId, id);
     return Number(result.changes) === 1;
-  }
-
-  /**
-   * Whether the cluster represented by `fingerprint` + `candidateIds` already
-   * has a pending or accepted suggestion. Dismissed rows also block re-proposal
-   * (kept for dedup). Match on identical fingerprint OR any member-candidate
-   * overlap so a re-clustered superset/subset does not re-surface.
-   */
-  hasExistingForCluster(
-    fingerprint: string,
-    candidateIds: readonly string[],
-  ): boolean {
-    const rows = this.db
-      .prepare(
-        `SELECT technology_fingerprint, member_candidate_ids
-         FROM skill_suggestions`,
-      )
-      .all() as Array<{
-      technology_fingerprint: string;
-      member_candidate_ids: string;
-    }>;
-    const probe = new Set(candidateIds);
-    for (const row of rows) {
-      if (row.technology_fingerprint === fingerprint) return true;
-      const members = this.parseStringArray(row.member_candidate_ids);
-      for (const m of members) {
-        if (probe.has(m)) return true;
-      }
-    }
-    return false;
   }
 
   private transition(

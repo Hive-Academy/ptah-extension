@@ -116,7 +116,6 @@ function makeStore(
     findById: jest.fn((id: CandidateId) =>
       id === current.id ? current : null,
     ),
-    listActiveOrderedByActivity: jest.fn(() => []),
     listActiveOrderedByDecayScore: jest.fn(() => []),
     /** Nothing measured by default — the pre-B4.3 decay ordering stands. */
     getWinRates: jest.fn(() => []),

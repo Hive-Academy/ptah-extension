@@ -2990,8 +2990,6 @@ const fakeSuggestionRow = {
 function makeSuggestionStore() {
   return {
     listByStatus: jest.fn().mockReturnValue([]),
-    hasExistingForCluster: jest.fn().mockReturnValue(false),
-    insertPending: jest.fn(),
     findById: jest.fn().mockReturnValue(fakeSuggestionRow),
     updatePending: jest.fn().mockReturnValue(fakeSuggestionRow),
   };

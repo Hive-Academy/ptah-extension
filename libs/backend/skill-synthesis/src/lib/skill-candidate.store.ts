@@ -100,16 +100,6 @@ interface RawCandidateRow {
   trigger_eval_at: number | null;
 }
 
-interface RawInvocationRow {
-  id: string;
-  skill_id: string;
-  session_id: string;
-  succeeded: number;
-  invoked_at: number;
-  notes: string | null;
-  context_id: string | null;
-}
-
 interface RawInvocationEventRow {
   id: string;
   session_id: string;
@@ -1559,17 +1549,6 @@ export class SkillCandidateStore {
     return rows.map((r) => r.session_id).filter((id) => id.length > 0);
   }
 
-  listInvocations(skillId: CandidateId, limit = 100): SkillInvocationRow[] {
-    const stmt = this.db.prepare(
-      `SELECT * FROM skill_invocations
-       WHERE skill_id = ?
-       ORDER BY invoked_at DESC
-       LIMIT ?`,
-    );
-    const rows = stmt.all(skillId, limit) as RawInvocationRow[];
-    return rows.map((r) => this.toInvocationRow(r));
-  }
-
   /**
    * Newest-first tracker events for a candidate, read by its slug (`name`) from
    * `skill_invocation_events` and mapped onto the `SkillInvocationRow` wire
@@ -1800,18 +1779,6 @@ export class SkillCandidateStore {
       triggerPrecision: raw.trigger_precision ?? null,
       triggerRecall: raw.trigger_recall ?? null,
       triggerEvalAt: raw.trigger_eval_at ?? null,
-    };
-  }
-
-  private toInvocationRow(raw: RawInvocationRow): SkillInvocationRow {
-    return {
-      id: raw.id,
-      skillId: raw.skill_id as CandidateId,
-      sessionId: raw.session_id,
-      succeeded: raw.succeeded === 1,
-      invokedAt: raw.invoked_at,
-      notes: raw.notes,
-      contextId: raw.context_id ?? null,
     };
   }
 

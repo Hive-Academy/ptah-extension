@@ -140,66 +140,6 @@ function idsOf(members: PoolMember[]): string[] {
 }
 
 describe('SkillClusteringService', () => {
-  it('returns empty when sqlite-vec is unavailable (fail-open)', () => {
-    const vecStatus = { available: false } as never;
-    const store = makeStore([row('a', 1)], { 1: Float32Array.from([1, 0]) });
-    const svc = new SkillClusteringService(
-      noopLogger,
-      vecStatus,
-      store,
-      makeSuggestionStore(),
-    );
-    expect(svc.clusterCandidates(makeSettings())).toEqual([]);
-  });
-
-  it('returns empty when fewer embedded candidates than min cluster size', () => {
-    const vecStatus = { available: true } as never;
-    const store = makeStore([row('a', 1)], { 1: Float32Array.from([1, 0]) });
-    const svc = new SkillClusteringService(
-      noopLogger,
-      vecStatus,
-      store,
-      makeSuggestionStore(),
-    );
-    expect(svc.clusterCandidates(makeSettings())).toEqual([]);
-  });
-
-  it('groups similar candidates into a cluster of size >= min', () => {
-    const vecStatus = { available: true } as never;
-    const store = makeStore([row('a', 1), row('b', 2), row('c', 3)], {
-      1: Float32Array.from([1, 0, 0]),
-      2: Float32Array.from([0.99, 0.01, 0]),
-      3: Float32Array.from([0, 0, 1]),
-    });
-    const svc = new SkillClusteringService(
-      noopLogger,
-      vecStatus,
-      store,
-      makeSuggestionStore(),
-    );
-    const clusters = svc.clusterCandidates(makeSettings());
-    expect(clusters).toHaveLength(1);
-    const ids = clusters[0].members.map((m) => m.id).sort();
-    expect(ids).toEqual(['a', 'b']);
-  });
-
-  it('skips candidates without embeddings', () => {
-    const vecStatus = { available: true } as never;
-    const store = makeStore([row('a', 1), row('b', null), row('c', 3)], {
-      1: Float32Array.from([1, 0]),
-      3: Float32Array.from([0.99, 0.01]),
-    });
-    const svc = new SkillClusteringService(
-      noopLogger,
-      vecStatus,
-      store,
-      makeSuggestionStore(),
-    );
-    const clusters = svc.clusterCandidates(makeSettings());
-    expect(clusters).toHaveLength(1);
-    expect(clusters[0].members.map((m) => m.id).sort()).toEqual(['a', 'c']);
-  });
-
   describe('partitionPool', () => {
     const vecOn = { available: true } as never;
 

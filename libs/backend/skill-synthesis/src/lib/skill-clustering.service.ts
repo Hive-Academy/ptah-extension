@@ -5,11 +5,8 @@
  * PROMOTED skills). This service clusters the pool itself so a group of
  * similar entries can be consolidated into one umbrella skill.
  *
- * Two entry points while the lifecycle rewrite lands:
- * - `partitionPool` — the lifecycle pool (candidates, pending-suggestion
- *   centroids, non-exempt promoted skills) split into clusters and orphans.
- * - `clusterCandidates` — the legacy candidate-only clustering, kept until its
- *   last caller (the curator's suggestion pass) is rewritten.
+ * `partitionPool` splits the lifecycle pool (candidates, pending-suggestion
+ * centroids, non-exempt promoted skills) into clusters and orphans.
  *
  * Fail-open: when sqlite-vec is unavailable nothing is clustered — exactly like
  * the dedup guard — and `partitionPool` says so via `vecAvailable: false`.
@@ -30,10 +27,6 @@ import type {
   SkillSuggestionRow,
   SkillSynthesisSettings,
 } from './types';
-
-export interface SkillCandidateCluster {
-  members: SkillCandidateRow[];
-}
 
 /**
  * One entry of the lifecycle pool, with the embedding it was clustered by.
@@ -176,53 +169,6 @@ export class SkillClusteringService {
       minClusterSize: settings.suggestionMinClusterSize,
     });
     return { vecAvailable: true, truncated, clusters, orphans, unembedded };
-  }
-
-  /**
-   * Cluster the most-recent candidate rows that carry an embedding and return
-   * only clusters whose size is >= `suggestionMinClusterSize`. Threshold reuses
-   * `dedupClusterThreshold` so "similar" means the same thing everywhere.
-   */
-  clusterCandidates(settings: SkillSynthesisSettings): SkillCandidateCluster[] {
-    if (!this.vecStatus.available) return [];
-
-    const recent = this.store
-      .listByStatus('candidate')
-      .slice(0, Math.max(1, settings.suggestionMaxCandidates));
-
-    const rows: SkillCandidateRow[] = [];
-    const embeddings: Float32Array[] = [];
-    for (const row of recent) {
-      if (row.embeddingRowid === null) continue;
-      const vec = this.store.getEmbedding(row.embeddingRowid);
-      if (!vec) continue;
-      rows.push(row);
-      embeddings.push(vec);
-    }
-    if (embeddings.length < settings.suggestionMinClusterSize) return [];
-
-    const clusterOf = agglomerate(embeddings, settings.dedupClusterThreshold);
-    const byCluster = new Map<number, SkillCandidateRow[]>();
-    for (let i = 0; i < clusterOf.length; i++) {
-      const cid = clusterOf[i];
-      const bucket = byCluster.get(cid);
-      if (bucket) bucket.push(rows[i]);
-      else byCluster.set(cid, [rows[i]]);
-    }
-
-    const clusters: SkillCandidateCluster[] = [];
-    for (const members of byCluster.values()) {
-      if (members.length >= settings.suggestionMinClusterSize) {
-        clusters.push({ members });
-      }
-    }
-
-    this.logger.debug('[skill-synthesis] candidate clustering complete', {
-      candidates: rows.length,
-      clusters: clusters.length,
-      minClusterSize: settings.suggestionMinClusterSize,
-    });
-    return clusters;
   }
 
   private embeddingOf(row: SkillCandidateRow): Float32Array | null {
