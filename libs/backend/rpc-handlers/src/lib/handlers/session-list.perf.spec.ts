@@ -283,6 +283,7 @@ describe('session:list AC1 performance (real SQLite store)', () => {
       { get: jest.fn().mockReturnValue(undefined) } as never,
       {} as never,
       {} as never,
+      {} as never,
       null,
       organization,
       taskIndex as never,
