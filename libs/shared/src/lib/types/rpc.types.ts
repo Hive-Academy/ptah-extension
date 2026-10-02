@@ -541,6 +541,8 @@ import type {
   FileOpenResult,
   FileViewContentParams,
   FileViewContentResult,
+  FileSaveContentParams,
+  FileSaveContentResult,
   LicenseGetStatusParams,
   LicenseGetStatusResponse,
   LicenseSetKeyParams,
@@ -769,6 +771,10 @@ export interface RpcMethodRegistry {
   'file:viewContent': {
     params: FileViewContentParams;
     result: FileViewContentResult;
+  };
+  'file:saveContent': {
+    params: FileSaveContentParams;
+    result: FileSaveContentResult;
   };
   'editor:detectTargets': {
     params: EditorDetectTargetsParams;
@@ -3595,6 +3601,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'autocomplete:commands': true,
   'file:open': true,
   'file:viewContent': true,
+  'file:saveContent': true,
   'editor:detectTargets': true,
   'editor:openFile': true,
   'editor:openWorkspace': true,

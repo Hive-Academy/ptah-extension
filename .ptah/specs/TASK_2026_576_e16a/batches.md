@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 40/69
+Total tasks: 87 | Batches: 69 | Complete: 41/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1766,14 +1766,14 @@ executors at once.
   preserved. Verified: typecheck/lint green; spec passes (2 real-symlink cases skipped on this Windows account);
   rpc-handlers full run failures unrelated, pass alone except the known flake.
 
-## Batch 41: `file:saveContent` registration and `fileEditor` capability — PENDING
+## Batch 41: `file:saveContent` registration and `fileEditor` capability — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 40
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers ptah-electron ptah-extension-vscode @ptah-extension/cli-engine` (exception (a))
 
-### Task 41.1: Registry, capability, manifest, Electron profile, host absent lists — PENDING
+### Task 41.1: Registry, capability, manifest, Electron profile, host absent lists — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/host-profile/capabilities.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts; MODIFY D:/projects/ptah-extension/apps/ptah-electron/src/rpc-host-profile.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts
 - Plan reference: implementation-plan.md:1110, 1135-1140
@@ -1781,6 +1781,17 @@ executors at once.
 - Quality requirements: manifest invariant green on every host.
 - Validation notes: V4, V5, A13.
 - Implementation details: `file:saveContent` joins VS Code and CLI expected-absent lists.
+- Outcome: executor backend-developer. `'file:saveContent'` in `RpcMethodRegistry` + `RPC_METHOD_ENTRIES`;
+  capability `fileEditor` (separate from `fileViewer`, `false` in `ALL_DISABLED`); manifest `fileEdit` →
+  `FileEditRpcHandlers.METHODS`, `requires: ['fileEditor']`; `METHODS` now `satisfies readonly RpcMethodName[]`;
+  root barrel export. Electron: `fileEditor: true`, singleton in `phase-4-handlers.ts`, `expected-resolvable.ts`.
+  VS Code + CLI/TUI: handler and capability in the expected-absent lists, method in the rpc-surface absent lists.
+  Accepted deviations: `host-profile.ts` (capability map must be total), DI lists (FileView precedent). Open for
+  42: no webview read path for `fileEditor` exists yet (nothing reads `fileViewer` either) — the spot editor must
+  decide how it learns saving is available. Verified: typecheck + lint green for shared, rpc-handlers,
+  ptah-electron, vscode, cli-engine; tests per project (Nx run-many crashed under load): shared 2257, vscode 147,
+  cli-engine 208, rpc-handlers all pass except the known `harness-skill-selection` flake after load-timeout reruns,
+  ptah-electron 1080 + `git-watcher.stress` passes alone.
 
 ## Batch 42: Spot editor (CodeMirror 6) — PENDING
 

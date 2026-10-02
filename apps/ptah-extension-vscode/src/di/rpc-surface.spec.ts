@@ -63,6 +63,7 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'file:exists',
   'file:read',
   'file:save-dialog',
+  'file:saveContent',
   'file:viewContent',
   'gateway:approveBinding',
   'gateway:attachSession',

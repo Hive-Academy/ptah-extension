@@ -45,6 +45,7 @@ import {
   FilePickerRpcHandlers,
   FileSystemRpcHandlers,
   FileViewRpcHandlers,
+  FileEditRpcHandlers,
   GatewayRpcHandlers,
   GitChangeSetRpcHandlers,
   GitRpcHandlers,
@@ -374,6 +375,12 @@ export const RPC_HANDLER_MANIFEST = [
     methods: FileViewRpcHandlers.METHODS,
     requires: ['fileViewer'],
     handler: FileViewRpcHandlers,
+  },
+  {
+    key: 'fileEdit',
+    methods: FileEditRpcHandlers.METHODS,
+    requires: ['fileEditor'],
+    handler: FileEditRpcHandlers,
   },
   {
     key: 'skillSynthesis',

@@ -78,6 +78,7 @@ const ALL_DISABLED: HostCapabilities = {
   filePickerImages: false,
   fileSystemAccess: false,
   fileViewer: false,
+  fileEditor: false,
   commandExecution: false,
   appUpdater: false,
   goVetDiagnostics: false,

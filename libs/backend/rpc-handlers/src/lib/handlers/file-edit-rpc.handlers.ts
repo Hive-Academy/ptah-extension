@@ -49,6 +49,7 @@ import {
   type FileSaveContentResult,
   type FileSaveFailureReason,
   type FileViewFailureReason,
+  type RpcMethodName,
 } from '@ptah-extension/shared';
 
 import { FileLinkRootPolicy } from './file-link-root-policy';
@@ -97,7 +98,9 @@ const BINARY_SNIFF_BYTES = 8000;
 
 @injectable()
 export class FileEditRpcHandlers {
-  static readonly METHODS = ['file:saveContent'] as const;
+  static readonly METHODS = [
+    'file:saveContent',
+  ] as const satisfies readonly RpcMethodName[];
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,

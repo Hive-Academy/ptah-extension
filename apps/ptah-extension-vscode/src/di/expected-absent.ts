@@ -28,6 +28,7 @@ import {
   WorkspaceRpcHandlers,
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
+  FileEditRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 /** Handler classes the VS Code host must never construct.
@@ -49,6 +50,9 @@ export const EXPECTED_ABSENT_HANDLERS = [
   // No in-app viewer here: VS Code opens files in its own native tabs, so
   // `file:viewContent` would be a second, redundant read surface.
   FileViewRpcHandlers,
+  // Edits happen in VS Code's own editor, so the spot editor's
+  // `file:saveContent` has nothing to serve here either.
+  FileEditRpcHandlers,
 ] as const;
 
 /**
@@ -65,5 +69,6 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   'workspaceLifecycle',
   'fileSystemAccess',
   'fileViewer',
+  'fileEditor',
   'appUpdater',
 ] as const;
