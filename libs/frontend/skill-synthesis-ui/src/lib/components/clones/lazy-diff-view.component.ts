@@ -65,7 +65,10 @@ interface TextDiffInputs {
           role="status"
           data-testid="lazy-diff-loading"
         >
-          <span class="loading loading-spinner loading-sm" aria-hidden="true"></span>
+          <span
+            class="loading loading-spinner loading-sm"
+            aria-hidden="true"
+          ></span>
           Loading diff…
         </div>
       } @else if (state() === 'error') {
@@ -142,7 +145,7 @@ export class LazyDiffViewComponent implements OnDestroy {
       // or the next input change.
       const state = untracked(this.state);
       if (state === 'idle' || state === 'error') {
-        void this.load(inputs);
+        void this.load();
       }
     });
 
@@ -151,22 +154,24 @@ export class LazyDiffViewComponent implements OnDestroy {
 
   protected reload(): void {
     this.state.set('idle');
-    void this.load(this.currentInputs());
+    void this.load();
   }
 
-  private async load(inputs: TextDiffInputs): Promise<void> {
+  private async load(): Promise<void> {
     const token = ++this.loadToken;
     this.state.set('loading');
     try {
-      const rendererModule = await import(
-        '@ptah-extension/git-ui/diff-renderer'
-      );
+      const rendererModule =
+        await import('@ptah-extension/git-ui/diff-renderer');
       if (token !== this.loadToken) return;
 
       const host = this.diffHost();
       host.clear();
       const ref = host.createComponent(rendererModule.TextDiffViewComponent);
-      this.applyInputs(ref, inputs);
+      // The latest inputs, not the ones current when the import started: an
+      // input that changed while it was pending re-ran the effect, which
+      // found no component to push to.
+      this.applyInputs(ref, this.currentInputs());
       ref.changeDetectorRef.detectChanges();
       this.componentRef = ref;
       this.state.set('ready');
@@ -188,7 +193,10 @@ export class LazyDiffViewComponent implements OnDestroy {
     };
   }
 
-  private applyInputs(ref: ComponentRef<unknown>, inputs: TextDiffInputs): void {
+  private applyInputs(
+    ref: ComponentRef<unknown>,
+    inputs: TextDiffInputs,
+  ): void {
     ref.setInput('oldText', inputs.oldText);
     ref.setInput('newText', inputs.newText);
     ref.setInput('fileName', inputs.fileName);

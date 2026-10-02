@@ -7,7 +7,8 @@
  * a file the viewer could have shown: inside an open workspace folder or one of
  * its worktrees, lexically AND after `realpath`, a regular file, under
  * {@link FILE_VIEW_MAX_BYTES}. It never creates a file — a missing target is
- * `not-found`.
+ * `not-found`. A path with a `.git` segment, lexically or after `realpath`,
+ * is refused: the editor never writes git's own metadata.
  *
  * The write is guarded three ways:
  *
@@ -126,41 +127,9 @@ export class FileEditRpcHandlers {
       return this.refuse('too-large');
     }
 
-    let resolution;
-    try {
-      resolution = await this.policy.resolveForView({
-        path: request.path,
-        ...(request.workspaceRoot !== undefined
-          ? { workspaceRoot: request.workspaceRoot }
-          : {}),
-      });
-    } catch (error: unknown) {
-      // The policy is not supposed to throw; if it does, the caller still gets
-      // a reason rather than a transport rejection.
-      this.logger.warn('[file:saveContent] policy failed', {
-        error: error instanceof Error ? error.name : 'unknown',
-      });
-      return this.refuse('unwritable');
-    }
-
-    if (resolution.kind === 'rejected') {
-      return this.refuse(SAVE_REASON_FOR_VIEW_REFUSAL[resolution.reason]);
-    }
-    // `resolveForView` is called without `allowDirectory`, so a directory has
-    // already become `not-a-file`. This is belt-and-braces for the type.
-    if (resolution.kind === 'directory') return this.refuse('not-a-file');
-
-    const target = resolution.realPath;
-
-    let current: { bytes: Buffer; mode: number };
-    try {
-      current = await readCurrent(target, FILE_VIEW_MAX_BYTES);
-    } catch (error: unknown) {
-      this.logger.warn('[file:saveContent] read failed', {
-        error: error instanceof Error ? error.name : 'unknown',
-      });
-      return this.refuse(isMissing(error) ? 'not-found' : 'unwritable');
-    }
+    const opened = await this.openTarget(request);
+    if (typeof opened === 'string') return this.refuse(opened);
+    const { target, current } = opened;
 
     // The file grew past the cap between the policy's `stat` and this read.
     if (current.bytes.byteLength > FILE_VIEW_MAX_BYTES) {
@@ -200,6 +169,65 @@ export class FileEditRpcHandlers {
     return { success: true, sha256: sha256Hex(next) };
   }
 
+  /**
+   * Resolve the save target through the shared view policy and read what is
+   * on disk now. Returns the refusal reason, or the resolved real path with
+   * its current bytes and permission bits.
+   */
+  private async openTarget(request: {
+    path: string;
+    workspaceRoot?: string;
+  }): Promise<
+    | FileSaveFailureReason
+    | { target: string; current: { bytes: Buffer; mode: number } }
+  > {
+    let resolution;
+    try {
+      resolution = await this.policy.resolveForView({
+        path: request.path,
+        ...(request.workspaceRoot !== undefined
+          ? { workspaceRoot: request.workspaceRoot }
+          : {}),
+      });
+    } catch (error: unknown) {
+      // The policy is not supposed to throw; if it does, the caller still gets
+      // a reason rather than a transport rejection.
+      this.logger.warn('[file:saveContent] policy failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return 'unwritable';
+    }
+
+    if (resolution.kind === 'rejected') {
+      return SAVE_REASON_FOR_VIEW_REFUSAL[resolution.reason];
+    }
+    // `resolveForView` is called without `allowDirectory`, so a directory has
+    // already become `not-a-file`. This is belt-and-braces for the type.
+    if (resolution.kind === 'directory') return 'not-a-file';
+
+    // The viewer may show git's own metadata, but the editor never writes it:
+    // a save into `.git` could rewrite hooks, config or refs.
+    if (
+      isGitMetadataPath(resolution.lexicalPath) ||
+      isGitMetadataPath(resolution.realPath)
+    ) {
+      return 'unwritable';
+    }
+
+    const target = resolution.realPath;
+    try {
+      return {
+        target,
+        current: await readCurrent(target, FILE_VIEW_MAX_BYTES),
+      };
+    } catch (error: unknown) {
+      this.logger.warn('[file:saveContent] read failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return isMissing(error) ? 'not-found' : 'unwritable';
+    }
+  }
+
   private refuse(reason: FileSaveFailureReason): FileSaveContentResult {
     this.logger.warn('[file:saveContent] rejected', { reason });
     return { success: false, reason, error: FAILURE_MESSAGE[reason] };
@@ -208,6 +236,24 @@ export class FileEditRpcHandlers {
 
 function sha256Hex(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+/**
+ * Whether a path has a `.git` segment: the repository's own metadata (or a
+ * worktree's `.git` file). Case-insensitive where the filesystem folds case
+ * (win32, darwin), as the credential deny list in the policy.
+ */
+function isGitMetadataPath(
+  candidate: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const foldsCase = platform === 'win32' || platform === 'darwin';
+  return candidate
+    .replace(/\\/g, '/')
+    .split('/')
+    .some(
+      (segment) => (foldsCase ? segment.toLowerCase() : segment) === '.git',
+    );
 }
 
 function isMissing(error: unknown): boolean {
@@ -292,6 +338,9 @@ async function writeAtomically(
   let handle: fs.FileHandle | undefined;
   try {
     handle = await fs.open(temp, 'wx', mode);
+    // The open mode is filtered by the process umask; set the original
+    // permission bits explicitly so a save never narrows them.
+    await handle.chmod(mode);
     await handle.writeFile(bytes);
     await handle.sync();
     await handle.close();

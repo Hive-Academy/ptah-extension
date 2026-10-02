@@ -129,6 +129,24 @@ describe('LazyDiffViewComponent', () => {
     expect(view?.themeType()).toBe('light');
   });
 
+  it('mounts the renderer with inputs that changed while the import was pending', async () => {
+    create('old body\n', 'first\n');
+    fixture.detectChanges();
+    // The import has started but not resolved yet.
+    expect(query('lazy-diff-loading')).not.toBeNull();
+
+    fixture.componentRef.setInput('modified', 'latest\n');
+    fixture.componentRef.setInput('label', 'renamed.md');
+    isDarkMode.set(false);
+    fixture.detectChanges();
+    await settle(fixture);
+
+    const view = renderer();
+    expect(view?.newText()).toBe('latest\n');
+    expect(view?.fileName()).toBe('renamed.md');
+    expect(view?.themeType()).toBe('light');
+  });
+
   it('shows the error state when the dynamic import rejects, and recovers on retry', async () => {
     let attempts = 0;
     jest.doMock(RENDERER_SPECIFIER, () => {

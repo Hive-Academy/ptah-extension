@@ -162,7 +162,7 @@ with editor launch actions provided by the header's `OpenInButtonComponent`. Do 
    object-src 'none';
    base-uri 'self' ${webview.cspSource};
    ```
-   **Defect**: There is **no** `worker-src` or `child-src` directive! Under CSP Level 3, web worker creation falls back to `child-src`, which falls back to `default-src 'none'`. Any worker instantiation (`new Worker(...)`) is currently blocked by Chromium with a CSP violation.
+   **Defect**: There is **no** `worker-src` or `child-src` directive! Under CSP Level 3, worker creation falls back through `worker-src` → `child-src` → `script-src` → `default-src`; this policy defines `script-src 'nonce-${nonce}'`, which a `blob:` worker URL cannot match (a nonce only covers elements), so the worker is refused. Any worker instantiation (`new Worker(...)`) is currently blocked by Chromium with a CSP violation.
    **Fix**: Add `worker-src blob:;` (or `worker-src 'self' blob:;`).
 
 2. **Electron Renderer** (`apps/ptah-electron/scripts/copy-renderer.js:156-169`):

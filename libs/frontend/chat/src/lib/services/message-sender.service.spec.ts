@@ -574,7 +574,9 @@ describe('MessageSenderService', () => {
     });
 
     it("validates and continues a background tab's session against ITS workspace, not the active one", async () => {
-      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-ACTIVE' })]);
+      tabsSignal.set([
+        makeTab({ id: 'tab-1', claudeSessionId: 'sess-ACTIVE' }),
+      ]);
       backgroundTabsSignal.set([
         makeTab({ id: 'tab-bg', claudeSessionId: 'sess-BG' }),
       ]);
@@ -616,6 +618,33 @@ describe('MessageSenderService', () => {
           sessionId: 'sess-BG',
           tabId: 'tab-bg',
           workspacePath: 'D:/other-repo',
+        }),
+      );
+    });
+
+    it('treats another spelling of the active workspace as the active workspace', async () => {
+      tabsSignal.set([
+        makeTab({ id: 'tab-1', claudeSessionId: 'sess-ACTIVE' }),
+      ]);
+      // Same folder, different separator, drive-letter case and trailing slash.
+      tabManager.findTabByIdAcrossWorkspaces.mockImplementation(
+        (tabId: string) => {
+          const tab = tabsSignal().find((t) => t.id === tabId);
+          return tab ? { tab, workspacePath: 'd:\\repo\\' } : null;
+        },
+      );
+      rpcCall.mockResolvedValue({ success: true, data: { exists: true } });
+
+      await service.send('review feedback', { tabId: 'tab-1' });
+
+      const validateCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'session:validate',
+      );
+      // The host's configured root, not the tab's alternate spelling.
+      expect(validateCall?.[1]).toEqual(
+        expect.objectContaining({
+          sessionId: 'sess-ACTIVE',
+          workspacePath: 'D:/repo',
         }),
       );
     });

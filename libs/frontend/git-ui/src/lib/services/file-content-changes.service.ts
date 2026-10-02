@@ -2,32 +2,12 @@ import { Injectable } from '@angular/core';
 import type { MessageHandler } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { FileContentChangedPayload } from '@ptah-extension/shared';
+import { toFileContentChange } from './file-content-change';
 
 /** Receives one `file:content-changed` batch. */
 export type FileContentChangeListener = (
   change: FileContentChangedPayload,
 ) => void;
-
-/**
- * Narrow an inbound `file:content-changed` payload. Anything that is not the
- * batch shape yields `null`; non-string entries are dropped rather than
- * failing the whole batch (the payload changed shape in TASK_2026_437).
- */
-function toFileContentChange(
-  payload: unknown,
-): FileContentChangedPayload | null {
-  if (typeof payload !== 'object' || payload === null) return null;
-  const { filePaths, truncated } = payload as Partial<
-    Record<keyof FileContentChangedPayload, unknown>
-  >;
-  if (!Array.isArray(filePaths)) return null;
-  return {
-    filePaths: filePaths.filter(
-      (entry): entry is string => typeof entry === 'string' && entry !== '',
-    ),
-    truncated: truncated === true,
-  };
-}
 
 /**
  * FileContentChangesService — hands `file:content-changed` pushes to the
