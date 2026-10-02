@@ -38,6 +38,7 @@ interface FakeHunk {
 }
 
 const pierre = {
+  parseFromFileCalls: [] as unknown[][],
   instances: [] as FakeFileDiff[],
   parsedPatches: [] as string[],
   separatorSlots: false,
@@ -133,7 +134,10 @@ jest.mock('@pierre/diffs', () => ({
     `annotation-${a.side ? `${a.side}-` : ''}${a.lineNumber}`,
   getHunkSeparatorSlotName: (type: string, index: number) =>
     `hunk-separator-${type}-${index}`,
-  parseDiffFromFile: () => ({ hunks: [] }),
+  parseDiffFromFile: (...args: unknown[]) => {
+    pierre.parseFromFileCalls.push(args);
+    return { hunks: [] };
+  },
   parsePatchFiles: (patch: string) => {
     pierre.parsedPatches.push(patch);
     if (pierre.parseThrows) throw new Error('parsePatchContent: broken');
@@ -207,6 +211,8 @@ const LINE_ONE_AND_ADJACENT: GitHunkRef[] = [
 
 interface HostShape {
   readonly patch: ReturnType<typeof signal<string | null>>;
+  readonly oldText: ReturnType<typeof signal<string | null>>;
+  readonly newText: ReturnType<typeof signal<string | null>>;
   readonly hunks: ReturnType<typeof signal<readonly GitHunkRef[]>>;
   readonly diffStyle: ReturnType<typeof signal<'unified' | 'split'>>;
   readonly theme: ReturnType<typeof signal<'light' | 'dark'>>;
@@ -233,6 +239,9 @@ async function createHostComponent(): Promise<Type<HostShape>> {
       </ng-template>
       <ptah-pierre-diff-host
         [patch]="patch()"
+        [oldText]="oldText()"
+        [newText]="newText()"
+        fileName="a.ts"
         [hunks]="hunks()"
         [diffStyle]="diffStyle()"
         [themeType]="theme()"
@@ -242,6 +251,8 @@ async function createHostComponent(): Promise<Type<HostShape>> {
   })
   class HostComponent implements HostShape {
     readonly patch = signal<string | null>(patchOf(LINE_ONE_AND_ADJACENT));
+    readonly oldText = signal<string | null>(null);
+    readonly newText = signal<string | null>(null);
     readonly hunks = signal<readonly GitHunkRef[]>(LINE_ONE_AND_ADJACENT);
     readonly diffStyle = signal<'unified' | 'split'>('split');
     readonly theme = signal<'light' | 'dark'>('dark');
@@ -281,6 +292,7 @@ describe('PierreDiffHostComponent', () => {
   beforeEach(async () => {
     pierre.instances = [];
     pierre.parsedPatches = [];
+    pierre.parseFromFileCalls = [];
     pierre.separatorSlots = false;
     pierre.parseThrows = false;
     pierre.constructorThrows = false;
@@ -295,6 +307,20 @@ describe('PierreDiffHostComponent', () => {
     }).compileComponents();
     fixture = TestBed.createComponent(HostComponent);
     await settle();
+  });
+
+  it('diffs two texts with the 3 context lines git uses, so the hunks match', async () => {
+    const before = 'a\nb\n';
+    const after = 'a\nc\n';
+    fixture.componentInstance.patch.set(null);
+    fixture.componentInstance.oldText.set(before);
+    fixture.componentInstance.newText.set(after);
+    await settle();
+    expect(pierre.parseFromFileCalls).toHaveLength(1);
+    const [oldFile, newFile, options] = pierre.parseFromFileCalls[0];
+    expect(oldFile).toEqual({ name: 'a.ts', contents: before });
+    expect(newFile).toEqual({ name: 'a.ts', contents: after });
+    expect(options).toEqual({ context: 3 });
   });
 
   it('configures one host-managed FileDiff with word-level inline diff', () => {

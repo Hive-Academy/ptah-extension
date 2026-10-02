@@ -39,6 +39,9 @@ import {
 } from './pierre-hunk-mapping';
 import { PierreWorkerPoolService } from './pierre-worker-pool';
 
+/** Context lines git uses for its hunks (`-U3`); the renderer must match them. */
+const GIT_DIFF_CONTEXT_LINES = 3;
+
 /** Template context for the per-hunk toolbar a consumer projects. */
 export interface PierreHunkToolbarContext {
   $implicit: GitHunkRef;
@@ -316,7 +319,9 @@ export class PierreDiffHostComponent {
         fileDiff: parseDiffFromFile(
           source.oldText === null ? null : { name, contents: source.oldText },
           source.newText === null ? null : { name, contents: source.newText },
-          undefined,
+          // jsdiff defaults to 4 context lines; git's hunks (and so the hunk
+          // mapping for accept/reject) use 3.
+          { context: GIT_DIFF_CONTEXT_LINES },
           true,
         ),
         error: null,
