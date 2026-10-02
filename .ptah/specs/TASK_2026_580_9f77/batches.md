@@ -1,6 +1,8 @@
 # Batches - TASK_2026_580_9f77
 
-Total tasks: 50 | Batches: 29 | Complete: 25/29
+Total tasks: 52 | Batches: 30 (plus 5 post-plan fix/merge entries) | Complete: 30/30
+
+## Completion (team-leader Mode 3, 2026-10-02) — see "Completion pass" at the end
 
 ## Resume here (session handoff, 2026-10-01)
 
@@ -72,6 +74,11 @@ section; the batch sections below hold each batch's full task text and review no
 | T2 V0 before shots (card, detail) from base                               | COMPLETE | 8880011f5 |
 | F1 fix: migrated-ready store + held deletes (from T1 S6)                  | COMPLETE | 2aca89b97 |
 | CI fixes for PR #623 (bundle budget, Sonar)                               | COMPLETE | 46a5020da |
+| Merge origin/main (#622 584, #624 boot gate, #626 578 migration 0051)     | COMPLETE | f4f8df705 |
+| R-TL8 wiring: spawner records agent-started child sessions                | COMPLETE | 58bfdf744 |
+| Electron e2e fix: `session:list` reply without rows reads as empty        | COMPLETE | 31dc6f05c |
+| Merge origin/main (#628 close-tab-ends-session, TASK_2026_592)            | COMPLETE | e65b1038c |
+| CI round 2 test fixes (closed-tab ender stub, e2e row locator)            | COMPLETE | dd88cfb3e |
 
 ### Branch checks at handoff (all must stay green)
 
@@ -86,11 +93,8 @@ section; the batch sections below hold each batch's full task text and review no
 Every batch (A, B, C, T1, T2) is COMPLETE, plus the F1 fix and the PR #623 CI fixes
 (see the T1, T2, F1 and CI-fix sections).
 
-**Next (coordinator-run, before Mode 3):** merge `origin/main` into the branch (brings
-#622, #624 `1095a8f20` and #626, and TASK_2026_584), then the R-TL8 wiring (the
-`recordAgentStartedSession` call in 584's `SessionIdResolved` handler plus its spawner
-spec), which also closes the AC8 "584 start" row. Re-check the R-TL5/R-TL6/R-TL7 merge
-points during the merge. Then team-leader Mode 3.
+The main merges, R-TL8 wiring, e2e fix and CI round 2 have landed (see "Post-plan
+commits"). Mode 3 ran on 2026-10-02 at `724a4515a`; result in "Completion pass".
 
 Wave 6 launch notes, kept for reference (A5.1, A5.2 and C0.2 are done):
 
@@ -153,24 +157,29 @@ After wave 6: C1.1 (after C0.2), then C1.2, C2.1 and C2.3, then T1.
 - **R-TL1 (ruled):** the six RPC registry entries land in A4.2, together with their
   manifest owner, never earlier: `assertManifestInvariants` and three rpc-surface specs
   would break.
-- **R-TL5: migration merge point with TASK_2026_578 (open).** 580 owns 0050. 578 adds
-  `0051_skill_lifecycle` and bumps the same 12 `max version` asserts to 51; whoever
-  merges second rebases and re-bumps them. 586 also uses 0051+.
-- **R-TL6: merge point with TASK_2026_584 on `sdk-agent-adapter.ts` and its spec
-  (open).** 580 changed a statement before the new-chat bind guard, the `notifyAll`
+- **R-TL5 (resolved in merge `f4f8df705`):** 0050 is registered before 578's 0051; the
+  12 max-version asserts are `toBe(51)` (`code-logic-review-main-merge.md` APPROVED
+  10/10). 586 still uses 0051+ and must take 0052+ when it merges.
+- **R-TL6 (resolved in merge `f4f8df705`):** merge point with TASK_2026_584 on
+  `sdk-agent-adapter.ts` and its spec. 580 changed a statement before the new-chat bind guard, the `notifyAll`
   payload (`previousSessionId`) and a new `readReboundSource`, plus a prettier pass
   (A3.4b). 584 changes the `createSessionIdCallback` parameter list and the
   `create(...)` call. These are different statements; the second to merge rebases.
-- **R-TL7: merge points with TASK_2026_584 (open).**
-  - `mcp-contract.sweep.spec.ts` pinned tool counts, now 57 (`:1707`) and 54 (`:1731`)
-    after B3.5. 584 also adds a tool, so the second to merge adds both increments.
+- **R-TL7 (resolved in merge `f4f8df705`):** merge points with TASK_2026_584.
+  - `mcp-contract.sweep.spec.ts` pinned tool counts are now 62/59 after both tasks'
+    tools.
   - Also shared: `protocol-dispatcher.ts`, `types.ts`, `ptah-api-builder.service.ts`,
     `tool-result-budget.ts`; in shared `message-constants.ts`, `payload-map.ts`,
     `rpc.types.ts`; in chat `chat-message-handler.service.ts`.
-- **R-TL8 (open, owed by 580):** the `recordAgentStartedSession` call in 584's
-  `session-spawner.service.ts` `SessionIdResolved` handler, plus its spawner spec, is
-  added by whichever of 580/584 merges second. 584 is now merged to main (T1), so 580
-  owes it: it lands right after the `origin/main` merge.
+- **R-TL8 (resolved in `58bfdf744`):** `SessionSpawnerService` calls
+  `recordAgentStartedSession` once the child's SDK id binds (lineage, worktree, branch,
+  task link). The Electron and CLI container smoke specs pin the recorder injection
+  (`apps/ptah-electron/src/di/container.smoke.spec.ts:668`). Closes the AC8 "584 start"
+  row. Review `code-logic-review-R-TL8.md` APPROVED 8/10 (opencode, after two
+  antigravity quota failures). Its moderate M1 (no smoke pin for the spawner) is
+  addressed by those smoke assertions in the same commit. Open minors: optional-chained
+  recorder asserts in the spawner spec, no spec firing `SessionIdResolved` twice for one
+  child, no spawner log when the recorder is absent.
 - **R-TL11 (resolved in A5.1, `883d1a422`; smoke assertions in both hosts):** `WorktreeHookHandler`, `SessionForkService`
   and `PtahAPIBuilder` are singletons that take the recorder through their
   constructors. The host order is safe today (B1 and B3.2 reviews).
@@ -2296,3 +2305,156 @@ store not open` and left organization, task-link and PR-link rows that nothing
   coordinator's ≤72 guideline was exceeded and the commit was not amended).
 - Verification at commit: `nx run-many -t typecheck,lint -p @ptah-extension/chat`
   passes; degradation-audit chat 10 (baseline 11).
+
+## Post-plan commits (after T1/T2; recorded 2026-10-02)
+
+| Commit      | What                                                                                                                                                                                                                         | Review                                                             |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `f4f8df705` | Merge `origin/main`: #622 (TASK_2026_584), #624 boot-gate fix `1095a8f20` (root cause of the F1 window), #626 (TASK_2026_578 migration 0051). 0050 before 0051; 12 max-version asserts `toBe(51)`; MCP sweep counts 62/59.   | `code-logic-review-main-merge.md` APPROVED 10/10                   |
+| `58bfdf744` | R-TL8: `SessionSpawnerService` records agent-started child sessions; Electron + CLI container smoke specs pin the recorder injection (mutation-checked). Docs `753fa9e05`.                                                   | `code-logic-review-R-TL8.md` APPROVED 8/10 (opencode fallback)     |
+| `31dc6f05c` | Electron e2e regression from C1.2: a `session:list` reply without `sessions` left the list undefined, so `groupSessionRows` threw in change detection and aborted the shell render; it now reads as empty. Docs `14bc64c90`. | `code-logic-review-e2e-fix.md` APPROVED 10/10                      |
+| `e65b1038c` | Merge `origin/main`: #628 close-tab-ends-session, TASK_2026_592. Clean.                                                                                                                                                      | none needed (clean merge)                                          |
+| `dd88cfb3e` | CI round 2: `ClosedTabSessionEnderService` stub in `app-shell.organization.spec.ts`; e2e fixture `sessionRowButton` no longer depends on the removed `role="listitem"`. Docs `724a4515a`.                                    | `code-logic-review-ci-round2.md` APPROVED 9/10 (opencode fallback) |
+
+Gate note: the antigravity quota is exhausted (about 125 h). Per the lane rules, the R-TL8
+and CI round-2 reviews ran on opencode after two antigravity failures each.
+
+## Completion pass (team-leader Mode 3, 2026-10-02, at `724a4515a`)
+
+**Result: PASSED WITH ONE OPEN VISUAL CHECK** (Gap V1 below). Task status set to
+`in_review` (PR #623 open).
+
+### Batches, commits, reviews
+
+- All 30 planned batches and all 52 tasks are COMPLETE. All 32 SHAs in the status table
+  are ancestors of `724a4515a`, and so are the 5 post-plan entries. All 60 file paths
+  named in this file exist on disk.
+- Every batch passed its gate before its commit. Logic reviews:
+  `code-logic-review-<batch>.md` for A1.1-C2.3, plus F1, ci-fixes, sonar-pr623,
+  coderabbit-pr623, main-merge, R-TL8, e2e-fix and ci-round2. Visual reviews: C1.2, C2.2,
+  C2.3, V0. T1's report was accepted by the coordinator without a separate review; its
+  one finding (F1) went through its own gated fix.
+
+### Parity
+
+N/A: no surface was replaced, consolidated, rebuilt or redesigned. All three surfaces
+were extended:
+
+- **Sidebar:** every user action bound in base `a90c086d7` `app-shell.component.html` is
+  still bound in the current template (saveSessionName, loadMoreSessions, clearFilters,
+  createNewSession, deleteSession, onSessionClick, setSearchQuery, startEditingSession,
+  toggleDateFilter, setDateFrom/To, toggleLayoutMode, and the navigation buttons). The
+  only additions are `openOrganizer` and the three organization components. When
+  organization is unavailable (VS Code), the sidebar is pixel-identical to the base
+  (`visual-review-C1.2.md` AC7).
+- **Task card and task detail:** `visual-review-V0.md` pixel-compares base and current;
+  the only differences are the new sessions row and the Sessions section.
+
+### Visual evidence (dark `anubis` and light `anubis-light`, 360/800/1400)
+
+- **Sidebar (C1.2):** before shots `visual-c12/before-vscode-*`, built at `59bd15bd1`
+  where the sidebar equals the base. After shots: `visual-c12/round1/r1-org-*`
+  (Electron organization shape) and `r1-vscode-*` (AC7).
+- **Task card (C2.2) and task detail (C2.3):** after shots `visual-c22/round1/` and
+  `visual-c23/`; base-commit before shots and the after comparison in `visual-v0/`.
+- No prototype exists (plan :973); fidelity was checked against plan components 11-12
+  and the before shots.
+- **Gap V1 (open; blocks marking PR #623 ready until done):** `46a5020da` (CI fixes)
+  moved the sidebar filter bar and the per-row chips behind `@defer (on immediate)`
+  with no `@placeholder`, and removed list roles. These are rendered changes made after
+  the C1.2 visual review, and only a logic review checked them. Needed: one
+  visual-reviewer pass on the current build, written to `visual-review-C1.2-r2.md`:
+  - Electron sidebar at 360 and 800, dark and light;
+  - first-paint layout shift when the deferred filter bar and chips arrive;
+  - steady state unchanged from `visual-c12/round1/`;
+  - the VS Code shape still matching the before shots.
+
+### Write-path trace
+
+- **Organization and link columns:** `test-report.md` "Write-path trace" covers every
+  column in plan :1196-1213, from writer to runtime reader.
+- **R-TL8 (`58bfdf744`):** `recordAgentStartedSession` writes the same
+  `session_organization` (lineage, worktree, branch) and `session_task_links` rows
+  through the store upsert. These have the same readers as the other capture paths. No
+  new column, key or setting.
+- **F1 held deletes (`2aca89b97`), traced here:**
+  1. `SessionMetadataStore` `deleted` event.
+  2. Capture service (`session-organization-capture.service.ts:152`) calls
+     `service.removeSession(root, id)` (`session-organization.service.ts:570`).
+  3. If `isAvailable()` is false, `deferDelete` (`:628`) keeps an in-memory map keyed
+     by root+id, capped at `MAX_DEFERRED_DELETES` = 1000 with one log line per drop, and
+     subscribes once to `store.onDidOpen`.
+  4. `SqliteConnectionService` fires `onDidOpen` only after migrations succeed
+     (`sqlite-connection.service.ts:249-250, :468-470`), and the store's `isReady()` =
+     `isOpen && lastMigrationVersion > 0` (`session-organization.store.ts:451-452`). So
+     `applyDeferredDeletes` (`:674`) runs against a ready store.
+  5. For each entry, if the metadata exists again, it is skipped. Otherwise
+     `deleteRows` → `store.deleteSession(root, id)` → `SESSION_ORGANIZATION_CHANGED`
+     `reason: 'delete'`. The chat sidebar and `TaskSessionLinksService` reload on that
+     push.
+  6. Nothing is persisted outside SQLite. No settings, config or environment variable
+     is written.
+- **Orphan rows (R-TL12):** proven by code reading (`session:list` builds rows from
+  metadata), not on a real host.
+
+### AC1-AC8 status
+
+| AC                                              | Status                                                                 | Evidence                                                                                    |
+| ----------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| AC1 list p95 < 200 ms over 500 sessions         | PASS                                                                   | perf spec (real SQLite) + real Electron p95 42-45 ms (`test-report.md`)                     |
+| AC2 board start → card shows session and phase  | Spec-proven; real host BLOCKED                                         | 4 chained AC8 specs; S2 needs a credentialed model turn                                     |
+| AC3 `gh pr create` → PR link                    | Spec-proven; real host BLOCKED                                         | AC8 capture spec; S3 blocked (no provider)                                                  |
+| AC4 SDK hook and MCP worktree shown             | Spec-proven; real host BLOCKED                                         | AC8 specs; S4 blocked                                                                       |
+| AC5 survives restart, rename, re-scan, resume   | PARTIAL PASS on a real host                                            | S5 run 1 (restart, rename, importer re-scan); resume BLOCKED; pin not re-checked            |
+| AC6 delete removes all rows; missing task shown | Spec-proven incl. the F1 boot-window path; missing flag PASS (RPC)     | S6 steady-state cascade not observed on a real host (runs timed out; shared `dist` rebuilt) |
+| AC7 Electron + CLI; VS Code unchanged           | Electron PASS; VS Code spec + pixel-identical visual; CLI host BLOCKED | `session-organization-unavailable.spec.ts`, `visual-review-C1.2.md`; CLI needs an API key   |
+| AC8 one reachability spec per capture path      | COMPLETE                                                               | every row incl. "584 start" (`58bfdf744`)                                                   |
+
+### Validation risks: resolution
+
+| Risk                                 | Resolution                                                                  |
+| ------------------------------------ | --------------------------------------------------------------------------- |
+| R-TL1 registry timing                | Landed with A4.2 (`e2105f1cc`)                                              |
+| R-TL5 migration 0050/0051            | Resolved in `f4f8df705`                                                     |
+| R-TL6, R-TL7 584 merge points        | Resolved in `f4f8df705` (sweep 62/59)                                       |
+| R-TL8 584 start capture              | Resolved in `58bfdf744`                                                     |
+| R-TL9 inline templates / split specs | Followed in C1.2, C2.2, C2.3                                                |
+| R-TL10 expected-resolvable           | Handled in A5.2 (`9c1f69870`)                                               |
+| R-TL11 recorder injection order      | Smoke assertions in A5.1 (`883d1a422`) and for the spawner in `58bfdf744`   |
+| R-TL12 orphan rows                   | Accepted residual; proven by code reading; real-host probe owed (follow-up) |
+| L8 drop-while-closed                 | Bounded exception for deletes only (F1, `2aca89b97`)                        |
+
+### Consolidated follow-ups (open; not blocking unless marked)
+
+- **Blocking before PR #623 is marked ready (V1):** visual re-check of the deferred
+  sidebar (see above).
+- **Smoke owed:**
+  - S2, S3, S4, AC5 resume and the CLI host, with a credentialed profile;
+  - S6 steady-state cascade on an idle machine with an exclusive `dist`;
+  - the VS Code host step;
+  - a real-host orphan probe after organization is available.
+- **F1:** held deletes are lost if the app quits before the store opens; orphan rows
+  from earlier boots are not swept; the sidebar is not notified when organization
+  becomes available after the first `session:list`.
+- **C1.2:** search text typed before availability is reported is lost; pulse trough
+  2.57:1 in light; group headers 4.48:1 (shared muted token); action cluster up to 4px
+  over a chip border.
+- **C2.2:** first-visit card growth (48px, CLS 0.029); 10px row text.
+- **C2.3:**
+  - pre-existing 13px detail overflow at 360px;
+  - section growth 38→204px (CLS 0.0138);
+  - no ring on the programmatic first focus stop;
+  - align the card's http(s) links with the detail's https-only links;
+  - move the phase maps into `task-presentation.ts`.
+- **R-TL8 minors:** non-optional recorder in the spawner specs; a spec that fires
+  `SessionIdResolved` twice for one child; a spawner log when the recorder is absent.
+- **Tests:** an orphan-row spec in the `session:list` handler suite.
+- **Earlier, still open:**
+  - the missing-task helper duplication (A4.2);
+  - the namespace-count text;
+  - plan related defects 1-2;
+  - the 584 `childrenOf` reader;
+  - the orchestration-skill note for `ptah_session_link_task`;
+  - 586 must take migration 0052+.
+- **Known red on main (not this task):** harness-skill-selection "never writes
+  state.json"; platform-core `file-settings-manager.bench.spec.ts`.
