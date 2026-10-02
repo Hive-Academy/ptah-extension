@@ -2345,6 +2345,27 @@ executors at once.
 
 # Cutover — mount, parity, deletion, Monaco removal (runs after P5; V3)
 
+## Cutover waves (branch `feat/task-2026-576-cutover`, worktree `.claude-worktrees/task-576-cutover`, PR stacked on P5)
+
+| Wave | Batches | Notes |
+|---|---|---|
+| C1 | 58 | mount + Batch 43/48/54 cutover checklist + Task 58.2 |
+| C2 | 59 → 60 → 61 | e2e successors; single specs with their own user-data folder (never the full Electron suite locally); Batch 60 re-measures A9 |
+| C3 | 62 | parity matrix; any row without a green test blocks 63-66 |
+| C4 | 63 → 64 | coordinator swap, then old-surface deletion (approved removals only) |
+| C5 | 65 → 66 | Monaco removal, packaging |
+| C6 | 67 ∥ 68 | bundle/TTI/VSIX evidence; axe sweep |
+| C7 | 69 | task-wide scoped verification, then the cutover phase-end review (logic + visual, dark and light) |
+
+Cutover checklist carried from P3-P5 (Batch 58 owns it): load `ReviewShellComponent` in `electron-shell.component.ts`
+(~372) with Retry on chunk failure; register `FileContentChangesService` and `GitOperationOutputService` under
+`MESSAGE_HANDLERS` (with a spec that asserts it); bind `AGENT_FEEDBACK_SENDER` for the shell; point
+`FileLinkRouterService.openInDock` at `ReviewNavigationService.openFile`; Task 58.2 (`ChangeSetActionsService` Electron
+path → `ReviewNavigationService`); retarget the git-dock specs/e2e; move `statusUnavailableLabel` out of
+source-control-panel; in `review-navigation.service.ts` drop the `tab !== current.tab` unsaved-changes condition for
+a tab-only switch; disable the tabs' primary actions while a conflict is open (design-spec §11); wire the canvas Edit
+button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
+
 ## Batch 58: Mount switch and file-link routing — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
