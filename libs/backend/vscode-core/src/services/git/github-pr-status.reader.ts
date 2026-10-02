@@ -116,6 +116,7 @@ export function sanitizePrUrl(url: unknown): string | undefined {
       return url;
     }
   } catch {
+    // degradation-audit: optional-capability - an unparseable URL is simply not offered as a link
     return undefined;
   }
   return undefined;
@@ -316,6 +317,7 @@ export function selectBranchPr(
   try {
     data = JSON.parse(stdout);
   } catch {
+    // degradation-audit: reported - the caller turns null into the quiet 'failed' result
     return null;
   }
   if (!Array.isArray(data)) return null;
@@ -392,6 +394,7 @@ async function processId(handle: GhHandle): Promise<number | undefined> {
   try {
     return (await handle.whenSpawned) ?? undefined;
   } catch {
+    // degradation-audit: optional-capability - a spawn that never started has no pid to kill
     return undefined;
   }
 }
