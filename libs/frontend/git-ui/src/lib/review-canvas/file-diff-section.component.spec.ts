@@ -47,6 +47,11 @@ import type {
   `,
 })
 class MockPierreDiffHost {
+  /** Instances ever created: proves the renderer never mounted at all. */
+  static created = 0;
+  constructor() {
+    MockPierreDiffHost.created++;
+  }
   readonly patch = input<string | null>(null);
   readonly oldText = input<string | null>(null);
   readonly newText = input<string | null>(null);
@@ -389,6 +394,86 @@ describe('FileDiffSectionComponent', () => {
       expect(byTestId('file-label-row')?.textContent).toContain(
         '3,001 changed lines',
       );
+    });
+
+    describe('a file the list has no counts for (MOD-B2)', () => {
+      const untracked = (): ReviewCanvasFile =>
+        makeFile({ status: '??', additions: null, deletions: null });
+      const lines = (count: number): string => 'x\n'.repeat(count);
+
+      it('renders an untracked file at exactly the cap (3,000 lines)', async () => {
+        await create({ near: true, file: untracked() });
+        expect(reviewDiff.mount).toHaveBeenCalledTimes(1);
+        setDiff(
+          makeDiff({
+            originalRef: { kind: 'absent' },
+            original: '',
+            modified: lines(3000),
+            hunks: [],
+          }),
+        );
+        await settle();
+        expect(byTestId('file-label-row')).toBeNull();
+        expect(pierre()).not.toBeNull();
+      });
+
+      it('labels an untracked file over the cap after its read, before Pierre ever mounts', async () => {
+        MockPierreDiffHost.created = 0;
+        await create({
+          near: true,
+          draftOwner: owner,
+          editorTargets: [{ id: 'vscode', displayName: 'VS Code' }],
+          file: untracked(),
+        });
+        expect(reviewDiff.mount).toHaveBeenCalledTimes(1);
+        setDiff(
+          makeDiff({
+            originalRef: { kind: 'absent' },
+            original: '',
+            modified: lines(3001),
+            hunks: [],
+          }),
+        );
+        await settle();
+
+        const row = byTestId('file-label-row');
+        expect(row?.textContent).toContain(
+          'Too large to display (3,001 lines)',
+        );
+        expect(row?.querySelector('.text-base-content-muted')).not.toBeNull();
+        expect(MockPierreDiffHost.created).toBe(0);
+        expect(byTestId('file-diff-body')).toBeNull();
+        expect(byTestId('file-section-comment')).toBeNull();
+        expect(host().querySelector('ptah-open-in-button')).not.toBeNull();
+        // Labelled from the read, not re-read in a loop.
+        expect(reviewDiff.mount).toHaveBeenCalledTimes(1);
+        expect(reviewDiff.unmount).not.toHaveBeenCalled();
+      });
+
+      it('measures the longer side when both sides are present', async () => {
+        MockPierreDiffHost.created = 0;
+        await create({ near: true, file: untracked() });
+        setDiff(
+          makeDiff({
+            original: lines(10),
+            modified: `${lines(4000)}tail`,
+            hunks: [],
+          }),
+        );
+        await settle();
+        expect(byTestId('file-label-row')?.textContent).toContain(
+          'Too large to display (4,001 lines)',
+        );
+        expect(MockPierreDiffHost.created).toBe(0);
+      });
+
+      it('leaves a file with list counts to the list cap alone', async () => {
+        await create({ near: true });
+        setDiff(makeDiff({ modified: lines(5000) }));
+        await settle();
+        expect(byTestId('file-label-row')).toBeNull();
+        expect(pierre()).not.toBeNull();
+      });
     });
 
     it('keeps the error row when a failed read also carries an unshipped side', async () => {

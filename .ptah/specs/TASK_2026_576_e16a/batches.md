@@ -1918,7 +1918,21 @@ executors at once.
 
 ### P4 phase-end review
 
-- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P4 phase diff, the full e2e set (surfaces are unmounted; their visual review happens at Batches 58-61); findings fixed in follow-up commits before the next phase starts.
+- [x] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P4 phase diff, the full e2e set (surfaces are unmounted; their visual review happens at Batches 58-61); findings fixed in follow-up commits before the next phase starts.
+- Outcome (2026-10-02): logic review by antigravity (Glm at its weekly limit) on the subagent-authored P4 diff.
+  Part 1 (`reviews/p4-phase-review-antigravity.md`, REVISE 6/10: SER-1/2, MOD-1..4, MIN-1..3) → fixes
+  `89152a5d4`; MOD-4 rejected with contract specs `e7351c0bb`. Part 2 + round 1
+  (`p4-phase-review-antigravity-round1.md`, REVISE 7/10: all part-1 items FIXED, MOD-4 rejection accepted; new
+  SER-B1/B2, MOD-B1..B3, MIN-B1 on 37/38/41/42/43/A9) → fixes `2790cf374` (MIN-B1 rejected with a regression test).
+  Round 2 (`p4-phase-review-antigravity-round2.md`): all FIXED, APPROVE, 0 open. Gates decided by independent
+  lanes and verified: Pierre CSP (`gate-p4-pierre-csp.md`, Batch 44) and A9 worker pool + 3,000-line cap
+  (`gate-p4-a9-pierre-perf.md`, `31e69962c`). Extra fix `8b9466240` (too-large/LFS rows). e2e: surfaces are
+  unmounted; the full set runs in CI once the stack is retargeted to `main`; visual review moves to Batches 58-61.
+  Carried to P5/cutover: Batch 43 cutover checklist (mount `ReviewShellComponent`, register
+  `FileContentChangesService`, point `openInDock` at `ReviewNavigationService.openFile`, move
+  `statusUnavailableLabel`, keep Changes mounted across tabs); canvas Edit button not wired; webview initial-bundle
+  budget warning 3.36 MB vs 2.5 MB; Batch 60 re-measures A9; manual zero-CSP-violation check in a live VS Code
+  webview; jest worker-exit warnings.
 
 ---
 

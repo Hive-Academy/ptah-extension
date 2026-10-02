@@ -175,6 +175,26 @@ describe('DraftCommentsBarComponent', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it('announces exactly the drafts its send carried; one added in flight stays unsent', async () => {
+    let resolve!: (r: AgentFeedbackSendResult) => void;
+    send.mockReturnValue(new Promise((r) => (resolve = r)));
+    store.add(SESSION, draft());
+    store.add(SESSION, draft({ path: 'b.ts' }));
+    fixture.detectChanges();
+
+    (q('draft-comments-send') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    store.add(SESSION, draft({ path: 'c.ts' }));
+    resolve({ sent: true });
+    await settle();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(q('draft-comments-status')?.textContent).toContain(
+      'Sent 2 comments to the agent.',
+    );
+    expect(store.draftsFor(SESSION).map((d) => d.path)).toEqual(['c.ts']);
+  });
+
   it('drops an error when the owner changes', async () => {
     send.mockResolvedValue({ sent: false, error: 'Nope.' });
     store.add(SESSION, draft());

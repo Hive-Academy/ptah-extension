@@ -34,7 +34,10 @@ let nextDialogId = 0;
  * - focus moves to the non-destructive Cancel on open;
  * - Escape cancels, whether it arrives as a keydown or as the UA's own
  *   `cancel` close request;
- * - Tab and Shift+Tab toggle between the two buttons and never leave;
+ * - an optional `secondaryLabel` adds a third, explicit answer between
+ *   Cancel and Confirm (a disk conflict's Reload). It emits
+ *   `secondaryConfirmed`; Escape never chooses it;
+ * - Tab and Shift+Tab cycle through the buttons and never leave;
  * - focus returns to the invoking control on every close;
  * - no backdrop dismiss: an accidental click-out must not resolve a
  *   destructive question;
@@ -72,6 +75,17 @@ let nextDialogId = 0;
             >
               {{ cancelLabel() }}
             </button>
+            @if (secondaryLabel(); as secondary) {
+              <button
+                #secondaryButton
+                type="button"
+                class="btn btn-sm"
+                data-testid="git-confirm-secondary"
+                (click)="chooseSecondary()"
+              >
+                {{ secondary }}
+              </button>
+            }
             <button
               #confirmButton
               type="button"
@@ -96,9 +110,12 @@ export class GitConfirmDialogComponent {
   readonly confirmLabel = input.required<string>();
   readonly cancelLabel = input<string>('Cancel');
   readonly tone = input<GitConfirmDialogTone>('danger');
+  /** A third, explicit answer; `null` keeps the two-button dialog. */
+  readonly secondaryLabel = input<string | null>(null);
 
   readonly confirmed = output<void>();
   readonly cancelled = output<void>();
+  readonly secondaryConfirmed = output<void>();
 
   private readonly idBase = `ptah-git-confirm-${++nextDialogId}`;
   protected readonly titleId = `${this.idBase}-title`;
@@ -121,6 +138,8 @@ export class GitConfirmDialogComponent {
     viewChild<ElementRef<HTMLDialogElement>>('dialog');
   private readonly cancelButton =
     viewChild<ElementRef<HTMLButtonElement>>('cancelButton');
+  private readonly secondaryButton =
+    viewChild<ElementRef<HTMLButtonElement>>('secondaryButton');
   private readonly confirmButton =
     viewChild<ElementRef<HTMLButtonElement>>('confirmButton');
 
@@ -167,11 +186,17 @@ export class GitConfirmDialogComponent {
     this.cancelled.emit();
   }
 
+  protected chooseSecondary(): void {
+    if (!this.isOpen()) return;
+    this.close();
+    this.secondaryConfirmed.emit();
+  }
+
   /**
    * Escape is stopped here rather than on `document`: focus is inside the
    * dialog whenever it is open, and a key that dismisses a dialog must not
-   * also reach anything behind it. With exactly two focusable elements, Tab
-   * and Shift+Tab are the same two-way toggle.
+   * also reach anything behind it. Tab and Shift+Tab cycle through the two
+   * or three buttons, in DOM order, and wrap.
    */
   protected onDialogKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
@@ -181,11 +206,22 @@ export class GitConfirmDialogComponent {
       return;
     }
     if (event.key !== 'Tab') return;
-    const cancel = this.cancelButton()?.nativeElement;
-    const confirm = this.confirmButton()?.nativeElement;
-    if (!cancel || !confirm) return;
+    const buttons = [
+      this.cancelButton()?.nativeElement,
+      this.secondaryButton()?.nativeElement,
+      this.confirmButton()?.nativeElement,
+    ].filter((button): button is HTMLButtonElement => button !== undefined);
+    if (buttons.length === 0) return;
     event.preventDefault();
-    (document.activeElement === cancel ? confirm : cancel).focus();
+    const at = buttons.findIndex((button) => button === document.activeElement);
+    const step = event.shiftKey ? -1 : 1;
+    const next =
+      at === -1
+        ? event.shiftKey
+          ? buttons.length - 1
+          : 0
+        : (at + step + buttons.length) % buttons.length;
+    buttons[next].focus();
   }
 
   /**

@@ -39,8 +39,9 @@ const SHELL_TABS: readonly ReviewTab[] = ['changes'];
  * names `SpotEditorComponent` outside `imports` and the `@defer` block — any
  * other reference would pull the editor out of its lazy chunk.
  */
-interface DiskChangeSink {
+interface SpotEditorPort {
   notifyDiskChange(filePaths: readonly string[], truncated: boolean): void;
+  confirmLeave(): boolean | Promise<boolean>;
 }
 
 type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
@@ -71,6 +72,10 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
  *   for the canvas; it is disconnected on destroy.
  * - **Disk changes.** `file:content-changed` batches reach the open spot
  *   editor through {@link FileContentChangesService}.
+ * - **Unsaved edits.** While mounted it registers the spot editor's
+ *   `confirmLeave` as the navigation leave guard, so a change set, commit,
+ *   stash file or comparison that would replace a dirty editor asks Discard
+ *   or Keep editing first; Keep editing cancels the navigation.
  */
 @Component({
   selector: 'ptah-review-shell',
@@ -202,7 +207,7 @@ export class ReviewShellComponent {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
-  private readonly spotEditor = viewChild<DiskChangeSink>('spotEditor');
+  private readonly spotEditor = viewChild<SpotEditorPort>('spotEditor');
 
   /** The shell is narrower than {@link STACK_BELOW_PX}. */
   protected readonly stacked = signal(false);
@@ -270,6 +275,12 @@ export class ReviewShellComponent {
       (change) =>
         this.spotEditor()?.notifyDiskChange(change.filePaths, change.truncated),
     );
+    // A navigation that would replace the spot editor asks it first, so
+    // unsaved edits are never unmounted silently. No editor (or one still
+    // loading) has nothing to lose.
+    const releaseLeaveGuard = this.navigation.registerLeaveGuard(
+      () => this.spotEditor()?.confirmLeave() ?? true,
+    );
 
     afterNextRender(() => this.observeWidth());
 
@@ -278,6 +289,7 @@ export class ReviewShellComponent {
       this.gitBranches.stopListening();
       releaseStash();
       releaseDiskChanges();
+      releaseLeaveGuard();
       this.resizeObserver?.disconnect();
       this.resizeObserver = null;
     });

@@ -63,13 +63,16 @@ function fileNameOf(path: string): string {
   return path.split(/[\\/]/).at(-1) ?? path;
 }
 
-type DialogKind = 'replace' | 'back' | 'conflict' | 'external';
+type DialogKind =
+  'replace' | 'back' | 'leave' | 'reload' | 'conflict' | 'external';
 
 interface DialogCopy {
   title: string;
   description: string;
   confirmLabel: string;
   cancelLabel: string;
+  /** A third, explicit answer (the conflict's Reload). */
+  secondaryLabel?: string;
   tone: 'danger' | 'warning';
 }
 
@@ -85,8 +88,15 @@ interface DialogCopy {
  * - UTF-16 files, and hosts without `file:saveContent`, stay read-only.
  * - CodeMirror is loaded with a dynamic `import()` of `codemirror-setup`, so
  *   it never enters the eager bundle.
- * - A conflict on save asks Reload (the default) or Overwrite; a second file
- *   or Back to review with unsaved changes asks first.
+ * - A conflict on save asks Overwrite, Reload or Keep editing. Only the two
+ *   explicit buttons act; Escape keeps the edits and leaves the file marked
+ *   stale, so Save asks again and the banner's Reload stays available.
+ * - With unsaved changes, a second file, Back to review, the stale banner's
+ *   Reload and a navigation that replaces the editor ({@link confirmLeave})
+ *   all ask first.
+ * - A question is never dropped for another: an open request or a leave that
+ *   arrives while one is open waits (the latest wins) and is handled when it
+ *   closes.
  * - The blocked state, Open-in and the outside-workspace confirmation are the
  *   read-only file view's, re-hosted.
  *
@@ -196,7 +206,12 @@ interface DialogCopy {
         data-testid="spot-editor-stale"
       >
         <span>This file changed on disk since you opened it.</span>
-        <button type="button" class="btn btn-ghost btn-xs" (click)="reload()">
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs"
+          data-testid="spot-editor-stale-reload"
+          (click)="reloadFromBanner()"
+        >
           Reload
         </button>
       </div>
@@ -299,9 +314,11 @@ interface DialogCopy {
       [description]="dialogCopy().description"
       [confirmLabel]="dialogCopy().confirmLabel"
       [cancelLabel]="dialogCopy().cancelLabel"
+      [secondaryLabel]="dialogCopy().secondaryLabel ?? null"
       [tone]="dialogCopy().tone"
       (confirmed)="onDialogConfirmed()"
       (cancelled)="onDialogCancelled()"
+      (secondaryConfirmed)="onDialogSecondary()"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -343,7 +360,13 @@ export class SpotEditorComponent {
 
   private readonly dialogKind = signal<DialogKind | null>(null);
   private readonly pendingExternal = signal<OpenInRequest | null>(null);
+  /**
+   * The latest open request that is waiting: the one the replace question is
+   * about, or one that arrived while another question was open.
+   */
   private pendingRequest: FileViewOpenRequest | null = null;
+  /** Settles the waiting {@link confirmLeave}; the latest caller wins. */
+  private pendingLeave: ((leave: boolean) => void) | null = null;
 
   private readonly dialog = viewChild.required(GitConfirmDialogComponent);
   private readonly backButton =
@@ -431,9 +454,26 @@ export class SpotEditorComponent {
         return {
           title: 'This file changed on disk since you opened it.',
           description:
-            'Reload to load the version on disk and drop your edits, or overwrite it with your version.',
+            'Overwrite it with your version, or reload the version on disk and drop your edits. Keep editing changes nothing.',
           confirmLabel: 'Overwrite',
-          cancelLabel: 'Reload',
+          secondaryLabel: 'Reload',
+          cancelLabel: 'Keep editing',
+          tone: 'danger',
+        };
+      case 'reload':
+        return {
+          title: 'Reload from disk?',
+          description: `Your unsaved edits to ${this.displayPath()} will be dropped.`,
+          confirmLabel: 'Discard and reload',
+          cancelLabel: 'Keep editing',
+          tone: 'danger',
+        };
+      case 'leave':
+        return {
+          title: 'Discard unsaved changes?',
+          description: `Your edits to ${this.displayPath()} have not been saved. Leaving the editor discards them.`,
+          confirmLabel: 'Discard and leave',
+          cancelLabel: 'Keep editing',
           tone: 'danger',
         };
       case 'back':
@@ -485,6 +525,24 @@ export class SpotEditorComponent {
       this.destroyed = true;
       this.handle?.destroy();
       this.handle = null;
+      // Whatever replaced the editor already won; the waiting navigation lost.
+      this.settleLeave(false);
+    });
+  }
+
+  /**
+   * Asked by the shell before a navigation replaces the editor: `true` at
+   * once with nothing unsaved, otherwise the answer to a discard question
+   * (Keep editing is `false`). A second call while one waits takes its place
+   * and the first answers `false`. A call made while another question is open
+   * waits for it to close.
+   */
+  confirmLeave(): boolean | Promise<boolean> {
+    if (!this.modified()) return true;
+    return new Promise<boolean>((resolve) => {
+      this.settleLeave(false);
+      this.pendingLeave = resolve;
+      if (this.dialogKind() === null) this.askDialog('leave');
     });
   }
 
@@ -529,6 +587,15 @@ export class SpotEditorComponent {
     this.backToReview.emit();
   }
 
+  /** The stale banner's Reload drops edits, so it asks when there are any. */
+  protected reloadFromBanner(): void {
+    if (this.modified()) {
+      this.askDialog('reload');
+      return;
+    }
+    void this.reload();
+  }
+
   protected retry(): void {
     if (this.hasDocument()) {
       void this.reload();
@@ -550,18 +617,30 @@ export class SpotEditorComponent {
         const next = this.pendingRequest;
         this.pendingRequest = null;
         if (next) void this.open(next);
+        this.resumeWaiting();
         return;
       }
       case 'back':
+        // Leaving: a request that waited behind this question is older than
+        // the navigation Back makes.
+        this.pendingRequest = null;
         this.backToReview.emit();
         return;
+      case 'leave':
+        this.pendingRequest = null;
+        this.settleLeave(true);
+        return;
+      case 'reload':
+        void this.reload().then(() => this.resumeWaiting());
+        return;
       case 'conflict':
-        void this.save(true);
+        void this.save(true).then(() => this.resumeWaiting());
         return;
       case 'external': {
         const pending = this.pendingExternal();
         this.pendingExternal.set(null);
         if (pending) this.openExternal.emit(pending);
+        this.resumeWaiting();
         return;
       }
       default:
@@ -570,15 +649,27 @@ export class SpotEditorComponent {
   }
 
   /**
-   * Cancel is the safe choice of each question. For a conflict that is
-   * Reload (design-spec §7): the version on disk wins, so Escape reloads too.
+   * Cancel, Escape and the UA's close request: the safe choice of each
+   * question, and none of them touches the buffer. For a conflict that is
+   * Keep editing: the edits, the undo history and the stale mark all stay, so
+   * the user can copy their work, save again (which asks again) or reload
+   * explicitly.
    */
   protected onDialogCancelled(): void {
     const kind = this.dialogKind();
     this.dialogKind.set(null);
     if (kind === 'replace') this.pendingRequest = null;
     if (kind === 'external') this.pendingExternal.set(null);
-    if (kind === 'conflict') void this.reload();
+    if (kind === 'leave') this.settleLeave(false);
+    this.resumeWaiting();
+  }
+
+  /** The conflict's explicit Reload: the version on disk wins. */
+  protected onDialogSecondary(): void {
+    const kind = this.dialogKind();
+    this.dialogKind.set(null);
+    if (kind !== 'conflict') return;
+    void this.reload().then(() => this.resumeWaiting());
   }
 
   protected async save(overwrite = false): Promise<void> {
@@ -638,6 +729,8 @@ export class SpotEditorComponent {
       return;
     }
     if (result.reason === 'conflict') {
+      // The disk moved on: after Keep editing the banner still offers Reload.
+      this.stale.set(true);
       this.askDialog('conflict');
       return;
     }
@@ -672,17 +765,49 @@ export class SpotEditorComponent {
     await this.mountDocument(result, cursor);
   }
 
+  /**
+   * While any question is open the request waits and the latest wins: the
+   * replace question then covers it, and any other question hands it on when
+   * it closes ({@link resumeWaiting}).
+   */
   private requestOpen(request: FileViewOpenRequest): void {
+    if (this.dialogKind() !== null) {
+      this.pendingRequest = request;
+      return;
+    }
     if (!this.modified()) {
       void this.open(request);
       return;
     }
-    if (this.dialogKind() === 'replace') {
-      this.pendingRequest = request;
+    this.pendingRequest = request;
+    this.askDialog('replace');
+  }
+
+  /**
+   * After a question closes and its action settled: ask the waiting leave, or
+   * open the waiting request. A leave goes first — when it is granted the
+   * editor is replaced, and the request with it.
+   */
+  private resumeWaiting(): void {
+    if (this.destroyed || this.dialogKind() !== null) return;
+    if (this.pendingLeave) {
+      if (this.modified()) {
+        this.askDialog('leave');
+        return;
+      }
+      this.pendingRequest = null;
+      this.settleLeave(true);
       return;
     }
-    this.pendingRequest = request;
-    if (!this.askDialog('replace')) this.pendingRequest = null;
+    const next = this.pendingRequest;
+    this.pendingRequest = null;
+    if (next) this.requestOpen(next);
+  }
+
+  private settleLeave(leave: boolean): void {
+    const settle = this.pendingLeave;
+    this.pendingLeave = null;
+    settle?.(leave);
   }
 
   private async open(request: FileViewOpenRequest): Promise<void> {
