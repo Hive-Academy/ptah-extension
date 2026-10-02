@@ -44,6 +44,7 @@ import type {
   OutputStyleDetail,
   OutputStyleEntry,
   OutputStyleOperationError,
+  OutputStyleOperationErrorCode,
   OutputStyleParityOutcome,
   OutputStyleParityRequest,
   OutputStyleSaveParams,
@@ -53,6 +54,30 @@ import type {
 
 /** The SDK's null sentinel. Not a style object — selecting it clears the key. */
 const DEFAULT_STYLE_NAME = 'default';
+
+/**
+ * Parity codes whose backend message is a fixed template over a constant
+ * settings-file path (`claude-settings.writer.ts` :183, :197, :246, :263,
+ * :288-290, :329-330; `output-style-rpc.handlers.ts` :370-371, :392-393).
+ * `SETTINGS_MALFORMED` is excluded: it embeds the `JSON.parse` exception text
+ * (`claude-settings.writer.ts:129-134`), so it gets a fixed sentence here.
+ */
+const FIXED_PARITY_CODES: ReadonlySet<OutputStyleOperationErrorCode> = new Set([
+  'NO_WORKSPACE',
+  'WRITE_FAILED',
+  'SETTINGS_CONFLICT',
+  'IMMUTABLE',
+]);
+const PARITY_FAILED =
+  'Your style is active in Ptah, but the settings file for the command line could not be updated.';
+
+function parityWarningText(error: OutputStyleOperationError): string {
+  if (error.code === 'SETTINGS_MALFORMED') {
+    // `path` is the constant-derived display path (`claude-settings.writer.ts:318`, :339).
+    return `${error.path ?? 'The settings file'} is not a valid settings file. Ptah did not change it — fix the file by hand, or choose a different one.`;
+  }
+  return FIXED_PARITY_CODES.has(error.code) ? error.message : PARITY_FAILED;
+}
 
 @Injectable({ providedIn: 'root' })
 export class OutputStyleStore {
@@ -122,10 +147,12 @@ export class OutputStyleStore {
   /**
    * A parity failure, phrased as a warning rather than an error — the style is
    * active either way, so nothing here asks the user to retry their selection.
+   * Only proven-fixed backend messages pass through (see `parityWarningText`).
    */
-  readonly parityWarning = computed<string | null>(
-    () => this.parityOutcome()?.error?.message ?? null,
-  );
+  readonly parityWarning = computed<string | null>(() => {
+    const error = this.parityOutcome()?.error;
+    return error ? parityWarningText(error) : null;
+  });
 
   /** `outputStyle:list` + `outputStyle:diagnose`, in parallel. */
   async refresh(): Promise<void> {

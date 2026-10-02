@@ -360,9 +360,55 @@ describe('OutputStyleStore', () => {
       // The failure is a warning, not the error banner that means "not applied".
       expect(store.error()).toBeNull();
       expect(store.parityWarning()).toBe(
-        '.claude/settings.json is not valid JSON. Ptah did not change it.',
+        '.claude/settings.json is not a valid settings file. Ptah did not change it — fix the file by hand, or choose a different one.',
       );
       expect(store.parityWrittenPath()).toBeNull();
+    });
+
+    it('never shows the JSON parser detail a SETTINGS_MALFORMED message embeds (F1)', async () => {
+      responses['outputStyle:activate'] = ok({
+        success: true,
+        decision: { path: 'none' },
+        parity: {
+          written: false,
+          tier: 'user',
+          error: {
+            code: 'SETTINGS_MALFORMED',
+            message:
+              '~/.claude/settings.json is not valid JSON (host detail). Ptah did not change it — fix the file by hand, or choose a different one.',
+            path: '~/.claude/settings.json',
+          },
+        },
+      });
+
+      await store.activate(null, { enabled: true, tier: 'user' });
+
+      expect(store.parityWarning()).toBe(
+        '~/.claude/settings.json is not a valid settings file. Ptah did not change it — fix the file by hand, or choose a different one.',
+      );
+      expect(store.parityWarning()).not.toContain('host detail');
+    });
+
+    it('keeps the backend message only for codes proven fixed, otherwise a fixed sentence (F1)', async () => {
+      const outcome = (code: string, message: string) =>
+        ok({
+          success: true,
+          decision: { path: 'none' },
+          parity: { written: false, tier: 'project', error: { code, message } },
+        });
+
+      responses['outputStyle:activate'] = outcome(
+        'SETTINGS_CONFLICT',
+        '.claude/settings.json changed on disk while Ptah was updating it. Nothing was written and your chosen style is unaffected — try again.',
+      );
+      await store.activate(null, { enabled: true, tier: 'project' });
+      expect(store.parityWarning()).toContain('changed on disk while Ptah was updating it');
+
+      responses['outputStyle:activate'] = outcome('DELETE_FAILED', 'host detail');
+      await store.activate(null, { enabled: true, tier: 'project' });
+      expect(store.parityWarning()).toBe(
+        'Your style is active in Ptah, but the settings file for the command line could not be updated.',
+      );
     });
 
     it('never surfaces an absolute host path from a parity failure (Req 7.6)', async () => {
