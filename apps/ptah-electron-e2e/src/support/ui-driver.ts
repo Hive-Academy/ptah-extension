@@ -152,11 +152,8 @@ export class UiDriver {
             // boundary, and nothing here is user- or network-supplied: only
             // e2e specs in this repo populate __uiMockFns, and only e2e runs
             // this file.
-            resolver = new Function(
-              // NOSONAR typescript:S1523 — test-authored source, see above
-              'params',
-              `return (${source})(params);`,
-            ) as (p: unknown) => unknown;
+            const body = `return (${source})(params);`;
+            resolver = new Function('params', body) as typeof resolver; // NOSONAR typescript:S1523 — test-authored source, see above
             compiled.set(source, resolver);
             g.__uiCompiledFns = compiled;
           }
