@@ -76,6 +76,28 @@ describe('SessionFilterBarComponent', () => {
     ]);
   }));
 
+  it('keeps a typed trailing space when the parent echoes the trimmed text', fakeAsync(() => {
+    type('session-filter-text', 'foo ');
+    tick(SESSION_FILTER_TEXT_DEBOUNCE_MS);
+    expect(emitted).toEqual([
+      { sort: 'lastActive', groupBy: 'none', text: 'foo' },
+    ]);
+
+    // The parent stores the emitted query and passes it back as the seed.
+    fixture.componentRef.setInput('query', emitted[0]);
+    fixture.detectChanges();
+    expect(el<HTMLInputElement>('session-filter-text').value).toBe('foo ');
+
+    // A seed that differs after trimming still replaces the draft.
+    fixture.componentRef.setInput('query', {
+      sort: 'lastActive',
+      groupBy: 'none',
+      text: 'bar',
+    });
+    fixture.detectChanges();
+    expect(el<HTMLInputElement>('session-filter-text').value).toBe('bar');
+  }));
+
   it('emits sort and group changes at once, carrying the pending text', fakeAsync(() => {
     type('session-filter-text', 'fix');
     select('session-filter-sort', 'priority');

@@ -82,6 +82,20 @@ const FOCUS_RING_WITHIN =
 
 let nextId = 0;
 
+/**
+ * The bar sends trimmed text, and the parent passes it back as the new query.
+ * Keep the typed draft while it trims to that value, so a space the user just
+ * typed is not removed from the input.
+ */
+function keepDraftUntilTrimmedChange(
+  seed: string,
+  previous: { source: string; value: string } | undefined,
+): string {
+  return previous !== undefined && previous.value.trim() === seed
+    ? previous.value
+    : seed;
+}
+
 @Component({
   selector: 'ptah-session-filter-bar',
   standalone: true,
@@ -323,14 +337,20 @@ export class SessionFilterBarComponent {
 
   protected readonly filtersOpen = signal(false);
 
-  protected readonly text = linkedSignal(() => this.query().text ?? '');
+  protected readonly text = linkedSignal<string, string>({
+    source: () => this.query().text ?? '',
+    computation: keepDraftUntilTrimmedChange,
+  });
   protected readonly statuses = linkedSignal<readonly SessionWorkflowStatus[]>(
     () => this.query().status ?? [],
   );
   protected readonly priorities = linkedSignal<readonly SessionPriority[]>(
     () => this.query().priority ?? [],
   );
-  protected readonly taskId = linkedSignal(() => this.query().taskId ?? '');
+  protected readonly taskId = linkedSignal<string, string>({
+    source: () => this.query().taskId ?? '',
+    computation: keepDraftUntilTrimmedChange,
+  });
   protected readonly pinnedOnly = linkedSignal(
     () => this.query().pinned === true,
   );
