@@ -5,6 +5,7 @@ import { MESSAGE_TYPES, normalizeWorkspaceRoot } from '@ptah-extension/shared';
 import type {
   FileContentChangedPayload,
   GitApplyHunksParams,
+  GitBlobRead,
   GitApplyHunksResult,
   GitChangeKind,
   GitDiffFileParams,
@@ -19,6 +20,7 @@ import type {
 import { GitStatusService } from './git-status.service';
 import type {
   DiffTabState,
+  DiffUnrenderable,
   HunkApplyFn,
   HunkApplyRequest,
 } from '../types/diff-tab.types';
@@ -158,6 +160,30 @@ function causesRefreshEverything(causes: readonly GitChangeKind[]): boolean {
       cause === 'refs' ||
       cause === 'initial',
   );
+}
+
+/**
+ * The first side whose content was read but not shipped (`too-large`,
+ * `lfs-pointer`), or `null`. Such a side's text is empty, so without this the
+ * file would render as an empty or all-deleted diff (Requirement 6.10).
+ */
+function unrenderableSide(
+  original: GitBlobRead,
+  modified: GitBlobRead,
+): DiffUnrenderable | null {
+  const sides = [
+    ['original', original],
+    ['modified', modified],
+  ] as const;
+  for (const [side, read] of sides) {
+    if (read.outcome === 'too-large') {
+      return { side, reason: 'too-large', size: read.byteLength };
+    }
+    if (read.outcome === 'lfs-pointer') {
+      return { side, reason: 'lfs-pointer', size: read.size };
+    }
+  }
+  return null;
 }
 
 type MutableComparison = Exclude<ReviewDiffComparison, { kind: 'historical' }>;
@@ -812,6 +838,7 @@ export class ReviewDiffService implements MessageHandler {
     // An empty token means the backend never reached a real repository read;
     // such a response is never fresh and its hunks describe nothing.
     const validated = result.snapshotToken !== '';
+    const unrenderable = unrenderableSide(result.original, result.modified);
     return {
       provenance: { kind: 'mutable', comparison: result.comparison },
       comparison: result.comparison,
@@ -822,10 +849,12 @@ export class ReviewDiffService implements MessageHandler {
       originalRef: result.originalRef,
       modifiedRef: result.modifiedRef,
       snapshotToken: result.snapshotToken,
-      hunks: failure || !validated ? [] : result.hunks,
+      // An unshipped side has no text to place a hunk against.
+      hunks: failure || !validated || unrenderable ? [] : result.hunks,
       isBinary:
         result.original.outcome === 'binary' ||
         result.modified.outcome === 'binary',
+      ...(unrenderable ? { unrenderable } : {}),
       status: failure || !validated ? 'error' : 'fresh',
       errorMessage: failure
         ? describeGitReadError(failure.code)
@@ -850,6 +879,9 @@ export class ReviewDiffService implements MessageHandler {
     const failure = result.success
       ? firstReadError(result.original, result.modified)
       : { code: 'unknown' as const, message: result.error ?? '' };
+    const unrenderable = result.success
+      ? unrenderableSide(result.original, result.modified)
+      : null;
     return {
       provenance: {
         kind: 'historical',
@@ -877,6 +909,7 @@ export class ReviewDiffService implements MessageHandler {
         result.success &&
         (result.original.outcome === 'binary' ||
           result.modified.outcome === 'binary'),
+      ...(unrenderable ? { unrenderable } : {}),
       status: failure ? 'error' : 'fresh',
       ...(failure
         ? {

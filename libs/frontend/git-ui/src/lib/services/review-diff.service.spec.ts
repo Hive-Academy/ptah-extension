@@ -222,6 +222,62 @@ describe('ReviewDiffService cache and mounting', () => {
     expect(service.entry(key)?.diff?.status).toBe('fresh');
   });
 
+  it.each([
+    [
+      'too-large',
+      { outcome: 'too-large', byteLength: 5_000_000 } as GitBlobRead,
+      5_000_000,
+    ],
+    [
+      'lfs-pointer',
+      {
+        outcome: 'lfs-pointer',
+        oid: 'a'.repeat(64),
+        size: 9_000,
+      } as GitBlobRead,
+      9_000,
+    ],
+  ] as const)(
+    '(Req 6.10) carries an unshipped %s side, with no hunks',
+    async (reason, read, size) => {
+      const { service } = makeService();
+      const key = await mountFresh(
+        service,
+        { path: 'big.bin' },
+        { modified: read, hunks: [hunk(0, 1)] },
+      );
+      const diff = service.entry(key)?.diff;
+      expect(diff?.status).toBe('fresh');
+      expect(diff?.unrenderable).toEqual({ side: 'modified', reason, size });
+      expect(diff?.hunks).toEqual([]);
+      expect(diff?.isBinary).toBe(false);
+    },
+  );
+
+  it('a plain text read carries no unrenderable side', async () => {
+    const { service } = makeService();
+    const key = await mountFresh(service, { path: 'a.ts' });
+    expect(service.entry(key)?.diff).not.toHaveProperty('unrenderable');
+  });
+
+  it('an unshipped side survives a refresh that could not reach git', async () => {
+    const { service } = makeService();
+    const key = await mountFresh(
+      service,
+      { path: 'big.bin' },
+      { original: { outcome: 'too-large', byteLength: 4_000_000 } },
+    );
+    mockRpcCall.mockResolvedValueOnce(fail());
+    await service.retry(key);
+    const diff = service.entry(key)?.diff;
+    expect(diff?.status).toBe('stale');
+    expect(diff?.unrenderable).toEqual({
+      side: 'original',
+      reason: 'too-large',
+      size: 4_000_000,
+    });
+  });
+
   it('bounds the unmounted cache, evicting the oldest first', async () => {
     const { service } = makeService();
     mockRpcCall.mockResolvedValue(ok(makeResult()));
@@ -827,6 +883,34 @@ describe('ReviewDiffService historical entries', () => {
     expect(service.entry(key)?.diff?.status).toBe('error');
     expect(service.entry(key)?.diff?.errorDetail).toBe('bad object');
   });
+
+  it.each([
+    [
+      'too-large',
+      { outcome: 'too-large', byteLength: 3_000_000 } as GitBlobRead,
+      3_000_000,
+    ],
+    [
+      'lfs-pointer',
+      { outcome: 'lfs-pointer', oid: 'f'.repeat(64), size: 42 } as GitBlobRead,
+      42,
+    ],
+  ] as const)(
+    'carries an unshipped %s side instead of empty text',
+    async (reason, read, size) => {
+      const { service } = makeService();
+      mockRpcCall.mockResolvedValue(ok(reviewFile({ original: read })));
+      const key = service.mount({ comparison: HISTORICAL, path: 'a.ts' });
+      await drain();
+      const diff = service.entry(key)?.diff;
+      expect(diff?.status).toBe('fresh');
+      expect(diff?.unrenderable).toEqual({ side: 'original', reason, size });
+      expect(diff?.originalRef).toEqual({
+        kind: 'commit',
+        sha: 'b'.repeat(40),
+      });
+    },
+  );
 
   it('applyHunks refuses a historical entry without calling git', async () => {
     const { service } = makeService();

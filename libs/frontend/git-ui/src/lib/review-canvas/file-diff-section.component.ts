@@ -20,6 +20,7 @@ import {
   type FileStatusCode,
 } from '@ptah-extension/ui';
 import { PierreDiffHostComponent } from '../renderer/pierre-diff-host.component';
+import type { DiffUnrenderable } from '../types/diff-tab.types';
 import type { PierreDiffStyle } from '../renderer/pierre-config';
 import {
   ReviewDiffService,
@@ -71,25 +72,61 @@ interface CommentComposer {
   readonly body: string;
 }
 
-const LABEL_ROW: Readonly<
-  Record<ReviewFileLabel, { icon: string; text: string; iconClass: string }>
-> = {
+/** A list label, or a read outcome that also replaces the diff body. */
+type LabelKind = ReviewFileLabel | DiffUnrenderable['reason'];
+
+interface LabelRow {
+  readonly icon: string;
+  readonly text: string;
+  readonly iconClass: string;
+  readonly textClass: string;
+}
+
+/**
+ * Copy and colours from design-spec §6 (Requirement 6.10): LFS, submodule and
+ * too-large are informational (`text-base-content-muted`); the conflicted
+ * icon is `text-error` (non-text, 3:1) with its label in `text-base-content`.
+ */
+const LABEL_ROW: Readonly<Record<LabelKind, LabelRow>> = {
   binary: {
     icon: '⊘',
     text: 'Binary file — diff not shown',
     iconClass: 'text-base-content',
+    textClass: 'text-base-content',
   },
   submodule: {
     icon: '▤',
     text: 'Submodule',
     iconClass: 'text-base-content-muted',
+    textClass: 'text-base-content-muted',
   },
   conflicted: {
     icon: '⚠',
     text: 'Conflicted — resolve to review',
     iconClass: 'text-error',
+    textClass: 'text-base-content',
+  },
+  'lfs-pointer': {
+    icon: '⇪',
+    text: 'Git LFS pointer — diff not shown',
+    iconClass: 'text-base-content-muted',
+    textClass: 'text-base-content-muted',
+  },
+  'too-large': {
+    icon: '▦',
+    text: 'Too large to display',
+    iconClass: 'text-base-content-muted',
+    textClass: 'text-base-content-muted',
   },
 };
+
+/** `1.5 MB` style size, or `null` for a size not worth showing. */
+function formatSize(bytes: number): string | null {
+  if (!Number.isFinite(bytes) || bytes <= 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 const FOCUS_RING =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[oklch(var(--s))]';
@@ -112,7 +149,9 @@ function splitLines(text: string): string[] {
  *   host is created inside `@defer`, so the renderer and its observers exist
  *   only for near-visible files. Off-screen, the section keeps the reserved
  *   height so the scrollbar stays accurate.
- * - Labelled rows (binary, submodule, conflicted) never read or render text.
+ * - Labelled rows (binary, submodule, conflicted) never read or render text;
+ *   a read that reports a binary, too-large or LFS-pointer side becomes a
+ *   labelled row too, so Pierre never mounts empty text for it.
  * - A failed read shows its sanitized message with Retry, never as content.
  * - Each hunk carries a `HunkToolbarComponent` through Pierre's slot. While a
  *   refusal chip shows, the diff body is dimmed to 85% until the re-read.
@@ -295,14 +334,7 @@ function splitLines(text: string): string[] {
         data-testid="file-label-row"
       >
         <span [class]="row.iconClass" aria-hidden="true">{{ row.icon }}</span>
-        <span
-          [class]="
-            labelKind() === 'submodule'
-              ? 'text-base-content-muted'
-              : 'text-base-content'
-          "
-          >{{ row.text }}</span
-        >
+        <span [class]="row.textClass">{{ row.text }}</span>
       </div>
     } @else if (!near()) {
       <div aria-hidden="true" data-testid="file-placeholder"></div>
@@ -442,13 +474,27 @@ export class FileDiffSectionComponent {
     return key ? (this.reviewDiff.entries().get(key)?.diff ?? null) : null;
   });
 
-  /** The list's label, or binary once a read says so. */
-  protected readonly labelKind = computed<ReviewFileLabel | null>(
-    () => this.file().label ?? (this.diff()?.isBinary ? 'binary' : null),
-  );
-  protected readonly labelRow = computed(() => {
+  /**
+   * The list's label, or what a read says replaces the text: binary, or a
+   * side that was too large or an LFS pointer (shipped without content).
+   */
+  protected readonly labelKind = computed<LabelKind | null>(() => {
+    const listed = this.file().label;
+    if (listed) return listed;
+    const diff = this.diff();
+    // A failed read keeps its error row and Retry; a label must not hide it.
+    if (!diff || diff.status === 'error') return null;
+    if (diff.isBinary) return 'binary';
+    return diff.unrenderable?.reason ?? null;
+  });
+  protected readonly labelRow = computed<LabelRow | null>(() => {
     const kind = this.labelKind();
-    return kind ? LABEL_ROW[kind] : null;
+    if (!kind) return null;
+    const row = LABEL_ROW[kind];
+    const unrenderable = this.diff()?.unrenderable;
+    const size =
+      unrenderable?.reason === kind ? formatSize(unrenderable.size) : null;
+    return size ? { ...row, text: `${row.text} (${size})` } : row;
   });
 
   /** Placeholder height while nothing measurable is rendered. */

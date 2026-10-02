@@ -299,6 +299,73 @@ describe('FileDiffSectionComponent', () => {
       expect(byTestId('file-label-row')?.textContent).toContain('Binary file');
       expect(pierre()).toBeNull();
     });
+
+    it.each([
+      [
+        'too-large',
+        3 * 1024 * 1024 + 512 * 1024,
+        'Too large to display (3.5 MB)',
+      ],
+      ['lfs-pointer', 2048, 'Git LFS pointer — diff not shown (2.0 KB)'],
+    ] as const)(
+      'labels a %s side with its size instead of mounting the renderer',
+      async (reason, size, text) => {
+        await create({
+          near: true,
+          draftOwner: owner,
+          editorTargets: [{ id: 'vscode', displayName: 'VS Code' }],
+        });
+        setDiff(
+          makeDiff({
+            hunks: [],
+            original: 'a\n',
+            modified: '',
+            unrenderable: { side: 'modified', reason, size },
+          }),
+        );
+        await settle();
+        const row = byTestId('file-label-row');
+        expect(row?.textContent).toContain(text);
+        expect(row?.querySelector('.text-base-content-muted')).not.toBeNull();
+        expect(pierre()).toBeNull();
+        expect(byTestId('file-diff-body')).toBeNull();
+        expect(byTestId('file-section-comment')).toBeNull();
+        expect(host().querySelector('ptah-open-in-button')).not.toBeNull();
+      },
+    );
+
+    it('omits a size that is not known', async () => {
+      await create({ near: true });
+      setDiff(
+        makeDiff({
+          hunks: [],
+          original: '',
+          modified: '',
+          unrenderable: { side: 'original', reason: 'too-large', size: 0 },
+        }),
+      );
+      await settle();
+      expect(byTestId('file-label-row')?.textContent?.trim()).toMatch(
+        /Too large to display$/,
+      );
+    });
+
+    it('keeps the error row when a failed read also carries an unshipped side', async () => {
+      await create({ near: true });
+      setDiff(
+        makeDiff({
+          status: 'error',
+          errorMessage: 'Git could not read this file.',
+          hunks: [],
+          original: '',
+          modified: '',
+          unrenderable: { side: 'modified', reason: 'lfs-pointer', size: 10 },
+        }),
+      );
+      await settle();
+      expect(byTestId('file-label-row')).toBeNull();
+      expect(byTestId('file-read-error')).not.toBeNull();
+    });
   });
 
   describe('read failures', () => {
