@@ -219,3 +219,36 @@ Not defects: the Electron order chips fade after the third chip (user list, Batc
 and the fold is met in both hosts and themes. One new Serious (N1) is a one-line layout fix; with it fixed this is
 PASS WITH NOTES (carried notes: V36-3 light muted contrast deferred, two app-shell dialogs as hidden Tab stops, N2).
 Open items: N1; the app-shell dialog Tab stops (follow-up).
+
+
+## Re-check 2 (2026-10-02, visual-reviewer subagent — same-side, disclosed)
+
+Scope: head `493baad02` (batch 36c), webview dist current. Throwaway Playwright probe (deleted after the run), 4 combinations
+(vscode / electron x anubis / anubis-light) at 1024x768. Evidence in `screenshots/gate-v36r2/` (`probe-*.json`,
+`more-open-*.png`, `checkbox8x-*.png`). I ran no committed spec, so no `current-*.png` was rewritten (`git status` clean for
+captures; no source file touched).
+
+| Item | Result | Evidence |
+| --- | --- | --- |
+| N1 More actions menu | **fixed** | Edit and Delete are stacked (Delete top = Edit bottom), both inside the panel (about 3-5 px inset) and inside the 1024x768 viewport, panel 162 px, no content overflow. VS Code panel x 748-910 (light) / 748-910, Electron x 780-942; right edges all under 1024. Opening focuses Edit; Esc returns focus to the More trigger (all 4). `more-open-electron-anubis-light.png` read as an image: a clean two-row menu. |
+| On checkbox | **fixed** | Box 18x18 in all 4; with animations settled `background-position` is `-1px 0` (the tick is centred); `checkbox8x-vscode-anubis-light.png` and `checkbox8x-electron-anubis.png` show a centred tick. Caveat: my crops came out at 1x (about 26 px; the device-scale override did not upscale), so the centring is also confirmed by the computed offset and by the full-page capture above, not by an 8x zoom. |
+| Fold | **confirmed** | VS Code 125 / 206 / 247 / 550; Electron 165 / 266 / 309 / 600; all <= 660, both themes. |
+| Focus after Cursor key removal | **not verifiable in the harness** | The fixture has no stored-key read-back: a Save reports "The key was not saved." and the Remove button never shows, so the row cannot move into the Uninstalled group. The fallback to `cli-matrix-uninstalled-toggle` rests on Jest (`cli-matrix.component.spec.ts:481`) only. |
+
+### New defect
+
+**N3 (Moderate).** In the Cursor Credentials popover, a Save that does not succeed leaves keyboard focus on `body` and Esc then does not
+close the popover (probe, all 4 combos: focus `BODY` before and after Esc, popover still open). The key, Save and Remove buttons
+are natively `disabled` while busy (`cursor-credential-popover.component.ts:65`, `:76`, `:79`), so the focused control loses
+focus when the save starts, and nothing returns it. The order popover and role cells already avoid this with `aria-disabled`
+(Batch 36 / 36b M-2). Impact: a keyboard user who presses Save and gets a failure must Tab back in, and cannot Esc out. A
+successful save closes the popover, so this is the failure path only. Fix: `aria-disabled` plus a guard, or refocus the key
+input when the save ends. Not a fold or layout issue.
+
+Carried, unchanged: V36-3 light muted contrast (deferred, muted-token batch); two app-shell `<dialog>` elements outside Settings
+that are hidden Tab stops (recorded follow-up); N2 Electron provider names truncated with a mouse-only tooltip.
+
+### Verdict
+
+**PASS WITH NOTES**, score **8/10** (was 7/10). N1 and the checkbox are fixed and the fold holds in both hosts and themes. Notes: N3
+(Moderate), the unverifiable removal-focus fallback, V36-3 deferred, the app-shell dialog Tab stops, N2.

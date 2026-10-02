@@ -1,0 +1,47 @@
+{
+ "fold": {
+  "bar": 125,
+  "head": 206,
+  "row": 247,
+  "roles": 550
+ },
+ "checkboxBox": {
+  "x": 114,
+  "y": 215,
+  "width": 18,
+  "height": 18
+ },
+ "checkboxStyle": "18pxx18px bgpos=-1px -0.088525px, -1px -0.088525px, -1px -0.088525px, -1px -0.088525px, -1px -0.088525px anim=checkmark",
+ "more": {
+  "panel": {
+   "l": 748,
+   "r": 910,
+   "t": 355,
+   "b": 423
+  },
+  "edit": {
+   "l": 753,
+   "r": 905,
+   "t": 361,
+   "b": 389
+  },
+  "del": {
+   "l": 753,
+   "r": 905,
+   "t": 389,
+   "b": 417
+  },
+  "vw": 1024,
+  "vh": 768,
+  "scrollOverflow": 0
+ },
+ "cursorAfterSave": {
+  "popoverOpen": 1,
+  "status": "Not set",
+  "outcome": "The key was not saved.",
+  "removeVisible": 0
+ },
+ "focusBeforeEsc": "BODY",
+ "popAfterEsc": 1,
+ "focusAfterClose": "BODY"
+}
