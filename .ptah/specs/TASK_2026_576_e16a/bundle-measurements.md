@@ -63,3 +63,39 @@ Method: esbuild browser ESM bundle of `libs/frontend/git-ui/src/diff-renderer.ts
 
 The first realistic diff loads ~149.7 KB gz (153,279 B), well within the ≤ 217 KB gz bar (research baseline 189 KB × 1.15 ≈ 217 KB). Pierre and its grammars are completely isolated in lazy chunks.
 
+
+## Batch 60 - A9 re-measure (review canvas, Electron e2e)
+
+Spec: `apps/ptah-electron-e2e/src/specs/git/review-canvas-large.spec.ts` (single spec, own user-data dir; run with
+`npx playwright test --config=playwright.config.ts src/specs/git/review-canvas-large.spec.ts`).
+
+- Fixture: 200 changed files (`src/pkgNN/fileNNN.ts`, 120 lines each, lines 11-60 rewritten) = 10,000 modified lines
+  (+10,000 / -10,000), served through a path-keyed mocked `git:diffFile`; split layout; production renderer build
+  from d9702a514 with the Pierre worker pool wired. Real list height after measuring: ~266,000-271,000 px.
+- Sweep: in-page requestAnimationFrame loop, time-based `scrollTop` at 3,000 px/s from top to bottom (~90 s);
+  fps = frames / elapsed from rAF timestamps; long tasks from a `PerformanceObserver('longtask')`. An idle rAF
+  baseline is taken first (`idleFps`) to prove the window was not throttled.
+- Budgets: >= 50 fps, no long task > 200 ms (Requirement 6.2).
+
+| Run | Sweep speed | idle fps | Sweep fps | Worst frame | Long tasks (>50 ms) | Max long task | Result |
+| --- | ----------- | -------- | --------- | ----------- | ------------------- | ------------- | ------ |
+| 1 | 48 px/frame (~2,900 px/s), cut at 1,800 frames | n/a | 47.1 | 1,059.6 ms | 38 | 858 ms | fps FAIL, long task FAIL |
+| 2 | 20 px/frame (~1,200 px/s), cut at 1,800 frames | n/a | 50.0 | 183.4 ms | 77 | 104 ms | borderline |
+| 3 | 1,800 px/s | 59.5 | 48.1 | 183.3 ms | 269 | 117 ms | fps FAIL, long task pass |
+| 4 | 3,000 px/s | 59.5 | 49.7 | 149.9 ms | 62 | 124 ms | fps FAIL (0.3 short), long task pass |
+| 5 | 3,000 px/s (background throttling off) | 60.0 | 41.4 | 1,016.4 ms | 175 | 242 ms | fps FAIL, long task FAIL |
+| (discarded) | 3,000 px/s | 1.0 | 1.0 | - | - | - | window occluded, rAF throttled to 1 fps; the spec now disables background throttling and asserts idle fps > 30 |
+
+Verdict: NOT proven on this machine. Typical sweep is 48-50 fps with the longest task 104-124 ms (inside the
+200 ms budget) but two of the five valid runs show frames/tasks far beyond budget (858 ms and 242 ms), so the
+200 ms ceiling is not reliably held either. The A9 spike's 54 fps / 0 long tasks (headless Chromium 1280x800,
+unloaded) was not reproduced.
+
+Machine note: Windows 11 laptop with the user's own Ptah desktop app running alongside, and other agents running
+builds and unit tests in the same period; CPU contention is the likely cause of the run-to-run spread (41-50 fps,
+242 ms vs 124 ms max task) and the numbers above are an upper bound on cost, not a clean-room figure. Re-run on an
+idle machine before treating the miss as a product regression; the spec stays red until then (thresholds are
+unchanged).
+
+Related single-file e2e numbers from the same batch: `perf-m1-diff-redisplay.spec.ts` (Changes -> Task -> Changes,
+500-line file): median 129.7 ms, max 191.7 ms over 10 round trips.

@@ -68,6 +68,13 @@ async function prepareApp(
   return { app, page, ui, rpc: new RpcBridge(app) };
 }
 
+/**
+ * Source-control rail � TASK_2026_576 Batch 60: the rail is now the review
+ * canvas's changed-file tree (`ptah-changed-file-tree`, id
+ * `git-source-control-rail`) beside the continuous diff list
+ * (`review-canvas-list`). Header toggle, drag-resize, width/collapsed
+ * persistence and restore after restart are the behaviours proven, unchanged.
+ */
 test.describe('git source-control rail', () => {
   test('collapses, resizes, and restores both states after app restart', async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-rail-e2e-'));
@@ -88,33 +95,36 @@ test.describe('git source-control rail', () => {
       await initial.page
         .getByRole('button', { name: 'Toggle Workspaces panel' })
         .click();
-      const dock = initial.page.locator('ptah-git-dock');
+      const dock = initial.page.locator('ptah-review-shell');
       await expect(dock).toBeVisible();
       const dockBox = await dock.boundingBox();
       expect(dockBox?.width).toBeGreaterThanOrEqual(699);
       expect(dockBox?.width).toBeLessThanOrEqual(701);
 
+      // The rail is the changed-file tree; the content is the review canvas.
       await expect(
-        initial.page.locator('ptah-source-control-file'),
+        initial.page
+          .getByRole('tree', { name: 'Changed files' })
+          .locator('[data-testid="tree-row-file"]'),
       ).toHaveCount(2);
-      await initial.page
-        .getByRole('button', { name: 'Open diff for alpha.ts', exact: true })
-        .click();
-      const content = initial.page.locator('[data-testid="git-dock-content"]');
+      const content = initial.page.locator(
+        '[data-testid="review-canvas-list"]',
+      );
       await expect(content).toBeVisible();
+      await expect(initial.ui.reviewFileSection('alpha.ts')).toBeVisible();
       const initialContentWidth = (await content.boundingBox())?.width ?? 0;
 
       const toggle = initial.page.locator('[data-testid="git-rail-toggle"]');
       await toggle.click();
       await expect(
-        initial.page.locator('#git-source-control-rail'),
+        initial.page.locator('[data-testid="changed-file-tree"]'),
       ).toHaveCount(0);
       expect((await content.boundingBox())?.width ?? 0).toBeGreaterThan(
         initialContentWidth + 250,
       );
       await toggle.click();
 
-      const rail = initial.page.locator('#git-source-control-rail');
+      const rail = initial.page.locator('[data-testid="changed-file-tree"]');
       await expect(rail).toBeVisible();
       const separator = initial.page.getByRole('separator', {
         name: 'Resize source control',
@@ -157,11 +167,13 @@ test.describe('git source-control rail', () => {
       );
       await expect(restartedToggle).toHaveAttribute('aria-expanded', 'false');
       await expect(
-        restarted.page.locator('#git-source-control-rail'),
+        restarted.page.locator('[data-testid="changed-file-tree"]'),
       ).toHaveCount(0);
 
       await restartedToggle.click();
-      const restoredRail = restarted.page.locator('#git-source-control-rail');
+      const restoredRail = restarted.page.locator(
+        '[data-testid="changed-file-tree"]',
+      );
       await expect(restoredRail).toBeVisible();
       await expect
         .poll(async () => (await restoredRail.boundingBox())?.width)
