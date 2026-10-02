@@ -31,6 +31,7 @@ import {
   GIT_READ_TRANSPORT_MESSAGE,
   readSideText,
 } from './git-read-error-messages';
+import { toFileContentChange } from './file-content-change';
 
 /**
  * Which two sides a review-canvas diff compares.
@@ -125,27 +126,6 @@ function comparisonId(comparison: ReviewDiffComparison): string {
   return comparison.kind === 'historical'
     ? `${comparison.base.sha}..${comparison.head.sha}`
     : comparison.kind;
-}
-
-/**
- * Narrow an inbound `file:content-changed` payload. Anything that is not the
- * batch shape yields `null`; non-string entries are dropped rather than
- * failing the whole batch (the payload changed shape in TASK_2026_437).
- */
-function toFileContentChange(
-  payload: unknown,
-): FileContentChangedPayload | null {
-  if (typeof payload !== 'object' || payload === null) return null;
-  const { filePaths, truncated } = payload as Partial<
-    Record<keyof FileContentChangedPayload, unknown>
-  >;
-  if (!Array.isArray(filePaths)) return null;
-  return {
-    filePaths: filePaths.filter(
-      (entry): entry is string => typeof entry === 'string' && entry !== '',
-    ),
-    truncated: truncated === true,
-  };
 }
 
 /**

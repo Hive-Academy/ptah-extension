@@ -32,6 +32,7 @@ import {
   createExecutionChatMessage,
   SessionId,
   EffortLevel,
+  normalizeWorkspaceRoot,
 } from '@ptah-extension/shared';
 import {
   ConversationRegistry,
@@ -251,11 +252,18 @@ export class MessageSenderService {
    * The workspace a tab belongs to when that is NOT the active workspace, else
    * `null` (the active workspace keeps using the host's configured root).
    */
-  private backgroundWorkspaceOf(tabId: string | null | undefined): string | null {
+  private backgroundWorkspaceOf(
+    tabId: string | null | undefined,
+  ): string | null {
     if (!tabId) return null;
     const lookup = this.tabManager.findTabByIdAcrossWorkspaces(tabId);
     if (!lookup?.workspacePath) return null;
-    return lookup.workspacePath === this.tabManager.activeWorkspacePath
+    // Two spellings of one folder (separator, trailing slash, drive-letter
+    // case) are the active workspace, not a background one.
+    const active = this.tabManager.activeWorkspacePath;
+    return active !== null &&
+      normalizeWorkspaceRoot(lookup.workspacePath) ===
+        normalizeWorkspaceRoot(active)
       ? null
       : lookup.workspacePath;
   }

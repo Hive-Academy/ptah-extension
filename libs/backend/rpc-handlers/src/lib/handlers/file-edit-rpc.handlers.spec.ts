@@ -13,9 +13,13 @@ import { createHash } from 'node:crypto';
  *  - `mockRealpathOverrides` simulates a symlink escape on hosts that may not
  *    create a real symlink (unprivileged Windows).
  *  - `mockRename` makes the final rename fail, to prove atomicity.
+ *  - `mockOnOpen` sees every opened handle, to observe the temp file's chmod.
  */
 const mockRealpathOverrides = new Map<string, string>();
 let mockRename: ((from: string, to: string) => Promise<void>) | undefined;
+let mockOnOpen:
+  | ((handle: { chmod: (mode: number) => Promise<void> }, file: string) => void)
+  | undefined;
 jest.mock('node:fs/promises', () => {
   const actual = jest.requireActual('node:fs/promises');
   return {
@@ -25,6 +29,11 @@ jest.mock('node:fs/promises', () => {
       (await actual.realpath(target, ...rest)),
     rename: async (from: string, to: string) =>
       mockRename ? mockRename(from, to) : actual.rename(from, to),
+    open: async (file: unknown, ...rest: unknown[]) => {
+      const handle = await actual.open(file, ...rest);
+      mockOnOpen?.(handle, String(file));
+      return handle;
+    },
   };
 });
 
@@ -109,6 +118,7 @@ describe('FileEditRpcHandlers — file:saveContent', () => {
     jest.clearAllMocks();
     mockRealpathOverrides.clear();
     mockRename = undefined;
+    mockOnOpen = undefined;
     base = await fs.realpath(
       await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-fileedit-')),
     );
@@ -405,6 +415,113 @@ describe('FileEditRpcHandlers — file:saveContent', () => {
     });
     await expect(fs.stat(path.join(workspace, 'new.txt'))).rejects.toThrow();
   });
+
+  it('refuses a file inside the .git directory and leaves it alone', async () => {
+    const { absolute, sha256 } = await seed('.git/config', '[core]');
+    const result = await save({
+      path: '.git/config',
+      workspaceRoot: workspace,
+      content: '[core]\n\thooksPath = /tmp/evil',
+      expectedSha256: sha256,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      reason: 'unwritable',
+      error: 'That file could not be saved.',
+    });
+    expect(await fs.readFile(absolute, 'utf8')).toBe('[core]');
+    expect(await strayTemps()).toEqual([]);
+  });
+
+  it('refuses a path whose realpath lands inside .git', async () => {
+    const { absolute: head } = await seed('.git/HEAD', 'ref: refs/heads/main');
+    const { absolute: alias, sha256 } = await seed('alias.txt', 'decoy');
+    mockRealpathOverrides.set(alias, head);
+
+    const result = await save({
+      path: alias,
+      content: 'pwned',
+      expectedSha256: sha256,
+      overwrite: true,
+    });
+
+    expect(result).toMatchObject({ success: false, reason: 'unwritable' });
+    expect(await fs.readFile(head, 'utf8')).toBe('ref: refs/heads/main');
+  });
+
+  it('matches a .git segment case-insensitively where the filesystem folds case', async () => {
+    const { absolute, sha256 } = await seed('.GIT/config', 'keep');
+    const result = await save({
+      path: absolute,
+      content: 'new',
+      expectedSha256: sha256,
+    });
+
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      expect(result).toMatchObject({ success: false, reason: 'unwritable' });
+      expect(await fs.readFile(absolute, 'utf8')).toBe('keep');
+    } else {
+      // On linux `.GIT` is a different directory from git's `.git`.
+      expect(result).toEqual({ success: true, sha256: sha256Of('new') });
+    }
+  });
+
+  it('allows a file whose name only starts with .git', async () => {
+    const { absolute, sha256 } = await seed('.gitignore', 'dist');
+    const result = await save({
+      path: absolute,
+      content: 'dist\nnode_modules',
+      expectedSha256: sha256,
+    });
+    expect(result).toEqual({
+      success: true,
+      sha256: sha256Of('dist\nnode_modules'),
+    });
+  });
+
+  it('sets the temp file to the original mode before writing it', async () => {
+    const { absolute, sha256 } = await seed('a.txt', 'old');
+    const chmods: number[] = [];
+    mockOnOpen = (handle, file) => {
+      if (!file.endsWith('.ptah-save')) return;
+      const original = handle.chmod.bind(handle);
+      handle.chmod = async (mode: number) => {
+        chmods.push(mode);
+        await original(mode);
+      };
+    };
+    const { mode } = await fs.stat(absolute);
+
+    const result = await save({
+      path: absolute,
+      content: 'new',
+      expectedSha256: sha256,
+    });
+
+    expect(result).toEqual({ success: true, sha256: sha256Of('new') });
+    expect(chmods).toEqual([mode & 0o777]);
+  });
+
+  (process.platform === 'win32' ? it.skip : it)(
+    'keeps the original permission bits even under a restrictive umask',
+    async () => {
+      const { absolute, sha256 } = await seed('script.sh', 'echo old');
+      await fs.chmod(absolute, 0o755);
+      const previous = process.umask(0o077);
+      try {
+        const result = await save({
+          path: absolute,
+          content: 'echo new',
+          expectedSha256: sha256,
+        });
+        expect(result).toEqual({ success: true, sha256: sha256Of('echo new') });
+      } finally {
+        process.umask(previous);
+      }
+      expect((await fs.stat(absolute)).mode & 0o777).toBe(0o755);
+    },
+  );
 
   it('refuses a directory', async () => {
     await fs.mkdir(path.join(workspace, 'dir'));

@@ -1506,7 +1506,7 @@ executors at once.
 
 # P4 — Review canvas, spot editor (built unmounted; see "Cutover moved after P5")
 
-### P4 waves (branch `feat/task-2026-576-p4`, worktree `.claude-worktrees/task-576-p4`, PR stacked on P3)
+## P4 waves (branch `feat/task-2026-576-p4`, worktree `.claude-worktrees/task-576-p4`, PR stacked on P3)
 
 | Wave | Batches | Notes |
 |---|---|---|
@@ -1735,7 +1735,9 @@ executors at once.
   (fetch asset once, 10 s abort, outside the zone, pool size max(2, min(cores, 6)), fallback to main thread with one
   warning), host waits for the pool before mounting, `PIERRE_HIGHLIGHT_OPTIONS` shared so word diff stays on, asset
   `assets/pierre/worker-portable.js` (442,777 B, lazy only), VS Code `worker-src blob:` + spec,
-  `MAX_RENDERABLE_CHANGED_LINES = 3000` (over the cap: labelled row, no read). Too-large/LFS fix `8b9466240`.
+  `MAX_RENDERABLE_CHANGED_LINES = 3000` (list numstat counts over the cap: labelled row, no read; no counts
+  (untracked, uncounted stash row): the diff is read and becomes the labelled row when it brings back more lines
+  than the cap, before Pierre mounts). Too-large/LFS fix `8b9466240`.
   Noted: webview initial-bundle budget warning 3.36 MB vs 2.5 MB; `lru_map` CommonJS warning. Batch 60 re-measures.
 
 ## Batch 39: `file:viewContent` sha256/bom and save contract types — COMPLETE

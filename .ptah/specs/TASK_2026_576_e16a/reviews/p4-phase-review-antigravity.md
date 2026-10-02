@@ -20,7 +20,7 @@
 | MOD-1 | [message-dispatch.service.ts:178-188](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/chat/src/lib/services/chat-store/message-dispatch.service.ts#L178-L188) | Moderate | Sending feedback while a tab is streaming auto-denies all pending permissions across all sessions via `handlePermissionResponse('deny_with_message')` using the review comment text as the denial reason. |
 | MOD-2 | [review-diff.service.ts:370, 427-432](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/services/review-diff.service.ts#L370) | Moderate | Windows path separator discrepancies: `onGitStatusUpdate` checks `target !== active` without normalizing backslashes, ignoring status updates; `mergePendingRefreshScope` stores raw `file.path` with backslashes while `entry.path` is forward-slash normalized, causing path matches to fail and skipping diff revalidation. |
 | MOD-3 | [review-diff.service.ts:928-932](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/services/review-diff.service.ts#L928-L932) | Moderate | Windows drive-letter casing mismatch (`D:/` vs `d:/`) in `toWorkspaceRelative` causes `normalizedPath.startsWith(prefix)` to return `false`, silently dropping `file:content-changed` updates for working-tree files. |
-| MOD-4 | [file-edit-rpc.handlers.ts:183-185](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/backend/rpc-handlers/src/lib/handlers/file-edit-rpc.handlers.ts#L183-L185) | Moderate | If target file on disk has a UTF-8 BOM and caller content already begins with `\uFEFF` (e.g. pasted or externally modified), `file:saveContent` unconditionally prepends `UTF8_BOM`, saving the file with two consecutive BOMs. |
+| MOD-4 | [file-edit-rpc.handlers.ts:183-185](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/backend/rpc-handlers/src/lib/handlers/file-edit-rpc.handlers.ts#L183-L185) | Moderate | If target file on disk has a UTF-8 BOM and caller content already begins with `\uFEFF` (e.g. pasted or externally modified), `file:saveContent` unconditionally prepends `UTF8_BOM`, saving the file with two consecutive BOMs. [Orchestrator note: MOD-4 was rejected with contract specs in `e7351c0bb`; the rejection was accepted in round 1.] |
 | MIN-1 | [hunk-toolbar.component.ts:320, 408-412](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/review-canvas/hunk-toolbar.component.ts#L320) | Minor | When a hunk revert succeeds and the re-read completes, the reverted hunk is removed from the diff. Focus, which had been restored to the Reject button upon dialog close, is lost to `<body>` when the button is destroyed. |
 | MIN-2 | [review-navigation.service.ts:233-242](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/services/review-navigation.service.ts#L233-L242) | Minor | `openStashFile` maps stash file entries to `GitReviewFile` with hardcoded `binary: false`, reporting binary stash files as text in the historical file list. |
 | MIN-3 | [review-diff.service.ts:738](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/services/review-diff.service.ts#L738) | Minor | `resetCache` clears `requestIds`. Rapid workspace switching back and forth while reads are in flight can cause request IDs to reset to 1 and match stale read results. |
@@ -42,7 +42,7 @@
 
 ### 3. What input data produces a wrong answer?
 
-- **Saving a UTF-8 file with an existing BOM when the editor text contains `\uFEFF` ([file-edit-rpc.handlers.ts:183-185](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/backend/rpc-handlers/src/lib/handlers/file-edit-rpc.handlers.ts#L183-L185))**: `saveContent` detects `encoding.bom === true` on disk and unconditionally prepends `UTF8_BOM` to `request.content`. If `request.content` already begins with a BOM character (pasted text or external editor buffer), two consecutive BOMs (`EF BB BF EF BB BF`) are written to disk.
+- **Saving a UTF-8 file with an existing BOM when the editor text contains `\uFEFF` ([file-edit-rpc.handlers.ts:183-185](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/backend/rpc-handlers/src/lib/handlers/file-edit-rpc.handlers.ts#L183-L185))**: `saveContent` detects `encoding.bom === true` on disk and unconditionally prepends `UTF8_BOM` to `request.content`. If `request.content` already begins with a BOM character (pasted text or external editor buffer), two consecutive BOMs (`EF BB BF EF BB BF`) are written to disk. [Orchestrator note: MOD-4 was rejected with contract specs in `e7351c0bb`; the rejection was accepted in round 1.]
 - **Stash file viewing for binary assets ([review-navigation.service.ts:233-242](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/services/review-navigation.service.ts#L233-L242))**: `openStashFile` constructs a `GitReviewFile` object with hardcoded `binary: false`. Any caller or UI badge checking `file.binary` will treat the binary stash entry as text until `ReviewDiffService` loads the blobs.
 
 ### 4. What happens when a dependency fails?
@@ -55,7 +55,7 @@
 
 - **Cross-platform path normalization in diff revalidation**: No unified path equality comparison between inbound status payloads and internal review cache keys.
 - **Post-revert focus target**: No fallback focus target when a reverted hunk host is unmounted from the DOM upon re-rendering.
-- **BOM deduplication on save**: No check to strip a leading `\uFEFF` from `request.content` before prepending the disk BOM.
+- **BOM deduplication on save**: No check to strip a leading `\uFEFF` from `request.content` before prepending the disk BOM. [Orchestrator note: MOD-4 was rejected with contract specs in `e7351c0bb`; the rejection was accepted in round 1.]
 
 ---
 
@@ -89,7 +89,7 @@
 - Current handling: `for (const perm of this.permissionHandler.permissionRequests())` denies all requests globally.
 - Recommendation: Filter permission requests by `targetTabId` / session ID, and only auto-deny if the message is user interactive text intended for that specific prompt.
 
-### FM-5: Double UTF-8 BOM on saveContent
+### FM-5: Double UTF-8 BOM on saveContent [Orchestrator note: MOD-4 was rejected with contract specs in `e7351c0bb`; the rejection was accepted in round 1.]
 - Trigger: Spot editor saves a file that originally had a BOM, where the edited content string retains a leading `\uFEFF`.
 - Symptom: The file is written with 6 leading bytes (`EF BB BF EF BB BF`), corrupting parsers that expect a single BOM.
 - Evidence: [file-edit-rpc.handlers.ts:183-185](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/backend/rpc-handlers/src/lib/handlers/file-edit-rpc.handlers.ts#L183-L185)
@@ -125,7 +125,7 @@ None. The core invariants (no arbitrary command execution, no uncontained path t
 - **MOD-1**: Global auto-denial of permissions across tabs on feedback send ([message-dispatch.service.ts:179-187](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/chat/src/lib/services/chat-store/message-dispatch.service.ts#L179-L187)).
 - **MOD-2**: `ReviewDiffService` status revalidation dropped on Windows due to unnormalized slashes ([review-diff.service.ts:370, 427-432](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/services/review-diff.service.ts#L370)).
 - **MOD-3**: `ReviewDiffService.toWorkspaceRelative` case sensitivity on Windows drive letters ([review-diff.service.ts:928-932](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/services/review-diff.service.ts#L928-L932)).
-- **MOD-4**: Double BOM written when saving content with existing BOM ([file-edit-rpc.handlers.ts:183-185](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/backend/rpc-handlers/src/lib/handlers/file-edit-rpc.handlers.ts#L183-L185)).
+- **MOD-4**: Double BOM written when saving content with existing BOM ([file-edit-rpc.handlers.ts:183-185](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/backend/rpc-handlers/src/lib/handlers/file-edit-rpc.handlers.ts#L183-L185)). [Orchestrator note: MOD-4 was rejected with contract specs in `e7351c0bb`; the rejection was accepted in round 1.]
 - **MIN-1**: Focus lost to `<body>` after hunk revert completes ([hunk-toolbar.component.ts:320](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/review-canvas/hunk-toolbar.component.ts#L320)).
 - **MIN-2**: Hardcoded `binary: false` in `ReviewNavigationService.openStashFile` ([review-navigation.service.ts:240](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/services/review-navigation.service.ts#L240)).
 - **MIN-3**: `requestIds` counter reset on `resetCache` during rapid workspace switches ([review-diff.service.ts:738](file:///D:/projects/ptah-extension/.claude-worktrees/task-576-p4/libs/frontend/git-ui/src/lib/services/review-diff.service.ts#L738)).
@@ -152,7 +152,7 @@ None. The core invariants (no arbitrary command execution, no uncontained path t
    - Schema parses strict parameters (**OK**).
    - `FileLinkRootPolicy.resolveForView` ensures lexical and realpath workspace containment (**OK**).
    - Optimistic concurrency compares lowercase `expectedSha256` (**OK**).
-   - UTF-8 validation and BOM handling (**GAP: MOD-4**).
+   - UTF-8 validation and BOM handling (**GAP: MOD-4**). [Orchestrator note: MOD-4 was rejected with contract specs in `e7351c0bb`; the rejection was accepted in round 1.]
    - Atomic rename via temp file with exclusive `wx` flag and cleanup (**OK**).
 5. **Skills drawer CSP & diff render**:
    - VS Code CSP keeps `script-src 'nonce-${nonce}'` strict (**OK**).
@@ -170,7 +170,7 @@ None. The core invariants (no arbitrary command execution, no uncontained path t
 | Batch 35: `ReviewDiffService` + `ReviewNavigationService` | PARTIAL | Windows path normalization discrepancies bypass diff revalidation. |
 | Batch 36: `ReviewCommentDraftStore` + `HunkToolbarComponent` | PARTIAL | In-flight send promise reuse leads to unsent drafts; focus dropped on revert. |
 | Batch 39: `file:viewContent` sha256/bom + save types | COMPLETE | Hashes raw bytes and correctly identifies BOM. |
-| Batch 40: `file:saveContent` atomic write & containment | COMPLETE | Well-contained atomic write, minor double-BOM edge case. |
+| Batch 40: `file:saveContent` atomic write & containment | COMPLETE | Well-contained atomic write, minor double-BOM edge case. [Orchestrator note: MOD-4 was rejected with contract specs in `e7351c0bb`; the rejection was accepted in round 1.] |
 | Batch 44: Skills drawer lazy diff + VS Code CSP | COMPLETE | Strict script nonce maintained; style-src matches Electron. |
 
 Implicit requirements not addressed:
@@ -190,7 +190,7 @@ Implicit requirements not addressed:
 | Symlink escaping workspace roots | YES | Refused by `FileLinkRootPolicy.resolveForView`. | None |
 | Send comments to streaming tab | PARTIAL | Queued in conversation, but auto-denies all pending permissions. | Global denial affects unrelated tabs. |
 | Send comments to background workspace | NO | Session validation fails; starts new chat. | Broken session history. |
-| Double BOM in saved file | NO | Prepend is unconditional when disk file had BOM. | Double BOM written. |
+| Double BOM in saved file | NO | Prepend is unconditional when disk file had BOM. | Double BOM written. [Orchestrator note: MOD-4 was rejected with contract specs in `e7351c0bb`; the rejection was accepted in round 1.] |
 
 ---
 
@@ -204,4 +204,4 @@ Implicit requirements not addressed:
   2. Prevent `ReviewCommentDraftStore.send` from resolving `sent: true` for drafts that were not in the transmitted payload.
   3. Normalize all paths (`replace(/\\/g, '/')` and drive letter casing) in `ReviewDiffService.onGitStatusUpdate` and `toWorkspaceRelative`.
   4. Scope permission auto-denial in `MessageDispatchService` to the streaming tab's specific conversation.
-  5. Strip leading `\uFEFF` before prepending `UTF8_BOM` in `FileEditRpcHandlers`.
+  5. Strip leading `\uFEFF` before prepending `UTF8_BOM` in `FileEditRpcHandlers`. [Orchestrator note: MOD-4 was rejected with contract specs in `e7351c0bb`; the rejection was accepted in round 1.]

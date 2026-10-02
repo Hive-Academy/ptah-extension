@@ -28,8 +28,8 @@
 2. **Option (b) (`useCSSClasses` / `adoptedStyleSheets`) is broken/incomplete in Pierre 1.5.1**:
    - Pierre 1.5.1 uses constructable `adoptedStyleSheets` *only* for core container styles (`web-components.js:16`). For themes, it hardcodes `document.createElement("style")` (`hostTheme.js:14`).
    - `useCSSClasses: true` converts Shiki tokens to classes prefixed with `hl-`, but Pierre 1.5.1 **never calls** `toClass.getCSS()` (0 callers). Tokens render completely uncolored (monochrome), and Pierre *still* injects `<style data-theme-css>`.
-3. **Zero Security Compromise on Code Execution**:
-   - `script-src 'nonce-${nonce}'` remains strictly locked down with **no** `'unsafe-inline'` and **no** `unsafe-eval`. Arbitrary JavaScript execution (XSS) is 100% prevented.
+3. **No loosening of the script policy**:
+   - `script-src 'nonce-${nonce}'` remains strictly locked down with **no** `'unsafe-inline'` and **no** `unsafe-eval`. The nonce-only `script-src` mitigates script injection: injected `<script>` elements and inline handlers without the nonce do not run. It is one layer, not a guarantee against every XSS vector.
    - CSS cannot execute JavaScript in modern Chromium (which powers both VS Code 1.100+ and Electron 44).
    - The webview runs in an isolated `vscode-webview:` iframe origin.
    - Electron in this repository *already* uses `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com` (`apps/ptah-electron/scripts/copy-renderer.js:159`, pinned in `shell-csp.spec.ts:150-154`). This decision establishes identical styling behavior across all Ptah runtimes.
