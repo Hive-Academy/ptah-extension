@@ -260,6 +260,23 @@ export class SkillSuggestionStore {
   }
 
   /**
+   * Record the promoted candidate of an ALREADY accepted suggestion (the
+   * startup reconcile; `accept` only moves a `pending` row). One guarded
+   * UPDATE: only an `accepted` row with no link yet changes. Returns whether
+   * that row changed; callers inside a transaction throw on `false`.
+   */
+  linkPromotedCandidate(id: string, candidateId: string): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE skill_suggestions
+            SET promoted_candidate_id = ?
+          WHERE id = ? AND status = 'accepted' AND promoted_candidate_id IS NULL`,
+      )
+      .run(candidateId, id);
+    return Number(result.changes) === 1;
+  }
+
+  /**
    * Whether the cluster represented by `fingerprint` + `candidateIds` already
    * has a pending or accepted suggestion. Dismissed rows also block re-proposal
    * (kept for dedup). Match on identical fingerprint OR any member-candidate

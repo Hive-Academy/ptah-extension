@@ -18,6 +18,7 @@ import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store
 import { SkillBacklogPurgeStateStore } from '../lifecycle/skill-backlog-purge-state.store';
 import { SkillRetirementService } from '../lifecycle/skill-retirement.service';
 import { SkillUmbrellaMergeService } from '../lifecycle/skill-umbrella-merge.service';
+import { SkillCuratorService } from '../skill-curator.service';
 import { registerSkillSynthesisServices } from './register';
 import {
   PROVIDER_AUTH_RESOLVER_TOKEN,
@@ -138,6 +139,30 @@ describe('registerSkillSynthesisServices', () => {
     expect(
       SKILL_SYNTHESIS_TOKENS.SKILL_UMBRELLA_MERGE_SERVICE.description,
     ).toBe('PtahSkillUmbrellaMergeService');
+  });
+
+  it('resolves the curator facade with its lifecycle collaborators (R-i)', () => {
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    container.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    container.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {});
+    container.registerInstance(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT, {});
+    registerSkillSynthesisServices(container, stubLogger);
+    // The enhancer needs the host's user-layer mirror; it is not under test
+    // here. The umbrella, retirement and promotion collaborators resolve
+    // through the real registration.
+    container.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_ENHANCER_SERVICE,
+      {},
+    );
+
+    const curator = container.resolve<SkillCuratorService>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_CURATOR_SERVICE,
+    );
+
+    expect(curator).toBeInstanceOf(SkillCuratorService);
+    expect(container.resolve(SkillCuratorService)).toBe(curator);
   });
 
   it('gives the queue and budget stores globally unique token descriptions', () => {

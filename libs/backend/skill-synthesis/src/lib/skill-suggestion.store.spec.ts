@@ -267,6 +267,50 @@ maybe('SkillSuggestionStore', () => {
 
       expect(rows.map((r) => r.id)).toEqual([unlinked.id]);
     });
+
+    describe('linkPromotedCandidate', () => {
+      it('links an accepted, unlinked row once and returns true', () => {
+        const store = makeStore();
+        const row = store.insertPending(newInput());
+        store.accept(row.id, null);
+
+        expect(store.linkPromotedCandidate(row.id, 'cand-1')).toBe(true);
+        expect(store.findById(row.id)?.promotedCandidateId).toBe('cand-1');
+        expect(store.listAcceptedWithoutPromotedCandidate()).toEqual([]);
+      });
+
+      it('returns false on a second call', () => {
+        const store = makeStore();
+        const row = store.insertPending(newInput());
+        store.accept(row.id, null);
+        store.linkPromotedCandidate(row.id, 'cand-1');
+
+        expect(store.linkPromotedCandidate(row.id, 'cand-1')).toBe(false);
+      });
+
+      it('returns false for a pending or a dismissed row and writes nothing', () => {
+        const store = makeStore();
+        const pending = store.insertPending(newInput());
+        const dismissed = store.insertPending(newInput());
+        store.dismiss(dismissed.id);
+
+        expect(store.linkPromotedCandidate(pending.id, 'cand-1')).toBe(false);
+        expect(store.linkPromotedCandidate(dismissed.id, 'cand-1')).toBe(false);
+        expect(store.findById(pending.id)?.promotedCandidateId).toBeNull();
+        expect(store.findById(dismissed.id)?.promotedCandidateId).toBeNull();
+      });
+
+      it('returns false for an already-linked row and keeps its link', () => {
+        const store = makeStore();
+        const row = store.insertPending(newInput());
+        store.accept(row.id, 'cand-original');
+
+        expect(store.linkPromotedCandidate(row.id, 'cand-other')).toBe(false);
+        expect(store.findById(row.id)?.promotedCandidateId).toBe(
+          'cand-original',
+        );
+      });
+    });
   });
 
   it('lists by status', () => {
