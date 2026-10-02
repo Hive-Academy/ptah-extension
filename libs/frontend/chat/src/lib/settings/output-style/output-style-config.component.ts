@@ -15,6 +15,7 @@ import {
   OnInit,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { LucideAngularModule, Palette, Plus } from 'lucide-angular';
 import type {
@@ -128,6 +129,8 @@ export class OutputStyleConfigComponent implements OnInit {
   readonly store = inject(OutputStyleStore);
   private readonly feedback = inject(SettingsSaveFeedbackService);
 
+  private readonly list = viewChild(OutputStyleListComponent);
+
   readonly PaletteIcon = Palette;
   readonly PlusIcon = Plus;
 
@@ -172,6 +175,8 @@ export class OutputStyleConfigComponent implements OnInit {
             }
           },
     });
+    // A refused or failed activate leaves the clicked radio checked: show the saved style again (D15).
+    this.list()?.syncActiveRadios(this.store.activeName());
   }
 
   onCreate(): void {

@@ -369,13 +369,17 @@ describe('ElevenLabsPanelComponent', () => {
 
       byTestId<HTMLButtonElement>('elevenlabs-key-clear').click();
       fixture.detectChanges();
+      // Esc must not also reach an enclosing drawer, which closes on Escape (Batch 49b).
+      const outer = jest.fn();
+      element.addEventListener('keydown', outer);
       byTestId('elevenlabs-clear-group').dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape' }),
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
       );
       fixture.detectChanges();
 
       expect(element.querySelector('[data-testid="elevenlabs-clear-group"]')).toBeNull();
       expect(calls('voice:setApiKey')).toEqual([]);
+      expect(outer).not.toHaveBeenCalled();
     });
 
     it('clears after confirm with no Undo', async () => {

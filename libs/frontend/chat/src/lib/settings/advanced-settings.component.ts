@@ -1,4 +1,15 @@
-import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  effect,
+  inject,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { LucideAngularModule, Download, Upload } from 'lucide-angular';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { LicenseStatusCardComponent } from './license/license-status-card.component';
@@ -64,6 +75,7 @@ interface ImportOutcome {
             <span>Export</span>
           </button>
           <button
+            #importButton
             type="button"
             class="btn btn-outline btn-xs gap-1 text-base-content"
             [disabled]="isImporting() || confirmingImport()"
@@ -86,6 +98,7 @@ interface ImportOutcome {
                 aria-label="Confirm import settings"
                 class="rounded border border-base-300 p-2"
                 data-testid="import-confirm"
+                (keydown.escape)="cancelImport($event)"
               >
                 <p class="text-xs text-base-content mb-2">
                   Import replaces your current settings, API keys and
@@ -106,6 +119,7 @@ interface ImportOutcome {
                     <span>Import settings</span>
                   </button>
                   <button
+                    #importCancel
                     type="button"
                     class="btn btn-ghost btn-xs text-base-content"
                     [disabled]="isImporting()"
@@ -145,6 +159,9 @@ interface ImportOutcome {
 export class AdvancedSettingsComponent {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly injector = inject(Injector);
+  private readonly importButton = viewChild<ElementRef<HTMLButtonElement>>('importButton');
+  private readonly importCancel = viewChild<ElementRef<HTMLButtonElement>>('importCancel');
 
   /** VS Code LM model changes can change which CLIs are usable (#84). */
   readonly modelChanged = output<void>();
@@ -157,6 +174,11 @@ export class AdvancedSettingsComponent {
   readonly confirmingImport = signal(false);
   /** The last import's own result; `null` until a write reports one (D15). */
   readonly importOutcome = signal<ImportOutcome | null>(null);
+
+  constructor() {
+    // P8: the opened import confirm takes focus on Cancel, so Esc reaches it.
+    effect(() => this.importCancel()?.nativeElement.focus());
+  }
 
   /**
    * Export settings to a JSON file.
@@ -183,8 +205,15 @@ export class AdvancedSettingsComponent {
     this.confirmingImport.set(true);
   }
 
-  cancelImport(): void {
+  /**
+   * Cancel and Esc close the confirm and return focus to Import, once it is enabled again (P8). Esc stops
+   * here, so an enclosing overlay does not also close.
+   */
+  cancelImport(event?: Event): void {
+    if (!this.confirmingImport()) return;
+    event?.stopPropagation();
     this.confirmingImport.set(false);
+    afterNextRender(() => this.importButton()?.nativeElement.focus(), { injector: this.injector });
   }
 
   /**

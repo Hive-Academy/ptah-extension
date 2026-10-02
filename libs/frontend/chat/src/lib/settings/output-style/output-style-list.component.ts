@@ -25,10 +25,14 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
+  effect,
+  inject,
   input,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -86,6 +90,10 @@ const SHADOW_WINNER_LABELS: Readonly<Record<OutputStyleTier, string>> = {
 };
 
 let listInstanceCounter = 0;
+
+function isActiveStyle(style: OutputStyleEntry, selected: string | null): boolean {
+  return selected === null ? style.name === 'default' : selected === style.name && style.shadowed !== true;
+}
 
 const OUTPUT_STYLE_ACTIVATE_FAILED = 'Could not change the active output style.';
 const OUTPUT_STYLE_DELETE_FAILED = 'Could not delete the output style.';
@@ -308,6 +316,7 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
                       role="alertdialog"
                       [attr.aria-label]="'Confirm deleting ' + style.name"
                       data-testid="output-style-delete-confirm"
+                      (keydown.escape)="cancelDelete(deleteBtn, $event)"
                     >
                       <span class="text-[11px] flex-1">
                         Delete
@@ -326,9 +335,10 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
                         Delete
                       </button>
                       <button
+                        #deleteCancel
                         type="button"
                         class="btn btn-ghost btn-xs text-base-content"
-                        (click)="pendingDelete.set(null)"
+                        (click)="cancelDelete(deleteBtn)"
                       >
                         Cancel
                       </button>
@@ -355,6 +365,7 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
                       />
                     </button>
                     <button
+                      #deleteBtn
                       type="button"
                       class="btn btn-ghost btn-xs btn-square disabled:bg-transparent disabled:border-transparent disabled:opacity-40 text-base-content"
                       [disabled]="!style.deletable || saving()"
@@ -482,8 +493,6 @@ export class OutputStyleListComponent {
   /** View state: which row is showing its delete confirmation. */
   readonly pendingDelete = signal<string | null>(null);
 
-  readonly parityTiers = PARITY_TIERS;
-
   /** OPT-IN, DEFAULT OFF (R6). Untouched → no settings file is ever written. */
   readonly parityEnabled = signal(false);
 
@@ -516,6 +525,13 @@ export class OutputStyleListComponent {
   });
 
   private readonly instanceId = `output-style-${listInstanceCounter++}`;
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly deleteCancel = viewChild<ElementRef<HTMLButtonElement>>('deleteCancel');
+
+  constructor() {
+    // P8: an opened delete confirm takes focus on Cancel, so Esc reaches it.
+    effect(() => this.deleteCancel()?.nativeElement.focus());
+  }
 
   /** E5/N1 explanation of why the active style stopped resolving. */
   readonly missingActiveExplanation = computed<string>(() =>
@@ -553,6 +569,19 @@ export class OutputStyleListComponent {
 
   cancelParitySelection(): void {
     this.pendingParitySelection.set(undefined);
+    this.syncActiveRadios();
+  }
+
+  /**
+   * OnPush keeps a `[checked]` binding whose value did not change, so a refused or cancelled choice would stay
+   * checked on screen: put the radio elements back on the saved style (D15).
+   */
+  syncActiveRadios(selected: string | null = this.activeName()): void {
+    const radios = this.host.nativeElement.querySelectorAll<HTMLInputElement>('input[name="active-output-style"]');
+    this.styles().forEach((style, index) => {
+      const radio = radios.item(index);
+      if (radio) radio.checked = isActiveStyle(style, selected);
+    });
   }
 
   emitSelection(name: string | null): void {
@@ -566,27 +595,15 @@ export class OutputStyleListComponent {
   onParityToggled(checked: boolean): void {
     this.parityEnabled.set(checked);
     this.pendingParitySelection.set(undefined);
-  }
-
-  onParityToggle(event: Event): void {
-    this.onParityToggled((event.target as HTMLInputElement).checked);
+    this.syncActiveRadios();
   }
 
   onParityTierChanged(tier: SettingsTier): void {
     this.parityTier.set(tier);
   }
 
-  onParityTierChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    const match = PARITY_TIERS.find((option) => option.tier === value);
-    if (match !== undefined) this.parityTier.set(match.tier);
-  }
-
   isActive(style: OutputStyleEntry): boolean {
-    const selected = this.activeName();
-    return selected === null
-      ? style.name === 'default'
-      : selected === style.name && style.shadowed !== true;
+    return isActiveStyle(style, this.activeName());
   }
 
   selectionValue(style: OutputStyleEntry): string | null {
@@ -643,6 +660,13 @@ export class OutputStyleListComponent {
 
   askDelete(style: OutputStyleEntry): void {
     this.pendingDelete.set(this.rowKey(style));
+  }
+
+  /** Cancel and Esc close the confirm and return focus to the row's Delete button (P8). */
+  cancelDelete(opener: HTMLButtonElement, event?: Event): void {
+    event?.stopPropagation();
+    this.pendingDelete.set(null);
+    opener.focus();
   }
 
   confirmDelete(style: OutputStyleEntry): void {

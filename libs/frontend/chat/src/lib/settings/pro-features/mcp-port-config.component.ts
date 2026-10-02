@@ -19,6 +19,11 @@ import {
   signal,
   computed,
   OnInit,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  effect,
+  viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
@@ -139,6 +144,7 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
             <tr>
               <td class="align-top">
                 <input
+                  #allowLocalhostToggle
                   type="checkbox"
                   class="checkbox checkbox-xs checkbox-primary"
                   [checked]="browserAllowLocalhost()"
@@ -164,6 +170,7 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
                     aria-label="Confirm allow localhost access"
                     class="mt-2 space-y-2 rounded border border-base-300 p-2 text-left"
                     data-testid="allow-localhost-confirm"
+                    (keydown.escape)="cancelEnableLocalhost($event)"
                   >
                     <p class="text-xs text-base-content">
                       Enabling localhost access lets AI agents reach local network services, development servers, and local APIs on this machine.
@@ -179,6 +186,7 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
                         Allow localhost
                       </button>
                       <button
+                        #allowLocalhostCancel
                         type="button"
                         class="btn btn-ghost btn-xs text-base-content"
                         [disabled]="saving()"
@@ -201,6 +209,14 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
 export class McpPortConfigComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
+  private readonly injector = inject(Injector);
+  private readonly allowLocalhostToggle = viewChild<ElementRef<HTMLInputElement>>('allowLocalhostToggle');
+  private readonly allowLocalhostCancel = viewChild<ElementRef<HTMLButtonElement>>('allowLocalhostCancel');
+
+  constructor() {
+    // P8: the opened confirm takes focus on Cancel, so Esc reaches it.
+    effect(() => this.allowLocalhostCancel()?.nativeElement.focus());
+  }
 
   readonly PlugIcon = Plug;
   readonly AlertCircleIcon = AlertCircle;
@@ -413,8 +429,15 @@ export class McpPortConfigComponent implements OnInit {
     }
   }
 
-  cancelEnableLocalhost(): void {
+  /**
+   * Cancel and Esc close the confirm and return focus to the checkbox, once it is enabled again (P8). Esc
+   * stops here, so an enclosing overlay does not also close.
+   */
+  cancelEnableLocalhost(event?: Event): void {
+    if (!this.confirmingAllowLocalhost()) return;
+    event?.stopPropagation();
     this.confirmingAllowLocalhost.set(false);
+    afterNextRender(() => this.allowLocalhostToggle()?.nativeElement.focus(), { injector: this.injector });
   }
 
   async confirmEnableLocalhost(): Promise<void> {

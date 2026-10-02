@@ -181,6 +181,75 @@ describe('OutputStyleListComponent — CLI parity control', () => {
     ).toBeNull();
   });
 
+  function radios(): HTMLInputElement[] {
+    return Array.from(fixture.nativeElement.querySelectorAll('input[name="active-output-style"]'));
+  }
+
+  it('puts the radio back on the saved style when the parity confirm is cancelled (Batch 49b)', () => {
+    parityCheckbox().click();
+    fixture.detectChanges();
+    clickStyleRow(1);
+    expect(radios()[1].checked).toBe(true);
+
+    (fixture.nativeElement.querySelector('[data-testid="parity-cancel-button"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    expect(radios().map((radio) => radio.checked)).toEqual([true, false]);
+  });
+
+  it('syncActiveRadios shows the saved style again after a refused activate (D15, Batch 49b)', () => {
+    clickStyleRow(1);
+    expect(host.emitted).toEqual([{ name: 'Terse' }]);
+    // The write failed: `active` never changed, so the [checked] bindings did not either.
+    expect(radios()[1].checked).toBe(true);
+
+    list().syncActiveRadios();
+    expect(radios().map((radio) => radio.checked)).toEqual([true, false]);
+
+    list().syncActiveRadios('Terse');
+    expect(radios().map((radio) => radio.checked)).toEqual([false, true]);
+  });
+
+  describe('delete confirm (P8, Batch 49b)', () => {
+    const deleteButton = (): HTMLButtonElement =>
+      fixture.nativeElement.querySelectorAll('[data-testid="output-style-delete-button"]')[1];
+    const confirm = (): HTMLElement | null =>
+      fixture.nativeElement.querySelector('[data-testid="output-style-delete-confirm"]');
+
+    beforeEach(() => document.body.appendChild(fixture.nativeElement));
+    afterEach(() => fixture.nativeElement.remove());
+
+    it('opens with Cancel focused; Esc cancels, returns focus to Delete and stops there', () => {
+      const outer = jest.fn();
+      document.body.addEventListener('keydown', outer);
+      try {
+        deleteButton().click();
+        fixture.detectChanges();
+        expect(confirm()).not.toBeNull();
+        expect(document.activeElement?.textContent?.trim()).toBe('Cancel');
+
+        document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        fixture.detectChanges();
+
+        expect(confirm()).toBeNull();
+        expect(document.activeElement).toBe(deleteButton());
+        expect(outer).not.toHaveBeenCalled();
+      } finally {
+        document.body.removeEventListener('keydown', outer);
+      }
+    });
+
+    it('Cancel closes the confirm and returns focus to Delete', () => {
+      deleteButton().click();
+      fixture.detectChanges();
+      (document.activeElement as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      expect(confirm()).toBeNull();
+      expect(document.activeElement).toBe(deleteButton());
+    });
+  });
+
   it('defaults to the committable project tier (§4.2)', () => {
     expect(list().parityTier()).toBe('project');
     expect(list().parityDisplayPath()).toBe('.claude/settings.json');

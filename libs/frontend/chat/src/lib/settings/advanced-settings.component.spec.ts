@@ -130,6 +130,32 @@ describe('AdvancedSettingsComponent', () => {
     expect(element.querySelector('[data-testid="import-confirm"]')).toBeNull();
   });
 
+  it('opens the import confirm with Cancel focused; Esc cancels, returns focus to Import and stops there (Batch 49b)', async () => {
+    await render(false);
+    document.body.appendChild(element);
+    const outer = jest.fn();
+    document.body.addEventListener('keydown', outer);
+    try {
+      const importButton = element.querySelector<HTMLButtonElement>('[aria-label="Import settings"]');
+      importButton?.click();
+      fixture.detectChanges();
+      fixture.detectChanges();
+      expect(document.activeElement?.textContent?.trim()).toBe('Cancel');
+
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(element.querySelector('[data-testid="import-confirm"]')).toBeNull();
+      expect(document.activeElement).toBe(importButton);
+      expect(outer).not.toHaveBeenCalled();
+      expect(rpc.call).not.toHaveBeenCalled();
+    } finally {
+      document.body.removeEventListener('keydown', outer);
+      element.remove();
+    }
+  });
+
   it('surfaces an Electron import result with errors as an inline alert without leaking host error text', async () => {
     rpc.call.mockResolvedValue(rpcSuccess({ cancelled: false, result: { imported: [], skipped: [], errors: ['secrets:boom: host detail'] } }));
     await render(true);

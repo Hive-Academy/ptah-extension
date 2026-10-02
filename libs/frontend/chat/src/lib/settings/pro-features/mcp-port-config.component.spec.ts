@@ -350,6 +350,33 @@ describe('McpPortConfigComponent', () => {
       expect(feedback.toast()?.canUndo).toBe(false); // S-confirm has NO Undo
     });
 
+    it('opens the confirm with Cancel focused; Esc cancels, returns focus to the checkbox and stops there (Batch 49b)', async () => {
+      await render();
+      document.body.appendChild(element);
+      const outer = jest.fn();
+      document.body.addEventListener('keydown', outer);
+      try {
+        const checkbox = byTestId<HTMLInputElement>('settings-toggle-browser-allow-localhost');
+        checkbox.click();
+        fixture.detectChanges();
+        fixture.detectChanges();
+        expect(document.activeElement).toBe(byTestId('allow-localhost-cancel-btn'));
+
+        document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        fixture.detectChanges();
+        await fixture.whenStable();
+
+        expect(queryTestId('allow-localhost-confirm')).toBeNull();
+        expect(checkbox.checked).toBe(false);
+        expect(document.activeElement).toBe(checkbox);
+        expect(outer).not.toHaveBeenCalled();
+        expect(call).not.toHaveBeenCalledWith('agent:setConfig', { browserAllowLocalhost: true });
+      } finally {
+        document.body.removeEventListener('keydown', outer);
+        element.remove();
+      }
+    });
+
     it('disabling saves immediately with Undo (S-sel)', async () => {
       responses['agent:getConfig'] = () =>
         ok({

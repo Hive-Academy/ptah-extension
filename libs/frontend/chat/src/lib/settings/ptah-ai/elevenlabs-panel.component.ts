@@ -146,7 +146,7 @@ function testFailureMessage(category: string | undefined): string {
                 role="group"
                 aria-label="Confirm clear ElevenLabs API key"
                 class="mt-2 space-y-2 rounded border border-base-300 p-3"
-                (keydown.escape)="cancelClear()"
+                (keydown.escape)="cancelClear($event)"
                 data-testid="elevenlabs-clear-group"
               >
                 <p class="text-xs text-base-content">
@@ -527,7 +527,9 @@ export class ElevenLabsPanelComponent {
     this.confirmingClear.set(true);
   }
 
-  cancelClear(): void {
+  /** Cancel and Esc close the confirm; Esc stops here so the enclosing drawer stays open (Batch 49b). */
+  cancelClear(event?: Event): void {
+    event?.stopPropagation();
     this.confirmingClear.set(false);
     this.clearButton()?.nativeElement.focus();
   }
