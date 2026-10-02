@@ -149,8 +149,12 @@ for (const host of HOSTS) {
       const before = getFixtureState(page).calls.length;
       await input.fill('k2.7');
       await page.keyboard.press('Home');
-      const active = await input.getAttribute('aria-activedescendant');
-      await expect(page.locator(`[id="${active}"]`)).toHaveText('Kimi K2.7 Code [Tool: Yes]');
+      // The attribute follows the next render, so it is polled, never read once (Batch 36c.j): the active row's text,
+      // through whatever id the attribute names at each read.
+      await expect.poll(async () => {
+        const active = await input.getAttribute('aria-activedescendant');
+        return active ? (await page.locator(`[id="${active}"]`).textContent())?.trim() ?? null : null;
+      }).toBe('Kimi K2.7 Code [Tool: Yes]');
       await page.keyboard.press('Enter');
       await expectCall(page, before, 'config:model-switch', expect.objectContaining({ model: 'kimi-k2.7-code' }));
       await expect(input).toHaveValue('Kimi K2.7 Code [Tool: Yes]');

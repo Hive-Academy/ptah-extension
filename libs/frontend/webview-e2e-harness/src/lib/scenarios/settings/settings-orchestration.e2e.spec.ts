@@ -4,7 +4,8 @@
  * and returns to the opener (the "Add Ptah CLI Instance" button / Glm's Tiers) after Esc, a backdrop click and a
  * submit. Batch 36 adds the tab's validation-note scenes (batches.md Task 36.1): a matrix cell pick, on/off, the full
  * tier object, the Copilot sign-in gate, the roles collapsed by default, the `judge` deep link, the role's provider
- * setup link, and the preferred-order popover.
+ * setup link, and the preferred-order popover. Batch 36c adds the "More actions" menu bounds and the repeated `judge`
+ * deep link.
  *
  * Runs against the real `ptah-extension-webview` build in both hosts. Each scene boots fresh, so the fixture state
  * starts from the BRIEF baseline and every RPC a scene asserts was sent by that scene's own clicks.
@@ -240,6 +241,31 @@ for (const host of HOSTS) {
       await expect(page.locator('[data-testid="wizard-body"]')).toHaveCount(0);
     });
 
+    test('More actions (visual re-check N1): the open menu\'s items sit inside the panel box and the viewport', async ({ page }) => {
+      await page.setViewportSize({ width: 1024, height: 768 });
+      await page.locator(`[data-testid="cli-matrix-more-${GLM_ID}"]`).click();
+      const menu = page.locator('[data-testid="cli-matrix-more-menu"]');
+      await expect(menu).toBeVisible();
+      const panel = await menu.boundingBox();
+      if (!panel) throw new Error('No More actions panel box');
+      const items = menu.locator('button');
+      await expect(items).toHaveCount(2);
+      for (const item of await items.all()) {
+        const box = await item.boundingBox();
+        if (!box) throw new Error('No More actions item box');
+        expect(box.x).toBeGreaterThanOrEqual(panel.x - 0.5);
+        expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width + 0.5);
+        expect(box.y).toBeGreaterThanOrEqual(panel.y - 0.5);
+        expect(box.y + box.height).toBeLessThanOrEqual(panel.y + panel.height + 0.5);
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(1024);
+        expect(box.y + box.height).toBeLessThanOrEqual(768);
+      }
+      // A column: Delete sits under Edit, not beside it.
+      const [edit, remove] = [await items.nth(0).boundingBox(), await items.nth(1).boundingBox()];
+      expect(remove?.y ?? 0).toBeGreaterThan(edit?.y ?? 0);
+    });
+
     test('order popover: a move writes the whole order, focus stays on the moved row, Esc returns focus, Undo restores', async ({ page }) => {
       const bar = page.locator('[data-testid="orchestration-policy-bar"]');
       const trigger = bar.locator('[data-testid="policy-order-edit"]');
@@ -313,6 +339,29 @@ for (const host of HOSTS) {
       await page.keyboard.press('Escape');
       await expect(popover).toHaveCount(0);
       await expect(page.locator('[data-testid="consumer-edit-judge"]')).toBeFocused();
+    });
+
+    test('repeated deep link judge (Gate V 36 M-1): the same role deep-linked again after Esc opens its popover again', async ({ page, fixtureServer }) => {
+      const lanes = { ...SKILL_LANES_FIXTURE.lanes, judge: { ...SKILL_LANES_FIXTURE.lanes.judge, provider: '', model: '' } };
+      await bootSettings(page, fixtureServer.url, host, 'anubis', { 'skillSynthesis:getLanes': { lanes } });
+      await waitForSettled(page);
+      const popover = page.locator('[data-testid="consumer-editor-judge"]');
+      // The only routes that raise a role deep link live on Providers (the drawer's "Follows main agent →"); no
+      // Orchestration control raises one, so the repeat goes through that route twice. Jest pins the in-tab repeat.
+      for (const pass of [1, 2]) {
+        await providersTab(page);
+        await openCardDrawer(page, 'Claude (Subscription)');
+        const link = page.locator('[data-used-by="judge"] [data-testid="connection-follows-main"]');
+        await visibleEnabled(link);
+        await link.click();
+        await expect(page.getByRole('button', { name: 'Agent Orchestration', exact: true }), `pass ${pass}`).toHaveClass(/tab-active/);
+        await expect(rolesDetails(page), `pass ${pass}`).toHaveAttribute('open', '');
+        await expect(popover, `pass ${pass}: the popover opens`).toBeVisible();
+        await popover.locator('[data-testid="provider-model-picker-provider"]').focus();
+        await page.keyboard.press('Escape');
+        await expect(popover, `pass ${pass}: Esc closes it`).toHaveCount(0);
+        await expect(page.locator('[data-testid="consumer-edit-judge"]')).toBeFocused();
+      }
     });
   });
 }

@@ -31,6 +31,17 @@ function capturePath(tab: string, host: string, theme: string): string {
   return join(OUT_DIR, `${CAPTURE_KIND}-${tab}-${host}-${theme}-1024x768.png`);
 }
 
+/**
+ * The one capture path: the pointer moves to the page corner first, so no hover state (e.g. the Retry button the tab
+ * click left the pointer on, Batch 36b) is captured (Batch 36c.f). Animations are always settled: the tab captures
+ * used to run without it, and caught daisyUI's 0.2 s checkmark bounce mid-flight on the freshly built matrix, which
+ * drew the On ticks low (Batch 36c.i).
+ */
+async function capture(page: Page, name: string, host: string, theme: string): Promise<void> {
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: capturePath(name, host, theme), animations: 'disabled' });
+}
+
 test.beforeAll(() => {
   mkdirSync(OUT_DIR, { recursive: true });
 });
@@ -207,7 +218,7 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
   await waitForSettled(page);
   await onScreen(popover);
   await assertPopoverOnTop(page, popover, 'h3, button');
-  await page.screenshot({ path: capturePath('orchestration-popover-model', host, theme), animations: 'disabled' });
+  await capture(page, 'orchestration-popover-model', host, theme);
   await page.keyboard.press('Escape');
   await expect(search).toHaveAttribute('aria-expanded', 'false');
   await page.keyboard.press('Escape');
@@ -217,14 +228,14 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
   await expect(page.locator(`${popover} [aria-pressed="true"]`)).toHaveText('Medium');
   await onScreen(popover);
   await assertPopoverOnTop(page, popover, 'button');
-  await page.screenshot({ path: capturePath('orchestration-popover-effort', host, theme), animations: 'disabled' });
+  await capture(page, 'orchestration-popover-effort', host, theme);
   await page.keyboard.press('Escape');
   await expect(page.locator(popover)).toHaveCount(0);
   // Permission ℹ (the copy shown to the user at Gate V 36).
   await page.locator('[data-testid="cli-matrix-permission-info-codex"]').click();
   await expect(page.locator('[data-testid="cli-permission-popover"]')).toBeVisible();
   await onScreen('[data-testid="cli-permission-popover"]');
-  await page.screenshot({ path: capturePath('orchestration-popover-permission', host, theme), animations: 'disabled' });
+  await capture(page, 'orchestration-popover-permission', host, theme);
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-testid="cli-permission-popover"]')).toHaveCount(0);
   // Batch 31: Copilot's permission popover with the moved auto-approve toggle, and Cursor's Credentials popover.
@@ -233,7 +244,7 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
   await onScreen('[data-testid="cli-permission-popover"]');
   await noOverflow('[data-testid="cli-permission-popover"]');
   await assertPopoverOnTop(page, '[data-testid="cli-permission-popover"]', 'h3, p, input');
-  await page.screenshot({ path: capturePath('orchestration-popover-copilot', host, theme), animations: 'disabled' });
+  await capture(page, 'orchestration-popover-copilot', host, theme);
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-testid="cli-permission-popover"]')).toHaveCount(0);
   // Gate V 36 decision 1: Cursor's row is in the Uninstalled group, collapsed by default.
@@ -248,7 +259,7 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
     .toBe('left');
   await assertPopoverOnTop(page, cursorPopover, 'h3, p, input, button');
   console.log(`B31 cursor popover ${host}/${theme}: ${JSON.stringify(await page.locator(cursorPopover).boundingBox())}`);
-  await page.screenshot({ path: capturePath('orchestration-popover-cursor', host, theme), animations: 'disabled' });
+  await capture(page, 'orchestration-popover-cursor', host, theme);
   await page.keyboard.press('Escape');
   await expect(page.locator(cursorPopover)).toHaveCount(0);
   await uninstalledToggle.click();
@@ -273,7 +284,7 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
     expect(panel && viewport && panel.y >= 0 && panel.y + panel.height <= viewport.height, `${modal.name} on screen`).toBe(true);
     console.log(`B32 ${modal.name} ${host}/${theme}: ${Math.round(panel?.width ?? 0)}x${Math.round(panel?.height ?? 0)} @ ${Math.round(panel?.x ?? 0)},${Math.round(panel?.y ?? 0)}`);
     await waitForSettled(page, dialog);
-    await page.screenshot({ path: capturePath(modal.name, host, theme), animations: 'disabled' });
+    await capture(page, modal.name, host, theme);
     await page.keyboard.press('Escape');
     await expect(dialog).not.toHaveAttribute('open');
   }
@@ -385,7 +396,7 @@ async function captureRolesOpen(page: Page, host: 'vscode' | 'electron', theme: 
   for (const height of cellHeights) expect(height, 'role cell is one line').toBeLessThanOrEqual(24);
   await summary.evaluate((node) => node.scrollIntoView({ block: 'start' }));
   await waitForSettled(page);
-  await page.screenshot({ path: capturePath('orchestration-roles-open', host, theme), animations: 'disabled' });
+  await capture(page, 'orchestration-roles-open', host, theme);
   // Batch 35: a role's reassignment popover (the Judge lane cell), on screen and painted on top; Esc returns focus.
   const roleCell = page.locator('[data-testid="consumer-edit-judge"]');
   await roleCell.click();
@@ -397,7 +408,7 @@ async function captureRolesOpen(page: Page, host: 'vscode' | 'electron', theme: 
     'role popover is fully on screen').toBeTruthy();
   console.log(`B35 role popover ${host}/${theme}: ${Math.round(popoverBox?.width ?? 0)}x${Math.round(popoverBox?.height ?? 0)} at ${Math.round(popoverBox?.x ?? 0)},${Math.round(popoverBox?.y ?? 0)}`);
   await waitForSettled(page);
-  await page.screenshot({ path: capturePath('orchestration-role-popover', host, theme), animations: 'disabled' });
+  await capture(page, 'orchestration-role-popover', host, theme);
   await page.keyboard.press('Escape');
   await expect(rolePopover).toHaveCount(0);
   await expect(roleCell).toBeFocused();
@@ -436,7 +447,7 @@ async function captureOrderPopover(page: Page, host: 'vscode' | 'electron', them
     'order popover on screen').toBe(true);
   await assertPopoverOnTop(page, '[data-testid="policy-order-popover"]', 'h3, li span, li button');
   await waitForSettled(page);
-  await page.screenshot({ path: capturePath('orchestration-order-popover', host, theme), animations: 'disabled' });
+  await capture(page, 'orchestration-order-popover', host, theme);
   await page.keyboard.press('Escape');
   await expect(popover).toHaveCount(0);
   await expect(trigger).toBeFocused();
@@ -452,7 +463,10 @@ for (const host of ['vscode', 'electron'] as const) {
       for (const tab of TABS) {
         await gotoSettingsTab(page, tab.label);
         await waitForSettled(page);
-        await page.screenshot({ path: capturePath(tab.name, host, theme) });
+        // The matrix is a deferred chunk: the capture waits for its rows, or it can catch an empty section or the
+        // On ticks mid-bounce (Batch 36c.i).
+        if (tab.name === 'orchestration') await expect(page.locator('[data-testid="cli-matrix-toggle-codex"]')).toBeVisible();
+        await capture(page, tab.name, host, theme);
       }
       // Batch 36: the Orchestration fold gate (the tab is still open), then (Batch 33) the roles <details> open.
       await test.step('orchestration fold', () => assertOrchestrationFold(page, host, theme))
@@ -524,7 +538,7 @@ for (const host of ['vscode', 'electron'] as const) {
       console.log(`B26 popover ${host}/${theme}: ${Math.round(box?.width ?? 0)}x${Math.round(box?.height ?? 0)} @ ${Math.round(box?.x ?? 0)},${Math.round(box?.y ?? 0)}`);
       await waitForSettled(page);
       await assertPopoverOnTop(page, '[data-testid="main-agent-popover"]', 'select, button');
-      await page.screenshot({ path: capturePath('main-agent-popover', host, theme), animations: 'disabled' });
+      await capture(page, 'main-agent-popover', host, theme);
       // Batch 28b: the compact model search with its list open and filtered. The list (position: fixed) is never
       // clipped by the popover's scroll box: it is inside the viewport and on top at every row.
       await modelInput.click();
@@ -540,7 +554,7 @@ for (const host of ['vscode', 'electron'] as const) {
       expect(inView(listRect)).toBe(true);
       expect(inView(await mainPopover.boundingBox())).toBe(true);
       await assertPopoverOnTop(page, `[id="${listboxId}"]`, '[role="option"]');
-      await page.screenshot({ path: capturePath('main-agent-model-search', host, theme), animations: 'disabled' });
+      await capture(page, 'main-agent-model-search', host, theme);
       // Esc closes the list only; the popover stays.
       await page.keyboard.press('Escape');
       await expect(modelInput).toHaveAttribute('aria-expanded', 'false');
@@ -571,7 +585,7 @@ for (const host of ['vscode', 'electron'] as const) {
       console.log(`B28 popover confirm ${host}/${theme}: ${Math.round(confirmBox?.width ?? 0)}x${Math.round(confirmBox?.height ?? 0)} @ ${Math.round(confirmBox?.x ?? 0)},${Math.round(confirmBox?.y ?? 0)}`);
       expect(confirmBox && viewport && confirmBox.y >= 0 && confirmBox.y + confirmBox.height <= viewport.height).toBe(true);
       await assertPopoverOnTop(page, '[data-testid="main-agent-popover"]', '[data-testid="main-agent-provider-confirm"] button');
-      await page.screenshot({ path: capturePath('main-agent-save-to', host, theme), animations: 'disabled' });
+      await capture(page, 'main-agent-save-to', host, theme);
       await mainPopover.getByRole('button', { name: 'Cancel provider change' }).click();
       await page.keyboard.press('Escape');
       await expect(mainPopover).toHaveCount(0);
@@ -589,7 +603,7 @@ for (const host of ['vscode', 'electron'] as const) {
       await assertPopoverOnTop(page, '[data-testid="scope-popover"]', 'li, button, p');
       const scopeBox = await page.locator('[data-testid="scope-popover"]').boundingBox();
       console.log(`B28 scope popover ${host}/${theme}: ${Math.round(scopeBox?.width ?? 0)}x${Math.round(scopeBox?.height ?? 0)} @ ${Math.round(scopeBox?.x ?? 0)},${Math.round(scopeBox?.y ?? 0)}`);
-      await page.screenshot({ path: capturePath('scope-popover', host, theme), animations: 'disabled' });
+      await capture(page, 'scope-popover', host, theme);
       await page.keyboard.press('Escape');
       await expect(page.locator('[data-testid="scope-popover"]')).toHaveCount(0);
       // Batch 27: the provider catalog modal (prototype `#modalPalette`), centred and fully on screen.
@@ -608,7 +622,7 @@ for (const host of ['vscode', 'electron'] as const) {
       expect(panel && frame && Math.abs(panel.x + panel.width / 2 - (frame.x + frame.width / 2))).toBeLessThanOrEqual(1);
       console.log(`B27 catalog ${host}/${theme}: ${Math.round(panel?.width ?? 0)}x${Math.round(panel?.height ?? 0)} @ ${Math.round(panel?.y ?? 0)}`);
       await waitForSettled(page);
-      await page.screenshot({ path: capturePath('provider-catalog', host, theme), animations: 'disabled' });
+      await capture(page, 'provider-catalog', host, theme);
       await page.keyboard.press('Escape');
       // daisyUI keeps a closed `.modal` laid out at opacity 0: the `open` attribute is the real state.
       await expect(catalog).not.toHaveAttribute('open');
@@ -623,7 +637,7 @@ for (const host of ['vscode', 'electron'] as const) {
         if (entry.ready) await expect(page.locator(entry.ready)).toBeVisible();
         await waitForSettled(page);
         await waitForDrawerOpened(page);
-        await page.screenshot({ path: capturePath(entry.name, host, theme), animations: 'disabled' });
+        await capture(page, entry.name, host, theme);
         await page.keyboard.press('Escape');
         await expect(drawer).toHaveCount(0);
       }
