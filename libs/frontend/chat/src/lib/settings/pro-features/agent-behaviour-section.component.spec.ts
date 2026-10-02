@@ -160,43 +160,69 @@ describe('AgentBehaviourSectionComponent', () => {
       expect(call).toHaveBeenCalledWith('enhancedPrompts:setEnabled', { workspacePath: '.', enabled: false });
     });
 
-    it('D15: a failed write reverts the checkbox and raises an alert toast', async () => {
-      handlers['enhancedPrompts:setEnabled'] = () => rpcError('disk full');
+    it('D15: a failed write reverts the checkbox and raises an alert toast with fixed message', async () => {
+      handlers['enhancedPrompts:setEnabled'] = () => rpcError('host detail: disk full');
       await render();
       await click('Toggle Enhanced System Prompt');
       expect(checkbox('Toggle Enhanced System Prompt').checked).toBe(false);
-      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'disk full', canUndo: false });
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        message: 'Could not save the system prompt mode.',
+        canUndo: false,
+      });
+      expect(feedback.toast()?.message).not.toContain('host detail');
     });
 
-    it('D15: a host failure inside a successful RPC ({success:false}) is never toasted as saved', async () => {
+    it('D15: a host failure inside a successful RPC ({success:false}) uses fixed error message', async () => {
       handlers['enhancedPrompts:setEnabled'] = () =>
-        rpcSuccess({ success: false, error: 'Enhanced prompts could not be enabled.' });
+        rpcSuccess({ success: false, error: 'host detail: Enhanced prompts could not be enabled.' });
       await render();
       call.mockClear();
       await click('Toggle Enhanced System Prompt');
       expect(checkbox('Toggle Enhanced System Prompt').checked).toBe(false);
       expect(feedback.toast()).toEqual({
         tone: 'alert',
-        message: 'Enhanced prompts could not be enabled.',
+        message: 'Could not save the system prompt mode.',
         canUndo: false,
       });
+      expect(feedback.toast()?.message).not.toContain('host detail');
       // No status re-read follows a failed write.
       expect(call).not.toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
     });
 
-    it('falls back to fixed copy when the host failure carries no message', async () => {
-      handlers['enhancedPrompts:setEnabled'] = () => rpcSuccess({ success: false });
+    it('D15: a thrown error during write uses fixed error message', async () => {
+      handlers['enhancedPrompts:setEnabled'] = () => {
+        throw new Error('host detail: catastrophic crash');
+      };
       await render();
       await click('Toggle Enhanced System Prompt');
-      expect(feedback.toast()?.message).toBe('Could not save the system prompt mode.');
+      expect(checkbox('Toggle Enhanced System Prompt').checked).toBe(false);
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        message: 'Could not save the system prompt mode.',
+        canUndo: false,
+      });
+      expect(feedback.toast()?.message).not.toContain('host detail');
     });
 
-    it('shows a load failure as an inline alert', async () => {
-      handlers['enhancedPrompts:getStatus'] = () => rpcError('status unavailable');
+    it('shows a load failure as an inline alert with fixed copy and no host detail', async () => {
+      handlers['enhancedPrompts:getStatus'] = () => rpcError('host detail: status unavailable');
       await render();
       const alert = element.querySelector('[data-testid="agent-behaviour-load-error"]');
       expect(alert?.getAttribute('role')).toBe('alert');
-      expect(alert?.textContent).toContain('status unavailable');
+      expect(alert?.textContent).toContain('Could not load the system prompt status.');
+      expect(alert?.textContent).not.toContain('host detail');
+    });
+
+    it('shows a load thrown error as an inline alert with fixed copy and no host detail', async () => {
+      handlers['enhancedPrompts:getStatus'] = () => {
+        throw new Error('host detail: socket timeout');
+      };
+      await render();
+      const alert = element.querySelector('[data-testid="agent-behaviour-load-error"]');
+      expect(alert?.getAttribute('role')).toBe('alert');
+      expect(alert?.textContent).toContain('Could not load the system prompt status.');
+      expect(alert?.textContent).not.toContain('host detail');
     });
   });
 
@@ -272,19 +298,53 @@ describe('AgentBehaviourSectionComponent', () => {
       expect(component.workflowsEnabled()).toBe(true);
     });
 
-    it('D15: a structured failure reverts the checkbox and shows the host message', async () => {
-      handlers['agent:setConfig'] = () => rpcSuccess({ success: false, error: 'Settings file is read-only.' });
+    it('D15: a structured failure reverts the checkbox and uses fixed message with no host detail', async () => {
+      handlers['agent:setConfig'] = () =>
+        rpcSuccess({ success: false, error: 'host detail: Settings file is read-only.' });
       await render();
       await click('Toggle dynamic workflows');
       expect(checkbox('Toggle dynamic workflows').checked).toBe(true);
-      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Settings file is read-only.', canUndo: false });
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        message: 'Could not save the dynamic workflows setting.',
+        canUndo: false,
+      });
+      expect(feedback.toast()?.message).not.toContain('host detail');
+    });
+
+    it('D15: a thrown error during workflow write uses fixed message with no host detail', async () => {
+      handlers['agent:setConfig'] = () => {
+        throw new Error('host detail: IPC disconnected');
+      };
+      await render();
+      await click('Toggle dynamic workflows');
+      expect(checkbox('Toggle dynamic workflows').checked).toBe(true);
+      expect(feedback.toast()).toEqual({
+        tone: 'alert',
+        message: 'Could not save the dynamic workflows setting.',
+        canUndo: false,
+      });
+      expect(feedback.toast()?.message).not.toContain('host detail');
     });
 
     it('keeps the toggle disabled and reports the failure when the setting cannot load', async () => {
-      handlers['agent:getConfig'] = () => rpcError('host offline');
+      handlers['agent:getConfig'] = () => rpcError('host detail: host offline');
       await render();
       expect(checkbox('Toggle dynamic workflows').disabled).toBe(true);
-      expect(element.querySelector('[data-testid="agent-behaviour-load-error"]')?.textContent).toContain('host offline');
+      const alert = element.querySelector('[data-testid="agent-behaviour-load-error"]');
+      expect(alert?.textContent).toContain('Could not load the dynamic workflows setting.');
+      expect(alert?.textContent).not.toContain('host detail');
+    });
+
+    it('keeps the toggle disabled and reports the failure when the setting load throws', async () => {
+      handlers['agent:getConfig'] = () => {
+        throw new Error('host detail: connection refused');
+      };
+      await render();
+      expect(checkbox('Toggle dynamic workflows').disabled).toBe(true);
+      const alert = element.querySelector('[data-testid="agent-behaviour-load-error"]');
+      expect(alert?.textContent).toContain('Could not load the dynamic workflows setting.');
+      expect(alert?.textContent).not.toContain('host detail');
     });
   });
 
@@ -321,4 +381,30 @@ describe('AgentBehaviourSectionComponent', () => {
       expect(feedback.toast()?.tone).toBe('alert');
     });
   });
+
+  describe('System prompt details drawer (D-SP)', () => {
+    it('opens drawer when Details button is clicked', async () => {
+      await render();
+      expect(component.drawerOpen()).toBe(false);
+
+      const detailsBtn = element.querySelector<HTMLButtonElement>(
+        '[data-testid="agent-behaviour-prompt-details"]',
+      );
+      expect(detailsBtn).not.toBeNull();
+      detailsBtn?.click();
+      fixture.detectChanges();
+
+      expect(component.drawerOpen()).toBe(true);
+    });
+
+    it('reloads prompt status when drawer emits changed', async () => {
+      await render();
+      call.mockClear();
+
+      // Trigger the protected loadPromptStatus directly or simulate change
+      await (component as unknown as { loadPromptStatus: () => Promise<void> }).loadPromptStatus();
+      expect(call).toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
+    });
+  });
 });
+

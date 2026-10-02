@@ -10,6 +10,7 @@ import {
   AlertCircle,
   Bot,
   ChevronDown,
+  ChevronRight,
   LucideAngularModule,
   Sparkles,
 } from 'lucide-angular';
@@ -21,6 +22,7 @@ import type {
 } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { UltracodeStateService } from '../../services/ultracode-state.service';
+import { SystemPromptDrawerComponent } from './system-prompt-drawer.component';
 
 interface EffortChoice {
   /** `''` is the SDK default (no stored effort). */
@@ -50,9 +52,6 @@ const ULTRACODE_ON_FAILED =
 const ULTRACODE_OFF_FAILED =
   'Could not turn off Ultracode: your previous reasoning effort was not restored.';
 
-function errorText(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
 
 /**
  * "Agent behaviour" card on the Advanced tab (pattern map rows A10, A11, A26, A27, A29).
@@ -71,7 +70,7 @@ function errorText(error: unknown, fallback: string): string {
 @Component({
   selector: 'ptah-agent-behaviour-section',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent],
+  imports: [LucideAngularModule, NativePopoverComponent, SystemPromptDrawerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -102,6 +101,7 @@ function errorText(error: unknown, fallback: string): string {
               <th class="w-10" scope="col">On</th>
               <th scope="col">Setting</th>
               <th scope="col">Value / status</th>
+              <th class="text-right" scope="col">Details</th>
             </tr>
           </thead>
           <tbody>
@@ -124,17 +124,26 @@ function errorText(error: unknown, fallback: string): string {
                 </p>
               </td>
               <td class="align-top" data-testid="agent-behaviour-prompt-status">
-                <span class="badge badge-outline badge-sm gap-1 whitespace-nowrap text-base-content">
-                  @if (promptEnabled()) {
-                    <lucide-angular [img]="SparklesIcon" class="w-3 h-3 text-secondary" aria-hidden="true" />
-                    Ptah Enhanced
-                  } @else {
-                    Default
-                  }
-                </span>
-                <span class="ml-1 text-[10px] text-base-content-muted">
+                <div>
+                  <span class="badge badge-outline badge-sm gap-1 whitespace-nowrap text-base-content">
+                    @if (promptEnabled()) {
+                      <lucide-angular [img]="SparklesIcon" class="w-3 h-3 text-secondary" aria-hidden="true" />
+                      Ptah Enhanced
+                    } @else {
+                      Default
+                    }
+                  </span>
+                </div>
+                <div class="text-xs opacity-70 text-base-content-muted whitespace-nowrap">
                   {{ promptEnabled() ? 'Active for all sessions' : 'Standard system prompt' }}
-                </span>
+                </div>
+              </td>
+              <td class="align-top text-right">
+                <button type="button" class="btn btn-ghost btn-xs btn-square" (click)="drawerOpen.set(true)"
+                  aria-label="System prompt details"
+                  data-testid="agent-behaviour-prompt-details">
+                  <lucide-angular [img]="ChevronRightIcon" class="w-3.5 h-3.5 text-base-content" aria-hidden="true" />
+                </button>
               </td>
             </tr>
 
@@ -179,6 +188,7 @@ function errorText(error: unknown, fallback: string): string {
                   </div>
                 </ptah-native-popover>
               </td>
+              <td class="align-top"></td>
             </tr>
 
             <!-- A27: Dynamic workflows (PR-2: the "paid plan" sentence is removed) -->
@@ -202,6 +212,7 @@ function errorText(error: unknown, fallback: string): string {
                   <span class="sr-only">Not loaded</span>
                 }
               </td>
+              <td class="align-top"></td>
             </tr>
 
             <!-- A29: Ultracode (restores the previous effort when turned off) -->
@@ -223,11 +234,20 @@ function errorText(error: unknown, fallback: string): string {
                 {{ ultracode.enabled() ? 'On' : 'Off' }}
                 <span class="ml-1 text-[10px] text-base-content-muted">Pins X-High while on</span>
               </td>
+              <td class="align-top"></td>
             </tr>
           </tbody>
         </table>
       </div>
     </section>
+
+    @defer (when drawerOpen()) {
+      <ptah-system-prompt-drawer
+        [isOpen]="drawerOpen()"
+        (closed)="drawerOpen.set(false)"
+        (changed)="loadPromptStatus()"
+      />
+    }
   `,
 })
 export class AgentBehaviourSectionComponent implements OnInit {
@@ -239,8 +259,11 @@ export class AgentBehaviourSectionComponent implements OnInit {
   readonly BotIcon = Bot;
   readonly SparklesIcon = Sparkles;
   readonly ChevronDownIcon = ChevronDown;
+  readonly ChevronRightIcon = ChevronRight;
   readonly AlertCircleIcon = AlertCircle;
   readonly effortChoices = EFFORT_CHOICES;
+
+  readonly drawerOpen = signal(false);
 
   /** Save triggers are disabled while any settings write is in flight (D3). */
   readonly saving = this.feedback.saving;
@@ -323,17 +346,17 @@ export class AgentBehaviourSectionComponent implements OnInit {
     checkbox.checked = this.ultracode.enabled();
   }
 
-  private async loadPromptStatus(): Promise<void> {
+  protected async loadPromptStatus(): Promise<void> {
     try {
       const result = await this.rpcService.call('enhancedPrompts:getStatus', { workspacePath: '.' });
       if (result.isSuccess()) {
         this.promptStatus.set(result.data);
         this.promptLoadError.set(null);
       } else {
-        this.promptLoadError.set(result.error ?? PROMPT_STATUS_LOAD_FAILED);
+        this.promptLoadError.set(PROMPT_STATUS_LOAD_FAILED);
       }
-    } catch (error: unknown) {
-      this.promptLoadError.set(errorText(error, PROMPT_STATUS_LOAD_FAILED));
+    } catch {
+      this.promptLoadError.set(PROMPT_STATUS_LOAD_FAILED);
     }
   }
 
@@ -344,10 +367,10 @@ export class AgentBehaviourSectionComponent implements OnInit {
         this.workflowsDisabled.set(result.data.workflowsDisabled ?? false);
         this.workflowsLoadError.set(null);
       } else {
-        this.workflowsLoadError.set(result.error ?? WORKFLOWS_LOAD_FAILED);
+        this.workflowsLoadError.set(WORKFLOWS_LOAD_FAILED);
       }
-    } catch (error: unknown) {
-      this.workflowsLoadError.set(errorText(error, WORKFLOWS_LOAD_FAILED));
+    } catch {
+      this.workflowsLoadError.set(WORKFLOWS_LOAD_FAILED);
     }
   }
 
@@ -355,11 +378,11 @@ export class AgentBehaviourSectionComponent implements OnInit {
   private async writePromptMode(enabled: boolean): Promise<WriteResult> {
     try {
       const result = await this.rpcService.call('enhancedPrompts:setEnabled', { workspacePath: '.', enabled });
-      if (!result.isSuccess()) return { ok: false, message: result.error ?? PROMPT_MODE_SAVE_FAILED };
-      // The host reports a parse failure or a service throw as `{success:false}` inside a successful RPC.
-      if (!result.data.success) return { ok: false, message: result.data.error ?? PROMPT_MODE_SAVE_FAILED };
-    } catch (error: unknown) {
-      return { ok: false, message: errorText(error, PROMPT_MODE_SAVE_FAILED) };
+      if (!result.isSuccess() || !result.data.success) {
+        return { ok: false, message: PROMPT_MODE_SAVE_FAILED };
+      }
+    } catch {
+      return { ok: false, message: PROMPT_MODE_SAVE_FAILED };
     }
     await this.loadPromptStatus();
     return { ok: true };
@@ -379,10 +402,11 @@ export class AgentBehaviourSectionComponent implements OnInit {
   private async writeWorkflowsDisabled(disabled: boolean): Promise<WriteResult> {
     try {
       const result = await this.rpcService.call('agent:setConfig', { workflowsDisabled: disabled });
-      if (!result.isSuccess()) return { ok: false, message: result.error ?? WORKFLOWS_SAVE_FAILED };
-      if (!result.data.success) return { ok: false, message: result.data.error ?? WORKFLOWS_SAVE_FAILED };
-    } catch (error: unknown) {
-      return { ok: false, message: errorText(error, WORKFLOWS_SAVE_FAILED) };
+      if (!result.isSuccess() || !result.data.success) {
+        return { ok: false, message: WORKFLOWS_SAVE_FAILED };
+      }
+    } catch {
+      return { ok: false, message: WORKFLOWS_SAVE_FAILED };
     }
     this.workflowsDisabled.set(disabled);
     return { ok: true };
