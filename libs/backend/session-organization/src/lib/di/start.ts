@@ -11,7 +11,8 @@
  *     awaited.
  *
  * The capture handlers drop events while the connection is not open yet
- * (lane L8), so this may run before `openAndMigrate`.
+ * (lane L8) and defer deletes until it opens, so this may run before
+ * `openAndMigrate`.
  */
 import type { DependencyContainer } from 'tsyringe';
 import {

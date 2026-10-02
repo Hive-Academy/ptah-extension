@@ -34,6 +34,7 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import {
   PLATFORM_TOKENS,
+  type IDisposable,
   type IOutputChannel,
 } from '@ptah-extension/platform-core';
 import {
@@ -436,11 +437,27 @@ export class SessionOrganizationStore {
   }
 
   /**
-   * Open connection = usable store. Forwarded live on every call, never
-   * cached: the connection opens after registration and may close later.
+   * Usable = open AND migrated. Read live on every call, never cached: the
+   * connection opens after registration and may close later.
+   *
+   * `isOpen` alone is not enough. It turns true when `openAndMigrate` assigns
+   * the handle (`sqlite-connection.service.ts:226`), before the migration run
+   * — which can await a pre-migration backup (`migration-runner.ts:88-104`)
+   * while RPCs are served. A read in that gap on a database that does not have
+   * migration 0050 yet fails with "no such table". `lastMigrationVersion` is 0
+   * until the current open's migration run has finished (a new runner per
+   * open, `migration-runner.ts:140`).
    */
   isReady(): boolean {
-    return this.connection.isOpen;
+    return this.connection.isOpen && this.connection.lastMigrationVersion > 0;
+  }
+
+  /**
+   * Subscribe to "the connection is now open and migrated" (every open, a
+   * reopen too). Does not fire for a subscriber that arrives after the open.
+   */
+  onDidOpen(listener: () => void): IDisposable {
+    return this.connection.onDidOpen(listener);
   }
 
   /**

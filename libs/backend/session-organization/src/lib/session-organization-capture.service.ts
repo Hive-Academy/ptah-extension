@@ -18,8 +18,9 @@
  *
  * All handlers are synchronous (better-sqlite3 is synchronous), which honours
  * the registries' "treat the handler as synchronous" contract. The service
- * methods they call never throw; an unavailable store is dropped and logged
- * there (lane L8).
+ * methods they call never throw; while the store is unavailable a rekey or PR
+ * capture is dropped and logged there (lane L8), and a delete is deferred
+ * until the store opens.
  *
  * `start()` and `dispose()` are synchronous and idempotent (CONVENTIONS.md §9).
  * A `start()` that fails part-way releases what it subscribed and stays

@@ -36,12 +36,41 @@ type StoreMethod =
   | 'recordAgentStartedSession'
   | 'deleteSession'
   | 'countChildren'
-  | 'rekeySession';
+  | 'rekeySession'
+  | 'onDidOpen';
 
 type FakeStore = { [K in StoreMethod]: jest.Mock };
 
-function createStore(): FakeStore {
+/** The store's `onDidOpen` signal, kept off the store so its keys stay mocks. */
+interface OpenSignal {
+  listeners: Set<() => void>;
+  release: jest.Mock;
+  /** Fire every listener still subscribed. */
+  fire: () => void;
+}
+
+function createOpenSignal(): OpenSignal {
+  const listeners = new Set<() => void>();
   return {
+    listeners,
+    release: jest.fn(),
+    fire: () => {
+      for (const listener of [...listeners]) listener();
+    },
+  };
+}
+
+function createStore(signal: OpenSignal): FakeStore {
+  return {
+    onDidOpen: jest.fn((listener: () => void) => {
+      signal.listeners.add(listener);
+      return {
+        dispose: () => {
+          signal.release();
+          signal.listeners.delete(listener);
+        },
+      };
+    }),
     isReady: jest.fn(() => true),
     listWorkspace: jest.fn(() => new Map<string, StoredOrganization>()),
     listTaskLinks: jest.fn(() => []),
@@ -72,6 +101,7 @@ const WRITE_METHODS: StoreMethod[] = [
 interface Harness {
   service: SessionOrganizationService;
   store: FakeStore;
+  openSignal: OpenSignal;
   metadata: Map<string, { workspaceId: string }>;
   getMetadata: jest.Mock;
   lines: string[];
@@ -79,7 +109,8 @@ interface Harness {
 }
 
 function setup(): Harness {
-  const store = createStore();
+  const openSignal = createOpenSignal();
+  const store = createStore(openSignal);
   const metadata = new Map<string, { workspaceId: string }>([
     [SESSION, { workspaceId: ROOT }],
   ]);
@@ -98,7 +129,7 @@ function setup(): Harness {
   );
   const changes: SessionOrganizationChange[] = [];
   service.onDidChange((e) => changes.push(e));
-  return { service, store, metadata, getMetadata, lines, changes };
+  return { service, store, openSignal, metadata, getMetadata, lines, changes };
 }
 
 /** Recorder writes run detached after an awaited metadata read. */
@@ -872,6 +903,164 @@ describe('SessionOrganizationService', () => {
       expect(h.lines.filter((l) => l.includes('store not open'))).toHaveLength(
         2,
       );
+    });
+  });
+
+  describe('deferred delete cascade (F1: delete while the store is closed)', () => {
+    const OTHER = '9f1e2d3c-4b5a-4968-8776-655443322110';
+
+    /** A store that is closed now; `open()` flips it ready and fires open. */
+    function closed(): Harness & { open: () => Promise<void> } {
+      const h = setup();
+      h.metadata.delete(SESSION); // the metadata row is gone before the event
+      h.store.isReady.mockReturnValue(false);
+      return {
+        ...h,
+        open: async () => {
+          h.store.isReady.mockReturnValue(true);
+          h.openSignal.fire();
+          await flush();
+        },
+      };
+    }
+
+    it('defers the delete while closed and removes the rows when the store opens', async () => {
+      const h = closed();
+
+      h.service.removeSession(ROOT + path.sep, SESSION);
+      expect(h.store.deleteSession).not.toHaveBeenCalled();
+      expect(h.lines).toEqual([
+        `[SessionOrganization] removeSession deferred for ${SESSION}: store not open; applied when it opens`,
+      ]);
+
+      await h.open();
+
+      expect(h.store.deleteSession).toHaveBeenCalledTimes(1);
+      expect(h.store.deleteSession).toHaveBeenCalledWith(KEY, SESSION);
+      expect(h.changes).toEqual([
+        { workspaceRoot: KEY, sessionIds: [SESSION], reason: 'delete' },
+      ]);
+      expect(h.lines).toContain(
+        '[SessionOrganization] applied 1 deferred delete(s) after the store opened',
+      );
+      // Nothing left to apply: the open subscription is released.
+      expect(h.openSignal.release).toHaveBeenCalledTimes(1);
+      expect(h.openSignal.listeners.size).toBe(0);
+    });
+
+    it('touches only the deleted (root, id) pairs and skips a session that exists again', async () => {
+      const h = closed();
+      h.service.removeSession(ROOT, SESSION);
+      h.service.removeSession(ROOT, OTHER);
+      // OTHER was re-created before the store opened: it is a live session.
+      h.metadata.set(OTHER, { workspaceId: ROOT });
+
+      await h.open();
+
+      expect(h.store.deleteSession.mock.calls).toEqual([[KEY, SESSION]]);
+      expect(h.lines).toContain(
+        `[SessionOrganization] deferred removeSession skipped for ${OTHER}: the session exists again`,
+      );
+    });
+
+    it('is idempotent: a repeated delete is held once and a second open applies nothing', async () => {
+      const h = closed();
+      h.service.removeSession(ROOT, SESSION);
+      h.service.removeSession(ROOT + path.sep, SESSION);
+      expect(h.store.onDidOpen).toHaveBeenCalledTimes(1);
+
+      await h.open();
+      h.openSignal.fire();
+      await flush();
+
+      expect(h.store.deleteSession).toHaveBeenCalledTimes(1);
+      expect(h.changes).toHaveLength(1);
+    });
+
+    it('logs and never throws when the deferred delete fails, and does not retry it', async () => {
+      const h = closed();
+      h.store.deleteSession.mockImplementation(() => {
+        throw new Error('SQLITE_BUSY');
+      });
+      h.service.removeSession(ROOT, SESSION);
+
+      await expect(h.open()).resolves.toBeUndefined();
+      expect(h.lines).toContain(
+        `[SessionOrganization] deferred removeSession failed for ${SESSION}: SQLITE_BUSY`,
+      );
+      expect(h.changes).toEqual([]);
+
+      h.store.deleteSession.mockClear();
+      h.openSignal.fire();
+      await flush();
+      expect(h.store.deleteSession).not.toHaveBeenCalled();
+    });
+
+    it('logs a metadata read failure and keeps the rows (conservative)', async () => {
+      const h = closed();
+      h.getMetadata.mockRejectedValue(new Error('state storage unavailable'));
+      h.service.removeSession(ROOT, SESSION);
+
+      await h.open();
+
+      expect(h.store.deleteSession).not.toHaveBeenCalled();
+      expect(h.lines).toContain(
+        `[SessionOrganization] deferred removeSession failed for ${SESSION}: state storage unavailable`,
+      );
+    });
+
+    it('keeps the deletes for the next open when the store closes again first', async () => {
+      const h = closed();
+      h.service.removeSession(ROOT, SESSION);
+
+      // Open fires, but the store is already closed again when the drain runs.
+      h.openSignal.fire();
+      await flush();
+      expect(h.store.deleteSession).not.toHaveBeenCalled();
+      expect(h.openSignal.listeners.size).toBe(1);
+
+      await h.open();
+      expect(h.store.deleteSession).toHaveBeenCalledWith(KEY, SESSION);
+    });
+
+    it('bounds the deferred set and logs each delete it cannot hold', () => {
+      const h = closed();
+      for (let i = 0; i < 1000; i++) h.service.removeSession(ROOT, `s-${i}`);
+      h.service.removeSession(ROOT, SESSION);
+
+      expect(h.lines[h.lines.length - 1]).toBe(
+        `[SessionOrganization] removeSession dropped for ${SESSION}: store not open and 1000 deletes already deferred`,
+      );
+    });
+
+    it('logs, and does not throw, when the store-open subscription fails', () => {
+      const h = closed();
+      h.store.onDidOpen.mockImplementation(() => {
+        throw new Error('no connection');
+      });
+
+      expect(() => h.service.removeSession(ROOT, SESSION)).not.toThrow();
+      expect(h.lines).toContain(
+        '[SessionOrganization] deferred deletes cannot watch the store open: no connection',
+      );
+    });
+
+    it('dispose drops the deferred deletes and releases the subscription', async () => {
+      const h = closed();
+      h.service.removeSession(ROOT, SESSION);
+
+      h.service.dispose();
+      expect(h.openSignal.release).toHaveBeenCalledTimes(1);
+
+      await h.open();
+      expect(h.store.deleteSession).not.toHaveBeenCalled();
+    });
+
+    it('deletes immediately, with no subscription, while the store is open', () => {
+      const h = setup();
+      h.service.removeSession(ROOT, SESSION);
+      expect(h.store.deleteSession).toHaveBeenCalledWith(KEY, SESSION);
+      expect(h.store.onDidOpen).not.toHaveBeenCalled();
     });
   });
 });

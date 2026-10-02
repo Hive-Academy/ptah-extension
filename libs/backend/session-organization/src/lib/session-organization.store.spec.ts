@@ -88,7 +88,12 @@ interface Harness {
   db: TestDatabase;
   store: SessionOrganizationStore;
   output: { appendLine: jest.Mock };
-  connection: { db: TestDatabase; isOpen: boolean };
+  connection: {
+    db: TestDatabase;
+    isOpen: boolean;
+    lastMigrationVersion: number;
+    onDidOpen: jest.Mock;
+  };
 }
 
 const openDbs: TestDatabase[] = [];
@@ -104,7 +109,12 @@ function makeHarness(): Harness {
   for (const migration of MIGRATIONS.filter((m) => m.version <= 50)) {
     if (migration.sql) db.exec(migration.sql);
   }
-  const connection = { db, isOpen: true };
+  const connection = {
+    db,
+    isOpen: true,
+    lastMigrationVersion: 50,
+    onDidOpen: jest.fn(() => ({ dispose: jest.fn() })),
+  };
   const output = { appendLine: jest.fn() };
   const store = new SessionOrganizationStore(
     connection as unknown as SqliteConnectionService,
@@ -158,6 +168,27 @@ describe('SessionOrganizationStore (real SQLite, migrations 1..50)', () => {
       expect(store.isReady()).toBe(false);
       connection.isOpen = true;
       expect(store.isReady()).toBe(true);
+    });
+
+    it('is not ready while the connection is open but its migration run has not finished (F1)', () => {
+      // `openAndMigrate` assigns the handle (isOpen true) before the runner
+      // applies anything and may await a pre-migration backup in between; a
+      // read there hit "no such table" on a database without 0050 yet.
+      const { store, connection } = makeHarness();
+      connection.lastMigrationVersion = 0;
+      expect(store.isReady()).toBe(false);
+      connection.lastMigrationVersion = 50;
+      expect(store.isReady()).toBe(true);
+    });
+  });
+
+  describe('onDidOpen', () => {
+    it('forwards the subscription to the connection and returns its disposable', () => {
+      const { store, connection } = makeHarness();
+      const listener = jest.fn();
+      const handle = store.onDidOpen(listener);
+      expect(connection.onDidOpen).toHaveBeenCalledWith(listener);
+      expect(handle).toBe(connection.onDidOpen.mock.results[0].value);
     });
   });
 

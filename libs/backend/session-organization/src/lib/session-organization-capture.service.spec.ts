@@ -78,6 +78,19 @@ class FakeOrganizationStore {
 
   readonly isReady = jest.fn(() => this.ready);
 
+  private readonly openListeners = new Set<() => void>();
+
+  readonly onDidOpen = jest.fn((listener: () => void) => {
+    this.openListeners.add(listener);
+    return { dispose: () => this.openListeners.delete(listener) };
+  });
+
+  /** The connection finished `openAndMigrate`. */
+  open(): void {
+    this.ready = true;
+    for (const listener of [...this.openListeners]) listener();
+  }
+
   readonly deleteSession = jest.fn((root: string, sessionId: string) => {
     return this.rows.get(root)?.delete(sessionId) ?? false;
   });
@@ -258,9 +271,13 @@ describe('SessionOrganizationCaptureService', () => {
       expect(h.store.has(KEY, SESSION)).toBe(true);
     });
 
-    it('drops the cascade and logs once when the store is closed', async () => {
+    it('defers a delete received while the store is closed and removes the rows when it opens (F1)', async () => {
+      const KEPT = '7a1c2b3d-4e5f-4a6b-8c7d-000000000099';
       await h.metadata.create(SESSION, ROOT, 'Session');
+      await h.metadata.create(KEPT, ROOT, 'Kept');
       h.store.seed(KEY, SESSION);
+      h.store.seed(KEY, KEPT);
+      h.store.seed(OTHER_KEY, SESSION);
       h.store.ready = false;
       h.capture.start();
 
@@ -269,10 +286,21 @@ describe('SessionOrganizationCaptureService', () => {
 
       expect(h.store.deleteSession).not.toHaveBeenCalled();
       expect(h.store.has(KEY, SESSION)).toBe(true);
-      expect(h.lines).toHaveLength(1);
-      expect(h.lines[0]).toMatch(
-        /^\[SessionOrganization\] removeSession dropped for 7a1c2b3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d: store not open$/,
-      );
+      expect(h.lines).toEqual([
+        `[SessionOrganization] removeSession deferred for ${SESSION}: store not open; applied when it opens`,
+      ]);
+
+      h.store.open();
+      await flush();
+
+      expect(h.store.deleteSession).toHaveBeenCalledTimes(1);
+      expect(h.store.has(KEY, SESSION)).toBe(false);
+      // Other sessions, and the same id in another workspace, are untouched.
+      expect(h.store.has(KEY, KEPT)).toBe(true);
+      expect(h.store.has(OTHER_KEY, SESSION)).toBe(true);
+      expect(h.changes).toEqual([
+        { workspaceRoot: KEY, sessionIds: [SESSION], reason: 'delete' },
+      ]);
     });
 
     it.each([

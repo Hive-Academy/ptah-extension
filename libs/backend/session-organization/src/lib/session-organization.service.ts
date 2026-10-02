@@ -2,9 +2,13 @@
  * Session organization service — the rules around the store.
  *
  * Owns:
- *  - availability: usable exactly when the SQLite connection is open
- *    (`store.isReady()`, read live). Captures while it is not are dropped and
- *    logged, never buffered (lane L8);
+ *  - availability: usable exactly when the SQLite connection is open and
+ *    migrated (`store.isReady()`, read live). Captures while it is not are
+ *    dropped and logged, never buffered (lane L8). The one exception is the
+ *    delete cascade (AC6): a delete only removes rows, nothing else would ever
+ *    remove them, and the Electron boot serves RPCs seconds before SQLite
+ *    opens. So a delete received while closed is held in memory (bounded,
+ *    ids only — no second store) and applied when the store opens;
  *  - the workspace key (D3, lane L9): `normalizeWorkspaceRoot(metadata.workspaceId)`,
  *    falling back to the caller's hint only when the session's metadata exists
  *    but carries no workspace. A session id with NO metadata — a webview tab id,
@@ -74,6 +78,18 @@ import { parsePrUrl } from './utils/pr-url';
 const LOG_PREFIX = '[SessionOrganization]';
 
 const UNAVAILABLE_MESSAGE = 'Session organization storage is not available';
+
+/**
+ * Upper bound on deletes held while the store is closed. One boot window sees
+ * a handful (a user delete, an importer prune); the cap only stops a store
+ * that never opens from growing the set without limit.
+ */
+const MAX_DEFERRED_DELETES = 1000;
+
+interface DeferredDelete {
+  root: string;
+  sessionId: string;
+}
 
 type RecorderInput<K extends keyof ISessionOrganizationRecorder> = Parameters<
   ISessionOrganizationRecorder[K]
@@ -162,6 +178,12 @@ export class SessionOrganizationService
     (e: SessionOrganizationChange) => void
   >();
 
+  /** Deletes received while the store was closed, keyed by root + id. */
+  private readonly deferredDeletes = new Map<string, DeferredDelete>();
+
+  /** Store-open subscription; held only while deletes are deferred. */
+  private openSubscription: IDisposable | null = null;
+
   constructor(
     @inject(SESSION_ORGANIZATION_TOKENS.STORE)
     private readonly store: SessionOrganizationStore,
@@ -177,7 +199,7 @@ export class SessionOrganizationService
     return { dispose: () => this.listeners.delete(listener) };
   };
 
-  /** Usable exactly while the SQLite connection is open (read live). */
+  /** Usable exactly while the SQLite connection is open and migrated (read live). */
   isAvailable(): boolean {
     try {
       return this.store.isReady();
@@ -190,9 +212,11 @@ export class SessionOrganizationService
     }
   }
 
-  /** Drop every change listener. Idempotent. */
+  /** Drop every change listener and any deferred delete. Idempotent. */
   dispose(): void {
     this.listeners.clear();
+    this.deferredDeletes.clear();
+    this.releaseOpenSubscription();
   }
 
   // ── Recorder port (never throws, returns nothing) ─────────────────────────
@@ -540,22 +564,17 @@ export class SessionOrganizationService
   /**
    * Delete cascade (D7): remove a deleted session's rows in its workspace.
    * The metadata is already gone, so the caller passes the root it had.
-   * Never throws.
+   * While the store is closed the delete is deferred and applied when it
+   * opens (see the class header). Never throws.
    */
   removeSession(workspaceRoot: string, sessionId: string): void {
-    if (!this.isAvailable()) {
-      this.log(`removeSession dropped for ${sessionId}: store not open`);
-      return;
-    }
     try {
       const root = normalizeWorkspaceRoot(workspaceRoot);
-      if (this.store.deleteSession(root, sessionId)) {
-        this.emitChange({
-          workspaceRoot: root,
-          sessionIds: [sessionId],
-          reason: 'delete',
-        });
+      if (!this.isAvailable()) {
+        this.deferDelete(root, sessionId);
+        return;
       }
+      this.deleteRows(root, sessionId);
     } catch (error: unknown) {
       this.log(`removeSession failed for ${sessionId}: ${describe(error)}`);
     }
@@ -594,11 +613,111 @@ export class SessionOrganizationService
 
   // ── private ────────────────────────────────────────────────────────────────
 
+  /** Remove the rows; a change event only when a row was removed. Throws. */
+  private deleteRows(root: string, sessionId: string): void {
+    if (this.store.deleteSession(root, sessionId)) {
+      this.emitChange({
+        workspaceRoot: root,
+        sessionIds: [sessionId],
+        reason: 'delete',
+      });
+    }
+  }
+
+  /** Hold a delete until the store opens. Bounded; one log line each. */
+  private deferDelete(root: string, sessionId: string): void {
+    const key = `${root}\u0000${sessionId}`;
+    if (
+      !this.deferredDeletes.has(key) &&
+      this.deferredDeletes.size >= MAX_DEFERRED_DELETES
+    ) {
+      this.log(
+        `removeSession dropped for ${sessionId}: store not open and ` +
+          `${MAX_DEFERRED_DELETES} deletes already deferred`,
+      );
+      return;
+    }
+    this.deferredDeletes.set(key, { root, sessionId });
+    this.log(
+      `removeSession deferred for ${sessionId}: store not open; applied when it opens`,
+    );
+    this.watchForOpen();
+  }
+
+  /** Subscribe once to the store opening, while deletes are deferred. */
+  private watchForOpen(): void {
+    if (this.openSubscription !== null) return;
+    try {
+      this.openSubscription = this.store.onDidOpen(() => {
+        void this.applyDeferredDeletes();
+      });
+    } catch (error: unknown) {
+      // degradation-audit: reported - without the open signal the deferred
+      // deletes stay in memory (bounded) and are not applied this run; the
+      // rows stay hidden from session:list, which joins from metadata.
+      this.log(
+        `deferred deletes cannot watch the store open: ${describe(error)}`,
+      );
+    }
+  }
+
   /**
-   * Recorder pipeline: validate → resolve the root from metadata (drops tab
-   * ids before any store call) → availability → write → change event. Runs
-   * detached; every failure ends in one log line.
+   * Apply the deletes deferred while the store was closed. Runs on every open
+   * (a reopen too) and is idempotent: deleting absent rows changes nothing.
+   *
+   * Conservative: a session whose metadata exists again is skipped, so rows of
+   * a live session are never removed. Rows of other sessions are never
+   * touched — only the exact (root, id) pairs a `deleted` event named. Stops
+   * when the store closes again and keeps the rest for the next open. Never
+   * throws; one log line per failure and one summary line.
    */
+  private async applyDeferredDeletes(): Promise<void> {
+    let applied = 0;
+    for (const [key, entry] of [...this.deferredDeletes]) {
+      // Gone already: handled by a drain from an earlier open, or disposed.
+      if (!this.deferredDeletes.has(key)) continue;
+      if (!this.isAvailable()) return;
+      try {
+        if ((await this.metadata.get(entry.sessionId)) !== null) {
+          this.log(
+            `deferred removeSession skipped for ${entry.sessionId}: the session exists again`,
+          );
+        } else if (!this.isAvailable()) {
+          return;
+        } else {
+          this.deleteRows(entry.root, entry.sessionId);
+          applied++;
+        }
+      } catch (error: unknown) {
+        // degradation-audit: reported - same outcome as a failed immediate
+        // cascade (plan failure table): the rows stay, hidden from
+        // session:list, and the next delete of the same id removes them.
+        this.log(
+          `deferred removeSession failed for ${entry.sessionId}: ${describe(error)}`,
+        );
+      }
+      this.deferredDeletes.delete(key);
+    }
+    if (applied > 0) {
+      this.log(`applied ${applied} deferred delete(s) after the store opened`);
+    }
+    if (this.deferredDeletes.size === 0) this.releaseOpenSubscription();
+  }
+
+  private releaseOpenSubscription(): void {
+    const subscription = this.openSubscription;
+    this.openSubscription = null;
+    try {
+      subscription?.dispose();
+    } catch (error: unknown) {
+      // degradation-audit: reported - a failed unsubscribe leaves one listener
+      // on the connection; the next open finds no deferred delete and returns.
+      this.log(
+        `releasing the store-open subscription failed: ${describe(error)}`,
+      );
+    }
+  }
+
   /**
    * Synchronous guard for a recorder method. Producers in other libs call
    * through an untyped boundary, so `undefined`, `null` or a non-object input
@@ -616,6 +735,11 @@ export class SessionOrganizationService
     }
   }
 
+  /**
+   * Recorder pipeline: validate → resolve the root from metadata (drops tab
+   * ids before any store call) → availability → write → change event. Runs
+   * detached; every failure ends in one log line.
+   */
   private capture(
     call: string,
     sessionId: string,

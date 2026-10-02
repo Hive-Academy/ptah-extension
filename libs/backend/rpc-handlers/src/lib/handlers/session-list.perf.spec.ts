@@ -190,7 +190,13 @@ describe('session:list AC1 performance (real SQLite store)', () => {
 
     const output = { appendLine: jest.fn() };
     const store = new SessionOrganizationStore(
-      { db, isOpen: true } as unknown as SqliteConnectionService,
+      // Open AND migrated: the store reads as ready only once a migration run
+      // has finished (`lastMigrationVersion > 0`).
+      {
+        db,
+        isOpen: true,
+        lastMigrationVersion: 50,
+      } as unknown as SqliteConnectionService,
       output as unknown as IOutputChannel,
     );
     seed.forEach((row, i) => {
