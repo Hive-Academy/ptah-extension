@@ -47,6 +47,7 @@ import {
   type IMcpServerStatus,
   type IMcpSubagentRootRegistrar,
   type IOutputChannel,
+  type ISessionOrganizationRecorder,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import {
@@ -201,6 +202,13 @@ export class SessionSpawnerService implements ISessionSpawner {
     /** Absent → the child starts with `subagentPtahTools: 'unavailable'`. */
     @inject(PLATFORM_TOKENS.MCP_SUBAGENT_ROOT_REGISTRAR, { isOptional: true })
     private readonly rootRegistrar: IMcpSubagentRootRegistrar | null = null,
+    /**
+     * Durable organization of the child (TASK_2026_580, R-TL8): lineage,
+     * worktree, branch and task link, written once its SDK id binds. Bound
+     * only where SQLite is (not VS Code); absent → nothing is recorded.
+     */
+    @inject(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER, { isOptional: true })
+    private readonly organizationRecorder: ISessionOrganizationRecorder | null = null,
   ) {
     this.disposers.push(
       adapterEvents.onTurnEnded((event) => this.onTurnEnded(event)),
@@ -844,11 +852,44 @@ export class SessionSpawnerService implements ISessionSpawner {
     if (child?.childSessionId !== tabId) return;
     this.registry.bindSdkSessionId(tabId, payload.realSessionId);
     this.log(`${tabId} bound to SDK session ${payload.realSessionId}`);
+    this.recordOrganization(child, payload.realSessionId);
     const runtime = this.runtimes.get(tabId);
     if (runtime?.graceTimer) {
       clearTimeout(runtime.graceTimer);
       runtime.graceTimer = undefined;
       this.log(`${tabId} re-registered; grace cancelled`);
+    }
+  }
+
+  /**
+   * Hands the child's organization to the recorder. The store upserts, so a
+   * second resolve for the same child rewrites the same row. The parent is
+   * stored by its SDK id only: the one captured at start, else the parent
+   * tab's live SDK id, else none — never the parent's tab id.
+   */
+  private recordOrganization(
+    child: SessionChildRecord,
+    realSessionId: string,
+  ): void {
+    const recorder = this.organizationRecorder;
+    if (!recorder) return;
+    const parentSessionId =
+      child.parentSdkSessionId ?? this.sdkIdOf(child.parentSessionId);
+    try {
+      recorder.recordAgentStartedSession({
+        sessionId: realSessionId,
+        workspaceRoot: child.workspaceRoot,
+        ...(parentSessionId ? { parentSessionId } : {}),
+        worktreePath: child.worktreePath,
+        branch: child.branch,
+        ...(child.taskId ? { taskId: child.taskId } : {}),
+      });
+    } catch (error: unknown) {
+      // The recorder's contract is never-throw; this only keeps a faulty
+      // implementation from breaking the child's bind and grace handling.
+      this.log(
+        `${child.childSessionId} organization not recorded: ${errorMessage(error)}`,
+      );
     }
   }
 

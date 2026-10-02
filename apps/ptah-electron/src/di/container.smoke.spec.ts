@@ -40,6 +40,12 @@ import {
 } from '@ptah-extension/agent-sdk';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import {
+  CLI_AGENT_RUNTIME_TOKENS,
+  ChildWorktreeProvisioner,
+  LaneCompletionNotifier,
+  registerCliAgentRuntimeServices,
+} from '@ptah-extension/cli-agent-runtime';
+import {
   SESSION_ORGANIZATION_TOKENS,
   registerSessionOrganizationServices,
   startSessionOrganization,
@@ -472,9 +478,10 @@ describe('Electron DI — background-work governor (TASK_2026_437)', () => {
 /**
  * Session organization (TASK_2026_580, risk R-TL11, B2 follow-up).
  *
- * `WorktreeHookHandler`, `SessionForkService` and `PtahAPIBuilder` are
- * singletons that take `PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER` as an
- * OPTIONAL constructor argument. One resolved before phase 2 binds the
+ * `WorktreeHookHandler`, `SessionForkService`, `PtahAPIBuilder` and the 584
+ * `SessionSpawnerService` (R-TL8) are singletons that take
+ * `PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER` as an OPTIONAL constructor
+ * argument. One resolved before phase 2 binds the
  * recorder keeps `undefined` for the life of the process and silently never
  * records. Capture also subscribes to the PostToolUse registry; without it,
  * `startSessionOrganization` reports a non-fatal failure and no PR is captured.
@@ -514,7 +521,7 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     expect(register).toBeLessThan(at('startSessionOrganization(container);'));
     // Phase 2 itself never resolves a producer early.
     expect(phase2).not.toMatch(
-      /SDK_WORKTREE_HOOK_HANDLER|SDK_SESSION_FORK_SERVICE|PTAH_API_BUILDER/,
+      /SDK_WORKTREE_HOOK_HANDLER|SDK_SESSION_FORK_SERVICE|PTAH_API_BUILDER|SESSION_SPAWNER/,
     );
 
     // The API builder is registered in phase 3, after phase 2 bound the recorder.
@@ -532,7 +539,14 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     ).toContain('registerVsCodeLmToolsServices(container, logger);');
   });
 
-  it('the bound recorder reaches all three producers and capture subscribes to PostToolUse', () => {
+  /**
+   * Phase 1's one binding plus phase 2 in production order. The connection is
+   * never opened. `withCliAgentRuntime` adds the runtime registration (it sits
+   * between the SDK and session organization in phase 2) with the spawner's
+   * run collaborators stubbed, so constructing the spawner touches only the
+   * SDK registries and the recorder.
+   */
+  function composePhase2(withCliAgentRuntime: boolean) {
     const c = buildMinimalContainer();
     const logger = c.resolve<Logger>(TOKENS.LOGGER);
     const output = createMockOutputChannel();
@@ -546,13 +560,43 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
       },
     });
 
-    // Phase 2, in production order. The connection is never opened here.
     registerSdkServices(c, logger);
+    if (withCliAgentRuntime) {
+      registerCliAgentRuntimeServices(c, logger);
+      for (const token of [
+        TOKENS.AGENT_PROCESS_MANAGER,
+        TOKENS.CLI_DETECTION_SERVICE,
+        TOKENS.AGENT_ADAPTER,
+        ChildWorktreeProvisioner,
+        LaneCompletionNotifier,
+        SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+        MEMORY_CONTRACT_TOKENS.TRANSCRIPT_READER,
+      ] as InjectionToken[]) {
+        c.register(token, { useValue: {} });
+      }
+      // The constructor subscribes to prompt lifecycle events.
+      c.register(SDK_TOKENS.SDK_PERMISSION_HANDLER, {
+        useValue: { onPromptLifecycle: () => () => undefined },
+      });
+      // `AgentSpawnEnvironment` (not exported) is built for real; these two of
+      // its dependencies are bound by other phase-2 libraries in production.
+      for (const token of [
+        SETTINGS_TOKENS.REASONING_SETTINGS,
+        TOKENS.SENTRY_SERVICE,
+      ]) {
+        if (!c.isRegistered(token, true)) c.register(token, { useValue: {} });
+      }
+    }
     c.register(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {
       useValue: { isOpen: false },
     });
     registerSessionOrganizationServices(c);
     startSessionOrganization(c);
+    return { c, logger, output };
+  }
+
+  it('the bound recorder reaches all three producers and capture subscribes to PostToolUse', () => {
+    const { c, logger, output } = composePhase2(false);
 
     // Phase 3. Required producer dependencies unrelated to this check (bound
     // by other phase-2 libraries in production) are bare stubs, as in
@@ -605,7 +649,6 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
         TOKENS.PTAH_API_BUILDER,
       ).sessionOrganizationRecorder,
     ).toBe(recorder);
-
     // B2: the registry is bound on this host and capture actually subscribed.
     expect(
       c.isRegistered(SDK_TOKENS.SDK_POST_TOOL_USE_CALLBACK_REGISTRY, true),
@@ -620,5 +663,17 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
         line.startsWith('[SessionOrganization]'),
       ),
     ).toEqual([]);
+  });
+
+  it('the bound recorder reaches the child-session spawner (R-TL8)', () => {
+    const { c } = composePhase2(true);
+
+    const recorder = c.resolve(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER);
+    expect(recorder).toBe(c.resolve(SESSION_ORGANIZATION_TOKENS.SERVICE));
+    expect(
+      c.resolve<{ organizationRecorder: unknown }>(
+        CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
+      ).organizationRecorder,
+    ).toBe(recorder);
   });
 });
