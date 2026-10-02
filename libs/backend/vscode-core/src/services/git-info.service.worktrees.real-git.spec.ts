@@ -217,7 +217,11 @@ describe('GitInfoService worktree administration (real git)', () => {
       expect(excludeLineCount(commonExcludeFile(repo))).toBe(0);
     });
 
-    it('warns and still succeeds when the exclude cannot be written', async () => {
+    // Root writes a 0o444 file regardless, so the read-only condition only
+    // holds for other users. Windows has no `getuid` and honours 0o444.
+    const itUnlessRoot = process.getuid?.() === 0 ? it.skip : it;
+
+    itUnlessRoot('warns and still succeeds when the exclude cannot be written', async () => {
       const repo = makeRepo();
       const exclude = commonExcludeFile(repo);
       // Read-only, not a directory: git on Linux and macOS refuses to run

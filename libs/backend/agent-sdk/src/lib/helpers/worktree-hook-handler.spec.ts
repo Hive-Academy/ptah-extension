@@ -391,43 +391,57 @@ describe('WorktreeHookHandler', () => {
         prunableReason: 'gitdir file points to non-existent location',
       });
 
-      const result = await invokeRemove(AGENT_PATH);
+      const onRemoved = jest.fn();
+
+      const result = await invokeRemove(AGENT_PATH, onRemoved);
 
       expect(result).toEqual({ continue: true });
       expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
       expect(gitInfo.pruneWorktrees).toHaveBeenCalledWith(REPO);
       expect(loggedRemovalPath()).toBe('pruned-missing-directory');
+      expect(onRemoved).toHaveBeenCalledWith(
+        expect.objectContaining({ worktreePath: AGENT_PATH }),
+      );
     });
 
-    it('never force-removes a locked worktree', async () => {
+    it('never force-removes a locked worktree, and does not notify', async () => {
       listWith({ locked: true, lockReason: 'in use' });
+      const onRemoved = jest.fn();
 
-      const result = await invokeRemove(AGENT_PATH);
+      const result = await invokeRemove(AGENT_PATH, onRemoved);
 
       expect(result).toEqual({ continue: true });
       expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
       expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
       expect(loggedRemovalPath()).toBe('skipped-locked');
+      expect(onRemoved).not.toHaveBeenCalled();
     });
 
     it('leaves a path that git worktree list does not report', async () => {
       listWith({});
+      const onRemoved = jest.fn();
 
-      await invokeRemove(path.win32.join(REPO, '.claude-worktrees', 'other'));
+      await invokeRemove(
+        path.win32.join(REPO, '.claude-worktrees', 'other'),
+        onRemoved,
+      );
 
       expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
       expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
       expect(loggedRemovalPath()).toBe('skipped-not-listed');
+      expect(onRemoved).not.toHaveBeenCalled();
     });
 
     it('leaves a listed worktree outside .claude-worktrees', async () => {
       const outside = 'D:\\elsewhere\\feature';
       listWith({ path: outside });
+      const onRemoved = jest.fn();
 
-      await invokeRemove(outside);
+      await invokeRemove(outside, onRemoved);
 
       expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
       expect(loggedRemovalPath()).toBe('skipped-outside-agent-dir');
+      expect(onRemoved).not.toHaveBeenCalled();
     });
 
     it('never removes the main worktree', async () => {
@@ -445,12 +459,14 @@ describe('WorktreeHookHandler', () => {
         success: false,
         error: 'contains modified files',
       });
+      const onRemoved = jest.fn();
 
-      const result = await invokeRemove(AGENT_PATH);
+      const result = await invokeRemove(AGENT_PATH, onRemoved);
 
       expect(result).toEqual({ continue: true });
       expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
       expect(loggedRemovalPath()).toBe('remove-failed');
+      expect(onRemoved).not.toHaveBeenCalled();
     });
 
     it('warns and continues when prune fails', async () => {

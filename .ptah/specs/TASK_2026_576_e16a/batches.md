@@ -12,10 +12,12 @@ or `.claude/skills/ptah-cli-usage/references/internal-mcp.md`.
   (context.md Gate decisions; implementation-plan.md:1518) — superseded 2026-09-30 by "Stacked phase branches" (top
   of P2): each phase is stacked on the previous phase's branch. At the P1 boundary the team-leader runs a P1 verification
   (every P1 batch COMPLETE with a SHA, OS-matrix job defined, B7 before/after screenshots present) and the
-  orchestrator hands the branch to the user for the PR. The user opens and merges PRs; nobody here pushes or opens one.
-  Default for P2 onward: work continues on a branch cut from the updated `main` after the P1 merge (or this branch
-  rebased onto it); the team-leader checks `git merge-base` before Batch 9. P2-P5 phase ends are checkpoints; PR
-  grouping after P1 is the orchestrator's call.
+  orchestrator hands the branch to the user for the PR. From P2 onward (context.md "Auto mode", 2026-10-01) the
+  orchestrator pushes each phase branch and opens one stacked draft PR per phase; the user merges. P1 merged into
+  `main` (PR #611); P2 = `feat/task-2026-576-p2` on `main` (PR #619); P3 = `feat/task-2026-576-p3` stacked on P2
+  (PR #625, base `feat/task-2026-576-p2`); P4, P5 and Cutover each stack on the previous phase's branch. When a lower
+  PR merges, `origin/main` (or the new base) is merged into the next branch: no rebase of a pushed branch, no force
+  push. Each phase end is a checkpoint (phase-end review) before the next phase's branch is cut.
 - **Cutover moved after P5 (validation finding V3).** The plan puts the review-shell mount (Component 23) and the
   old-surface deletion (Component 29) at the end of P4, but parity rows for the commit box, worktree section,
   branch details and fetch/pull/push (`parity-inventory.md:49-57, 64-65, 85-91`) move to P5 surfaces (commit composer,
@@ -772,7 +774,8 @@ Recorded in `context.md`. One branch and one PR per phase, each based on the pre
   `main`. P3, P4, P5 and Cutover follow the same pattern (`.claude-worktrees/task-576-p3`, …).
 - "Depends on: P1 merged" now reads "stacked on the P1 branch" (Batches 9, 18, 19 say `P1 branch (stacked)`).
 - P1 PR review fixes land on the P1 branch; P2 is then rebased on it. When P1 merges, P2 is rebased onto `main` and
-  its PR targets `main`.
+  its PR targets `main`. (Done: P2 sits on `main` after the P1 merge. From then on, pushed phase branches are never
+  rebased; a merged base is merged into the next branch instead — see "Phase gates" under Execution defaults.)
 - The team-leader checks `git branch --show-current` = the phase branch before every commit.
 
 ## P2 execution waves (team-leader, 2026-09-30)

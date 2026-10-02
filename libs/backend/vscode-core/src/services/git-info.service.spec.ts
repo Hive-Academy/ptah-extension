@@ -833,6 +833,40 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       expect(result).toEqual({ success: true });
       expect(mockSpawn).toHaveBeenCalledTimes(1);
     });
+
+    it('refuses track when refs/remotes/<branch> does not resolve, without switching', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({ stdout: '', exitCode: 1 }),
+      );
+
+      const result = await service.checkout(WS, 'origin/x', false, false, {
+        track: true,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "'origin/x' is not a remote-tracking branch",
+      });
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        'refs/remotes/origin/x',
+      ]);
+    });
+
+    it('refuses track for a branch name without a remote prefix, running no git', async () => {
+      const result = await service.checkout(WS, 'main', false, false, {
+        track: true,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "'main' is not a remote-tracking branch",
+      });
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
   });
 
   // ==========================================================================

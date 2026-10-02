@@ -16,7 +16,10 @@ import {
   CircleAlert,
   LucideAngularModule,
 } from 'lucide-angular';
-import type { GitCheckoutParams } from '@ptah-extension/shared';
+import type {
+  GitCheckoutParams,
+  GitCheckoutResult,
+} from '@ptah-extension/shared';
 import { GitBranchesService } from '../services/git-branches.service';
 
 /** A switch git refused because local changes would be overwritten. */
@@ -248,6 +251,7 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
           @for (name of recent(); track name) {
             <button
               class="btn btn-ghost btn-xs w-full justify-start"
+              [disabled]="busy()"
               (click)="switchTo(name)"
             >
               {{ name }}
@@ -257,7 +261,7 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
           @for (branch of local(); track branch.name) {
             <button
               class="btn btn-ghost btn-xs w-full justify-start"
-              [disabled]="branch.isCurrent"
+              [disabled]="branch.isCurrent || busy()"
               (click)="switchTo(branch.name)"
             >
               {{ branch.name }}
@@ -273,6 +277,7 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
           @for (branch of remote(); track branch.name) {
             <button
               class="btn btn-ghost btn-xs w-full justify-start"
+              [disabled]="busy()"
               (click)="switchTo(branch.name, true)"
             >
               {{ branch.name }}
@@ -290,7 +295,7 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
           />
           <button
             class="btn btn-primary btn-xs"
-            [disabled]="!newBranch().trim()"
+            [disabled]="!newBranch().trim() || busy()"
             (click)="create()"
           >
             Create
@@ -370,6 +375,7 @@ export class BranchPickerDropdownComponent {
 
   /** `track` marks a remote-tracking ref: the backend creates or reuses the local branch. */
   protected switchTo(branch: string, track = false): void {
+    if (this.busy()) return;
     this.cancelBlocked();
     void this.runSwitch(branch, track, {});
   }
@@ -377,6 +383,23 @@ export class BranchPickerDropdownComponent {
   protected retryBlocked(mode: SwitchMode): void {
     const blocked = this.blockedSwitch();
     if (blocked) void this.runSwitch(blocked.branch, blocked.track, mode);
+  }
+
+  /**
+   * Run one checkout with `busy` held, so every entry point (rows, Create,
+   * the blocked-switch actions) is disabled until it settles. Null when a
+   * checkout is already running.
+   */
+  private async checkoutExclusively(
+    params: GitCheckoutParams,
+  ): Promise<GitCheckoutResult | null> {
+    if (this.busy()) return null;
+    this.busy.set(true);
+    try {
+      return await this.gitBranches.checkout(params);
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   protected cancelBlocked(): void {
@@ -389,13 +412,13 @@ export class BranchPickerDropdownComponent {
     track: boolean,
     mode: SwitchMode,
   ): Promise<void> {
+    if (this.busy()) return;
     const params: GitCheckoutParams = { branch, ...mode };
     if (track) params.track = true;
     this.error.set(null);
     this.stashNotice.set(null);
-    this.busy.set(true);
-    const result = await this.gitBranches.checkout(params);
-    this.busy.set(false);
+    const result = await this.checkoutExclusively(params);
+    if (!result) return;
     if (result.success) {
       this.cancelBlocked();
       const landedOn = track ? localNameOf(branch) : branch;
@@ -432,12 +455,13 @@ export class BranchPickerDropdownComponent {
 
   protected create(): void {
     const branch = this.newBranch().trim();
-    if (branch) void this.createBranch(branch);
+    if (branch && !this.busy()) void this.createBranch(branch);
   }
 
   private async createBranch(branch: string): Promise<void> {
     this.error.set(null);
-    const result = await this.gitBranches.checkout({ branch, createNew: true });
+    const result = await this.checkoutExclusively({ branch, createNew: true });
+    if (!result) return;
     if (result.success) this.completeSwitch(branch);
     else
       this.error.set(

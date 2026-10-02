@@ -331,6 +331,22 @@ describe('GitInfoService.checkout switch semantics (real git)', () => {
     ).toBe(before);
   });
 
+  it('track: refuses a branch that is not a remote-tracking ref', async () => {
+    const clone = makeClone();
+    // A local branch whose name only looks like a remote ref.
+    git(clone, 'branch', 'origin/local-only');
+
+    for (const branch of ['origin/local-only', 'main']) {
+      await expect(
+        service.checkout(clone, branch, false, false, { track: true }),
+      ).resolves.toEqual({
+        success: false,
+        error: `'${branch}' is not a remote-tracking branch`,
+      });
+    }
+    expect(symbolicHead(clone)).toBe('refs/heads/main');
+  });
+
   it('without track, a remote ref is refused rather than detaching HEAD', async () => {
     const clone = makeClone();
 

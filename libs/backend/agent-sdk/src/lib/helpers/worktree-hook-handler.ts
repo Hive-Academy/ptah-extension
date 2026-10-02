@@ -114,6 +114,14 @@ type WorktreeRemovalPath =
   | 'skipped-outside-agent-dir'
   | 'skipped-no-main-worktree';
 
+/** The cleanup outcomes after which the worktree is really gone. */
+function isCompletedRemoval(removalPath: WorktreeRemovalPath): boolean {
+  return (
+    removalPath === 'removed-and-pruned' ||
+    removalPath === 'pruned-missing-directory'
+  );
+}
+
 function resolveSiblingWorktreePath(
   repositoryRoot: string,
   branch: string,
@@ -350,7 +358,14 @@ export class WorktreeHookHandler {
                   cwd: input.cwd,
                   removalPath,
                 });
-                if (capturedRemovedCallback) {
+                // Only a cleanup that actually took the worktree away is
+                // reported: a skipped or failed one leaves it on disk, and the
+                // `removed` notification would unregister a workspace that
+                // still exists.
+                if (
+                  capturedRemovedCallback &&
+                  isCompletedRemoval(removalPath)
+                ) {
                   const worktreeData = {
                     sessionId: input.session_id,
                     worktreePath: input.worktree_path,

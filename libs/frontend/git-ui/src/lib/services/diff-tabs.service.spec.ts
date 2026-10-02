@@ -775,6 +775,35 @@ describe('DiffTabsService — scoped, queued refresh (RC11)', () => {
     expect(tabAt(service, key)?.diff?.modified).toBe('run-2');
   });
 
+  it('drops a queued trailing run when the workspace changed during the in-flight read', async () => {
+    const { service, active } = makeService();
+    await openFresh(service);
+    const key = diffTabKey('worktree', 'a.ts');
+
+    let resolveFirst!: (value: unknown) => void;
+    mockRpcCall.mockReturnValueOnce(
+      new Promise((resolve) => (resolveFirst = resolve)),
+    );
+    const first = service.refreshDiffTab(key);
+    void service.refreshDiffTab(key);
+
+    // The user switches workspace; workspace B would answer the trailing read.
+    active.path = '/some/other/workspace';
+    mockRpcCall.mockResolvedValue(
+      ok(makeResult({ path: 'a.ts', modified: content('from-workspace-b') })),
+    );
+    resolveFirst(ok(makeResult({ path: 'a.ts', modified: content('run-1') })));
+    await first;
+    await drain();
+
+    // No trailing read against workspace B's root, and A's tab keeps its own
+    // content, marked stale.
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+    const tab = tabAt(service, key);
+    expect(tab?.diff?.modified).toBe('new');
+    expect(tab?.diff?.status).toBe('stale');
+  });
+
   it('a failed scoped refresh keeps the previous content', async () => {
     const { service } = makeService();
     await openFresh(service);
