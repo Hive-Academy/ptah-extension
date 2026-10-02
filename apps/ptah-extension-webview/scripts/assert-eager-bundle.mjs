@@ -20,6 +20,7 @@ import { dirname, join, resolve } from 'node:path';
 const FORBIDDEN_MARKERS = [
   'ptah-git-',
   'ptah-diff-view',
+  'ptah-change-set-card',
   'ptah-review-',
   'ptah-spot-editor',
   'ptah-commit-composer',

@@ -66,6 +66,34 @@
           ></div>
         }
       </div>
+      <!-- Change-set cards of the turn this message ends. `when` adds no
+           per-item observer and keeps the card chunk lazy. -->
+      @if (changeSetAnchors().get(msg.id); as changeSets) {
+        @defer (when changeSets.length > 0) {
+          @for (changeSet of changeSets; track changeSetKey(changeSet)) {
+            <div class="px-2 pb-3" data-testid="chat-change-set">
+              <ptah-change-set-card
+                [changeSet]="changeSet"
+                [host]="changeSetHost()"
+                [reconciled]="changeSetMarks(changeSet).reconciled"
+                [conflicted]="changeSetMarks(changeSet).conflicted"
+                (review)="onChangeSetReview(changeSet)"
+                (openFile)="onChangeSetOpenFile(changeSet, $event)"
+                (openScm)="onChangeSetOpenScm(changeSet)"
+              />
+              @if (changeSetError(changeSet); as error) {
+                <p
+                  class="max-w-md pt-1 text-[11px] text-base-content-muted"
+                  role="alert"
+                  data-testid="chat-change-set-error"
+                >
+                  {{ error }}
+                </p>
+              }
+            </div>
+          }
+        }
+      }
     }
   </div>
 </div>

@@ -24,7 +24,23 @@ import {
   createExecutionChatMessage,
   ExecutionChatMessage,
 } from '@ptah-extension/shared';
-import type { ExecutionNode } from '@ptah-extension/shared';
+import type { ExecutionNode, TurnChangeSet } from '@ptah-extension/shared';
+// Its own declaration from its own entry point: the compiler defers an import
+// only when every symbol of the declaration is used inside `@defer` alone,
+// and esbuild splits it out only when no eager code imports that file.
+import { ChangeSetCardComponent } from '@ptah-extension/chat-ui/change-set-card';
+import type { ChangeSetCardHost } from '@ptah-extension/chat-ui/change-set-card';
+import {
+  ChangeSetStore,
+  type ChangeSetMarks,
+} from '../../../services/change-set/change-set.store';
+import { ChangeSetActionsService } from '../../../services/change-set/change-set-actions.service';
+import {
+  anchorChangeSets,
+  NO_CHANGE_SET_ANCHORS,
+  transcriptOrderKey,
+  type ChangeSetAnchors,
+} from './transcript-change-set-anchors';
 import { filterCompactionNoise } from './transcript-filter.utils';
 import { TranscriptOlderHistorySentinelDirective } from './transcript-older-history-sentinel.directive';
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
@@ -34,24 +50,6 @@ import { TranscriptSlotDirective } from './transcript-slot.directive';
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
 const EMPTY_TREES: readonly ExecutionNode[] = [];
-
-/**
- * When a message entered the transcript.
- *
- * `msg.timestamp` alone is NOT usable as a sort key for a streaming bubble:
- * `streamingMessages` builds those with no timestamp, so
- * `createExecutionChatMessage` mints a fresh `Date.now()` on every recompute
- * and the key moves under a burst of deltas. `ExecutionNode.startTime` is
- * copied from the ROOT `message_start` event (`message-node.fn.ts`), and a
- * finalized assistant message keeps the same tree
- * (`message-finalization.service.ts`), so streaming and finalized assistant
- * messages compare on one stable clock. User bubbles carry
- * `streamingState: null` and fall back to their own timestamp, minted once at
- * creation and then carried in the array.
- */
-function transcriptOrderKey(msg: ExecutionChatMessage): number {
-  return msg.streamingState?.startTime ?? msg.timestamp;
-}
 
 /**
  * Merge finalized and streaming messages in TIME order rather than in
@@ -147,6 +145,8 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
     TranscriptSlotDirective,
     TranscriptOlderHistorySentinelDirective,
     TranscriptPrependAnchorDirective,
+    // Used only inside `@defer`, so the compiler loads it lazily.
+    ChangeSetCardComponent,
   ],
   providers: [TranscriptRenderWindow],
   templateUrl: './chat-transcript.component.html',
@@ -174,6 +174,8 @@ export class ChatTranscriptComponent {
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
   });
+  private readonly changeSetStore = inject(ChangeSetStore);
+  private readonly changeSetActions = inject(ChangeSetActionsService);
 
   /**
    * Mount decision for each message. Component-scoped (see `providers`), fed
@@ -462,6 +464,95 @@ export class ChatTranscriptComponent {
     return next;
   });
 
+  private _frozenAnchors: ChangeSetAnchors = NO_CHANGE_SET_ANCHORS;
+
+  /**
+   * Change-set cards per message: each turn's card renders after the turn's
+   * last assistant message (see `anchorChangeSets`). Gated like `vm`, so a
+   * hidden transcript keeps its last placement and does no join work.
+   */
+  protected readonly changeSetAnchors = computed<ChangeSetAnchors>(() => {
+    const view = this.vm();
+    if (!this.workActive()) return this._frozenAnchors;
+    const next = anchorChangeSets(
+      view.messages,
+      this.changeSetStore.changeSetsFor(this.sessionId()),
+    );
+    this._frozenAnchors = next;
+    return next;
+  });
+
+  protected readonly changeSetHost = computed<ChangeSetCardHost>(() =>
+    this.vscodeService.isElectron ? 'electron' : 'vscode',
+  );
+
+  /** The last failed action per card (by turn), shown inline under it. */
+  private readonly changeSetErrors = signal<ReadonlyMap<string, string>>(
+    new Map(),
+  );
+
+  protected changeSetKey(changeSet: TurnChangeSet): string {
+    return `${changeSet.turnStartedAt}:${changeSet.turnEndedAt}`;
+  }
+
+  protected changeSetMarks(changeSet: TurnChangeSet): ChangeSetMarks {
+    return this.changeSetStore.marksFor(changeSet);
+  }
+
+  protected changeSetError(changeSet: TurnChangeSet): string | null {
+    return this.changeSetErrors().get(this.changeSetKey(changeSet)) ?? null;
+  }
+
+  protected onChangeSetReview(changeSet: TurnChangeSet): void {
+    void this.runChangeSetAction(changeSet, () =>
+      this.changeSetActions.review(changeSet),
+    );
+  }
+
+  protected onChangeSetOpenFile(changeSet: TurnChangeSet, path: string): void {
+    void this.runChangeSetAction(changeSet, () =>
+      this.changeSetActions.openFile(changeSet, path),
+    );
+  }
+
+  protected onChangeSetOpenScm(changeSet: TurnChangeSet): void {
+    void this.runChangeSetAction(changeSet, () =>
+      this.changeSetActions.openScm(),
+    );
+  }
+
+  /**
+   * The actions service rejects with a user-facing `Error` by contract, so its
+   * message is shown as-is; anything else gets a generic line.
+   */
+  private async runChangeSetAction(
+    changeSet: TurnChangeSet,
+    action: () => Promise<void>,
+  ): Promise<void> {
+    const key = this.changeSetKey(changeSet);
+    this.setChangeSetError(key, null);
+    try {
+      await action();
+    } catch (error: unknown) {
+      this.setChangeSetError(
+        key,
+        error instanceof Error && error.message
+          ? error.message
+          : 'The review action failed.',
+      );
+    }
+  }
+
+  private setChangeSetError(key: string, message: string | null): void {
+    this.changeSetErrors.update((current) => {
+      if (message === null && !current.has(key)) return current;
+      const next = new Map(current);
+      if (message === null) next.delete(key);
+      else next.set(key, message);
+      return next;
+    });
+  }
+
   protected trackByMessageId(
     _index: number,
     msg: ExecutionChatMessage,
@@ -470,6 +561,15 @@ export class ChatTranscriptComponent {
   }
 
   constructor() {
+    // The store loads the ACTIVE tab's change sets itself; a canvas tile or a
+    // background tab renders another session, so a visible transcript asks
+    // for its own. A load already in flight is joined, not repeated.
+    effect(() => {
+      const sessionId = this.workActive() ? this.sessionId() : null;
+      if (sessionId) {
+        untracked(() => void this.changeSetStore.ensureLoaded(sessionId));
+      }
+    });
     // The replayer clears its flag before SessionLoaderService's await
     // continuation marks the tab loaded. Hold the falling edge locally so a
     // zoneless change-detection pass cannot expose motion in that gap; the

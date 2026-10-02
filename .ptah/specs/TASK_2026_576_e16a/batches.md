@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 30/69
+Total tasks: 87 | Batches: 69 | Complete: 31/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1423,14 +1423,14 @@ executors at once.
   typecheck/test/lint green; eager guard passes, `main.js` 364,855 B gz. Noted: jest worker-exit warning in the
   new specs; repo-subfolder path assumption also affects marks.
 
-## Batch 31: Transcript insertion and Electron card e2e — PENDING
+## Batch 31: Transcript insertion and Electron card e2e — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope; visual-reviewer against `prototype/` (dark + light)
 - Tasks: 1 | Depends on: Batch 30
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-electron-e2e`
 
-### Task 31.1: `@defer (when ...)` card after the turn's last assistant message — PENDING
+### Task 31.1: `@defer (when ...)` card after the turn's last assistant message — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.html; MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.ts; CREATE D:/projects/ptah-extension/apps/ptah-electron-e2e/src/specs/git/change-set-card.spec.ts
 - Plan reference: implementation-plan.md:872, 889
@@ -1438,6 +1438,18 @@ executors at once.
 - Quality requirements: card chunk stays lazy; axe clean dark + light.
 - Validation notes: A7 — read `session-history-replayer.service.ts` (~191); fallback join "after the last assistant message before the next user message".
 - Implementation details: e2e — agent turn edits two files → card; reopen session → card rendered.
+- Outcome: executor frontend-developer. A7: replayed messages carry no turn id, so the join is by time on the
+  transcript order key (`streamingState.startTime ?? timestamp`): last assistant message within
+  [turnStartedAt, turnEndedAt] (binary search), fallback "last assistant message of the turn whose user message
+  is the last at/before turnStartedAt", else no card. `transcript-change-set-anchors.ts` (+spec 7) owns the join
+  and `transcriptOrderKey`; the transcript renders `@defer (when …)` cards per anchor, inline action errors with
+  `role="alert"`, `ensureLoaded` for visible non-active tiles. Accepted deviations: new secondary entry
+  `@ptah-extension/chat-ui/change-set-card` (+ tsconfig alias, card export removed from the chat-ui barrel)
+  because the barrel is eager; test harness stubs; orchestrator added `ptah-change-set-card` to the eager guard's
+  forbidden markers. e2e `change-set-card.spec.ts`: push → card in DOM order after the turn; reload + reopen →
+  card from `git:turnChangeSets`; passed alone (55 s). Axe not run (no axe in the Electron harness; visual review
+  covers dark/light). Verified by the orchestrator: chat, chat-ui, ptah-electron-e2e typecheck/test/lint green;
+  eager guard passes (card in a 9 KB lazy chunk).
 
 ## Batch 32: VS Code e2e — card to native diff views — PENDING
 

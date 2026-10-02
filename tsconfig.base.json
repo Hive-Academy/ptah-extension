@@ -46,6 +46,9 @@
         "./libs/frontend/chat-streaming/src/index.ts"
       ],
       "@ptah-extension/chat-ui": ["./libs/frontend/chat-ui/src/index.ts"],
+      "@ptah-extension/chat-ui/change-set-card": [
+        "./libs/frontend/chat-ui/src/change-set-card.ts"
+      ],
       "@ptah-extension/cli-agent-runtime": [
         "./libs/backend/cli-agent-runtime/src/index.ts"
       ],

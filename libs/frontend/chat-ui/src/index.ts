@@ -41,10 +41,6 @@ export {
   type BackgroundAgentStripStatus,
   type BackgroundAgentSteerRequest,
 } from './lib/molecules/background-agent-strip.component';
-export {
-  ChangeSetCardComponent,
-  type ChangeSetCardHost,
-} from './lib/molecules/change-set/change-set-card.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
 export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-transcript-viewer.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
