@@ -28,7 +28,7 @@
  * invariant it depends on.
  */
 
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
@@ -41,6 +41,26 @@ const PUBLISH_WORKFLOW_PATH = join(
   'workflows',
   'publish-electron.yml',
 );
+
+const ROOT_MANIFEST_PATH = join(REPO_ROOT, 'package.json');
+const COPY_WEBVIEW_PATH = join(REPO_ROOT, 'scripts', 'copy-webview.js');
+const WEBVIEW_PROJECT_JSON_PATH = join(
+  REPO_ROOT,
+  'apps',
+  'ptah-extension-webview',
+  'project.json',
+);
+const WEBVIEW_OUTPUT_DIR = join(
+  REPO_ROOT,
+  'dist',
+  'apps',
+  'ptah-extension-webview',
+  'browser',
+);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const electronOnlyChunks = require(
+  join(REPO_ROOT, 'scripts', 'electron-only-chunks.js'),
+) as { isElectronOnlyInput(input: string): boolean };
 
 const PRUNE_COMMAND = 'apps/ptah-electron/scripts/prune-dist-deps.js';
 
@@ -135,5 +155,93 @@ describe('packaged electron dependency set', () => {
         name === 'dompurify',
     );
     expect(rendererOnly).toEqual([]);
+  });
+
+  // Requirement 8.2: no Monaco anywhere in what ships.
+  it('declares no Monaco package in the root or the Electron manifest', () => {
+    const rootManifest = JSON.parse(
+      readFileSync(ROOT_MANIFEST_PATH, 'utf8'),
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      overrides?: Record<string, unknown>;
+    };
+    const names = [
+      ...Object.keys(rootManifest.dependencies ?? {}),
+      ...Object.keys(rootManifest.devDependencies ?? {}),
+      ...Object.keys(rootManifest.overrides ?? {}),
+      ...Object.keys(appManifest.dependencies ?? {}),
+    ];
+    expect(names.filter((n) => /monaco/i.test(n))).toEqual([]);
+  });
+
+  it('ships no assets/monaco in the webview assets or its build output', () => {
+    expect(readFileSync(WEBVIEW_PROJECT_JSON_PATH, 'utf8')).not.toMatch(
+      /monaco/i,
+    );
+    expect(existsSync(join(WEBVIEW_OUTPUT_DIR, 'assets', 'monaco'))).toBe(
+      false,
+    );
+  });
+
+  // Requirement 5.8 (R12): the VSIX copy skips the Electron-only chunks; the
+  // Electron renderer copy (copy-renderer.js) copies the whole browser folder.
+  describe('electron-only chunk rule', () => {
+    const { isElectronOnlyInput } = electronOnlyChunks;
+
+    it('copy-webview.js filters the VSIX copy by the generated list', () => {
+      const script = readFileSync(COPY_WEBVIEW_PATH, 'utf8');
+      expect(script).toContain("require('./electron-only-chunks')");
+      expect(script).toMatch(/cpSync\([^)]*filter/s);
+    });
+
+    it('treats CodeMirror and the review/editor surfaces as Electron-only', () => {
+      expect(
+        isElectronOnlyInput(
+          '../../node_modules/@codemirror/view/dist/index.js',
+        ),
+      ).toBe(true);
+      expect(
+        isElectronOnlyInput('../../node_modules/@lezer/common/dist/index.js'),
+      ).toBe(true);
+      expect(
+        isElectronOnlyInput(
+          'libs/frontend/git-ui/src/lib/spot-editor/spot-editor.component.ts',
+        ),
+      ).toBe(true);
+      expect(
+        isElectronOnlyInput('libs/frontend/git-ui/src/lib/review-canvas/x.ts'),
+      ).toBe(true);
+      expect(
+        isElectronOnlyInput('libs/frontend/git-ui/src/lib/review-shell/x.ts'),
+      ).toBe(true);
+      expect(
+        isElectronOnlyInput(
+          'libs/frontend/git-ui/src/lib/commit/commit-composer.component.ts',
+        ),
+      ).toBe(true);
+    });
+
+    it('keeps Pierre, eager git-ui services and unrelated code', () => {
+      expect(
+        isElectronOnlyInput('../../node_modules/@pierre/diffs/dist/index.js'),
+      ).toBe(false);
+      expect(
+        isElectronOnlyInput('../../node_modules/shiki/dist/wasm.mjs'),
+      ).toBe(false);
+      expect(
+        isElectronOnlyInput(
+          'libs/frontend/git-ui/src/lib/renderer/pierre-diff-host.component.ts',
+        ),
+      ).toBe(false);
+      expect(
+        isElectronOnlyInput(
+          'libs/frontend/git-ui/src/lib/services/git-status.service.ts',
+        ),
+      ).toBe(false);
+      expect(isElectronOnlyInput('libs/frontend/chat/src/lib/x.ts')).toBe(
+        false,
+      );
+    });
   });
 });

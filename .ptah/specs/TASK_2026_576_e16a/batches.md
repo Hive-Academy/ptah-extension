@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 65/69 (P5 closed)
+Total tasks: 87 | Batches: 69 | Complete: 66/69 (P5 closed)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2568,14 +2568,14 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
   tests, typecheck/lint, eager guard; typecheck git-ui, chat, skill-synthesis-ui, ptah-electron. Historical Monaco
   comments left (listed in the report).
 
-## Batch 66: Packaging — PENDING
+## Batch 66: Packaging — COMPLETE
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 65
 - Verification: `npx nx run-many -t test -p ptah-electron` (packaged-deps spec) + VSIX package listing
 
-### Task 66.1: Electron-only chunk list, VSIX filter, packaged-deps assertions — PENDING
+### Task 66.1: Electron-only chunk list, VSIX filter, packaged-deps assertions — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/apps/ptah-electron/src/config/packaged-deps.spec.ts; MODIFY D:/projects/ptah-extension/apps/ptah-electron/scripts/prune-dist-deps.js; MODIFY D:/projects/ptah-extension/apps/ptah-electron/scripts/copy-renderer.js (comment only); MODIFY D:/projects/ptah-extension/scripts/copy-webview.js; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/scripts/assert-eager-bundle.mjs
 - Plan reference: implementation-plan.md:1151-1158, 1162-1165
@@ -2583,6 +2583,16 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: only chunks whose every input is Electron-only are dropped; Pierre chunks kept.
 - Validation notes: R12.
 - Implementation details: `electron-only-chunks.json`.
+- Outcome: executor devops-engineer. `scripts/electron-only-chunks.js` classifies `stats.json` outputs: Electron-only
+  when every input is git-ui `lib/<dir>` other than `services`/`types`/`renderer`, or the CodeMirror closure; input-less
+  shims dropped only if all importers drop; statically imported chunks rescued. `assert-eager-bundle.mjs` writes
+  `electron-only-chunks.json`, drops the stale `ptah-diff-view` marker and fails on a marker found in no chunk;
+  `copy-webview.js` filters the VSIX copy (Electron renderer copy keeps all). Counts: 592 chunks, 126 Electron-only
+  (~1.6 MB raw), 466 kept, 319 Pierre kept; VSIX copy has 0 CodeMirror/Lezer chunks, 0 monaco paths. `packaged-deps`
+  11/11, ptah-electron 1084 tests. Orchestrator fix: the workspace coordinator imported the main git-ui barrel without
+  an Electron gate, so `GitReviewService` is now exported from `/services` and the coordinator uses only that entry
+  (file-link and change-set imports are Electron-gated). Noted: review shell/canvas/conflict/history code shares
+  chunks with eager services and stays in the VSIX; a pre-existing missing static import `chunk-5JJ6SBZ6.js`.
 
 ## Batch 67: Final bundle, TTI and VSIX evidence — PENDING
 

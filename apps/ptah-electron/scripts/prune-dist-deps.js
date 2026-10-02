@@ -14,26 +14,17 @@
  *
  *   1. The renderer's packages are already bundled into
  *      dist/apps/ptah-electron/renderer/*.js by the Angular build. Shipping
- *      them again as node_modules is dead weight -- monaco-editor alone is
- *      tens of MB, and `@angular-eslint/eslint-plugin-template` (a LINT
- *      plugin) was being declared a production dependency.
+ *      them again as node_modules is dead weight, and
+ *      `@angular-eslint/eslint-plugin-template` (a LINT plugin) was being
+ *      declared a production dependency.
  *
- *   2. It breaks packaging outright. electron-builder walks the dependency
+ *   2. It can break packaging outright. electron-builder walks the dependency
  *      tree from this manifest and validates each package's declared deps
- *      against what is installed. monaco-editor pins `"dompurify": "3.2.7"`
- *      exactly, while the root package.json deliberately overrides it:
- *
- *          "overrides": { "monaco-editor": { "dompurify": "^3.3.2" } }
- *
- *      npm honours that and hoists one dompurify. electron-builder does NOT
- *      read `overrides` -- traversalNodeModulesCollector reads
- *      monaco-editor/package.json directly and calls locatePackageWithVersion
- *      for 3.2.7 -- so it fails with:
- *
- *          production dependency not found  parent=monaco-editor
- *            dependency=dompurify version=3.2.7
- *
- *      Keeping monaco-editor out of the manifest keeps it out of the traversal.
+ *      against what is installed, and it does NOT read the root `overrides`
+ *      block. A renderer-only package whose exact pin disagrees with an
+ *      override (monaco-editor vs dompurify, before Monaco was removed) failed
+ *      with `production dependency not found`. Keeping renderer-only packages
+ *      out of the manifest keeps them out of the traversal.
  *
  * The rule: the packaged app's production dependencies are exactly those in the
  * hand-maintained apps/ptah-electron/package.json. That is already the source

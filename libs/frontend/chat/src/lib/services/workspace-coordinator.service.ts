@@ -120,19 +120,15 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       return this.gitServices;
     }
 
-    // The push-message services (status, branches, the review canvas's diff
-    // cache) come from the services-only entry; `GitReviewService` (branch
-    // review) is exported only by the main barrel. Both are dynamic imports so
-    // this layer keeps no static edge to git-ui.
-    const [gitServicesModule, gitModule] = await Promise.all([
-      import('@ptah-extension/git-ui/services'),
-      import('@ptah-extension/git-ui'),
-    ]);
+    // All four come from the services-only entry by dynamic import, so this
+    // layer keeps no static edge to git-ui and never loads the review shell's
+    // chunks (which the VS Code package does not ship).
+    const git = await import('@ptah-extension/git-ui/services');
     this.gitServices = [
-      this.injector.get(gitServicesModule.GitStatusService),
-      this.injector.get(gitServicesModule.GitBranchesService),
-      this.injector.get(gitServicesModule.ReviewDiffService),
-      this.injector.get(gitModule.GitReviewService),
+      this.injector.get(git.GitStatusService),
+      this.injector.get(git.GitBranchesService),
+      this.injector.get(git.ReviewDiffService),
+      this.injector.get(git.GitReviewService),
     ];
     return this.gitServices;
   }

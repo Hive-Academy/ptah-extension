@@ -11,15 +11,21 @@
  * Usage:
  *   node apps/ptah-extension-webview/scripts/assert-eager-bundle.mjs [--report-only] [--dist <dir>]
  *
+ * It also fails when a marker occurs in NO built chunk (a stale marker would
+ * make the guard vacuous), and writes `electron-only-chunks.json` next to
+ * stats.json via scripts/electron-only-chunks.js (consumed by copy-webview.js).
+ *
  * --report-only prints sizes and offenders but always exits 0.
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { gzipSync } from 'node:zlib';
 import { dirname, join, resolve } from 'node:path';
 
+const require = createRequire(import.meta.url);
+
 const FORBIDDEN_MARKERS = [
   'ptah-git-',
-  'ptah-diff-view',
   // The card's own template text: the `ptah-change-set-card` tag itself stays
   // in the eager transcript that names it in a `@defer` block.
   'No longer changes HEAD',
@@ -48,7 +54,9 @@ const root = existsSync(join(distDir, 'browser', 'index.html'))
 const indexPath = join(root, 'index.html');
 
 if (!existsSync(indexPath)) {
-  console.error(`[eager-bundle] index.html not found at ${indexPath}. Run the build first.`);
+  console.error(
+    `[eager-bundle] index.html not found at ${indexPath}. Run the build first.`,
+  );
   process.exit(2);
 }
 
@@ -67,14 +75,17 @@ if (entries.length === 0) {
 
 // Static imports only: `from"./x.js"` and bare `import"./x.js"`; `import("...")` is dynamic and skipped.
 // A `?query` or `#hash` suffix (`./x.js?v=1`) is matched but not captured: the file on disk is `./x.js`.
-const STATIC_IMPORT = /(?:\bfrom\s*|\bimport\s*)["']([^"'?#]+\.js)(?:[?#][^"']*)?["']/g;
+const STATIC_IMPORT =
+  /(?:\bfrom\s*|\bimport\s*)["']([^"'?#]+\.js)(?:[?#][^"']*)?["']/g;
 const stripSuffix = (specifier) => {
   const cut = specifier.search(/[?#]/);
   return cut === -1 ? specifier : specifier.slice(0, cut);
 };
 
 const closure = new Map(); // abs path -> source
-const queue = entries.map((e) => resolve(root, stripSuffix(e).replace(/^\//, '')));
+const queue = entries.map((e) =>
+  resolve(root, stripSuffix(e).replace(/^\//, '')),
+);
 while (queue.length) {
   const file = queue.pop();
   if (closure.has(file)) continue;
@@ -116,18 +127,47 @@ console.log(`[eager-bundle] root: ${root}`);
 console.log(`[eager-bundle] entries: ${entries.join(', ')}`);
 console.log(`[eager-bundle] eager files: ${closure.size}`);
 if (mainGz !== null) {
-  console.log(`[eager-bundle] main.js: ${mainRaw} B raw, ${mainGz} B gzip (${kb(mainGz)})`);
+  console.log(
+    `[eager-bundle] main.js: ${mainRaw} B raw, ${mainGz} B gzip (${kb(mainGz)})`,
+  );
 } else {
   console.log('[eager-bundle] main.js: not in the eager closure');
 }
-console.log(`[eager-bundle] closure: ${closureRaw} B raw, ${closureGz} B gzip (${kb(closureGz)})`);
+console.log(
+  `[eager-bundle] closure: ${closureRaw} B raw, ${closureGz} B gzip (${kb(closureGz)})`,
+);
 
 if (offenders.length) {
-  console.log(`[eager-bundle] ${offenders.length} forbidden marker hit(s) in the eager closure:`);
+  console.log(
+    `[eager-bundle] ${offenders.length} forbidden marker hit(s) in the eager closure:`,
+  );
   for (const o of offenders) console.log(`  - ${o.file}: "${o.marker}"`);
 } else {
   console.log('[eager-bundle] no forbidden markers in the eager closure');
 }
+
+// Anti-vacuity: every marker must exist in some built chunk (lazy or eager).
+const allJs = readdirSync(root).filter((f) => f.endsWith('.js'));
+const allSource = allJs.map((f) => readFileSync(join(root, f), 'utf8'));
+const staleMarkers = FORBIDDEN_MARKERS.filter(
+  (marker) => !allSource.some((src) => src.includes(marker)),
+);
+if (staleMarkers.length) {
+  console.error(
+    `[eager-bundle] stale marker(s) found in no chunk: ${staleMarkers.join(', ')}`,
+  );
+}
+
+if (existsSync(join(distDir, 'stats.json'))) {
+  const r = require('../../../scripts/electron-only-chunks.js').generate(
+    distDir,
+  );
+  console.log(
+    `[eager-bundle] electron-only chunks: ${r.electronOnly.length} of ${r.electronOnly.length + r.kept.length} -> ${r.outPath}`,
+  );
+}
+
+if (staleMarkers.length && !reportOnly) process.exit(1);
 
 if (offenders.length && !reportOnly) {
   console.error('[eager-bundle] FAIL: git-ui code is in the eager bundle');
