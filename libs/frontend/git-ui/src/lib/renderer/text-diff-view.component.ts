@@ -12,7 +12,9 @@ import {
 import {
   FileDiff,
   parseDiffFromFile,
+  type FileContents,
   type FileDiffMetadata,
+  type SupportedLanguages,
 } from '@pierre/diffs';
 import {
   createPierreDiffOptions,
@@ -50,6 +52,14 @@ import {
       >
         This diff could not be displayed.
       </p>
+    } @else if (unchanged()) {
+      <p
+        class="px-2 py-1 text-xs text-base-content-muted"
+        role="status"
+        data-testid="text-diff-unchanged"
+      >
+        No changes.
+      </p>
     }
     <diffs-container #container class="block" />
   `,
@@ -61,18 +71,28 @@ export class TextDiffViewComponent {
   /** Right-hand side / modified content. */
   readonly newText = input<string | null>(null);
 
-  /** Optional file name used for syntax highlighting detection. */
+  /** Optional file name, shown by Pierre and used to infer the language. */
   readonly fileName = input('');
 
-  /** Optional language hint used if fileName is empty. */
-  readonly language = input('');
+  /**
+   * Optional Shiki language id (e.g. `typescript`), forwarded as Pierre's
+   * `FileContents.lang`; it takes precedence over the file-name inference.
+   */
+  readonly language = input<SupportedLanguages | ''>('');
 
-  /** Pierre theme mode; defaults to document theme mode. */
+  /**
+   * Pierre theme mode. The default is read once at construction (same as
+   * `PierreDiffHostComponent`); bind it to follow runtime theme switches.
+   */
   readonly themeType = input<PierreThemeMode>(readDocumentThemeMode());
 
   private readonly _error = signal<string | null>(null);
   /** Holds parse or render error message, if any. */
   readonly error = this._error.asReadonly();
+
+  private readonly _unchanged = signal(false);
+  /** True when both sides parse to a diff with no hunks (identical texts). */
+  readonly unchanged = this._unchanged.asReadonly();
 
   private readonly container =
     viewChild.required<ElementRef<HTMLElement>>('container');
@@ -109,24 +129,37 @@ export class TextDiffViewComponent {
       oldText: string | null;
       newText: string | null;
       fileName: string;
-      language: string;
+      language: SupportedLanguages | '';
     },
   ): void {
+    // Nothing to compare yet (e.g. content still loading): stay an empty no-op.
     if (source.oldText === null && source.newText === null) {
       this._error.set(null);
+      this._unchanged.set(false);
       return;
     }
 
     try {
-      const name =
-        source.fileName || (source.language ? `file.${source.language}` : '');
+      const name = source.fileName || 'untitled';
+      const lang = source.language || undefined;
+      const toFile = (contents: string | null): FileContents | null => {
+        if (contents === null) return null;
+        return lang ? { name, contents, lang } : { name, contents };
+      };
 
       const fileDiff: FileDiffMetadata = parseDiffFromFile(
-        source.oldText === null ? null : { name, contents: source.oldText },
-        source.newText === null ? null : { name, contents: source.newText },
+        toFile(source.oldText),
+        toFile(source.newText),
         undefined,
         true,
       );
+
+      this._error.set(null);
+      if (fileDiff.hunks.length === 0) {
+        this._unchanged.set(true);
+        return;
+      }
+      this._unchanged.set(false);
 
       const instance = new FileDiff(
         createPierreDiffOptions('unified', untracked(this.themeType)),
@@ -134,12 +167,13 @@ export class TextDiffViewComponent {
         true,
       );
       this.instance = instance;
-      this._error.set(null);
       instance.render({
         fileDiff,
         fileContainer: container,
       });
     } catch (err: unknown) {
+      console.error('[TextDiffViewComponent] diff render failed', err);
+      this._unchanged.set(false);
       this._error.set(err instanceof Error ? err.message : String(err));
     }
   }
@@ -152,5 +186,6 @@ export class TextDiffViewComponent {
       container.shadowRoot?.replaceChildren();
     }
     this._error.set(null);
+    this._unchanged.set(false);
   }
 }

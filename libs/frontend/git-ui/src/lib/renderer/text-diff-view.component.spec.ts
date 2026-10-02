@@ -16,13 +16,27 @@ interface FakeHunk {
   collapsedBefore: number;
 }
 
+interface FakeFileContents {
+  name: string;
+  contents: string;
+  lang?: string;
+}
+
 const pierre = {
   instances: [] as FakeFileDiff[],
   parsedFiles: [] as Array<{
-    oldFile: { name: string; contents: string } | null;
-    newFile: { name: string; contents: string } | null;
+    oldFile: FakeFileContents | null;
+    newFile: FakeFileContents | null;
   }>,
   parseThrows: false,
+};
+
+const ONE_HUNK: FakeHunk = {
+  additionStart: 1,
+  additionCount: 1,
+  deletionStart: 1,
+  deletionCount: 1,
+  collapsedBefore: 0,
 };
 
 class FakeFileDiff {
@@ -65,14 +79,19 @@ jest.mock('@pierre/diffs', () => ({
   DEFAULT_THEMES: { dark: 'pierre-dark', light: 'pierre-light' },
   FileDiff: FakeFileDiff,
   registerCustomLanguage: jest.fn(),
+  // Mirrors the real 1.5.1 contract: throws when both sides are null, and
+  // identical contents produce zero hunks.
   parseDiffFromFile: (
-    oldFile: { name: string; contents: string } | null,
-    newFile: { name: string; contents: string } | null,
+    oldFile: FakeFileContents | null,
+    newFile: FakeFileContents | null,
   ) => {
     pierre.parsedFiles.push({ oldFile, newFile });
+    if (oldFile === null && newFile === null) {
+      throw new Error('parseDiffFromFile: both files are null');
+    }
     if (pierre.parseThrows) throw new Error('parseDiffFromFile: failed');
     return {
-      hunks: [],
+      hunks: oldFile?.contents === newFile?.contents ? [] : [ONE_HUNK],
       oldFile,
       newFile,
     };
@@ -167,35 +186,122 @@ describe('TextDiffViewComponent', () => {
     expect(fixture.componentInstance.diffView().error()).toBeNull();
   });
 
-  it('uses language to formulate file extension if fileName is empty', async () => {
+  it('forwards the language hint as Pierre lang with a neutral name when fileName is empty', async () => {
     fixture.componentInstance.fileName.set('');
     fixture.componentInstance.language.set('typescript');
     await settle();
-    expect(pierre.parsedFiles.at(-1)?.oldFile?.name).toBe('file.typescript');
-    expect(pierre.parsedFiles.at(-1)?.newFile?.name).toBe('file.typescript');
+    const last = pierre.parsedFiles.at(-1);
+    expect(last?.oldFile).toEqual({
+      name: 'untitled',
+      contents: 'console.log("hello");',
+      lang: 'typescript',
+    });
+    expect(last?.newFile).toEqual({
+      name: 'untitled',
+      contents: 'console.log("world");',
+      lang: 'typescript',
+    });
   });
 
-  it('does not instantiate FileDiff when both oldText and newText are null', async () => {
+  it('keeps fileName and adds lang when both are given', async () => {
+    fixture.componentInstance.language.set('typescript');
+    await settle();
+    expect(pierre.parsedFiles.at(-1)?.newFile).toMatchObject({
+      name: 'test.ts',
+      lang: 'typescript',
+    });
+  });
+
+  it('is an empty no-op when both oldText and newText are null', async () => {
     const instancesBefore = pierre.instances.length;
+    const parsesBefore = pierre.parsedFiles.length;
     fixture.componentInstance.oldText.set(null);
     fixture.componentInstance.newText.set(null);
     await settle();
+    expect(pierre.parsedFiles).toHaveLength(parsesBefore);
     expect(pierre.instances).toHaveLength(instancesBefore);
     expect(fixture.componentInstance.diffView().error()).toBeNull();
+    expect(fixture.componentInstance.diffView().unchanged()).toBe(false);
+    expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
   });
 
-  it('handles parseDiffFromFile errors gracefully and displays error message', async () => {
-    pierre.parseThrows = true;
-    fixture.componentInstance.newText.set('trigger error');
+  it('shows a "No changes." status for identical texts without mounting FileDiff', async () => {
+    const instancesBefore = pierre.instances.length;
+    fixture.componentInstance.newText.set('console.log("hello");');
     await settle();
-    expect(fixture.componentInstance.diffView().error()).toBe(
-      'parseDiffFromFile: failed',
+    expect(pierre.instances).toHaveLength(instancesBefore);
+    expect(pierre.instances[0].cleanedUp).toBe(true);
+    expect(fixture.componentInstance.diffView().unchanged()).toBe(true);
+    const note = fixture.nativeElement.querySelector(
+      '[data-testid="text-diff-unchanged"]',
     );
-    const errorEl = fixture.nativeElement.querySelector(
-      '[data-testid="text-diff-error"]',
-    );
-    expect(errorEl).not.toBeNull();
-    expect(errorEl.textContent).toContain('This diff could not be displayed.');
+    expect(note?.getAttribute('role')).toBe('status');
+    expect(note?.textContent).toContain('No changes.');
+  });
+
+  it('renders a new file when oldText is null', async () => {
+    fixture.componentInstance.oldText.set(null);
+    await settle();
+    const last = pierre.parsedFiles.at(-1);
+    expect(last?.oldFile).toBeNull();
+    expect(last?.newFile?.contents).toBe('console.log("world");');
+    expect(pierre.instances.at(-1)?.rendered).not.toBeNull();
+    expect(fixture.componentInstance.diffView().unchanged()).toBe(false);
+  });
+
+  it('renders a deleted file when newText is null', async () => {
+    fixture.componentInstance.newText.set(null);
+    await settle();
+    const last = pierre.parsedFiles.at(-1);
+    expect(last?.newFile).toBeNull();
+    expect(last?.oldFile?.contents).toBe('console.log("hello");');
+    expect(pierre.instances.at(-1)?.rendered).not.toBeNull();
+  });
+
+  describe('errors', () => {
+    let consoleError: jest.SpyInstance;
+
+    beforeEach(() => {
+      consoleError = jest.spyOn(console, 'error').mockImplementation(() => {
+        /* silenced: asserted below */
+      });
+    });
+
+    afterEach(() => consoleError.mockRestore());
+
+    it('logs once and displays the error notice when parsing fails', async () => {
+      pierre.parseThrows = true;
+      fixture.componentInstance.newText.set('trigger error');
+      await settle();
+      expect(fixture.componentInstance.diffView().error()).toBe(
+        'parseDiffFromFile: failed',
+      );
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      const errorEl = fixture.nativeElement.querySelector(
+        '[data-testid="text-diff-error"]',
+      );
+      expect(errorEl).not.toBeNull();
+      expect(errorEl.textContent).toContain(
+        'This diff could not be displayed.',
+      );
+    });
+
+    it('clears the error on the next valid input', async () => {
+      pierre.parseThrows = true;
+      fixture.componentInstance.newText.set('trigger error');
+      await settle();
+      expect(fixture.componentInstance.diffView().error()).not.toBeNull();
+
+      pierre.parseThrows = false;
+      fixture.componentInstance.newText.set('console.log("recovered");');
+      await settle();
+      expect(fixture.componentInstance.diffView().error()).toBeNull();
+      expect(
+        fixture.nativeElement.querySelector('[data-testid="text-diff-error"]'),
+      ).toBeNull();
+      expect(pierre.instances.at(-1)?.rendered).not.toBeNull();
+      expect(pierre.instances.at(-1)?.cleanedUp).toBe(false);
+    });
   });
 
   it('disposes the previous FileDiff on content input change', async () => {

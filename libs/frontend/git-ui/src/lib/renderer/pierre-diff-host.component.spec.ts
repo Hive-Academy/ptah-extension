@@ -391,6 +391,23 @@ describe('PierreDiffHostComponent', () => {
     ).toContain('could not be displayed');
   });
 
+  it('reports a multi-file patch as not displayed, not as read-only hunks', async () => {
+    const before = pierre.instances.length;
+    const single = patchOf(LINE_ONE_AND_ADJACENT);
+    fixture.componentInstance.patch.set(single + single);
+    await settle();
+    expect(pierre.instances).toHaveLength(before);
+    expect(fixture.componentInstance.host().mappingError()?.reason).toBe(
+      'file-count',
+    );
+    const note = fixture.nativeElement.querySelector(
+      '[data-testid="pierre-mapping-error"]',
+    );
+    expect(note.getAttribute('role')).toBe('status');
+    expect(note.textContent).toContain('This diff could not be displayed.');
+    expect(note.textContent).not.toContain('Hunk actions are unavailable');
+  });
+
   it('offers no hosts and no error when no git hunks are supplied', async () => {
     fixture.componentInstance.hunks.set([]);
     await settle();

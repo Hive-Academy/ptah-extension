@@ -83,8 +83,10 @@ type ParsedDiff =
         role="status"
         data-testid="pierre-mapping-error"
       >
+        <!-- parse-failed and file-count render nothing; every other reason
+             leaves the diff visible but read-only. -->
         {{
-          error.reason === 'parse-failed'
+          error.reason === 'parse-failed' || error.reason === 'file-count'
             ? 'This diff could not be displayed.'
             : 'Hunk actions are unavailable for this file.'
         }}
