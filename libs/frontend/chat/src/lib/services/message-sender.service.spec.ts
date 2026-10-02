@@ -33,7 +33,10 @@ import {
 } from '@ptah-extension/core';
 import { MessageSenderService } from './message-sender.service';
 import { UltracodeStateService } from './ultracode-state.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  ABORT_REASON_SUPERSEDED,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import {
   SessionManager,
   StreamingHandlerService,
@@ -934,6 +937,64 @@ describe('MessageSenderService', () => {
       );
       expect(validateCall?.[1]).toEqual(
         expect.objectContaining({ workspacePath: 'D:/repo' }),
+      );
+    });
+  });
+
+  // TASK_2026_592 MOD-3: closing a tab aborts its stream through the listener
+  // `wireAbortDispatch` installs. During the first turn no session id is bound
+  // yet; the backend registers that turn's record under the tab id, so the tab
+  // id must be sent instead of nothing (otherwise the process leaks).
+  describe('abort listener (tab close)', () => {
+    function wireAndAbort(tabId: string): void {
+      const controller = new AbortController();
+      tabManager.createAbortController.mockReturnValueOnce(controller.signal);
+      (
+        service as unknown as { wireAbortDispatch(id: string): AbortSignal }
+      ).wireAbortDispatch(tabId);
+      controller.abort();
+    }
+
+    beforeEach(() => {
+      rpcCall.mockImplementation(() => Promise.resolve({ success: true }));
+    });
+
+    it('turn-1 close (no session id yet) sends chat:abort with the tab id', () => {
+      const tabId = '33333333-3333-4333-8333-333333333333';
+      tabsSignal.set([makeTab({ id: tabId, claudeSessionId: null })]);
+
+      wireAndAbort(tabId);
+
+      const aborts = rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort');
+      expect(aborts).toHaveLength(1);
+      expect(aborts[0][1]).toEqual({ sessionId: tabId });
+    });
+
+    it('with a bound session id it still sends the session id', () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+
+      wireAndAbort('tab-1');
+
+      const aborts = rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort');
+      expect(aborts).toHaveLength(1);
+      expect(aborts[0][1]).toEqual({ sessionId: 'sess-X' });
+    });
+  });
+
+  describe('abort listener (superseded by a newer send)', () => {
+    it('does not send chat:abort when the controller was replaced, not closed', () => {
+      rpcCall.mockImplementation(() => Promise.resolve({ success: true }));
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      const controller = new AbortController();
+      tabManager.createAbortController.mockReturnValueOnce(controller.signal);
+      (
+        service as unknown as { wireAbortDispatch(id: string): AbortSignal }
+      ).wireAbortDispatch('tab-1');
+
+      controller.abort(ABORT_REASON_SUPERSEDED);
+
+      expect(rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort')).toEqual(
+        [],
       );
     });
   });

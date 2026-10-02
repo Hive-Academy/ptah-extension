@@ -1,0 +1,334 @@
+{
+  "tag": "base",
+  "host": "vscode",
+  "anubis-360": {
+    "errs": [],
+    "cards": {
+      "TASK_T1_none": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T1_none No sessions task FEATURE Isolate Start"
+      },
+      "TASK_T2_three": {
+        "w": 240,
+        "h": 160,
+        "row": null,
+        "texts": "TASK_T2_three Three sessions with PR number FEATURE Isolate Start"
+      },
+      "TASK_T3_prnonum": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T3_prnonum PR without number FEATURE Isolate Start"
+      },
+      "TASK_T4_nopr": {
+        "w": 240,
+        "h": 136,
+        "row": null,
+        "texts": "TASK_T4_nopr Running no PR FEATURE In Progress"
+      },
+      "TASK_T5_long": {
+        "w": 240,
+        "h": 156,
+        "row": null,
+        "texts": "TASK_T5_long Migrate the entire session organization pipeline to the new reactive linked-sessions model without breaking"
+      }
+    },
+    "details": {
+      "TASK_D1_none": {
+        "w": 384,
+        "h": 2353,
+        "sec": null,
+        "headings": ["Workflow", "Files (0)"]
+      },
+      "TASK_D2_three": {
+        "w": 384,
+        "h": 2353,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      },
+      "TASK_D3_many": {
+        "w": 384,
+        "h": 2353,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      }
+    }
+  },
+  "anubis-800": {
+    "errs": [],
+    "cards": {
+      "TASK_T1_none": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T1_none No sessions task FEATURE Isolate Start"
+      },
+      "TASK_T2_three": {
+        "w": 240,
+        "h": 160,
+        "row": null,
+        "texts": "TASK_T2_three Three sessions with PR number FEATURE Isolate Start"
+      },
+      "TASK_T3_prnonum": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T3_prnonum PR without number FEATURE Isolate Start"
+      },
+      "TASK_T4_nopr": {
+        "w": 240,
+        "h": 136,
+        "row": null,
+        "texts": "TASK_T4_nopr Running no PR FEATURE In Progress"
+      },
+      "TASK_T5_long": {
+        "w": 240,
+        "h": 156,
+        "row": null,
+        "texts": "TASK_T5_long Migrate the entire session organization pipeline to the new reactive linked-sessions model without breaking"
+      }
+    },
+    "details": {
+      "TASK_D1_none": {
+        "w": 384,
+        "h": 2445,
+        "sec": null,
+        "headings": ["Workflow", "Files (0)"]
+      },
+      "TASK_D2_three": {
+        "w": 384,
+        "h": 2445,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      },
+      "TASK_D3_many": {
+        "w": 384,
+        "h": 2445,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      }
+    }
+  },
+  "anubis-1400": {
+    "errs": [],
+    "cards": {
+      "TASK_T1_none": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T1_none No sessions task FEATURE Isolate Start"
+      },
+      "TASK_T2_three": {
+        "w": 240,
+        "h": 160,
+        "row": null,
+        "texts": "TASK_T2_three Three sessions with PR number FEATURE Isolate Start"
+      },
+      "TASK_T3_prnonum": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T3_prnonum PR without number FEATURE Isolate Start"
+      },
+      "TASK_T4_nopr": {
+        "w": 240,
+        "h": 136,
+        "row": null,
+        "texts": "TASK_T4_nopr Running no PR FEATURE In Progress"
+      },
+      "TASK_T5_long": {
+        "w": 240,
+        "h": 156,
+        "row": null,
+        "texts": "TASK_T5_long Migrate the entire session organization pipeline to the new reactive linked-sessions model without breaking"
+      }
+    },
+    "details": {
+      "TASK_D1_none": {
+        "w": 384,
+        "h": 2481,
+        "sec": null,
+        "headings": ["Workflow", "Files (0)"]
+      },
+      "TASK_D2_three": {
+        "w": 384,
+        "h": 2481,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      },
+      "TASK_D3_many": {
+        "w": 384,
+        "h": 2481,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      }
+    }
+  },
+  "anubis-light-360": {
+    "errs": [],
+    "cards": {
+      "TASK_T1_none": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T1_none No sessions task FEATURE Isolate Start"
+      },
+      "TASK_T2_three": {
+        "w": 240,
+        "h": 160,
+        "row": null,
+        "texts": "TASK_T2_three Three sessions with PR number FEATURE Isolate Start"
+      },
+      "TASK_T3_prnonum": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T3_prnonum PR without number FEATURE Isolate Start"
+      },
+      "TASK_T4_nopr": {
+        "w": 240,
+        "h": 136,
+        "row": null,
+        "texts": "TASK_T4_nopr Running no PR FEATURE In Progress"
+      },
+      "TASK_T5_long": {
+        "w": 240,
+        "h": 156,
+        "row": null,
+        "texts": "TASK_T5_long Migrate the entire session organization pipeline to the new reactive linked-sessions model without breaking"
+      }
+    },
+    "details": {
+      "TASK_D1_none": {
+        "w": 384,
+        "h": 2353,
+        "sec": null,
+        "headings": ["Workflow", "Files (0)"]
+      },
+      "TASK_D2_three": {
+        "w": 384,
+        "h": 2353,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      },
+      "TASK_D3_many": {
+        "w": 384,
+        "h": 2353,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      }
+    }
+  },
+  "anubis-light-800": {
+    "errs": [],
+    "cards": {
+      "TASK_T1_none": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T1_none No sessions task FEATURE Isolate Start"
+      },
+      "TASK_T2_three": {
+        "w": 240,
+        "h": 160,
+        "row": null,
+        "texts": "TASK_T2_three Three sessions with PR number FEATURE Isolate Start"
+      },
+      "TASK_T3_prnonum": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T3_prnonum PR without number FEATURE Isolate Start"
+      },
+      "TASK_T4_nopr": {
+        "w": 240,
+        "h": 136,
+        "row": null,
+        "texts": "TASK_T4_nopr Running no PR FEATURE In Progress"
+      },
+      "TASK_T5_long": {
+        "w": 240,
+        "h": 156,
+        "row": null,
+        "texts": "TASK_T5_long Migrate the entire session organization pipeline to the new reactive linked-sessions model without breaking"
+      }
+    },
+    "details": {
+      "TASK_D1_none": {
+        "w": 384,
+        "h": 2445,
+        "sec": null,
+        "headings": ["Workflow", "Files (0)"]
+      },
+      "TASK_D2_three": {
+        "w": 384,
+        "h": 2445,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      },
+      "TASK_D3_many": {
+        "w": 384,
+        "h": 2445,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      }
+    }
+  },
+  "anubis-light-1400": {
+    "errs": [],
+    "cards": {
+      "TASK_T1_none": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T1_none No sessions task FEATURE Isolate Start"
+      },
+      "TASK_T2_three": {
+        "w": 240,
+        "h": 160,
+        "row": null,
+        "texts": "TASK_T2_three Three sessions with PR number FEATURE Isolate Start"
+      },
+      "TASK_T3_prnonum": {
+        "w": 240,
+        "h": 140,
+        "row": null,
+        "texts": "TASK_T3_prnonum PR without number FEATURE Isolate Start"
+      },
+      "TASK_T4_nopr": {
+        "w": 240,
+        "h": 136,
+        "row": null,
+        "texts": "TASK_T4_nopr Running no PR FEATURE In Progress"
+      },
+      "TASK_T5_long": {
+        "w": 240,
+        "h": 156,
+        "row": null,
+        "texts": "TASK_T5_long Migrate the entire session organization pipeline to the new reactive linked-sessions model without breaking"
+      }
+    },
+    "details": {
+      "TASK_D1_none": {
+        "w": 384,
+        "h": 2481,
+        "sec": null,
+        "headings": ["Workflow", "Files (0)"]
+      },
+      "TASK_D2_three": {
+        "w": 384,
+        "h": 2481,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      },
+      "TASK_D3_many": {
+        "w": 384,
+        "h": 2481,
+        "sec": null,
+        "headings": ["Workflow", "Files (3)"]
+      }
+    }
+  }
+}

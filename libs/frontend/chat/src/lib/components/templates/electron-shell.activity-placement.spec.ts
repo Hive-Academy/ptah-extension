@@ -67,6 +67,7 @@ import {
   SurfaceRouterService,
 } from '@ptah-extension/core';
 import { ElectronShellComponent } from './electron-shell.component';
+import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 
 describe('ElectronShellComponent — activity placement', () => {
   let fixture: ComponentFixture<ElectronShellComponent>;
@@ -115,6 +116,8 @@ describe('ElectronShellComponent — activity placement', () => {
     await TestBed.configureTestingModule({
       imports: [ElectronShellComponent],
       providers: [
+        // Eager root singleton stubbed; its behaviour is covered by closed-tab-session-ender.service.spec.ts.
+        { provide: ClosedTabSessionEnderService, useValue: {} },
         { provide: ElectronLayoutService, useValue: layoutStub },
         { provide: AppStateManager, useValue: appStateStub },
         { provide: VSCodeService, useValue: vscodeStub },

@@ -509,6 +509,29 @@ export interface SessionLoadResult {
 }
 
 /**
+ * Where an agent-started tab came from (TASK_2026_584).
+ *
+ * Set when a parent session started this tab's session with
+ * `ptah_session_start`. A fact of the session, not a live flag, so it is
+ * persisted with the tab (unlike `attachedBinding`).
+ */
+export interface TabAgentOrigin {
+  /** The parent's tab id: the tab the child badge and banner link back to. */
+  readonly parentTabId: string;
+  /** The parent's SDK session id, when it was known at start. */
+  readonly parentSessionId: string | null;
+  /** The label the parent gave the child. */
+  readonly label: string;
+  /** The git branch the child works on. */
+  readonly branch: string;
+  /** The child's git worktree, its working directory. */
+  readonly worktreePath: string;
+  readonly taskId?: string;
+  /** Epoch milliseconds the child was started at. */
+  readonly startedAt: number;
+}
+
+/**
  * Represents a single tab/session in the multi-session UI
  */
 export interface TabState {
@@ -530,6 +553,13 @@ export interface TabState {
    * never writes it directly and it is never written to localStorage.
    */
   attachedBinding?: { bindingId: string; platform: GatewayPlatformId } | null;
+
+  /**
+   * Set when another session started this one with `ptah_session_start`
+   * (TASK_2026_584). Persisted; validated on restore. Absent on every tab the
+   * user opened.
+   */
+  agentOrigin?: TabAgentOrigin;
 
   /** User-provided or auto-generated session name */
   name: string;

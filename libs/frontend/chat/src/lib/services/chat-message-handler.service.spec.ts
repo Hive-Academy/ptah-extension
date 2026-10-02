@@ -24,7 +24,9 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { ChatMessageHandler } from './chat-message-handler.service';
+import { AgentSessionAdoptionService } from './agent-session-adoption.service';
 import { ChatStore } from './chat.store';
+import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
 
 const VALID_UUID = '11111111-1111-4111-8111-111111111111';
 const SESS_VALID = SessionId.create();
@@ -65,7 +67,9 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     processStreamEvent: jest.Mock;
     deferLiveStreamEvent: jest.Mock;
     handleSessionIdResolved: jest.Mock;
+    loadSessions: jest.Mock;
   };
+  let linkCapture: { onSessionIdResolved: jest.Mock };
   let streamRouter: {
     routePermissionPrompt: jest.Mock;
     routeQuestionPrompt: jest.Mock;
@@ -83,6 +87,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     markTabDetached: jest.Mock;
   };
   let turnStateApplier: { apply: jest.Mock };
+  let agentSessionAdoption: { adopt: jest.Mock };
   let claims: WorkflowSessionClaimService;
   let surfaceRegistry: StreamingSurfaceRegistry;
   let consoleWarnSpy: jest.SpyInstance;
@@ -105,6 +110,10 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       processStreamEvent: jest.fn(),
       deferLiveStreamEvent: jest.fn().mockReturnValue(false),
       handleSessionIdResolved: jest.fn(),
+      loadSessions: jest.fn().mockResolvedValue(undefined),
+    };
+    linkCapture = {
+      onSessionIdResolved: jest.fn().mockResolvedValue(undefined),
     };
     streamRouter = {
       routePermissionPrompt: jest.fn(),
@@ -123,6 +132,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
       markTabDetached: jest.fn(),
     };
     turnStateApplier = { apply: jest.fn() };
+    agentSessionAdoption = { adopt: jest.fn() };
 
     TestBed.configureTestingModule({
       providers: [
@@ -135,6 +145,11 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
         },
         { provide: TabManagerService, useValue: tabManager },
         { provide: TurnStateApplier, useValue: turnStateApplier },
+        { provide: BoardTaskLinkCaptureService, useValue: linkCapture },
+        {
+          provide: AgentSessionAdoptionService,
+          useValue: agentSessionAdoption,
+        },
       ],
     });
 
@@ -269,6 +284,61 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     expect(tabManager.markTabDetached).toHaveBeenCalledTimes(1);
     expect(tabManager.markTabDetached).toHaveBeenCalledWith('tab-1');
   });
+
+  // ----- AGENT_SESSION_OPENED (TASK_2026_584) --------------------------------
+
+  const agentSessionPayload = {
+    tabId: VALID_UUID,
+    sessionId: null,
+    parentTabId: '22222222-2222-4222-8222-222222222222',
+    parentSessionId: null,
+    workspaceRoot: '/ws',
+    worktreePath: '/ws/.worktrees/child',
+    branch: 'feat/child',
+    label: 'Child',
+    displayPrompt: 'Do the thing',
+    startedAt: 1,
+  };
+
+  it('agentSession:opened is a handled type and adopts the tab live', () => {
+    expect(handler.handledMessageTypes).toContain(
+      MESSAGE_TYPES.AGENT_SESSION_OPENED,
+    );
+
+    handler.handleMessage({
+      type: MESSAGE_TYPES.AGENT_SESSION_OPENED,
+      payload: agentSessionPayload,
+    });
+
+    expect(agentSessionAdoption.adopt).toHaveBeenCalledTimes(1);
+    expect(agentSessionAdoption.adopt).toHaveBeenCalledWith(
+      agentSessionPayload,
+      'live',
+    );
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['a string', 'nope'],
+    ['missing parentTabId', { ...agentSessionPayload, parentTabId: '' }],
+    ['non-numeric startedAt', { ...agentSessionPayload, startedAt: 'x' }],
+    ['numeric sessionId', { ...agentSessionPayload, sessionId: 5 }],
+  ])(
+    'agentSession:opened drops %s without throwing or adopting',
+    (_label, payload) => {
+      expect(() =>
+        handler.handleMessage({
+          type: MESSAGE_TYPES.AGENT_SESSION_OPENED,
+          payload,
+        }),
+      ).not.toThrow();
+      expect(agentSessionAdoption.adopt).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('agentSession:opened payload rejected'),
+        expect.anything(),
+      );
+    },
+  );
 
   // ----- SESSION_TURN_ENDED (Phase 2 Batch 3) -------------------------------
 
@@ -710,6 +780,72 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
         streamRouter.refreshQuestionTargetsForSession.mock
           .invocationCallOrder[0],
       );
+    });
+  });
+
+  // ----- TASK_2026_580: board-start capture + organization push ------------
+
+  describe('session organization (TASK_2026_580)', () => {
+    it('hands session:id-resolved to the board-task link capture after the store resolves it', () => {
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
+        payload: { tabId: 'tab-board', realSessionId: 'real-session-1' },
+      });
+
+      expect(linkCapture.onSessionIdResolved).toHaveBeenCalledTimes(1);
+      expect(linkCapture.onSessionIdResolved).toHaveBeenCalledWith(
+        'tab-board',
+        'real-session-1',
+      );
+      expect(
+        chatStore.handleSessionIdResolved.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        linkCapture.onSessionIdResolved.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('does not hand a claimed-surface resolve to the link capture', () => {
+      const correlationId = VALID_UUID;
+      const surfaceId = SurfaceId.create();
+      claims.claim(correlationId, surfaceId);
+      registerSurfaceAdapter(surfaceId);
+
+      handler.handleMessage({
+        type: MESSAGE_TYPES.SESSION_ID_RESOLVED,
+        payload: { tabId: correlationId, realSessionId: 'real-session-2' },
+      });
+
+      expect(linkCapture.onSessionIdResolved).not.toHaveBeenCalled();
+    });
+
+    it('handles session:organizationChanged', () => {
+      expect(handler.handledMessageTypes).toContain(
+        MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
+      );
+    });
+
+    it('coalesces organization and metadata pushes into one debounced loadSessions', () => {
+      jest.useFakeTimers();
+      try {
+        handler.handleMessage({
+          type: MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
+          payload: { sessionIds: ['s-1'] },
+        });
+        handler.handleMessage({
+          type: MESSAGE_TYPES.SESSION_METADATA_CHANGED,
+        });
+        handler.handleMessage({
+          type: MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
+          payload: { sessionIds: ['s-2'] },
+        });
+        expect(chatStore.loadSessions).not.toHaveBeenCalled();
+
+        jest.advanceTimersByTime(250);
+
+        expect(chatStore.loadSessions).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 });

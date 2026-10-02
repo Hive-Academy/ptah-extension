@@ -54,6 +54,12 @@ export interface IWorkspaceCoordinator {
   /** Get session IDs of actively streaming tabs in a workspace. */
   getStreamingSessionIds(workspacePath: string): SessionId[];
 
+  /**
+   * Get the session IDs of every tab in a workspace (streaming or idle),
+   * de-duplicated. Used to end all sessions of a workspace being removed.
+   */
+  getSessionIds(workspacePath: string): SessionId[];
+
   /** Show a confirmation dialog. Returns true if confirmed. */
   confirm(options: ConfirmDialogOptions): Promise<boolean>;
 }

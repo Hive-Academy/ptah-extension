@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Frame 03 - all at once (C)</title>
+    <!-- Prototype C, Frame 03: All at once. 5.373 s = 3 bars.
+         Bar 1: caption; the transcript slides out left. Bar 2: the real Agents panel slides in, three lane columns,
+         rows on the same beat in all three. Bar 3: Glm completes, then the panel leaves and the transcript returns.
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. -->
+  </head>
+  <body>
+    <template>
+      <style>
+        #f03-panel { position: absolute; left: 172px; top: 68px; width: 1575px; height: 945px; }
+      </style>
+
+      <div id="f03" class="scene" data-composition-id="f03" data-width="1920" data-height="1080" data-frame-start="5.373" data-frame-duration="5.373" data-seam-in="cut" data-duck="0">
+        <div id="f03-vig" class="vig"></div>
+
+        <!-- Frame 02's transcript, settled (preroll = time since each mount started) -->
+        <div id="f03-col" class="col">
+          <div id="f03-in" class="col-in">
+            <div id="f03-m1" class="clip fm" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="5.373" data-track-index="1" data-variable-values='{"role":"user","text":"Review batch 5 in three lanes: Glm, Codex and Copilot.","preroll":3.282}' style="left: 0; top: 100px; width: 1400px; height: 240px"></div>
+            <div id="f03-m2" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="5.373" data-track-index="2" data-variable-values='{"tool":"mcp__ptah__ptah_agent_spawn","label":"Glm · review the code logic","cues":"0,0.35,0.9","runFor":0.55,"preroll":3.134}' style="left: 0; top: 364px; width: 1400px; height: 72px"></div>
+            <div id="f03-m3" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="5.373" data-track-index="3" data-variable-values='{"tool":"mcp__ptah__ptah_agent_spawn","label":"Codex · fix the review comments","cues":"0,0.35,0.9","runFor":0.55,"preroll":2.686}' style="left: 0; top: 452px; width: 1400px; height: 72px"></div>
+            <div id="f03-m4" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="5.373" data-track-index="4" data-variable-values='{"tool":"mcp__ptah__ptah_agent_spawn","label":"Copilot · run lint and tests","cues":"0,0.35,0.9","runFor":0.55,"preroll":2.239}' style="left: 0; top: 540px; width: 1400px; height: 72px"></div>
+          </div>
+        </div>
+
+        <div id="f03-panel">
+          <div id="f03-m5" class="clip fm" data-composition-id="ptah-ui-agents-panel" data-composition-src="compositions/components/ptah-ui-agents-panel.html" data-start="1.343" data-duration="4.03" data-track-index="5" data-variable-values='{"count":3,"lane1Name":"Glm","lane1Status":"completed","lane2Name":"Codex","lane2Status":"running","lane3Name":"Copilot","lane3Status":"running","lane1Rows":"Read|stage.spec.ts;Bash|git status;Write|approval.md","lane1Text":"All checks pass.","lane2Rows":"Read|index.ts;Edit|composer.ts;Bash|nx test","lane3Rows":"Glob|*.spec.ts;Read|lane-layout.ts;Bash|nx lint","selected":1,"rowGap":0.448,"laneOffset":0,"cues":"0.1,0.15,0.2,0.948,2.448,3.135"}' style="left: 0; top: 0; width: 1575px; height: 945px"></div>
+        </div>
+
+        <div id="f03-cap" class="cap"><span id="f03-c1">All</span> <span id="f03-c2" class="g">at once.</span></div>
+
+        <audio id="sx-f03-hit" src="assets/sfx/impact-bass-2.mp3" data-start="0" data-duration="1.791" data-track-index="40" data-volume="0.55"></audio>
+        <audio id="sx-f03-out" src="assets/sfx/whoosh-short.mp3" data-start="0.896" data-duration="0.575" data-track-index="41" data-volume="0.4"></audio>
+        <audio id="sx-f03-in" src="assets/sfx/whoosh.mp3" data-start="1.343" data-duration="0.6" data-track-index="42" data-volume="0.4"></audio>
+        <audio id="sx-f03-r1" src="assets/sfx/click-soft.mp3" data-start="2.291" data-duration="0.366" data-track-index="43" data-volume="0.5"></audio>
+        <audio id="sx-f03-r2" src="assets/sfx/click-soft.mp3" data-start="2.739" data-duration="0.366" data-track-index="44" data-volume="0.5"></audio>
+        <audio id="sx-f03-r3" src="assets/sfx/click-soft.mp3" data-start="3.187" data-duration="0.366" data-track-index="45" data-volume="0.5"></audio>
+        <audio id="sx-f03-done" src="assets/sfx/ping.mp3" data-start="4.478" data-duration="0.6" data-track-index="46" data-volume="0.5"></audio>
+        <audio id="sx-f03-back" src="assets/sfx/whoosh-short.mp3" data-start="4.75" data-duration="0.575" data-track-index="47" data-volume="0.4"></audio>
+      </div>
+
+      <script>
+          var B = 0.448;
+          tl.fromTo("#f03-c1", { scale: 1.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "expo.out" }, T0);
+          tl.fromTo("#f03-c2", { x: 120, opacity: 0 }, { x: 0, opacity: 1, duration: 0.35, ease: "expo.out" }, T0 + B);
+          // The transcript slides out left (work leaves your session), the panel slides in from the right.
+          tl.fromTo("#f03-in", { x: 0, opacity: 1 }, { x: -700, opacity: 0, duration: 0.45, ease: "expo.in" }, T0 + 2 * B);
+          tl.fromTo("#f03-panel", { x: 500, opacity: 0 }, { x: 0, opacity: 1, duration: 0.45, ease: "expo.out" }, T0 + 3 * B);
+          tl.to("#f03-cap", { y: -40, opacity: 0, duration: 0.25, ease: "power3.in" }, T0 + 1.05);
+          // After Glm completes: the panel leaves right, the transcript comes back.
+          tl.to("#f03-panel", { x: 500, opacity: 0, duration: 0.25, ease: "expo.in" }, T0 + 4.75);
+          tl.to("#f03-in", { x: 0, opacity: 1, duration: 0.35, ease: "expo.out" }, T0 + 5.0);
+      </script>
+    </template>
+  </body>
+</html>

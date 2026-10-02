@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  ptah-ui/agents-panel: the Agents panel with lane tabs and two lane columns streaming tool rows (SPEC 4.7).
+  ptah-ui/agents-panel: the Agents panel with lane tabs and two or three lane columns streaming tool rows (SPEC 4.7).
   Mirrors libs/frontend/chat/src/lib/components/organisms/agent-monitor-panel.component.ts:209-265 (header: "Agents" +
   badge-sm badge-neutral count, layout / trash / close buttons), :375-420 (lane tabs: rounded-lg bordered chips, status dot,
   selected = border-primary bg-primary/10 shadow-sm), organisms/agent-monitor/agent-lane-grid.component.ts:47-95
@@ -12,10 +12,11 @@
     c0 0.00 panel settles with its header
     c1 0.30 tabs spring (0.12 s stagger); running dots pulse (finite)
     c2 0.80 lane columns settle
-    c3 1.10 rows enter every rowGap (lane 2 offset 0.2 s); each row runs pending -> running -> done in 0.6 s
+    c3 1.10 rows enter every rowGap (each later lane offset by laneOffset, default 0.2 s); each row runs pending -> running -> done in 0.6 s
     c4 after the last row: lane1Text streams
     c5 after the text: lanes flip to their final status (dot cross-fade, tab check/x spring)
-    focus (default c5 + 0.5): parts tabs | lane-1 | lane-2 | header
+    focus (default c5 + 0.5): parts tabs | lane-1 | lane-2 | lane-3 | header
+  A third lane shows when lane3Name is set (the real panel shows up to 3 lane columns, agent-monitor/agent-lane-layout.ts:11-13).
   Design box 1500 x 900. Recommended mount 1500x900.
 -->
 <html
@@ -28,13 +29,17 @@
     { "id": "lane1Status", "type": "enum", "label": "Lane 1 status", "default": "completed", "options": [{ "value": "running", "label": "Running" }, { "value": "completed", "label": "Completed" }, { "value": "failed", "label": "Failed" }] },
     { "id": "lane2Name", "type": "string", "label": "Lane 2 name", "default": "Antigravity" },
     { "id": "lane2Status", "type": "enum", "label": "Lane 2 status", "default": "failed", "options": [{ "value": "running", "label": "Running" }, { "value": "completed", "label": "Completed" }, { "value": "failed", "label": "Failed" }] },
+    { "id": "lane3Name", "type": "string", "label": "Lane 3 name (empty = two lanes)", "default": "" },
+    { "id": "lane3Status", "type": "enum", "label": "Lane 3 status", "default": "running", "options": [{ "value": "running", "label": "Running" }, { "value": "completed", "label": "Completed" }, { "value": "failed", "label": "Failed" }] },
     { "id": "lane1Rows", "type": "string", "label": "Lane 1 rows (Tool|label;Thinking;...)", "default": "Read|.../git/run-stage-failure.spec.ts;Thinking;Bash|Show git operation constants;Thinking;Write|.../reviews/p1-approval.md" },
     { "id": "lane1Text", "type": "string", "label": "Lane 1 text", "default": "All checks pass. I write the deliverable now." },
     { "id": "lane2Rows", "type": "string", "label": "Lane 2 rows", "default": "view_file|view_file;write_to_file|write_to_file;call_mcp_tool|call_mcp_tool" },
-    { "id": "selected", "type": "number", "label": "Selected tab (1-based, 0 = none)", "default": 1, "min": 0, "max": 2, "step": 1 },
+    { "id": "lane3Rows", "type": "string", "label": "Lane 3 rows", "default": "Read|README.md;Bash|npm test" },
+    { "id": "selected", "type": "number", "label": "Selected tab (1-based, 0 = none)", "default": 1, "min": 0, "max": 3, "step": 1 },
+    { "id": "laneOffset", "type": "number", "label": "Row offset per later lane (s)", "default": 0.2, "min": 0, "max": 2, "step": 0.05 },
     { "id": "rowGap", "type": "number", "label": "Seconds between rows", "default": 0.45, "min": 0.3, "max": 3, "step": 0.05 },
     { "id": "cues", "type": "string", "label": "Cues", "default": "" },
-    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "tabs", "label": "Tabs" }, { "value": "lane-1", "label": "Lane 1" }, { "value": "lane-2", "label": "Lane 2" }, { "value": "header", "label": "Header" }] },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "tabs", "label": "Tabs" }, { "value": "lane-1", "label": "Lane 1" }, { "value": "lane-2", "label": "Lane 2" }, { "value": "lane-3", "label": "Lane 3" }, { "value": "header", "label": "Header" }] },
     { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
     { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
     { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
@@ -141,11 +146,13 @@
             flex: 1 1 0;
             min-width: 0;
           }
-          .ap-lane:first-child {
+          .ap-lanes.two .ap-lane:first-child {
             flex-grow: 1.14;
           }
-          .ap-lane + .ap-lane {
+          .ap-lanes.two .ap-lane + .ap-lane {
             flex-grow: 0.86;
+          }
+          .ap-lane + .ap-lane {
             border-left: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
           }
           .ap-lane-head {
@@ -290,7 +297,8 @@
             var STATES = ["running", "completed", "failed"];
             var DOT = { running: "#3b82f6", completed: "#16a34a", failed: "#dc2626" };
             var count = Math.round(K.num("count", 2, 0, 99));
-            var selected = Math.round(K.num("selected", 1, 0, 2));
+            var selected = Math.round(K.num("selected", 1, 0, 3));
+            var laneOffset = K.num("laneOffset", 0.2, 0, 2);
             var rowGap = K.num("rowGap", 0.45, 0.3, 3);
             var lanes = [
               {
@@ -306,6 +314,15 @@
                 text: "",
               },
             ];
+            var lane3Name = K.str("lane3Name", "");
+            if (lane3Name) {
+              lanes.push({
+                name: lane3Name,
+                status: K.oneOf("lane3Status", STATES, "running"),
+                rows: K.str("lane3Rows", "Read|README.md;Bash|npm test"),
+                text: "",
+              });
+            }
 
             // local copy of the tool-call-row markup (components cannot import each other), compact form
             function row(tool, label) {
@@ -380,7 +397,7 @@
               (count > 0 ? '<span class="ap-count tabular">' + count + "</span>" : "") +
               '</div><div class="ap-tools">' + K.icon("layout", 28) + K.icon("trash", 28) + K.icon("x", 28) + "</div></div>" +
               '<div class="ap-tabs" data-ptah-part="tabs">' + tabsHtml + "</div>" +
-              '<div class="ap-lanes">' + lanesHtml + "</div>" +
+              '<div class="ap-lanes' + (lanes.length === 2 ? " two" : "") + '">' + lanesHtml + "</div>" +
               '<div class="ap-follow"><div class="ap-input"><span class="trunc">Send a follow-up — resumes the session</span>' + K.icon("send", 28) + "</div></div>" +
               "</div>";
 
@@ -393,9 +410,10 @@
             var rowCounts = laneEls.map(function (l) {
               return l.querySelectorAll(".ap-row").length;
             });
-            var LANE2_OFFSET = 0.2;
-            var lastRowStart = Math.max((rowCounts[0] || 1) - 1, 0) * rowGap;
-            lastRowStart = Math.max(lastRowStart, Math.max((rowCounts[1] || 1) - 1, 0) * rowGap + LANE2_OFFSET);
+            var lastRowStart = 0;
+            rowCounts.forEach(function (n, li) {
+              lastRowStart = Math.max(lastRowStart, Math.max((n || 1) - 1, 0) * rowGap + li * laneOffset);
+            });
 
             // cues: fixed slots first, derived slots follow the row count and text length
             var c = K.cues([0, 0.3, 0.8, 1.1]);
@@ -420,7 +438,7 @@
 
             // c3: rows enter, each pending -> running -> done in 0.6 s
             laneEls.forEach(function (lane, li) {
-              var t0 = c[3] + (li === 1 ? LANE2_OFFSET : 0);
+              var t0 = c[3] + li * laneOffset;
               Array.prototype.slice.call(lane.querySelectorAll(".ap-row")).forEach(function (r, i) {
                 var t = t0 + i * rowGap;
                 K.settle(r, t, { dy: 16, dur: 0.35 });

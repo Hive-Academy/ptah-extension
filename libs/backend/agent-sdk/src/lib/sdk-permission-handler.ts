@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { injectable, inject } from 'tsyringe';
 import {
@@ -44,6 +45,15 @@ import {
   type WebviewManagerLike,
 } from './permission/ask-user-question.service';
 import { ExitPlanModeService } from './permission/exit-plan-mode.service';
+import { evaluateUnattendedBash } from './permission/unattended-bash-policy';
+import type {
+  UnattendedSessionPolicy,
+  UnattendedSessionPolicyRegistry,
+} from './permission/unattended-session-policy.registry';
+import { SDK_TOKENS } from './di/tokens';
+
+/** Tools of Ptah's own MCP server, allowed for unattended sessions (R1). */
+const PTAH_MCP_TOOL_PREFIX = 'mcp__ptah__';
 
 /**
  * Internal superset of the wire type {@link PermissionResponse}.
@@ -149,6 +159,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
   private emitterInitialized = false;
 
+  /**
+   * Request ids of prompts raised for unattended (policy) sessions. "Always
+   * Allow" rules are never consulted for those sessions, so a rule created by
+   * answering another prompt must not auto-resolve them either.
+   */
+  private readonly unattendedRequestIds = new Set<string>();
+
   private readonly askUserQuestion: AskUserQuestionService;
   private readonly exitPlanMode: ExitPlanModeService;
 
@@ -158,6 +175,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     private readonly subagentRegistry: SubagentRegistryService,
     @inject(TOKENS.WEBVIEW_MANAGER)
     private readonly webviewManager: WebviewManagerLike,
+    @inject(SDK_TOKENS.SDK_UNATTENDED_SESSION_POLICY_REGISTRY, {
+      isOptional: true,
+    })
+    private readonly unattendedPolicies?: UnattendedSessionPolicyRegistry,
   ) {
     this.ruleStore = new PermissionRuleStore(this.logger);
 
@@ -418,6 +439,24 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         tabId,
         routingHint,
       );
+    const requestBoundedPermission = (
+      toolName: string,
+      input: Record<string, unknown>,
+      options: { toolUseID: string; agentID?: string; signal: AbortSignal },
+      denyWindowMs: number,
+    ): Promise<PermissionResult> =>
+      this.requestUserPermission(
+        toolName,
+        input,
+        options.toolUseID,
+        resolveSessionId(),
+        options.agentID,
+        options.signal,
+        cliAgentResolver,
+        tabId,
+        routingHint,
+        denyWindowMs,
+      );
     return async (
       toolName: string,
       input: Record<string, unknown>,
@@ -443,6 +482,23 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           isMcp: isMcpTool(toolName),
         },
       );
+
+      // Unattended (child) sessions: read live so a release takes effect on
+      // the next call. The policy table decides and returns; the permission
+      // level, background-agent and "Always Allow" paths below never apply.
+      const unattendedPolicy = this.unattendedPolicies?.get(
+        routingHint ?? (tabId as string | undefined),
+      );
+      if (unattendedPolicy) {
+        return await this.decideUnattendedToolCall(
+          unattendedPolicy,
+          toolName,
+          input,
+          options.signal,
+          (denyWindowMs) =>
+            requestBoundedPermission(toolName, input, options, denyWindowMs),
+        );
+      }
 
       if (SAFE_TOOLS.includes(toolName)) {
         if (toolName === 'EnterPlanMode') {
@@ -599,6 +655,171 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   }
 
   /**
+   * The decision table for an unattended session (TASK_2026_584). Nobody is
+   * watching, so no call may wait without bound: a call outside the policy
+   * gets a prompt in the child's own tab that is denied after
+   * `policy.denyWindowMs`, or at once when that window is `0`. Anything the
+   * policy cannot prove safe is prompted, never allowed.
+   */
+  private async decideUnattendedToolCall(
+    policy: UnattendedSessionPolicy,
+    toolName: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+    requestBounded: (denyWindowMs: number) => Promise<PermissionResult>,
+  ): Promise<PermissionResult> {
+    const allow: PermissionResult = {
+      behavior: 'allow' as const,
+      updatedInput: input,
+    };
+
+    if (toolName === 'EnterPlanMode') {
+      return {
+        behavior: 'deny' as const,
+        message: `Plan mode is unavailable to unattended agent sessions: nobody is watching this session to approve a plan. Write your plan to a file inside ${policy.writableRoot} instead, then carry on with the task.`,
+        interrupt: false,
+      };
+    }
+    if (toolName === 'AskUserQuestion') {
+      return {
+        behavior: 'deny' as const,
+        message: `Nobody is watching this unattended agent session (started by ${policy.ownerLabel}), so questions cannot be answered. Make the decision yourself, then tell the parent session what you decided and why with ptah_agent_report.`,
+        interrupt: false,
+      };
+    }
+    if (
+      toolName === 'ExitPlanMode' ||
+      SAFE_TOOLS.includes(toolName) ||
+      SUBAGENT_TOOLS.includes(toolName) ||
+      toolName.startsWith(PTAH_MCP_TOOL_PREFIX)
+    ) {
+      this.logger.debug(
+        `[SdkPermissionHandler] Unattended policy allowed: ${toolName}`,
+      );
+      return allow;
+    }
+
+    let outOfPolicyReason: string;
+    if (AUTO_EDIT_TOOLS.includes(toolName)) {
+      const target = this.checkUnattendedWriteTarget(
+        policy.writableRoot,
+        toolName,
+        input,
+      );
+      if (target.inside) {
+        return allow;
+      }
+      outOfPolicyReason = target.reason;
+    } else if (toolName === 'Bash') {
+      const decision = evaluateUnattendedBash(
+        input?.['command'],
+        policy.bashAllowlist,
+      );
+      if (decision.allowed) {
+        return allow;
+      }
+      outOfPolicyReason =
+        decision.reason ??
+        'the command does not start with an allowlisted command';
+    } else {
+      outOfPolicyReason = `the tool "${toolName}" is not covered by the unattended policy`;
+    }
+
+    const policyDenyMessage = this.buildUnattendedDenyMessage(
+      policy,
+      toolName,
+      outOfPolicyReason,
+    );
+
+    if (policy.denyWindowMs === 0) {
+      this.logger.info(
+        `[SdkPermissionHandler] Unattended policy denied without a prompt (deny window 0): ${toolName}`,
+      );
+      return {
+        behavior: 'deny' as const,
+        message: policyDenyMessage,
+        interrupt: false,
+      };
+    }
+
+    this.logger.info(
+      `[SdkPermissionHandler] Unattended policy: bounded prompt for ${toolName}`,
+      { denyWindowMs: policy.denyWindowMs },
+    );
+    const result = await requestBounded(policy.denyWindowMs);
+    // An allow from a human stands; an abort is a session teardown and keeps
+    // its own result. Every other deny (refused, timed out, undelivered) is
+    // rewritten so the model knows to report the blocker instead of stopping.
+    if (result.behavior === 'allow' || signal.aborted) {
+      return result;
+    }
+    return {
+      behavior: 'deny' as const,
+      message: `${policyDenyMessage}\n\nPrompt outcome: ${result.message}`,
+      interrupt: false,
+    };
+  }
+
+  /**
+   * Is the Write/Edit/NotebookEdit target inside `writableRoot`? Lexical
+   * containment only (no realpath). Any failure counts as "not inside".
+   */
+  private checkUnattendedWriteTarget(
+    writableRoot: string,
+    toolName: string,
+    input: Record<string, unknown>,
+  ): { readonly inside: true } | { readonly inside: false; reason: string } {
+    const key = toolName === 'NotebookEdit' ? 'notebook_path' : 'file_path';
+    try {
+      const target = input?.[key];
+      if (typeof target !== 'string' || target.trim().length === 0) {
+        return { inside: false, reason: `the ${key} argument is missing` };
+      }
+      if (typeof writableRoot !== 'string' || writableRoot.trim() === '') {
+        return { inside: false, reason: 'no writable root is configured' };
+      }
+      const root = path.resolve(writableRoot);
+      const relative = path.relative(root, path.resolve(root, target));
+      const inside =
+        relative.length > 0 &&
+        relative !== '..' &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative);
+      return inside
+        ? { inside: true }
+        : {
+            inside: false,
+            reason: `the target ${target} is outside the writable root`,
+          };
+    } catch (error: unknown) {
+      return {
+        inside: false,
+        reason: `the target could not be checked (${
+          error instanceof Error ? error.message : String(error)
+        })`,
+      };
+    }
+  }
+
+  private buildUnattendedDenyMessage(
+    policy: UnattendedSessionPolicy,
+    toolName: string,
+    reason: string,
+  ): string {
+    const allowlist =
+      policy.bashAllowlist.length > 0
+        ? policy.bashAllowlist.map((entry) => `"${entry}"`).join(', ')
+        : '(none)';
+    return (
+      `Tool "${toolName}" was not run. This is an unattended agent session started by ${policy.ownerLabel}; ` +
+      `nobody approved this call, which is outside the session policy: ${reason}. ` +
+      `Bash runs without approval only for a single command (no ; & | \` $( < > or newline) that starts with one of: ${allowlist}. ` +
+      `Files can be written without approval only inside ${policy.writableRoot}. ` +
+      `Do NOT retry the same call. If this blocks your task, report the blocker to the parent session with ptah_agent_report, then continue with what you can do.`
+    );
+  }
+
+  /**
    * Classify the surface a prompt can be delivered to AND answered from, and
    * with it the deny window. Route and window are decided together on purpose:
    * they were two rules before, and they drifted — a request classified
@@ -650,6 +871,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     cliAgentResolver?: () => string | undefined,
     tabId?: TabId,
     routingHint?: string,
+    /**
+     * Set only for an unattended (policy) session: the deny window replaces
+     * the route's window — including the webview's unbounded wait — so the
+     * prompt can never have `timeoutAt = 0`. Clamped to at least 1 ms.
+     */
+    unattendedDenyWindowMs?: number,
   ): Promise<PermissionResult> {
     const startTime = Date.now();
 
@@ -666,11 +893,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     // is read live, and a routability verdict that disagrees with the delivery
     // route is the whole defect this replaces.
     const cliAgentId = cliAgentResolver?.();
-    const { routable: isRoutable, denyWindowMs } = this.classifyPermissionRoute(
-      sessionId,
-      tabId,
-      cliAgentId,
-    );
+    const route = this.classifyPermissionRoute(sessionId, tabId, cliAgentId);
+    const isRoutable = route.routable;
+    const isUnattended = unattendedDenyWindowMs !== undefined;
+    const denyWindowMs = isUnattended
+      ? Math.max(1, unattendedDenyWindowMs)
+      : route.denyWindowMs;
     const timeoutAt = denyWindowMs === undefined ? 0 : startTime + denyWindowMs;
 
     const description = generateDescription(toolName, sanitizedInput);
@@ -726,22 +954,30 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       },
     );
 
-    this.sendPermissionRequest(request, cliAgentId);
+    if (isUnattended) {
+      this.unattendedRequestIds.add(requestId);
+    }
+    let response: InternalPermissionResponse | null;
+    try {
+      this.sendPermissionRequest(request, cliAgentId);
 
-    this.logger.info(`[SdkPermissionHandler] Permission request emitted`, {
-      requestId,
-      toolName,
-      toolUseId,
-      emitLatency: Date.now() - startTime,
-    });
+      this.logger.info(`[SdkPermissionHandler] Permission request emitted`, {
+        requestId,
+        toolName,
+        toolUseId,
+        emitLatency: Date.now() - startTime,
+      });
 
-    const response = await this.awaitResponse(
-      requestId,
-      signal,
-      sessionId,
-      tabId,
-      denyWindowMs,
-    );
+      response = await this.awaitResponse(
+        requestId,
+        signal,
+        sessionId,
+        tabId,
+        denyWindowMs,
+      );
+    } finally {
+      this.unattendedRequestIds.delete(requestId);
+    }
 
     this.logger.info(`[SdkPermissionHandler] Permission response received`, {
       requestId,
@@ -890,6 +1126,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       ] of this.pendingRequestContext.entries()) {
         if (pendingId === requestId) continue;
         if (pendingCtx.toolName !== toolName) continue;
+        // Unattended sessions never consult "Always Allow" rules.
+        if (this.unattendedRequestIds.has(pendingId)) continue;
 
         const pendingReq = this.pendingRequests.get(pendingId);
         if (!pendingReq) continue;

@@ -92,15 +92,17 @@ import type {
   SkillSynthesisSettings,
 } from './types';
 import { hasSessionWorkEvidence } from './eligibility/session-work-evidence';
+import { monotonicFactory } from 'ulid';
+import { toSkillSynthesisEventWire } from './event-wire';
 import type {
   EligibilityHistogram,
   SkillSynthesisEvent,
+  SkillSynthesisEventInput,
 } from './diagnostics.types';
 import {
   MESSAGE_TYPES,
   blankToUndefined,
   type SkillSynthesisPromoteBulkDecision,
-  type SkillSynthesisEventWire,
 } from '@ptah-extension/shared';
 
 /**
@@ -150,7 +152,7 @@ const SETTINGS_DEFAULTS: SkillSynthesisSettings = {
   curatorEnabled: true,
   curatorIntervalHours: 24,
   suggestionMinClusterSize: 2,
-  suggestionMaxCandidates: 200,
+  suggestionMaxCandidates: 1000,
 };
 
 /**
@@ -186,6 +188,22 @@ function contentHash(description: string, body: string): string {
     .slice(0, 16);
 }
 
+/** Largest time a ULID can encode (48 bits of milliseconds). */
+const ULID_MAX_TIME = 0xffff_ffff_ffff;
+
+/**
+ * The seed time for an event id. `ulid` throws on a time it cannot encode, and
+ * a throw here would break whatever pipeline step recorded the event. A
+ * fractional timestamp is floored to its millisecond; a non-finite one, or one
+ * outside the encodable range, seeds from the clock instead (`undefined` makes
+ * the factory use `Date.now()`).
+ */
+function ulidSeedTime(timestamp: number): number | undefined {
+  if (!Number.isFinite(timestamp)) return undefined;
+  const ms = Math.floor(timestamp);
+  return ms > 0 && ms <= ULID_MAX_TIME ? ms : undefined;
+}
+
 @injectable()
 export class SkillSynthesisService {
   private static readonly RING_CAPACITY = 200;
@@ -207,7 +225,14 @@ export class SkillSynthesisService {
   private readonly analyzedSessions = new Map<string, number>();
   /** Disposer returned by the session-end registry — called in stop(). */
   private _sessionEndDisposer?: () => void;
+  /** Event ring, oldest at index 0, newest at the tail. */
   private readonly events: SkillSynthesisEvent[] = [];
+  /**
+   * Event id source. Monotonic, so two events recorded in the same
+   * millisecond still get strictly increasing ids, and an event whose
+   * timestamp is older than the previous one never gets a smaller id.
+   */
+  private readonly nextEventId = monotonicFactory();
   private eligibilityCounters: {
     prefilterTooThin: number;
     prefilterRejected: number;
@@ -400,7 +425,7 @@ export class SkillSynthesisService {
     try {
       this.curator?.start(settings, {
         onPassComplete: (timestamp) => this.recordCuratorPass(timestamp),
-        onEvent: (ev) => this.pushEvent(ev as SkillSynthesisEvent),
+        onEvent: (ev) => this.pushEvent(ev),
       });
     } catch (err: unknown) {
       this.logger.warn('[skill-synthesis] curator start failed (non-fatal)', {
@@ -989,7 +1014,17 @@ export class SkillSynthesisService {
     return count;
   }
 
-  pushEvent(ev: SkillSynthesisEvent): void {
+  /**
+   * Record an event: assign its id, append it to the ring (evicting the oldest
+   * past `RING_CAPACITY`) and broadcast it. The ring entry and the broadcast
+   * carry the same id, so the webview can dedupe a live push against a
+   * snapshot row.
+   */
+  pushEvent(input: SkillSynthesisEventInput): void {
+    const ev: SkillSynthesisEvent = {
+      ...input,
+      id: this.nextEventId(ulidSeedTime(input.timestamp)),
+    };
     this.events.push(ev);
     if (this.events.length > SkillSynthesisService.RING_CAPACITY) {
       this.events.shift();
@@ -1000,7 +1035,7 @@ export class SkillSynthesisService {
       try {
         void this.webviewManager.broadcastMessage(
           MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT,
-          { event: this.toEventWire(ev) },
+          { event: toSkillSynthesisEventWire(ev) },
         );
       } catch (error: unknown) {
         this.logger.debug(
@@ -1012,31 +1047,12 @@ export class SkillSynthesisService {
   }
 
   /**
-   * Map an internal event to the wire shape consumed by the webview. The wire
-   * type omits candidateId/reason, so those are folded into `stats` when
-   * present to keep them visible to the UI.
+   * The newest `limit` events, NEWEST FIRST (index 0 is the latest recorded
+   * event). Returns a fresh array; the ring itself is never reordered.
    */
-  private toEventWire(ev: SkillSynthesisEvent): SkillSynthesisEventWire {
-    const stats =
-      ev.candidateId || ev.reason
-        ? {
-            ...(ev.stats ?? {}),
-            ...(ev.candidateId ? { candidateId: ev.candidateId } : {}),
-            ...(ev.reason ? { reason: ev.reason } : {}),
-          }
-        : ev.stats;
-    return {
-      kind: ev.kind,
-      timestamp: ev.timestamp,
-      sessionId: ev.sessionId,
-      stats,
-      error: ev.error,
-    };
-  }
-
   recentEvents(limit = 10): readonly SkillSynthesisEvent[] {
     const safe = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 10;
-    return this.events.slice(-safe);
+    return this.events.slice(-safe).reverse();
   }
 
   getEligibilityHistogram(): EligibilityHistogram {

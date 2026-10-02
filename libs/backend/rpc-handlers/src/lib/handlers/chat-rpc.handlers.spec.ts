@@ -2,7 +2,8 @@
  * ChatRpcHandlers — thin facade specs. Locks five invariants:
  * 1. `register()` wires exactly the `METHODS` entries, in order.
  * 2. Each method delegates to `ChatSessionService` on the happy path
- *    (`chat:pending-questions` delegates to `SdkPermissionHandler` instead).
+ *    (`chat:pending-questions` delegates to `SdkPermissionHandler` and
+ *    `chat:agent-sessions` to the optional session spawner instead).
  * 3. `register()` subscribes the broadcaster to background-agent events.
  * 4. `runRpc` shape: emits `RPC: {method} called` /
  *    `success` debug logs on the happy path, and on a rejection logs
@@ -14,6 +15,14 @@
  */
 
 import 'reflect-metadata';
+
+// Only the DI token is needed; the real barrel reaches
+// `workspace-intelligence`'s `import.meta.url`, unparseable by this transform.
+jest.mock('@ptah-extension/cli-agent-runtime', () => ({
+  CLI_AGENT_RUNTIME_TOKENS: {
+    SESSION_SPAWNER: Symbol.for('SessionSpawner'),
+  },
+}));
 
 import type {
   Logger,
@@ -33,6 +42,8 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { ISessionAttachmentGuard } from '@ptah-extension/platform-core';
 
 import type { SdkPermissionHandler } from '@ptah-extension/agent-sdk';
+import type { ISessionSpawner } from '@ptah-extension/cli-agent-runtime';
+import type { AgentSessionOpenedPayload } from '@ptah-extension/shared';
 
 import { ChatRpcHandlers } from './chat-rpc.handlers';
 import type { ChatPtahCliService } from '../chat/ptah-cli/chat-ptah-cli.service';
@@ -59,9 +70,12 @@ interface Suite {
  * Build a suite. By default the attachment guard reports nothing attached,
  * matching the VS Code host (NullSessionAttachmentGuard) and the
  * not-attached Electron case. Pass `attached: true` to simulate a session
- * driven by a messaging binding.
+ * driven by a messaging binding. Pass `spawner` to register a session
+ * spawner; by default none is registered (the optional injection is null).
  */
-function buildSuite(opts: { attached?: boolean } = {}): Suite {
+function buildSuite(
+  opts: { attached?: boolean; spawner?: ISessionSpawner } = {},
+): Suite {
   const logger = createMockLogger();
   const rpc = createMockRpcHandler();
   const sentry = createMockSentryService();
@@ -109,6 +123,7 @@ function buildSuite(opts: { attached?: boolean } = {}): Suite {
     historyRead,
     attachmentGuard,
     permissionHandler,
+    opts.spawner ?? null,
   );
 
   return {
@@ -153,6 +168,7 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
       'chat:abort',
       'chat:pending-questions',
       'chat:running-agents',
+      'chat:agent-sessions',
       'agent:backgroundList',
     ]);
   });
@@ -357,6 +373,139 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
         expect.any(ZodError),
         { errorSource: 'ChatRpcHandlers.registerChatPendingQuestions' },
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // chat:agent-sessions — late adoption of live child-session tabs.
+  // -------------------------------------------------------------------------
+
+  describe('chat:agent-sessions', () => {
+    const child: AgentSessionOpenedPayload = {
+      tabId: TAB_UUID,
+      sessionId: SESSION_UUID,
+      parentTabId: '99999999-8888-4777-8666-555555555555',
+      parentSessionId: null,
+      workspaceRoot: '/repo',
+      worktreePath: '/repo/.ptah/worktrees/child-1',
+      branch: 'ptah/child-1',
+      label: 'fix the parser',
+      displayPrompt: 'Fix the parser',
+      startedAt: 1_700_000_000_000,
+    };
+
+    function spawnerReturning(
+      sessions: readonly AgentSessionOpenedPayload[],
+    ): Mocked<ISessionSpawner> {
+      return {
+        listUiDescriptors: jest.fn().mockReturnValue(sessions),
+      } as unknown as Mocked<ISessionSpawner>;
+    }
+
+    it('returns an empty list when no session spawner is registered', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      await expect(
+        getHandler(
+          suite.rpc,
+          'chat:agent-sessions',
+        )({ workspaceRoot: '/repo' }),
+      ).resolves.toEqual({ sessions: [] });
+    });
+
+    it('returns the spawner descriptors for the requested workspace root', async () => {
+      const spawner = spawnerReturning([child]);
+      const suite = buildSuite({ spawner });
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'chat:agent-sessions',
+      )({ workspaceRoot: '/repo' });
+
+      expect(spawner.listUiDescriptors).toHaveBeenCalledWith('/repo');
+      expect(result).toEqual({ sessions: [child] });
+    });
+
+    it('lists every live child when no workspace root is given', async () => {
+      const spawner = spawnerReturning([child]);
+      const suite = buildSuite({ spawner });
+      suite.handlers.register();
+
+      await getHandler(suite.rpc, 'chat:agent-sessions')({});
+
+      expect(spawner.listUiDescriptors).toHaveBeenCalledWith(undefined);
+    });
+
+    it('lists every live child when params are undefined', async () => {
+      const spawner = spawnerReturning([child]);
+      const suite = buildSuite({ spawner });
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'chat:agent-sessions',
+      )(undefined);
+
+      expect(spawner.listUiDescriptors).toHaveBeenCalledWith(undefined);
+      expect(result).toEqual({ sessions: [child] });
+    });
+
+    it.each([
+      ['a number', 42],
+      ['a string', 'some/path'],
+      ['a boolean', true],
+      ['null', null],
+    ])(
+      'rejects %s as params with INVALID_PARAMS without reading the spawner',
+      async (_label, params) => {
+        const spawner = spawnerReturning([child]);
+        const suite = buildSuite({ spawner });
+        suite.handlers.register();
+
+        const rejection = getHandler(suite.rpc, 'chat:agent-sessions')(params);
+        await expect(rejection).rejects.toBeInstanceOf(RpcUserError);
+        await expect(rejection).rejects.toMatchObject({
+          message: 'params must be an object',
+          errorCode: 'INVALID_PARAMS',
+        });
+        expect(spawner.listUiDescriptors).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects a non-string workspaceRoot as a user error without reading the spawner', async () => {
+      const spawner = spawnerReturning([child]);
+      const suite = buildSuite({ spawner });
+      suite.handlers.register();
+
+      const rejection = getHandler(
+        suite.rpc,
+        'chat:agent-sessions',
+      )({ workspaceRoot: 42 });
+      await expect(rejection).rejects.toBeInstanceOf(RpcUserError);
+      await expect(rejection).rejects.toMatchObject({
+        errorCode: 'INVALID_PARAMS',
+      });
+      expect(spawner.listUiDescriptors).not.toHaveBeenCalled();
+    });
+
+    it('uses errorSource ChatRpcHandlers.registerChatAgentSessions when the spawner throws', async () => {
+      const boom = new Error('registry exploded');
+      const spawner = {
+        listUiDescriptors: jest.fn().mockImplementation(() => {
+          throw boom;
+        }),
+      } as unknown as Mocked<ISessionSpawner>;
+      const suite = buildSuite({ spawner });
+      suite.handlers.register();
+
+      await expect(
+        getHandler(suite.rpc, 'chat:agent-sessions')({}),
+      ).rejects.toBe(boom);
+      expect(suite.sentry.captureException).toHaveBeenCalledWith(boom, {
+        errorSource: 'ChatRpcHandlers.registerChatAgentSessions',
+      });
     });
   });
 

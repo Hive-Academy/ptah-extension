@@ -71,10 +71,28 @@ import type {
   SessionStatusResponse,
 } from '@ptah-extension/shared';
 import {
+  SESSION_ORGANIZATION_TOKENS,
+  toSessionOrganizationSummary,
+  type SessionOrganizationService,
+} from '@ptah-extension/session-organization';
+import {
+  TASK_SPECS_TOKENS,
+  type TaskIndexService,
+} from '@ptah-extension/task-specs';
+import {
   SessionCliOutputPageParamsSchema,
   SessionCliSessionsParamsSchema,
   SessionStatsBatchParamsSchema,
 } from './session-rpc.schema';
+import {
+  SessionListQueryParamsSchema,
+  type SessionListQueryParams,
+} from './session-organization-rpc.schema';
+import {
+  applySessionListQuery,
+  isSessionListQueryMode,
+  type SessionOrganizationMap,
+} from './session-list-query';
 
 /**
  * Abort budget for one `session:stats-batch` page — well inside the renderer's
@@ -82,6 +100,15 @@ import {
  * timed-out call. Never raise the global timeout instead (TASK_2026_411).
  */
 const STATS_PAGE_BUDGET_MS = 20_000;
+
+/** `session:list` calls slower than this log one warn line (AC1, L13). */
+const SESSION_LIST_SLOW_MS = 200;
+
+/** Organization data of one `session:list` call (organization hosts only). */
+interface SessionListOrganization {
+  map: SessionOrganizationMap;
+  childCounts: ReadonlyMap<string, number>;
+}
 
 /**
  * Minimal schema for JSONL first-line entries in agent session files.
@@ -168,6 +195,16 @@ export class SessionRpcHandlers {
      */
     @inject(TOKENS.AGENT_PROCESS_MANAGER, { isOptional: true })
     private readonly agentProcessManager: AgentProcessManager | null = null,
+    /**
+     * Session organization (TASK_2026_580). Registered only on hosts with the
+     * SQLite store (Electron, CLI); absent on VS Code, where `session:list`
+     * reports `organizationAvailable: false` and returns today's rows.
+     */
+    @inject(SESSION_ORGANIZATION_TOKENS.SERVICE, { isOptional: true })
+    private readonly organization: SessionOrganizationService | null = null,
+    /** Task index, read once per list call for the `missing` task flag. */
+    @inject(TASK_SPECS_TOKENS.TASK_INDEX_SERVICE, { isOptional: true })
+    private readonly taskIndex: TaskIndexService | null = null,
   ) {}
 
   /**
@@ -336,11 +373,19 @@ export class SessionRpcHandlers {
   /**
    * session:list - List all sessions for workspace (with pagination)
    * Returns metadata only - SDK handles actual message storage
+   *
+   * Organization (TASK_2026_580): the query fields are Zod-validated
+   * (`INVALID_PARAMS` on failure) and applied by `applySessionListQuery`
+   * before paging. A request without query fields keeps today's rows, order
+   * and total. Only the returned page is enriched with `organization`
+   * (including the `missing` task flag and `childCount`) and `livePhase`.
    */
   private registerSessionList(): void {
     this.rpcHandler.registerMethod<SessionListParams, SessionListResult>(
       'session:list',
       async (params: SessionListParams) => {
+        const startedAt = Date.now();
+        const query = this.parseSessionListQuery(params);
         try {
           const { workspacePath, limit = 10, offset = 0, since } = params;
           this.logger.debug('RPC: session:list called', {
@@ -348,6 +393,7 @@ export class SessionRpcHandlers {
             limit,
             offset,
             since,
+            queryMode: isSessionListQueryMode(query),
           });
 
           if (!this.isAuthorizedWorkspace(workspacePath)) {
@@ -359,11 +405,20 @@ export class SessionRpcHandlers {
           }
           const workspaceSessions =
             await this.metadataStore.getForWorkspace(workspacePath);
-          const allSessions =
+          const sinceSessions =
             since === undefined
               ? workspaceSessions
               : workspaceSessions.filter((s) => s.lastActiveAt >= since);
-          const total = allSessions.length;
+          const organizationAvailable =
+            this.organization?.isAvailable() ?? false;
+          const organization = organizationAvailable
+            ? this.readOrganization(workspacePath)
+            : undefined;
+          const { rows: allSessions, total } = applySessionListQuery(
+            sinceSessions,
+            organization?.map,
+            query,
+          );
           const paginated = allSessions.slice(offset, offset + limit);
           const hasMore = offset + limit < total;
           // Metadata rows outlive their transcripts — the Claude CLI prunes
@@ -371,6 +426,13 @@ export class SessionRpcHandlers {
           // this store is never pruned. Index the surviving transcripts once
           // so the sidebar can mark the rows that will open empty.
           const transcriptIds = await this.listTranscriptIds(workspacePath);
+          const missingTaskIds = organization
+            ? await this.findMissingTaskIds(
+                workspacePath,
+                paginated.map((s) => s.sessionId),
+                organization.map,
+              )
+            : new Set<string>();
           const sessions = paginated.flatMap((s) => {
             let id: SessionId;
             try {
@@ -384,6 +446,7 @@ export class SessionRpcHandlers {
               );
               return [];
             }
+            const livePhase = this.turnState.get(s.sessionId)?.phase;
             return [
               {
                 id,
@@ -404,11 +467,26 @@ export class SessionRpcHandlers {
                       },
                     }
                   : {}),
+                ...(organization
+                  ? {
+                      organization: toSessionOrganizationSummary(
+                        organization.map.get(s.sessionId),
+                        organization.childCounts.get(s.sessionId) ?? 0,
+                        missingTaskIds,
+                      ),
+                    }
+                  : {}),
+                ...(livePhase ? { livePhase } : {}),
               },
             ];
           });
 
-          return { sessions, total, hasMore };
+          return {
+            sessions,
+            total,
+            hasMore,
+            organizationAvailable: organization !== undefined,
+          };
         } catch (error) {
           this.logger.error(
             'RPC: session:list failed',
@@ -423,9 +501,104 @@ export class SessionRpcHandlers {
               error instanceof Error ? error.message : String(error)
             }`,
           );
+        } finally {
+          const elapsedMs = Date.now() - startedAt;
+          if (elapsedMs > SESSION_LIST_SLOW_MS) {
+            this.logger.warn(
+              `[SessionOrganization] session:list took ${elapsedMs} ms (budget ${SESSION_LIST_SLOW_MS} ms)`,
+              { workspacePath: params.workspacePath, elapsedMs },
+            );
+          }
         }
       },
     );
+  }
+
+  /**
+   * Validate the organization query fields of `session:list`. A failure is a
+   * caller error (`INVALID_PARAMS`) that names the offending fields only.
+   */
+  private parseSessionListQuery(params: unknown): SessionListQueryParams {
+    const parsed = SessionListQueryParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      const fields = parsed.error.issues
+        .map((issue) => issue.path.join('.') || 'params')
+        .join(', ');
+      throw new RpcUserError(
+        `Invalid session:list params (${fields})`,
+        'INVALID_PARAMS',
+      );
+    }
+    return parsed.data;
+  }
+
+  /**
+   * The workspace's organization map and child counts. A read failure costs
+   * the call its organization, never the session list itself.
+   */
+  private readOrganization(
+    workspacePath: string,
+  ): SessionListOrganization | undefined {
+    if (!this.organization) return undefined;
+    try {
+      return {
+        map: this.organization.queryWorkspace(workspacePath),
+        childCounts: this.organization.countChildren(workspacePath),
+      };
+    } catch (error: unknown) {
+      // degradation-audit: reported - organization is an enrichment of the
+      // sidebar list; a failed read is logged and sent to Sentry, and the
+      // call answers as an unavailable host (today's rows, flag false).
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        '[SessionOrganization] session:list could not read organization',
+        errorObj,
+      );
+      this.sentryService.captureException(errorObj, {
+        errorSource: 'SessionRpcHandlers.readOrganization',
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * Linked task ids of the page that no longer exist in the task index. One
+   * `taskIndex.list` read, and only when a page row has task links.
+   */
+  private async findMissingTaskIds(
+    workspacePath: string,
+    pageSessionIds: readonly string[],
+    map: SessionOrganizationMap,
+  ): Promise<ReadonlySet<string>> {
+    const linked = new Set<string>();
+    for (const sessionId of pageSessionIds) {
+      for (const task of map.get(sessionId)?.tasks ?? []) {
+        linked.add(task.taskId);
+      }
+    }
+    if (linked.size === 0 || !this.taskIndex) return new Set();
+    try {
+      const index = await this.taskIndex.list(workspacePath);
+      const known = new Set<string>([
+        ...index.tasks.map((t) => t.id),
+        // An excluded folder still exists on disk; its link is not missing.
+        ...index.excluded.map((e) => e.folderName),
+      ]);
+      return new Set([...linked].filter((id) => !known.has(id)));
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - the missing flag is a label
+      // on a task chip; an unreadable index marks no task missing rather than
+      // failing the list.
+      this.logger.warn(
+        '[SessionOrganization] session:list could not read the task index',
+        {
+          workspacePath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return new Set();
+    }
   }
 
   /**

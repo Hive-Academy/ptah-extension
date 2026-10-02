@@ -1,101 +1,77 @@
 /**
- * SkillCuratorService specs.
+ * SkillCuratorService specs (TASK_2026_578 facade).
  *
- * Tests: disabled no-op, stop before start is no-op, no lane in this host →
- * empty report, never-delete-pinned invariant, settings restart triggers
- * stop+start.
+ * Two halves:
+ *  - the pass orchestration, with the retirement, umbrella and enhancement
+ *    collaborators mocked: order, stats, report, event, fail-soft per step and
+ *    the one exempt-slug set;
+ *  - accept and the startup reconcile on a REAL migrated in-memory database
+ *    with the REAL `SkillPromotionService`, `SkillSuggestionStore`,
+ *    `SkillRegistryStore` and `SkillMdGenerator`, so the transaction rules
+ *    (R-f, R-f2) are proven against rollback rather than against mocks.
  *
- * B1.6.4 moved the overlap pass onto the `synthesis` lane, so the curator no
- * longer holds an `IInternalQuery` or a workspace provider — it holds a
- * `LaneRunner`. The existing `query` stubs are kept and wrapped rather than
- * rewritten: what each case is really asserting is what the curator does with
- * a given LLM ANSWER, and that is unchanged.
+ * `os.homedir()` is redirected so curator reports land in a temp directory.
  */
 import 'reflect-metadata';
-import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { SkillCuratorService } from './skill-curator.service';
-import { LaneRunnerService } from './lanes/lane-runner.service';
+import { SkillCandidateStore } from './skill-candidate.store';
+import { SkillSuggestionStore } from './skill-suggestion.store';
 import {
-  makeBudgetStub,
-  makeLogger,
-  makeResolverStub,
-  resolvedLane,
-} from './lanes/lane-runner.test-support';
-import type { IInternalQuery } from './internal-query.interface';
-import type { SkillCandidateStore } from './skill-candidate.store';
+  SkillRegistryStore,
+  type SkillRegistryEntry,
+} from './skill-registry.store';
+import { SkillMdGenerator, SKILLS_ROOT_KEY } from './skill-md-generator';
+import {
+  SkillPromotionService,
+  SUGGESTION_TRAJECTORY_PREFIX,
+} from './skill-promotion.service';
+import {
+  SkillRetirementService,
+  type SkillRetirementResult,
+} from './lifecycle/skill-retirement.service';
 import type {
-  SkillSynthesisSettings,
-  SkillCandidateRow,
-  CandidateId,
+  SkillUmbrellaMergeService,
+  UmbrellaPassResult,
+} from './lifecycle/skill-umbrella-merge.service';
+import {
+  MERGED_INTO_PREFIX,
+  RETIRED_UNUSED_REASON,
+  unjudgedVerdictFields,
+  unmeasuredGateFields,
+  type CandidateId,
+  type SkillCandidateRow,
+  type SkillSuggestionRow,
+  type SkillSynthesisSettings,
 } from './types';
-import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
+import {
+  asConnection,
+  resolveOpener,
+  type TestDatabase,
+} from './queue/queue-db.test-support';
 
-const noopLogger = {
-  debug: jest.fn(),
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn(),
-} as unknown as ConstructorParameters<typeof SkillCuratorService>[0];
+jest.mock('node:os', () => {
+  const actual = jest.requireActual<typeof import('node:os')>('node:os');
+  const nodePath = jest.requireActual<typeof import('node:path')>('node:path');
+  return {
+    ...actual,
+    homedir: () => nodePath.join(actual.tmpdir(), 'ptah-curator-spec-home'),
+  };
+});
 
-/**
- * Wrap one of this file's `{execute}` stubs in a real `LaneRunnerService`.
- *
- * `abort`/`close` are defaulted in because the runner always calls them in its
- * `finally`, and the stubs predate that contract. Everything else is passed
- * straight through, so `expect(query.execute)...` assertions keep working and a
- * `mockRejectedValue` still surfaces as a thrown lane call.
- */
-function laneRunnerFrom(query: { execute: jest.Mock }): LaneRunnerService {
-  const adapted = {
-    execute: async (config: unknown) => ({
-      abort: () => undefined,
-      close: () => undefined,
-      ...((await query.execute(config)) as object),
-    }),
-  } as unknown as IInternalQuery;
-  return new LaneRunnerService(
-    makeLogger(),
-    makeResolverStub(resolvedLane('synthesis')).service,
-    makeBudgetStub().store,
-    adapted,
-    null,
-  );
+type Ctor = ConstructorParameters<typeof SkillCuratorService>;
+
+function makeLogger() {
+  return {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
 }
-
-/** A runner in a host that registered no LLM — the lane answers `unavailable`. */
-function hostlessLaneRunner(): LaneRunnerService {
-  return new LaneRunnerService(
-    makeLogger(),
-    makeResolverStub(resolvedLane('synthesis')).service,
-    makeBudgetStub().store,
-    null,
-    null,
-  );
-}
-
-const noopRateLimiter = {
-  tryAcquire: jest.fn(() => ({ allowed: true })),
-  snapshot: jest.fn(() => null),
-} as unknown as ConstructorParameters<typeof SkillCuratorService>[3];
-
-const noopMdGenerator = {
-  promoteToActive: jest.fn(() => ({
-    slug: 'x',
-    dir: '/d',
-    filePath: '/d/SKILL.md',
-  })),
-  candidatesRoot: jest.fn(() => '/c'),
-  activeRoot: jest.fn(() => '/a'),
-  writeCandidate: jest.fn(),
-} as unknown as ConstructorParameters<typeof SkillCuratorService>[10];
-
-const SUGGESTION_DEPS: [
-  ConstructorParameters<typeof SkillCuratorService>[6],
-  ConstructorParameters<typeof SkillCuratorService>[7],
-  ConstructorParameters<typeof SkillCuratorService>[8],
-  ConstructorParameters<typeof SkillCuratorService>[9],
-  ConstructorParameters<typeof SkillCuratorService>[10],
-] = [null, null, null, null, noopMdGenerator];
 
 function makeSettings(
   overrides: Partial<SkillSynthesisSettings> = {},
@@ -123,14 +99,67 @@ function makeSettings(
   };
 }
 
-function fakePromotedRow(id: string, pinned = false): SkillCandidateRow {
+function umbrellaResult(
+  overrides: Partial<UmbrellaPassResult> = {},
+): UmbrellaPassResult {
   return {
-    id: id as CandidateId,
-    name: id,
+    umbrellasCreated: 0,
+    umbrellasRejected: 0,
+    judgeRejectedMembers: 0,
+    singletonsSurfaced: 0,
+    candidatesMerged: 0,
+    suggestionsMerged: 0,
+    purged: 0,
+    purgeSkippedReason: 'already-complete',
+    clustersRemaining: 0,
+    rateLimited: false,
+    mergedIds: [],
+    purgedIds: [],
+    ...overrides,
+  };
+}
+
+function makeUmbrella(result: Partial<UmbrellaPassResult> = {}) {
+  return {
+    runPass: jest.fn(async (..._args: unknown[]): Promise<UmbrellaPassResult> =>
+      umbrellaResult(result),
+    ),
+  };
+}
+
+function makeRetirement() {
+  return {
+    run: jest.fn(
+      async (..._args: unknown[]): Promise<SkillRetirementResult> => ({
+        dormant: 0,
+        retired: 0,
+        skippedPinned: 0,
+        skippedExempt: 0,
+        skippedUncontained: 0,
+        dormantSlugs: [],
+        retiredSlugs: [],
+      }),
+    ),
+    removeMaterializations: jest.fn(
+      async (rows: readonly SkillCandidateRow[], ..._rest: unknown[]) =>
+        rows.map((r) => r.name),
+    ),
+  };
+}
+
+const allowingRateLimiter = {
+  tryAcquire: jest.fn(() => ({ allowed: true })),
+  snapshot: jest.fn(() => null),
+};
+
+function promotedRow(name: string, pinned = false): SkillCandidateRow {
+  return {
+    id: `id-${name}` as CandidateId,
+    name,
     description: 'desc',
     bodyPath: '/SKILL.md',
     sourceSessionIds: [],
-    trajectoryHash: id,
+    trajectoryHash: name,
     embeddingRowid: null,
     status: 'promoted',
     successCount: 3,
@@ -147,1122 +176,1579 @@ function fakePromotedRow(id: string, pinned = false): SkillCandidateRow {
   };
 }
 
-function makeStore(
-  promoted: SkillCandidateRow[] = [],
-): jest.Mocked<SkillCandidateStore> {
-  return {
-    listByStatus: jest.fn((status: string) =>
-      status === 'promoted' ? promoted : [],
-    ),
-    updateStatus: jest.fn(),
-  } as unknown as jest.Mocked<SkillCandidateStore>;
-}
+// ─── Pass orchestration (mocked collaborators) ─────────────────────────────
 
-describe('SkillCuratorService', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-  });
-  afterEach(() => {
-    jest.useRealTimers();
-  });
+describe('SkillCuratorService — pass orchestration', () => {
+  interface Harness {
+    svc: SkillCuratorService;
+    logger: ReturnType<typeof makeLogger>;
+    store: { [k: string]: jest.Mock };
+    registry: { listAll: jest.Mock; getBySlug: jest.Mock } | null;
+    enhancer: { isEligible: jest.Mock; enhance: jest.Mock } | null;
+    suggestions: { [k: string]: jest.Mock };
+    umbrella: ReturnType<typeof makeUmbrella>;
+    retirement: ReturnType<typeof makeRetirement>;
+  }
 
-  it('start() is a no-op when curatorEnabled=false', () => {
-    const store = makeStore();
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      hostlessLaneRunner(),
-      noopRateLimiter,
-      null,
-      null,
-      ...SUGGESTION_DEPS,
-    );
-    // Should not throw; no interval should be set
-    svc.start(makeSettings({ curatorEnabled: false }));
-    // Advance time — no runPass should trigger
-    jest.advanceTimersByTime(10_000_000);
-    expect(store.listByStatus).not.toHaveBeenCalled();
-  });
-
-  it('stop() before start() is a no-op', () => {
-    const store = makeStore();
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      hostlessLaneRunner(),
-      noopRateLimiter,
-      null,
-      null,
-      ...SUGGESTION_DEPS,
-    );
-    expect(() => svc.stop()).not.toThrow();
-  });
-
-  it('runManual() returns an empty report when this host has no lane', async () => {
-    const store = makeStore([fakePromotedRow('sk1')]);
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      hostlessLaneRunner(),
-      noopRateLimiter,
-      null,
-      null,
-      ...SUGGESTION_DEPS,
-    );
-    svc.start(makeSettings());
-    const report = await svc.runManual();
-    expect(report.changesQueued).toBe(0);
-    expect(report.skippedPinned).toBe(0);
-    expect(report.overlaps).toHaveLength(0);
-  });
-
-  it('invokes onPassComplete callback after a successful pass (Critical-2 wiring)', async () => {
-    const promoted = fakePromotedRow('sk1');
-    const store = makeStore([promoted]);
-    const query = {
-      execute: jest.fn().mockResolvedValue({
-        stream: (async function* () {
-          yield {
-            type: 'assistant',
-            message: { content: [{ type: 'text', text: '[]' }] },
-          };
-          yield { type: 'result' };
-        })(),
-      }),
-    };
-    const onPassComplete = jest.fn();
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      null,
-      null,
-      ...SUGGESTION_DEPS,
-    );
-    svc.start(makeSettings(), { onPassComplete });
-    await svc.runManual();
-    expect(onPassComplete).toHaveBeenCalledTimes(1);
-    expect(onPassComplete).toHaveBeenCalledWith(expect.any(Number));
-  });
-
-  it('does not invoke onPassComplete when LLM call throws', async () => {
-    const promoted = fakePromotedRow('sk1');
-    const store = makeStore([promoted]);
-    const query = {
-      execute: jest.fn().mockRejectedValue(new Error('llm down')),
-    };
-    const onPassComplete = jest.fn();
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      null,
-      null,
-      ...SUGGESTION_DEPS,
-    );
-    svc.start(makeSettings(), { onPassComplete });
-    await svc.runManual();
-    expect(onPassComplete).not.toHaveBeenCalled();
-  });
-
-  it('never-delete invariant: updateStatus is never called with rejected for a pinned skill', async () => {
-    const pinnedSkill = fakePromotedRow('pinned-sk', true);
-    const store = makeStore([pinnedSkill]);
-    // Simulate LLM response that flags the pinned skill
-    const findingsResponse = JSON.stringify([
-      {
-        type: 'overlap',
-        skillIds: ['pinned-sk', 'other-sk'],
-        reason: 'too similar',
-      },
-    ]);
-    const query = {
-      execute: jest.fn().mockResolvedValue({
-        stream: (async function* () {
-          yield {
-            type: 'assistant',
-            message: { content: [{ type: 'text', text: findingsResponse }] },
-          };
-          yield { type: 'result' };
-        })(),
-      }),
-    };
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      null,
-      null,
-      ...SUGGESTION_DEPS,
-    );
-    svc.start(makeSettings());
-    await svc.runManual();
-    // updateStatus should NEVER be called with 'rejected' for a pinned skill
-    const rejectedCalls = (store.updateStatus as jest.Mock).mock.calls.filter(
-      (args) => args[1] === 'rejected' && args[0] === 'pinned-sk',
-    );
-    expect(rejectedCalls).toHaveLength(0);
-  });
-
-  it('unified pass: enhances threshold-crossing eligible slugs, skips others', async () => {
-    const promoted = fakePromotedRow('sk1');
-    const baseStore = makeStore([promoted]);
+  function harness(
+    options: {
+      promoted?: SkillCandidateRow[];
+      registryRows?: Array<Partial<SkillRegistryEntry>> | null;
+      enhancer?: Harness['enhancer'];
+      umbrella?: ReturnType<typeof makeUmbrella>;
+      retirement?: ReturnType<typeof makeRetirement>;
+      invocationTotal?: (slug: string) => number;
+    } = {},
+  ): Harness {
+    const logger = makeLogger();
     const store = {
-      ...baseStore,
-      listByStatus: baseStore.listByStatus,
-      updateStatus: baseStore.updateStatus,
-      getInvocationStats: jest.fn((slug: string) =>
-        slug === 'eligible'
-          ? { total: 12, succeeded: 4, failed: 8, distinctContexts: 3 }
-          : { total: 1, succeeded: 1, failed: 0, distinctContexts: 1 },
+      listByStatus: jest.fn((status: string) =>
+        status === 'promoted' ? (options.promoted ?? []) : [],
       ),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
-
-    const query = {
-      execute: jest.fn().mockResolvedValue({
-        stream: (async function* () {
-          yield {
-            type: 'assistant',
-            message: { content: [{ type: 'text', text: '[]' }] },
-          };
-          yield { type: 'result' };
-        })(),
+      getInvocationStats: jest.fn((slug: string) => {
+        const total = options.invocationTotal?.(slug) ?? 0;
+        return { total, succeeded: 0, failed: total, distinctContexts: 1 };
       }),
     };
-
-    const registry = {
-      listAll: jest.fn(() => [
-        { kind: 'skill', slug: 'eligible' },
-        { kind: 'skill', slug: 'tooFew' },
-        { kind: 'agent', slug: 'an-agent' },
-      ]),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
-
-    const enhancer = {
-      isEligible: jest.fn((slug: string) => slug === 'eligible'),
-      enhance: jest.fn().mockResolvedValue({ changed: true, slug: 'eligible' }),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
-
+    const registry =
+      options.registryRows === null
+        ? null
+        : {
+            listAll: jest.fn(() => options.registryRows ?? []),
+            getBySlug: jest.fn(() => null),
+          };
+    const suggestions = {
+      listAcceptedWithoutPromotedCandidate: jest.fn(() => []),
+      findById: jest.fn(() => null),
+      dismiss: jest.fn(),
+      listByStatus: jest.fn(() => []),
+    };
+    const umbrella = options.umbrella ?? makeUmbrella();
+    const retirement = options.retirement ?? makeRetirement();
+    const enhancer = options.enhancer ?? null;
     const svc = new SkillCuratorService(
-      noopLogger,
+      logger as unknown as Ctor[0],
+      store as unknown as Ctor[1],
+      allowingRateLimiter as unknown as Ctor[2],
+      registry as unknown as Ctor[3],
+      enhancer as unknown as Ctor[4],
+      suggestions as unknown as Ctor[5],
+      umbrella as unknown as SkillUmbrellaMergeService,
+      retirement as unknown as SkillRetirementService,
+      {} as SkillPromotionService,
+      { activeRoot: () => '/a' } as unknown as SkillMdGenerator,
+    );
+    return {
+      svc,
+      logger,
       store,
-      laneRunnerFrom(query),
-      noopRateLimiter,
       registry,
       enhancer,
-      ...SUGGESTION_DEPS,
-    );
-    svc.start(makeSettings());
-    await svc.runManual();
-
-    const enhanceMock = (enhancer as unknown as { enhance: jest.Mock }).enhance;
-    expect(enhanceMock).toHaveBeenCalledTimes(1);
-    expect(enhanceMock).toHaveBeenCalledWith('eligible', expect.anything(), {
-      kind: 'skill',
-    });
-    // No origin: background, so the enhancer's re-propagation may wait (FU-17b).
-    expect(enhanceMock.mock.calls[0][2].userInitiated).toBeUndefined();
-
-    await svc.runManual({ userInitiated: true });
-    expect(enhanceMock.mock.calls[1][2]).toEqual({
-      kind: 'skill',
-      userInitiated: true,
-    });
-  });
-
-  it('unified pass: selects + enhances eligible agent and command clones with their kind', async () => {
-    const promoted = fakePromotedRow('sk1');
-    const baseStore = makeStore([promoted]);
-    const store = {
-      ...baseStore,
-      listByStatus: baseStore.listByStatus,
-      updateStatus: baseStore.updateStatus,
-      getInvocationStats: jest.fn(() => ({
-        total: 12,
-        succeeded: 4,
-        failed: 8,
-        distinctContexts: 3,
-      })),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
-
-    const query = {
-      execute: jest.fn().mockResolvedValue({
-        stream: (async function* () {
-          yield {
-            type: 'assistant',
-            message: { content: [{ type: 'text', text: '[]' }] },
-          };
-          yield { type: 'result' };
-        })(),
-      }),
+      suggestions,
+      umbrella,
+      retirement,
     };
+  }
 
-    const registry = {
-      listAll: jest.fn(() => [
-        { kind: 'agent', slug: 'an-agent' },
-        { kind: 'command', slug: 'a-command' },
-      ]),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
-
-    const enhancer = {
-      isEligible: jest.fn(() => true),
-      enhance: jest.fn().mockResolvedValue({ changed: true, slug: 'x' }),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
-
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      registry,
-      enhancer,
-      ...SUGGESTION_DEPS,
-    );
-    svc.start(makeSettings());
-    await svc.runManual();
-
-    const isEligibleMock = (enhancer as unknown as { isEligible: jest.Mock })
-      .isEligible;
-    expect(isEligibleMock).toHaveBeenCalledWith(
-      'an-agent',
-      expect.anything(),
-      'agent',
-    );
-    expect(isEligibleMock).toHaveBeenCalledWith(
-      'a-command',
-      expect.anything(),
-      'command',
-    );
-
-    const enhanceMock = (enhancer as unknown as { enhance: jest.Mock }).enhance;
-    expect(enhanceMock).toHaveBeenCalledWith('an-agent', expect.anything(), {
-      kind: 'agent',
-    });
-    expect(enhanceMock).toHaveBeenCalledWith('a-command', expect.anything(), {
-      kind: 'command',
-    });
-  });
-
-  it('unified pass: degrades to legacy promoted-only when registry/enhancer absent', async () => {
-    const promoted = fakePromotedRow('sk1');
-    const store = makeStore([promoted]);
-    const query = {
-      execute: jest.fn().mockResolvedValue({
-        stream: (async function* () {
-          yield {
-            type: 'assistant',
-            message: { content: [{ type: 'text', text: '[]' }] },
-          };
-          yield { type: 'result' };
-        })(),
-      }),
-    };
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      null,
-      null,
-      ...SUGGESTION_DEPS,
-    );
-    svc.start(makeSettings());
-    const report = await svc.runManual();
-    expect(report.changesQueued).toBe(0);
-  });
-
-  it('runs the enhancement pass even when there are zero promoted skills', async () => {
-    const baseStore = makeStore([]);
-    const store = {
-      ...baseStore,
-      listByStatus: baseStore.listByStatus,
-      updateStatus: baseStore.updateStatus,
-      getInvocationStats: jest.fn(() => ({
-        total: 12,
-        succeeded: 4,
-        failed: 8,
-        distinctContexts: 3,
-      })),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
-    const query = {
-      execute: jest.fn(),
-    };
-    const registry = {
-      listAll: jest.fn(() => [{ kind: 'skill', slug: 'eligible' }]),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
-    const enhancer = {
-      isEligible: jest.fn(() => true),
-      enhance: jest.fn().mockResolvedValue({ changed: true, slug: 'eligible' }),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[5];
-    const onPassComplete = jest.fn();
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      registry,
-      enhancer,
-      ...SUGGESTION_DEPS,
-    );
-    svc.start(makeSettings(), { onPassComplete });
-    await svc.runManual();
-    expect(
-      (enhancer as unknown as { enhance: jest.Mock }).enhance,
-    ).toHaveBeenCalledWith('eligible', expect.anything(), { kind: 'skill' });
-    expect(query.execute).not.toHaveBeenCalled();
-    expect(onPassComplete).toHaveBeenCalledTimes(1);
-  });
-
-  it('settings restart triggers stop+start (curatorEnabled change)', () => {
-    const store = makeStore();
-    const svc = new SkillCuratorService(
-      noopLogger,
-      store,
-      hostlessLaneRunner(),
-      noopRateLimiter,
-      null,
-      null,
-      ...SUGGESTION_DEPS,
-    );
-    const stopSpy = jest.spyOn(svc, 'stop');
-    const startSpy = jest.spyOn(svc, 'start');
-
-    svc.start(makeSettings({ curatorEnabled: true }));
-    // Simulate what the RPC handler does on updateSettings
-    svc.stop();
-    svc.start(makeSettings({ curatorEnabled: false }));
-
-    expect(stopSpy).toHaveBeenCalledTimes(1);
-    expect(startSpy).toHaveBeenCalledTimes(2);
-  });
-
-  it('runSuggestionPass: skips a cluster dominated by an authored skill', async () => {
-    const store = makeStore([]);
-    const storeWithDominant = {
-      ...store,
-      listByStatus: store.listByStatus,
-      updateStatus: store.updateStatus,
-      getDominantSkillSlugForSessions: jest.fn(() => 'orchestrate'),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
-
-    const query = {
-      execute: jest.fn().mockResolvedValue({
-        stream: (async function* () {
-          yield {
-            type: 'assistant',
-            message: { content: [{ type: 'text', text: '[]' }] },
-          };
-          yield { type: 'result' };
-        })(),
-      }),
-    };
-
-    const registry = {
-      listAuthoredSlugs: jest.fn(() => new Set(['orchestrate'])),
-      listAll: jest.fn(() => []),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
-
-    const fakeMember = {
-      id: 'c1',
-      name: 'skill-a',
-      description: 'desc',
-      bodyPath: '',
-      sourceSessionIds: ['s1'],
-      trajectoryHash: 'h1',
-      embeddingRowid: null,
-      status: 'candidate',
-      successCount: 0,
-      failureCount: 0,
-      createdAt: 1,
-      promotedAt: null,
-      rejectedAt: null,
-      rejectedReason: null,
-      pinned: false,
-      residency: 'resident',
-      workspaceRoot: null,
-    } as SkillCandidateRow;
-
-    const clustering = {
-      clusterCandidates: jest.fn(() => [{ members: [fakeMember] }]),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
-
-    const synthesizer = {
-      synthesizeFromCluster: jest.fn(),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
-
-    const judge = {
-      judge: jest.fn(),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
-
-    const suggestionStore = {
-      hasExistingForCluster: jest.fn(() => false),
-      insertPending: jest.fn(),
-      listByStatus: jest.fn(() => []),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
-
-    const svc = new SkillCuratorService(
-      noopLogger,
-      storeWithDominant,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      registry,
-      null,
-      suggestionStore,
-      clustering,
-      synthesizer,
-      judge,
-      noopMdGenerator,
-    );
-    svc.start(makeSettings());
-    await svc.runManual();
-
-    expect(
-      (synthesizer as unknown as { synthesizeFromCluster: jest.Mock })
-        .synthesizeFromCluster,
-    ).not.toHaveBeenCalled();
-    expect(
-      (suggestionStore as unknown as { insertPending: jest.Mock })
-        .insertPending,
-    ).not.toHaveBeenCalled();
-  });
-
-  it('runSuggestionPass: skips a cluster that already has an existing suggestion (hasExistingForCluster dedup)', async () => {
-    const store = makeStore([]);
-    const storeWithDominant = {
-      ...store,
-      listByStatus: store.listByStatus,
-      updateStatus: store.updateStatus,
-      getDominantSkillSlugForSessions: jest.fn(() => null),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
-
-    const query = {
-      execute: jest.fn().mockResolvedValue({
-        stream: (async function* () {
-          yield {
-            type: 'assistant',
-            message: { content: [{ type: 'text', text: '[]' }] },
-          };
-          yield { type: 'result' };
-        })(),
-      }),
-    };
-
-    const registry = {
-      listAuthoredSlugs: jest.fn(() => new Set<string>()),
-      listAll: jest.fn(() => []),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
-
-    const fakeMember = {
-      id: 'c1',
-      name: 'skill-b',
-      description: 'desc',
-      bodyPath: '',
-      sourceSessionIds: ['s1'],
-      trajectoryHash: 'h2',
-      embeddingRowid: null,
-      status: 'candidate',
-      successCount: 0,
-      failureCount: 0,
-      createdAt: 1,
-      promotedAt: null,
-      rejectedAt: null,
-      rejectedReason: null,
-      pinned: false,
-      residency: 'resident',
-      workspaceRoot: null,
-    } as SkillCandidateRow;
-
-    const clustering = {
-      clusterCandidates: jest.fn(() => [{ members: [fakeMember] }]),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
-
-    const synthesizer = {
-      synthesizeFromCluster: jest.fn(),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
-
-    const judge = {
-      judge: jest.fn(),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
-
-    const suggestionStore = {
-      hasExistingForCluster: jest.fn(() => true),
-      insertPending: jest.fn(),
-      listByStatus: jest.fn(() => []),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
-
-    const svc = new SkillCuratorService(
-      noopLogger,
-      storeWithDominant,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      registry,
-      null,
-      suggestionStore,
-      clustering,
-      synthesizer,
-      judge,
-      noopMdGenerator,
-    );
-    svc.start(makeSettings());
-    await svc.runManual();
-
-    expect(
-      (synthesizer as unknown as { synthesizeFromCluster: jest.Mock })
-        .synthesizeFromCluster,
-    ).not.toHaveBeenCalled();
-    expect(
-      (suggestionStore as unknown as { insertPending: jest.Mock })
-        .insertPending,
-    ).not.toHaveBeenCalled();
-  });
-
-  it('runSuggestionPass: skips insertion when judge score is below threshold', async () => {
-    const store = makeStore([]);
-    const storeWithDominant = {
-      ...store,
-      listByStatus: store.listByStatus,
-      updateStatus: store.updateStatus,
-      getDominantSkillSlugForSessions: jest.fn(() => null),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
-
-    const query = {
-      execute: jest.fn().mockResolvedValue({
-        stream: (async function* () {
-          yield {
-            type: 'assistant',
-            message: { content: [{ type: 'text', text: '[]' }] },
-          };
-          yield { type: 'result' };
-        })(),
-      }),
-    };
-
-    const registry = {
-      listAuthoredSlugs: jest.fn(() => new Set<string>()),
-      listAll: jest.fn(() => []),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
-
-    const fakeMember = {
-      id: 'c1',
-      name: 'skill-c',
-      description: 'desc',
-      bodyPath: '',
-      sourceSessionIds: ['s1'],
-      trajectoryHash: 'h3',
-      embeddingRowid: null,
-      status: 'candidate',
-      successCount: 0,
-      failureCount: 0,
-      createdAt: 1,
-      promotedAt: null,
-      rejectedAt: null,
-      rejectedReason: null,
-      pinned: false,
-      residency: 'resident',
-      workspaceRoot: null,
-    } as SkillCandidateRow;
-
-    const clustering = {
-      clusterCandidates: jest.fn(() => [{ members: [fakeMember] }]),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
-
-    const synthesizer = {
-      synthesizeFromCluster: jest.fn().mockResolvedValue({
-        name: 'skill-c',
-        description: 'desc',
-        body: '## Description\nx\n## When to use\n- y\n## Steps\n1. z',
-      }),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
-
-    const judge = {
-      judge: jest.fn().mockResolvedValue({
-        status: 'scored',
-        score: 4.5,
-        criteria: null,
-        reason: 'judge-verdict',
-      }),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
-
-    const suggestionStore = {
-      hasExistingForCluster: jest.fn(() => false),
-      insertPending: jest.fn(),
-      listByStatus: jest.fn(() => []),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
-
-    const svc = new SkillCuratorService(
-      noopLogger,
-      storeWithDominant,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      registry,
-      null,
-      suggestionStore,
-      clustering,
-      synthesizer,
-      judge,
-      noopMdGenerator,
-    );
-    svc.start(makeSettings());
-    await svc.runManual();
-
-    expect(
-      (synthesizer as unknown as { synthesizeFromCluster: jest.Mock })
-        .synthesizeFromCluster,
-    ).toHaveBeenCalledTimes(1);
-    expect(
-      (suggestionStore as unknown as { insertPending: jest.Mock })
-        .insertPending,
-    ).not.toHaveBeenCalled();
-  });
-
-  it('runSuggestionPass: inserts pending suggestion when synthesis + judge both pass', async () => {
-    const store = makeStore([]);
-    const storeWithDominant = {
-      ...store,
-      listByStatus: store.listByStatus,
-      updateStatus: store.updateStatus,
-      getDominantSkillSlugForSessions: jest.fn(() => null),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
-
-    const query = {
-      execute: jest.fn().mockResolvedValue({
-        stream: (async function* () {
-          yield {
-            type: 'assistant',
-            message: { content: [{ type: 'text', text: '[]' }] },
-          };
-          yield { type: 'result' };
-        })(),
-      }),
-    };
-
-    const registry = {
-      listAuthoredSlugs: jest.fn(() => new Set<string>()),
-      listAll: jest.fn(() => []),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
-
-    const fakeMember = {
-      id: 'c1',
-      name: 'skill-d',
-      description: 'desc',
-      bodyPath: '',
-      sourceSessionIds: ['s1'],
-      trajectoryHash: 'h4',
-      embeddingRowid: null,
-      status: 'candidate',
-      successCount: 0,
-      failureCount: 0,
-      createdAt: 1,
-      promotedAt: null,
-      rejectedAt: null,
-      rejectedReason: null,
-      pinned: false,
-      residency: 'resident',
-      workspaceRoot: null,
-    } as SkillCandidateRow;
-
-    const clustering = {
-      clusterCandidates: jest.fn(() => [{ members: [fakeMember] }]),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
-
-    const synthesizer = {
-      synthesizeFromCluster: jest.fn().mockResolvedValue({
-        name: 'skill-d',
-        description: 'a useful skill',
-        body: '## Description\nx\n## When to use\n- y\n## Steps\n1. z',
-      }),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
-
-    const judge = {
-      judge: jest.fn().mockResolvedValue({
-        status: 'scored',
-        score: 8.0,
-        criteria: null,
-        reason: 'judge-verdict',
-      }),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
-
-    const suggestionStore = {
-      hasExistingForCluster: jest.fn(() => false),
-      insertPending: jest.fn().mockReturnValue({ id: 'sug-1' }),
-      listByStatus: jest.fn(() => []),
-    } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
-
-    const svc = new SkillCuratorService(
-      noopLogger,
-      storeWithDominant,
-      laneRunnerFrom(query),
-      noopRateLimiter,
-      registry,
-      null,
-      suggestionStore,
-      clustering,
-      synthesizer,
-      judge,
-      noopMdGenerator,
-    );
-    svc.start(makeSettings());
-    await svc.runManual();
-
-    expect(
-      (suggestionStore as unknown as { insertPending: jest.Mock })
-        .insertPending,
-    ).toHaveBeenCalledTimes(1);
-    expect(
-      (suggestionStore as unknown as { insertPending: jest.Mock })
-        .insertPending,
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'skill-d',
-        description: 'a useful skill',
-        judgeScore: 8.0,
-        memberCandidateIds: ['c1'],
-      }),
-    );
-  });
-
-  // ─── B1.6.1/B1.6.4: a suggestion row carries a real score or is not filed ──
-
-  describe.each([
-    ['unscored', 'Lane judge: timed out'],
-    ['disabled', 'judge-disabled'],
-  ])('runSuggestionPass: a %s verdict', (status, reason) => {
-    it('files NO suggestion rather than one with a fabricated score', async () => {
-      const store = makeStore([]);
-      const storeWithDominant = {
-        ...store,
-        listByStatus: store.listByStatus,
-        updateStatus: store.updateStatus,
-        getDominantSkillSlugForSessions: jest.fn(() => null),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
-
-      const query = {
-        execute: jest.fn().mockResolvedValue({
-          stream: (async function* () {
-            yield {
-              type: 'assistant',
-              message: { content: [{ type: 'text', text: '[]' }] },
-            };
-            yield { type: 'result' };
-          })(),
-        }),
-      };
-
-      const registry = {
-        listAuthoredSlugs: jest.fn(() => new Set<string>()),
-        listAll: jest.fn(() => []),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
-
-      const member = {
-        ...fakePromotedRow('c1'),
-        status: 'candidate',
-        sourceSessionIds: ['s1'],
-      } as SkillCandidateRow;
-
-      const clustering = {
-        clusterCandidates: jest.fn(() => [{ members: [member] }]),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
-
-      const synthesizer = {
-        synthesizeFromCluster: jest.fn().mockResolvedValue({
-          name: 'skill-e',
-          description: 'a useful skill',
-          body: '## Steps\n1. z',
-        }),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
-
-      // The exact shape that used to arrive as `{passed: true, score: 10}` and
-      // got filed as a perfect suggestion nobody had awarded.
-      const judge = {
-        judge: jest
-          .fn()
-          .mockResolvedValue({ status, score: null, criteria: null, reason }),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
-
-      const suggestionStore = {
-        hasExistingForCluster: jest.fn(() => false),
-        insertPending: jest.fn(),
-        listByStatus: jest.fn(() => []),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
-
-      const svc = new SkillCuratorService(
-        noopLogger,
-        storeWithDominant,
-        laneRunnerFrom(query),
-        noopRateLimiter,
-        registry,
-        null,
-        suggestionStore,
-        clustering,
-        synthesizer,
-        judge,
-        noopMdGenerator,
-      );
-      svc.start(makeSettings());
-      const report = await svc.runManual();
-
-      expect(
-        (suggestionStore as unknown as { insertPending: jest.Mock })
-          .insertPending,
-      ).not.toHaveBeenCalled();
-      expect(report.suggestionsCreated).toBe(0);
-    });
-  });
-
-  it('runSuggestionPass: rate-limit ceiling — stops acquiring after ANALYZE_MAX_PER_HOUR (6) and inserts no more than the cap', async () => {
+  it('start() schedules nothing when curatorEnabled=false, but still reconciles', async () => {
     jest.useFakeTimers();
-    jest.setSystemTime(new Date('2026-01-01T12:00:00Z'));
-
     try {
-      const ANALYZE_MAX_PER_HOUR = 6;
-      const CLUSTER_COUNT = 10;
-
-      const store = makeStore([]);
-      const storeWithDominant = {
-        ...store,
-        listByStatus: store.listByStatus,
-        updateStatus: store.updateStatus,
-        getDominantSkillSlugForSessions: jest.fn(() => null),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[1];
-
-      const registry = {
-        listAuthoredSlugs: jest.fn(() => new Set<string>()),
-        listAll: jest.fn(() => []),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[4];
-
-      const fakeMembers = Array.from({ length: CLUSTER_COUNT }, (_, i) => ({
-        id: `c${i}`,
-        name: `skill-${i}`,
-        description: 'desc',
-        bodyPath: '',
-        sourceSessionIds: [`s${i}`],
-        trajectoryHash: `h${i}`,
-        embeddingRowid: null,
-        status: 'candidate',
-        successCount: 0,
-        failureCount: 0,
-        createdAt: 1,
-        promotedAt: null,
-        rejectedAt: null,
-        rejectedReason: null,
-        pinned: false,
-        residency: 'resident',
-        workspaceRoot: null,
-      })) as SkillCandidateRow[];
-
-      const clustering = {
-        clusterCandidates: jest.fn(() =>
-          fakeMembers.map((m) => ({ members: [m] })),
-        ),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[7];
-
-      const synthesizer = {
-        synthesizeFromCluster: jest.fn().mockResolvedValue({
-          name: 'synthesized-skill',
-          description: 'auto-synthesized',
-          body: '## Description\nx\n## When to use\n- y\n## Steps\n1. z',
-        }),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[8];
-
-      const judge = {
-        judge: jest.fn().mockResolvedValue({
-          status: 'scored',
-          score: 9.0,
-          criteria: null,
-          reason: 'judge-verdict',
-        }),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[9];
-
-      const insertPending = jest.fn().mockReturnValue({ id: 'sug-x' });
-      const suggestionStore = {
-        hasExistingForCluster: jest.fn(() => false),
-        insertPending,
-        listByStatus: jest.fn(() => []),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
-
-      const query = {
-        execute: jest.fn().mockResolvedValue({
-          stream: (async function* () {
-            yield {
-              type: 'assistant',
-              message: { content: [{ type: 'text', text: '[]' }] },
-            };
-            yield { type: 'result' };
-          })(),
-        }),
-      };
-
-      const realRateLimiter = new CuratorRateLimitService(noopLogger);
-
-      const svc = new SkillCuratorService(
-        noopLogger,
-        storeWithDominant,
-        laneRunnerFrom(query),
-        realRateLimiter,
-        registry,
-        null,
-        suggestionStore,
-        clustering,
-        synthesizer,
-        judge,
-        noopMdGenerator,
-      );
-      svc.start(makeSettings());
-      await svc.runManual();
-
-      expect(insertPending.mock.calls.length).toBeLessThanOrEqual(
-        ANALYZE_MAX_PER_HOUR,
-      );
-      expect(insertPending.mock.calls.length).toBeGreaterThan(0);
+      const h = harness();
+      h.svc.start(makeSettings({ curatorEnabled: false }));
+      jest.advanceTimersByTime(10 * 3_600_000);
+      expect(h.retirement.run).not.toHaveBeenCalled();
+      expect(
+        h.suggestions.listAcceptedWithoutPromotedCandidate,
+      ).toHaveBeenCalledTimes(1);
+      h.svc.stop();
     } finally {
       jest.useRealTimers();
     }
   });
 
-  /**
-   * TASK_2026_437 C14, Batch 16b. `runManual` is the `skillSynthesis:runCurator`
-   * RPC: with `userInitiated` its lane calls skip the governor. The interval
-   * pass is the daemon and never does.
-   */
-  describe('the concurrency lane of a curator pass', () => {
-    function curatorWithQuery() {
-      const query = {
-        execute: jest.fn().mockImplementation(async () => ({
-          stream: (async function* () {
-            yield {
-              type: 'assistant',
-              message: { content: [{ type: 'text', text: '[]' }] },
-            };
-            yield { type: 'result' };
-          })(),
-        })),
-      };
-      const svc = new SkillCuratorService(
-        noopLogger,
-        makeStore([fakePromotedRow('sk1')]),
-        laneRunnerFrom(query),
-        noopRateLimiter,
-        null,
-        null,
-        ...SUGGESTION_DEPS,
-      );
-      return { svc, query };
-    }
-
-    it('runManual({ userInitiated: true }) runs its lane call on the user-action lane', async () => {
-      const { svc, query } = curatorWithQuery();
-      svc.start(makeSettings());
-      await svc.runManual({ userInitiated: true });
-      expect(query.execute.mock.calls[0][0].lane).toBe('user-action');
-    });
-
-    it('the scheduled pass runs on the governed skill-synthesis lane', async () => {
-      const { svc, query } = curatorWithQuery();
-      svc.start(
-        makeSettings({ curatorEnabled: true, curatorIntervalHours: 1 }),
-      );
+  it('the scheduled interval runs a pass', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = harness();
+      h.svc.start(makeSettings({ curatorIntervalHours: 1 }));
       await jest.advanceTimersByTimeAsync(3_600_000);
-      for (let i = 0; i < 10 && query.execute.mock.calls.length === 0; i++) {
-        await jest.advanceTimersByTimeAsync(0);
-      }
-      svc.stop();
-      expect(query.execute).toHaveBeenCalled();
-      expect(query.execute.mock.calls[0][0].lane).toBe('skill-synthesis');
-    });
+      expect(h.retirement.run).toHaveBeenCalledTimes(1);
+      h.svc.stop();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  /**
-   * b17b logic review, moderate 2: `skillSynthesis:acceptSuggestion` is a click
-   * that materializes a promoted skill, so it re-propagates at once with the
-   * origin the RPC handler gave it.
-   */
-  describe('acceptSuggestion re-propagates the accepted skill', () => {
-    function curatorWithSuggestion(repropagate: jest.Mock) {
-      const suggestionStore = {
-        findById: jest.fn(() => ({
-          id: 'sug-1',
-          name: 'suggested-skill',
-          description: 'd',
-          body: 'b',
-          status: 'pending',
-        })),
-        accept: jest.fn(),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[6];
-      const mdGenerator = {
-        promoteToActive: jest.fn(() => ({
-          slug: 'suggested-skill',
-          dir: '/a/suggested-skill',
-          filePath: '/a/suggested-skill/SKILL.md',
-        })),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[10];
-      const workspace = {
-        getWorkspaceRoot: jest.fn(() => '/ws'),
-      } as unknown as ConstructorParameters<typeof SkillCuratorService>[12];
-      const svc = new SkillCuratorService(
-        noopLogger,
-        makeStore([]),
-        hostlessLaneRunner(),
-        noopRateLimiter,
-        null,
-        null,
-        suggestionStore,
-        null,
-        null,
-        null,
-        mdGenerator,
-        { repropagate },
-        workspace,
+  it('stop() before start() is a no-op', () => {
+    expect(() => harness().svc.stop()).not.toThrow();
+  });
+
+  it('runManual() before start returns an empty report', async () => {
+    const h = harness();
+    const report = await h.svc.runManual();
+    expect(report).toMatchObject({
+      reportPath: '',
+      changesQueued: 0,
+      skippedPinned: 0,
+      suggestionsCreated: 0,
+    });
+    expect(h.retirement.run).not.toHaveBeenCalled();
+  });
+
+  it('runs retirement → umbrella → enhancement, then reports and emits the stats', async () => {
+    const order: string[] = [];
+    const retirement = makeRetirement();
+    retirement.run.mockImplementation(async () => {
+      order.push('retirement');
+      return {
+        dormant: 2,
+        retired: 1,
+        skippedPinned: 4,
+        skippedExempt: 0,
+        skippedUncontained: 1,
+        dormantSlugs: ['a', 'b'],
+        retiredSlugs: ['c'],
+      };
+    });
+    const umbrella = makeUmbrella();
+    umbrella.runPass.mockImplementation(async () => {
+      order.push('umbrella');
+      return umbrellaResult({
+        umbrellasCreated: 1,
+        singletonsSurfaced: 2,
+        candidatesMerged: 3,
+        suggestionsMerged: 1,
+        purged: 5,
+        purgeSkippedReason: null,
+        clustersRemaining: 2,
+        rateLimited: true,
+      });
+    });
+    const enhancer = {
+      isEligible: jest.fn(() => true),
+      enhance: jest.fn(async () => {
+        order.push('enhancement');
+        return { changed: false };
+      }),
+    };
+    const h = harness({
+      retirement,
+      umbrella,
+      enhancer,
+      registryRows: [{ kind: 'skill', slug: 'eligible', cloneStatus: 'clone' }],
+      invocationTotal: () => 50,
+    });
+    const onEvent = jest.fn();
+    const onPassComplete = jest.fn();
+    h.svc.start(makeSettings(), { onEvent, onPassComplete });
+
+    const report = await h.svc.runManual({ userInitiated: true });
+    h.svc.stop();
+
+    expect(order).toEqual(['retirement', 'umbrella', 'enhancement']);
+    expect(retirement.run).toHaveBeenCalledWith({ userInitiated: true });
+    expect(report.changesQueued).toBe(3 + 2 + 1 + 5);
+    expect(report.suggestionsCreated).toBe(3);
+    expect(report.skippedPinned).toBe(4);
+    expect(report.lifecycle).toMatchObject({
+      dormant: 2,
+      retired: 1,
+      merged: 3,
+      suggestionsMerged: 1,
+      purged: 5,
+      purgeSkippedReason: null,
+      clustersRemaining: 2,
+      rateLimited: true,
+      skippedUncontained: 1,
+    });
+    expect(report.reportPath).not.toBe('');
+    const written = fs.readFileSync(report.reportPath, 'utf8');
+    expect(written).toContain('Retired: 1');
+    expect(written).toContain('Purged: 5');
+    fs.rmSync(report.reportPath, { force: true });
+
+    const passEvent = onEvent.mock.calls
+      .map(([e]) => e)
+      .find((e) => e.kind === 'curator-pass');
+    expect(passEvent.stats).toMatchObject({
+      suggestionsCreated: 3,
+      umbrellasCreated: 1,
+      singletonsSurfaced: 2,
+      merged: 3,
+      dormant: 2,
+      retired: 1,
+      purged: 5,
+      purgeSkippedReason: null,
+      clustersRemaining: 2,
+      rateLimited: true,
+      skippedPinned: 4,
+      changesQueued: 11,
+    });
+    expect(onPassComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces purgeSkippedReason 'failed' in the report and the event", async () => {
+    const h = harness({
+      umbrella: makeUmbrella({ purgeSkippedReason: 'failed' }),
+    });
+    const onEvent = jest.fn();
+    h.svc.start(makeSettings({ curatorEnabled: false }), { onEvent });
+    const report = await h.svc.runManual();
+    expect(report.lifecycle.purgeSkippedReason).toBe('failed');
+    const passEvent = onEvent.mock.calls
+      .map(([e]) => e)
+      .find((e) => e.kind === 'curator-pass');
+    expect(passEvent.stats.purgeSkippedReason).toBe('failed');
+    expect(fs.readFileSync(report.reportPath, 'utf8')).toContain(
+      'Skipped: failed',
+    );
+    fs.rmSync(report.reportPath, { force: true });
+  });
+
+  it('hands the umbrella ONE exempt set: owned slugs lowercased, plus pinned and case-variant promoted names', async () => {
+    const h = harness({
+      registryRows: [
+        { kind: 'skill', slug: 'My-Skill', cloneStatus: 'authored' },
+        { kind: 'skill', slug: 'edited', cloneStatus: 'diverged' },
+        { kind: 'skill', slug: 'synth-one', cloneStatus: 'synth' },
+        { kind: 'agent', slug: 'an-agent', cloneStatus: 'authored' },
+      ],
+      promoted: [
+        promotedRow('MY-SKILL'),
+        promotedRow('pinned-one', true),
+        promotedRow('synth-one'),
+      ],
+    });
+    h.svc.start(makeSettings({ curatorEnabled: false }));
+    await h.svc.runManual();
+
+    const exempt = h.umbrella.runPass.mock.calls[0][1] as Set<string>;
+    expect([...exempt].sort()).toEqual(
+      ['MY-SKILL', 'edited', 'my-skill', 'pinned-one'].sort(),
+    );
+  });
+
+  it('skips the umbrella pass (fail closed) when no registry is bound; other steps still run', async () => {
+    const h = harness({ registryRows: null });
+    h.svc.start(makeSettings({ curatorEnabled: false }));
+    const report = await h.svc.runManual();
+
+    expect(h.umbrella.runPass).not.toHaveBeenCalled();
+    expect(h.retirement.run).toHaveBeenCalledTimes(1);
+    expect(report.lifecycle.umbrellaSkippedReason).toBe('registry-unavailable');
+    expect(report.lifecycle.purgeSkippedReason).toBe('failed');
+  });
+
+  it('skips the umbrella pass (fail closed, no partial set) when the promoted read throws after the registry read', async () => {
+    const h = harness({
+      registryRows: [{ kind: 'skill', slug: 'owned', cloneStatus: 'authored' }],
+      promoted: [promotedRow('pinned-one', true)],
+    });
+    h.store.listByStatus.mockImplementation(() => {
+      throw new Error('database is locked');
+    });
+    h.svc.start(makeSettings({ curatorEnabled: false }));
+    const report = await h.svc.runManual();
+
+    expect(h.registry?.listAll).toHaveBeenCalled();
+    expect(h.umbrella.runPass).not.toHaveBeenCalled();
+    expect(report.lifecycle.umbrellaSkippedReason).toBe('registry-unavailable');
+    expect(h.retirement.run).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[skill-curator] failed to read the exempt skill set',
+      { error: 'database is locked' },
+    );
+  });
+
+  it('a throwing retirement step does not stop the umbrella or the enhancement', async () => {
+    const retirement = makeRetirement();
+    retirement.run.mockRejectedValue(new Error('sweep boom'));
+    const enhancer = {
+      isEligible: jest.fn(() => true),
+      enhance: jest.fn(async () => ({ changed: true })),
+    };
+    const h = harness({
+      retirement,
+      enhancer,
+      registryRows: [{ kind: 'skill', slug: 'eligible', cloneStatus: 'clone' }],
+      invocationTotal: () => 50,
+    });
+    h.svc.start(makeSettings({ curatorEnabled: false }));
+    const report = await h.svc.runManual();
+
+    expect(report.lifecycle.retirementSkippedReason).toBe('failed');
+    expect(h.umbrella.runPass).toHaveBeenCalledTimes(1);
+    expect(enhancer.enhance).toHaveBeenCalledTimes(1);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[skill-curator] retirement pass threw',
+      { error: 'sweep boom' },
+    );
+  });
+
+  it('a throwing umbrella step does not stop the enhancement or the report', async () => {
+    const umbrella = makeUmbrella();
+    umbrella.runPass.mockRejectedValue(new Error('umbrella boom'));
+    const enhancer = {
+      isEligible: jest.fn(() => true),
+      enhance: jest.fn(async () => ({ changed: true })),
+    };
+    const h = harness({
+      umbrella,
+      enhancer,
+      registryRows: [{ kind: 'skill', slug: 'eligible', cloneStatus: 'clone' }],
+      invocationTotal: () => 50,
+    });
+    const onPassComplete = jest.fn();
+    h.svc.start(makeSettings({ curatorEnabled: false }), { onPassComplete });
+    const report = await h.svc.runManual();
+
+    expect(report.lifecycle.umbrellaSkippedReason).toBe('failed');
+    expect(enhancer.enhance).toHaveBeenCalledTimes(1);
+    expect(onPassComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('enhancement: enhances threshold-crossing eligible slugs with their kind and the origin', async () => {
+    const enhancer = {
+      isEligible: jest.fn((slug: string) => slug !== 'not-eligible'),
+      enhance: jest.fn(async () => ({ changed: true })),
+    };
+    const h = harness({
+      enhancer,
+      registryRows: [
+        { kind: 'skill', slug: 'eligible', cloneStatus: 'clone' },
+        { kind: 'skill', slug: 'too-few', cloneStatus: 'clone' },
+        { kind: 'skill', slug: 'not-eligible', cloneStatus: 'clone' },
+        { kind: 'agent', slug: 'an-agent', cloneStatus: 'clone' },
+      ],
+      invocationTotal: (slug) => (slug === 'too-few' ? 1 : 50),
+    });
+    h.svc.start(makeSettings({ curatorEnabled: false }));
+
+    await h.svc.runManual();
+    const slugs = (enhancer.enhance.mock.calls as unknown[][]).map((c) => c[0]);
+    expect(slugs.sort()).toEqual(['an-agent', 'eligible']);
+    expect(enhancer.enhance).toHaveBeenCalledWith(
+      'an-agent',
+      expect.anything(),
+      { kind: 'agent', userInitiated: undefined },
+    );
+
+    enhancer.enhance.mockClear();
+    await h.svc.runManual({ userInitiated: true });
+    expect(enhancer.enhance).toHaveBeenCalledWith(
+      'eligible',
+      expect.anything(),
+      { kind: 'skill', userInitiated: true },
+    );
+  });
+});
+
+// ─── Accept and reconcile (real database) ──────────────────────────────────
+
+const opener = resolveOpener();
+const describeDb = opener ? describe : describe.skip;
+const sqlFor = (version: number): string =>
+  MIGRATIONS.find((m) => m.version === version)?.sql ?? '';
+
+/** `skill_candidates` as `0003` declares it (incl. `name UNIQUE`), then later migrations. */
+function createDb(): TestDatabase {
+  if (!opener) throw new Error('no sqlite binding available');
+  const db = opener(':memory:');
+  db.exec(`
+    CREATE TABLE skill_candidates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL,
+      body_path TEXT NOT NULL,
+      source_session_ids TEXT NOT NULL DEFAULT '[]',
+      trajectory_hash TEXT NOT NULL UNIQUE,
+      embedding_rowid INTEGER,
+      status TEXT NOT NULL CHECK(status IN ('candidate','promoted','rejected')) DEFAULT 'candidate',
+      success_count INTEGER NOT NULL DEFAULT 0,
+      failure_count INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      promoted_at INTEGER,
+      rejected_at INTEGER,
+      rejected_reason TEXT,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      residency TEXT NOT NULL DEFAULT 'resident' CHECK(residency IN ('resident','dormant'))
+    );
+    CREATE TABLE skill_invocation_events (
+      id TEXT PRIMARY KEY,
+      skill_slug TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      context_id TEXT,
+      source TEXT NOT NULL,
+      succeeded INTEGER NOT NULL,
+      is_error INTEGER NOT NULL,
+      invoked_at INTEGER NOT NULL,
+      reconciled_at INTEGER,
+      verdict_source TEXT,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      cache_read_tokens INTEGER,
+      cache_creation_tokens INTEGER,
+      cost_usd REAL,
+      duration_ms INTEGER,
+      tool_count INTEGER,
+      task_id TEXT
+    );
+  `);
+  for (const version of [33, 36, 37, 32, 40, 34, 22, 23, 25, 51]) {
+    db.exec(sqlFor(version));
+  }
+  return db;
+}
+
+function workspaceAt(root: string): IWorkspaceProvider {
+  return {
+    getWorkspaceRoot: () => '',
+    getConfiguration: <T>(_section: string, key: string, fallback?: T) =>
+      (key === SKILLS_ROOT_KEY ? root : fallback) as T,
+  } as unknown as IWorkspaceProvider;
+}
+
+describeDb('SkillCuratorService — accept and reconcile on a real store', () => {
+  let db: TestDatabase;
+  let root: string;
+  let logger: ReturnType<typeof makeLogger>;
+  let store: SkillCandidateStore;
+  let suggestions: SkillSuggestionStore;
+  let registry: SkillRegistryStore;
+  let md: SkillMdGenerator;
+  let promotion: SkillPromotionService;
+  let retirement: ReturnType<typeof makeRetirement>;
+  let svc: SkillCuratorService;
+  let seq: number;
+
+  beforeEach(() => {
+    db = createDb();
+    seq = 0;
+    root = fs.mkdtempSync(
+      path.join(
+        jest.requireActual<typeof import('node:os')>('node:os').tmpdir(),
+        'ptah-curator-',
+      ),
+    );
+    logger = makeLogger();
+    const connection = asConnection(db);
+    store = new SkillCandidateStore(logger as never, connection, {
+      available: false,
+    } as never);
+    suggestions = new SkillSuggestionStore(logger as never, connection);
+    registry = new SkillRegistryStore(logger as never, connection);
+    md = new SkillMdGenerator(logger as never, workspaceAt(root));
+    promotion = new SkillPromotionService(
+      logger as never,
+      store,
+      md,
+      null,
+      null,
+      registry,
+    );
+    retirement = makeRetirement();
+    svc = new SkillCuratorService(
+      logger as unknown as Ctor[0],
+      store,
+      allowingRateLimiter as unknown as Ctor[2],
+      registry,
+      null,
+      suggestions,
+      makeUmbrella() as unknown as SkillUmbrellaMergeService,
+      retirement as unknown as SkillRetirementService,
+      promotion,
+      md,
+    );
+  });
+
+  afterEach(() => {
+    svc.stop();
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  function addCandidate(name: string, pinned = false): SkillCandidateRow {
+    seq += 1;
+    const { candidate } = store.registerCandidate({
+      name,
+      description: `${name} skill`,
+      bodyPath: path.join(root, name, 'SKILL.md'),
+      sourceSessionIds: [`s-${seq}`],
+      trajectoryHash: `hash-${seq}`,
+      embedding: null,
+      createdAt: seq,
+    });
+    if (pinned) {
+      db.prepare(`UPDATE skill_candidates SET pinned = 1 WHERE id = ?`).run(
+        candidate.id,
       );
-      return { svc, suggestionStore };
     }
+    return store.findById(candidate.id) as SkillCandidateRow;
+  }
 
-    it('hands the click origin to the port for the slug it materialized', async () => {
-      const repropagate = jest.fn().mockResolvedValue(undefined);
-      const { svc, suggestionStore } = curatorWithSuggestion(repropagate);
+  /** A promoted member with a real directory and a `synth` registry row. */
+  function addPromoted(name: string, pinned = false): SkillCandidateRow {
+    const row = addCandidate(name, pinned);
+    fs.mkdirSync(path.join(root, name), { recursive: true });
+    fs.writeFileSync(path.join(root, name, 'SKILL.md'), `# ${name}\n`);
+    registry.upsert(registryEntry(name, 'synth'));
+    store.promoteAtomically(row.id, { promotedAt: 1, bodyPath: row.bodyPath });
+    return store.findById(row.id) as SkillCandidateRow;
+  }
 
-      const result = await svc.acceptSuggestion('sug-1', makeSettings(), {
+  function registryEntry(
+    slug: string,
+    cloneStatus: SkillRegistryEntry['cloneStatus'],
+    overrides: Partial<SkillRegistryEntry> = {},
+  ): SkillRegistryEntry {
+    return {
+      slug,
+      kind: 'skill',
+      userPath: path.join(root, slug, 'SKILL.md'),
+      originPluginId: null,
+      originVersion: null,
+      sourceHash: null,
+      cloneStatus,
+      diverged: false,
+      historyDir: null,
+      lastEnhancedAt: null,
+      candidateId: null,
+      pendingSourceHash: null,
+      ...overrides,
+    };
+  }
+
+  function addSuggestion(
+    memberIds: string[],
+    name = 'deploy-flow',
+  ): SkillSuggestionRow {
+    return suggestions.insert(
+      {
+        name,
+        description: 'deploy the service',
+        body: '# Deploy\n\nSteps.',
+        memberSessionIds: ['s-1', 's-2'],
+        memberCandidateIds: memberIds,
+        clusterSize: memberIds.length,
+        technologyFingerprint: 'general',
+        judgeScore: 8,
+      },
+      'pending',
+    );
+  }
+
+  const rowsWithHash = (hash: string): number =>
+    (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM skill_candidates WHERE trajectory_hash = ?`,
+        )
+        .get(hash) as { n: number }
+    ).n;
+
+  describe('acceptSuggestion', () => {
+    it('promotes, links the lineage, merges members and removes merged promoted directories after commit', async () => {
+      const member = addCandidate('member-cand');
+      const oldSkill = addPromoted('old-skill');
+      const pinned = addPromoted('pinned-skill', true);
+      const owned = addPromoted('owned-skill');
+      registry.upsert(registryEntry('owned-skill', 'authored'));
+      const sug = addSuggestion([member.id, oldSkill.id, pinned.id, owned.id]);
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings(), {
         userInitiated: true,
       });
 
-      expect(result).toEqual({
-        accepted: true,
-        filePath: '/a/suggested-skill/SKILL.md',
+      expect(result.accepted).toBe(true);
+      expect(result.filePath).toBe(path.join(root, 'deploy-flow', 'SKILL.md'));
+      const promoted = store.findByName('deploy-flow');
+      expect(promoted?.status).toBe('promoted');
+      const after = suggestions.findById(sug.id);
+      expect(after?.status).toBe('accepted');
+      expect(after?.promotedCandidateId).toBe(promoted?.id);
+
+      const reason = MERGED_INTO_PREFIX + sug.id;
+      expect(store.findById(member.id)).toMatchObject({
+        status: 'rejected',
+        rejectedReason: reason,
       });
-      expect(suggestionStore?.accept).toHaveBeenCalledWith('sug-1');
-      expect(repropagate).toHaveBeenCalledWith(
-        'skill',
-        'suggested-skill',
-        '/ws',
-        { userInitiated: true },
+      expect(store.findById(oldSkill.id)).toMatchObject({
+        status: 'rejected',
+        rejectedReason: reason,
+      });
+      expect(registry.getBySlug('skill', 'old-skill')).toBeNull();
+      // Pinned and user-owned members are skipped.
+      expect(store.findById(pinned.id)?.status).toBe('promoted');
+      expect(store.findById(owned.id)?.status).toBe('promoted');
+      expect(registry.getBySlug('skill', 'owned-skill')?.cloneStatus).toBe(
+        'authored',
+      );
+
+      expect(retirement.removeMaterializations).toHaveBeenCalledTimes(1);
+      const [removedRows, origin] =
+        retirement.removeMaterializations.mock.calls[0];
+      expect(removedRows.map((r: SkillCandidateRow) => r.name)).toEqual([
+        'old-skill',
+      ]);
+      expect(origin).toEqual({ userInitiated: true });
+    });
+
+    it('a singleton whose member holds its name promotes that member in place: same row, original name, nothing merged', async () => {
+      const member = addCandidate('deploy-flow');
+      db.prepare(
+        `UPDATE skill_candidates SET judge_score = 8.5 WHERE id = ?`,
+      ).run(member.id);
+      const sug = addSuggestion([member.id], 'deploy-flow');
+      const before = store.getStats();
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      expect(result.accepted).toBe(true);
+      expect(result.filePath).toBe(path.join(root, 'deploy-flow', 'SKILL.md'));
+      expect(fs.existsSync(path.join(root, 'deploy-flow-2'))).toBe(false);
+      const row = store.findById(member.id);
+      // The materialized slug and the row name agree, on the original row;
+      // the content follows the accepted suggestion, the judge fields stay.
+      expect(member.description).not.toBe(sug.description);
+      expect(row).toMatchObject({
+        status: 'promoted',
+        name: 'deploy-flow',
+        description: sug.description,
+        judgeScore: 8.5,
+        trajectoryHash: member.trajectoryHash,
+        bodyPath: path.join(root, 'deploy-flow', 'SKILL.md'),
+      });
+      expect(rowsWithHash(`${SUGGESTION_TRAJECTORY_PREFIX}${sug.id}`)).toBe(0);
+      expect(suggestions.findById(sug.id)).toMatchObject({
+        status: 'accepted',
+        promotedCandidateId: member.id,
+      });
+      expect(registry.getBySlug('skill', 'deploy-flow')?.candidateId).toBe(
+        member.id,
+      );
+
+      const after = store.getStats();
+      expect(after.promoted).toBe(before.promoted + 1);
+      expect(after.candidates).toBe(before.candidates - 1);
+      expect(after.merged).toBe(0);
+      expect(logger.info).toHaveBeenCalledWith(
+        '[skill-curator] suggestion members merged',
+        expect.objectContaining({ mergedCandidates: 0, mergedPromoted: [] }),
       );
     });
 
-    it('keeps the accept when the port throws', async () => {
-      const repropagate = jest.fn().mockRejectedValue(new Error('down'));
-      const { svc } = curatorWithSuggestion(repropagate);
+    it('in place, a stray <name>/ directory forces <name>-2: row, registry slug and SKILL.md name all follow it', async () => {
+      const member = addCandidate('deploy-flow');
+      const sug = addSuggestion([member.id], 'deploy-flow');
+      fs.mkdirSync(path.join(root, 'deploy-flow'), { recursive: true });
 
-      await expect(
-        svc.acceptSuggestion('sug-1', makeSettings(), { userInitiated: true }),
-      ).resolves.toEqual({
-        accepted: true,
-        filePath: '/a/suggested-skill/SKILL.md',
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      const skillMd = path.join(root, 'deploy-flow-2', 'SKILL.md');
+      expect(result).toEqual({ accepted: true, filePath: skillMd });
+      expect(store.findById(member.id)).toMatchObject({
+        status: 'promoted',
+        name: 'deploy-flow-2',
+        bodyPath: skillMd,
+      });
+      expect(store.findByName('deploy-flow')).toBeNull();
+      expect(registry.getBySlug('skill', 'deploy-flow-2')?.candidateId).toBe(
+        member.id,
+      );
+      expect(registry.getBySlug('skill', 'deploy-flow')).toBeNull();
+      expect(fs.readFileSync(skillMd, 'utf8')).toMatch(
+        /^name: deploy-flow-2$/m,
+      );
+      expect(suggestions.findById(sug.id)?.promotedCandidateId).toBe(member.id);
+    });
+
+    it('in place, a holder decided by another writer after the check rolls the whole accept back', async () => {
+      const member = addCandidate('deploy-flow');
+      const sug = addSuggestion([member.id], 'deploy-flow');
+      // promoteToActive runs between inPlaceSingletonMember and the
+      // transaction: the race lands there.
+      const realPromote = md.promoteToActive.bind(md);
+      jest.spyOn(md, 'promoteToActive').mockImplementation((...args) => {
+        store.rejectIfStatus(member.id, 'candidate', 'raced');
+        return realPromote(...args);
+      });
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      expect(result).toEqual({ accepted: false, filePath: '' });
+      expect(suggestions.findById(sug.id)).toMatchObject({
+        status: 'pending',
+        promotedCandidateId: null,
+      });
+      // Only the other writer's decision stands.
+      expect(store.findById(member.id)).toMatchObject({
+        status: 'rejected',
+        rejectedReason: 'raced',
+      });
+      expect(store.getStats().promoted).toBe(0);
+      expect(registry.getBySlug('skill', 'deploy-flow')).toBeNull();
+      // The directory this attempt created is removed after the rollback.
+      expect(fs.existsSync(path.join(root, 'deploy-flow'))).toBe(false);
+      expect(retirement.removeMaterializations).not.toHaveBeenCalled();
+    });
+
+    it('R-f2: a throw after the promotion write leaves the suggestion pending and no promoted row', async () => {
+      const member = addCandidate('member-cand');
+      const sug = addSuggestion([member.id]);
+      jest.spyOn(store, 'rejectIfStatus').mockImplementation(() => {
+        throw new Error('disk I/O error');
+      });
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      expect(result).toEqual({ accepted: false, filePath: '' });
+      expect(suggestions.findById(sug.id)?.status).toBe('pending');
+      expect(suggestions.findById(sug.id)?.promotedCandidateId).toBeNull();
+      expect(rowsWithHash(`${SUGGESTION_TRAJECTORY_PREFIX}${sug.id}`)).toBe(0);
+      expect(store.findByName('deploy-flow')).toBeNull();
+      expect(store.findById(member.id)?.status).toBe('candidate');
+      expect(fs.existsSync(path.join(root, 'deploy-flow'))).toBe(false);
+      expect(retirement.removeMaterializations).not.toHaveBeenCalled();
+    });
+
+    it('a plugin-owned registry slug (RegistrySlugOwnedByPluginError) answers accepted:false and keeps the suggestion pending', async () => {
+      registry.upsert(
+        registryEntry('deploy-flow', 'clone', { originPluginId: 'plugin-x' }),
+      );
+      const sug = addSuggestion([]);
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      expect(result).toEqual({ accepted: false, filePath: '' });
+      expect(suggestions.findById(sug.id)?.status).toBe('pending');
+      expect(rowsWithHash(`${SUGGESTION_TRAJECTORY_PREFIX}${sug.id}`)).toBe(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] accept failed; suggestion left pending',
+        expect.objectContaining({
+          errorName: 'RegistrySlugOwnedByPluginError',
+        }),
+      );
+    });
+
+    it('a generic promotion failure answers accepted:false and keeps the suggestion pending', async () => {
+      const sug = addSuggestion([]);
+      jest
+        .spyOn(promotion, 'promoteSuggestion')
+        .mockRejectedValue(new Error('disk full'));
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      expect(result).toEqual({ accepted: false, filePath: '' });
+      expect(suggestions.findById(sug.id)?.status).toBe('pending');
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] accept failed; suggestion left pending',
+        expect.objectContaining({ error: 'disk full' }),
+      );
+    });
+
+    it('takes the outcome from the transaction: a suggestion decided after the read rolls the promotion back', async () => {
+      const sug = addSuggestion([]);
+      const stale = suggestions.findById(sug.id) as SkillSuggestionRow;
+      suggestions.dismiss(sug.id);
+      jest.spyOn(suggestions, 'findById').mockReturnValueOnce(stale);
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      expect(result.accepted).toBe(false);
+      expect(suggestions.findById(sug.id)?.status).toBe('dismissed');
+      expect(store.findByName('deploy-flow')).toBeNull();
+      expect(fs.existsSync(path.join(root, 'deploy-flow'))).toBe(false);
+    });
+
+    it('does not promote a suggestion that is not pending', async () => {
+      const sug = addSuggestion([]);
+      suggestions.dismiss(sug.id);
+      const spy = jest.spyOn(promotion, 'promoteSuggestion');
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      expect(result.accepted).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reconcileAcceptedSuggestions at start()', () => {
+    /**
+     * A suggestion accepted the pre-578 way: materialized through
+     * `promoteToActive`, a registry row, `accept(id, null)`, no candidate row.
+     */
+    function legacyAccepted(
+      cloneStatus: 'authored' | 'synth',
+      memberIds: string[] = [],
+    ): { suggestion: SkillSuggestionRow; slug: string } {
+      const sug = addSuggestion(memberIds);
+      const materialized = md.promoteToActive({
+        slug: sug.name,
+        description: sug.description,
+        body: sug.body,
+      });
+      registry.upsert(registryEntry(materialized.slug, cloneStatus));
+      suggestions.accept(sug.id, null);
+      return { suggestion: sug, slug: materialized.slug };
+    }
+
+    /** An unrelated hand-written skill occupying the base slug. */
+    function handWritten(slug: string): void {
+      fs.mkdirSync(path.join(root, slug), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, slug, 'SKILL.md'),
+        `---\nname: ${slug}\ndescription: mine\n---\n\nMy own procedure.\n`,
+      );
+      registry.upsert(registryEntry(slug, 'authored'));
+    }
+
+    async function startAndSettle(): Promise<void> {
+      svc.start(makeSettings({ curatorEnabled: false }));
+      await svc.runManual();
+    }
+
+    it.each(['synth', 'authored'] as const)(
+      'adopts a %s registry row with a suffixed slug and links the lineage, never the hand-written base slug',
+      async (cloneStatus) => {
+        handWritten('deploy-flow');
+        const member = addCandidate('member-cand');
+        const { suggestion, slug } = legacyAccepted(cloneStatus, [member.id]);
+        expect(slug).toBe('deploy-flow-2');
+
+        await startAndSettle();
+
+        const adopted = store.findByName('deploy-flow-2');
+        expect(adopted?.status).toBe('promoted');
+        expect(suggestions.findById(suggestion.id)?.promotedCandidateId).toBe(
+          adopted?.id,
+        );
+        expect(registry.getBySlug('skill', 'deploy-flow-2')).toMatchObject({
+          cloneStatus: 'synth',
+          candidateId: adopted?.id,
+        });
+        // The hand-written skill is untouched.
+        expect(store.findByName('deploy-flow')).toBeNull();
+        expect(registry.getBySlug('skill', 'deploy-flow')?.cloneStatus).toBe(
+          'authored',
+        );
+        // Members merge exactly as on accept.
+        expect(store.findById(member.id)?.rejectedReason).toBe(
+          MERGED_INTO_PREFIX + suggestion.id,
+        );
+      },
+    );
+
+    it('a second start after a successful link adopts nothing and writes nothing', async () => {
+      legacyAccepted('synth');
+      await startAndSettle();
+      svc.stop();
+      const count = (
+        db.prepare(`SELECT COUNT(*) AS n FROM skill_candidates`).get() as {
+          n: number;
+        }
+      ).n;
+      const adopt = jest.spyOn(promotion, 'adoptMaterializedSkill');
+
+      await startAndSettle();
+
+      expect(adopt).not.toHaveBeenCalled();
+      expect(
+        (
+          db.prepare(`SELECT COUNT(*) AS n FROM skill_candidates`).get() as {
+            n: number;
+          }
+        ).n,
+      ).toBe(count);
+    });
+
+    it('a missing directory warns and leaves the row for the next start', async () => {
+      const { slug, suggestion } = legacyAccepted('synth');
+      fs.rmSync(path.join(root, slug), { recursive: true, force: true });
+
+      await startAndSettle();
+
+      expect(store.findByName(slug)).toBeNull();
+      expect(suggestions.listAcceptedWithoutPromotedCandidate()).toHaveLength(
+        1,
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] accepted suggestion has no provable skill directory; left for next start',
+        expect.objectContaining({
+          suggestionId: suggestion.id,
+          reason: 'missing',
+        }),
+      );
+    });
+
+    it('a directory whose body is not the suggestion body is not adopted (name match alone)', async () => {
+      handWritten('deploy-flow');
+      const sug = addSuggestion([]);
+      suggestions.accept(sug.id, null);
+
+      await startAndSettle();
+
+      expect(store.findByName('deploy-flow')).toBeNull();
+      expect(suggestions.listAcceptedWithoutPromotedCandidate()).toHaveLength(
+        1,
+      );
+    });
+
+    it('two provable directories are ambiguous: warn, nothing adopted', async () => {
+      const { suggestion } = legacyAccepted('synth');
+      const twin = md.promoteToActive({
+        slug: suggestion.name,
+        description: suggestion.description,
+        body: suggestion.body,
+      });
+      registry.upsert(registryEntry(twin.slug, 'synth'));
+
+      await startAndSettle();
+
+      expect(store.findByName('deploy-flow')).toBeNull();
+      expect(store.findByName(twin.slug)).toBeNull();
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] accepted suggestion has no provable skill directory; left for next start',
+        expect.objectContaining({
+          reason: 'ambiguous',
+          slugs: ['deploy-flow', twin.slug],
+        }),
+      );
+    });
+
+    it('M-1: a slug held by a non-promoted candidate row is skipped with a warn, without throwing', async () => {
+      const { slug } = legacyAccepted('synth');
+      const holder = addCandidate(slug);
+      const adopt = jest.spyOn(promotion, 'adoptMaterializedSkill');
+
+      await expect(startAndSettle()).resolves.toBeUndefined();
+
+      expect(adopt).not.toHaveBeenCalled();
+      expect(store.findById(holder.id)?.status).toBe('candidate');
+      expect(suggestions.listAcceptedWithoutPromotedCandidate()).toHaveLength(
+        1,
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] accepted suggestion slug is held by a non-promoted candidate; not adopted',
+        expect.objectContaining({ slug, candidateId: holder.id }),
+      );
+    });
+
+    it('a throwing adopt is caught and warned; start() does not throw and the row stays for the next start', async () => {
+      legacyAccepted('synth');
+      jest
+        .spyOn(promotion, 'adoptMaterializedSkill')
+        .mockRejectedValue(new Error('adopt boom'));
+
+      await expect(startAndSettle()).resolves.toBeUndefined();
+
+      expect(suggestions.listAcceptedWithoutPromotedCandidate()).toHaveLength(
+        1,
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] adopting an accepted suggestion failed (rolled back; retried next start)',
+        expect.objectContaining({ error: 'adopt boom' }),
+      );
+    });
+
+    /** The counts the last reconcile logged. */
+    function lastReconcileCounts(): unknown {
+      const calls = logger.info.mock.calls.filter(
+        ([message]) =>
+          message === '[skill-curator] accepted-suggestion reconcile done',
+      );
+      return calls.length > 0 ? calls[calls.length - 1][1] : undefined;
+    }
+
+    /** Whether no transaction is open: BEGIN fails inside one. */
+    function outsideTransaction(): boolean {
+      try {
+        db.exec('BEGIN IMMEDIATE');
+        db.exec('ROLLBACK');
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    it('R-f2: a throw inside the adopt callback (after the link) rolls the whole adopt back; the next start adopts', async () => {
+      const member = addCandidate('member-cand');
+      const { suggestion, slug } = legacyAccepted('authored', [member.id]);
+      const reject = jest
+        .spyOn(store, 'rejectIfStatus')
+        .mockImplementationOnce(() => {
+          throw new Error('disk I/O error');
+        });
+
+      await expect(startAndSettle()).resolves.toBeUndefined();
+
+      // The link UPDATE ran before the merge threw, and was rolled back.
+      expect(reject).toHaveBeenCalledTimes(1);
+      expect(
+        suggestions.findById(suggestion.id)?.promotedCandidateId,
+      ).toBeNull();
+      expect(store.findByName(slug)).toBeNull();
+      expect(
+        rowsWithHash(`${SUGGESTION_TRAJECTORY_PREFIX}${suggestion.id}`),
+      ).toBe(0);
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'authored',
+        candidateId: null,
+      });
+      expect(store.findById(member.id)?.status).toBe('candidate');
+      // The adopt never deletes the directory it did not create.
+      expect(fs.existsSync(path.join(root, slug, 'SKILL.md'))).toBe(true);
+      expect(retirement.removeMaterializations).not.toHaveBeenCalled();
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 0, failed: 1 });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] adopting an accepted suggestion failed (rolled back; retried next start)',
+        expect.objectContaining({ error: 'disk I/O error' }),
+      );
+
+      reject.mockRestore();
+      svc.stop();
+      await startAndSettle();
+
+      const adopted = store.findByName(slug);
+      expect(adopted?.status).toBe('promoted');
+      expect(suggestions.findById(suggestion.id)?.promotedCandidateId).toBe(
+        adopted?.id,
+      );
+      expect(store.findById(member.id)?.rejectedReason).toBe(
+        MERGED_INTO_PREFIX + suggestion.id,
+      );
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 1, failed: 0 });
+    });
+
+    it('a registry row turned plugin clone after the proof (RegistrySlugOwnedByPluginError) counts as failed, without throwing', async () => {
+      const { suggestion, slug } = legacyAccepted('synth');
+      const original = promotion.adoptMaterializedSkill.bind(promotion);
+      jest
+        .spyOn(promotion, 'adoptMaterializedSkill')
+        .mockImplementationOnce((input, settings, onCommit) => {
+          registry.upsert(
+            registryEntry(slug, 'clone', { originPluginId: 'plugin-x' }),
+          );
+          return original(input, settings, onCommit);
+        });
+
+      await expect(startAndSettle()).resolves.toBeUndefined();
+
+      expect(store.findByName(slug)).toBeNull();
+      expect(
+        rowsWithHash(`${SUGGESTION_TRAJECTORY_PREFIX}${suggestion.id}`),
+      ).toBe(0);
+      expect(
+        suggestions.findById(suggestion.id)?.promotedCandidateId,
+      ).toBeNull();
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'clone',
+        originPluginId: 'plugin-x',
+        candidateId: null,
+      });
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 0, failed: 1 });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] adopting an accepted suggestion failed (rolled back; retried next start)',
+        expect.objectContaining({
+          slug,
+          errorName: 'RegistrySlugOwnedByPluginError',
+        }),
+      );
+    });
+
+    it('linkedOnly: a slug already held by a promoted row links that row and merges members, registering nothing new', async () => {
+      const member = addCandidate('member-cand');
+      const { suggestion, slug } = legacyAccepted('synth', [member.id]);
+      const holder = addCandidate(slug);
+      store.promoteAtomically(holder.id, {
+        promotedAt: 1,
+        bodyPath: holder.bodyPath,
+      });
+      const countRows = (): number =>
+        (
+          db.prepare(`SELECT COUNT(*) AS n FROM skill_candidates`).get() as {
+            n: number;
+          }
+        ).n;
+      const before = countRows();
+
+      await startAndSettle();
+
+      expect(suggestions.findById(suggestion.id)?.promotedCandidateId).toBe(
+        holder.id,
+      );
+      expect(store.findById(holder.id)?.status).toBe('promoted');
+      expect(countRows()).toBe(before);
+      expect(
+        rowsWithHash(`${SUGGESTION_TRAJECTORY_PREFIX}${suggestion.id}`),
+      ).toBe(0);
+      expect(store.findById(member.id)?.rejectedReason).toBe(
+        MERGED_INTO_PREFIX + suggestion.id,
+      );
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 1 });
+    });
+
+    it('runManual waits for an in-flight reconcile before the pass starts', async () => {
+      const { suggestion, slug } = legacyAccepted('synth');
+      const original = promotion.adoptMaterializedSkill.bind(promotion);
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      jest
+        .spyOn(promotion, 'adoptMaterializedSkill')
+        .mockImplementationOnce(async (input, settings, onCommit) => {
+          await gate;
+          return original(input, settings, onCommit);
+        });
+      let linkedWhenPassRan: string | null | undefined;
+      retirement.run.mockImplementationOnce(async () => {
+        linkedWhenPassRan = suggestions.findById(
+          suggestion.id,
+        )?.promotedCandidateId;
+        return {
+          dormant: 0,
+          retired: 0,
+          skippedPinned: 0,
+          skippedExempt: 0,
+          skippedUncontained: 0,
+          dormantSlugs: [],
+          retiredSlugs: [],
+        };
+      });
+
+      svc.start(makeSettings({ curatorEnabled: false }));
+      const pass = svc.runManual();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(retirement.run).not.toHaveBeenCalled();
+
+      release();
+      await pass;
+
+      expect(retirement.run).toHaveBeenCalledTimes(1);
+      expect(linkedWhenPassRan).toBe(store.findByName(slug)?.id);
+      expect(linkedWhenPassRan).toBeTruthy();
+    });
+
+    it('merges a promoted member: rejects it, drops its registry row, and removes its directory after commit', async () => {
+      const oldSkill = addPromoted('old-skill');
+      const { suggestion } = legacyAccepted('synth', [oldSkill.id]);
+      let committedAtRemoval = false;
+      let memberStatusAtRemoval: string | undefined;
+      retirement.removeMaterializations.mockImplementationOnce(
+        async (rows: readonly SkillCandidateRow[]) => {
+          committedAtRemoval = outsideTransaction();
+          memberStatusAtRemoval = store.findById(oldSkill.id)?.status;
+          return rows.map((r) => r.name);
+        },
+      );
+
+      await startAndSettle();
+
+      expect(store.findById(oldSkill.id)).toMatchObject({
+        status: 'rejected',
+        rejectedReason: MERGED_INTO_PREFIX + suggestion.id,
+      });
+      expect(registry.getBySlug('skill', 'old-skill')).toBeNull();
+      expect(retirement.removeMaterializations).toHaveBeenCalledTimes(1);
+      const [removedRows, origin] =
+        retirement.removeMaterializations.mock.calls[0];
+      expect(removedRows.map((r: SkillCandidateRow) => r.name)).toEqual([
+        'old-skill',
+      ]);
+      expect(origin).toEqual({});
+      expect(committedAtRemoval).toBe(true);
+      expect(memberStatusAtRemoval).toBe('rejected');
+    });
+
+    // ── Batch 15: the two legacy shapes found on real data ──────────────────
+
+    const countRows = (): number =>
+      (
+        db.prepare(`SELECT COUNT(*) AS n FROM skill_candidates`).get() as {
+          n: number;
+        }
+      ).n;
+
+    /** The `path`/`proof` the reconcile logged for an adopted suggestion. */
+    function adoptedLog(suggestionId: string): unknown {
+      return logger.info.mock.calls.find(
+        ([message, meta]) =>
+          message === '[skill-curator] accepted suggestion adopted' &&
+          (meta as { suggestionId?: string }).suggestionId === suggestionId,
+      )?.[1];
+    }
+
+    /** The slug held by a candidate row the judge rejected (real data, shape 1). */
+    function rejectedHolder(
+      slug: string,
+      reason = 'judge-below-threshold',
+    ): SkillCandidateRow {
+      const holder = addCandidate(slug);
+      store.rejectIfStatus(holder.id, 'candidate', reason, 5);
+      db.prepare(
+        `UPDATE skill_candidates SET residency = 'dormant' WHERE id = ?`,
+      ).run(holder.id);
+      registry.upsert(registryEntry(slug, 'synth', { candidateId: holder.id }));
+      return store.findById(holder.id) as SkillCandidateRow;
+    }
+
+    /** A legacy accepted suggestion whose SKILL.md the user edited (real data, shape 2). */
+    function divergedLegacy(
+      memberIds: string[] = [],
+      overrides: Partial<SkillRegistryEntry> = {},
+    ): { suggestion: SkillSuggestionRow; slug: string } {
+      const legacy = legacyAccepted('synth', memberIds);
+      fs.writeFileSync(
+        path.join(root, legacy.slug, 'SKILL.md'),
+        `---\nname: ${legacy.slug}\ndescription: edited\n---\n\nMy edited steps.\n`,
+      );
+      registry.upsert(
+        registryEntry(legacy.slug, 'diverged', {
+          diverged: true,
+          ...overrides,
+        }),
+      );
+      return legacy;
+    }
+
+    it('(a) a slug held by a rejected row re-promotes that row in place, links it, and inserts no second row', async () => {
+      const member = addCandidate('member-cand');
+      const { suggestion, slug } = legacyAccepted('synth', [member.id]);
+      const holder = rejectedHolder(slug);
+      const before = countRows();
+
+      await startAndSettle();
+
+      expect(store.findById(holder.id)).toMatchObject({
+        status: 'promoted',
+        residency: 'resident',
+        rejectedAt: null,
+        rejectedReason: null,
+        name: slug,
+        bodyPath: path.join(root, slug, 'SKILL.md'),
+      });
+      expect(store.findById(holder.id)?.promotedAt).toEqual(expect.any(Number));
+      expect(countRows()).toBe(before);
+      expect(
+        rowsWithHash(`${SUGGESTION_TRAJECTORY_PREFIX}${suggestion.id}`),
+      ).toBe(0);
+      expect(suggestions.findById(suggestion.id)?.promotedCandidateId).toBe(
+        holder.id,
+      );
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'synth',
+        candidateId: holder.id,
+      });
+      // Same merge flow as a normal adopt.
+      expect(store.findById(member.id)?.rejectedReason).toBe(
+        MERGED_INTO_PREFIX + suggestion.id,
+      );
+      expect(lastReconcileCounts()).toMatchObject({
+        adopted: 1,
+        blockedByCandidateRow: 0,
+      });
+      expect(adoptedLog(suggestion.id)).toMatchObject({
+        slug,
+        candidateId: holder.id,
+        path: 'repromote-rejected',
+        proof: 'body-match',
       });
     });
 
-    it('does not re-propagate a suggestion it did not accept', async () => {
-      const repropagate = jest.fn().mockResolvedValue(undefined);
-      const { svc, suggestionStore } = curatorWithSuggestion(repropagate);
-      (
-        suggestionStore as unknown as { findById: jest.Mock }
-      ).findById.mockReturnValue(null);
+    it('(b) the guarded update rolls the whole adopt back when the row is no longer rejected', async () => {
+      const member = addCandidate('member-cand');
+      const { suggestion, slug } = legacyAccepted('synth', [member.id]);
+      const holder = rejectedHolder(slug);
+      const original = store.inImmediateTransaction.bind(store);
+      // Another writer promotes the row after the reconcile read it as
+      // rejected, just before the adopt's transaction begins.
+      jest
+        .spyOn(store, 'inImmediateTransaction')
+        .mockImplementationOnce((fn) => {
+          db.prepare(
+            `UPDATE skill_candidates SET status = 'promoted', promoted_at = 9 WHERE id = ?`,
+          ).run(holder.id);
+          return original(fn);
+        });
 
-      const result = await svc.acceptSuggestion('sug-1', makeSettings());
+      await expect(startAndSettle()).resolves.toBeUndefined();
 
-      expect(result.accepted).toBe(false);
-      expect(repropagate).not.toHaveBeenCalled();
+      // Only the other writer's change is left; nothing of the adopt.
+      expect(store.findById(holder.id)).toMatchObject({
+        status: 'promoted',
+        promotedAt: 9,
+        residency: 'dormant',
+        rejectedReason: 'judge-below-threshold',
+      });
+      expect(
+        suggestions.findById(suggestion.id)?.promotedCandidateId,
+      ).toBeNull();
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'synth',
+        candidateId: holder.id,
+      });
+      expect(store.findById(member.id)?.status).toBe('candidate');
+      expect(outsideTransaction()).toBe(true);
+      expect(fs.existsSync(path.join(root, slug, 'SKILL.md'))).toBe(true);
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 0, failed: 1 });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] adopting an accepted suggestion failed (rolled back; retried next start)',
+        expect.objectContaining({
+          slug,
+          error: expect.stringContaining('was not promotable'),
+        }),
+      );
+    });
+
+    it('(c) a diverged registry row adopts without the body proof; the row stays diverged with candidateId set', async () => {
+      const member = addCandidate('member-cand');
+      const { suggestion, slug } = divergedLegacy([member.id]);
+
+      await startAndSettle();
+
+      const adopted = store.findByName(slug);
+      expect(adopted).toMatchObject({
+        status: 'promoted',
+        residency: 'resident',
+      });
+      expect(suggestions.findById(suggestion.id)?.promotedCandidateId).toBe(
+        adopted?.id,
+      );
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'diverged',
+        diverged: true,
+        candidateId: adopted?.id,
+      });
+      // The user's edit is kept.
+      expect(
+        fs.readFileSync(path.join(root, slug, 'SKILL.md'), 'utf8'),
+      ).toContain('My edited steps.');
+      expect(store.findById(member.id)?.rejectedReason).toBe(
+        MERGED_INTO_PREFIX + suggestion.id,
+      );
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 1, missing: 0 });
+      expect(adoptedLog(suggestion.id)).toMatchObject({
+        slug,
+        path: 'new-row',
+        proof: 'diverged',
+      });
+    });
+
+    it('(d) a diverged registry row whose SKILL.md is missing is not adopted', async () => {
+      const { suggestion, slug } = divergedLegacy();
+      fs.rmSync(path.join(root, slug, 'SKILL.md'));
+      expect(fs.existsSync(path.join(root, slug))).toBe(true);
+
+      await startAndSettle();
+
+      expect(store.findByName(slug)).toBeNull();
+      expect(
+        suggestions.findById(suggestion.id)?.promotedCandidateId,
+      ).toBeNull();
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'diverged',
+        candidateId: null,
+      });
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 0, missing: 1 });
+    });
+
+    it.each([
+      ['a live candidate', null],
+      ['a row merged into a suggestion', `${MERGED_INTO_PREFIX}other-sug`],
+      ['a row retired on purpose', RETIRED_UNUSED_REASON],
+    ])(
+      '(e) a slug held by %s still blocks: nothing is adopted or rewritten',
+      async (_label, mergedReason) => {
+        const { suggestion, slug } = legacyAccepted('synth');
+        const holder = mergedReason
+          ? rejectedHolder(slug, mergedReason)
+          : addCandidate(slug);
+        const adopt = jest.spyOn(promotion, 'adoptMaterializedSkill');
+
+        await startAndSettle();
+
+        expect(adopt).not.toHaveBeenCalled();
+        expect(store.findById(holder.id)).toEqual(holder);
+        expect(
+          suggestions.findById(suggestion.id)?.promotedCandidateId,
+        ).toBeNull();
+        expect(lastReconcileCounts()).toMatchObject({
+          adopted: 0,
+          blockedByCandidateRow: 1,
+        });
+      },
+    );
+
+    it('(f) plugin-owned rows still refuse: a diverged plugin row is not proven, and a rejected holder under a plugin row rolls back', async () => {
+      const diverged = divergedLegacy([], { originPluginId: 'plugin-x' });
+      const other = addSuggestion([], 'release-flow');
+      const materialized = md.promoteToActive({
+        slug: other.name,
+        description: other.description,
+        body: other.body,
+      });
+      suggestions.accept(other.id, null);
+      const holder = rejectedHolder(materialized.slug);
+      registry.upsert(
+        registryEntry(materialized.slug, 'synth', {
+          originPluginId: 'plugin-y',
+          candidateId: holder.id,
+        }),
+      );
+
+      await startAndSettle();
+
+      // The diverged plugin row proves nothing.
+      expect(store.findByName(diverged.slug)).toBeNull();
+      expect(registry.getBySlug('skill', diverged.slug)).toMatchObject({
+        cloneStatus: 'diverged',
+        originPluginId: 'plugin-x',
+        candidateId: null,
+      });
+      // The re-promote reached linkRegistryRow, threw, and rolled back.
+      expect(store.findById(holder.id)).toEqual(holder);
+      expect(suggestions.findById(other.id)?.promotedCandidateId).toBeNull();
+      expect(lastReconcileCounts()).toMatchObject({
+        adopted: 0,
+        missing: 1,
+        failed: 1,
+      });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] adopting an accepted suggestion failed (rolled back; retried next start)',
+        expect.objectContaining({
+          slug: materialized.slug,
+          errorName: 'RegistrySlugOwnedByPluginError',
+        }),
+      );
+    });
+
+    it('(g) after a diverged adopt, a retirement pass neither retires nor removes the diverged skill', async () => {
+      const { slug } = divergedLegacy();
+      await startAndSettle();
+      const adopted = store.findByName(slug) as SkillCandidateRow;
+      expect(adopted.status).toBe('promoted');
+      // Control: an idle synthesized skill the same pass does retire.
+      const idle = addPromoted('idle-synth');
+      const realRetirement = new SkillRetirementService(
+        logger as never,
+        store,
+        registry,
+        md,
+        null,
+        null,
+      );
+
+      const result = await realRetirement.run({}, Date.now() + 365 * 86400000);
+
+      expect(result.retiredSlugs).toEqual(['idle-synth']);
+      expect(result.skippedExempt).toBe(1);
+      expect(store.findById(idle.id)?.status).toBe('rejected');
+      expect(store.findById(adopted.id)).toMatchObject({
+        status: 'promoted',
+        residency: 'resident',
+      });
+      expect(fs.existsSync(path.join(root, slug, 'SKILL.md'))).toBe(true);
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'diverged',
+        candidateId: adopted.id,
+      });
+    });
+
+    it('(h) a revived row carries the adopt content: every stale descriptive, source, embedding and judge column is overwritten', async () => {
+      const { suggestion, slug } = legacyAccepted('synth');
+      const holder = rejectedHolder(slug);
+      db.prepare(
+        `UPDATE skill_candidates
+            SET description = 'stale description', display_name = 'Stale Label',
+                workspace_root = '/stale/project',
+                source_session_ids = '["stale-session"]', embedding_rowid = 999,
+                judge_score = 2.5, judge_status = 'scored',
+                judge_reason = 'too narrow', judge_novelty = 1,
+                judge_actionability = 2, judge_scope = 3,
+                judge_generalization = 4, judge_trigger_clarity = 5,
+                judge_panel_rationales = '[{"role":"x"}]', judged_at = 77,
+                replay_confidence = 0.1, replay_holdout_session_id = 'stale-h',
+                replay_at = 78, trigger_score = 0.2, trigger_precision = 0.3,
+                trigger_recall = 0.4, trigger_eval_at = 79
+          WHERE id = ?`,
+      ).run(holder.id);
+      const stale = store.findById(holder.id) as SkillCandidateRow;
+
+      await startAndSettle();
+
+      const revived = store.findById(holder.id) as SkillCandidateRow;
+      expect(revived).toMatchObject({
+        status: 'promoted',
+        description: suggestion.description,
+        displayName: null,
+        workspaceRoot: null,
+        sourceSessionIds: [...suggestion.memberSessionIds],
+        // The spec store has no sqlite-vec: a fresh adopt row gets NULL too.
+        embeddingRowid: null,
+        judgeScore: null,
+        judgeStatus: null,
+        judgeReason: null,
+        judgeCriteria: {
+          novelty: null,
+          actionability: null,
+          scope: null,
+          generalization: null,
+          triggerClarity: null,
+        },
+        judgePanelRationales: null,
+        judgedAt: null,
+        replayConfidence: null,
+        replayHoldoutSessionId: null,
+        replayAt: null,
+        triggerScore: null,
+        triggerPrecision: null,
+        triggerRecall: null,
+        triggerEvalAt: null,
+      });
+      // Identity is kept.
+      expect(revived.id).toBe(stale.id);
+      expect(revived.name).toBe(stale.name);
+      expect(revived.createdAt).toBe(stale.createdAt);
+      expect(revived.trajectoryHash).toBe(stale.trajectoryHash);
+      expect(suggestions.findById(suggestion.id)?.promotedCandidateId).toBe(
+        holder.id,
+      );
+    });
+
+    it('(i) a revived row whose slug has only old events is not idle at the next retirement sweep', async () => {
+      const { slug } = legacyAccepted('synth');
+      const holder = rejectedHolder(slug);
+      const dayMs = 86400000;
+      const longAgo = Date.now() - 400 * dayMs;
+      store.recordSkillEvent({
+        skillSlug: slug,
+        sessionId: 'old-session',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: longAgo,
+      });
+
+      await startAndSettle();
+      expect(store.findById(holder.id)?.status).toBe('promoted');
+      const realRetirement = new SkillRetirementService(
+        logger as never,
+        store,
+        registry,
+        md,
+        null,
+        null,
+      );
+
+      const result = await realRetirement.run({}, Date.now() + dayMs);
+
+      expect(result).toMatchObject({ dormant: 0, retired: 0 });
+      expect(store.findById(holder.id)).toMatchObject({
+        status: 'promoted',
+        residency: 'resident',
+      });
+      expect(fs.existsSync(path.join(root, slug, 'SKILL.md'))).toBe(true);
     });
   });
 });

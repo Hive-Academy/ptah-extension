@@ -25,6 +25,19 @@ import type {
   PendingNotificationEntry,
 } from './notification-center.types';
 
+/**
+ * A lookup that resolved to a workspace. Cards are grouped by, and focus into,
+ * a workspace, so a tab in no workspace (the active set while none is active)
+ * has no card target.
+ */
+type WorkspaceTabLookup = TabLookupResult & { readonly workspacePath: string };
+
+function inWorkspace(
+  lookup: TabLookupResult | null,
+): lookup is WorkspaceTabLookup {
+  return lookup !== null && lookup.workspacePath !== null;
+}
+
 const LEDGER_LIMIT = 75;
 const BURST_MS = 350;
 
@@ -277,7 +290,7 @@ export class NotificationCenterStore {
     if (attachedTabIds.length > 0) {
       const targets = attachedTabIds
         .map((tabId) => this.tabManager.findTabByIdAcrossWorkspaces(tabId))
-        .filter((lookup): lookup is TabLookupResult => lookup !== null);
+        .filter(inWorkspace);
       if (targets.length === 0) return [];
       return targets.map((lookup) =>
         this.pendingEntry(request, kind, title, statusText, lookup),
@@ -286,7 +299,7 @@ export class NotificationCenterStore {
     const fallback = request.sessionId
       ? this.tabManager.findTabBySessionIdAcrossWorkspaces(request.sessionId)
       : null;
-    if (fallback) {
+    if (inWorkspace(fallback)) {
       return [this.pendingEntry(request, kind, title, statusText, fallback)];
     }
     if (request.surfaceMode) return [];
@@ -312,7 +325,7 @@ export class NotificationCenterStore {
     kind: PendingNotificationEntry['kind'],
     title: string,
     statusText: PendingNotificationEntry['statusText'],
-    lookup: TabLookupResult,
+    lookup: WorkspaceTabLookup,
   ): PendingNotificationEntry {
     const sessionId =
       lookup.tab.claudeSessionId ?? request.sessionId ?? lookup.tab.id;

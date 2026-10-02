@@ -7,6 +7,8 @@
  */
 
 import type { SessionId } from '../branded.types';
+import type { SessionOrganizationSummary } from '../session-organization.types';
+import type { SessionTurnPhase } from './stream-background';
 
 /**
  * ExecutionNodeType - Discriminated union for node classification
@@ -250,6 +252,13 @@ export interface ChatSessionSummary {
    * be resolved). Consumers must treat only an explicit `false` as expired.
    */
   readonly hasTranscript?: boolean;
+  /**
+   * Organization record (TASK_2026_580). Set by `session:list` only when the
+   * host serves organization; absent otherwise.
+   */
+  readonly organization?: SessionOrganizationSummary;
+  /** Live turn phase when the session is loaded in this host; absent otherwise. */
+  readonly livePhase?: SessionTurnPhase;
 }
 
 /**

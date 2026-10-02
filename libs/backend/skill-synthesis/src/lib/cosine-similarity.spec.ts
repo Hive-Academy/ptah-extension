@@ -46,4 +46,28 @@ describe('agglomerate', () => {
     );
     expect(new Set(clusters).size).toBe(1);
   });
+
+  it('joins a chain a~b~c into one component even when a and c are not similar', () => {
+    const a = vec([1, 0]);
+    const b = vec([0.95, 0.31]);
+    const c = vec([0.8, 0.6]);
+    // Precondition of the case: a~b, b~c, but a≁c at this threshold.
+    expect(cosineSimilarity(a, b)).toBeGreaterThan(0.9);
+    expect(cosineSimilarity(b, c)).toBeGreaterThan(0.9);
+    expect(cosineSimilarity(a, c)).toBeLessThanOrEqual(0.9);
+    expect(agglomerate([a, b, c], 0.9)).toEqual([0, 0, 0]);
+  });
+
+  it('labels each component with its lowest member index in input order', () => {
+    const clusters = agglomerate(
+      [vec([0, 1]), vec([1, 0]), vec([0.01, 0.99]), vec([0.99, 0.01])],
+      0.9,
+    );
+    expect(clusters).toEqual([0, 1, 0, 1]);
+  });
+
+  it('links only above the threshold (strict >)', () => {
+    // Identical vectors have similarity ~1; a threshold of 1 must not link them.
+    expect(agglomerate([vec([1, 0]), vec([1, 0])], 1)).toEqual([0, 1]);
+  });
 });

@@ -237,10 +237,12 @@ export class CanvasStore {
   /**
    * Remove a tile from the canvas and close its underlying tab.
    * Awaits closeTab() so tiles are only removed after the user confirms
-   * (or when no confirmation is required).
+   * (or when no confirmation is required). When the user cancels the confirm
+   * the tab is still open, so the tile and focus are kept.
    */
   async removeTile(tabId: string): Promise<void> {
     await this.tabManager.closeTab(tabId);
+    if (this.tabManager.tabs().some((t) => t.id === tabId)) return;
     this.updateActiveTiles((tiles) => dropTile(tiles, tabId));
     this.clearFocusIf(tabId);
   }

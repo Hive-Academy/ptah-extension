@@ -30,6 +30,10 @@ import {
   registerTaskSpecsServices,
   startTaskSpecsIndex,
 } from '@ptah-extension/task-specs';
+import {
+  registerSessionOrganizationServices,
+  startSessionOrganization,
+} from '@ptah-extension/session-organization';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import {
   registerCronSchedulerServices,
@@ -148,6 +152,15 @@ export function registerThothLibraries(
   // README.md` lands even in a headless run that never touches the Tasks RPCs.
   // Non-blocking and failure-swallowing by contract — see startTaskSpecsIndex.
   startTaskSpecsIndex(container, logger);
+
+  // Session organization (TASK_2026_580). Binds nothing when the SQLite block
+  // above was skipped, and `start` only subscribes, never aborting activation.
+  // The caller runs this after `registerSdkServices` (the callback registries
+  // it subscribes to) and before phase 4, so the producers holding the
+  // optional recorder (WorktreeHookHandler, SessionForkService,
+  // PtahAPIBuilder) are first resolved with the recorder already bound.
+  registerSessionOrganizationServices(container);
+  startSessionOrganization(container);
 
   // output-styles registered independently for the same reason as task-specs:
   // OutputStyleRpcHandlers is a `requires: []` manifest entry fanned to every

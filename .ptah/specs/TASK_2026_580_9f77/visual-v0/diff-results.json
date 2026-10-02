@@ -1,0 +1,998 @@
+{
+  "electron anubis-360 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "electron anubis-360 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "electron anubis-360 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "electron anubis-360 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "electron anubis-360 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "electron anubis-360 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2313,
+    "afterH": 2313,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 54,
+      "diff": 26963
+    },
+    "belowRows": 815
+  },
+  "electron anubis-360 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2313,
+    "afterH": 2313,
+    "aboveDiff": 108,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-360 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2313,
+    "afterH": 2313,
+    "aboveDiff": 206,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-800 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "electron anubis-800 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "electron anubis-800 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "electron anubis-800 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "electron anubis-800 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "electron anubis-800 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2341,
+    "afterH": 2341,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 49,
+      "diff": 1207
+    },
+    "belowRows": 815
+  },
+  "electron anubis-800 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2341,
+    "afterH": 2341,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-800 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2341,
+    "afterH": 2341,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-1400 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "electron anubis-1400 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "electron anubis-1400 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "electron anubis-1400 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "electron anubis-1400 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "electron anubis-1400 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2441,
+    "afterH": 2441,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 49,
+      "diff": 1207
+    },
+    "belowRows": 815
+  },
+  "electron anubis-1400 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2441,
+    "afterH": 2441,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-1400 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2441,
+    "afterH": 2441,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-light-360 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "electron anubis-light-360 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "electron anubis-light-360 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "electron anubis-light-360 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "electron anubis-light-360 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "electron anubis-light-360 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2313,
+    "afterH": 2313,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 54,
+      "diff": 27031
+    },
+    "belowRows": 815
+  },
+  "electron anubis-light-360 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2313,
+    "afterH": 2313,
+    "aboveDiff": 205,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-light-360 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2313,
+    "afterH": 2313,
+    "aboveDiff": 296,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-light-800 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "electron anubis-light-800 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "electron anubis-light-800 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "electron anubis-light-800 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "electron anubis-light-800 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "electron anubis-light-800 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2341,
+    "afterH": 2341,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 49,
+      "diff": 1227
+    },
+    "belowRows": 815
+  },
+  "electron anubis-light-800 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2341,
+    "afterH": 2341,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-light-800 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2341,
+    "afterH": 2341,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-light-1400 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "electron anubis-light-1400 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "electron anubis-light-1400 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "electron anubis-light-1400 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "electron anubis-light-1400 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "electron anubis-light-1400 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2441,
+    "afterH": 2441,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 49,
+      "diff": 1227
+    },
+    "belowRows": 815
+  },
+  "electron anubis-light-1400 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2441,
+    "afterH": 2441,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "electron anubis-light-1400 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2441,
+    "afterH": 2441,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-360 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "vscode anubis-360 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "vscode anubis-360 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "vscode anubis-360 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "vscode anubis-360 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "vscode anubis-360 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2353,
+    "afterH": 2353,
+    "aboveDiff": 620,
+    "below": {
+      "shift": 49,
+      "diff": 1207
+    },
+    "belowRows": 815
+  },
+  "vscode anubis-360 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2353,
+    "afterH": 2353,
+    "aboveDiff": 243,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-360 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2353,
+    "afterH": 2353,
+    "aboveDiff": 705,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-800 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "vscode anubis-800 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "vscode anubis-800 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "vscode anubis-800 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "vscode anubis-800 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "vscode anubis-800 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2445,
+    "afterH": 2445,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 49,
+      "diff": 1207
+    },
+    "belowRows": 815
+  },
+  "vscode anubis-800 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2445,
+    "afterH": 2445,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-800 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2445,
+    "afterH": 2445,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-1400 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "vscode anubis-1400 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "vscode anubis-1400 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "vscode anubis-1400 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "vscode anubis-1400 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "vscode anubis-1400 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2481,
+    "afterH": 2481,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 49,
+      "diff": 1207
+    },
+    "belowRows": 815
+  },
+  "vscode anubis-1400 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2481,
+    "afterH": 2481,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-1400 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2481,
+    "afterH": 2481,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-light-360 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "vscode anubis-light-360 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "vscode anubis-light-360 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "vscode anubis-light-360 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "vscode anubis-light-360 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "vscode anubis-light-360 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2353,
+    "afterH": 2353,
+    "aboveDiff": 1063,
+    "below": {
+      "shift": 49,
+      "diff": 1227
+    },
+    "belowRows": 815
+  },
+  "vscode anubis-light-360 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2353,
+    "afterH": 2353,
+    "aboveDiff": 639,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-light-360 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2353,
+    "afterH": 2353,
+    "aboveDiff": 1054,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-light-800 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "vscode anubis-light-800 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "vscode anubis-light-800 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "vscode anubis-light-800 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "vscode anubis-light-800 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "vscode anubis-light-800 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2445,
+    "afterH": 2445,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 49,
+      "diff": 1227
+    },
+    "belowRows": 815
+  },
+  "vscode anubis-light-800 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2445,
+    "afterH": 2445,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-light-800 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2445,
+    "afterH": 2445,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-light-1400 card TASK_T1_none": {
+    "baseH": 141,
+    "afterH": 141,
+    "row": null,
+    "diff": 0
+  },
+  "vscode anubis-light-1400 card TASK_T2_three": {
+    "baseH": 160,
+    "afterH": 208,
+    "row": [112, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 48
+  },
+  "vscode anubis-light-1400 card TASK_T3_prnonum": {
+    "baseH": 141,
+    "afterH": 189,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 49
+  },
+  "vscode anubis-light-1400 card TASK_T4_nopr": {
+    "baseH": 137,
+    "afterH": 185,
+    "row": [92, 42],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 48,
+      "diff": 0
+    },
+    "belowRows": 45
+  },
+  "vscode anubis-light-1400 card TASK_T5_long": {
+    "baseH": 156,
+    "afterH": 224,
+    "row": [112, 62],
+    "aboveDiff": 0,
+    "below": {
+      "shift": 68,
+      "diff": 0
+    },
+    "belowRows": 44
+  },
+  "vscode anubis-light-1400 detail TASK_D1_none": {
+    "sec": [585, 38],
+    "baseH": 2481,
+    "afterH": 2481,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 49,
+      "diff": 1227
+    },
+    "belowRows": 815
+  },
+  "vscode anubis-light-1400 detail TASK_D2_three": {
+    "sec": [601, 204],
+    "baseH": 2481,
+    "afterH": 2481,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 216,
+      "diff": 0
+    },
+    "belowRows": 799
+  },
+  "vscode anubis-light-1400 detail TASK_D3_many": {
+    "sec": [601, 510],
+    "baseH": 2481,
+    "afterH": 2481,
+    "aboveDiff": 0,
+    "below": {
+      "shift": 522,
+      "diff": 0
+    },
+    "belowRows": 799
+  }
+}

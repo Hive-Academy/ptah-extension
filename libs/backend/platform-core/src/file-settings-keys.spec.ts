@@ -650,6 +650,31 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('skillSynthesis retirement and pool keys (TASK_2026_578)', () => {
+    const retirementDefaults = {
+      'skillSynthesis.retirement.dormantAfterDays': 30,
+      'skillSynthesis.retirement.retireAfterDormantDays': 30,
+    } as const;
+
+    it.each(Object.entries(retirementDefaults))(
+      'registers and defaults %s to %s',
+      (key, expected) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+        expect(isFileBasedSettingKey(key)).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+      },
+    );
+
+    it('defaults skillSynthesis.suggestionMaxCandidates to 1000', () => {
+      expect(
+        FILE_BASED_SETTINGS_KEYS.has('skillSynthesis.suggestionMaxCandidates'),
+      ).toBe(true);
+      expect(
+        FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.suggestionMaxCandidates'],
+      ).toBe(1000);
+    });
+  });
+
   describe('skill-synthesis lane keys (TASK_2026_180, Phase 1)', () => {
     /**
      * The literal restatement of `SKILL_LANE_DEFAULTS`
