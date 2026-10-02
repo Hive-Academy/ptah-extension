@@ -18,6 +18,14 @@ import { McpPortConfigComponent } from './pro-features/mcp-port-config.component
 import { AgentBehaviourSectionComponent } from './pro-features/agent-behaviour-section.component';
 import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 
+/**
+ * A per-key import failure is reported as `<key>: <reason>`, the key being a `ptah.*` secret
+ * (`settings-import.service.ts` importSecret) or a `config:*` value (`settings-rpc.handlers.ts` registerImport).
+ * A file the host rejects as a whole (empty, malformed JSON, not an export) carries no key. Only the prefix is
+ * read; the host text itself is never shown (D15).
+ */
+const KEYED_IMPORT_ERROR = /^(ptah\.|config:)/;
+
 /** The import outcome, shown inline in the Membership & data card (A9, D15). */
 interface ImportOutcome {
   /** `status` renders `role="status"` (polite); `alert` renders `role="alert"`. */
@@ -233,8 +241,8 @@ export class AdvancedSettingsComponent {
           if (result.data.cancelled) return;
           const errors = result.data.result?.errors ?? [];
           const imported = result.data.result?.imported ?? [];
-          if (errors.length > 0 && imported.length === 0) {
-            // An empty or malformed file: nothing was imported, so "some" would claim a partial success.
+          if (errors.length > 0 && imported.length === 0 && !errors.some((entry) => KEYED_IMPORT_ERROR.test(entry))) {
+            // N4: only a file the host rejected as a whole (empty, malformed, not an export) blames the file.
             this.importOutcome.set({
               tone: 'alert',
               message: 'The file is not a Ptah settings export.',

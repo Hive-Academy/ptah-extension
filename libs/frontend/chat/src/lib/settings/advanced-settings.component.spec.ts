@@ -182,13 +182,36 @@ describe('AdvancedSettingsComponent', () => {
     }
   });
 
-  it('Minor 11: an empty or malformed file reports that it is not a Ptah settings export', async () => {
-    rpc.call.mockResolvedValue(rpcSuccess({ cancelled: false, result: { imported: [], skipped: [], errors: ['parse: host detail'] } }));
+  it.each([
+    ['an empty file', 'Selected file is empty'],
+    ['malformed JSON', 'Malformed JSON: Unexpected token } in JSON at position 3'],
+    ['a file that is not an export', 'The selected file is not a valid Ptah settings export.'],
+  ])('N4: %s reports that it is not a Ptah settings export', async (_label, hostError) => {
+    rpc.call.mockResolvedValue(rpcSuccess({ cancelled: false, result: { imported: [], skipped: [], errors: [hostError] } }));
     await render(true);
     await confirmImport();
     const outcome = element.querySelector('[data-testid="import-outcome"]');
     expect(outcome?.getAttribute('role')).toBe('alert');
     expect(outcome?.textContent?.trim()).toBe('The file is not a Ptah settings export.');
+    expect(outcome?.textContent).not.toContain(hostError);
+  });
+
+  it('N4: a valid export whose every key failed reports a partial failure, never blames the file', async () => {
+    rpc.call.mockResolvedValue(
+      rpcSuccess({
+        cancelled: false,
+        result: {
+          imported: [],
+          skipped: [],
+          errors: ['ptah.licenseKey: host detail EPERM', 'config:llm.defaultProvider: host detail'],
+        },
+      }),
+    );
+    await render(true);
+    await confirmImport();
+    const outcome = element.querySelector('[data-testid="import-outcome"]');
+    expect(outcome?.getAttribute('role')).toBe('alert');
+    expect(outcome?.textContent?.trim()).toBe('Some settings could not be imported.');
     expect(outcome?.textContent).not.toContain('host detail');
   });
 

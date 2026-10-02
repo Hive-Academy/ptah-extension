@@ -343,6 +343,12 @@ describe('WebSearchConfigComponent', () => {
 
       expect(byTestId('settings-web-search-clear-group-tavily').getAttribute('role')).toBe('group');
       expect(byTestId('settings-web-search-clear-confirm-tavily').classList).toContain('border-error');
+      // Visual N2: the open confirm's trigger keeps its resting look, without daisyUI's btn-outline hover fill.
+      expect(clear.getAttribute('aria-expanded')).toBe('true');
+      expect(clear.classList).toContain('aria-expanded:hover:bg-transparent');
+      expect(clear.classList).toContain('aria-expanded:hover:text-base-content');
+      expect(clear.classList).not.toContain('btn-active');
+      expect(clear.hasAttribute('aria-pressed')).toBe(false);
       expect(document.activeElement).toBe(byTestId('settings-web-search-clear-cancel-tavily'));
       byTestId<HTMLButtonElement>('settings-web-search-clear-cancel-tavily').click();
       await settle();

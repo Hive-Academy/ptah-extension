@@ -98,7 +98,7 @@ const SUCCESS_MESSAGE_MS = 3000;
             </h2>
           </div>
 
-          <p class="text-sm text-base-content-muted mb-2">
+          <p class="text-xs text-base-content-muted mb-2">
             When on, Ptah's diagnostics tools run your installed Go toolchain
             (<code>go vet</code>) on the Go packages they are asked to check. It
             reads the module source and module cache and writes the build cache.

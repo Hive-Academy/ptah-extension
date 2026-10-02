@@ -62,11 +62,15 @@ const NO_SELECTION: ActiveOutputStyleState = {
       [failedOperation]="failedOperation()"
       [parityWrittenPath]="parityWrittenPath()"
       [parityWarning]="parityWarning()"
+      [usingFallback]="usingFallback()"
       (activate)="emitted.push($event)"
+      (copyToProject)="copies.push($event)"
     />
   `,
 })
 class HostComponent {
+  readonly usingFallback = signal(false);
+  readonly copies: { readonly name: string; readonly overwrite: boolean }[] = [];
   readonly styles = signal<readonly OutputStyleEntry[]>([
     BUILT_IN_DEFAULT,
     USER_STYLE,
@@ -357,10 +361,91 @@ describe('OutputStyleListComponent — CLI parity control', () => {
       (fixture.nativeElement.querySelector('[data-testid="parity-confirm-button"]') as HTMLButtonElement).click();
       fixture.detectChanges();
       expect(host.emitted).toEqual([{ name: null, parity: { enabled: true, tier: 'project' } }]);
+      // The config reports the activation succeeded.
+      list().parityActivated('project');
 
       clickStyleRow(0);
       expect(host.emitted).toHaveLength(1);
       expect(fixture.nativeElement.querySelector('[data-testid="parity-confirm"]')).toBeNull();
+    });
+
+    it('a failed activation does not count the parity file as written: the next click asks again (N3)', () => {
+      parityCheckbox().click();
+      fixture.detectChanges();
+
+      clickStyleRow(0);
+      (fixture.nativeElement.querySelector('[data-testid="parity-confirm-button"]') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(host.emitted).toHaveLength(1);
+      // No parityActivated call: the activation failed.
+
+      clickStyleRow(0);
+      expect(fixture.nativeElement.querySelector('[data-testid="parity-confirm"]')).not.toBeNull();
+    });
+  });
+
+  describe('copy to this project (review item 16)', () => {
+    const PROJECT_TERSE: OutputStyleEntry = { ...USER_STYLE, tier: 'project', relativePath: '.claude/output-styles/terse.md' };
+    const copyButton = (): HTMLButtonElement =>
+      fixture.nativeElement.querySelector('[data-testid="output-style-copy-to-project"]');
+    const confirm = (): HTMLElement | null =>
+      fixture.nativeElement.querySelector('[data-testid="output-style-copy-confirm"]');
+
+    beforeEach(() => {
+      document.body.appendChild(fixture.nativeElement);
+      host.usingFallback.set(true);
+      host.active.set({ name: 'Terse', tier: 'user', missing: false });
+      fixture.detectChanges();
+    });
+    afterEach(() => fixture.nativeElement.remove());
+
+    it('copies straight away, without overwrite, when the project has no style of that name', () => {
+      copyButton().click();
+      fixture.detectChanges();
+
+      expect(confirm()).toBeNull();
+      expect(host.copies).toEqual([{ name: 'Terse', overwrite: false }]);
+    });
+
+    it('asks first when a project style of that name exists; Replace it copies with overwrite, no Undo', () => {
+      host.styles.set([BUILT_IN_DEFAULT, PROJECT_TERSE, { ...USER_STYLE, shadowed: true }]);
+      fixture.detectChanges();
+
+      copyButton().click();
+      fixture.detectChanges();
+      expect(host.copies).toEqual([]);
+      expect(confirm()?.getAttribute('role')).toBe('alertdialog');
+      expect(document.activeElement?.textContent?.trim()).toBe('Cancel');
+      const replace = fixture.nativeElement.querySelector('[data-testid="output-style-confirm-copy"]') as HTMLButtonElement;
+      expect(replace.className).toContain('btn-outline');
+      expect(replace.className).toContain('border-error');
+      expect(replace.className).toContain('text-base-content');
+
+      replace.click();
+      fixture.detectChanges();
+      expect(confirm()).toBeNull();
+      expect(host.copies).toEqual([{ name: 'Terse', overwrite: true }]);
+      expect(text()).not.toContain('Undo');
+    });
+
+    it('Esc closes only the confirm, returns focus to Copy and stops there; nothing is copied', () => {
+      host.styles.set([BUILT_IN_DEFAULT, PROJECT_TERSE]);
+      fixture.detectChanges();
+      const outer = jest.fn();
+      document.body.addEventListener('keydown', outer);
+      try {
+        copyButton().click();
+        fixture.detectChanges();
+        document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        fixture.detectChanges();
+
+        expect(confirm()).toBeNull();
+        expect(document.activeElement).toBe(copyButton());
+        expect(outer).not.toHaveBeenCalled();
+        expect(host.copies).toEqual([]);
+      } finally {
+        document.body.removeEventListener('keydown', outer);
+      }
     });
   });
 

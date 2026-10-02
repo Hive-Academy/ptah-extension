@@ -628,7 +628,7 @@ describe('GoVetConsentConfigComponent', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
-  it('sets the card description at 14 px like the sibling cards (visual m1)', async () => {
+  it('sets the card description at 12 px (text-xs), the size of the web search and voice card descriptions (visual m1)', async () => {
     const rpc = createMockRpcService();
     routeRpc(rpc, { [GET]: [() => rpcSuccess(getResult())] });
     const { fixture } = mount(rpc);
@@ -636,7 +636,8 @@ describe('GoVetConsentConfigComponent', () => {
     const description = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('p')).find((p) =>
       p.textContent?.includes("When on, Ptah's diagnostics tools run your installed Go toolchain"),
     );
-    expect(description?.classList).toContain('text-sm');
+    expect(description?.classList).toContain('text-xs');
+    expect(description?.classList).not.toContain('text-sm');
   });
 
   it('uses no text size below 12 px anywhere in the component source (Batch 50b)', () => {

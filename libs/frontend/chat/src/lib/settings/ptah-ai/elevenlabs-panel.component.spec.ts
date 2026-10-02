@@ -375,6 +375,11 @@ describe('ElevenLabsPanelComponent', () => {
       clear.click();
       fixture.detectChanges();
       expect(byTestId('elevenlabs-clear-confirm').classList).toContain('border-error');
+      // Visual N2: the open confirm's trigger keeps its resting look, without daisyUI's btn-outline hover fill.
+      expect(clear.getAttribute('aria-expanded')).toBe('true');
+      expect(clear.classList).toContain('aria-expanded:hover:bg-transparent');
+      expect(clear.classList).toContain('aria-expanded:hover:text-base-content');
+      expect(clear.classList).not.toContain('btn-active');
 
       const group = byTestId('elevenlabs-clear-group');
       expect(group.getAttribute('role')).toBe('group');

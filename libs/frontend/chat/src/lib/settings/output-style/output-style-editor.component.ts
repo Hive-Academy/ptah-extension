@@ -501,7 +501,9 @@ export class OutputStyleEditorComponent {
   readonly PaletteIcon = Palette;
   readonly tierChoices = TIER_CHOICES;
 
-  readonly saving = this.store.saving;
+  /** From the start of a save until its result is handled; the store's own flag ends before a stale re-read. */
+  private readonly persisting = signal(false);
+  readonly saving = computed(() => this.store.saving() || this.persisting());
 
   readonly editorTabs: readonly NativeTab[] = [
     { id: 'edit', label: 'Edit' },
@@ -713,27 +715,26 @@ export class OutputStyleEditorComponent {
     this.reloaded.set(fresh);
   }
 
+  /** One save at a time, including the `STALE_FILE` re-read that runs after the store's save ends (N2). */
   private async persist(overwrite: boolean): Promise<void> {
-    const params = this.buildParams(overwrite);
-    const error = await this.store.save(params);
-
-    if (error === null) {
-      this.conflict.set(null);
-      this.saved.emit(params.name);
-      return;
+    if (this.persisting()) return;
+    this.persisting.set(true);
+    try {
+      const params = this.buildParams(overwrite);
+      const error = await this.store.save(params);
+      if (error === null) {
+        this.conflict.set(null);
+        this.saved.emit(params.name);
+      } else if (error.code === 'FILE_EXISTS') {
+        this.conflict.set(error);
+      } else if (error.code === 'STALE_FILE') {
+        await this.readCurrentFile();
+      } else {
+        this.formError.set(OUTPUT_STYLE_SAVE_FAILED);
+      }
+    } finally {
+      this.persisting.set(false);
     }
-
-    if (error.code === 'FILE_EXISTS') {
-      this.conflict.set(error);
-      return;
-    }
-
-    if (error.code === 'STALE_FILE') {
-      await this.readCurrentFile();
-      return;
-    }
-
-    this.formError.set(OUTPUT_STYLE_SAVE_FAILED);
   }
 
   /** Re-reads the edited file so the stale prompt can offer Reload and an Overwrite that passes. */

@@ -294,10 +294,12 @@ export class OutputStyleStore {
   /**
    * Req 5.5 — the escape hatch out of the fallback-injection path. Copies a
    * user-tier style into the project tier, where every provider reads it as a
-   * file and no injection is needed.
+   * file and no injection is needed. `overwrite` is true only after the user
+   * confirmed replacing a project style of the same name (review item 16).
    */
   async copyToProjectTier(
     name: string,
+    overwrite: boolean,
   ): Promise<OutputStyleOperationError | null> {
     const source = await this.load(name, 'user', 'copy');
 
@@ -312,7 +314,7 @@ export class OutputStyleStore {
         description: source.description,
         keepCodingInstructions: source.keepCodingInstructions,
         body: source.body ?? '',
-        overwrite: true,
+        ...(overwrite ? { overwrite: true } : {}),
       },
       'copy',
     );

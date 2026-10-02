@@ -247,7 +247,10 @@ function providerLabel(provider: ProviderId): string {
                       </div>
                     </ptah-native-popover>
                     @if (apiKeyConfigured()[opt.value]) {
-                      <button type="button" class="btn btn-outline btn-xs text-base-content"
+                      <!-- Visual N2: daisyUI's btn-outline:hover fill stays under the pointer after the click; while
+                        the confirm is open the trigger keeps its resting look. -->
+                      <button type="button"
+                        class="btn btn-outline btn-xs text-base-content aria-expanded:hover:bg-transparent aria-expanded:hover:text-base-content"
                         [disabled]="saving()" (click)="requestClear(opt.value)"
                         [attr.aria-label]="'Clear API key for ' + opt.label"
                         [attr.aria-expanded]="confirmingClear() === opt.value"

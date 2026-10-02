@@ -206,14 +206,39 @@ const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not chang
         </p>
         @if (activeName(); as name) {
           <button
+            #copyButton
             type="button"
             class="btn btn-ghost btn-xs mt-1 text-base-content"
-            (click)="copyToProject.emit(name)"
+            (click)="requestCopy(name)"
             [disabled]="saving()"
             data-testid="output-style-copy-to-project"
           >
             Copy to this project
           </button>
+          <!-- Item 16 / P8: replacing a project style of the same name is confirmed first; no Undo -->
+          @if (confirmingCopy()) {
+            <div
+              class="flex flex-wrap items-center gap-2 rounded border border-base-300 p-2 mt-1 text-xs text-base-content"
+              role="alertdialog"
+              aria-label="Confirm replacing the project style"
+              data-testid="output-style-copy-confirm"
+              (keydown.escape)="cancelCopy(copyButton, $event)"
+            >
+              <span class="flex-1">This project already has a style with this name. Replace it with your copy?</span>
+              <button
+                type="button"
+                class="btn btn-outline btn-xs border-error text-base-content"
+                [disabled]="saving()"
+                (click)="confirmCopy(name)"
+                data-testid="output-style-confirm-copy"
+              >
+                Replace it
+              </button>
+              <button #copyCancel type="button" class="btn btn-ghost btn-xs text-base-content" (click)="cancelCopy(copyButton)">
+                Cancel
+              </button>
+            </div>
+          }
         }
       </div>
     }
@@ -497,7 +522,8 @@ export class OutputStyleListComponent {
   readonly edit = output<OutputStyleRef>();
   readonly remove = output<OutputStyleRef>();
   readonly openInvalid = output<InvalidOutputStyle>();
-  readonly copyToProject = output<string>();
+  /** `overwrite` only after the user confirmed replacing a project style of the same name (item 16). */
+  readonly copyToProject = output<{ readonly name: string; readonly overwrite: boolean }>();
   readonly dismissError = output<void>();
   readonly dismissParity = output<void>();
 
@@ -512,6 +538,9 @@ export class OutputStyleListComponent {
   /** View state: which row is showing its delete confirmation. */
   readonly pendingDelete = signal<string | null>(null);
 
+  /** View state: the copy-to-project confirm is open (a project style of the same name exists). */
+  readonly confirmingCopy = signal(false);
+
   /** OPT-IN, DEFAULT OFF (R6). Untouched → no settings file is ever written. */
   readonly parityEnabled = signal(false);
 
@@ -521,7 +550,7 @@ export class OutputStyleListComponent {
   /** Style name pending confirmation before parity write (A24, S-confirm). */
   readonly pendingParitySelection = signal<string | null | undefined>(undefined);
 
-  /** The parity tier last requested with a selection; re-picking the active style only re-asks when this differs. */
+  /** The parity tier of the last selection that activated; re-picking the active style only re-asks when this differs. */
   private readonly parityRequestedTier = signal<SettingsTier | null>(null);
 
   /** The exact file the current tier would write, named before any write. */
@@ -547,10 +576,12 @@ export class OutputStyleListComponent {
   private readonly instanceId = `output-style-${listInstanceCounter++}`;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly deleteCancel = viewChild<ElementRef<HTMLButtonElement>>('deleteCancel');
+  private readonly copyCancel = viewChild<ElementRef<HTMLButtonElement>>('copyCancel');
 
   constructor() {
-    // P8: an opened delete confirm takes focus on Cancel, so Esc reaches it.
+    // P8: an opened delete or copy confirm takes focus on Cancel, so Esc reaches it.
     effect(() => this.deleteCancel()?.nativeElement.focus());
+    effect(() => this.copyCancel()?.nativeElement.focus());
   }
 
   /** E5/N1 explanation of why the active style stopped resolving. */
@@ -618,8 +649,36 @@ export class OutputStyleListComponent {
       this.activate.emit({ name });
       return;
     }
-    this.parityRequestedTier.set(this.parityTier());
     this.activate.emit({ name, parity: { enabled: true, tier: this.parityTier() } });
+  }
+
+  /**
+   * The config reports an activation with parity that succeeded; only then is the tier's file counted as
+   * requested, so a failed activation does not suppress the next parity prompt (N3).
+   */
+  parityActivated(tier: SettingsTier): void {
+    this.parityRequestedTier.set(tier);
+  }
+
+  /** Copy to this project: straight away, unless a project style of the same name would be replaced. */
+  requestCopy(name: string): void {
+    if (this.styles().some((style) => style.tier === 'project' && style.name === name)) {
+      this.confirmingCopy.set(true);
+    } else {
+      this.copyToProject.emit({ name, overwrite: false });
+    }
+  }
+
+  confirmCopy(name: string): void {
+    this.confirmingCopy.set(false);
+    this.copyToProject.emit({ name, overwrite: true });
+  }
+
+  /** Cancel and Esc close the copy confirm and return focus to "Copy to this project" (P8). */
+  cancelCopy(opener: HTMLButtonElement, event?: Event): void {
+    event?.stopPropagation();
+    this.confirmingCopy.set(false);
+    opener.focus();
   }
 
   onParityToggled(checked: boolean): void {

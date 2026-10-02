@@ -555,13 +555,13 @@ describe('OutputStyleStore', () => {
       await store.load('Terse', 'user');
       expect(store.failedOperation()).toBe('open');
 
-      const error = await store.copyToProjectTier('Terse');
+      const error = await store.copyToProjectTier('Terse', false);
       expect(store.failedOperation()).toBe('copy');
       expect(error?.message).toBe('Could not copy the output style to the project.');
 
       responses['outputStyle:get'] = ok({ style: { ...USER_STYLE, body: '' } });
       responses['outputStyle:save'] = { isSuccess: () => false, error: 'could not be written' };
-      await store.copyToProjectTier('Terse');
+      await store.copyToProjectTier('Terse', false);
       expect(store.failedOperation()).toBe('copy');
     });
 
@@ -619,6 +619,17 @@ describe('OutputStyleStore', () => {
   });
 
   describe('copyToProjectTier()', () => {
+    it('without a confirmed replace, the project save carries no overwrite, so an existing file is never replaced (item 16)', async () => {
+      responses['outputStyle:get'] = ok({ style: { ...USER_STYLE, body: '' } });
+      responses['outputStyle:save'] = ok({ success: true });
+
+      await store.copyToProjectTier('Simplified Technical English', false);
+
+      const saveCall = call.mock.calls.find(([method]) => method === 'outputStyle:save');
+      expect(saveCall?.[1]).toEqual(expect.objectContaining({ tier: 'project' }));
+      expect(saveCall?.[1]).not.toHaveProperty('overwrite');
+    });
+
     it('reads the user-tier style and re-saves it into the project tier (Req 5.5)', async () => {
       responses['outputStyle:get'] = ok({
         style: { ...USER_STYLE, body: '# Style\n\nShort sentences.' },
@@ -627,6 +638,7 @@ describe('OutputStyleStore', () => {
 
       const error = await store.copyToProjectTier(
         'Simplified Technical English',
+        true,
       );
 
       expect(error).toBeNull();

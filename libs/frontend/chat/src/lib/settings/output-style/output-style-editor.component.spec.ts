@@ -450,6 +450,28 @@ describe('OutputStyleEditorComponent', () => {
       expect(save.mock.calls[1][0].overwrite).toBeUndefined();
     });
 
+    it('keeps Save disabled from the start of the save until the stale dialog is shown; a second submit is ignored (N2)', async () => {
+      let finishLoad: (detail: OutputStyleDetail) => void = () => undefined;
+      load.mockReturnValueOnce(new Promise<OutputStyleDetail>((resolve) => (finishLoad = resolve)));
+      const saveButton = (): HTMLButtonElement => button('output-style-save-button');
+
+      const first = component.submit();
+      for (let tick = 0; tick < 5; tick++) await Promise.resolve();
+      fixture.detectChanges();
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(dialog()).toBeNull();
+      expect(saveButton().disabled).toBe(true);
+
+      await component.submit();
+      expect(save).toHaveBeenCalledTimes(1);
+
+      finishLoad(FRESH);
+      await first;
+      fixture.detectChanges();
+      expect(dialog()).not.toBeNull();
+      expect(saveButton().disabled).toBe(false);
+    });
+
     it('offers no Overwrite when the current file cannot be read', async () => {
       load.mockResolvedValueOnce(null);
 

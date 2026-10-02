@@ -35,6 +35,8 @@ const PROMPT_DOWNLOAD_SAVED = 'Saved to the chosen file.';
 
 /** The client's regenerate budget; the host is not told to stop when it runs out. */
 const REGENERATE_TIMEOUT_MS = 120_000;
+/** A timer may fire a little before the wall clock shows the full budget; a failure this close counts as the timeout. */
+const TIMEOUT_CLOCK_TOLERANCE_MS = 1_000;
 
 /**
  * When the user dismisses the file save dialog without picking a path, the backend returns
@@ -53,8 +55,8 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
  * - A17: View/Hide prompt preview rendered through {@link MarkdownBlockComponent} (safe DOMPurify chokepoint)
  * - A18: Empty-state guidance when no prompt has been generated yet — only after a successful status read
  *
- * A regenerate that gets no answer (transport failure or the 120 s client timeout) may still be running on
- * the host, which has no stop signal. The drawer then re-reads the status and keeps Regenerate off until a
+ * A regenerate that runs out the 120 s client timeout may still be running on the host, which has no stop
+ * signal; a failure that comes back sooner is shown as the fixed failure sentence. The drawer then re-reads the status and keeps Regenerate off until a
  * newer prompt appears or a later "Check again" is at least another 120 s on, so two runs never overlap.
  *
  * P6 drawer pattern: single body, no tabs. Header with Sparkles icon; footer with Regenerate (outline),
@@ -427,8 +429,10 @@ export class SystemPromptDrawerComponent {
   /**
    * Regenerates the enhanced prompt (A15, S-confirm).
    * Host reports a failed generation as `{success:false, error}` inside a successful RPC: the host has stopped,
-   * so only the fixed sentence is shown and the status is not re-read (F1). No answer at all (transport failure,
-   * the 120 s client timeout, a throw) does not stop the host: the status is re-read and Regenerate is blocked.
+   * so only the fixed sentence is shown and the status is not re-read (F1). A failed call or a throw that comes
+   * back well inside the client budget is a definitive failure too: fixed sentence, Regenerate stays enabled
+   * (N1). Only a call that ran out the 120 s client timeout may have left the host running: the status is
+   * re-read and Regenerate is blocked.
    */
   async confirmRegenerate(): Promise<void> {
     if (this.regenerateStartedAt() !== null) return;
@@ -437,34 +441,36 @@ export class SystemPromptDrawerComponent {
     this.error.set(null);
     const baseline = this.status()?.generatedAt ?? null;
     const startedAt = Date.now();
-    let answered = false;
     try {
       const result = await this.rpcService.call(
         'enhancedPrompts:regenerate',
         { workspacePath: '.', force: true },
         { timeout: REGENERATE_TIMEOUT_MS },
       );
-      if (result.isSuccess()) {
-        answered = true;
-        if (result.data.success) {
-          this.promptPreviewContent.set(null);
-          this.promptPreviewExpanded.set(false);
-          await this.loadStatus();
-          this.changed.emit();
-          return;
-        }
-        this.error.set(PROMPT_REGENERATE_FAILED);
+      if (result.isSuccess() && result.data.success) {
+        this.promptPreviewContent.set(null);
+        this.promptPreviewExpanded.set(false);
+        await this.loadStatus();
+        this.changed.emit();
+        return;
+      }
+      if (!result.isSuccess() && this.ranOutClientBudget(startedAt)) {
+        this.regenerateBaseline = baseline;
+        this.regenerateStartedAt.set(startedAt);
+        await this.checkRegenerate();
+        return;
       }
     } catch {
-      answered = false;
+      // A throw is not the client timeout (that resolves a failed result); shown as the fixed failure below.
     } finally {
       this.isRegenerating.set(false);
     }
-    if (!answered) {
-      this.regenerateBaseline = baseline;
-      this.regenerateStartedAt.set(startedAt);
-      await this.checkRegenerate();
-    }
+    this.error.set(PROMPT_REGENERATE_FAILED);
+  }
+
+  /** The RPC client resolves a timeout as a failed result once the budget has elapsed (`claude-rpc.service`). */
+  private ranOutClientBudget(startedAt: number): boolean {
+    return Date.now() - startedAt >= REGENERATE_TIMEOUT_MS - TIMEOUT_CLOCK_TOLERANCE_MS;
   }
 
   /**

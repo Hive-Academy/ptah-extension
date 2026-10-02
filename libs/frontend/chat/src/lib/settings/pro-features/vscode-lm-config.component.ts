@@ -15,6 +15,7 @@ import {
   inject,
   ChangeDetectionStrategy,
   computed,
+  linkedSignal,
   signal,
   output,
   OnInit,
@@ -168,9 +169,18 @@ export class VscodeLmConfigComponent implements OnInit {
     this.llmState.providers().find((p) => p.provider === 'vscode-lm'),
   );
 
-  /** Currently active model id (selectedModel override or provider.defaultModel) */
+  /**
+   * A model whose write succeeded while the follow-up status refresh did not (N5). Reset whenever the provider
+   * list is replaced, i.e. by the next successful refresh, which then carries the saved model itself.
+   */
+  private readonly confirmedModel = linkedSignal({
+    source: this.llmState.providers,
+    computation: (): string | null => null,
+  });
+
+  /** Currently active model id: the in-flight write, else a confirmed write, else provider.defaultModel. */
   readonly currentModelId = computed(() =>
-    this.selectedModel() ?? this.vscodeLmProvider()?.defaultModel ?? '',
+    this.selectedModel() ?? this.confirmedModel() ?? this.vscodeLmProvider()?.defaultModel ?? '',
   );
 
   /** Available VS Code LM models */
@@ -204,37 +214,32 @@ export class VscodeLmConfigComponent implements OnInit {
     try {
       await this.feedback.saveGeneric({
         label: 'VS Code language model',
-        write: async () => {
-          try {
-            const success = await this.llmState.setDefaultModel('vscode-lm', modelId);
-            if (success) {
-              this.modelChanged.emit();
-              return { ok: true };
-            }
-            return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
-          } catch {
-            return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
-          }
-        },
+        write: () => this.writeModel(modelId),
         // With no previous model there is nothing to restore: writing '' would store an empty model id.
-        undo: previousModel
-          ? async () => {
-              try {
-                const success = await this.llmState.setDefaultModel('vscode-lm', previousModel);
-                if (success) {
-                  this.modelChanged.emit();
-                  return { ok: true };
-                }
-                return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
-              } catch {
-                return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
-              }
-            }
-          : null,
+        undo: previousModel ? () => this.writeModel(previousModel) : null,
       });
     } finally {
       this.selectedModel.set(null);
       this.savingModel.set(false);
+    }
+  }
+
+  /**
+   * Writes the model. The service refreshes the provider status after a write but swallows a failed refresh,
+   * which leaves the provider list (and its old `defaultModel`) untouched: the written model is then kept as
+   * the confirmed value until a later refresh replaces the list (N5).
+   */
+  private async writeModel(modelId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+    const providersBefore = this.llmState.providers();
+    try {
+      if (!(await this.llmState.setDefaultModel('vscode-lm', modelId))) {
+        return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
+      }
+      if (this.llmState.providers() === providersBefore) this.confirmedModel.set(modelId);
+      this.modelChanged.emit();
+      return { ok: true };
+    } catch {
+      return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
     }
   }
 

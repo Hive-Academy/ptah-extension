@@ -17,6 +17,7 @@ import {
   signal,
 } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { ProvidersSettingsStateService, VSCodeService } from '@ptah-extension/core';
 import type {
   ActiveOutputStyleState,
@@ -27,6 +28,7 @@ import type {
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { OutputStyleConfigComponent } from './output-style-config.component';
 import { OutputStyleEditorComponent } from './output-style-editor.component';
+import { OutputStyleListComponent } from './output-style-list.component';
 import { OutputStyleStore, type OutputStyleFailedOperation } from './output-style.store';
 
 @Component({
@@ -71,11 +73,13 @@ describe('OutputStyleConfigComponent', () => {
   let parityWarning: ReturnType<typeof signal<string | null>>;
   let activate: jest.Mock;
   let dismissError: jest.Mock;
+  let copyToProjectTier: jest.Mock;
 
   beforeEach(async () => {
     parityWarning = signal<string | null>(null);
     activate = jest.fn().mockResolvedValue(true);
     dismissError = jest.fn();
+    copyToProjectTier = jest.fn().mockResolvedValue(null);
     const active = signal<ActiveOutputStyleState | null>({ name: null, tier: null, missing: false });
 
     TestBed.configureTestingModule({
@@ -98,6 +102,7 @@ describe('OutputStyleConfigComponent', () => {
             parityWarning,
             refresh: jest.fn().mockResolvedValue(undefined),
             activate,
+            copyToProjectTier,
             dismissError,
             dismissParityOutcome: jest.fn(),
           },
@@ -148,6 +153,31 @@ describe('OutputStyleConfigComponent', () => {
 
       expect(feedback.toast()).toEqual({ tone: 'status', message: 'Saved output style.', canUndo: false });
     });
+
+    it('tells the list the parity tier only after the activation succeeded (N3)', async () => {
+      const list = fixture.debugElement.query(By.directive(OutputStyleListComponent))
+        .componentInstance as OutputStyleListComponent;
+      const parityActivated = jest.spyOn(list, 'parityActivated');
+
+      activate.mockResolvedValueOnce(false);
+      await component.onActivate({ name: 'Terse', parity: { enabled: true, tier: 'local' } });
+      activate.mockRejectedValueOnce(new Error('transport'));
+      await component.onActivate({ name: 'Terse', parity: { enabled: true, tier: 'local' } });
+      expect(parityActivated).not.toHaveBeenCalled();
+
+      await component.onActivate({ name: 'Terse', parity: { enabled: true, tier: 'local' } });
+      expect(parityActivated).toHaveBeenCalledWith('local');
+    });
+  });
+
+  it('passes the list\'s copy request through with its overwrite flag (item 16)', async () => {
+    await component.onCopyToProject({ name: 'Terse', overwrite: false });
+    await component.onCopyToProject({ name: 'Terse', overwrite: true });
+
+    expect(copyToProjectTier.mock.calls).toEqual([
+      ['Terse', false],
+      ['Terse', true],
+    ]);
   });
 
   describe('returning from the editor', () => {

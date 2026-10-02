@@ -306,6 +306,39 @@ describe('VscodeLmConfigComponent', () => {
       expect(component.selectedModel()).toBeNull();
     });
 
+    it('N5: a successful write whose status refresh failed shows the written model, until a refresh replaces it', async () => {
+      // The write lands but the service's refresh fails, so the provider list keeps the old default model.
+      mockLlmState.setDefaultModel.mockResolvedValue(true);
+      await render();
+
+      const select = byTestId<HTMLSelectElement>('vscode-lm-model-select');
+      select.value = 'claude-3-5-sonnet';
+      select.dispatchEvent(new Event('change'));
+      await settle();
+
+      expect(feedback.toast()?.message).toBe('Saved VS Code language model.');
+      expect(component.currentModelId()).toBe('claude-3-5-sonnet');
+      expect(select.value).toBe('claude-3-5-sonnet');
+
+      // A later successful refresh carries the saved model; a change made elsewhere then shows as well.
+      providersSignal.set([{ ...sampleVscodeProvider, defaultModel: 'gpt-4o-mini' }]);
+      fixture.detectChanges();
+      expect(component.currentModelId()).toBe('gpt-4o-mini');
+    });
+
+    it('N5: Undo after a failed refresh shows the restored model, not the one it replaced', async () => {
+      mockLlmState.setDefaultModel.mockResolvedValue(true);
+      await render();
+
+      await component.onVsCodeModelSelect('claude-3-5-sonnet');
+      await settle();
+      await feedback.undo();
+      await settle();
+
+      expect(mockLlmState.setDefaultModel).toHaveBeenLastCalledWith('vscode-lm', 'gpt-4o');
+      expect(component.currentModelId()).toBe('gpt-4o');
+    });
+
     it('Minor 10: with no previous model there is no Undo, so an empty model id is never written', async () => {
       providersSignal.set([{ ...sampleVscodeProvider, defaultModel: undefined }]);
       await render();

@@ -158,7 +158,9 @@ export class OutputStyleConfigComponent implements OnInit {
    */
   async onActivate(request: OutputStyleSelectionRequest): Promise<void> {
     const previousName = this.store.activeName();
-    const isParity = request.parity !== undefined && request.parity.enabled;
+    const parity = request.parity?.enabled === true ? request.parity : null;
+    const isParity = parity !== null;
+    const outcome = { activated: false };
 
     await this.feedback.saveGeneric({
       label: 'output style',
@@ -166,6 +168,7 @@ export class OutputStyleConfigComponent implements OnInit {
         try {
           const success = await this.store.activate(request.name, request.parity);
           if (!success) return { ok: false, message: OUTPUT_STYLE_ACTIVATE_FAILED };
+          outcome.activated = true;
           return isParity && this.store.parityWarning() !== null
             ? { ok: false, message: OUTPUT_STYLE_PARITY_FAILED }
             : { ok: true };
@@ -186,6 +189,8 @@ export class OutputStyleConfigComponent implements OnInit {
             }
           },
     });
+    // N3: the list counts the parity file as requested only once the activation itself succeeded.
+    if (outcome.activated && parity !== null) this.list()?.parityActivated(parity.tier);
     // A refused or failed activate leaves the clicked radio checked: show the saved style again (D15).
     this.list()?.syncActiveRadios(this.store.activeName());
   }
@@ -216,9 +221,9 @@ export class OutputStyleConfigComponent implements OnInit {
     await this.store.remove(ref.name, ref.tier);
   }
 
-  /** Req 5.5 — copy the injected user-tier style into the project tier. */
-  async onCopyToProject(name: string): Promise<void> {
-    await this.store.copyToProjectTier(name);
+  /** Req 5.5 — copy the injected user-tier style into the project tier; replaces only after the list's confirm. */
+  async onCopyToProject(request: { readonly name: string; readonly overwrite: boolean }): Promise<void> {
+    await this.store.copyToProjectTier(request.name, request.overwrite);
   }
 
   /**

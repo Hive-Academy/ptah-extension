@@ -128,10 +128,11 @@ function testFailureMessage(category: string | undefined): string {
                 }}
               </span>
               @if (config().apiKeyConfigured) {
+                <!-- Visual N2: no btn-outline:hover fill on the trigger while its confirm is open. -->
                 <button
                   #clearBtn
                   type="button"
-                  class="btn btn-outline btn-xs text-base-content"
+                  class="btn btn-outline btn-xs text-base-content aria-expanded:hover:bg-transparent aria-expanded:hover:text-base-content"
                   [disabled]="saving()"
                   [attr.aria-expanded]="confirmingClear()"
                   (click)="openClearConfirm()"

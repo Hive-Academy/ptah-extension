@@ -483,11 +483,16 @@ describe('SystemPromptDrawerComponent', () => {
 
     describe('unanswered regenerate (Moderate 9, lane Serious 1)', () => {
       const newer: EnhancedPromptsGetStatusResponse = { ...defaultStatus, generatedAt: '2026-10-02T09:00:00.000Z' };
+      let clock = 0;
 
+      /** The client timeout: the regenerate call resolves a failed result after the full 120 s budget. */
       async function regenerateWithoutAnswer(): Promise<void> {
         call.mockImplementation(async (method: string) => {
           if (method === 'enhancedPrompts:getStatus') return rpcSuccess(defaultStatus);
-          if (method === 'enhancedPrompts:regenerate') return rpcError('RPC timeout: enhancedPrompts:regenerate');
+          if (method === 'enhancedPrompts:regenerate') {
+            clock += 120_000;
+            return rpcError('RPC timeout: enhancedPrompts:regenerate');
+          }
           return rpcSuccess(undefined);
         });
         by('system-prompt-regenerate-button')?.click();
@@ -497,7 +502,43 @@ describe('SystemPromptDrawerComponent', () => {
         await settle();
       }
 
+      beforeEach(() => {
+        clock = Date.now();
+        jest.spyOn(Date, 'now').mockImplementation(() => clock);
+      });
+
       afterEach(() => jest.restoreAllMocks());
+
+      it.each([
+        ['an RPC error', async () => rpcError('handler unavailable')],
+        [
+          'a rejected call',
+          async () => {
+            throw new Error('transport closed');
+          },
+        ],
+      ])('a fast failure (%s) shows the fixed sentence and leaves Regenerate enabled (N1)', async (_label, regenerate) => {
+        await render();
+        call.mockImplementation(async (method: string) => {
+          if (method === 'enhancedPrompts:getStatus') return rpcSuccess(defaultStatus);
+          if (method === 'enhancedPrompts:regenerate') {
+            clock += 2_000;
+            return regenerate();
+          }
+          return rpcSuccess(undefined);
+        });
+        by('system-prompt-regenerate-button')?.click();
+        fixture.detectChanges();
+        call.mockClear();
+        by('regenerate-confirm-button')?.click();
+        await settle();
+
+        expect(by('system-prompt-drawer-error')?.textContent).toContain('Could not regenerate the system prompt.');
+        expect(by('system-prompt-drawer-error')?.textContent).not.toContain('transport closed');
+        expect(by('regenerate-may-be-running')).toBeNull();
+        expect(call).not.toHaveBeenCalledWith('enhancedPrompts:getStatus', expect.anything());
+        expect((by('system-prompt-regenerate-button') as HTMLButtonElement).disabled).toBe(false);
+      });
 
       it('re-reads the status, shows a fixed note and blocks a second regenerate', async () => {
         await render();
@@ -528,16 +569,15 @@ describe('SystemPromptDrawerComponent', () => {
 
       it('keeps the block while the host may run, and lifts it with the failure once that time has passed', async () => {
         await render();
-        const start = Date.now();
-        jest.spyOn(Date, 'now').mockReturnValue(start);
+        const start = clock;
         await regenerateWithoutAnswer();
 
-        jest.spyOn(Date, 'now').mockReturnValue(start + 60_000);
+        clock = start + 180_000;
         await drawer().checkRegenerate();
         fixture.detectChanges();
         expect(by('regenerate-may-be-running')).not.toBeNull();
 
-        jest.spyOn(Date, 'now').mockReturnValue(start + 240_000);
+        clock = start + 240_000;
         await drawer().checkRegenerate();
         fixture.detectChanges();
         expect(by('regenerate-may-be-running')).toBeNull();
