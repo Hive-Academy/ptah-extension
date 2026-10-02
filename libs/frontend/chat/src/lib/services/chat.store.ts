@@ -25,7 +25,10 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService, TabId } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
-import { SessionLoaderService } from './chat-store/session-loader.service';
+import {
+  SessionLoaderService,
+  type SessionListQuery,
+} from './chat-store/session-loader.service';
 import { SessionHistoryReplayer } from './chat-store/session-history-replayer.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
@@ -95,6 +98,8 @@ export class ChatStore {
   readonly hasMoreSessions = this.sessionLoader.hasMoreSessions;
   readonly totalSessions = this.sessionLoader.totalSessions;
   readonly isLoadingMoreSessions = this.sessionLoader.isLoadingMoreSessions;
+  readonly listQuery = this.sessionLoader.listQuery;
+  readonly organizationAvailable = this.sessionLoader.organizationAvailable;
   readonly isStopping = this.conversation.isStopping;
   readonly queueRestoreContent = this.conversation.queueRestoreSignal;
   readonly permissionRequests = this.permissionHandler.permissionRequests;
@@ -197,6 +202,11 @@ export class ChatStore {
 
   async loadMoreSessions(): Promise<void> {
     return this.sessionLoader.loadMoreSessions();
+  }
+
+  /** Replace the sidebar's `session:list` organization query (TASK_2026_580). */
+  setListQuery(query: SessionListQuery): void {
+    this.sessionLoader.setListQuery(query);
   }
 
   async switchSession(

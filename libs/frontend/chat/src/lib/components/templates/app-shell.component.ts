@@ -2,13 +2,14 @@ import {
   Component,
   computed,
   inject,
+  linkedSignal,
   signal,
   effect,
   viewChild,
   ElementRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { NgComponentOutlet } from '@angular/common';
+import { NgClass, NgComponentOutlet, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterOutlet } from '@angular/router';
 import {
@@ -27,6 +28,7 @@ import {
   Search,
   Settings,
   Store,
+  Tag,
   Trash2,
   X,
   BarChart3,
@@ -34,6 +36,10 @@ import {
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
+import { SessionFilterBarComponent } from '../molecules/session-filter-bar/session-filter-bar.component';
+import { SessionOrganizationEditorComponent } from '../molecules/session-organization-editor/session-organization-editor.component';
+import { SessionOrganizationChipsComponent } from '../atoms/session-organization-chips/session-organization-chips.component';
+import { groupSessionRows, type SessionRowGroup } from './session-row-groups';
 import { SubagentTranscriptOverlayComponent } from '../organisms/subagent-transcript-overlay.component';
 import {
   SidebarTabComponent,
@@ -65,6 +71,7 @@ import {
 import { NotificationCenterComponent } from '@ptah-extension/notification-center';
 import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
+import type { SessionListQuery } from '../../services/chat-store/session-loader.service';
 import type { TitleOrigin } from '@ptah-extension/chat-types';
 
 /**
@@ -106,6 +113,8 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
     SurfaceActiveDirective,
     RouterOutlet,
     NgComponentOutlet,
+    NgTemplateOutlet,
+    NgClass,
     TabBarComponent,
     ConfirmationDialogComponent,
     SubagentTranscriptOverlayComponent,
@@ -116,6 +125,9 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
     SidebarTabComponent,
     SkeletonBlockComponent,
     NotificationCenterComponent,
+    SessionFilterBarComponent,
+    SessionOrganizationChipsComponent,
+    SessionOrganizationEditorComponent,
   ],
   providers: [
     {
@@ -204,6 +216,7 @@ export class AppShellComponent {
   readonly StoreIcon = Store;
   readonly ScaleIcon = Scale;
   readonly ClipboardListIcon = ClipboardList;
+  readonly TagIcon = Tag;
   readonly thothFirstRunDismissed = this.appState.thothFirstRunDismissed;
   /**
    * Tooltip for sessions whose SDK transcript was pruned by the Claude CLI's
@@ -228,16 +241,47 @@ export class AppShellComponent {
   readonly dateTo = this._dateTo.asReadonly();
   readonly dateFilterOpen = this._dateFilterOpen.asReadonly();
 
+  /**
+   * Whether the host serves session organization (TASK_2026_580). When false
+   * (VS Code) the sidebar is exactly today's: the local search box, the date
+   * filter and plain rows (AC7).
+   */
+  readonly organizationAvailable = this.chatStore.organizationAvailable;
+  /** The query the server answers; the filter bar's seed. */
+  readonly listQuery = this.chatStore.listQuery;
+
+  /** Filters applied here, over the loaded pages. */
+  readonly hasClientFilters = computed(() => {
+    const dateActive = this._dateFrom().length > 0 || this._dateTo().length > 0;
+    // With organization the search text goes to the server instead.
+    return this.organizationAvailable()
+      ? dateActive
+      : dateActive || this._searchQuery().length > 0;
+  });
+
+  /** Filters the server applied to the rows (organization hosts only). */
+  readonly hasServerFilters = computed(() => {
+    if (!this.organizationAvailable()) return false;
+    const q = this.listQuery();
+    return (
+      (q.status?.length ?? 0) > 0 ||
+      (q.priority?.length ?? 0) > 0 ||
+      !!q.taskId ||
+      q.pinned !== undefined ||
+      q.hasPr !== undefined ||
+      !!q.text
+    );
+  });
+
   readonly hasActiveFilters = computed(
-    () =>
-      this._searchQuery().length > 0 ||
-      this._dateFrom().length > 0 ||
-      this._dateTo().length > 0,
+    () => this.hasClientFilters() || this.hasServerFilters(),
   );
 
   readonly filteredSessions = computed(() => {
     const sessions = this.chatStore.sessions();
-    const query = this._searchQuery().toLowerCase().trim();
+    const query = this.organizationAvailable()
+      ? ''
+      : this._searchQuery().toLowerCase().trim();
     const fromStr = this._dateFrom();
     const toStr = this._dateTo();
 
@@ -269,6 +313,46 @@ export class AppShellComponent {
       return true;
     });
   });
+
+  /**
+   * The rows as the sidebar draws them. Without organization this is one
+   * headerless group of today's rows; with it, headers follow the query's
+   * `groupBy` and children nest under parents for `parent`.
+   */
+  readonly sessionGroups = computed<SessionRowGroup[]>(() =>
+    groupSessionRows(
+      this.filteredSessions(),
+      this.organizationAvailable()
+        ? (this.listQuery().groupBy ?? 'none')
+        : 'none',
+    ),
+  );
+
+  /** Id of the session whose organization editor is open, or null. */
+  private readonly organizingSessionId = signal<string | null>(null);
+
+  /**
+   * The row the editor shows. It follows the list, so a reload after a
+   * mutation hands the editor the fresh record; when the row leaves the
+   * loaded list (e.g. it was archived under a status filter) the editor keeps
+   * the last copy instead of closing under the user.
+   */
+  readonly organizingSession = linkedSignal<
+    { id: string | null; sessions: readonly ChatSessionSummary[] },
+    ChatSessionSummary | null
+  >({
+    source: () => ({
+      id: this.organizingSessionId(),
+      sessions: this.chatStore.sessions(),
+    }),
+    computation: ({ id, sessions }, previous) => {
+      if (id === null) return null;
+      const row = sessions.find((s) => s.id === id);
+      if (row) return row;
+      return previous?.value?.id === id ? previous.value : null;
+    },
+  });
+
   readonly sessionNameInputRef = viewChild<ElementRef<HTMLInputElement>>(
     'sessionNameInputRef',
   );
@@ -470,6 +554,29 @@ export class AppShellComponent {
     this._dateFrom.set('');
     this._dateTo.set('');
     this._dateFilterOpen.set(false);
+    if (this.hasServerFilters()) {
+      // Filters only: the chosen sort and grouping are a view preference.
+      const { sort, groupBy } = this.listQuery();
+      this.chatStore.setListQuery({
+        sort,
+        ...(groupBy !== undefined ? { groupBy } : {}),
+      });
+    }
+  }
+
+  /** The filter bar settled on a new query; the server answers it. */
+  onListQueryChange(query: SessionListQuery): void {
+    this.chatStore.setListQuery(query);
+  }
+
+  /** Open the organization editor for a row (row menu, next to rename). */
+  openOrganizer(event: Event, session: ChatSessionSummary): void {
+    event.stopPropagation();
+    this.organizingSessionId.set(session.id);
+  }
+
+  closeOrganizer(): void {
+    this.organizingSessionId.set(null);
   }
 
   /**
@@ -613,6 +720,9 @@ export class AppShellComponent {
 
       if (result.isSuccess() && result.data?.success) {
         this.chatStore.removeSessionFromList(session.id);
+        if (this.organizingSessionId() === session.id) {
+          this.closeOrganizer();
+        }
         if (this.chatStore.currentSession()?.id === session.id) {
           this.chatStore.clearCurrentSession();
         }

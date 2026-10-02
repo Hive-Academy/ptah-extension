@@ -69,6 +69,17 @@ const GROUP_OPTIONS: readonly { value: SessionListGroup; label: string }[] = [
   { value: 'parent', label: 'By parent' },
 ];
 
+/**
+ * The app's keyboard focus ring (`styles.css` `:focus-visible`, the one the
+ * buttons show). daisyUI's `.input`/`.select` focus outline is a 20% tint and
+ * wins over the global rule, so these controls restate it as utilities.
+ */
+const FOCUS_RING =
+  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]';
+/** The same ring on a label that wraps its input (search box). */
+const FOCUS_RING_WITHIN =
+  'has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[oklch(var(--s))]';
+
 let nextId = 0;
 
 @Component({
@@ -84,7 +95,7 @@ let nextId = 0;
       data-testid="session-filter-bar"
     >
       <label
-        class="input input-xs w-full flex items-center gap-1.5 bg-base-100 border-base-content/10"
+        class="input input-xs w-full flex items-center gap-1.5 bg-base-100 border-base-content/10 ${FOCUS_RING_WITHIN}"
       >
         <lucide-angular
           [img]="SearchIcon"
@@ -197,7 +208,7 @@ let nextId = 0;
               <input
                 [id]="taskInputId"
                 type="text"
-                class="input input-xs w-full bg-base-100 border-base-content/10"
+                class="input input-xs w-full bg-base-100 border-base-content/10 ${FOCUS_RING}"
                 placeholder="TASK_2026_..."
                 [value]="taskId()"
                 (input)="onTaskId($event)"
@@ -244,11 +255,15 @@ let nextId = 0;
             }
           </div>
         </ptah-native-popover>
+      </div>
 
+      <!-- Own row: at the 224px sidebar, sharing a row with "Filters" left
+           each select 72px and clipped its value ("Last a"). -->
+      <div class="flex items-center gap-1">
         <label class="sr-only" [attr.for]="sortSelectId">Sort sessions</label>
         <select
           [id]="sortSelectId"
-          class="select select-xs h-6 min-h-6 min-w-0 flex-1 bg-base-100 border-base-content/10 text-[11px]"
+          class="select select-xs h-6 min-h-6 min-w-0 flex-1 pl-2 pr-6 bg-base-100 border-base-content/10 text-[11px] ${FOCUS_RING}"
           (change)="onSort($event)"
           data-testid="session-filter-sort"
         >
@@ -262,7 +277,7 @@ let nextId = 0;
         <label class="sr-only" [attr.for]="groupSelectId">Group sessions</label>
         <select
           [id]="groupSelectId"
-          class="select select-xs h-6 min-h-6 min-w-0 flex-1 bg-base-100 border-base-content/10 text-[11px]"
+          class="select select-xs h-6 min-h-6 min-w-0 flex-1 pl-2 pr-6 bg-base-100 border-base-content/10 text-[11px] ${FOCUS_RING}"
           (change)="onGroup($event)"
           data-testid="session-filter-group"
         >

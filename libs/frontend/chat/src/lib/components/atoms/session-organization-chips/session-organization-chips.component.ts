@@ -139,8 +139,10 @@ function fromTurnPhase(
         >
           @switch (phase) {
             @case ('running') {
+              <!-- The ring carries the contrast (task-card dots, C2.2): a
+                   theme fill alone fell to 1.25:1 on the light sidebar. -->
               <span
-                class="w-2 h-2 rounded-full bg-primary animate-pulse"
+                class="w-2.5 h-2.5 rounded-full border border-base-content/70 bg-info motion-safe:animate-pulse"
                 aria-hidden="true"
               ></span>
             }
