@@ -330,6 +330,34 @@ describe('SpotEditorComponent', () => {
       expect(editorView(fixture).state.readOnly).toBe(true);
     });
 
+    it('keeps the content the single tab stop of the scroller, read-only and editable (axe scrollable-region-focusable)', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render();
+      // Sequential tab stops only: CodeMirror gives the scroller itself
+      // tabindex="-1" (programmatic focus, not a stop).
+      const tabStops = (): string[] =>
+        Array.from(
+          el(fixture).querySelectorAll<HTMLElement>(
+            '.cm-scroller [tabindex], .cm-scroller[tabindex]',
+          ),
+        )
+          .filter((node) => Number(node.getAttribute('tabindex')) >= 0)
+          .map((node) => `${node.className}:${node.getAttribute('tabindex')}`);
+      const content = (): HTMLElement | null =>
+        el(fixture).querySelector<HTMLElement>('.cm-scroller > .cm-content');
+
+      expect(content()?.getAttribute('contenteditable')).toBe('false');
+      expect(content()?.getAttribute('tabindex')).toBe('0');
+      expect(content()?.getAttribute('aria-label')).toBeTruthy();
+      expect(tabStops()).toEqual([`${content()?.className}:0`]);
+
+      byTestId<HTMLButtonElement>(fixture, 'spot-editor-edit')?.click();
+      await settle(fixture);
+
+      expect(content()?.getAttribute('contenteditable')).toBe('true');
+      expect(tabStops()).toEqual([`${content()?.className}:0`]);
+    });
+
     it('follows the dark theme', async () => {
       routeRpc([viewResult()]);
       const fixture = await render();

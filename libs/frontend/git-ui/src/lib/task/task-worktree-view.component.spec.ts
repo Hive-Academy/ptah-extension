@@ -653,6 +653,14 @@ describe('TaskWorktreeViewComponent', () => {
     const counts = query('[data-testid="task-ahead-behind"]');
     // Arrows for the eye, words for a screen reader.
     expect(textOf(counts)).toBe('↑2 ahead,↓3 behind');
+    // Full-strength ink: stock info/warning ink fails AA on the light theme
+    // (Batch 68 axe color-contrast); the arrow and the word carry the meaning.
+    for (const id of ['task-ahead-count', 'task-behind-count']) {
+      const count = query(`[data-testid="${id}"]`);
+      expect(count).not.toBeNull();
+      expect(count?.classList.contains('text-info')).toBe(false);
+      expect(count?.classList.contains('text-warning')).toBe(false);
+    }
     const details = query('[data-testid="task-branch-details"]');
     expect(
       [...(details?.querySelectorAll('dt') ?? [])].map((dt) => textOf(dt)),

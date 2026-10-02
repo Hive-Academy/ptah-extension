@@ -1,7 +1,8 @@
 import {
-  DEFAULT_THEMES,
   registerCustomLanguage,
+  registerCustomTheme,
   type FileDiffOptions,
+  type ThemeRegistration,
 } from '@pierre/diffs';
 
 /**
@@ -78,15 +79,54 @@ const LANGUAGES: ReadonlyArray<{
   },
 ];
 
-let languagesRegistered = false;
+/**
+ * The light diff theme. Pierre's own `pierre-light` fails WCAG AA on the light
+ * app theme (Batch 68 axe): its addition count is 3.2:1 on white, deletion
+ * line numbers 4.4:1, and several token colours (#d5901c, #08c0ef) land
+ * between 1.8:1 and 2.7:1 on the tinted change rows.
+ *
+ * GitHub Light High Contrast, which Shiki ships, clears 4.5:1 for the counts
+ * (8.1:1), the line numbers (7.0:1) and every token on the change rows and
+ * their word highlights, except comments (#66707b: 4.1:1 on a deleted row,
+ * 3.2:1 under a word highlight). `ptah-light` is that theme with the comment
+ * ink deepened to {@link LIGHT_COMMENT_INK} (6.4:1 and 4.9:1). The dark theme
+ * stays `pierre-dark`.
+ */
+export const PIERRE_LIGHT_THEME = 'ptah-light';
+const LIGHT_COMMENT_INK = '#4b535d';
+
+/** `base` with every comment rule's foreground set to {@link LIGHT_COMMENT_INK}. */
+export function createPtahLightTheme(
+  base: ThemeRegistration,
+): ThemeRegistration {
+  return {
+    ...base,
+    name: PIERRE_LIGHT_THEME,
+    displayName: 'Ptah Light',
+    tokenColors: base.tokenColors?.map((rule) => {
+      const scopes = Array.isArray(rule.scope) ? rule.scope : [rule.scope];
+      return scopes.includes('comment') && rule.settings.foreground
+        ? {
+            ...rule,
+            settings: { ...rule.settings, foreground: LIGHT_COMMENT_INK },
+          }
+        : rule;
+    }),
+  };
+}
+
+let resourcesRegistered = false;
 
 /**
- * Register the grammar loaders with Pierre once per page. Pierre logs an error
- * for a second registration of the same name, so this is guarded.
+ * Register the grammar loaders and the `ptah-light` theme with Pierre once per
+ * page. Pierre logs an error for a second registration of the same name, so
+ * this is guarded. The theme must be registered before anything resolves
+ * {@link PIERRE_HIGHLIGHT_OPTIONS}: the worker pool resolves themes on the main
+ * thread and hands the resolved data to its workers.
  */
-export function registerPierreLanguages(): void {
-  if (languagesRegistered) return;
-  languagesRegistered = true;
+export function registerPierreResources(): void {
+  if (resourcesRegistered) return;
+  resourcesRegistered = true;
   for (const { name, load, extensions } of LANGUAGES) {
     registerCustomLanguage(
       name,
@@ -94,6 +134,12 @@ export function registerPierreLanguages(): void {
       [...extensions],
     );
   }
+  registerCustomTheme(PIERRE_LIGHT_THEME, async () =>
+    createPtahLightTheme(
+      (await import('shiki/themes/github-light-high-contrast.mjs'))
+        .default as ThemeRegistration,
+    ),
+  );
 }
 
 /**
@@ -117,15 +163,19 @@ export function readDocumentThemeMode(): PierreThemeMode {
  *   `'word-line'` highlights whole lines (Gate 1.7 open item 2).
  * - `preferredHighlighter: 'shiki-js'`: the JavaScript regex engine. The WASM
  *   engine is the configuration the research measured at ~377 KB gz.
+ * - `theme`: Pierre's own `pierre-dark` (its default dark theme, passing in
+ *   the Batch 68 sweep) and {@link PIERRE_LIGHT_THEME}, which
+ *   {@link registerPierreResources} registers. Literal names, so loading this
+ *   module reads nothing from `@pierre/diffs`.
  */
 export const PIERRE_HIGHLIGHT_OPTIONS = {
   preferredHighlighter: 'shiki-js',
-  theme: DEFAULT_THEMES,
+  theme: { dark: 'pierre-dark', light: PIERRE_LIGHT_THEME },
   lineDiffType: 'word',
 } as const;
 
 /**
- * Focus ring for the code panes {@link labelPierreCodePanes} makes focusable.
+ * Focus ring for the code panes {@link labelPierreDiff} makes focusable.
  * Pierre's shadow root does not see the page's utility classes, so the ring is
  * injected through its `unsafeCSS` option (wrapped in Pierre's `unsafe` cascade
  * layer). Custom properties do cross the shadow boundary, so the ring uses the
@@ -159,16 +209,19 @@ export function createPierreDiffOptions(
 }
 
 /**
- * Make Pierre's horizontally scrolling code panes keyboard-reachable (axe
- * `scrollable-region-focusable`). Pierre 1.5.1 has no option for this: its
- * `<code data-unified|data-deletions|data-additions>` panes are rendered
- * without a tabindex or a name. Called from `onPostRender`, which fires after
- * every mount and update, so panes Pierre creates or replaces are covered.
+ * Name what Pierre renders unnamed, inside a diff's shadow root. Pierre 1.5.1
+ * has no option for either. Called from `onPostRender`, which fires after
+ * every mount and update, so elements Pierre creates or replaces are covered.
  *
- * `role="group"` is what allows the name: the implicit `code` role prohibits
- * `aria-label`, and `region` would add a landmark per file.
+ * - Code panes: the horizontally scrolling `<code data-unified|data-deletions|
+ *   data-additions>` get a tab stop and a side-specific name (axe
+ *   `scrollable-region-focusable`). `role="group"` is what allows the name:
+ *   the implicit `code` role prohibits `aria-label`, and `region` would add a
+ *   landmark per file.
+ * - Expand buttons: the icon-only `[data-expand-button][role=button]` in the
+ *   collapsed-context separators (axe `aria-command-name`).
  */
-export function labelPierreCodePanes(
+export function labelPierreDiff(
   root: ParentNode | null | undefined,
   fileName: string,
 ): void {
@@ -184,8 +237,46 @@ export function labelPierreCodePanes(
         : `Diff of ${file}`;
     if (pane.getAttribute('tabindex') !== '0') pane.setAttribute('tabindex', '0');
     if (pane.getAttribute('role') !== 'group') pane.setAttribute('role', 'group');
-    if (pane.getAttribute('aria-label') !== label) {
-      pane.setAttribute('aria-label', label);
-    }
+    setLabel(pane, label);
   }
+  for (const button of Array.from(
+    root.querySelectorAll<HTMLElement>(
+      '[data-expand-button]:not([data-expand-all-button])',
+    ),
+  )) {
+    setLabel(button, expandButtonLabel(button));
+  }
+}
+
+function setLabel(element: HTMLElement, label: string): void {
+  if (element.getAttribute('aria-label') !== label) {
+    element.setAttribute('aria-label', label);
+  }
+}
+
+/**
+ * The name of one expand button, read from its separator. Pierre's separator
+ * text is "N unmodified lines"; the count is used when it parses.
+ *
+ * A gap no longer than Pierre's expansion step has one button that reveals
+ * all of it. A longer gap is "chunked": its buttons reveal one step at a time
+ * from either edge (`data-expand-up` grows the gap's start, next to the change
+ * above; `data-expand-down` its end, next to the change below) and Pierre adds
+ * a separate, already-labelled "Expand all" button.
+ */
+function expandButtonLabel(button: HTMLElement): string {
+  const wrapper = button.closest('[data-separator-wrapper]');
+  const count = /\d+/.exec(
+    wrapper?.querySelector('[data-unmodified-lines]')?.textContent ?? '',
+  )?.[0];
+  const lines =
+    count === undefined
+      ? 'hidden lines'
+      : `${count} hidden ${count === '1' ? 'line' : 'lines'}`;
+  if (!wrapper?.querySelector('[data-expand-all-button]')) {
+    return `Show ${lines}`;
+  }
+  return button.hasAttribute('data-expand-up')
+    ? `Show more of ${lines} after the change above`
+    : `Show more of ${lines} before the change below`;
 }

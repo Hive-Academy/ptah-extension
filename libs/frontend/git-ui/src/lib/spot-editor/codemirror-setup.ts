@@ -204,7 +204,14 @@ export function createSpotEditor(options: SpotEditorOptions): SpotEditorHandle {
           ...defaultKeymap,
           ...historyKeymap,
         ]),
-        EditorView.contentAttributes.of({ 'aria-label': label }),
+        // `tabindex` keeps the content the editor's one tab stop in both
+        // modes. Editable, it is focusable anyway (contenteditable, so no
+        // second stop is added); read-only, CodeMirror renders it
+        // contenteditable="false" and it would otherwise be unreachable, so
+        // keyboard users could neither focus nor scroll the file (axe
+        // `scrollable-region-focusable` on `.cm-scroller`, both modes, since
+        // axe counts only tabindex/native focusability).
+        EditorView.contentAttributes.of({ 'aria-label': label, tabindex: '0' }),
         editableSlot.of(editableExtension(editable)),
         themeSlot.of(themeExtension(dark)),
         languageSlot.of([]),

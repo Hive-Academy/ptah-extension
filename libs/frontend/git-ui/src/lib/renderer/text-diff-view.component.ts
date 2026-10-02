@@ -18,9 +18,9 @@ import {
 } from '@pierre/diffs';
 import {
   createPierreDiffOptions,
-  labelPierreCodePanes,
+  labelPierreDiff,
   readDocumentThemeMode,
-  registerPierreLanguages,
+  registerPierreResources,
   type PierreThemeMode,
 } from './pierre-config';
 
@@ -32,7 +32,7 @@ import {
  * - Renders two text bodies in unified diff view without hunk toolbars or editing controls.
  * - Imperative `FileDiff` creation and cleanup in `afterRenderEffect`, disposed
  *   on destroy and on input change.
- * - Dispatches syntax-highlighting grammar registration via `registerPierreLanguages()`.
+ * - Registers the grammars and the light diff theme via `registerPierreResources()`.
  * - Updates Pierre theme in place without recreating the diff instance.
  */
 @Component({
@@ -100,7 +100,7 @@ export class TextDiffViewComponent {
   private instance: FileDiff | null = null;
 
   constructor() {
-    registerPierreLanguages();
+    registerPierreResources();
 
     // Content inputs: a fresh FileDiff per change; the cleanup disposes the
     // previous one first and runs again on destroy.
@@ -167,7 +167,7 @@ export class TextDiffViewComponent {
           ...createPierreDiffOptions('unified', untracked(this.themeType)),
           onPostRender: (node, _instance, phase) => {
             if (phase === 'unmount') return;
-            labelPierreCodePanes(node.shadowRoot, fileDiff.name || name);
+            labelPierreDiff(node.shadowRoot, fileDiff.name || name);
           },
         },
         undefined,

@@ -135,51 +135,57 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
    HOW THESE VALUES WERE CHOSEN
    Each is base-content interpolated toward that theme's own base-100 in OKLCH,
    by the largest fraction (capped at 40%) that still measures >= 5.0:1 — the
-   4.5:1 gate plus headroom. Themes with little headroom get little muting;
-   `aqua` gets none at all (its base-content is only 4.73:1 to begin with), which
-   is the correct answer rather than a failure.
+   4.5:1 gate plus headroom — on base-100, base-200 AND base-300: muted text
+   sits on all three surfaces (cards, banners, list rows). Themes with little
+   headroom get little muting; `aqua` gets none at all (its base-content is
+   only 4.73:1 to begin with), which is the correct answer rather than a
+   failure. TASK_2026_576 Batch 68 re-derived the 20 themes whose earlier
+   base-100-only value fell below 4.5:1 on base-200 or base-300 (axe measured
+   4.39:1 on anubis base-300 and 4.45:1 on anubis-light base-200); values that
+   already held on all three surfaces were left as they were.
 
    DO NOT hand-edit these. Every value here is re-measured by
    apps/ptah-extension-webview/src/app/base-content-muted.spec.ts, which reads
    the literal theme sources — including daisyUI's own auto-generation of an
-   absent `base-content` — and fails if any theme drops below 4.5:1 or if a
-   theme in the picker has no value at all. To ADD a theme, compute its value
-   with the rule above (largest OKLCH mix toward base-100, capped at 40%, that
-   still measures >= 5.0:1) and let the spec confirm it. A theme missing from
-   this list is safe but unmuted: the utility falls back to `var(--bc)`.
+   absent `base-content`, `base-200` and `base-300` — and fails if any theme
+   drops below 4.5:1 on any of the three surfaces or if a theme in the picker
+   has no value at all. To ADD a theme, compute its value with the rule above
+   (largest OKLCH mix toward base-100, capped at 40%, that still measures
+   >= 5.0:1 on base-100/200/300) and let the spec confirm it. A theme missing
+   from this list is safe but unmuted: the utility falls back to `var(--bc)`.
    ============================================================================ */
 [data-theme='acid'] {
-  --bcm: 51.22539% 0 0;
+  --bcm: 43.344561% 0 0;
 }
 [data-theme='aqua'] {
   --bcm: 89.751922% 0.025508 261.181674;
 }
 [data-theme='autumn'] {
-  --bcm: 49.823638% 0 0;
+  --bcm: 41.545249% 0 0;
 }
 [data-theme='black'] {
-  --bcm: 58.480355% 0 0;
+  --bcm: 66.75854% 0 0;
 }
 [data-theme='bumblebee'] {
-  --bcm: 52% 0 0;
+  --bcm: 44.32% 0 0;
 }
 [data-theme='business'] {
   --bcm: 64.809638% 0 0;
 }
 [data-theme='cmyk'] {
-  --bcm: 52% 0 0;
+  --bcm: 44.32% 0 0;
 }
 [data-theme='coffee'] {
   --bcm: 63.427702% 0.080513 59.85516;
 }
 [data-theme='corporate'] {
-  --bcm: 53.433944% 0.018783 310.843373;
+  --bcm: 44.508783% 0.022383 301.421687;
 }
 [data-theme='cupcake'] {
-  --bcm: 53.259778% 0.041413 354.463901;
+  --bcm: 48.955367% 0.045012 348.479126;
 }
 [data-theme='cyberpunk'] {
-  --bcm: 49.1452% 0.09308 104.32;
+  --bcm: 40.752712% 0.077185 104.32;
 }
 [data-theme='dark'] {
   --bcm: 65.537861% 0.020546 262.216118;
@@ -191,43 +197,43 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --bcm: 70.177757% 0.013589 174.930522;
 }
 [data-theme='emerald'] {
-  --bcm: 54.430434% 0.022665 291.44056;
+  --bcm: 44.417545% 0.027645 276.376162;
 }
 [data-theme='fantasy'] {
-  --bcm: 54.416259% 0.018687 294.86753;
+  --bcm: 44.412009% 0.022789 280.572926;
 }
 [data-theme='forest'] {
   --bcm: 61.573653% 0.003925 17.911531;
 }
 [data-theme='garden'] {
-  --bcm: 47.357784% 0.001864 17.270898;
+  --bcm: 39.606782% 0.001813 17.28354;
 }
 [data-theme='halloween'] {
   --bcm: 65.111648% 0 0;
 }
 [data-theme='lemonade'] {
-  --bcm: 51.3292% 0.0104 123.72;
+  --bcm: 43.511368% 0.008816 123.72;
 }
 [data-theme='light'] {
-  --bcm: 54.416259% 0.018687 294.86753;
+  --bcm: 49.104502% 0.020865 287.277809;
 }
 [data-theme='lofi'] {
   --bcm: 40% 0 0;
 }
 [data-theme='luxury'] {
-  --bcm: 60.728735% 0.094705 40.211377;
+  --bcm: 70.019686% 0.112692 62.992259;
 }
 [data-theme='night'] {
   --bcm: 62.507497% 0.018845 265.754875;
 }
 [data-theme='nord'] {
-  --bcm: 50.944833% 0.018369 263.163395;
+  --bcm: 47.232315% 0.019287 263.367731;
 }
 [data-theme='pastel'] {
-  --bcm: 52% 0 0;
+  --bcm: 45.2% 0 0;
 }
 [data-theme='retro'] {
-  --bcm: 48.662535% 0.015873 31.132774;
+  --bcm: 43.052641% 0.013434 23.380988;
 }
 [data-theme='sunset'] {
   --bcm: 63.174474% 0.037278 243.196345;
@@ -236,13 +242,13 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --bcm: 67.490532% 0.037693 295.949172;
 }
 [data-theme='valentine'] {
-  --bcm: 51.274741% 0.067882 357.901888;
+  --bcm: 41.55436% 0.077103 2.56819;
 }
 [data-theme='winter'] {
-  --bcm: 54.458679% 0.042228 278.361426;
+  --bcm: 49.732165% 0.046611 269.888552;
 }
 [data-theme='wireframe'] {
-  --bcm: 52% 0 0;
+  --bcm: 47.04% 0 0;
 }
 
 /* Light theme overrides for glass morphism and decorative elements */

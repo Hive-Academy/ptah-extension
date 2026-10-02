@@ -91,6 +91,7 @@ jest.mock('@pierre/diffs', () => ({
   DEFAULT_THEMES: { dark: 'pierre-dark', light: 'pierre-light' },
   FileDiff: FakeFileDiff,
   registerCustomLanguage: jest.fn(),
+  registerCustomTheme: jest.fn(),
   // Mirrors the real 1.5.1 contract: throws when both sides are null, and
   // identical contents produce zero hunks.
   parseDiffFromFile: (

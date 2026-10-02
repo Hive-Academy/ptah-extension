@@ -105,6 +105,24 @@ export async function setTheme(page: Page, theme: AxeTheme): Promise<void> {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       ),
   );
+  // The flip starts colour transitions (daisyUI's `.btn` runs 200 ms), and
+  // axe reads computed colours mid-transition: Batch 68 measured the light
+  // Abort button at 4.48:1 (#1b1b1f, the ink still on its way from the dark
+  // theme) where its settled pair is 4.84:1. Wait for those transitions only
+  // (an infinite spinner animation never finishes), capped so a stuck one
+  // cannot hang the audit.
+  await page.evaluate(
+    () =>
+      Promise.race([
+        Promise.allSettled(
+          document
+            .getAnimations()
+            .filter((animation) => animation instanceof CSSTransition)
+            .map((animation) => animation.finished),
+        ),
+        new Promise((resolve) => setTimeout(resolve, 2_000)),
+      ]).then(() => undefined),
+  );
 }
 
 /**

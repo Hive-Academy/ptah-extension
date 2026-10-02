@@ -6,22 +6,7 @@
   },
   {
     "theme": "light",
-    "blocking": [
-      {
-        "id": "color-contrast",
-        "impact": "serious",
-        "targets": [
-          "p[data-testid=\"conflict-banner-no-editor\"]"
-        ],
-        "summary": "Fix any of the following:\n  Element has insufficient color contrast of 4.45 (foreground color: #81636e, background color: #efeae6, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1",
-        "nodes": [
-          {
-            "target": "p[data-testid=\"conflict-banner-no-editor\"]",
-            "summary": "Fix any of the following: Element has insufficient color contrast of 4.45 (foreground color: #81636e, background color: #efeae6, font size: 8.3pt (11px), font weight: normal). Expected contrast ratio of 4.5:1"
-          }
-        ]
-      }
-    ],
+    "blocking": [],
     "reported": []
   }
 ]

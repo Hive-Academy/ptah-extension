@@ -4,7 +4,10 @@ import {
   terminateWorkerPoolSingleton,
   type WorkerPoolManager,
 } from '@pierre/diffs/worker';
-import { PIERRE_HIGHLIGHT_OPTIONS } from './pierre-config';
+import {
+  PIERRE_HIGHLIGHT_OPTIONS,
+  registerPierreResources,
+} from './pierre-config';
 
 /**
  * `@pierre/diffs/dist/worker/worker-portable.js`, copied by the webview build
@@ -71,6 +74,8 @@ export class PierreWorkerPoolService {
     ) {
       throw new Error('Web workers are not available in this document');
     }
+    // `initialize()` resolves PIERRE_HIGHLIGHT_OPTIONS.theme by name.
+    registerPierreResources();
     const blobUrl = URL.createObjectURL(await fetchWorkerScript());
     const hardware = navigator.hardwareConcurrency || 4;
     // Outside the zone: every worker message would otherwise run app-wide

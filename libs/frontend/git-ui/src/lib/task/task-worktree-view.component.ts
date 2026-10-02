@@ -139,11 +139,14 @@ let instanceCount = 0;
               class="flex flex-shrink-0 gap-1"
               data-testid="task-ahead-behind"
             >
-              <span class="text-info"
+              <!-- Full-strength ink, not text-info/text-warning: stock info and
+                   warning ink fail AA on the light theme, and the arrow plus
+                   the sr-only word carry the meaning. -->
+              <span class="tabular-nums" data-testid="task-ahead-count"
                 >↑{{ gitStatus.branch().ahead
                 }}<span class="sr-only"> ahead,</span></span
               >
-              <span class="text-warning"
+              <span class="tabular-nums" data-testid="task-behind-count"
                 >↓{{ gitStatus.branch().behind
                 }}<span class="sr-only"> behind</span></span
               >

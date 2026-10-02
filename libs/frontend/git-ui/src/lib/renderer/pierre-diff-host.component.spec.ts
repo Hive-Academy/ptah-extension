@@ -143,6 +143,7 @@ jest.mock('@pierre/diffs', () => ({
   DEFAULT_THEMES: { dark: 'pierre-dark', light: 'pierre-light' },
   FileDiff: FakeFileDiff,
   registerCustomLanguage: jest.fn(),
+  registerCustomTheme: jest.fn(),
   getLineAnnotationName: (a: { side?: string; lineNumber: number }) =>
     `annotation-${a.side ? `${a.side}-` : ''}${a.lineNumber}`,
   getHunkSeparatorSlotName: (type: string, index: number) =>

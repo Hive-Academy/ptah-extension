@@ -25,9 +25,9 @@ import type { WorkerPoolManager } from '@pierre/diffs/worker';
 import type { GitHunkRef } from '@ptah-extension/shared';
 import {
   createPierreDiffOptions,
-  labelPierreCodePanes,
+  labelPierreDiff,
   readDocumentThemeMode,
-  registerPierreLanguages,
+  registerPierreResources,
   type PierreDiffStyle,
   type PierreThemeMode,
 } from './pierre-config';
@@ -163,7 +163,7 @@ export class PierreDiffHostComponent {
   private instance: FileDiff | null = null;
 
   constructor() {
-    registerPierreLanguages();
+    registerPierreResources();
     this.workerPool.start();
 
     // Content inputs: a fresh FileDiff per change; the cleanup disposes the
@@ -237,7 +237,7 @@ export class PierreDiffHostComponent {
           ...createPierreDiffOptions(diffStyle, untracked(this.themeType)),
           onPostRender: (node, _instance, phase) => {
             if (phase === 'unmount') return;
-            labelPierreCodePanes(
+            labelPierreDiff(
               node.shadowRoot,
               fileDiff.name || source.fileName,
             );
