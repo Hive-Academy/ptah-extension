@@ -334,6 +334,10 @@ import type {
   GitDiscardResult,
   GitCommitParams,
   GitCommitResult,
+  GitCancelOperationParams,
+  GitCancelOperationResult,
+  GitGenerateCommitMessageParams,
+  GitGenerateCommitMessageResult,
   GitShowFileParams,
   GitShowFileResult,
   GitDiffFileParams,
@@ -1570,6 +1574,14 @@ export interface RpcMethodRegistry {
   'git:unstage': { params: GitUnstageParams; result: GitUnstageResult };
   'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
+  'git:cancelOperation': {
+    params: GitCancelOperationParams;
+    result: GitCancelOperationResult;
+  };
+  'git:generateCommitMessage': {
+    params: GitGenerateCommitMessageParams;
+    result: GitGenerateCommitMessageResult;
+  };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
   'git:diffFile': { params: GitDiffFileParams; result: GitDiffFileResult };
   'git:applyHunks': {
@@ -3773,6 +3785,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:unstage': true,
   'git:discard': true,
   'git:commit': true,
+  'git:cancelOperation': true,
+  'git:generateCommitMessage': true,
   'git:showFile': true,
   'git:diffFile': true,
   'git:applyHunks': true,

@@ -6,7 +6,8 @@
  * single `run({ mode })` discriminator.
  *
  * Modes:
- *   - `oneShot`   — single-string prompt, bypassPermissions, no canUseTool,
+ *   - `oneShot`   — single-string prompt, bypassPermissions, no canUseTool
+ *                   (unless `toolAccess: 'none'` denies every tool),
  *                   maxTurns explicit, persistSession=false, subagent hooks
  *                   wired, identity prompt + PTAH_CORE appended. Used by
  *                   `InternalQueryService`.
@@ -63,6 +64,7 @@ import {
 } from './sdk-query-options-builder';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import {
+  CanUseTool,
   Options as SdkQueryOptions,
   HookEvent,
   HookCallbackMatcher,
@@ -135,6 +137,18 @@ export interface OneShotAuthOverride {
   readonly baseUrl?: string;
 }
 
+/**
+ * Which tools a one-shot's model may call.
+ *
+ * - `'claude-code'` (the default): the Claude Code tool preset plus the MCP
+ *   servers the capability policy allows, auto-approved
+ *   (`bypassPermissions`) because there is no user to ask.
+ * - `'none'`: no tool at all, for a query whose prompt carries untrusted
+ *   content (a staged diff can be written to steer the model). See
+ *   {@link toolAccessOptions} for how that is enforced.
+ */
+export type OneShotToolAccess = 'claude-code' | 'none';
+
 export interface OneShotRunInput {
   mode: 'oneShot';
   cwd: string;
@@ -147,6 +161,56 @@ export interface OneShotRunInput {
   outputFormat?: OutputFormat;
   abortController?: AbortController;
   auth?: OneShotAuthOverride;
+  /** Defaults to `'claude-code'`. */
+  toolAccess?: OneShotToolAccess;
+}
+
+/** The `canUseTool` of a `'none'` one-shot: every request is refused. */
+const denyEveryTool: CanUseTool = async (toolName) => ({
+  behavior: 'deny',
+  message: `Tools are disabled for this query; ${toolName} was not run.`,
+});
+
+type ToolAccessOptionKeys =
+  | 'tools'
+  | 'allowedTools'
+  | 'strictMcpConfig'
+  | 'skills'
+  | 'permissionMode'
+  | 'allowDangerouslySkipPermissions'
+  | 'canUseTool';
+
+/**
+ * The SDK options that decide which tools a one-shot can run.
+ *
+ * `'none'` closes every route, each on its own so no single one is load
+ * bearing: `tools: []` removes every built-in tool from the model's context;
+ * `strictMcpConfig` ignores MCP servers from project, user and plugin config
+ * (the caller passes no `mcpServers` either); `skills: []` loads no skill;
+ * `permissionMode: 'dontAsk'` with no `allowedTools` denies any call that
+ * still reached the CLI, and `canUseTool` denies whatever it is asked about.
+ * Spread AFTER `capabilityIsolationOptions` so its `strictMcpConfig`/`skills`
+ * cannot loosen this.
+ */
+function toolAccessOptions(
+  access: OneShotToolAccess,
+): Pick<SdkQueryOptions, ToolAccessOptionKeys> {
+  if (access === 'none') {
+    return {
+      tools: [],
+      allowedTools: [],
+      strictMcpConfig: true,
+      skills: [],
+      permissionMode: 'dontAsk',
+      allowDangerouslySkipPermissions: false,
+      canUseTool: denyEveryTool,
+    };
+  }
+  return {
+    tools: { type: 'preset', preset: 'claude_code' },
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
+  };
 }
 
 export interface OneShotRunResult {
@@ -305,7 +369,8 @@ export class SdkQueryRunner {
 
     this.logger.info(`${SERVICE_TAG} SDK options built — launching query`, {
       model: input.model,
-      permissionMode: 'bypassPermissions',
+      permissionMode: options.permissionMode,
+      toolAccess: input.toolAccess ?? 'claude-code',
       maxTurns: options.maxTurns,
       hasMcpServers: Object.keys(options.mcpServers ?? {}).length > 0,
       mcpServerUrls: Object.entries(options.mcpServers ?? {}).map(
@@ -429,15 +494,19 @@ export class SdkQueryRunner {
         { cwd: input.cwd, reasons: policy.reasons },
       );
     }
-    const mcpServers = filterMcpServersByPolicy(
-      this.buildOneShotMcpServers(
-        input.mcpServerRunning,
-        input.mcpPort,
-        input.cwd,
-      ),
-      policy,
-      capabilityFlags.deniedMcpServers,
-    );
+    const toolAccess = input.toolAccess ?? 'claude-code';
+    const mcpServers =
+      toolAccess === 'none'
+        ? {}
+        : filterMcpServersByPolicy(
+            this.buildOneShotMcpServers(
+              input.mcpServerRunning,
+              input.mcpPort,
+              input.cwd,
+            ),
+            policy,
+            capabilityFlags.deniedMcpServers,
+          );
 
     const hooks = this.buildOneShotHooks(input.cwd);
 
@@ -453,14 +522,9 @@ export class SdkQueryRunner {
       systemPrompt,
       // `PTAH_DISABLE_SDK_AUTO_MEMORY` by identity when the policy adds no key.
       settings: buildFlagSettings(undefined, undefined, capabilityFlags),
-      tools: {
-        type: 'preset',
-        preset: 'claude_code',
-      },
       mcpServers,
       ...capabilityIsolationOptions(policy),
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
+      ...toolAccessOptions(toolAccess),
       maxTurns: input.maxTurns ?? DEFAULT_ONE_SHOT_MAX_TURNS,
       includePartialMessages: true,
       persistSession: false,

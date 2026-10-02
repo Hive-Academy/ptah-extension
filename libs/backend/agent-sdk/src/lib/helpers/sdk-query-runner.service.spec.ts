@@ -240,6 +240,82 @@ describe('SdkQueryRunner', () => {
     });
   });
 
+  /**
+   * TASK_2026_576 (Batch 47): a one-shot whose prompt carries untrusted
+   * repository text (the commit-message generator's staged diff) must not be
+   * able to run any tool, whatever the prompt asks for.
+   */
+  describe('runOneShot — toolAccess', () => {
+    async function capturedOptions(
+      toolAccess: 'claude-code' | 'none' | undefined,
+    ): Promise<SdkQueryOptions> {
+      const h = makeRunner();
+      await h.runner.runOneShot({
+        mode: 'oneShot',
+        cwd: '/work/project',
+        model: 'claude-sonnet-4-20250514',
+        prompt: 'hi',
+        mcpServerRunning: true,
+        mcpPort: 51820,
+        toolAccess,
+      });
+      const [params] = h.queryFn.mock.calls[0] as [
+        { prompt: unknown; options: SdkQueryOptions },
+      ];
+      return params.options;
+    }
+
+    it("'none' removes every built-in tool, every MCP server and skill", async () => {
+      const options = await capturedOptions('none');
+      expect(options.tools).toEqual([]);
+      expect(options.mcpServers).toEqual({});
+      expect(options.strictMcpConfig).toBe(true);
+      expect(options.skills).toEqual([]);
+    });
+
+    it("'none' runs without bypassPermissions and pre-approves nothing", async () => {
+      const options = await capturedOptions('none');
+      expect(options.permissionMode).toBe('dontAsk');
+      expect(options.allowDangerouslySkipPermissions).toBe(false);
+      expect(options.allowedTools).toEqual([]);
+    });
+
+    it("'none' denies any tool the CLI still asks about", async () => {
+      const options = await capturedOptions('none');
+      const canUseTool = options.canUseTool;
+      expect(canUseTool).toBeDefined();
+      for (const tool of ['Bash', 'Read', 'Write', 'WebFetch', 'mcp__x__y']) {
+        await expect(
+          canUseTool?.(
+            tool,
+            {},
+            {
+              signal: new AbortController().signal,
+              toolUseID: 't',
+              requestId: 'r',
+            },
+          ),
+        ).resolves.toEqual(expect.objectContaining({ behavior: 'deny' }));
+      }
+    });
+
+    it.each([undefined, 'claude-code' as const])(
+      'leaves the default (%s) on the Claude Code preset with bypassPermissions',
+      async (toolAccess) => {
+        const options = await capturedOptions(toolAccess);
+        expect(options.tools).toEqual({
+          type: 'preset',
+          preset: 'claude_code',
+        });
+        expect(options.permissionMode).toBe('bypassPermissions');
+        expect(options.allowDangerouslySkipPermissions).toBe(true);
+        expect(options.canUseTool).toBeUndefined();
+        expect(options.allowedTools).toBeUndefined();
+        expect(Object.keys(options.mcpServers ?? {})).toContain('ptah');
+      },
+    );
+  });
+
   describe('isInitialized — the pre-check headless callers need', () => {
     it('is false on a host that never initialized the SDK', () => {
       // `withEngine({ requireSdk: false })`. `runOneShot` would throw SdkError

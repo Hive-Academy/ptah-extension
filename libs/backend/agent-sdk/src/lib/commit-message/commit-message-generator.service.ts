@@ -1,4 +1,4 @@
-import * as os from 'os';
+import * as os from 'node:os';
 import { inject, injectable } from 'tsyringe';
 import {
   TOKENS,
@@ -26,6 +26,7 @@ import {
   isErrorResult,
   isResultMessage,
   isTextBlock,
+  type SDKAssistantMessage,
   type SDKMessage,
 } from '../types/sdk-types/claude-sdk.types';
 import {
@@ -66,6 +67,16 @@ type QueryOutcome =
       readonly kind: 'unavailable';
       readonly reason: GitCommitMessageUnavailableReason;
     };
+
+/** What the stream of one query said, read up to its `result` message. */
+interface StreamReading {
+  /** Text of the LAST assistant message: the reply the prompt asked for. */
+  readonly lastAssistantText: string;
+  readonly lastAssistantErrored: boolean;
+  /** The query stopped on `error_max_turns`. */
+  readonly hitTurnCeiling: boolean;
+  readonly network: QueryNetworkObserver;
+}
 
 /**
  * Writes a commit message for the staged changes of one repository, on the
@@ -188,54 +199,62 @@ export class CommitMessageGenerator {
         queueTimeoutMs: COMMIT_MESSAGE_TIMEOUT_MS,
         abortController,
         auth,
+        // The prompt carries the staged diff, which anyone who can land a
+        // file in the repository can write. No tool may run, whatever it says.
+        toolAccess: 'none',
       });
 
-      // The LAST assistant message's text, as in the curator: it is the reply
-      // the prompt asked for.
-      let lastAssistantText = '';
-      let lastAssistantErrored = false;
-      let hitTurnCeiling = false;
-      const network = new QueryNetworkObserver();
-      for await (const msg of handle.stream as AsyncIterable<SDKMessage>) {
-        const evidence: NetworkObservableMessage = msg;
-        network.observe(evidence);
-        if (isAssistantMessage(msg)) {
-          lastAssistantErrored = evidence.error !== undefined;
-          let text = '';
-          for (const block of msg.message.content) {
-            if (isTextBlock(block)) text += block.text;
-          }
-          lastAssistantText = text;
-        }
-        if (isResultMessage(msg)) {
-          hitTurnCeiling =
-            isErrorResult(msg) && msg.subtype === 'error_max_turns';
-          break;
-        }
-      }
-
+      const reading = await this.readStream(handle.stream);
       if (timedOut) return this.timedOut();
-      const verdict = network.verdict();
-      if (verdict.kind === 'network-failure') {
-        return this.networkFailure(verdict.signal);
-      }
-      // An error assistant message is the subprocess giving up, not the
-      // model's answer. A turn-ceiling stop after a clean reply still carries
-      // the reply (the model wrote text, then reached for a tool).
-      const replied =
-        verdict.kind === 'answered' ||
-        (hitTurnCeiling && !lastAssistantErrored);
-      if (!replied) {
-        this.logger.warn(`${LOG_TAG} the provider returned an error result`);
-        return { kind: 'unavailable', reason: 'unreachable' };
-      }
-      return { kind: 'text', text: lastAssistantText };
+      return this.toOutcome(reading);
     } catch (error: unknown) {
       if (timedOut) return this.timedOut();
       return this.thrownFailure(error);
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Read the stream up to its `result` message, as the curator does. */
+  private async readStream(
+    stream: AsyncIterable<SDKMessage>,
+  ): Promise<StreamReading> {
+    let lastAssistantText = '';
+    let lastAssistantErrored = false;
+    let hitTurnCeiling = false;
+    const network = new QueryNetworkObserver();
+    for await (const msg of stream) {
+      const evidence: NetworkObservableMessage = msg;
+      network.observe(evidence);
+      if (isAssistantMessage(msg)) {
+        lastAssistantErrored = evidence.error !== undefined;
+        lastAssistantText = assistantText(msg.message.content);
+      }
+      if (isResultMessage(msg)) {
+        hitTurnCeiling =
+          isErrorResult(msg) && msg.subtype === 'error_max_turns';
+        break;
+      }
+    }
+    return { lastAssistantText, lastAssistantErrored, hitTurnCeiling, network };
+  }
+
+  private toOutcome(reading: StreamReading): QueryOutcome {
+    const verdict = reading.network.verdict();
+    if (verdict.kind === 'network-failure') {
+      return this.networkFailure(verdict.signal);
+    }
+    // An error assistant message is the subprocess giving up, not the
+    // model's answer. A turn-ceiling stop after a clean reply still carries
+    // the reply (the model wrote text, then reached for a tool).
+    const replied =
+      verdict.kind === 'answered' ||
+      (reading.hitTurnCeiling && !reading.lastAssistantErrored);
+    if (!replied) {
+      this.logger.warn(`${LOG_TAG} the provider returned an error result`);
+      return { kind: 'unavailable', reason: 'unreachable' };
+    }
+    return { kind: 'text', text: reading.lastAssistantText };
   }
 
   private timedOut(): QueryOutcome {
@@ -293,10 +312,7 @@ export class CommitMessageGenerator {
     while (bodyLines.length > 0 && bodyLines[0].trim().length === 0) {
       bodyLines.shift();
     }
-    while (
-      bodyLines.length > 0 &&
-      bodyLines[bodyLines.length - 1].trim().length === 0
-    ) {
+    while (bodyLines.length > 0 && bodyLines.at(-1)?.trim().length === 0) {
       bodyLines.pop();
     }
     return bodyLines.length > 0
@@ -318,8 +334,28 @@ export class CommitMessageGenerator {
           ? cut.slice(0, lastSpace)
           : cut;
     }
-    return subject.replace(/[\s.]+$/, '');
+    return trimTrailingSpaceAndPeriods(subject);
   }
+}
+
+/** The text blocks of one assistant message, joined. */
+function assistantText(
+  content: SDKAssistantMessage['message']['content'],
+): string {
+  let text = '';
+  for (const block of content) {
+    if (isTextBlock(block)) text += block.text;
+  }
+  return text;
+}
+
+/** `value` without its trailing whitespace and periods; no regex, no backtracking. */
+function trimTrailingSpaceAndPeriods(value: string): string {
+  let end = value.length;
+  while (end > 0 && (value[end - 1] === '.' || value[end - 1].trim() === '')) {
+    end--;
+  }
+  return value.slice(0, end);
 }
 
 function unavailable(

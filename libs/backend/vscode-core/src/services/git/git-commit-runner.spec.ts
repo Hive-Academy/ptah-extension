@@ -39,7 +39,7 @@ describe('GitOutputTail', () => {
     const tail = new GitOutputTail(256 * 1024);
     for (let i = 0; i < 5_000; i++) tail.push('x'.repeat(1024));
     const kept = tail.text().split('\n')[1];
-    expect(kept.length).toBe(256 * 1024);
+    expect(kept).toHaveLength(256 * 1024);
   });
 });
 

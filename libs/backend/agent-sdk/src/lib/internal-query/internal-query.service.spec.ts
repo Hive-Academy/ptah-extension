@@ -159,6 +159,15 @@ describe('InternalQueryService', () => {
       });
     });
 
+    it('forwards toolAccess so a deny-all caller reaches the runner', async () => {
+      const h = makeRunnerHarness();
+
+      await h.service.execute(makeConfig({ toolAccess: 'none' }));
+
+      const [input] = h.runner.runOneShot.mock.calls[0] as [OneShotRunInput];
+      expect(input.toolAccess).toBe('none');
+    });
+
     it('forwards optional fields as undefined when omitted from the config', async () => {
       const h = makeRunnerHarness();
 
@@ -171,6 +180,7 @@ describe('InternalQueryService', () => {
       expect(input.maxTurns).toBeUndefined();
       expect(input.outputFormat).toBeUndefined();
       expect(input.abortController).toBeUndefined();
+      expect(input.toolAccess).toBeUndefined();
     });
 
     it('propagates rejections thrown by the runner', async () => {

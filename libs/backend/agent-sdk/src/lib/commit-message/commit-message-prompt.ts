@@ -12,7 +12,7 @@ export const COMMIT_SUBJECT_MAX_CHARS = 72;
 
 const STAGED_DIFF_TAG = 'staged_diff';
 const STAGED_DIFF_CLOSE = `</${STAGED_DIFF_TAG}>`;
-const STAGED_DIFF_CLOSE_NEUTRALISED = `<\\/${STAGED_DIFF_TAG}>`;
+const STAGED_DIFF_CLOSE_NEUTRALISED = String.raw`<\/${STAGED_DIFF_TAG}>`;
 
 export const COMMIT_MESSAGE_SYSTEM_PROMPT = [
   'You write git commit messages for staged changes.',

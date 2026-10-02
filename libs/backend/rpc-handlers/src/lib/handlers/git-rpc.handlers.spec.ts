@@ -26,6 +26,8 @@
  *   git:diffFile       — maps a thrown rejection to an error result
  *   git:commit/stage   — code, hookOutput, exitCode, hash, subject reach the
  *                        RPC result unchanged (TASK_2026_576 RC1)
+ *   git:commit         — strict params; with an operationId the hook output
+ *                        is pushed and flushed before the result (Component 30)
  *
  * Mocking posture: direct constructor injection; narrow mock surfaces.
  *
@@ -721,6 +723,23 @@ describe('git mutation result pass-through (TASK_2026_576 RC1)', () => {
     },
   );
 
+  it.each([
+    ['an unknown key', { message: 'feat: x', amend: true }],
+    ['a non-string message', { message: 42 }],
+    ['a missing message', {}],
+    ['an operationId that is not a token', { message: 'm', operationId: 'a b' }],
+    ['an empty operationId', { message: 'm', operationId: '' }],
+  ])('git:commit refuses %s without running git', async (_label, params) => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    await expect(getHandler(rpc, 'git:commit')(params)).resolves.toEqual({
+      success: false,
+      error: 'Invalid commit request.',
+    });
+    expect(gitInfo.commit).not.toHaveBeenCalled();
+  });
+
   it('git:stage forwards LOCKED with the fixed message', async () => {
     const { handlers, rpc, gitInfo } = buildSuite();
     handlers.register();
@@ -1369,5 +1388,121 @@ describe('git:applyHunks handler', () => {
     // A failure must never look like a fresh snapshot to the caller.
     expect(result.snapshotToken).toBeUndefined();
     expect(logger.error).toHaveBeenCalled();
+  });
+});
+
+// ===========================================================================
+// git:commit with an operationId — live, throttled hook output (Component 30)
+// ===========================================================================
+
+describe('git:commit live output (TASK_2026_576 Component 30)', () => {
+  type CommitOptions = {
+    operationId?: string;
+    onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  };
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('forwards the operationId and an onOutput callback to the service', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    await getHandler(rpc, 'git:commit')({
+      message: 'feat: x',
+      operationId: 'op-1',
+    });
+
+    expect(gitInfo.commit).toHaveBeenCalledWith(
+      '/workspace',
+      'feat: x',
+      expect.objectContaining({
+        operationId: 'op-1',
+        onOutput: expect.any(Function),
+      }),
+    );
+  });
+
+  it('pushes the hook output as git:operationOutput, flushed before the result returns', async () => {
+    jest.useFakeTimers();
+    const { handlers, rpc, gitInfo, webviewManager } = buildSuite();
+    handlers.register();
+    gitInfo.commit.mockImplementationOnce(
+      async (_root: string, _message: string, options?: CommitOptions) => {
+        options?.onOutput?.('stdout', 'lint: 1\n');
+        options?.onOutput?.('stdout', 'lint: 2\n');
+        options?.onOutput?.('stderr', 'warning\n');
+        return { success: true, commitHash: 'abc1234', subject: 'feat: x' };
+      },
+    );
+
+    // No timer is advanced: whatever reached the webview did so through the
+    // final flush, before the handler resolved.
+    const result = await getHandler(rpc, 'git:commit')({
+      message: 'feat: x',
+      operationId: 'op-1',
+    });
+
+    expect(result).toEqual({
+      success: true,
+      commitHash: 'abc1234',
+      subject: 'feat: x',
+    });
+    expect(webviewManager.broadcastMessage.mock.calls).toEqual([
+      [
+        'git:operationOutput',
+        { operationId: 'op-1', stream: 'stdout', chunk: 'lint: 1\nlint: 2\n' },
+      ],
+      [
+        'git:operationOutput',
+        { operationId: 'op-1', stream: 'stderr', chunk: 'warning\n' },
+      ],
+    ]);
+  });
+
+  it('still flushes, and still returns the failure, when the commit is refused', async () => {
+    const { handlers, rpc, gitInfo, webviewManager } = buildSuite();
+    handlers.register();
+    const failure = {
+      success: false,
+      code: 'HOOK_FAILED' as const,
+      hookOutput: 'nope\n',
+      error: 'A git hook rejected the commit (exit code 1).',
+    };
+    gitInfo.commit.mockImplementationOnce(
+      async (_root: string, _message: string, options?: CommitOptions) => {
+        options?.onOutput?.('stderr', 'nope\n');
+        return failure;
+      },
+    );
+
+    await expect(
+      getHandler(rpc, 'git:commit')({ message: 'm', operationId: 'op-2' }),
+    ).resolves.toEqual(failure);
+    expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      'git:operationOutput',
+      { operationId: 'op-2', stream: 'stderr', chunk: 'nope\n' },
+    );
+  });
+
+  it('a failed broadcast is logged and does not fail the commit', async () => {
+    const { handlers, rpc, gitInfo, webviewManager, logger } = buildSuite();
+    handlers.register();
+    webviewManager.broadcastMessage.mockRejectedValue(new Error('gone'));
+    gitInfo.commit.mockImplementationOnce(
+      async (_root: string, _message: string, options?: CommitOptions) => {
+        options?.onOutput?.('stdout', 'x');
+        return { success: true, commitHash: 'abc1234', subject: 'm' };
+      },
+    );
+
+    await expect(
+      getHandler(rpc, 'git:commit')({ message: 'm', operationId: 'op-3' }),
+    ).resolves.toMatchObject({ success: true });
+    expect(logger.error).toHaveBeenCalledWith(
+      '[GitRpc] Failed to broadcast git:operationOutput',
+      expect.any(Error),
+    );
   });
 });

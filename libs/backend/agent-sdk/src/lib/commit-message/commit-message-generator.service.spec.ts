@@ -151,6 +151,16 @@ describe('CommitMessageGenerator', () => {
       );
     });
 
+    it('asks for no tools at all, since the diff in the prompt is untrusted', async () => {
+      const { generator, query } = build({
+        read: { kind: 'patch', patch: PATCH, truncated: false },
+      });
+      await generator.generate(WORKSPACE);
+      expect(query.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ toolAccess: 'none' }),
+      );
+    });
+
     it('never logs the patch or the reply', async () => {
       const logger = makeLogger();
       const { generator } = build({

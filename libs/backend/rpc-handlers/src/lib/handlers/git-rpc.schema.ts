@@ -2,8 +2,9 @@
  * Zod schemas for {@link GitRpcHandlers}.
  *
  * Scope note: this file covers `git:diffFile`, `git:applyHunks`, the review
- * pair, and the methods added with them since (`git:pull`, `git:fetch`, the
- * stash mutations and `git:stashShow`). The older `git:*` methods predate them
+ * pair, `git:commit`, and the methods added with them since (`git:pull`,
+ * `git:fetch`, the stash mutations and `git:stashShow`), plus the primitives
+ * `git-workflow-rpc.schema.ts` shares. The older `git:*` methods predate them
  * and are deliberately left on
  * their hand-rolled guards — retrofitting them is a separate change with its
  * own regression surface.
@@ -16,6 +17,7 @@
 import { z } from 'zod';
 import type {
   GitApplyHunksParams,
+  GitCommitParams,
   GitDiffFileParams,
   GitReviewChangesParams,
   GitReviewFileParams,
@@ -91,6 +93,38 @@ export function parseGitWorkspaceScopedParams(
   raw: unknown,
 ): GitWorkspaceScopedParams | null {
   const result = GitWorkspaceScopedParamsSchema.safeParse(raw ?? {});
+  return result.success ? result.data : null;
+}
+
+/**
+ * The caller-chosen id of a running operation (`git:commit`,
+ * `git:cancelOperation`). It keys the backend's operation registry and is
+ * echoed in every `git:operationOutput` push, so it is a short token — a UUID
+ * fits — never free text.
+ */
+export const GitOperationIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[\w.:-]+$/);
+
+/** Longest commit message accepted; far beyond any real one. */
+const COMMIT_MESSAGE_MAX_CHARS = 256 * 1024;
+
+/**
+ * `git:commit` params. The message may be blank here: the handler answers a
+ * blank message with its own "cannot be empty" result.
+ */
+export const GitCommitParamsSchema = z
+  .object({
+    workspaceRoot: WorkspaceRootSchema.optional(),
+    message: z.string().max(COMMIT_MESSAGE_MAX_CHARS),
+    operationId: GitOperationIdSchema.optional(),
+  })
+  .strict();
+
+export function parseGitCommitParams(raw: unknown): GitCommitParams | null {
+  const result = GitCommitParamsSchema.safeParse(raw);
   return result.success ? result.data : null;
 }
 
