@@ -61,6 +61,14 @@ export type { LiveModelStatsPayload };
 
 export type TerminalTurnClassification = 'success' | 'error';
 
+/**
+ * `AbortSignal.reason` set when a controller is aborted only because a newer
+ * send for the same tab replaced it. The replaced turn's backend process must
+ * NOT be ended by the abort listener: the newer turn registers under the same
+ * tab id / session id, so a `chat:abort` would end the new turn instead.
+ */
+export const ABORT_REASON_SUPERSEDED = 'superseded-by-new-send';
+
 export interface TerminalTurnPulse {
   readonly seq: number;
   readonly tabId: string;
@@ -2618,7 +2626,7 @@ export class TabManagerService {
   createAbortController(tabId: string): AbortSignal {
     const existing = this.abortControllers.get(tabId);
     if (existing && !existing.signal.aborted) {
-      existing.abort();
+      existing.abort(ABORT_REASON_SUPERSEDED);
     }
     const controller = new AbortController();
     this.abortControllers.set(tabId, controller);
