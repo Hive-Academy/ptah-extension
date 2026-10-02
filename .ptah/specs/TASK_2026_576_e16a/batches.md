@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 55/69
+Total tasks: 87 | Batches: 69 | Complete: 57/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2217,14 +2217,14 @@ executors at once.
   status cache for that root (`GitHubPrStatusReader.invalidate`). Verified: shared 2257, rpc-handlers 3574 (+ known
   env failure), vscode-core 883, real-git remote-stash 25, cli-engine 208, vscode 148, ptah-electron 1081 tests.
 
-## Batch 54: Conflict banner UI + shell banner slot — PENDING
+## Batch 54: Conflict banner UI + shell banner slot — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 50, 53
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 54.1: `ConflictBannerComponent` — PENDING
+### Task 54.1: `ConflictBannerComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/conflict/conflict-banner.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-shell/review-shell.component.ts (+ its spec)
 - Plan reference: implementation-plan.md:1292-1297, 1315
@@ -2232,6 +2232,17 @@ executors at once.
 - Quality requirements: Abort confirms (Batch 33 dialog); Continue only when no conflicted paths; delete/modify, symlink, submodule → "Open folder".
 - Validation notes: "Ask agent" via `AGENT_FEEDBACK_SENDER` (`'active'`).
 - Implementation details: as plan.
+- Outcome (`d4c247dd7`): executor frontend-developer (interrupted once by the API weekly limit, resumed).
+  `ConflictBannerComponent` (31 tests incl. axe) in the shell notice slot above the tabs: per-file Open in editor
+  (`editor:openMerge` on VS Code, else first non-terminal editor; `unsupported` → open the file) or Open folder
+  (delete/modify, symlink, submodule, or `not-mergeable`), ≤50 rows; Ask agent to `'active'` (resolve and stage,
+  never continue/abort); Abort behind the Batch 33 dialog; Continue only with no conflicted paths (`stopped`,
+  `conflicts-remain`, `completed` announced). New `GitStatusService.operation` signal (shape-checked);
+  `SourceControlService.abortOperation/continueOperation`; `EditorLauncherService.openMerge`; `refreshRemotes()`
+  hardened. Deviations: `role="region"` card (not alert); Continue hidden until resolvable; per-row Open in editor;
+  banner always mounted (hides itself) so the completion line is announced. Verified: git-ui 1099 tests,
+  typecheck/lint green, eager guard `main.js` 369,853 B gz. Cutover: bind `AGENT_FEEDBACK_SENDER` in the app root;
+  tabs' primary actions are not disabled during a conflict (design-spec §11) — open item.
 
 ## Batch 55: History reader and `git:log` — COMPLETE
 
@@ -2264,14 +2275,14 @@ executors at once.
 - Outcome: 55.1 `ed5b9f5cc` (above); 55.2 in `8050c1089` — `git:log` strict workspace-scoped, passes `getLog` through;
   throw → `unavailable/git-failed`; unregistered root → `not-a-repository`.
 
-## Batch 56: History timeline UI + shell History tab — PENDING
+## Batch 56: History timeline UI + shell History tab — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 54, 55
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 56.1: `HistoryTimelineComponent` — PENDING
+### Task 56.1: `HistoryTimelineComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/history/history-timeline.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-shell/review-shell.component.ts (+ its spec)
 - Plan reference: implementation-plan.md:1335-1340, 1350
@@ -2279,6 +2290,15 @@ executors at once.
 - Quality requirements: drop confirms; root commit "Initial commit — open in editor"; empty state copy.
 - Validation notes: none.
 - Implementation details: select → `ReviewNavigationService.openHistorical(sha)`.
+- Outcome (`082174eb8`): executor frontend-developer (interrupted once by
+  the API weekly limit, resumed). `HistoryTimelineComponent` + `HistoryStashSectionComponent` + `GitHistoryService`
+  (shape-checked `git:log`, failures → `git-failed`). Rows are buttons (short hash, subject, author, `<time>` relative
+  with full date); select → `openHistorical(sha)`; merge rows labelled; root commit "Initial commit — open in
+  editor" opens the workspace in the external editor (plan names no target; accepted). States: since-base, recent,
+  empty, truncated, detached, unavailable + Retry, no workspace. Stashes ported (apply, pop, files, diff, drop confirmed
+  and re-checked by hash). Reads only while shown; re-reads on HEAD/branch/push change; no timers. Shell History tab
+  in `@defer`, `[shown]`; dead "unknown tab → Changes" fallback removed. Verified: git-ui 1102 tests incl. axe,
+  typecheck/lint green; eager guard `main.js` 370,615 B gz.
 
 ## Batch 57: CI — editor merge spec in the OS matrix — COMPLETE
 
