@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 38/69
+Total tasks: 87 | Batches: 69 | Complete: 39/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1611,14 +1611,14 @@ executors at once.
   `git-status-message-routing.spec.ts` does not assert ReviewDiffService routing. Verified: git-ui 629 + webview
   306 tests, typecheck/lint green; eager guard passes, `main.js` 370,048 B gz.
 
-## Batch 36: Draft comments and hunk toolbar — PENDING
+## Batch 36: Draft comments and hunk toolbar — COMPLETE
 
 - Recommended executor: CLI lanes x 3 (one per component pair) | Fallback: frontend-developer, sequential | Mode: parallel
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 3 | Depends on: Batch 35
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 36.1: `ReviewCommentDraftStore` — PENDING
+### Task 36.1: `ReviewCommentDraftStore` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/review-comment-draft.store.ts (+ .spec.ts)
 - Plan reference: implementation-plan.md:1030
@@ -1627,7 +1627,7 @@ executors at once.
 - Validation notes: drafts clear only on `sent:true`.
 - Implementation details: in-memory Map.
 
-### Task 36.2: `HunkToolbarComponent` — PENDING
+### Task 36.2: `HunkToolbarComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-canvas/hunk-toolbar.component.ts (+ .spec.ts)
 - Plan reference: implementation-plan.md:1017-1023
@@ -1636,7 +1636,7 @@ executors at once.
 - Validation notes: no action on a renumbered hunk.
 - Implementation details: as plan.
 
-### Task 36.3: `DraftCommentsBarComponent` — PENDING
+### Task 36.3: `DraftCommentsBarComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-canvas/draft-comments-bar.component.ts (+ .spec.ts)
 - Plan reference: implementation-plan.md:1030
@@ -1644,6 +1644,19 @@ executors at once.
 - Quality requirements: "Send to agent" through `AGENT_FEEDBACK_SENDER`.
 - Validation notes: none.
 - Implementation details: as plan.
+- Outcome: executor frontend-developer (documented sequential fallback for the 3 CLI lanes). 36.1
+  `ReviewCommentDraftStore` (22 tests): drafts per owning session (fallback workspace root), message = path +
+  `Lstart-Lend` + fenced quote + comment, `send` to `{sessionId}` or `'active'`, clears only drafts actually sent on
+  `sent:true`; failure/throw/no provider keeps drafts; concurrent sends join. 36.2 `HunkToolbarComponent`
+  (`review-canvas/`, 17 tests): prev/next, worktree Accept/Reject (Reject via `GitConfirmDialogComponent`), staged
+  Unstage, branch/historical inert; one tab stop + arrow/Home/End; applies through `ReviewDiffService.applyHunks`
+  with the token captured when the dialog opened; refusal → `role="alert"` reason chip until the forced re-read;
+  inert after success until re-read. 36.3 `DraftCommentsBarComponent` (8 tests): absent at zero, popover list with
+  remove, Send to agent busy/error inline/success via an external live region. Accepted deviations: git-ui now
+  imports `@ptah-extension/ui` (plan Component 23); chip ends on re-read completion; toolbar calls ReviewDiffService
+  directly; `motion-safe:animate-glow-urgent` per design; drafts carry no old/new side. For 38: dim the body while a
+  refusal shows; pass `entryKey`/`snapshotToken`/`hunkCount`; move focus when the bar disappears. Verified: git-ui
+  typecheck/lint green, 676 tests; eager guard passes (`main.js` unchanged 370,048 B gz).
 
 ## Batch 37: Changed-file tree, comparison bar, stash routing — PENDING
 
