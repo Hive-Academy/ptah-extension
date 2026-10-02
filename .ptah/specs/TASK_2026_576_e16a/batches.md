@@ -1494,7 +1494,8 @@ executors at once.
   8/10 (screenshots `screenshots/p3/`, `screenshots/p3/round1/`). Accepted minors: decorative light status-chip
   accents and the light "mixed"/success accents < 3:1. e2e: Electron `change-set-card.spec.ts` passed alone; VS
   Code runner 17/17; full e2e set runs in CI (local full Electron run conflicts with the running desktop app).
-  SonarCloud: reliability regexes/sort fixed in `0f3953a6f`; S4036 PATH hotspot in the VS Code e2e suite fixed by
+  The full Electron e2e set has NOT run for P3 yet: stacked PRs do not trigger the e2e workflows, so it runs in CI
+  once the stack is retargeted to `main` — PENDING. SonarCloud: reliability regexes/sort fixed in `0f3953a6f`; S4036 PATH hotspot in the VS Code e2e suite fixed by
   running git from the built-in git extension's absolute path. P2 review fixes merged in `70df63cbe`.
   Carried to P4: real-git spec for the 2 MiB review-reader limit; diff-tabs spec gaps; Electron card review/SCM
   actions only reveal the dock until Task 58.2; repo-subfolder assumption remains for apply/stage/blob reads;

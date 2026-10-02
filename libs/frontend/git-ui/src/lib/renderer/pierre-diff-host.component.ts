@@ -213,42 +213,64 @@ export class PierreDiffHostComponent {
         ? (['unified'] as const)
         : (['additions', 'deletions'] as const);
 
-    const instance = new FileDiff(
-      {
-        ...createPierreDiffOptions(diffStyle, untracked(this.themeType)),
-        onPostRender: (node, _instance, phase) => {
-          if (phase === 'unmount') return;
-          if (!offerHunkHosts) {
-            this.publish([], mappingError, []);
-            return;
-          }
-          const rendered = new Set(
-            Array.from(
-              node.shadowRoot?.querySelectorAll('slot[name]') ?? [],
-              (slot) => slot.getAttribute('name') ?? '',
-            ),
-          );
-          const result = resolveHunkHosts(
-            hunks.length,
-            (index) =>
-              separatorTypes.map((type) =>
-                getHunkSeparatorSlotName(type, index),
+    let instance: FileDiff | null = null;
+    try {
+      instance = new FileDiff(
+        {
+          ...createPierreDiffOptions(diffStyle, untracked(this.themeType)),
+          onPostRender: (node, _instance, phase) => {
+            if (phase === 'unmount') return;
+            if (!offerHunkHosts) {
+              this.publish([], mappingError, []);
+              return;
+            }
+            const rendered = new Set(
+              Array.from(
+                node.shadowRoot?.querySelectorAll('slot[name]') ?? [],
+                (slot) => slot.getAttribute('name') ?? '',
               ),
-            (index) => annotationSlots[index],
-            rendered,
-          );
-          this.publish(result.hosts, result.error, hunks);
+            );
+            const result = resolveHunkHosts(
+              hunks.length,
+              (index) =>
+                separatorTypes.map((type) =>
+                  getHunkSeparatorSlotName(type, index),
+                ),
+              (index) => annotationSlots[index],
+              rendered,
+            );
+            this.publish(result.hosts, result.error, hunks);
+          },
         },
-      },
-      undefined,
-      true,
-    );
-    this.instance = instance;
-    instance.render({
-      fileDiff,
-      fileContainer: container,
-      lineAnnotations: annotations,
-    });
+        undefined,
+        true,
+      );
+      this.instance = instance;
+      instance.render({
+        fileDiff,
+        fileContainer: container,
+        lineAnnotations: annotations,
+      });
+    } catch (error) {
+      // A throw from the constructor or from `render` must not leave a
+      // half-built instance or partial shadow content behind: drop both and
+      // show the file as not displayable.
+      this.instance = null;
+      try {
+        instance?.cleanUp();
+      } catch {
+        // The instance is already broken; its cleanup failing changes nothing.
+      }
+      container.shadowRoot?.replaceChildren();
+      this.publish(
+        [],
+        {
+          reason: 'parse-failed',
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        [],
+      );
+    }
   }
 
   private parse(source: {

@@ -2,7 +2,7 @@
  * TurnChangeSetStore (TASK_2026_576 Component 19).
  *
  * Pure storage for the per-session list of turn change sets: read, append,
- * nothing else. Each session lives under its OWN key,
+ * remove, nothing else. Each session lives under its OWN key,
  * `ptah.turnChangeSets:<sessionId>`, never inside the all-sessions metadata
  * blob — the rule `session-metadata-store.ts` states for anything that grows
  * per session (TASK_2026_323 blocker B5). A session keeps its most recent
@@ -39,9 +39,9 @@ export function turnChangeSetsKey(sessionId: string): string {
 @injectable()
 export class TurnChangeSetStore {
   /**
-   * Tail of the in-flight append per session. An append reads, then writes;
-   * two appends for one session interleaving across those awaits would drop
-   * one record. Entries are removed when their chain settles.
+   * Tail of the in-flight append or remove per session. An append reads, then
+   * writes; two appends for one session interleaving across those awaits
+   * would drop one record. Entries are removed when their chain settles.
    */
   private readonly appendChains = new Map<string, Promise<void>>();
 
@@ -75,12 +75,27 @@ export class TurnChangeSetStore {
    * {@link MAX_CHANGE_SETS_PER_SESSION}. Rejects when storage fails.
    */
   append(changeSet: TurnChangeSet): Promise<void> {
-    const { sessionId } = changeSet;
-    const previous = this.appendChains.get(sessionId) ?? Promise.resolve();
-    const run = previous.then(
-      () => this.write(changeSet),
-      () => this.write(changeSet),
+    return this.enqueue(changeSet.sessionId, () => this.write(changeSet));
+  }
+
+  /**
+   * Delete the session's key. Called when the session itself is deleted so
+   * its change sets do not outlive it. Runs after any in-flight append for
+   * the session, so a pending append cannot re-create the key. Rejects when
+   * storage fails.
+   */
+  remove(sessionId: string): Promise<void> {
+    return this.enqueue(sessionId, () =>
+      this.storage.update(turnChangeSetsKey(sessionId), undefined),
     );
+  }
+
+  private enqueue(
+    sessionId: string,
+    operation: () => Promise<void>,
+  ): Promise<void> {
+    const previous = this.appendChains.get(sessionId) ?? Promise.resolve();
+    const run = previous.then(operation, operation);
     this.appendChains.set(sessionId, run);
     const release = (): void => {
       if (this.appendChains.get(sessionId) === run) {
