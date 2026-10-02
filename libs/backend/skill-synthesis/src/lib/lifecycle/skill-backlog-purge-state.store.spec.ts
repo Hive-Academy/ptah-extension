@@ -41,7 +41,7 @@ describe('SkillBacklogPurgeStateStore — degradation (no SQLite needed)', () =>
 
     expect(store.read()).toBeNull();
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('purge will skip'),
+      expect.stringContaining('so the purge runs'),
       { error: 'PERSISTENCE_UNAVAILABLE' },
     );
   });
@@ -88,7 +88,7 @@ maybe('SkillBacklogPurgeStateStore — SQLite', () => {
 
     expect(store.read()).toBeNull();
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('purge will skip'),
+      expect.stringContaining('so the purge runs'),
       expect.objectContaining({
         error: expect.stringContaining('skill_backlog_purge_state'),
       }),

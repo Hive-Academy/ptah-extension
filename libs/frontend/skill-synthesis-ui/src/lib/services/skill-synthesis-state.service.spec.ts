@@ -194,6 +194,27 @@ describe('SkillSynthesisStateService — suggestions', () => {
     expect(svc.suggestionsLoading()).toBe(false);
   });
 
+  it('returns false, reloads the list but not the stats, when the backend declines the accept', async () => {
+    const rpc = makeRpc();
+    rpc.acceptSuggestion.mockResolvedValueOnce({ accepted: false, filePath: '' });
+    // The suggestion is no longer pending; the reload shows its real state.
+    rpc.listSuggestions.mockResolvedValueOnce([
+      suggestion({ status: 'dismissed' }),
+    ]);
+    const { svc } = setup(rpc);
+
+    await expect(svc.accept('sg-1')).resolves.toBe(false);
+
+    expect(rpc.acceptSuggestion).toHaveBeenCalledWith('sg-1');
+    expect(rpc.listSuggestions).toHaveBeenCalledTimes(1);
+    expect(svc.suggestions()[0].status).toBe('dismissed');
+    expect(rpc.stats).not.toHaveBeenCalled();
+    // The refresh clears `error`, so this also pins that the decline message
+    // is set after the reload.
+    expect(svc.error()).toMatch(/not accepted/);
+    expect(svc.suggestionsLoading()).toBe(false);
+  });
+
   it('keeps the accept when the follow-up stats read fails, and surfaces the stats error', async () => {
     const rpc = makeRpc();
     rpc.listSuggestions.mockResolvedValueOnce([

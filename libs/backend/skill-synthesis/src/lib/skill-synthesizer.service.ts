@@ -367,15 +367,15 @@ If the session has no transferable, reusable routine (pure one-off Q&A, a trivia
    * extractor over the assistant text. The caller's Zod parser has the final
    * say either way — a provider that honoured the schema can still omit a field.
    */
-  private readJson(run: LaneRun): unknown | null {
+  private readJson(run: LaneRun): unknown {
     const json =
       run.json !== null && typeof run.json === 'object'
         ? run.json
         : this.extractJsonObject(run.text);
-    return json ? json : null;
+    return json || null;
   }
 
-  private extractJsonObject(text: string): unknown | null {
+  private extractJsonObject(text: string): unknown {
     if (!text) return null;
     const start = text.indexOf('{');
     if (start < 0) return null;

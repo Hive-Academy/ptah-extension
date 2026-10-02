@@ -793,6 +793,105 @@ describeDb('SkillCuratorService — accept and reconcile on a real store', () =>
       expect(origin).toEqual({ userInitiated: true });
     });
 
+    it('a singleton whose member holds its name promotes that member in place: same row, original name, nothing merged', async () => {
+      const member = addCandidate('deploy-flow');
+      db.prepare(
+        `UPDATE skill_candidates SET judge_score = 8.5 WHERE id = ?`,
+      ).run(member.id);
+      const sug = addSuggestion([member.id], 'deploy-flow');
+      const before = store.getStats();
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      expect(result.accepted).toBe(true);
+      expect(result.filePath).toBe(path.join(root, 'deploy-flow', 'SKILL.md'));
+      expect(fs.existsSync(path.join(root, 'deploy-flow-2'))).toBe(false);
+      const row = store.findById(member.id);
+      // The materialized slug and the row name agree, on the original row;
+      // the content follows the accepted suggestion, the judge fields stay.
+      expect(member.description).not.toBe(sug.description);
+      expect(row).toMatchObject({
+        status: 'promoted',
+        name: 'deploy-flow',
+        description: sug.description,
+        judgeScore: 8.5,
+        trajectoryHash: member.trajectoryHash,
+        bodyPath: path.join(root, 'deploy-flow', 'SKILL.md'),
+      });
+      expect(rowsWithHash(`${SUGGESTION_TRAJECTORY_PREFIX}${sug.id}`)).toBe(0);
+      expect(suggestions.findById(sug.id)).toMatchObject({
+        status: 'accepted',
+        promotedCandidateId: member.id,
+      });
+      expect(registry.getBySlug('skill', 'deploy-flow')?.candidateId).toBe(
+        member.id,
+      );
+
+      const after = store.getStats();
+      expect(after.promoted).toBe(before.promoted + 1);
+      expect(after.candidates).toBe(before.candidates - 1);
+      expect(after.merged).toBe(0);
+      expect(logger.info).toHaveBeenCalledWith(
+        '[skill-curator] suggestion members merged',
+        expect.objectContaining({ mergedCandidates: 0, mergedPromoted: [] }),
+      );
+    });
+
+    it('in place, a stray <name>/ directory forces <name>-2: row, registry slug and SKILL.md name all follow it', async () => {
+      const member = addCandidate('deploy-flow');
+      const sug = addSuggestion([member.id], 'deploy-flow');
+      fs.mkdirSync(path.join(root, 'deploy-flow'), { recursive: true });
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      const skillMd = path.join(root, 'deploy-flow-2', 'SKILL.md');
+      expect(result).toEqual({ accepted: true, filePath: skillMd });
+      expect(store.findById(member.id)).toMatchObject({
+        status: 'promoted',
+        name: 'deploy-flow-2',
+        bodyPath: skillMd,
+      });
+      expect(store.findByName('deploy-flow')).toBeNull();
+      expect(registry.getBySlug('skill', 'deploy-flow-2')?.candidateId).toBe(
+        member.id,
+      );
+      expect(registry.getBySlug('skill', 'deploy-flow')).toBeNull();
+      expect(fs.readFileSync(skillMd, 'utf8')).toMatch(
+        /^name: deploy-flow-2$/m,
+      );
+      expect(suggestions.findById(sug.id)?.promotedCandidateId).toBe(member.id);
+    });
+
+    it('in place, a holder decided by another writer after the check rolls the whole accept back', async () => {
+      const member = addCandidate('deploy-flow');
+      const sug = addSuggestion([member.id], 'deploy-flow');
+      // promoteToActive runs between inPlaceSingletonMember and the
+      // transaction: the race lands there.
+      const realPromote = md.promoteToActive.bind(md);
+      jest.spyOn(md, 'promoteToActive').mockImplementation((...args) => {
+        store.rejectIfStatus(member.id, 'candidate', 'raced');
+        return realPromote(...args);
+      });
+
+      const result = await svc.acceptSuggestion(sug.id, makeSettings());
+
+      expect(result).toEqual({ accepted: false, filePath: '' });
+      expect(suggestions.findById(sug.id)).toMatchObject({
+        status: 'pending',
+        promotedCandidateId: null,
+      });
+      // Only the other writer's decision stands.
+      expect(store.findById(member.id)).toMatchObject({
+        status: 'rejected',
+        rejectedReason: 'raced',
+      });
+      expect(store.getStats().promoted).toBe(0);
+      expect(registry.getBySlug('skill', 'deploy-flow')).toBeNull();
+      // The directory this attempt created is removed after the rollback.
+      expect(fs.existsSync(path.join(root, 'deploy-flow'))).toBe(false);
+      expect(retirement.removeMaterializations).not.toHaveBeenCalled();
+    });
+
     it('R-f2: a throw after the promotion write leaves the suggestion pending and no promoted row', async () => {
       const member = addCandidate('member-cand');
       const sug = addSuggestion([member.id]);

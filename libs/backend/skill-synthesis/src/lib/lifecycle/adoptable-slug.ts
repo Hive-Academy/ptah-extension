@@ -118,12 +118,23 @@ export function slugHolderDecision(
  * no reconcile can predict.
  */
 export function materializedBaseSlug(name: string): string | null {
-  const cleaned = name
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
+  const cleaned = trimDashes(
+    name.toLowerCase().replace(/[^a-z0-9-]+/g, '-'),
+  ).slice(0, 60);
   return cleaned.length > 0 ? cleaned : null;
+}
+
+/**
+ * `s` without its leading and trailing `-` runs. Same result as
+ * `replace(/^-+|-+$/g, '')`, but a linear scan: that regex backtracks
+ * quadratically on a long inner run of dashes.
+ */
+function trimDashes(s: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && s[start] === '-') start++;
+  while (end > start && s[end - 1] === '-') end--;
+  return s.slice(start, end);
 }
 
 /** The rule proving `entry`'s slug, or `null` when none does. */
@@ -147,9 +158,9 @@ function holdsBody(filePath: string, body: string, logger: Logger): boolean {
   let matches = false;
   try {
     if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
-      const content = raw.replace(/^---\n[\s\S]*?\n---\n/, '').trim();
-      matches = content === body.replace(/\r\n/g, '\n').trim();
+      const raw = fs.readFileSync(filePath, 'utf8').replaceAll('\r\n', '\n');
+      const content = stripFrontmatter(raw).trim();
+      matches = content === body.replaceAll('\r\n', '\n').trim();
     }
   } catch (err: unknown) {
     logger.warn('[skill-curator] could not read a skill directory', {
@@ -158,6 +169,21 @@ function holdsBody(filePath: string, body: string, logger: Logger): boolean {
     });
   }
   return matches;
+}
+
+/**
+ * `text` without a leading `---` … `---` frontmatter block, or `text` unchanged
+ * when it has none. A delimiter line may carry trailing whitespace (a stray
+ * space or a lone `\r`), which a hand-edited SKILL.md often does. Line scan,
+ * linear in the input.
+ */
+function stripFrontmatter(text: string): string {
+  const lines = text.split('\n');
+  if (lines[0].trimEnd() !== '---') return text;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trimEnd() === '---') return lines.slice(i + 1).join('\n');
+  }
+  return text;
 }
 
 /** Whether `filePath` is an existing regular file (a stat error is logged). */

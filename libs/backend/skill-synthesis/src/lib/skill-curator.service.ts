@@ -666,8 +666,9 @@ export class SkillCuratorService {
     for (const v of vectors) {
       byDimension.set(v.length, [...(byDimension.get(v.length) ?? []), v]);
     }
-    const group = [...byDimension.values()].reduce((a, b) =>
-      b.length > a.length ? b : a,
+    const group = [...byDimension.values()].reduce<Float32Array[]>(
+      (a, b) => (b.length > a.length ? b : a),
+      [],
     );
     const centroid = new Float32Array(group[0].length);
     for (const v of group) {

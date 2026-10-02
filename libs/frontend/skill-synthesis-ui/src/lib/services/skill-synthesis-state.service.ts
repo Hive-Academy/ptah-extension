@@ -436,15 +436,30 @@ export class SkillSynthesisStateService {
    * any members it merged).
    *
    * Returns `true` once the accept itself has landed, so the caller can refresh
-   * state this service does not own; `false` when the accept failed. The two
-   * follow-up reads report their own failures through `error` and never throw,
-   * so a stats-read error after a successful accept still returns `true`.
+   * state this service does not own; `false` when the accept failed or the
+   * backend declined it (`accepted: false` — the suggestion was no longer
+   * pending, or its promotion rolled back; the list alone is reloaded so a
+   * stale card drops out). The two follow-up reads report
+   * their own failures through `error` and never throw, so a stats-read error
+   * after a successful accept still returns `true`.
    */
   public async accept(id: string): Promise<boolean> {
     this.suggestionsLoading.set(true);
     this.error.set(null);
     try {
-      await this.rpc.acceptSuggestion(id);
+      const res = await this.rpc.acceptSuggestion(id);
+      if (!res.accepted) {
+        // Most often the suggestion is no longer pending, so reload the list to
+        // drop the stale card. The stats did not change, so they are not
+        // reloaded. The refresh clears `error` first, so the decline message is
+        // set after it. The response carries no reason, so the message names the
+        // backend's two declining paths.
+        await this.refreshSuggestions();
+        this.error.set(
+          'The suggestion was not accepted — it may no longer be pending, or creating the skill failed. Refresh and try again.',
+        );
+        return false;
+      }
       await this.refreshSuggestions();
       await this.loadStats();
       return true;

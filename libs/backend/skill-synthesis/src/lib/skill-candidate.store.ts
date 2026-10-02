@@ -115,6 +115,13 @@ interface RawGradedInvocationRow {
   reconciled_at: number | null;
 }
 
+/** Content written onto a just-promoted row by a revive or an in-place accept. */
+export interface PromotedContentInput {
+  description: string;
+  sourceSessionIds: string[];
+  embedding: Float32Array | null;
+}
+
 const LEGAL_TRANSITIONS: Record<SkillStatus, readonly SkillStatus[]> = {
   candidate: ['promoted', 'rejected'],
   promoted: ['rejected'],
@@ -469,7 +476,7 @@ export class SkillCandidateStore {
         `[skill-synthesis] promoteAtomically: candidate ${id} cannot demote itself`,
       );
     }
-    if (options.name !== undefined && options.name.trim() === '') {
+    if (options.name?.trim() === '') {
       throw new Error(
         `[skill-synthesis] promoteAtomically: empty slug for candidate ${id}`,
       );
@@ -563,19 +570,42 @@ export class SkillCandidateStore {
    */
   resetRevivedContent(
     id: CandidateId,
-    input: {
-      description: string;
-      sourceSessionIds: string[];
-      embedding: Float32Array | null;
-    },
+    input: PromotedContentInput,
+  ): SkillCandidateRow {
+    return this.writePromotedContent(id, input, true);
+  }
+
+  /**
+   * Sync a candidate just promoted IN PLACE (an accepted singleton suggestion
+   * whose member held its name) to the suggestion's content: description and
+   * sources, plus the embedding when one is given (else the row keeps its
+   * own). Judge, replay and trigger measurements are kept — this is a live
+   * candidate, not a revived one. Same transaction rules as
+   * {@link resetRevivedContent}.
+   */
+  syncInPlaceContent(
+    id: CandidateId,
+    input: PromotedContentInput,
+  ): SkillCandidateRow {
+    return this.writePromotedContent(id, input, false);
+  }
+
+  /**
+   * The shared write of {@link resetRevivedContent} and
+   * {@link syncInPlaceContent}. Plain statements only; a row that is not
+   * `promoted` throws so the caller's unit rolls back.
+   */
+  private writePromotedContent(
+    id: CandidateId,
+    input: PromotedContentInput,
+    resetMeasurements: boolean,
   ): SkillCandidateRow {
     const embeddingRowid =
       input.embedding && this.vecStatus.available
         ? this.insertEmbedding(input.embedding)
         : null;
-    const result = this.db
-      .prepare(
-        `UPDATE skill_candidates
+    const sql = resetMeasurements
+      ? `UPDATE skill_candidates
             SET description = ?, source_session_ids = ?, embedding_rowid = ?,
                 display_name = NULL, workspace_root = NULL,
                 judge_score = NULL, judge_status = NULL, judge_reason = NULL,
@@ -587,8 +617,13 @@ export class SkillCandidateStore {
                 replay_at = NULL, trigger_score = NULL,
                 trigger_precision = NULL, trigger_recall = NULL,
                 trigger_eval_at = NULL
-          WHERE id = ? AND status = 'promoted'`,
-      )
+          WHERE id = ? AND status = 'promoted'`
+      : `UPDATE skill_candidates
+            SET description = ?, source_session_ids = ?,
+                embedding_rowid = COALESCE(?, embedding_rowid)
+          WHERE id = ? AND status = 'promoted'`;
+    const result = this.db
+      .prepare(sql)
       .run(
         input.description,
         JSON.stringify(input.sourceSessionIds),
@@ -598,7 +633,7 @@ export class SkillCandidateStore {
     const row = result.changes === 1 ? this.findById(id) : null;
     if (!row) {
       throw new Error(
-        `[skill-synthesis] resetRevivedContent: ${id} is not a promoted row`,
+        `[skill-synthesis] promoted content write: ${id} is not a promoted row`,
       );
     }
     return row;
@@ -1693,7 +1728,9 @@ export class SkillCandidateStore {
     const stmt = this.db.prepare(
       `INSERT INTO skill_candidates_vec (embedding) VALUES (?)`,
     );
-    const result = stmt.run(Buffer.from(vec.buffer));
+    const result = stmt.run(
+      Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength),
+    );
     const rowid = result.lastInsertRowid;
     return typeof rowid === 'bigint' ? Number(rowid) : rowid;
   }

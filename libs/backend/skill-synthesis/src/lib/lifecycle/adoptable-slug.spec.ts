@@ -88,6 +88,15 @@ describe('materializedBaseSlug pinned to SkillMdGenerator.promoteToActive', () =
     },
   );
 
+  it('trims a long inner dash run without backtracking (S8786)', () => {
+    // `-+$` retried at every dash of a long run that does not reach the end
+    // is quadratic; the linear trim finishes well inside the test timeout.
+    // The 60-char cut runs after the trim, as in the generator.
+    const run = '-'.repeat(200_000);
+    expect(materializedBaseSlug(`a${run}b`)).toBe(`a${'-'.repeat(59)}`);
+    expect(materializedBaseSlug(`${run}b${run}`)).toBe('b');
+  });
+
   it.each([
     ['only non-ascii letters', '日本語のスキル'],
     ['only punctuation', '!!! ??? ...'],
@@ -151,6 +160,20 @@ describe('findAdoptableSlug proofs', () => {
       });
     },
   );
+
+  it.each([
+    ['CRLF line endings', `---\r\nname: x\r\n---\r\n\r\n${body.replaceAll('\n', '\r\n')}\r\n`],
+    ['trailing spaces and tabs on the delimiters', `--- \t\nname: x\n---  \n\n${body}\n`],
+    ['CRLF plus trailing whitespace', `---  \r\nname: x\r\n---\t\r\n${body}\r\n`],
+  ])('a synth row proves its slug by body equality with %s', (_label, content) => {
+    writeSkill('deploy-flow', content);
+    expect(find({ 'deploy-flow': { cloneStatus: 'synth' } })).toEqual({
+      kind: 'found',
+      slug: 'deploy-flow',
+      filePath: path.join(root, 'deploy-flow', 'SKILL.md'),
+      proof: 'body-match',
+    });
+  });
 
   it('a synth row with a different body proves nothing', () => {
     writeSkill('deploy-flow', 'Edited.\n');

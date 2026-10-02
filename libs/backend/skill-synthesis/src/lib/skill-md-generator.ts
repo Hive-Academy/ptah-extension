@@ -46,7 +46,7 @@ export const SKILL_REFERENCE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,59}$/;
  * on Windows, so these are refused even though they match the pattern above
  * (which already forces lowercase). `console` and `com10` are ordinary names.
  */
-const WINDOWS_RESERVED_NAME_PATTERN = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/;
+const WINDOWS_RESERVED_NAME_PATTERN = /^(con|prn|aux|nul|com\d|lpt\d)$/;
 
 /** Options for {@link SkillMdGenerator.promoteToActive}. */
 export interface PromoteToActiveOptions {
@@ -280,7 +280,9 @@ export class SkillMdGenerator {
     const occupied = (slug: string): boolean =>
       fs.existsSync(path.join(root, slug)) || isSlugTaken(slug);
     let chosen = baseSlug;
-    for (let attempt = 2; occupied(chosen); attempt++) {
+    let attempt = 1;
+    while (occupied(chosen)) {
+      attempt++;
       if (attempt > MAX_SLUG_RETRIES) {
         throw new Error(
           `[skill-synthesis] slug collision: ${baseSlug} (tried up to -${MAX_SLUG_RETRIES})`,

@@ -409,6 +409,11 @@ export class SkillPromotionService {
    * `onCommit`. Any throw rolls the transaction back, removes the directory
    * this call created and propagates; the caller owns the fail-soft answer.
    *
+   * A singleton suggestion whose one member is still the `candidate` holding
+   * its name promotes that row in place instead of registering a new one
+   * ({@link inPlaceSingletonMember}); the accept's member merge skips it as
+   * the promoted row.
+   *
    * `onCommit` runs INSIDE the transaction. It may only call plain-statement
    * store methods (never one that opens its own transaction, such as
    * `setPin`), and it must not swallow a store-write error: there is no
@@ -422,6 +427,7 @@ export class SkillPromotionService {
     nowFn: () => number = () => Date.now(),
   ): Promise<ResidentPromotion<T>> {
     const { suggestion } = input;
+    const inPlace = this.inPlaceSingletonMember(suggestion);
     const demotion = this.selectWeakestResident(settings, nowFn);
     const materialized = this.mdGenerator.promoteToActive(
       {
@@ -431,7 +437,12 @@ export class SkillPromotionService {
         references: suggestion.references,
       },
       settings.candidatesDir,
-      { isSlugTaken: (slug) => this.store.findByName(slug) !== null },
+      {
+        // The in-place member's own name is not a collision: that row IS the
+        // skill being promoted (same rule as `promoteCandidate`).
+        isSlugTaken: (slug) =>
+          slug !== inPlace?.name && this.store.findByName(slug) !== null,
+      },
     );
 
     let committed: { row: SkillCandidateRow; outcome: T };
@@ -443,9 +454,11 @@ export class SkillPromotionService {
           description: suggestion.description,
           sourceSessionIds: suggestion.memberSessionIds,
           trajectoryHash: `${SUGGESTION_TRAJECTORY_PREFIX}${suggestion.id}`,
-          embedding: input.embedding,
+          // An in-place row that already has a vector keeps it (no orphan).
+          embedding: inPlace?.embeddingRowid == null ? input.embedding : null,
           demotedResidentId: demotion.weakest?.id,
           now: nowFn(),
+          inPlaceId: inPlace?.id,
         },
         onCommit,
       );
@@ -476,6 +489,23 @@ export class SkillPromotionService {
       evictedSkillId: demotion.weakest?.id,
       linkedOnly: false,
     };
+  }
+
+  /**
+   * The member a singleton suggestion was surfaced from, when that row is
+   * still a `candidate` holding the suggestion's name. Accepting promotes it
+   * in place; registering a new row would land on `<name>-2` and the accept's
+   * member merge would then reject the original as merged into its own copy.
+   */
+  private inPlaceSingletonMember(
+    suggestion: SkillSuggestionRow,
+  ): SkillCandidateRow | null {
+    const memberIds = new Set(suggestion.memberCandidateIds);
+    if (memberIds.size !== 1) return null;
+    const holder = this.store.findByName(suggestion.name);
+    return holder?.status === 'candidate' && memberIds.has(holder.id)
+      ? holder
+      : null;
   }
 
   /**
@@ -568,6 +598,11 @@ export class SkillPromotionService {
    * `rejected` (compare-and-set) and its content reset to the adopt input
    * (`resetRevivedContent`), under the same tail.
    *
+   * With `inPlaceId` nothing is registered either: that `candidate` row is
+   * promoted (compare-and-set on `candidate`), keeping its id, name, lineage
+   * and judge fields, and synced to the suggestion's content
+   * (`syncInPlaceContent`).
+   *
    * Every call inside the callback is a plain statement or the re-entrant
    * `promoteAtomically`, and nothing here catches: a throw anywhere rolls the
    * whole unit back (risks R-f, R-f2).
@@ -583,12 +618,14 @@ export class SkillPromotionService {
       demotedResidentId: CandidateId | undefined;
       now: number;
       rejectedId?: CandidateId;
+      inPlaceId?: CandidateId;
     },
     onCommit: (row: SkillCandidateRow) => T,
   ): { row: SkillCandidateRow; outcome: T } {
     return this.store.inImmediateTransaction(() => {
       const candidateId =
         args.rejectedId ??
+        args.inPlaceId ??
         this.store.registerCandidate({
           name: args.slug,
           description: args.description,
@@ -606,10 +643,11 @@ export class SkillPromotionService {
         demotedResidentId: args.demotedResidentId,
         fromStatus: args.rejectedId ? 'rejected' : 'candidate',
       });
-      // A revived row gets the content a freshly registered row would carry.
-      const row = args.rejectedId
-        ? this.store.resetRevivedContent(promoted.id, args)
-        : promoted;
+      // A revived row gets the content a freshly registered row would carry;
+      // an in-place row takes the accepted suggestion's content.
+      let row = promoted;
+      if (args.rejectedId) row = this.store.resetRevivedContent(row.id, args);
+      if (args.inPlaceId) row = this.store.syncInPlaceContent(row.id, args);
       this.linkRegistryRow(args.slug, args.filePath, row.id);
       return { row, outcome: onCommit(row) };
     });

@@ -71,7 +71,7 @@ export class SkillBacklogPurgeStateStore {
       // degradation-audit: reported - warned; null reads as "absent", and the
       // purge's markComplete then throws in its transaction, rolling it back.
       this.logger.warn(
-        '[skill-synthesis] backlog purge marker unreadable; purge will skip',
+        '[skill-synthesis] backlog purge marker unreadable; treating it as absent, so the purge runs (and rolls back if its completion marker cannot be written)',
         { error: error instanceof Error ? error.message : String(error) },
       );
       return null;
