@@ -8,9 +8,9 @@ import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 /** Busy or not ready: `aria-disabled`, never native `disabled`, so the focused control keeps focus and Esc still closes the
- * popover (Gate V 36 re-check 2, N3); the handlers refuse the click. */
-const INERT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
-const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ${INERT} ${FOCUS}`;
+ * popover (Gate V 36 re-check 2, N3); the handlers refuse the click. The disabled look is the shared Settings rule in the
+ * app styles (Batch 51). */
+const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ${FOCUS}`;
 
 /**
  * The Cursor row's Credentials popover (plan :744-749, #64, TASK_2026_551). Cursor runs through the bundled SDK and is
@@ -79,7 +79,7 @@ const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-ba
       </div>
 
       <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" [class]="'btn btn-primary btn-xs min-h-7 ' + inert + ' ' + focusRing" [attr.aria-disabled]="busy() || !key().trim() ? 'true' : null" (click)="save()"
+        <button type="button" [class]="'btn btn-primary btn-xs min-h-7 ' + focusRing" [attr.aria-disabled]="busy() || !key().trim() ? 'true' : null" (click)="save()"
           data-testid="cursor-credential-save">{{ outcome()?.status === 'saving' && action() === 'save' ? 'Saving…' : 'Save key' }}</button>
         @if (stored() && !confirmRemove()) {
           <button type="button" [class]="ACTION" [attr.aria-disabled]="busy() ? 'true' : null" (click)="askRemove()"
@@ -112,7 +112,6 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
   protected readonly EyeOffIcon = EyeOff;
   protected readonly focusRing = FOCUS;
   protected readonly ACTION = ACTION;
-  protected readonly inert = INERT;
   private readonly state = inject(ProvidersSettingsStateService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);

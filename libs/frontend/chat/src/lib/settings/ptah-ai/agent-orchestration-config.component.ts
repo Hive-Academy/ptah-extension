@@ -11,8 +11,9 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
 /**
  * ▲/▼ in the order popover: 24×24 px targets (WCAG 2.5.8). `aria-disabled` looks like `disabled` but keeps focus (Batch
  * 36: a native `disabled` on the focused button during a save dropped focus to the page, where Esc missed the popover).
+ * The disabled look is the shared Settings rule in the app styles (Batch 51); both states keep the ghost (transparent) fill.
  */
-const MOVE = `btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 p-0 text-base-content disabled:border-transparent disabled:bg-transparent aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${FOCUS}`;
+const MOVE = `btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 p-0 text-base-content disabled:border-transparent disabled:bg-transparent aria-disabled:border-transparent aria-disabled:bg-transparent ${FOCUS}`;
 /** Orchestration policy lives in the user settings (plan §3 rows 891-892), like the CLI matrix's writes. */
 const SAVE_SCOPE = 'global';
 const DETECT_FAILED = 'Could not re-detect CLI agents. Your saved settings have not changed.';

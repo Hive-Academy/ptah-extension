@@ -318,7 +318,8 @@ describe('SettingsSaveFeedbackService', () => {
 
     it('toasts "Saved {label}." with no scope words and offers Undo when undo is given', async () => {
       const undo = jest.fn().mockResolvedValue({ ok: true });
-      await service.saveGeneric(genericRequest({ undo }));
+      // Batch 51.4: callers act on the returned result, never on the toast.
+      await expect(service.saveGeneric(genericRequest({ undo }))).resolves.toBe('saved');
 
       expect(service.toast()).toEqual({
         tone: 'status',
@@ -328,14 +329,14 @@ describe('SettingsSaveFeedbackService', () => {
     });
 
     it('offers no Undo when the request has none', async () => {
-      await service.saveGeneric(genericRequest());
+      await expect(service.saveGeneric(genericRequest())).resolves.toBe('saved');
       expect(service.toast()?.canUndo).toBe(false);
     });
 
     it('a failed write shows the failure message and no Undo', async () => {
-      await service.saveGeneric(
+      await expect(service.saveGeneric(
         genericRequest({ write: jest.fn().mockResolvedValue({ ok: false, message: 'Port must be between 1024 and 65535.' }) }),
-      );
+      )).resolves.toBe('failed');
 
       expect(service.toast()).toEqual({
         tone: 'alert',
@@ -345,7 +346,7 @@ describe('SettingsSaveFeedbackService', () => {
     });
 
     it('a write that throws reports the save as unconfirmed, with no Undo', async () => {
-      await service.saveGeneric(genericRequest({ write: jest.fn().mockRejectedValue(new Error('boom')) }));
+      await expect(service.saveGeneric(genericRequest({ write: jest.fn().mockRejectedValue(new Error('boom')) }))).resolves.toBe('failed');
 
       expect(service.toast()).toEqual({
         tone: 'alert',
@@ -360,19 +361,19 @@ describe('SettingsSaveFeedbackService', () => {
       const first = service.saveGeneric(genericRequest({ write }));
       expect(service.saving()).toBe(true);
 
-      await service.saveGeneric(genericRequest({ label: 'other', write: jest.fn() }));
+      await expect(service.saveGeneric(genericRequest({ label: 'other', write: jest.fn() }))).resolves.toBe('refused');
 
       expect(write).toHaveBeenCalledTimes(1);
       expect(service.toast()).toEqual({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false });
       finishWrite();
-      await first;
+      await expect(first).resolves.toBe('saved');
     });
 
     it('refuses re-entry while a Providers commit is saving without calling write', async () => {
       commit.set({ ...EMPTY, status: 'saving' });
       const write = jest.fn().mockResolvedValue({ ok: true });
 
-      await service.saveGeneric(genericRequest({ write }));
+      await expect(service.saveGeneric(genericRequest({ write }))).resolves.toBe('refused');
 
       expect(write).not.toHaveBeenCalled();
       expect(service.toast()).toEqual({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false });

@@ -17,7 +17,7 @@ import {
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium text-base-content underline underline-offset-2 ${FOCUS}`;
 /** Reassignment cell: an own provider shows as a value with a chevron, "Follows main agent →" as a link-styled chip. */
-const CELL = `inline-flex max-w-[15rem] items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline aria-disabled:cursor-not-allowed aria-disabled:opacity-60 ${FOCUS}`;
+const CELL = `inline-flex max-w-[15rem] items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline ${FOCUS}`;
 /** Background roles are settings for every Ptah app (`supportedTargets: ['global']`). */
 const SAVE_SCOPE = 'global';
 const TIMEOUT_NOT_SAVED = 'Could not save the enhancement time limit. The limit shown is the saved one.';
