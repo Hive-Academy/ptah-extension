@@ -190,6 +190,7 @@ export class FileEditRpcHandlers {
           : {}),
       });
     } catch (error: unknown) {
+      // degradation-audit: reported - logged below; the caller gets the 'unwritable' reason
       // The policy is not supposed to throw; if it does, the caller still gets
       // a reason rather than a transport rejection.
       this.logger.warn('[file:saveContent] policy failed', {
