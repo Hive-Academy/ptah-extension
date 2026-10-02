@@ -1,39 +1,32 @@
-import type { Page } from '@playwright/test';
 import { test, expect } from '../../support/fixtures';
+import {
+  openFileInShell,
+  spotEditor,
+  spotEditorContent,
+  spotEditorCursor,
+} from '../../support/spot-editor';
+
+/**
+ * The read-only file view, now the review shell's spot editor - TASK_2026_576
+ * Batch 61 (successor of the `ptah-file-view` Monaco tab spec).
+ *
+ * A file opened from a link lives in the Changes tab as ONE editor (there are
+ * no file tabs any more): read-only until the Edit button is pressed, with a
+ * "Back to review" button that returns to the canvas. Mapping from the old spec:
+ *   - "opens a text file at line:column"  -> caret at 2:7, content read-only
+ *   - "opens markdown, toggles source"    -> Preview / Source buttons
+ *   - "closes the tab"                    -> Back to review (no tabs remain)
+ *   - "renders the refusal and confirms"  -> blocked state + Open-in confirm
+ */
 
 const WORKSPACE = 'C:\\ptah-e2e-ws';
 
-async function openFileView(
-  page: Page,
-  request: {
-    path: string;
-    workspaceRoot: string;
-    line?: number;
-    column?: number;
-  },
-): Promise<void> {
-  await page.evaluate(async (value) => {
-    const dock = document.querySelector('ptah-git-dock');
-    const angular = (
-      window as unknown as {
-        ng?: {
-          getComponent(element: Element): {
-            diffTabs: { openFileView(input: typeof value): Promise<void> };
-          };
-        };
-      }
-    ).ng;
-    if (!dock || !angular) {
-      throw new Error('Angular dock debug context is unavailable.');
-    }
-    await angular.getComponent(dock).diffTabs.openFileView(value);
-  }, request);
-}
+const ALPHA_CONTENT =
+  'const one = 1;\nconst two = 2;\nconst three = 3;\nconst four = 4;';
 
-test.describe('read-only file tabs', () => {
-  test('opens text and markdown, toggles source, closes, and renders refusal', async ({
+test.describe('read-only file view in the review shell', () => {
+  test('opens text and markdown, toggles source, goes back, and renders refusal', async ({
     electronApp,
-    mainWindow,
     ui,
   }) => {
     await ui.mockRpc({
@@ -69,16 +62,20 @@ test.describe('read-only file tabs', () => {
           relativePath: 'docs/readme.md',
           content: '# Rendered preview\\n\\nSafe markdown body.',
           sizeBytes: 39,
-          encoding: 'utf-8'
+          encoding: 'utf-8',
+          sha256: 'a'.repeat(64),
+          bom: false
         };
         return {
           success: true,
           absolutePath: 'C:\\\\ptah-e2e-ws\\\\src\\\\alpha.ts',
           workspaceRoot: 'C:\\\\ptah-e2e-ws',
           relativePath: 'src/alpha.ts',
-          content: 'const one = 1;\\nconst two = 2;\\nconst three = 3;',
-          sizeBytes: 50,
-          encoding: 'utf-8'
+          content: ${JSON.stringify(ALPHA_CONTENT)},
+          sizeBytes: 66,
+          encoding: 'utf-8',
+          sha256: 'b'.repeat(64),
+          bom: false
         };
       }`,
     });
@@ -87,80 +84,78 @@ test.describe('read-only file tabs', () => {
       BrowserWindow.getAllWindows()[0]?.getSize(),
     );
     expect(size).toEqual([1200, 800]);
-    await mainWindow
-      .getByRole('button', { name: 'Toggle Workspaces panel' })
-      .click();
-    const dock = mainWindow.locator('ptah-git-dock');
-    const dockBox = await dock.boundingBox();
-    expect(dockBox?.width).toBeGreaterThanOrEqual(699);
-    expect(dockBox?.width).toBeLessThanOrEqual(701);
+    const page = ui.page;
+    const editor = spotEditor(page);
 
-    await openFileView(mainWindow, {
-      path: 'src/alpha.ts',
-      workspaceRoot: WORKSPACE,
-      line: 2,
+    // --- text file at line:column, read-only --------------------------------
+    await openFileInShell(page, 'src/alpha.ts', 2, {
       column: 7,
+      workspaceRoot: WORKSPACE,
+    });
+    await expect(editor.locator('[data-testid="spot-editor-path"]')).toHaveText(
+      'src/alpha.ts',
+    );
+    await expect(editor.locator('[data-testid="spot-editor-ro"]')).toHaveText(
+      'Read only',
+    );
+    await expect(spotEditorContent(page)).toContainText('const two = 2;');
+    await expect(spotEditorContent(page)).toHaveAttribute(
+      'contenteditable',
+      'false',
+    );
+    await expect(
+      editor.locator('[data-testid="spot-editor-save"]'),
+    ).toBeDisabled();
+    await expect
+      .poll(() => spotEditorCursor(page))
+      .toEqual({ line: 2, column: 7 });
+    await expect(editor.locator('.cm-activeLineGutter')).toHaveText('2');
+
+    // --- markdown opens as a preview; Source reveals the editor --------------
+    await openFileInShell(page, 'docs/readme.md', undefined, {
+      workspaceRoot: WORKSPACE,
     });
     await expect(
-      mainWindow.getByRole('tab', { name: 'alpha.ts' }),
+      editor.locator('[data-testid="spot-editor-preview-body"]'),
+    ).toContainText('Rendered preview');
+    const previewButton = editor.locator('[data-testid="spot-editor-preview"]');
+    const sourceButton = editor.locator('[data-testid="spot-editor-source"]');
+    await expect(previewButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(sourceButton).toHaveAttribute('aria-pressed', 'false');
+    await sourceButton.click();
+    await expect(sourceButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(
+      editor.locator('[data-testid="spot-editor-preview-body"]'),
+    ).toHaveCount(0);
+    await expect(spotEditorContent(page)).toContainText('# Rendered preview');
+    await expect(
+      editor.locator('[data-testid="spot-editor-body"]'),
+    ).not.toHaveClass(/invisible/);
+
+    // --- Back to review: the canvas returns and focus is not lost -----------
+    await editor.locator('[data-testid="spot-editor-back"]').click();
+    await expect(editor).toHaveCount(0);
+    await expect(
+      ui.reviewShell().locator('[data-testid="review-shell-changes-body"]'),
     ).toBeVisible();
-    await expect(mainWindow.locator('.view-lines')).toBeVisible();
     await expect
       .poll(() =>
-        mainWindow.evaluate(() => {
-          const host = document.querySelector('ptah-file-view');
-          const angular = (
-            window as unknown as {
-              ng?: {
-                getComponent(element: Element): {
-                  editor?: { getPosition(): unknown };
-                };
-              };
-            }
-          ).ng;
-          return host && angular
-            ? angular.getComponent(host).editor?.getPosition()
-            : null;
+        page.evaluate(() => {
+          const active = document.activeElement;
+          return !!active && active !== document.body && active.isConnected;
         }),
       )
-      .toEqual({ lineNumber: 2, column: 7 });
+      .toBe(true);
 
-    await openFileView(mainWindow, {
-      path: 'docs/readme.md',
+    // --- outside the open workspaces: blocked, external open needs a confirm -
+    await openFileInShell(page, 'C:\\outside\\blocked.ts', undefined, {
       workspaceRoot: WORKSPACE,
     });
     await expect(
-      mainWindow.locator('[data-testid="file-view-preview"]'),
-    ).toContainText('Rendered preview');
-    const previewToggle = mainWindow.locator(
-      '[data-testid="file-view-preview-toggle"]',
-    );
-    await expect(previewToggle).toHaveAttribute('aria-pressed', 'true');
-    await previewToggle.click();
-    await expect(previewToggle).toHaveAttribute('aria-pressed', 'false');
-    await expect(
-      mainWindow.locator('[data-testid="file-view-editor"]'),
-    ).not.toHaveClass(/invisible/);
-    await mainWindow
-      .getByRole('button', { name: 'Close file readme.md' })
-      .click();
-    await expect(
-      mainWindow.getByRole('tab', { name: 'alpha.ts' }),
-    ).toHaveAttribute('aria-selected', 'true');
-
-    await openFileView(mainWindow, {
-      path: 'C:\\outside\\blocked.ts',
-      workspaceRoot: WORKSPACE,
-    });
-    await expect(
-      mainWindow.locator('ptah-file-view p[role="alert"]'),
+      editor.locator('[data-testid="spot-editor-blocked"]'),
     ).toContainText('This file is outside the open workspaces.');
-    await mainWindow
-      .locator(
-        '[data-testid="git-dock-content"] [data-testid="open-in-primary"]',
-      )
-      .click();
-    const confirm = mainWindow.getByRole('alertdialog');
+    await editor.locator('[data-testid="open-in-primary"]').click();
+    const confirm = page.getByRole('alertdialog');
     await expect(confirm).toContainText('C:\\outside\\blocked.ts');
     await expect(confirm).toContainText('Kiro');
     expect(await ui.getObservedCalls('editor:openFile')).toHaveLength(0);

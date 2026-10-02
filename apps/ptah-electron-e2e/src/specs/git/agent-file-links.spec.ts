@@ -1,13 +1,18 @@
 import { randomUUID } from 'crypto';
 import { test, expect } from '../../support/fixtures';
+import {
+  spotEditor,
+  spotEditorContent,
+  spotEditorCursor,
+} from '../../support/spot-editor';
 
 /**
  * Agent markdown file links, end to end (TASK_2026_413 Batch 8c, AC 19-22, 27).
  *
  * Every unit spec in this task proves one hop: the marked extension emits the
  * data attribute, the document listener intercepts the click, the router picks
- * a workspace, `DiffTabsService` opens the tab. None of them can prove the
- * chain holds inside the real Electron renderer, where the dock is a LAZY
+ * a workspace, `ReviewNavigationService` opens the file. None of them can prove
+ * the chain holds inside the real Electron renderer, where the dock is a LAZY
  * chunk, the transcript is re-rendered on every streaming delta, and a missed
  * `preventDefault()` would navigate the window away from the app — the one
  * failure a unit spec structurally cannot see.
@@ -16,8 +21,10 @@ import { test, expect } from '../../support/fixtures';
  * same `chat:chunk` seam `empty-assistant-envelope.spec.ts` uses, and asserts
  * on the observed RPC calls plus the window's own URL.
  *
- * Window and dock are asserted, never resized: the defaults (1200x800, a 700 px
- * dock) are the geometry the feature is designed at.
+ * TASK_2026_576 Batch 61: the destination is the review shell's spot editor
+ * (CodeMirror, read-only, in the Changes tab), not a Monaco file tab. The window
+ * is asserted, never resized: the default (1200x800) is the geometry the
+ * feature is designed at.
  */
 
 const WORKSPACE = 'C:\\ptah-e2e-ws';
@@ -106,7 +113,9 @@ const FILE_VIEW_CONTENT = `(params) => {
     relativePath: 'docs/readme.md',
     content: '# Rendered preview\\n\\nSafe markdown body.',
     sizeBytes: 39,
-    encoding: 'utf-8'
+    encoding: 'utf-8',
+    sha256: 'a'.repeat(64),
+    bom: false
   };
   return {
     success: true,
@@ -115,12 +124,14 @@ const FILE_VIEW_CONTENT = `(params) => {
     relativePath: 'src/a.ts',
     content: 'const one = 1;\\nconst two = 2;\\nconst three = 3;\\nconst four = 4;\\nconst five = 5;\\nconst six = 6;\\nconst seven = 7;\\nconst eight = 8;\\nconst nine = 9;\\nconst ten = 10;\\nconst eleven = 11;\\nconst twelve = 12;\\nconst thirteen = 13;',
     sizeBytes: 200,
-    encoding: 'utf-8'
+    encoding: 'utf-8',
+    sha256: 'b'.repeat(64),
+    bom: false
   };
 }`;
 
 test.describe('agent file links', () => {
-  test('an agent markdown link opens a read-only dock tab without navigating the window', async ({
+  test('an agent markdown link opens the read-only spot editor of the review shell without navigating the window', async ({
     electronApp,
     mainWindow,
     ui,
@@ -187,22 +198,28 @@ test.describe('agent file links', () => {
     // ---------------------------------------------------------------------
     // 2. The dock is hidden; clicking `a` opens it with the file at 12:3.
     // ---------------------------------------------------------------------
-    await expect(mainWindow.locator('ptah-git-dock')).toBeHidden();
+    await expect(mainWindow.locator('ptah-review-shell')).toBeHidden();
     await bubble.getByRole('link', { name: 'a', exact: true }).click();
 
-    const dock = mainWindow.locator('ptah-git-dock');
-    await expect(dock).toBeVisible();
-    // The dock's own width is 700, but the Workspaces panel shares the row and
-    // squeezes it. `git-rail-collapse.spec.ts` and `file-view-tab.spec.ts` both
-    // close that panel before measuring, for the same reason. This is NOT a
-    // dock resize — the dock's configured width is never touched.
+    // The dock reveals, loads the shell lazily and mounts the editor read-only.
+    const editor = spotEditor(mainWindow);
+    await expect(mainWindow.locator('ptah-review-shell')).toBeVisible();
+    // The Workspaces panel shares the row and squeezes the chat transcript to
+    // a few characters wide; the earlier dock specs close it for the same
+    // reason. This is NOT a resize of the dock or the window.
     await mainWindow
       .getByRole('button', { name: 'Toggle Workspaces panel' })
       .click();
-    const dockBox = await dock.boundingBox();
-    expect(dockBox?.width).toBeGreaterThanOrEqual(699);
-    expect(dockBox?.width).toBeLessThanOrEqual(701);
-    await expect(mainWindow.getByRole('tab', { name: 'a.ts' })).toBeVisible();
+    await expect(editor.locator('[data-testid="spot-editor-path"]')).toHaveText(
+      'src/a.ts',
+    );
+    await expect(
+      editor.locator('[data-testid="spot-editor-ro"]'),
+    ).toBeVisible();
+    await expect(spotEditorContent(mainWindow)).toHaveAttribute(
+      'contenteditable',
+      'false',
+    );
 
     // The router resolved the chat tab's workspace, not a guess.
     //
@@ -222,41 +239,25 @@ test.describe('agent file links', () => {
         }),
       ]);
     await expect
-      .poll(() =>
-        mainWindow.evaluate(() => {
-          const host = document.querySelector('ptah-file-view');
-          const angular = (
-            window as unknown as {
-              ng?: {
-                getComponent(element: Element): {
-                  editor?: { getPosition(): unknown };
-                };
-              };
-            }
-          ).ng;
-          return host && angular
-            ? angular.getComponent(host).editor?.getPosition()
-            : null;
-        }),
-      )
-      .toEqual({ lineNumber: 12, column: 3 });
+      .poll(() => spotEditorCursor(mainWindow))
+      .toEqual({ line: 12, column: 3 });
+    await expect(editor.locator('.cm-activeLineGutter')).toHaveText('12');
     expect(mainWindow.url()).toBe(urlBefore);
 
     // ---------------------------------------------------------------------
-    // 3. `b` is markdown: preview first, and Source reveals Monaco (AC 23).
+    // 3. `b` is markdown: preview first, and Source reveals the editor (AC 23).
     // ---------------------------------------------------------------------
     await bubble.getByRole('link', { name: 'b', exact: true }).click();
     await expect(
-      mainWindow.locator('[data-testid="file-view-preview"]'),
+      editor.locator('[data-testid="spot-editor-preview-body"]'),
     ).toContainText('Rendered preview');
-    const previewToggle = mainWindow.locator(
-      '[data-testid="file-view-preview-toggle"]',
+    const sourceButton = editor.locator('[data-testid="spot-editor-source"]');
+    await expect(sourceButton).toHaveAttribute('aria-pressed', 'false');
+    await sourceButton.click();
+    await expect(sourceButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(spotEditorContent(mainWindow)).toContainText(
+      '# Rendered preview',
     );
-    await expect(previewToggle).toHaveAttribute('aria-pressed', 'true');
-    await previewToggle.click();
-    await expect(
-      mainWindow.locator('[data-testid="file-view-editor"]'),
-    ).not.toHaveClass(/invisible/);
 
     // ---------------------------------------------------------------------
     // 4. The http link is left alone — no read, no navigation (AC 20).
@@ -331,13 +332,11 @@ test.describe('agent file links', () => {
     await bubble.getByRole('link', { name: 'blocked', exact: true }).click();
 
     await expect(
-      mainWindow.locator('ptah-file-view p[role="alert"]'),
+      spotEditor(mainWindow).locator('[data-testid="spot-editor-blocked"]'),
     ).toContainText('This file is outside the open workspaces.');
 
-    await mainWindow
-      .locator(
-        '[data-testid="git-dock-content"] [data-testid="open-in-primary"]',
-      )
+    await spotEditor(mainWindow)
+      .locator('[data-testid="open-in-primary"]')
       .click();
     const confirm = mainWindow.getByRole('alertdialog');
     await expect(confirm).toContainText('C:\\outside\\blocked.ts');
@@ -357,7 +356,7 @@ test.describe('agent file links', () => {
   // `FilePathLinkComponent` tool-call chip — that path has unit coverage only),
   // and it asserts that a renderer reload returns to the same URL, NOT that the
   // dock is restored. See the comment on the reload below (L-12).
-  test('a link opens a tab, and a renderer reload returns to the same URL (A6/A7, D10)', async ({
+  test('a link opens the spot editor, and a renderer reload returns to the same URL (A6/A7, D10)', async ({
     mainWindow,
     ui,
   }) => {
@@ -385,7 +384,9 @@ test.describe('agent file links', () => {
     }
     const bubble = mainWindow.locator(ASSISTANT_BUBBLE).first();
     await bubble.getByRole('link', { name: 'a', exact: true }).click();
-    await expect(mainWindow.getByRole('tab', { name: 'a.ts' })).toBeVisible();
+    await expect(
+      spotEditor(mainWindow).locator('[data-testid="spot-editor-path"]'),
+    ).toHaveText('src/a.ts');
 
     // A6/A7 + D10: a renderer reload of the app's own document must COMPLETE
     // and land back on the same URL. That is the property the navigation policy
