@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { stat } from 'node:fs/promises';
 import type {
+  EditorMergeRequest,
   EditorTarget,
   EditorTargetId,
 } from '../interfaces/editor-launcher.interface';
@@ -21,16 +22,33 @@ export interface EditorDetectionDefinition {
   readonly displayName: string;
   readonly command: string;
   readonly installCandidates: readonly EditorExecutableCandidate[];
+  /** See {@link EditorDescriptor.mergeArgs}. */
+  readonly mergeArgs?: readonly string[];
 }
 
 export interface EditorDescriptor {
   readonly id: EditorTargetId;
   readonly displayName: string;
   readonly command: string;
+  /**
+   * The argv that precedes `<local> <remote> <base> <result>` to open this
+   * editor's three-way merge view. Only a target that declares it is offered a
+   * merge launch (A11); every other target opens the result file instead.
+   * Declare it only for a CLI whose `--help` documents the form.
+   */
+  readonly mergeArgs?: readonly string[];
 }
 
 export const EDITOR_DESCRIPTORS = [
-  { id: 'vscode', displayName: 'VS Code', command: 'code' },
+  // `code --help`: "-m --merge <path1> <path2> <base> <result>". Cursor, Kiro
+  // and Antigravity are VS Code forks, but their CLIs' merge form is not
+  // verified, so they open the file.
+  {
+    id: 'vscode',
+    displayName: 'VS Code',
+    command: 'code',
+    mergeArgs: ['--merge'],
+  },
   { id: 'cursor', displayName: 'Cursor', command: 'cursor' },
   {
     id: 'antigravity',
@@ -64,6 +82,11 @@ export interface EditorFileLaunch {
 
 export interface EditorWorkspaceLaunch {
   readonly normalizedRoot: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+}
+
+export interface EditorMergeLaunch {
   readonly args: readonly string[];
   readonly cwd: string;
 }
@@ -543,6 +566,25 @@ export function prepareEditorWorkspaceLaunch(
     normalizedRoot,
     args: [normalizedRoot],
     cwd: normalizedRoot,
+  };
+}
+
+/**
+ * Validate a merge request and build the argv for a target's three-way merge:
+ * `mergeArgs` then `<local> <remote> <base> <result>`, each path its own argv
+ * element. The editor runs in the result file's directory.
+ */
+export function prepareEditorMergeLaunch(
+  mergeArgs: readonly string[],
+  request: EditorMergeRequest,
+): EditorMergeLaunch {
+  const local = normalizeAbsolute(request.local, 'Local path');
+  const remote = normalizeAbsolute(request.remote, 'Remote path');
+  const base = normalizeAbsolute(request.base, 'Base path');
+  const result = normalizeAbsolute(request.result, 'Result path');
+  return {
+    args: [...mergeArgs, local, remote, base, result],
+    cwd: path.dirname(result),
   };
 }
 

@@ -141,6 +141,164 @@ describe('ElectronEditorLauncher', () => {
     expect(spawnProcess).not.toHaveBeenCalled();
   });
 
+  describe('openMergeTool', () => {
+    const request = {
+      local: path.resolve('git/ptah-merge/h/local.ts'),
+      remote: path.resolve('git/ptah-merge/h/remote.ts'),
+      base: path.resolve('git/ptah-merge/h/base.ts'),
+      result: path.resolve('workspace/src/a.ts'),
+    };
+
+    it('launches VS Code with --merge local remote base result', async () => {
+      const launcher = new ElectronEditorLauncher({ spawnProcess } as never);
+      const executablePath = path.resolve('editors/code');
+
+      await expect(
+        launcher.openMergeTool(
+          { id: 'vscode', displayName: 'VS Code', executablePath },
+          request,
+        ),
+      ).resolves.toEqual({ status: 'launched' });
+      expect(spawnProcess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: executablePath,
+          args: [
+            '--merge',
+            request.local,
+            request.remote,
+            request.base,
+            request.result,
+          ],
+          cwd: path.dirname(request.result),
+          needsConsole: false,
+        }),
+      );
+    });
+
+    it.each(['cursor', 'antigravity', 'zed', 'kiro', 'terminal'] as const)(
+      'A11: refuses %s, which declares no mergeArgs, without spawning',
+      async (id) => {
+        const launcher = new ElectronEditorLauncher({ spawnProcess } as never);
+
+        await expect(
+          launcher.openMergeTool(
+            {
+              id,
+              displayName: id,
+              executablePath: path.resolve('editors', id),
+            },
+            request,
+          ),
+        ).resolves.toEqual({ status: 'unsupported' });
+        expect(spawnProcess).not.toHaveBeenCalled();
+      },
+    );
+
+    it('A11: reads mergeArgs from injected definitions', async () => {
+      const launcher = new ElectronEditorLauncher({ spawnProcess } as never, {
+        definitions: [
+          {
+            id: 'vscode',
+            displayName: 'VS Code',
+            command: 'code',
+            installCandidates: [],
+          },
+          {
+            id: 'cursor',
+            displayName: 'Cursor',
+            command: 'cursor',
+            installCandidates: [],
+            mergeArgs: ['--merge'],
+          },
+        ],
+      });
+
+      await expect(
+        launcher.openMergeTool(
+          {
+            id: 'vscode',
+            displayName: 'VS Code',
+            executablePath: path.resolve('editors/code'),
+          },
+          request,
+        ),
+      ).resolves.toEqual({ status: 'unsupported' });
+      await expect(
+        launcher.openMergeTool(
+          {
+            id: 'cursor',
+            displayName: 'Cursor',
+            executablePath: path.resolve('editors/cursor'),
+          },
+          request,
+        ),
+      ).resolves.toEqual({ status: 'launched' });
+      expect(spawnProcess).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns failed instead of rejecting on a relative path', async () => {
+      const launcher = new ElectronEditorLauncher({ spawnProcess } as never);
+
+      const result = await launcher.openMergeTool(
+        {
+          id: 'vscode',
+          displayName: 'VS Code',
+          executablePath: path.resolve('editors/code'),
+        },
+        { ...request, base: 'base.ts' },
+      );
+
+      expect(result).toEqual({
+        status: 'failed',
+        error: new Error('Base path must be absolute'),
+      });
+      expect(spawnProcess).not.toHaveBeenCalled();
+    });
+
+    it('returns failed instead of rejecting when the spawn fails', async () => {
+      const failedSpawn = jest.fn(() => ({
+        whenSpawned: Promise.resolve(null),
+      }));
+      const launcher = new ElectronEditorLauncher({
+        spawnProcess: failedSpawn,
+      } as never);
+
+      await expect(
+        launcher.openMergeTool(
+          {
+            id: 'vscode',
+            displayName: 'VS Code',
+            executablePath: path.resolve('editors/code'),
+          },
+          request,
+        ),
+      ).resolves.toEqual({
+        status: 'failed',
+        error: new Error('Failed to launch VS Code'),
+      });
+    });
+
+    it('wraps a non-Error throw from the spawner', async () => {
+      const throwingSpawn = jest.fn(() => {
+        throw 'boom';
+      });
+      const launcher = new ElectronEditorLauncher({
+        spawnProcess: throwingSpawn,
+      } as never);
+
+      await expect(
+        launcher.openMergeTool(
+          {
+            id: 'vscode',
+            displayName: 'VS Code',
+            executablePath: path.resolve('editors/code'),
+          },
+          request,
+        ),
+      ).resolves.toEqual({ status: 'failed', error: new Error('boom') });
+    });
+  });
+
   it('propagates a launch failure', async () => {
     const failedSpawn = jest.fn(() => ({ whenSpawned: Promise.resolve(null) }));
     const launcher = new ElectronEditorLauncher({
