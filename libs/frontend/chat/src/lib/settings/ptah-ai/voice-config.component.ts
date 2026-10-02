@@ -3,8 +3,10 @@ import {
   Component,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import {
   AlertCircle,
@@ -18,6 +20,7 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import type {
   VoiceProviderCapabilityDto,
+  VoiceInfoDto,
   VoiceProviderConfigDto,
 } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
@@ -42,6 +45,8 @@ interface EngineRow {
   readonly providerLabel: string;
   readonly options: readonly VoiceProviderCapabilityDto[];
   readonly modelLabel: string;
+  /** Tooltip for the Model / Voice cell: the raw ElevenLabs voice id when its name is unknown. */
+  readonly modelTitle: string | null;
   readonly detail: string;
   readonly status: EngineStatus;
 }
@@ -54,9 +59,13 @@ function asProviderId(value: string | undefined): VoiceProviderId {
   return value === 'elevenlabs' ? 'elevenlabs' : 'local';
 }
 
-function errorText(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
+/** One fixed sentence per action (F1): no host or transport text reaches the alert or the toast. */
+const LOAD_PROVIDERS_FAILED = 'Could not load the voice engines.';
+const LOAD_CONFIG_FAILED = 'Could not load the voice settings.';
+const SAVE_PROVIDER_FAILED: Record<VoiceDirection, string> = {
+  stt: 'Could not save the speech-to-text engine.',
+  tts: 'Could not save the text-to-speech engine.',
+};
 
 /**
  * Voice engines card on the Search & Voice tab (pattern map V9-V12, P2 + P4).
@@ -158,7 +167,8 @@ function errorText(error: unknown, fallback: string): string {
                     </ptah-native-popover>
                   </td>
                   <td>
-                    <span class="font-mono text-base-content" [attr.data-testid]="'voice-engine-model-' + row.direction">{{ row.modelLabel }}</span>
+                    <span class="font-mono text-base-content" [attr.title]="row.modelTitle"
+                      [attr.data-testid]="'voice-engine-model-' + row.direction">{{ row.modelLabel }}</span>
                   </td>
                   <td>
                     <span class="badge badge-outline badge-sm gap-1 whitespace-nowrap text-base-content"
@@ -211,6 +221,10 @@ export class VoiceConfigComponent implements OnInit {
   /** Direction whose drawer tab is open; `null` closes drawer D-VOICE. */
   readonly drawerDirection = signal<VoiceDirection | null>(null);
 
+  /** The ElevenLabs voice library, read once per tab visit to name the TTS voice; `null` until it loads. */
+  readonly elevenLabsVoices = signal<readonly VoiceInfoDto[] | null>(null);
+  private voicesRequested = false;
+
   readonly sttProviders = computed(() => this.providers().filter((p) => p.supports.stt));
   readonly ttsProviders = computed(() => this.providers().filter((p) => p.supports.tts));
   readonly sttProviderId = computed(() => asProviderId(this.config()?.sttProvider));
@@ -232,6 +246,7 @@ export class VoiceConfigComponent implements OnInit {
         providerLabel: label(stt),
         options: this.sttProviders(),
         modelLabel: stt === 'elevenlabs' ? cfg.elevenlabs.sttModelId : localSttModel(cfg),
+        modelTitle: null,
         detail: 'model, download and source',
         status: stt === 'elevenlabs' ? keyStatus : cfg.local.sttDownloaded ? READY : NOT_DOWNLOADED,
       },
@@ -241,12 +256,23 @@ export class VoiceConfigComponent implements OnInit {
         providerId: tts,
         providerLabel: label(tts),
         options: this.ttsProviders(),
-        modelLabel: tts === 'elevenlabs' ? (cfg.elevenlabs.voiceId ?? 'No voice chosen') : cfg.local.ttsVoice,
+        ...(tts === 'elevenlabs'
+          ? this.elevenLabsVoiceCell(cfg.elevenlabs.voiceId)
+          : { modelLabel: cfg.local.ttsVoice, modelTitle: null }),
         detail: 'voice, preview and download',
         status: tts === 'elevenlabs' ? keyStatus : cfg.local.ttsDownloaded ? READY : NOT_DOWNLOADED,
       },
     ];
   });
+
+  constructor() {
+    // Name the TTS voice only when ElevenLabs speaks with a chosen voice and a key can list voices.
+    effect(() => {
+      const cfg = this.config();
+      if (this.ttsProviderId() !== 'elevenlabs' || !cfg?.elevenlabs.apiKeyConfigured || !cfg.elevenlabs.voiceId) return;
+      untracked(() => void this.loadVoiceNames());
+    });
+  }
 
   async ngOnInit(): Promise<void> {
     await Promise.all([this.loadProviders(), this.reloadConfig()]);
@@ -259,14 +285,11 @@ export class VoiceConfigComponent implements OnInit {
       if (result.isSuccess() && result.data.ok) {
         this.providers.set(result.data.providers);
       } else {
-        this.errorMessage.set(
-          result.isSuccess() && !result.data.ok
-            ? result.data.error
-            : (result.error ?? 'Failed to load voice providers'),
-        );
+        this.errorMessage.set(LOAD_PROVIDERS_FAILED);
       }
-    } catch (error: unknown) {
-      this.errorMessage.set(errorText(error, 'Failed to load voice providers'));
+    } catch {
+      // A thrown transport error gets the same fixed sentence.
+      this.errorMessage.set(LOAD_PROVIDERS_FAILED);
     }
   }
 
@@ -276,15 +299,33 @@ export class VoiceConfigComponent implements OnInit {
       if (result.isSuccess() && result.data.ok) {
         this.config.set(result.data.config);
       } else {
-        this.errorMessage.set(
-          result.isSuccess() && !result.data.ok
-            ? result.data.error
-            : (result.error ?? 'Failed to load voice configuration'),
-        );
+        this.errorMessage.set(LOAD_CONFIG_FAILED);
       }
-    } catch (error: unknown) {
-      this.errorMessage.set(errorText(error, 'Failed to load voice configuration'));
+    } catch {
+      // A thrown transport error gets the same fixed sentence.
+      this.errorMessage.set(LOAD_CONFIG_FAILED);
     }
+  }
+
+  /**
+   * One `voice:listVoices` read per component instance (tab visit). A failure is not surfaced: the
+   * cell falls back to "Custom voice" with the id as its tooltip, and the drawer reports the error.
+   */
+  private async loadVoiceNames(): Promise<void> {
+    if (this.voicesRequested) return;
+    this.voicesRequested = true;
+    try {
+      const result = await this.rpc.call('voice:listVoices', { providerId: 'elevenlabs' });
+      if (result.isSuccess() && result.data.ok) this.elevenLabsVoices.set(result.data.voices);
+    } catch {
+      // Same fallback as a failed result.
+    }
+  }
+
+  private elevenLabsVoiceCell(voiceId: string | undefined): Pick<EngineRow, 'modelLabel' | 'modelTitle'> {
+    if (!voiceId) return { modelLabel: 'No voice chosen', modelTitle: null };
+    const name = this.elevenLabsVoices()?.find((voice) => voice.id === voiceId)?.label;
+    return name ? { modelLabel: name, modelTitle: null } : { modelLabel: 'Custom voice', modelTitle: voiceId };
   }
 
   openDetails(direction: VoiceDirection): void {
@@ -320,7 +361,6 @@ export class VoiceConfigComponent implements OnInit {
     fallback: VoiceProviderId,
   ): Promise<WriteResult> {
     this.setProvider(direction, next);
-    let message: string;
     try {
       const result = await this.rpc.call(
         'voice:setProviderConfig',
@@ -330,13 +370,10 @@ export class VoiceConfigComponent implements OnInit {
         await this.reloadConfig();
         return { ok: true };
       }
-      message =
-        result.isSuccess() && !result.data.ok
-          ? result.data.error
-          : (result.error ?? 'Failed to switch voice provider');
-    } catch (error: unknown) {
-      message = errorText(error, 'Failed to switch voice provider');
+    } catch {
+      // A thrown transport error is reported like a refused write.
     }
+    const message = SAVE_PROVIDER_FAILED[direction];
     this.setProvider(direction, fallback);
     this.errorMessage.set(message);
     return { ok: false, message };

@@ -153,6 +153,54 @@ describe('VoiceConfigComponent', () => {
     expect(byTestId('voice-engine-model-tts').textContent).toContain('No voice chosen');
   });
 
+  describe('ElevenLabs voice name in the Model / Voice cell (V7)', () => {
+    const elevenlabsTts = () =>
+      config({
+        ttsProvider: 'elevenlabs',
+        elevenlabs: { ...config().elevenlabs, apiKeyConfigured: true, voiceId: 'EXAVITQu4vr4xnSDxMaL' },
+      });
+
+    it('shows the voice name from one voice:listVoices read', async () => {
+      currentConfig = elevenlabsTts();
+      responses['voice:listVoices'] = () =>
+        ok({ ok: true, voices: [{ id: 'other', label: 'Adam' }, { id: 'EXAVITQu4vr4xnSDxMaL', label: 'Sarah' }] });
+      await render();
+
+      const cell = byTestId('voice-engine-model-tts');
+      expect(cell.textContent?.trim()).toBe('Sarah');
+      expect(cell.getAttribute('title')).toBeNull();
+      expect(calls('voice:listVoices')).toEqual([{ providerId: 'elevenlabs' }]);
+
+      // A config re-read (e.g. after a drawer change) does not read the list again.
+      await component.reloadConfig();
+      await settle();
+      expect(calls('voice:listVoices').length).toBe(1);
+    });
+
+    it.each([
+      ['the list fails', () => ok({ ok: false, error: 'boom' })],
+      ['the transport fails', () => fail('down')],
+      ['the id is not in the list', () => ok({ ok: true, voices: [{ id: 'other', label: 'Adam' }] })],
+    ])('shows "Custom voice" with the id as a tooltip when %s', async (_case, respond) => {
+      currentConfig = elevenlabsTts();
+      responses['voice:listVoices'] = respond;
+      await render();
+
+      const cell = byTestId('voice-engine-model-tts');
+      expect(cell.textContent?.trim()).toBe('Custom voice');
+      expect(cell.getAttribute('title')).toBe('EXAVITQu4vr4xnSDxMaL');
+      expect(element.textContent).not.toContain('boom');
+    });
+
+    it('does not read the voice list for Local TTS and keeps the local values', async () => {
+      await render();
+      expect(calls('voice:listVoices')).toEqual([]);
+      expect(byTestId('voice-engine-model-tts').textContent?.trim()).toBe('af_heart');
+      expect(byTestId('voice-engine-model-stt').textContent?.trim()).toBe('base.en');
+      expect(byTestId('voice-engine-model-tts').getAttribute('title')).toBeNull();
+    });
+  });
+
   it('reports a not-downloaded local engine and a custom STT source', async () => {
     currentConfig = config({
       local: { ...config().local, modelSource: 'hf', customModel: 'org/whisper-x', sttDownloaded: false },
@@ -195,6 +243,13 @@ describe('VoiceConfigComponent', () => {
     expect(component.sttProviderId()).toBe('local');
   });
 
+  /** Every way a host can fail: an RPC failure, an `{ ok:false, error }` answer, a thrown Error. */
+  const HOST_FAILURES: ReadonlyArray<[string, Responder]> = [
+    ['an RPC failure', () => fail('host detail')],
+    ['an { ok:false, error } answer', () => ok({ ok: false, error: 'host detail' })],
+    ['a thrown Error', () => { throw new Error('host detail'); }],
+  ];
+
   it('reverts the row and raises an alert toast when the write fails (D15)', async () => {
     responses['voice:setProviderConfig'] = () => fail('backend refused');
     await render();
@@ -202,26 +257,40 @@ describe('VoiceConfigComponent', () => {
 
     expect(component.ttsProviderId()).toBe('local');
     expect(byTestId('voice-provider-btn-tts').textContent).toContain('Local');
-    expect(feedback.toast()).toEqual({ tone: 'alert', message: 'backend refused', canUndo: false });
+    expect(feedback.toast()).toEqual({
+      tone: 'alert', message: 'Could not save the text-to-speech engine.', canUndo: false,
+    });
     const alert = byTestId('voice-config-error');
     expect(alert.getAttribute('role')).toBe('alert');
     expect(alert.classList).toContain('text-base-content');
   });
 
-  it('treats { ok:false } from the host as a failed write', async () => {
-    responses['voice:setProviderConfig'] = () => ok({ ok: false, error: 'ElevenLabs key missing' });
+  it.each(HOST_FAILURES)('shows only a fixed sentence when a provider write fails with %s (F1)', async (_case, respond) => {
+    responses['voice:setProviderConfig'] = respond;
     await render();
     await choose('stt', 'elevenlabs');
 
     expect(component.sttProviderId()).toBe('local');
-    expect(feedback.toast()).toEqual({ tone: 'alert', message: 'ElevenLabs key missing', canUndo: false });
+    expect(byTestId('voice-config-error').textContent?.trim()).toBe('Could not save the speech-to-text engine.');
+    expect(feedback.toast()).toEqual({
+      tone: 'alert', message: 'Could not save the speech-to-text engine.', canUndo: false,
+    });
+    expect(element.textContent).not.toContain('host detail');
   });
 
-  it('shows a load failure as an inline alert', async () => {
-    responses['voice:getProviderConfig'] = () => fail('Could not read voice config');
+  it.each(HOST_FAILURES)('shows only a fixed sentence when the config read fails with %s (F1)', async (_case, respond) => {
+    responses['voice:getProviderConfig'] = respond;
     await render();
-    expect(byTestId('voice-config-error').textContent).toContain('Could not read voice config');
+    expect(byTestId('voice-config-error').textContent?.trim()).toBe('Could not load the voice settings.');
+    expect(element.textContent).not.toContain('host detail');
     expect(queryTestId('voice-engines-matrix')).toBeNull();
+  });
+
+  it.each(HOST_FAILURES)('shows only a fixed sentence when the provider list fails with %s (F1)', async (_case, respond) => {
+    responses['voice:listProviders'] = respond;
+    await render();
+    expect(byTestId('voice-config-error').textContent?.trim()).toBe('Could not load the voice engines.');
+    expect(element.textContent).not.toContain('host detail');
   });
 
   it('loads the drawer only when Details is used, on that direction\'s tab', async () => {

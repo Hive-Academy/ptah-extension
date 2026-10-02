@@ -481,6 +481,111 @@ describe('GoVetConsentConfigComponent', () => {
     expect(toggle(fixture).disabled).toBe(true);
   });
 
+  it('renders the approved card, table-xs rows, a daisyUI toggle switch and a plain text state (V26/V27)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, { [GET]: [() => rpcSuccess(getResult({ state: 'on' }))] });
+    const { fixture } = mount(rpc);
+    await settle(fixture);
+
+    const card = q(fixture, 'go-vet-consent-card');
+    expect(card?.classList).toContain('card');
+    expect(card?.classList).toContain('border-base-300');
+    expect(q(fixture, 'go-vet-consent-table')?.classList).toContain('table-xs');
+    expect(q(fixture, 'go-vet-consent-root')?.tagName).toBe('TD');
+
+    const sw = toggle(fixture);
+    expect(sw.getAttribute('role')).toBe('switch');
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    expect(sw.classList).toContain('toggle');
+    expect(sw.classList).toContain('toggle-sm');
+    expect(sw.classList).not.toContain('checkbox');
+    expect(q(fixture, 'go-vet-consent-toggle-target')?.classList).toContain('min-w-6');
+
+    // A small text state beside the switch, not a second badge.
+    const state = q(fixture, 'go-vet-consent-state');
+    expect(state?.classList).not.toContain('badge');
+    expect(state?.classList).toContain('text-base-content');
+    expect(state?.querySelector('.bg-success')).not.toBeNull();
+
+    // The switch row spans both columns and its label does not wrap; the
+    // Workspace / Go binary rows keep their narrow label column.
+    const labelCell = sw.closest('td');
+    expect(labelCell?.getAttribute('colspan')).toBe('2');
+    const label = fixture.nativeElement.querySelector(
+      'label[for="go-vet-consent-toggle"]',
+    ) as HTMLElement | null;
+    expect(label?.classList).toContain('whitespace-nowrap');
+    const rowHeaders = Array.from(
+      q(fixture, 'go-vet-consent-table')?.querySelectorAll('th[scope="row"]') ?? [],
+    ).map((th) => th.textContent?.trim());
+    expect(rowHeaders).toEqual(['Workspace', 'Go binary']);
+  });
+
+  it('opens the P8 confirm with Cancel focused, and Esc cancels it with focus back on the switch (V28)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, { [GET]: [() => rpcSuccess(getResult())] });
+    const { fixture } = mount(rpc);
+    await settle(fixture);
+
+    flip(fixture, true);
+    await settle(fixture);
+
+    const confirm = q(fixture, 'go-vet-consent-confirm');
+    expect(confirm?.getAttribute('role')).toBe('group');
+    expect(confirm?.classList).toContain('border-base-300');
+    expect(document.activeElement).toBe(q(fixture, 'go-vet-consent-cancel'));
+
+    confirm?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle(fixture);
+
+    expect(q(fixture, 'go-vet-consent-confirm')).toBeNull();
+    expect(setCalls(rpc)).toHaveLength(0);
+    expect(document.activeElement).toBe(toggle(fixture));
+  });
+
+  it.each([
+    ['a thrown Error', () => Promise.reject(new Error('secret host detail'))],
+    [
+      'an unknown refusal code',
+      () => rpcSuccess({ success: false, error: 'host detail' }),
+    ],
+  ] as [string, Route][])(
+    'shows the fixed transport sentence, never host text, when SET fails with %s (F1)',
+    async (_shape, failure) => {
+      const rpc = createMockRpcService();
+      routeRpc(rpc, {
+        [GET]: [() => rpcSuccess(getResult())],
+        [SET]: [failure],
+      });
+      const { fixture } = mount(rpc);
+      await settle(fixture);
+
+      flip(fixture, true);
+      click(fixture, 'go-vet-consent-allow');
+      await settle(fixture);
+
+      expect(toggle(fixture).checked).toBe(false);
+      expect(text(fixture, 'go-vet-consent-error')).toBe(
+        'Could not reach the app host. The card shows what is stored now.',
+      );
+      expect(fixture.nativeElement.textContent).not.toContain('host detail');
+    },
+  );
+
+  it('shows the fixed load sentence, never host text, when GET throws (F1)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      [GET]: [() => Promise.reject(new Error('secret host detail'))],
+    });
+    const { fixture } = mount(rpc);
+    await settle(fixture);
+
+    expect(text(fixture, 'go-vet-consent-error')).toBe(
+      'Could not read the go vet setting for this workspace.',
+    );
+    expect(fixture.nativeElement.textContent).not.toContain('host detail');
+  });
+
   it('clears the success-message timer on destroy', async () => {
     jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] });
     const rpc = createMockRpcService();
