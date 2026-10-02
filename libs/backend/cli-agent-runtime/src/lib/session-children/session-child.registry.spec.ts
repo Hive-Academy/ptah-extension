@@ -157,6 +157,24 @@ describe('SessionChildRegistry', () => {
       expect(registry.findByCwd(undefined)).toBeUndefined();
     });
 
+    it('strips a long run of mixed trailing separators, and only trailing ones', () => {
+      const registry = new SessionChildRegistry();
+      const worktree = resolve('/ws-worktrees/a');
+      addChild(registry, 'a', { worktreePath: worktree });
+
+      const started = Date.now();
+      expect(
+        registry.findByCwd(`${worktree}${'/\\'.repeat(20_000)}`)
+          ?.childSessionId,
+      ).toBe('a');
+      // A separator run followed by another character is not trailing; the
+      // old `[\\/]+$` regex backtracked quadratically on exactly this input.
+      expect(
+        registry.findByCwd(`${worktree}${'\\/'.repeat(20_000)}x`),
+      ).toBeUndefined();
+      expect(Date.now() - started).toBeLessThan(2_000);
+    });
+
     if (process.platform === 'win32') {
       it('matches cwd case-insensitively on Windows', () => {
         const registry = new SessionChildRegistry();

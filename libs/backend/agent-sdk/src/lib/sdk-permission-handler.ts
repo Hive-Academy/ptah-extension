@@ -1,4 +1,4 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { injectable, inject } from 'tsyringe';
 import {

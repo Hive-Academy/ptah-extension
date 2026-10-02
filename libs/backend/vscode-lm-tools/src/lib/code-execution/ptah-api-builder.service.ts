@@ -1062,7 +1062,7 @@ export class PtahAPIBuilder {
   private resolveSessionSpawner(): ISessionSpawner | undefined {
     const token = CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER;
     const container = this.container;
-    if (!container || !container.isRegistered(token, true)) return undefined;
+    if (!container?.isRegistered(token, true)) return undefined;
     return container.resolve<ISessionSpawner>(token);
   }
 

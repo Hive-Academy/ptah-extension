@@ -28,8 +28,7 @@ function needsAgentHistoryLoad(tab: TabState | null): tab is TabState & {
   claudeSessionId: SessionId;
 } {
   return (
-    tab !== null &&
-    tab.agentOrigin !== undefined &&
+    tab?.agentOrigin !== undefined &&
     tab.claudeSessionId !== null &&
     tab.hasLiveSession !== true &&
     tab.status === 'loaded' &&

@@ -167,7 +167,7 @@ export class CodeExecutionMCP
 {
   private server: http.Server | null = null;
   private port: number | null = null;
-  private ptahAPI: PtahAPI;
+  private readonly ptahAPI: PtahAPI;
   private toolResultCallback: ToolResultCallback | undefined;
 
   /**

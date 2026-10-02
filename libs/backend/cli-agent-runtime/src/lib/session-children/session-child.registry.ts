@@ -9,7 +9,7 @@
  * Records are never mutated in place: every change replaces the record, so a
  * caller holding an older reference never observes a half-applied update.
  */
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 import { injectable } from 'tsyringe';
 import type {
   SessionChildCompletionEnvelope,
@@ -66,9 +66,20 @@ export interface SessionChildReservation {
   readonly id: number;
 }
 
+/**
+ * `path` without its trailing `/` and `\` characters. A backwards scan rather
+ * than a `[\\/]+$` regex, whose backtracking is quadratic on a long run of
+ * separators followed by another character.
+ */
+function trimTrailingSeparators(path: string): string {
+  let end = path.length;
+  while (end > 0 && (path[end - 1] === '/' || path[end - 1] === '\\')) end--;
+  return path.slice(0, end);
+}
+
 /** Path key for cwd lookups: resolved, no trailing separator, case-folded on Windows. */
 function pathKey(path: string): string {
-  const resolved = resolve(path).replace(/[\\/]+$/, '');
+  const resolved = trimTrailingSeparators(resolve(path));
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 

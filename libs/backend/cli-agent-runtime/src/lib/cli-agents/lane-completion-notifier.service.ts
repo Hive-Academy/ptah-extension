@@ -108,13 +108,15 @@ interface DeliverableTarget {
 
 /** One rendered deliverable line: `- {path} — MISSING | EMPTY | N bytes [(NOT written by this run)]`. */
 function deliverableLine(check: LaneDeliverableCheck): string {
-  const state = !check.exists
-    ? 'MISSING'
-    : (check.bytes ?? 0) === 0
-      ? 'EMPTY'
-      : `${check.bytes} bytes` +
-        (check.writtenAfterSpawn === false ? ' (NOT written by this run)' : '');
-  return `- ${check.path} — ${state}`;
+  return `- ${check.path} — ${deliverableState(check)}`;
+}
+
+function deliverableState(check: LaneDeliverableCheck): string {
+  if (!check.exists) return 'MISSING';
+  if ((check.bytes ?? 0) === 0) return 'EMPTY';
+  const stale =
+    check.writtenAfterSpawn === false ? ' (NOT written by this run)' : '';
+  return `${check.bytes} bytes${stale}`;
 }
 
 /**
@@ -216,8 +218,7 @@ export function buildSessionChildCompletionEnvelope(
   if (deliverables.length === 0) {
     lines.push('Deliverables: none were declared, so nothing was checked.');
   } else {
-    lines.push('Deliverables:');
-    lines.push(...deliverables.map(deliverableLine));
+    lines.push('Deliverables:', ...deliverables.map(deliverableLine));
   }
   lines.push(`Reports sent by this child so far: ${subject.reportsDelivered}.`);
   const recap = subject.lastRecap?.trim();
@@ -541,11 +542,12 @@ export class LaneCompletionNotifier {
     target: DeliverableTarget,
     startedMs: number,
   ): Promise<readonly LaneDeliverableCheck[]> {
-    const checks: LaneDeliverableCheck[] = [];
-    for (const entry of target.deliverables) {
-      checks.push(await this.checkOne(target, entry, startedMs));
-    }
-    return checks;
+    // Independent read-only checks; `Promise.all` keeps the declared order.
+    return Promise.all(
+      target.deliverables.map((entry) =>
+        this.checkOne(target, entry, startedMs),
+      ),
+    );
   }
 
   /**
@@ -599,11 +601,11 @@ export class LaneCompletionNotifier {
     // orchestrator, and one canonical spelling beats echoing whatever mix of
     // separators the caller typed.
     if (isAbsolute(entry)) return resolve(entry);
-    const base = target.taskFolder
-      ? isAbsolute(target.taskFolder)
-        ? target.taskFolder
-        : resolve(target.workingDirectory, target.taskFolder)
-      : target.workingDirectory;
+    const { taskFolder, workingDirectory } = target;
+    if (!taskFolder) return resolve(workingDirectory, entry);
+    const base = isAbsolute(taskFolder)
+      ? taskFolder
+      : resolve(workingDirectory, taskFolder);
     return resolve(base, entry);
   }
 
@@ -660,8 +662,7 @@ export class LaneCompletionNotifier {
           '"deliverables" on the next spawn so the next signal can verify it.',
       );
     } else {
-      lines.push('Deliverables:');
-      lines.push(...signal.deliverables.map(deliverableLine));
+      lines.push('Deliverables:', ...signal.deliverables.map(deliverableLine));
     }
 
     lines.push(

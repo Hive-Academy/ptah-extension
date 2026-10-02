@@ -20,7 +20,7 @@
  * the child ends and in `dispose()`.
  */
 import { inject, injectable, type DependencyContainer } from 'tsyringe';
-import { isAbsolute, resolve } from 'path';
+import { isAbsolute, resolve } from 'node:path';
 import {
   SDK_TOKENS,
   SessionAdmissionRefusedError,
@@ -261,7 +261,7 @@ export class SessionSpawnerService implements ISessionSpawner {
         'a child session cannot start child sessions (depth is limited to 1)',
       );
     }
-    if (!this.mcpStatus || this.mcpStatus.getPort() === null) {
+    if ((this.mcpStatus?.getPort() ?? null) === null) {
       return this.refuseStart(
         'mcp-unavailable',
         'the Ptah MCP server is not running in this host, so a child could ' +
@@ -494,16 +494,16 @@ export class SessionSpawnerService implements ISessionSpawner {
     }
     this.runtimes.delete(childTabId);
     const removed = this.registry.remove(childTabId);
-    rollback.push({
-      step: 'remove-link',
-      ok: removed,
-      ...(removed ? {} : { detail: 'the child link was never recorded' }),
-    });
-    rollback.push(...(await this.provisioner.rollback(runtime.worktree)));
+    rollback.push(
+      {
+        step: 'remove-link',
+        ok: removed,
+        ...(removed ? {} : { detail: 'the child link was never recorded' }),
+      },
+      ...(await this.provisioner.rollback(runtime.worktree)),
+    );
     for (const step of rollback) {
-      this.log(
-        `rollback ${step.step}: ${step.ok ? 'ok' : `FAILED${step.detail ? ` (${step.detail})` : ''}`}`,
-      );
+      this.log(`rollback ${step.step}: ${rollbackStepOutcome(step)}`);
     }
     return {
       ok: false,
@@ -596,21 +596,7 @@ export class SessionSpawnerService implements ISessionSpawner {
       this.log(
         `send to ${child.childSessionId} failed: ${errorMessage(error)}`,
       );
-      if (error instanceof SessionAdmissionRefusedError) {
-        return {
-          delivered: false,
-          reason: error.reason,
-          detail:
-            error.reason === 'busy'
-              ? 'the child is mid-turn or has a message queued; nothing was queued (use mode "queue" to wait)'
-              : error.message,
-        };
-      }
-      return {
-        delivered: false,
-        reason: 'delivery-failed',
-        detail: errorMessage(error),
-      };
+      return sendFailure(error);
     }
   }
 
@@ -855,7 +841,7 @@ export class SessionSpawnerService implements ISessionSpawner {
     const tabId = payload.tabId;
     if (!tabId) return;
     const child = this.registry.get(tabId);
-    if (!child || child.childSessionId !== tabId) return;
+    if (child?.childSessionId !== tabId) return;
     this.registry.bindSdkSessionId(tabId, payload.realSessionId);
     this.log(`${tabId} bound to SDK session ${payload.realSessionId}`);
     const runtime = this.runtimes.get(tabId);
@@ -1396,4 +1382,29 @@ function unattributed(): SessionChildLookupRefusal {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** `ok`, or `FAILED` with the step's detail in parentheses when it has one. */
+function rollbackStepOutcome(step: SessionChildRollbackStep): string {
+  if (step.ok) return 'ok';
+  return step.detail ? `FAILED (${step.detail})` : 'FAILED';
+}
+
+/** The closed refusal a failed send is reported to the parent as. */
+function sendFailure(error: unknown): SessionChildSendResult {
+  if (error instanceof SessionAdmissionRefusedError) {
+    return {
+      delivered: false,
+      reason: error.reason,
+      detail:
+        error.reason === 'busy'
+          ? 'the child is mid-turn or has a message queued; nothing was queued (use mode "queue" to wait)'
+          : error.message,
+    };
+  }
+  return {
+    delivered: false,
+    reason: 'delivery-failed',
+    detail: errorMessage(error),
+  };
 }

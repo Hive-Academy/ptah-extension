@@ -10,7 +10,7 @@
  * Rollback removes only what this call created and reports every step; it
  * never throws and never hides a failed step.
  */
-import { promises as fs } from 'fs';
+import { promises as fs } from 'node:fs';
 import { inject, injectable } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
@@ -149,22 +149,19 @@ export class ChildWorktreeProvisioner {
   async rollback(
     worktree: ChildWorktree,
   ): Promise<readonly SessionChildRollbackStep[]> {
-    const steps: SessionChildRollbackStep[] = [];
-    steps.push(
-      await this.step(
-        'remove-worktree',
-        ['worktree', 'remove', '--force', worktree.worktreePath],
-        worktree.root,
-      ),
+    // Sequential on purpose: the branch cannot be deleted while a worktree
+    // still has it checked out.
+    const removed = await this.step(
+      'remove-worktree',
+      ['worktree', 'remove', '--force', worktree.worktreePath],
+      worktree.root,
     );
-    steps.push(
-      await this.step(
-        'delete-branch',
-        ['branch', '-D', worktree.branch],
-        worktree.root,
-      ),
+    const deleted = await this.step(
+      'delete-branch',
+      ['branch', '-D', worktree.branch],
+      worktree.root,
     );
-    return steps;
+    return [removed, deleted];
   }
 
   private async addAndVerify(

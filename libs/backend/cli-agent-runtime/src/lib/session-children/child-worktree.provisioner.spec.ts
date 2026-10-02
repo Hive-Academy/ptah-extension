@@ -5,15 +5,15 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   execGit: jest.fn(),
 }));
 
-jest.mock('fs', () => {
-  const actual = jest.requireActual<typeof import('fs')>('fs');
+jest.mock('node:fs', () => {
+  const actual = jest.requireActual<typeof import('node:fs')>('node:fs');
   return {
     ...actual,
     promises: { ...actual.promises, lstat: jest.fn(), realpath: jest.fn() },
   };
 });
 
-import { promises as fs } from 'fs';
+import { promises as fs } from 'node:fs';
 import { join } from 'path';
 import type { IOutputChannel } from '@ptah-extension/platform-core';
 import {

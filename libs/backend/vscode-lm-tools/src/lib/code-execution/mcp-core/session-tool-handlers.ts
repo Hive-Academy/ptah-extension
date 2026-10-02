@@ -98,14 +98,33 @@ function joinBlocks(...blocks: readonly string[]): string {
  * Formatting
  * ------------------------------------------------------------------------- */
 
+/** ` (detail)`, or '' when there is no detail. */
+function parenthesised(detail: string | undefined): string {
+  return detail ? ` (${detail})` : '';
+}
+
+function endedSuffix(child: SessionChildSnapshot): string {
+  if (!child.endedAt) return '';
+  return `; ended ${child.endedAt}${parenthesised(child.endReason)}`;
+}
+
+function deliveryText(
+  last: NonNullable<SessionChildSnapshot['lastCompletion']>,
+): string {
+  if (last.delivered) return 'delivered';
+  return `not delivered${parenthesised(last.refusal)}`;
+}
+
+function readStatusSuffix(available: boolean, truncated: boolean): string {
+  if (!available) return '; not available.';
+  return truncated ? '; the tail is shown, earlier turns are cut.' : '.';
+}
+
 function formatChild(child: SessionChildSnapshot): string {
   const lines = [
     `- ${child.label} (${child.childSessionId}): ${child.status}`,
     `  branch ${child.branch} from ${child.baseRef}; worktree ${child.worktreePath}`,
-    `  started ${child.startedAt}` +
-      (child.endedAt
-        ? `; ended ${child.endedAt}${child.endReason ? ` (${child.endReason})` : ''}`
-        : ''),
+    `  started ${child.startedAt}${endedSuffix(child)}`,
     `  turns settled ${child.turnsSettled}; reports delivered ` +
       `${child.reportsDelivered}, refused ${child.reportsRefused}`,
   ];
@@ -125,9 +144,7 @@ function formatChild(child: SessionChildSnapshot): string {
     const last = child.lastCompletion;
     lines.push(
       `  last completion: turn ${last.turn}, ${last.verdict}, ` +
-        (last.delivered
-          ? 'delivered'
-          : `not delivered${last.refusal ? ` (${last.refusal})` : ''}`),
+        deliveryText(last),
     );
   }
   if (child.heldCompletion) {
@@ -259,11 +276,7 @@ export function sessionReadReply(outcome: SessionReadOutcome): {
   return {
     head:
       `Transcript of "${child.label}" (${child.childSessionId}), ${child.status}` +
-      (available
-        ? truncated
-          ? '; the tail is shown, earlier turns are cut.'
-          : '.'
-        : '; not available.'),
+      readStatusSuffix(available, truncated),
     transcript,
   };
 }

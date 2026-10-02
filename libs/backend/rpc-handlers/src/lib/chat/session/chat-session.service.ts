@@ -146,7 +146,7 @@ interface SdkSessionLaunch {
   readonly projectPath: string;
   readonly prompt?: string;
   readonly name?: string;
-  readonly options?: ChatStartParams['options'];
+  readonly options?: NonNullable<ChatStartParams['options']>;
   readonly mcpServerRunning: boolean;
   readonly mcpServersOverride:
     Record<string, McpHttpServerOverride> | undefined;

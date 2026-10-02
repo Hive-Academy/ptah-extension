@@ -60,8 +60,8 @@ export class ChildChatSessionHostAdapter implements IChildChatSessionHost {
         return { started: true, uiAnnounced };
       }
       error = result.error || 'unknown error';
-    } catch (thrown: unknown) {
-      error = thrown instanceof Error ? thrown.message : String(thrown);
+    } catch (error_: unknown) {
+      error = error_ instanceof Error ? error_.message : String(error_);
     }
 
     this.logger.warn('[ChildChatSessionHost] child session did not start', {
