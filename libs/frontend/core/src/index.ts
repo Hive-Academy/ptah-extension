@@ -29,6 +29,13 @@ export {
 } from './lib/tokens/file-link-opener.token';
 
 export {
+  AGENT_FEEDBACK_SENDER,
+  type AgentFeedbackSendResult,
+  type AgentFeedbackTarget,
+  type IAgentFeedbackSender,
+} from './lib/tokens/agent-feedback-sender.token';
+
+export {
   NOTIFICATION_FOCUS_ROUTER,
   type NotificationFocusOutcome,
   type NotificationFocusTarget,

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 32/69
+Total tasks: 87 | Batches: 69 | Complete: 33/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1516,14 +1516,14 @@ executors at once.
 | W5 | 38 ∥ 42 | |
 | W6 | 43 | then the P4 phase-end review |
 
-## Batch 33: Agent-feedback port token and confirm dialog — PENDING
+## Batch 33: Agent-feedback port token and confirm dialog — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: P3 complete
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core @ptah-extension/git-ui`
 
-### Task 33.1: `AGENT_FEEDBACK_SENDER` token — PENDING
+### Task 33.1: `AGENT_FEEDBACK_SENDER` token — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/core/src/lib/tokens/agent-feedback-sender.token.ts; MODIFY D:/projects/ptah-extension/libs/frontend/core/src/index.ts
 - Plan reference: implementation-plan.md:949-962
@@ -1532,7 +1532,7 @@ executors at once.
 - Validation notes: git-ui never imports chat.
 - Implementation details: one barrel line.
 
-### Task 33.2: `GitConfirmDialogComponent` (native `<dialog>`, no CDK) — PENDING
+### Task 33.2: `GitConfirmDialogComponent` (native `<dialog>`, no CDK) — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/shared/git-confirm-dialog.component.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/shared/git-confirm-dialog.a11y.spec.ts
 - Plan reference: implementation-plan.md:1060-1078
@@ -1540,6 +1540,15 @@ executors at once.
 - Quality requirements: ports every case of the existing a11y spec.
 - Validation notes: design-spec §2 CDK line superseded (recorded conflict).
 - Implementation details: inputs/outputs per plan.
+- Outcome: executor frontend-developer. `AGENT_FEEDBACK_SENDER` (core, no default provider):
+  `send(target: {sessionId} | 'active', text) → Promise<{sent, error?}>`, failures resolve `sent:false`.
+  `GitConfirmDialogComponent` (git-ui `lib/shared/`): native `<dialog role="alertdialog">`, inputs title/description/
+  confirmLabel/cancelLabel/tone (danger → `btn-error err-solid-text`, warning → `btn-warning`), outputs
+  confirmed/cancelled, `open(invoker)`; Cancel focused on open, Escape/`cancel` event cancel, Tab trapped, focus
+  returns to invoker, backdrop click inert, destroy-while-open closes without emitting. a11y spec 17 tests (axe
+  both tones). Accepted deviations: dialog not exported from git-ui `index.ts` (all users inside git-ui); behaviour
+  tests live in the a11y spec. Verified: core + git-ui typecheck/lint green, git-ui 569/569 (the existing
+  `diff-view-dialog.a11y.spec.ts` axe tests time out under load, pass alone), eager guard exit 0.
 
 ## Batch 34: Chat feedback sender — PENDING
 
@@ -1754,6 +1763,12 @@ executors at once.
 - Quality requirements: no static import of git-ui (spec asserts); loading/error states kept.
 - Validation notes: parity §11 last row.
 - Implementation details: unified only.
+- Gate (2026-10-02, `reviews/gate-p4-pierre-csp.md`, independent antigravity lane, verified by the orchestrator
+  against `@pierre/diffs` dist): Pierre writes Shiki HTML with `style="…"` attributes via `innerHTML`
+  (`FileDiff.js:1516-1577`) and creates `<style>` nodes (`utils/hostTheme.js:14`, `createUnsafeCSSStyleNode.js:4`);
+  nonces cannot cover style attributes. DECISION option (c): VS Code `style-src ${cspSource} 'unsafe-inline'
+  https://fonts.googleapis.com` with the nonce REMOVED from style-src (a nonce makes browsers ignore
+  'unsafe-inline'); script-src keeps its nonce, no unsafe-inline/eval. Matches the Electron renderer CSP.
 
 ### P4 phase-end review
 
