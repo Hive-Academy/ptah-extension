@@ -32,11 +32,11 @@ test.describe('docs screenshots — workspace, settings, setup', () => {
     await expect(settings).toBeVisible();
     // The landing (default) tab is the consolidated Providers page: tab id
     // `claude-auth` is retained, but it renders `ptah-providers-settings`,
-    // whose Background models section carries `assignments-heading`.
+    // whose "Your connections" section carries `providers-connections-heading`.
+    // (`assignments-heading` moved to the Orchestration tab in Batch 18, inside
+    // the closed roles <details> since Batch 33; it is asserted below.)
     await expect(page.locator('ptah-providers-settings')).toBeVisible();
-    await expect(
-      page.locator('[data-testid="assignments-heading"]'),
-    ).toBeVisible();
+    await expect(page.locator('#providers-connections-heading')).toBeVisible();
     // Give the page's async section reads a beat to land so the shot shows
     // content, not skeletons. Best-effort: a profile with no configured
     // connection still shoots the page.
@@ -67,6 +67,13 @@ test.describe('docs screenshots — workspace, settings, setup', () => {
       });
       await page.waitForTimeout(1_500);
       await shoot(page, 'agents-orchestration', { crop: settings });
+
+      // The Background models heading lives inside the roles <details>, which is
+      // closed by default (Batch 33). Open it before looking for the heading.
+      await page.locator('[data-testid="background-roles-summary"]').click();
+      await expect(
+        page.locator('[data-testid="assignments-heading"]'),
+      ).toBeVisible();
     }
 
     // NOT captured: `ptah-browser-settings` was deleted (Batch 44) and folded
