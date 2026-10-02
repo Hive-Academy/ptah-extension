@@ -30,6 +30,14 @@ import {
   isRpcTimeout,
 } from '../services/git-status.service';
 import { SourceControlService } from '../services/source-control.service';
+import {
+  type CommitBaseline,
+  type CommitCheck,
+  ENDED_TEXT,
+  judgeHead,
+  subjectOf,
+  UNCONFIRMED_TEXT,
+} from './commit-timeout-check';
 
 /**
  * Most characters of hook output kept on screen. The backend keeps a 256 KiB
@@ -61,32 +69,13 @@ const GENERATION_TIMED_OUT = 'The request timed out.';
 const CHECKING_TEXT =
   'Git did not answer in time — checking whether the commit was made…';
 
-/** What a commit that outlasted the RPC timeout reads as, by what the check found. */
-const UNCONFIRMED_TEXT = {
-  'not-found':
-    'Git did not answer in time and no new commit shows yet. It may still be running: cancel it, or commit again once it has stopped.',
-  unknown:
-    'Git did not answer in time and the status could not be checked. The commit may still complete: cancel it, or check the status before committing again.',
-} as const;
-
-/**
- * What a commit that timed out is judged against: the staged paths and HEAD
- * when it started. A moved HEAD or a changed staged set means it was made.
- */
-interface CommitBaseline {
-  readonly stagedPaths: string;
-  /** Null when HEAD was never read; HEAD then cannot count as moved. */
-  readonly headHash: string | null;
-}
-
-/** What a status re-read says about a commit that timed out. */
-type CommitCheck = 'landed' | 'not-found' | 'unknown';
-
 /** The commit in flight; at most one at a time (git holds the index lock). */
 interface RunningCommit {
   readonly operationId: string;
   readonly workspaceRoot: string;
   readonly cancelling: boolean;
+  /** Git answered the cancel with `cancelled: true` (MOD-5). */
+  readonly cancelAccepted: boolean;
   /** The reply timed out and the status is being re-read to decide. */
   readonly checking: boolean;
   readonly baseline: CommitBaseline;
@@ -207,15 +196,6 @@ function appendCapped(log: CommitLog, chunk: string): CommitLog {
   return { ...log, text: tail, trimmed: true };
 }
 
-/** HEAD moved (when both reads have one) or the staged set changed. */
-function commitLanded(before: CommitBaseline, after: CommitBaseline): boolean {
-  const headMoved =
-    before.headHash !== null &&
-    after.headHash !== null &&
-    before.headHash !== after.headHash;
-  return headMoved || before.stagedPaths !== after.stagedPaths;
-}
-
 function newOperationId(): string {
   return globalThis.crypto.randomUUID();
 }
@@ -238,7 +218,8 @@ let instanceCount = 0;
  *   open; a successful one shows the hash and subject.
  * - **Timeout.** A reply that never arrives does not mean the commit failed:
  *   git may still be running the hooks. The composer re-reads the status and
- *   HEAD; a moved HEAD or a changed staged set counts as committed. Otherwise
+ *   HEAD; only a moved HEAD whose subject is this message's first line counts
+ *   as committed. Otherwise
  *   the outcome stays "unconfirmed": Cancel still reaches the operation by its
  *   id, and Commit can be tried again.
  * - **Announcements.** The `role="status"` regions are always in the DOM and
@@ -619,8 +600,9 @@ export class CommitComposerComponent {
       operationId: newOperationId(),
       workspaceRoot,
       cancelling: false,
+      cancelAccepted: false,
       checking: false,
-      baseline: this.readBaseline(),
+      baseline: this.readBaseline(workspaceRoot, message),
     };
 
     this.running.set(run);
@@ -677,11 +659,15 @@ export class CommitComposerComponent {
     const run = this.running();
     if (!run || run.cancelling) return;
     this.running.set({ ...run, cancelling: true });
-    const asked = (await this.askCancel(run.operationId))?.success === true;
-    // The request never reached git: let the user try again. When it did, the
-    // commit's own result reports CANCELLED (or that it finished first).
+    const reply = await this.askCancel(run.operationId);
     const current = this.running();
-    if (!asked && current?.operationId === run.operationId) {
+    if (current?.operationId !== run.operationId) return;
+    // Only `cancelled: true` means git stopped it (MOD-5). Otherwise — the
+    // request never reached git, or nothing with that id runs any more — the
+    // commit's own result (or the timeout check) decides; Cancel re-enables.
+    if (reply?.success === true && reply.data?.cancelled === true) {
+      this.running.set({ ...current, cancelAccepted: true });
+    } else {
       this.running.set({ ...current, cancelling: false });
     }
   }
@@ -715,16 +701,13 @@ export class CommitComposerComponent {
     if (this.lastOutcome() !== asking) return;
     if (check === 'landed') {
       this.setDraft(workspaceRoot, '');
-      this.lastOutcome.set({ kind: 'success', workspaceRoot });
+      this.lastOutcome.set(this.landedOutcome(workspaceRoot));
       return;
     }
     this.lastOutcome.set({
       kind: 'failure',
       workspaceRoot,
-      text:
-        check === 'not-found'
-          ? 'Commit failed: git stopped without making the commit.'
-          : 'Git stopped, but the status could not be checked — check it before committing again.',
+      text: ENDED_TEXT[check],
     });
   }
 
@@ -753,9 +736,11 @@ export class CommitComposerComponent {
     );
     const { workspaceRoot } = run;
     const check = await this.checkCommit(run.baseline, workspaceRoot);
-    if (check === 'landed') return { kind: 'success', workspaceRoot };
-    // A cancel that reached git while the check ran.
-    if (this.running()?.cancelling) return { kind: 'cancelled', workspaceRoot };
+    if (check === 'landed') return this.landedOutcome(workspaceRoot);
+    // Only a cancel git accepted while the check ran reads as cancelled.
+    if (this.running()?.cancelAccepted) {
+      return { kind: 'cancelled', workspaceRoot };
+    }
     return {
       kind: 'unconfirmed',
       workspaceRoot,
@@ -766,34 +751,52 @@ export class CommitComposerComponent {
     };
   }
 
-  /** Re-read the status and HEAD, and compare them with `baseline`. */
+  /**
+   * Re-read the status (for the views) and HEAD, and judge HEAD against
+   * `baseline`. HEAD counts only when it was freshly read for the commit's
+   * workspace (MIN-6): `GitBranchesService` keeps the old value when its read
+   * fails, so an unchanged object means the read did not land.
+   */
   private async checkCommit(
     baseline: CommitBaseline,
     workspaceRoot: string,
   ): Promise<CommitCheck> {
+    const headBefore = this.gitBranches.lastCommit();
     // Both report their own read failures; the checks below read the result.
     await Promise.allSettled([
       this.gitStatus.refresh(),
       this.gitBranches.refreshForCauses(['head']),
     ]);
+    const head = this.gitBranches.lastCommit();
     if (
+      head === null ||
+      head === headBefore ||
       this.gitStatus.activeWorkspacePath() !== workspaceRoot ||
-      this.gitStatus.isStatusUnavailable() ||
-      this.gitStatus.isStale()
+      this.gitBranches.workspaceRoot() !== workspaceRoot
     ) {
       return 'unknown';
     }
-    return commitLanded(baseline, this.readBaseline()) ? 'landed' : 'not-found';
+    return judgeHead(baseline, head);
   }
 
-  private readBaseline(): CommitBaseline {
+  /** HEAD before the commit, read only when it belongs to the commit's workspace. */
+  private readBaseline(workspaceRoot: string, message: string): CommitBaseline {
+    const sameWorkspace = this.gitBranches.workspaceRoot() === workspaceRoot;
     return {
-      stagedPaths: this.gitStatus
-        .stagedFiles()
-        .map((file) => file.path)
-        .sort((a, b) => a.localeCompare(b))
-        .join('\n'),
-      headHash: this.gitBranches.lastCommit()?.hash ?? null,
+      headHash: sameWorkspace
+        ? (this.gitBranches.lastCommit()?.hash ?? null)
+        : null,
+      subject: subjectOf(message),
+    };
+  }
+
+  /** The success a verified HEAD stands for, with its hash and subject. */
+  private landedOutcome(workspaceRoot: string): CommitOutcome {
+    const head = this.gitBranches.lastCommit();
+    return {
+      kind: 'success',
+      workspaceRoot,
+      ...(head ? { hash: head.shortHash, subject: head.subject } : {}),
     };
   }
 

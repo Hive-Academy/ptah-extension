@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   signal,
   untracked,
   viewChild,
@@ -264,16 +265,13 @@ export class HistoryStashSectionComponent {
   protected readonly expanded = signal(true);
   protected readonly dropTarget = signal<DropTarget | null>(null);
 
-  /** Why a confirmed drop did not run, pinned to the workspace now shown. */
-  private readonly dropSkipped = signal<{
-    workspaceRoot: string | null;
-    text: string;
-  } | null>(null);
-  protected readonly dropNotice = computed(() => {
-    const skipped = this.dropSkipped();
-    return skipped?.workspaceRoot === this.gitStatus.activeWorkspacePath()
-      ? skipped.text
-      : null;
+  /**
+   * Why a confirmed drop did not run. A workspace switch clears it (MIN-6):
+   * it is about the list that was showing.
+   */
+  protected readonly dropNotice = linkedSignal<string | null, string | null>({
+    source: this.gitStatus.activeWorkspacePath,
+    computation: () => null,
   });
 
   protected readonly dropTitle = computed(() => {
@@ -314,14 +312,14 @@ export class HistoryStashSectionComponent {
     kind: Exclude<GitStashMutation, 'drop'>,
     entry: StashEntry,
   ): Promise<void> {
-    this.dropSkipped.set(null);
+    this.dropNotice.set(null);
     await this.stash.mutate(kind, entry);
   }
 
   protected askDrop(entry: StashEntry, event: Event): void {
     const root = this.gitStatus.activeWorkspacePath();
     if (!root || !(event.currentTarget instanceof HTMLElement)) return;
-    this.dropSkipped.set(null);
+    this.dropNotice.set(null);
     this.dropTarget.set({ workspaceRoot: root, entry });
     this.dropDialog().open(event.currentTarget);
   }
@@ -339,10 +337,9 @@ export class HistoryStashSectionComponent {
     const ref = this.stashRef(target.entry);
     const root = this.gitStatus.activeWorkspacePath();
     if (root !== target.workspaceRoot) {
-      this.dropSkipped.set({
-        workspaceRoot: root,
-        text: `${ref} was not dropped: the workspace changed before the drop could run.`,
-      });
+      this.dropNotice.set(
+        `${ref} of the previous workspace was not dropped: the workspace changed before the drop could run.`,
+      );
       return;
     }
     const entry = this.stash
@@ -352,10 +349,9 @@ export class HistoryStashSectionComponent {
       await this.stash.mutate('drop', entry);
       return;
     }
-    this.dropSkipped.set({
-      workspaceRoot: root,
-      text: `${ref} is no longer there, so nothing was dropped. The list was refreshed.`,
-    });
+    this.dropNotice.set(
+      `${ref} is no longer there, so nothing was dropped. The list was refreshed.`,
+    );
     await this.stash.loadList();
   }
 }

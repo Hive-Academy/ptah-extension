@@ -699,6 +699,14 @@ export class GitBranchesService implements MessageHandler {
    * Returns `null` when no workspace is set; callers must guard before
    * reading/writing state.
    */
+  /**
+   * The workspace this service's slices (branches, stash count, last commit)
+   * belong to, so a caller can tell whether `lastCommit()` is for its folder.
+   */
+  workspaceRoot(): string | null {
+    return this.workspaceKey();
+  }
+
   private workspaceKey(): string | null {
     return (
       this._activeWorkspacePath ??

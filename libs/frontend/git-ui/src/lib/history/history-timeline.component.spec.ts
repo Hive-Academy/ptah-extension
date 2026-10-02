@@ -574,8 +574,25 @@ describe('HistoryTimelineComponent', () => {
     // The same live region, still in the DOM, now carries the reason.
     expect(query('history-stash-status')).toBe(status);
     expect(text('history-stash-drop-notice')).toBe(
-      'stash@{0} was not dropped: the workspace changed before the drop could run.',
+      'stash@{0} of the previous workspace was not dropped: the workspace changed before the drop could run.',
     );
+  });
+
+  it('clears the drop notice on a workspace switch (MIN-6)', async () => {
+    await render();
+    query<HTMLButtonElement>('history-stash-drop')?.click();
+    await settle();
+    stash.entries.set([{ ...STASH, hash: 'ffffffffffffffff' }]);
+    await settle();
+    query<HTMLButtonElement>('git-confirm-confirm')?.click();
+    await settle();
+    expect(query('history-stash-drop-notice')).not.toBeNull();
+
+    workspace.set('/ws/b');
+    await settle();
+
+    expect(query('history-stash-drop-notice')).toBeNull();
+    expect(query('history-stash-status')?.getAttribute('role')).toBe('status');
   });
 
   it('shows the stash read error in AA-safe ink (MIN-4)', async () => {

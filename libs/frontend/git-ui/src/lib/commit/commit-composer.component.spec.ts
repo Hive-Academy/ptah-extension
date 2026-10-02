@@ -49,13 +49,12 @@ describe('CommitComposerComponent', () => {
     activeWorkspacePath: ReturnType<typeof signal<string | null>>;
     stagedCount: ReturnType<typeof signal<number>>;
     stagedFiles: ReturnType<typeof signal<{ path: string }[]>>;
-    isStatusUnavailable: ReturnType<typeof signal<boolean>>;
-    isStale: ReturnType<typeof signal<boolean>>;
     refresh: jest.Mock;
   };
   let gitBranches: {
     lastCommit: ReturnType<typeof signal<GitLastCommitResult | null>>;
     refreshForCauses: jest.Mock;
+    workspaceRoot: jest.Mock;
   };
   let sourceControl: {
     commit: jest.Mock;
@@ -69,15 +68,21 @@ describe('CommitComposerComponent', () => {
       activeWorkspacePath: signal<string | null>('/ws/a'),
       stagedCount: signal(2),
       stagedFiles: signal([{ path: 'src/a.ts' }, { path: 'src/b.ts' }]),
-      isStatusUnavailable: signal(false),
-      isStale: signal(false),
       refresh: jest.fn(async () => undefined),
     };
+    const lastCommit = signal<GitLastCommitResult | null>({
+      hash: 'head-before',
+      shortHash: 'head-be',
+      subject: 'chore: earlier',
+    } as GitLastCommitResult);
     gitBranches = {
-      lastCommit: signal<GitLastCommitResult | null>({
-        hash: 'head-before',
-      } as GitLastCommitResult),
-      refreshForCauses: jest.fn(async () => undefined),
+      lastCommit,
+      // A good HEAD read publishes a fresh object, here for an unmoved HEAD.
+      refreshForCauses: jest.fn(async () => {
+        const head = lastCommit();
+        if (head) lastCommit.set({ ...head });
+      }),
+      workspaceRoot: jest.fn(() => gitStatus.activeWorkspacePath()),
     };
     sourceControl = {
       commit: jest.fn(),
@@ -504,14 +509,29 @@ describe('CommitComposerComponent', () => {
     expect(textarea()?.value).toBe('feat: add composer');
   });
 
-  // -- A commit that outlasts the RPC timeout (MOD-1) -------------------------
+  // -- A commit that outlasts the RPC timeout (MOD-1, SER-1, MOD-5, MIN-6) ----
 
   const TIMEOUT_REPLY = { success: false, error: 'RPC timeout: git:commit' };
 
-  it('on a timeout: checks the status with Cancel still available, then reads a changed staged set as committed', async () => {
-    const reply = await startCommit();
+  /** Make the next HEAD read answer with `hash` / `subject`. */
+  function nextHead(hash: string, subject: string): void {
+    gitBranches.refreshForCauses.mockImplementationOnce(async () => {
+      gitBranches.lastCommit.set({
+        hash,
+        shortHash: hash.slice(0, 7),
+        subject,
+      } as GitLastCommitResult);
+    });
+  }
+
+  const UNCONFIRMED_NOT_FOUND =
+    'Git did not answer in time and no new commit shows yet. It may still be running: cancel it, or commit again once it has stopped. Your message was kept.';
+
+  it('on a timeout: checks with Cancel available, then a moved HEAD with this subject reads as committed', async () => {
+    const reply = await startCommit('feat: add composer\n\nbody text');
     const refreshed = deferred<undefined>();
     gitStatus.refresh.mockReturnValueOnce(refreshed.promise);
+    nextHead('head-after-0000', 'feat: add composer');
 
     await finish(reply, TIMEOUT_REPLY);
 
@@ -526,26 +546,43 @@ describe('CommitComposerComponent', () => {
     expect(el('commit-failure')).toBeNull();
     expect(gitBranches.refreshForCauses).toHaveBeenCalledWith(['head']);
 
-    gitStatus.stagedFiles.set([]);
     refreshed.resolve(undefined);
     await settle();
 
-    expect(textOf('commit-success')).toBe('committed');
+    expect(textOf('commit-success')).toBe(
+      'committed head-af feat: add composer',
+    );
     expect(textarea()?.value).toBe('');
     expect(el('commit-cancel')).toBeNull();
     expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
   });
 
-  it('on a timeout: a moved HEAD reads as committed', async () => {
+  it('on a timeout: HEAD moved to a commit with another subject is unconfirmed, never committed (SER-1)', async () => {
     const reply = await startCommit();
-    gitBranches.refreshForCauses.mockImplementationOnce(async () => {
-      gitBranches.lastCommit.set({ hash: 'head-after' } as GitLastCommitResult);
+    nextHead('head-other', 'chore: someone else');
+
+    await finish(reply, TIMEOUT_REPLY);
+
+    expect(el('commit-success')).toBeNull();
+    expect(textOf('commit-failure')).toBe(
+      'Git did not answer in time and the newest commit is not this one. It may still be running: cancel it, or check the history before committing again. Your message was kept.',
+    );
+    expect(textarea()?.value).toBe('feat: add composer');
+    expect(el('commit-cancel')).not.toBeNull();
+  });
+
+  it('on a timeout: a changed staged set with HEAD unmoved is unconfirmed, never committed (SER-1)', async () => {
+    const reply = await startCommit();
+    gitStatus.refresh.mockImplementationOnce(async () => {
+      gitStatus.stagedFiles.set([]);
     });
 
     await finish(reply, TIMEOUT_REPLY);
 
-    expect(el('commit-success')).not.toBeNull();
-    expect(textarea()?.value).toBe('');
+    expect(el('commit-success')).toBeNull();
+    expect(textOf('commit-failure')).toBe(UNCONFIRMED_NOT_FOUND);
+    expect(textarea()?.value).toBe('feat: add composer');
+    expect(el('commit-cancel')).not.toBeNull();
   });
 
   it('on a timeout with nothing changed: says the outcome is unconfirmed, keeps Cancel by operationId, and allows a retry', async () => {
@@ -553,9 +590,7 @@ describe('CommitComposerComponent', () => {
     await finish(reply, TIMEOUT_REPLY);
 
     expect(el('commit-failure')?.getAttribute('role')).toBe('alert');
-    expect(textOf('commit-failure')).toBe(
-      'Git did not answer in time and no new commit shows yet. It may still be running: cancel it, or commit again once it has stopped. Your message was kept.',
-    );
+    expect(textOf('commit-failure')).toBe(UNCONFIRMED_NOT_FOUND);
     expect(textOf('commit-failure')).not.toContain('Commit failed');
     expect(textarea()?.value).toBe('feat: add composer');
     expect(commitButton()?.disabled).toBe(false);
@@ -570,11 +605,10 @@ describe('CommitComposerComponent', () => {
     expect(el('commit-cancel')).toBeNull();
   });
 
-  it('on a timeout whose status cannot be read: says the status could not be checked', async () => {
+  it('on a timeout whose HEAD read failed: unknown, not "HEAD did not move" (MIN-6)', async () => {
     const reply = await startCommit();
-    gitStatus.refresh.mockImplementationOnce(async () => {
-      gitStatus.isStale.set(true);
-    });
+    // The read fails: GitBranchesService keeps its previous value.
+    gitBranches.refreshForCauses.mockImplementationOnce(async () => undefined);
 
     await finish(reply, TIMEOUT_REPLY);
 
@@ -584,21 +618,72 @@ describe('CommitComposerComponent', () => {
     expect(el('commit-cancel')).not.toBeNull();
   });
 
-  it('cancelling an unconfirmed commit that already ended re-checks the status', async () => {
+  it('on a timeout: a HEAD read for another workspace is unknown, even with this subject (MIN-6)', async () => {
+    const reply = await startCommit();
+    gitBranches.workspaceRoot.mockReturnValue('/ws/other');
+    nextHead('head-after', 'feat: add composer');
+
+    await finish(reply, TIMEOUT_REPLY);
+
+    expect(el('commit-success')).toBeNull();
+    expect(textOf('commit-failure')).toContain(
+      'the status could not be checked',
+    );
+    expect(textarea()?.value).toBe('feat: add composer');
+  });
+
+  it('Cancel during the check answered cancelled:false never reads as cancelled (MOD-5)', async () => {
+    const reply = await startCommit();
+    const refreshed = deferred<undefined>();
+    gitStatus.refresh.mockReturnValueOnce(refreshed.promise);
+    await finish(reply, TIMEOUT_REPLY);
+    sourceControl.cancelOperation.mockResolvedValueOnce({
+      success: true,
+      data: { cancelled: false },
+    });
+
+    el<HTMLButtonElement>('commit-cancel')?.click();
+    await settle();
+    refreshed.resolve(undefined);
+    await settle();
+
+    expect(el('commit-cancelled')).toBeNull();
+    expect(textOf('commit-status')).not.toContain('cancelled');
+    expect(textOf('commit-failure')).toBe(UNCONFIRMED_NOT_FOUND);
+    expect(el('commit-cancel')).not.toBeNull();
+  });
+
+  it('Cancel during the check that git accepted reads as cancelled (MOD-5)', async () => {
+    const reply = await startCommit();
+    const refreshed = deferred<undefined>();
+    gitStatus.refresh.mockReturnValueOnce(refreshed.promise);
+    await finish(reply, TIMEOUT_REPLY);
+
+    el<HTMLButtonElement>('commit-cancel')?.click();
+    await settle();
+    refreshed.resolve(undefined);
+    await settle();
+
+    expect(textOf('commit-cancelled')).toBe(
+      'Commit cancelled. Your message was kept.',
+    );
+    expect(textarea()?.value).toBe('feat: add composer');
+  });
+
+  it('cancelling an unconfirmed commit that already ended re-checks HEAD and its subject', async () => {
     const reply = await startCommit();
     await finish(reply, TIMEOUT_REPLY);
     sourceControl.cancelOperation.mockResolvedValueOnce({
       success: true,
       data: { cancelled: false },
     });
-    gitBranches.refreshForCauses.mockImplementationOnce(async () => {
-      gitBranches.lastCommit.set({ hash: 'head-after' } as GitLastCommitResult);
-    });
+    nextHead('head-after', 'feat: add composer');
 
     el<HTMLButtonElement>('commit-cancel')?.click();
     await settle();
 
     expect(el('commit-success')).not.toBeNull();
+    expect(el('commit-cancelled')).toBeNull();
     expect(textarea()?.value).toBe('');
   });
 
