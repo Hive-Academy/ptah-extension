@@ -36,6 +36,7 @@ import { ResumeNotificationBannerComponent } from '../molecules/notifications/re
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
+import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
@@ -128,6 +129,7 @@ export const AGENT_PANEL_OVERLAY_BREAKPOINT = 600;
     CompactionMarkerComponent,
     SidebarTabComponent,
     CompactSessionCardComponent,
+    AgentOriginBannerComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
@@ -738,6 +740,34 @@ export class ChatViewComponent implements OnDestroy {
     }
     return this._tabManager.activeTab();
   });
+
+  /**
+   * Agent origin of the shown tab (TASK_2026_584), or null for a tab the user
+   * opened. Reference-equal so the banner does not re-render on every
+   * streaming tick that replaces the tab object.
+   */
+  protected readonly resolvedAgentOrigin = computed(
+    () => this.resolvedActiveTab()?.agentOrigin ?? null,
+    { equal: (a, b) => a === b },
+  );
+
+  /**
+   * Title of the agent-started tab's parent while it is open in this
+   * workspace's tab set, or null when it is gone (the banner says so and
+   * offers no "Open parent").
+   */
+  protected readonly agentParentTitle = computed(() => {
+    const origin = this.resolvedAgentOrigin();
+    if (!origin) return null;
+    const parent = this._tabManager
+      .tabs()
+      .find((t) => t.id === origin.parentTabId);
+    return parent ? parent.title || 'New Chat' : null;
+  });
+
+  protected onOpenAgentParent(parentTabId: string): void {
+    this._tabManager.switchTab(parentTabId);
+  }
 
   /** The backend session snapshot every stats-panel figure comes from. */
   readonly resolvedSessionStats = computed(() => {

@@ -35,3 +35,4 @@ export { SessionStatsAggregatorService } from './session-stats-aggregator.servic
 export { ChatLifecycleService } from './chat-lifecycle.service';
 export { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 export { TaskPromptBridgeService } from './task-prompt-bridge.service';
+export { SessionOpenBridgeService } from './session-open-bridge.service';

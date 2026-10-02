@@ -29,7 +29,7 @@
   "libs/backend/plugin-marketplace": 2,
   "libs/backend/rpc-handlers": 1,
   "libs/backend/settings-core": 5,
-  "libs/backend/skill-synthesis": 6,
+  "libs/backend/skill-synthesis": 5,
   "libs/backend/task-specs": 12,
   "libs/backend/voice-providers": 3,
   "libs/backend/vscode-lm-tools": 2,

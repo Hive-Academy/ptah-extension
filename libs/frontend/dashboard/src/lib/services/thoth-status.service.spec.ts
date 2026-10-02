@@ -42,6 +42,33 @@ function makeJob(over: Partial<ScheduledJobDto>): ScheduledJobDto {
   };
 }
 
+/** Candidate rows reduced to the one field the tile reads: the row count. */
+function candidateRows(ids: readonly string[]): SkillSynthesisCandidateSummary[] {
+  return ids.map((id) => ({ id }) as unknown as SkillSynthesisCandidateSummary);
+}
+
+interface Deferred<T> {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+}
+
+/** A promise the test settles by hand, to order overlapping responses. */
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Let every queued promise continuation run (an effect-started refresh). */
+function flushAsync(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe('ThothStatusService', () => {
   let memoryRpc: jest.Mocked<MemoryRpcService>;
   let skillsRpc: jest.Mocked<SkillSynthesisRpcService>;
@@ -171,6 +198,8 @@ describe('ThothStatusService', () => {
 
     expect(skillsRpc.listCandidates).toHaveBeenCalledWith({
       status: 'candidate',
+      scope: 'workspace',
+      limit: 1000,
     });
     expect(gatewayRpc.listBindings).toHaveBeenCalledWith({ status: 'pending' });
   });
@@ -223,6 +252,120 @@ describe('ThothStatusService', () => {
 
     expect(memoryRpc.stats).toHaveBeenCalledTimes(1);
     expect(skillsRpc.listCandidates).toHaveBeenCalledTimes(1);
+  });
+
+  it('refresh() reloads every pillar after the first load', async () => {
+    vscode.config.set({ isElectron: true });
+    memoryRpc.stats.mockResolvedValue({
+      core: 0,
+      recall: 0,
+      archival: 0,
+      codeIndex: 0,
+      lastCuratedAt: null,
+    });
+    skillsRpc.listCandidates.mockResolvedValue([]);
+    cronRpc.list.mockResolvedValue({ jobs: [] });
+    gatewayRpc.status.mockResolvedValue({ enabled: false, adapters: [] });
+    gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
+
+    const service = TestBed.inject(ThothStatusService);
+    await service.refreshIfNeeded();
+
+    skillsRpc.listCandidates.mockResolvedValue(candidateRows(['a', 'b']));
+    await service.refresh();
+
+    expect(memoryRpc.stats).toHaveBeenCalledTimes(2);
+    expect(skillsRpc.listCandidates).toHaveBeenCalledTimes(2);
+    expect(cronRpc.list).toHaveBeenCalledTimes(2);
+    expect(gatewayRpc.status).toHaveBeenCalledTimes(2);
+    expect(service.summary().skills).toEqual({
+      available: true,
+      pendingCandidates: 2,
+    });
+  });
+
+  describe('overlapping refreshes', () => {
+    beforeEach(() => {
+      vscode.config.set({ isElectron: false });
+      memoryRpc.stats.mockResolvedValue({
+        core: 0,
+        recall: 0,
+        archival: 0,
+        codeIndex: 0,
+        lastCuratedAt: null,
+      });
+    });
+
+    it('drops a superseded refresh whose response lands after the newer one', async () => {
+      const first = deferred<SkillSynthesisCandidateSummary[]>();
+      const second = deferred<SkillSynthesisCandidateSummary[]>();
+      skillsRpc.listCandidates
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+
+      const service = TestBed.inject(ThothStatusService);
+      const stale = service.refresh();
+      const fresh = service.refresh();
+
+      second.resolve(candidateRows(['new']));
+      await fresh;
+      expect(service.summary().skills).toEqual({
+        available: true,
+        pendingCandidates: 1,
+      });
+      expect(service.summary().isLoading).toBe(false);
+
+      first.resolve(candidateRows(['old-1', 'old-2', 'old-3']));
+      await stale;
+
+      expect(service.summary().skills).toEqual({
+        available: true,
+        pendingCandidates: 1,
+      });
+      expect(service.summary().isLoading).toBe(false);
+    });
+
+    it('drops a superseded refresh failure instead of flagging the tile', async () => {
+      const first = deferred<SkillSynthesisCandidateSummary[]>();
+      skillsRpc.listCandidates
+        .mockReturnValueOnce(first.promise)
+        .mockResolvedValueOnce(candidateRows(['a']));
+
+      const service = TestBed.inject(ThothStatusService);
+      const stale = service.refresh();
+      await service.refresh();
+
+      first.reject(new Error('stale boom'));
+      await stale;
+
+      expect(service.summary().skills).toEqual({
+        available: true,
+        pendingCandidates: 1,
+      });
+      expect(service.summary().errors.skills).toBeNull();
+    });
+
+    it('keeps isLoading true until the newest refresh settles', async () => {
+      const first = deferred<SkillSynthesisCandidateSummary[]>();
+      const second = deferred<SkillSynthesisCandidateSummary[]>();
+      skillsRpc.listCandidates
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+
+      const service = TestBed.inject(ThothStatusService);
+      const stale = service.refresh();
+      const fresh = service.refresh();
+
+      first.resolve([]);
+      await stale;
+      expect(service.summary().isLoading).toBe(true);
+      expect(service.hasLoadedOnce()).toBe(false);
+
+      second.resolve([]);
+      await fresh;
+      expect(service.summary().isLoading).toBe(false);
+      expect(service.hasLoadedOnce()).toBe(true);
+    });
   });
 
   it('derives running state even when the master enabled flag is false', async () => {
@@ -475,6 +618,61 @@ describe('ThothStatusService', () => {
       await Promise.resolve();
 
       expect(memoryRpc.stats).toHaveBeenCalledTimes(1);
+    });
+
+    it('still refreshes when the workspace closes (root becomes null)', async () => {
+      appState.workspaceInfo.set({ path: '/ws-a' });
+
+      const service = TestBed.inject(ThothStatusService);
+      TestBed.tick();
+      await service.refresh();
+
+      appState.workspaceInfo.set(null);
+      TestBed.tick();
+      await Promise.resolve();
+
+      expect(memoryRpc.stats).toHaveBeenCalledTimes(2);
+      expect(memoryRpc.stats).toHaveBeenLastCalledWith(null);
+      expect(cronRpc.list).toHaveBeenLastCalledWith({});
+      expect(skillsRpc.listCandidates).toHaveBeenCalledTimes(2);
+      expect(skillsRpc.listCandidates).toHaveBeenLastCalledWith({
+        status: 'candidate',
+        scope: 'workspace',
+        limit: 1000,
+      });
+    });
+
+    it('a workspace switch during an in-flight refresh keeps the new root result', async () => {
+      const staleSkills = deferred<SkillSynthesisCandidateSummary[]>();
+      const staleStats = deferred<MemoryStatsResult>();
+      appState.workspaceInfo.set({ path: '/ws-a' });
+
+      const service = TestBed.inject(ThothStatusService);
+      TestBed.tick();
+
+      skillsRpc.listCandidates.mockReturnValueOnce(staleSkills.promise);
+      memoryRpc.stats.mockReturnValueOnce(staleStats.promise);
+      const stale = service.refresh();
+
+      skillsRpc.listCandidates.mockResolvedValueOnce(candidateRows(['b1']));
+      memoryRpc.stats.mockResolvedValueOnce({ ...emptyStats, core: 7 });
+      appState.workspaceInfo.set({ path: '/ws-b' });
+      TestBed.tick();
+      await flushAsync();
+
+      staleSkills.resolve(candidateRows(['a1', 'a2', 'a3']));
+      staleStats.resolve({ ...emptyStats, core: 40 });
+      await stale;
+      await flushAsync();
+
+      const summary = service.summary();
+      expect(summary.skills).toEqual({ available: true, pendingCandidates: 1 });
+      expect(summary.memory).toEqual({
+        available: true,
+        totalFacts: 7,
+        queueLength: 0,
+      });
+      expect(memoryRpc.stats).toHaveBeenLastCalledWith('/ws-b');
     });
   });
 

@@ -766,7 +766,12 @@ export class SdkAgentAdapter implements IAgentAdapter {
     );
 
     const resolvedProjectPath = config?.projectPath || os.homedir();
+    // The workspace a session is LISTED under can differ from the directory
+    // it RUNS in: an agent child session runs in a worktree of its parent's
+    // workspace (TASK_2026_584). Callers that omit `workspaceId` get today's
+    // record, where both are the project path.
     const sessionIdCallback = this.createSessionIdCallback(
+      blankToUndefined(config.workspaceId) ?? resolvedProjectPath,
       resolvedProjectPath,
       resolvedSessionName,
       sessionToken,
@@ -1101,6 +1106,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
 
   private createSessionIdCallback(
     workspaceId: string,
+    workingDirectory: string,
     sessionName: string,
     sessionToken: string,
     statsGeneration: number,
@@ -1127,6 +1133,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
         `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`,
       );
 
+      // Read BEFORE the bind below: a `'rebound'` outcome overwrites the
+      // record's id, so a later read would see `realSessionId` itself. When the
+      // bind is then accepted, a defined value can only mean `'rebound'` —
+      // `'bound'` needs a null prior id and `'already-bound'` the same id.
+      const previousSessionId = tabId
+        ? this.readReboundSource(tabId, realSessionId)
+        : undefined;
+
       if (tabId && this.bindRefused(tabId, realSessionId, sessionToken)) {
         return;
       }
@@ -1137,7 +1151,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.statsOwner.rebind(tabId, realSessionId, statsGeneration);
       }
 
-      await this.metadataStore.create(realSessionId, workspaceId, sessionName);
+      // The extra arguments are passed only when the cwd differs, so every
+      // caller with `workspaceId === projectPath` writes exactly today's call.
+      if (workingDirectory === workspaceId) {
+        await this.metadataStore.create(
+          realSessionId,
+          workspaceId,
+          sessionName,
+        );
+      } else {
+        await this.metadataStore.create(
+          realSessionId,
+          workspaceId,
+          sessionName,
+          'created',
+          workingDirectory,
+        );
+      }
 
       if (tabId) {
         // The bind above is what makes `resolveActivityIds` answer with the
@@ -1155,9 +1185,31 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.sessionIdResolvedRegistry.notifyAll({
         tabId,
         realSessionId,
+        ...(previousSessionId === undefined ? {} : { previousSessionId }),
         timestamp: Date.now(),
       });
     };
+  }
+
+  /**
+   * The id the tab's record is bound to right now, when a bind to
+   * `realSessionId` would move it: non-null and different. Read-only — it never
+   * binds, so `bindRefused` stays the single place the registry is changed.
+   * No record, an unbound record or the same id all answer `undefined`.
+   */
+  private readReboundSource(
+    tabId: string,
+    realSessionId: string,
+  ): string | undefined {
+    const priorId = this.sessionLifecycle.find(tabId)?.realSessionId;
+    if (
+      priorId === null ||
+      priorId === undefined ||
+      priorId === realSessionId
+    ) {
+      return undefined;
+    }
+    return priorId;
   }
 
   /**

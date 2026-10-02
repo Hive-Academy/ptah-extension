@@ -110,6 +110,12 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
+import type {
+  SessionOrganizationService,
+  StoredOrganization,
+} from '@ptah-extension/session-organization';
+import type { TaskIndexService } from '@ptah-extension/task-specs';
+
 import { SessionRpcHandlers } from './session-rpc.handlers';
 import type { SessionMcpStatusRecord } from '../chat/session/session-mcp-status.registry';
 
@@ -297,7 +303,22 @@ interface Harness {
   turnChangeSets: { remove: jest.Mock<Promise<void>, [string]> };
 }
 
-function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
+/** The `SessionOrganizationService` surface `session:list` reads. */
+type FakeOrganization = Pick<
+  SessionOrganizationService,
+  'isAvailable' | 'queryWorkspace' | 'countChildren'
+>;
+
+/** The `TaskIndexService` surface `session:list` reads. */
+type FakeTaskIndex = Pick<TaskIndexService, 'list'>;
+
+function makeHarness(
+  opts: {
+    workspaceFolders?: string[];
+    organization?: FakeOrganization;
+    taskIndex?: FakeTaskIndex;
+  } = {},
+): Harness {
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
   const metadataStore = createMockMetadataStore();
@@ -330,6 +351,9 @@ function makeHarness(opts: { workspaceFolders?: string[] } = {}): Harness {
     mcpStatus as never,
     sessionTitle as never,
     turnChangeSets as never,
+    null,
+    (opts.organization ?? null) as SessionOrganizationService | null,
+    (opts.taskIndex ?? null) as TaskIndexService | null,
   );
 
   return {
@@ -793,6 +817,312 @@ describe('SessionRpcHandlers', () => {
       expect(response.error).toMatch(/Failed to list sessions/);
       expect(response.error).toMatch(/disk gone/);
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+
+    // -----------------------------------------------------------------------
+    // Organization query + enrichment (TASK_2026_580 A4.1)
+    // -----------------------------------------------------------------------
+
+    describe('organization (TASK_2026_580)', () => {
+      const ARCHIVED = uuidForRow(100);
+      const PINNED = uuidForRow(101);
+      const LINKED = uuidForRow(102);
+
+      function storedOrg(
+        sessionId: string,
+        overrides: Partial<StoredOrganization> = {},
+      ): StoredOrganization {
+        return {
+          sessionId,
+          priority: 'normal',
+          status: 'active',
+          pinned: false,
+          worktreePath: null,
+          branch: null,
+          parentSessionId: null,
+          forkOfSessionId: null,
+          startedBy: 'user',
+          updatedAt: 1,
+          tasks: [],
+          prLinks: [],
+          ...overrides,
+        };
+      }
+
+      /** Newest first, as `getForWorkspace` returns them. */
+      function seedRows(h: Harness): void {
+        h.metadataStore.getForWorkspace.mockResolvedValue([
+          makeMetadata({ sessionId: LINKED, lastActiveAt: 300 }),
+          makeMetadata({ sessionId: ARCHIVED, lastActiveAt: 200 }),
+          makeMetadata({ sessionId: PINNED, lastActiveAt: 100 }),
+        ]);
+      }
+
+      function fakeOrganization(available = true): {
+        organization: jest.Mocked<FakeOrganization>;
+      } {
+        const map = new Map<string, StoredOrganization>([
+          [ARCHIVED, storedOrg(ARCHIVED, { status: 'archived' })],
+          [PINNED, storedOrg(PINNED, { pinned: true, priority: 'urgent' })],
+          [
+            LINKED,
+            storedOrg(LINKED, {
+              tasks: [
+                {
+                  taskId: 'TASK_2026_001',
+                  role: 'primary',
+                  source: 'user',
+                  createdAt: 1,
+                },
+                {
+                  taskId: 'TASK_2026_GONE',
+                  role: 'related',
+                  source: 'agent',
+                  createdAt: 2,
+                },
+              ],
+            }),
+          ],
+        ]);
+        return {
+          organization: {
+            isAvailable: jest.fn().mockReturnValue(available),
+            queryWorkspace: jest.fn().mockReturnValue(map),
+            countChildren: jest.fn().mockReturnValue(new Map([[LINKED, 2]])),
+          },
+        };
+      }
+
+      function fakeTaskIndex(): jest.Mocked<FakeTaskIndex> {
+        return {
+          list: jest.fn().mockResolvedValue({
+            tasks: [{ id: 'TASK_2026_001' }],
+            excluded: [],
+            excludedCount: 0,
+            specsDirExists: true,
+          }),
+        } as unknown as jest.Mocked<FakeTaskIndex>;
+      }
+
+      type ListResult = {
+        sessions: Array<{
+          id: string;
+          organization?: {
+            pinned: boolean;
+            status: string;
+            childCount: number;
+            tasks: Array<{ taskId: string; missing: boolean }>;
+          };
+          livePhase?: string;
+        }>;
+        total: number;
+        organizationAvailable?: boolean;
+      };
+
+      it('VS Code shape (no service): params ignored, flag false, rows unchanged', async () => {
+        const h = makeHarness();
+        seedRows(h);
+        h.handlers.register();
+
+        const result = await call<ListResult>(h, 'session:list', {
+          workspacePath: WORKSPACE,
+          sort: 'lastActive',
+          status: ['archived'],
+        });
+
+        expect(result.organizationAvailable).toBe(false);
+        expect(result.total).toBe(3);
+        expect(result.sessions.map((s) => s.id)).toEqual([
+          LINKED,
+          ARCHIVED,
+          PINNED,
+        ]);
+        expect(result.sessions.every((s) => s.organization === undefined)).toBe(
+          true,
+        );
+      });
+
+      it('service present but store not open: flag false and no organization read', async () => {
+        const { organization } = fakeOrganization(false);
+        const h = makeHarness({ organization });
+        seedRows(h);
+        h.handlers.register();
+
+        const result = await call<ListResult>(h, 'session:list', {
+          workspacePath: WORKSPACE,
+        });
+
+        expect(result.organizationAvailable).toBe(false);
+        expect(organization.queryWorkspace).not.toHaveBeenCalled();
+      });
+
+      it('Electron shape without query params: same rows, order and total, enriched', async () => {
+        const { organization } = fakeOrganization();
+        const h = makeHarness({ organization, taskIndex: fakeTaskIndex() });
+        seedRows(h);
+        h.handlers.register();
+
+        const result = await call<ListResult>(h, 'session:list', {
+          workspacePath: WORKSPACE,
+        });
+
+        expect(result.organizationAvailable).toBe(true);
+        expect(result.total).toBe(3);
+        expect(result.sessions.map((s) => s.id)).toEqual([
+          LINKED,
+          ARCHIVED,
+          PINNED,
+        ]);
+        const linked = result.sessions[0].organization;
+        expect(linked?.childCount).toBe(2);
+        expect(result.sessions[1].organization?.status).toBe('archived');
+        expect(result.sessions[2].organization?.pinned).toBe(true);
+      });
+
+      it('Electron shape in query mode: archived hidden, pinned first', async () => {
+        const { organization } = fakeOrganization();
+        const h = makeHarness({ organization, taskIndex: fakeTaskIndex() });
+        seedRows(h);
+        h.handlers.register();
+
+        const result = await call<ListResult>(h, 'session:list', {
+          workspacePath: WORKSPACE,
+          sort: 'lastActive',
+        });
+
+        expect(result.total).toBe(2);
+        expect(result.sessions.map((s) => s.id)).toEqual([PINNED, LINKED]);
+      });
+
+      it('flags a linked task missing from the task index (one index read)', async () => {
+        const { organization } = fakeOrganization();
+        const taskIndex = fakeTaskIndex();
+        const h = makeHarness({ organization, taskIndex });
+        seedRows(h);
+        h.handlers.register();
+
+        const result = await call<ListResult>(h, 'session:list', {
+          workspacePath: WORKSPACE,
+        });
+
+        expect(taskIndex.list).toHaveBeenCalledTimes(1);
+        expect(result.sessions[0].organization?.tasks).toEqual([
+          expect.objectContaining({ taskId: 'TASK_2026_001', missing: false }),
+          expect.objectContaining({ taskId: 'TASK_2026_GONE', missing: true }),
+        ]);
+      });
+
+      it('does not read the task index when no page row has links', async () => {
+        const { organization } = fakeOrganization();
+        const taskIndex = fakeTaskIndex();
+        const h = makeHarness({ organization, taskIndex });
+        seedRows(h);
+        h.handlers.register();
+
+        await call<ListResult>(h, 'session:list', {
+          workspacePath: WORKSPACE,
+          offset: 1,
+          limit: 2,
+        });
+
+        expect(taskIndex.list).not.toHaveBeenCalled();
+      });
+
+      it('a failing task index marks nothing missing instead of failing the list', async () => {
+        const { organization } = fakeOrganization();
+        const taskIndex = fakeTaskIndex();
+        taskIndex.list.mockRejectedValue(new Error('index gone'));
+        const h = makeHarness({ organization, taskIndex });
+        seedRows(h);
+        h.handlers.register();
+
+        const result = await call<ListResult>(h, 'session:list', {
+          workspacePath: WORKSPACE,
+        });
+
+        expect(
+          result.sessions[0].organization?.tasks.every((t) => !t.missing),
+        ).toBe(true);
+      });
+
+      it('a failing organization read degrades to today’s list with the flag false', async () => {
+        const { organization } = fakeOrganization();
+        organization.queryWorkspace.mockImplementation(() => {
+          throw new Error('SQLITE_CORRUPT');
+        });
+        const h = makeHarness({ organization });
+        seedRows(h);
+        h.handlers.register();
+
+        const result = await call<ListResult>(h, 'session:list', {
+          workspacePath: WORKSPACE,
+          sort: 'lastActive',
+        });
+
+        expect(result.organizationAvailable).toBe(false);
+        expect(result.total).toBe(3);
+        expect(h.sentry.captureException).toHaveBeenCalled();
+      });
+
+      it('adds livePhase from the turn-state registry', async () => {
+        const h = makeHarness();
+        seedRows(h);
+        h.turnState.get.mockImplementation((id: string) =>
+          id === PINNED ? makeTurnState({ phase: 'generating' }) : undefined,
+        );
+        h.handlers.register();
+
+        const result = await call<ListResult>(h, 'session:list', {
+          workspacePath: WORKSPACE,
+        });
+
+        expect(result.sessions.find((s) => s.id === PINNED)?.livePhase).toBe(
+          'generating',
+        );
+        expect(
+          result.sessions.find((s) => s.id === LINKED)?.livePhase,
+        ).toBeUndefined();
+      });
+
+      it.each([
+        { status: ['paused'] },
+        { sort: 'random' },
+        { taskId: '../x' },
+        { text: 42 },
+      ])('rejects invalid query params %o with INVALID_PARAMS', async (bad) => {
+        const h = makeHarness();
+        h.handlers.register();
+
+        const response = await callRaw(h, 'session:list', {
+          workspacePath: WORKSPACE,
+          ...bad,
+        });
+
+        expect(response.success).toBe(false);
+        expect(response.errorCode).toBe('INVALID_PARAMS');
+        expect(h.metadataStore.getForWorkspace).not.toHaveBeenCalled();
+      });
+
+      it('logs one [SessionOrganization] warn line when the call exceeds 200 ms', async () => {
+        const h = makeHarness();
+        seedRows(h);
+        const now = jest.spyOn(Date, 'now');
+        now.mockReturnValueOnce(1_000).mockReturnValue(1_250);
+        h.handlers.register();
+
+        try {
+          await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
+        } finally {
+          now.mockRestore();
+        }
+
+        const slow = (h.logger.warn as jest.Mock).mock.calls.filter(([msg]) =>
+          String(msg).startsWith('[SessionOrganization] session:list took'),
+        );
+        expect(slow).toHaveLength(1);
+      });
     });
   });
 
@@ -2632,10 +2962,13 @@ describe('SessionRpcHandlers', () => {
       });
 
       expect(response.success).toBe(true);
+      // `organizationAvailable` is always set (TASK_2026_580); false here
+      // because this harness registers no organization service.
       expect(response.data).toEqual({
         sessions: [],
         total: 0,
         hasMore: false,
+        organizationAvailable: false,
       });
     });
 

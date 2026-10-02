@@ -27,6 +27,10 @@ import {
   type FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  PLATFORM_TOKENS,
+  type ISessionOrganizationRecorder,
+} from '@ptah-extension/platform-core';
 import type { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import type { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
 
@@ -467,6 +471,17 @@ export function persistCliSessionReference(
         logger.info(
           `${tag} CLI session reference persisted: ${effectiveCliSessionId} -> parent ${parentSessionId}`,
         );
+        // Only after `addCliSession` accepted the reference: a parent that is
+        // still a tab id is rejected there ("Parent session not found"), so a
+        // success means `parentSessionId` is a real SDK session UUID — the
+        // recorder port accepts nothing else.
+        if (sdkSessionId && sdkSessionId !== parentSessionId) {
+          recordChildLineage(container, logger, tag, {
+            sessionId: sdkSessionId,
+            parentSessionId,
+            workspaceRootHint: info.workingDirectory,
+          });
+        }
       })
       .catch((error) => {
         const msg = error instanceof Error ? error.message : String(error);
@@ -505,6 +520,43 @@ export function persistCliSessionReference(
   } catch (error) {
     logger.warn(
       `${tag} Could not persist CLI session reference`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
+}
+
+/**
+ * Record that an agent started `sessionId` as a child of `parentSessionId`.
+ * The recorder is optional (registered only alongside SQLite); when absent
+ * this is a no-op. Its contract is never-throw — the `try` only keeps a faulty
+ * implementation from being reported as a failed reference persist.
+ */
+function recordChildLineage(
+  container: DependencyContainer,
+  logger: Logger,
+  tag: string,
+  input: {
+    readonly sessionId: string;
+    readonly parentSessionId: string;
+    readonly workspaceRootHint: string;
+  },
+): void {
+  if (!container.isRegistered(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER)) {
+    return;
+  }
+  try {
+    const recorder = container.resolve<ISessionOrganizationRecorder>(
+      PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER,
+    );
+    recorder.recordLineage({
+      sessionId: input.sessionId,
+      parentSessionId: input.parentSessionId,
+      startedBy: 'agent',
+      workspaceRootHint: input.workspaceRootHint,
+    });
+  } catch (error: unknown) {
+    logger.warn(
+      `${tag} Could not record child session lineage: ${input.sessionId}`,
       error instanceof Error ? error : new Error(String(error)),
     );
   }

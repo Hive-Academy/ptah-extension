@@ -431,8 +431,10 @@ async function mockSessions(
 
 /** Resolves the sidebar row button without matching its rename/delete buttons. */
 export function sessionRowButton(page: Page, name: string) {
+  // A grouped sidebar wraps rows in a session-group <li>; skip it so the
+  // filter matches the row itself.
   return page
-    .locator('li[role="listitem"]')
+    .locator('.sidebar-scroll li:not([data-testid="session-group"])')
     .filter({ hasText: name })
     .getByRole('button')
     .first();

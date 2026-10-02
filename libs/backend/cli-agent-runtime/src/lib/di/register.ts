@@ -24,6 +24,9 @@ import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.ser
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
 import { LaneCompletionNotifier } from '../cli-agents/lane-completion-notifier.service';
 import { AgentReportRouter } from '../cli-agents/agent-report-router.service';
+import { SessionChildRegistry } from '../session-children/session-child.registry';
+import { ChildWorktreeProvisioner } from '../session-children/child-worktree.provisioner';
+import { SessionSpawnerService } from '../session-children/session-spawner.service';
 import { AgentRoleResolver } from '../roles';
 import {
   PtahCliRegistry,
@@ -86,6 +89,10 @@ export function registerCliAgentRuntimeServices(
     TOKENS.AGENT_PROCESS_MANAGER,
     AgentProcessManager,
   );
+  // The parent → child session link (TASK_2026_584). Registered by class,
+  // BEFORE the router that injects it, so the router's optional injection
+  // always finds the one shared instance rather than nothing.
+  container.registerSingleton(SessionChildRegistry);
   // Registered in every host that registers this lib, so `ptah_agent_report`
   // behaves identically in VS Code, Electron and the CLI engine. A host that
   // registered the manager but not the router would have the tool succeed in
@@ -93,6 +100,16 @@ export function registerCliAgentRuntimeServices(
   container.register(
     CLI_AGENT_RUNTIME_TOKENS.AGENT_REPORT_ROUTER,
     { useClass: AgentReportRouter },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  // Child chat sessions (TASK_2026_584). The spawner subscribes to the SDK
+  // event fan-outs in its constructor, so it is constructed only when a
+  // consumer resolves it; its optional `CHILD_CHAT_SESSION_HOST` is bound by
+  // `registerChatServices`, which every host runs before that happens.
+  container.registerSingleton(ChildWorktreeProvisioner);
+  container.register(
+    CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
+    { useClass: SessionSpawnerService },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(

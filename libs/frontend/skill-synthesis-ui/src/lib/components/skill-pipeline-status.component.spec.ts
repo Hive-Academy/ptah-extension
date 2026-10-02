@@ -41,6 +41,7 @@ import type {
   SkillSynthesisStageSpend,
 } from '@ptah-extension/shared';
 
+import type { SkillByStatusCounts } from '../services/skill-diagnostics-state.service';
 import { SkillPipelineStatusComponent } from './skill-pipeline-status.component';
 
 const NOW = 1_700_000_000_000;
@@ -111,6 +112,10 @@ function spend(
     [queueItems]="queueItems()"
     [stageSpend]="stageSpend()"
     [now]="now()"
+    [lastCuratorPassAt]="lastCuratorPassAt()"
+    [byStatus]="byStatus()"
+    [refreshing]="refreshing()"
+    (refresh)="refreshCount.set(refreshCount() + 1)"
   />`,
 })
 class HostComponent {
@@ -125,6 +130,10 @@ class HostComponent {
   public readonly queueItems = signal<readonly SkillSynthesisQueueItem[]>([]);
   public readonly stageSpend = signal<readonly SkillSynthesisStageSpend[]>([]);
   public readonly now = signal<number | null>(NOW);
+  public readonly lastCuratorPassAt = signal<number | null>(null);
+  public readonly byStatus = signal<SkillByStatusCounts | null>(null);
+  public readonly refreshing = signal<boolean>(false);
+  public readonly refreshCount = signal<number>(0);
 }
 
 function mount() {
@@ -515,5 +524,165 @@ describe('SkillPipelineStatusComponent — per-stage tokens (R3, B0.8)', () => {
         root.querySelector('[data-testid="skills-stage-cost-tokens-total"]'),
       ),
     ).toBe('15500 tokens today');
+  });
+});
+
+describe('SkillPipelineStatusComponent — summary band (moved from the diagnostics accordion)', () => {
+  it('shows the absolute last-run time beside the relative label', () => {
+    const { fixture, host, root } = mount();
+    const at = NOW - 2 * 60_000;
+    host.lastAnalyzeRunAt.set(at);
+    fixture.detectChanges();
+
+    const absolute = new Date(at).toLocaleString();
+    const relative = root.querySelector(
+      '[data-testid="skills-pipeline-last-run"]',
+    );
+    expect(text(relative)).toBe('2m ago');
+    expect(relative?.getAttribute('title')).toBe(absolute);
+    expect(
+      text(
+        root.querySelector('[data-testid="skills-pipeline-last-run-absolute"]'),
+      ),
+    ).toBe(absolute);
+  });
+
+  it('says "Never" for the absolute last-run time when no analysis has run', () => {
+    const { root } = mount();
+    const relative = root.querySelector(
+      '[data-testid="skills-pipeline-last-run"]',
+    );
+    expect(text(relative)).toBe('never');
+    expect(relative?.getAttribute('title')).toBe('Never');
+    // No duplicate "Never" beside "never".
+    expect(
+      root.querySelector('[data-testid="skills-pipeline-last-run-absolute"]'),
+    ).toBeNull();
+  });
+
+  it('shows the last curator pass as an absolute time, or "Never"', () => {
+    const { fixture, host, root } = mount();
+    const curator = () =>
+      text(root.querySelector('[data-testid="skills-pipeline-last-curator"]'));
+    expect(curator()).toBe('Last curator pass: Never');
+
+    const at = NOW - 3_600_000;
+    host.lastCuratorPassAt.set(at);
+    fixture.detectChanges();
+    expect(curator()).toBe(
+      'Last curator pass: ' + new Date(at).toLocaleString(),
+    );
+  });
+
+  it('reads sessions analyzed today as one total with its split and three bars', () => {
+    const { fixture, host, root } = mount();
+    host.histogram.set({
+      prefilterTooThin: 1,
+      prefilterRejected: 5,
+      accepted: 4,
+    });
+    fixture.detectChanges();
+
+    const block = root.querySelector(
+      '[data-testid="skills-pipeline-sessions-today"]',
+    );
+    expect(text(block)).toContain(
+      'Sessions analyzed today (10): 4 accepted, 6 ineligible',
+    );
+    const bars = block?.querySelectorAll(
+      'ptah-eligibility-histogram [role="listitem"]',
+    );
+    expect(bars?.length).toBe(3);
+    // The old standalone "Today:" line is gone: one summary, not two.
+    expect(text(root)).not.toContain('Today:');
+  });
+
+  it('shows candidates by status when counts are provided, and hides the row otherwise', () => {
+    const { fixture, host, root } = mount();
+    const row = () =>
+      root.querySelector('[data-testid="skills-pipeline-by-status"]');
+    expect(row()).toBeNull();
+
+    host.byStatus.set({
+      totalCandidates: 7,
+      totalPromoted: 3,
+      totalRejected: 1,
+      activeSkills: 2,
+      totalInvocations: 12,
+      totalMerged: 4,
+      totalRetired: 5,
+      totalDormant: 1,
+    });
+    fixture.detectChanges();
+    expect(row()?.getAttribute('aria-label')).toBe('Candidates by status');
+    const figures = Array.from(row()?.children ?? []).map((el) => text(el));
+    expect(figures).toEqual([
+      'Candidates by status',
+      '7 Candidates',
+      '3 Promoted',
+      '1 Rejected',
+      '4 Merged',
+      '5 Retired',
+      '1 Dormant',
+    ]);
+  });
+
+  it('emits refresh from the Refresh button and disables it while refreshing', () => {
+    const { fixture, host, root } = mount();
+    const button = root.querySelector<HTMLButtonElement>(
+      '[data-testid="skills-pipeline-refresh"]',
+    );
+    expect(text(button)).toBe('Refresh');
+    expect(button?.disabled).toBe(false);
+
+    button?.click();
+    expect(host.refreshCount()).toBe(1);
+
+    host.refreshing.set(true);
+    fixture.detectChanges();
+    expect(button?.disabled).toBe(true);
+    button?.click();
+    expect(host.refreshCount()).toBe(1);
+  });
+
+  it('takes the reason chip from the first (newest) event, not an older ineligible behind it', () => {
+    const { fixture, host, root } = mount();
+    host.recentEvents.set([
+      {
+        id: '01J00000000000000000000002',
+        kind: 'error',
+        timestamp: NOW,
+        error: 'boom',
+      },
+      {
+        id: '01J00000000000000000000001',
+        kind: 'ineligible',
+        timestamp: NOW - 1_000,
+        sessionId: 'a',
+      },
+    ]);
+    fixture.detectChanges();
+    expect(
+      root.querySelector('[data-testid="skills-pipeline-reason"]'),
+    ).toBeNull();
+
+    host.recentEvents.set([
+      {
+        id: '01J00000000000000000000003',
+        kind: 'ineligible',
+        timestamp: NOW + 1_000,
+        sessionId: 'a',
+      },
+      {
+        id: '01J00000000000000000000002',
+        kind: 'error',
+        timestamp: NOW,
+        error: 'boom',
+      },
+    ]);
+    fixture.detectChanges();
+    expect(
+      text(root.querySelector('[data-testid="skills-pipeline-reason"]')),
+    ).toBe('ineligible');
   });
 });

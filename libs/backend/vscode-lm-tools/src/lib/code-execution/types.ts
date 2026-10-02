@@ -13,7 +13,10 @@ import type {
   AgentMessageOutcome,
   CliDetectionResult,
 } from '@ptah-extension/shared';
-import type { AgentReportDelivery } from '@ptah-extension/cli-agent-runtime';
+import type {
+  AgentReportDelivery,
+  AgentReportInput,
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   Approximation,
   DiagnosticsCoverageFields,
@@ -32,11 +35,13 @@ import type {
 import type { HarnessNamespace } from './namespace-builders/harness-namespace.builder';
 import type { DashboardNamespace } from './namespace-builders/dashboard-namespace.builder';
 import type { SurfaceNamespace } from './namespace-builders/surface-namespace.builder';
+import type { SessionNamespace } from './namespace-builders/session-namespace.builder';
 import type { SkillNamespace } from './namespace-builders/skill-namespace.builder';
 import type { MemoryNamespace } from './namespace-builders/memory-namespace.builder';
 import type { CorpusNamespace } from './namespace-builders/corpus-namespace.builder';
 import type { CodeNamespace } from './namespace-builders/code-namespace.builder';
 import type { TasksNamespace } from './namespace-builders/tasks-namespace.builder';
+import type { SessionOrganizationNamespace } from './namespace-builders/session-organization-namespace.builder';
 import type {
   WebSearchFailureReason,
   WebSearchProviderType,
@@ -70,6 +75,13 @@ export interface PtahAPI {
    * by hand — which is the failure mode this namespace exists to remove.
    */
   tasks: TasksNamespace;
+  /**
+   * Per-user session organization (TASK_2026_580). NON-optional: without a
+   * recorder (VS Code) every method returns `organization-unavailable`, so
+   * there is no host on which the namespace is missing. Named
+   * `sessionOrganization` because TASK_2026_584 owns `session`.
+   */
+  sessionOrganization: SessionOrganizationNamespace;
   webSearch?: {
     search(
       query: string,
@@ -119,6 +131,12 @@ export interface PtahAPI {
    * and reports `unavailable`, and an anonymous caller gets plain text.
    */
   surface: SurfaceNamespace;
+  /**
+   * Child chat sessions of the calling session (TASK_2026_584). NON-optional:
+   * on a host without a session spawner every operation throws a NAMED error
+   * at call time, and `takeHeldCompletions` returns nothing.
+   */
+  session: SessionNamespace;
   memory?: MemoryNamespace;
   corpus?: CorpusNamespace;
   code?: CodeNamespace;
@@ -326,21 +344,19 @@ export interface AgentNamespace {
   message: (agentId: string, message: string) => Promise<AgentMessageOutcome>;
 
   /**
-   * Deliver a running agent's report to the session that spawned it.
+   * Deliver a report to the session that started the reporter.
    *
-   * `agentId` identifies the REPORTING agent and is supplied by the MCP
-   * transport (the `/agent/{id}` URL segment on HTTP), never by the calling
-   * model — a sender-supplied id would be forgeable by any same-user process.
+   * The reporter is either a spawned agent (`agentId`, the `/agent/{id}` URL
+   * segment) or a child chat session started with `ptah_session_start`
+   * (`childSessionId`, the `/session/{id}` URL segment, TASK_2026_584). Both
+   * are supplied by the MCP transport, never by the calling model — a
+   * sender-supplied id would be forgeable by any same-user process.
    *
    * Returns `delivered: false` with a machine-readable `reason` whenever the
    * report did not reach a session. It never reports a delivery it did not
    * make.
    */
-  report: (input: {
-    agentId: string;
-    message: string;
-    summary?: string;
-  }) => Promise<AgentReportDelivery>;
+  report: (input: AgentReportInput) => Promise<AgentReportDelivery>;
 
   /**
    * Stop a running agent

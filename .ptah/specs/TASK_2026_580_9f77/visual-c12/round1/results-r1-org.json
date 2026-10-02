@@ -1,0 +1,4540 @@
+{
+  "org-anubis-360": {
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 54,
+          "iconContrast": 13.89
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 96,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 144,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 13.89,
+          "right": 191,
+          "borderContrast": 3.29
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 55,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 71,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 79,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.45,
+          "right": 67,
+          "borderContrast": 1.94
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.59,
+          "right": 79,
+          "borderContrast": 2.31
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 120,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.51,
+          "right": 99,
+          "borderContrast": 2.47
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "iconContrast": 3.59,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 76,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 110,
+          "borderContrast": 3.21
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "errs": [],
+    "group-status": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 54,
+          "iconContrast": 13.89
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 96,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 144,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 13.89,
+          "right": 191,
+          "borderContrast": 3.29
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 55,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "iconContrast": 3.59,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 76,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 71,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 79,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 110,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.45,
+          "right": 67,
+          "borderContrast": 1.94
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.59,
+          "right": 79,
+          "borderContrast": 2.31
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 120,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.51,
+          "right": 99,
+          "borderContrast": 2.47
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [
+        {
+          "text": "Active8",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "Waiting2",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "In review1",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "Done1",
+          "contrast": 4.97,
+          "fs": "10px"
+        }
+      ],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 4,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "group-task": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 54,
+          "iconContrast": 13.89
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 96,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 144,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 13.89,
+          "right": 191,
+          "borderContrast": 3.29
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 55,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.45,
+          "right": 67,
+          "borderContrast": 1.94
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.59,
+          "right": 79,
+          "borderContrast": 2.31
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 120,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.51,
+          "right": 99,
+          "borderContrast": 2.47
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 110,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 71,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 79,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "iconContrast": 3.59,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 76,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [
+        {
+          "text": "TASK_2026_580_9f771",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "No task9",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "TASK_2026_581_aa112",
+          "contrast": 4.97,
+          "fs": "10px"
+        }
+      ],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 3,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "group-parent": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 54,
+          "iconContrast": 13.89
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 96,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 144,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 13.89,
+          "right": 191,
+          "borderContrast": 3.29
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 55,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 71,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 79,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.45,
+          "right": 67,
+          "borderContrast": 1.94
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.59,
+          "right": 79,
+          "borderContrast": 2.31
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 120,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.51,
+          "right": 99,
+          "borderContrast": 2.47
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "iconContrast": 3.59,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 76,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 110,
+          "borderContrast": 3.21
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [
+        {
+          "depth": "1",
+          "ml": "12px",
+          "name": "Child session: Child A of root"
+        },
+        {
+          "depth": "2",
+          "ml": "24px",
+          "name": "Child session: Grandchild B 7h"
+        },
+        {
+          "depth": "3",
+          "ml": "36px",
+          "name": "Child session: Great-grandchil"
+        },
+        {
+          "depth": "3",
+          "ml": "36px",
+          "name": "Child session: Depth four D (c"
+        }
+      ],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "popover": {
+      "left": 111,
+      "right": 351,
+      "top": 160,
+      "bottom": 576,
+      "vw": 360,
+      "vh": 900,
+      "clippedX": false
+    },
+    "noMatch": {
+      "text": "No matching sessions\nTry adjusting your search or filters\nClear filters",
+      "clear": 1
+    },
+    "afterClear": {
+      "rows": 12,
+      "text": ""
+    },
+    "organizeBtn": {
+      "count": 1,
+      "size": [24, 24]
+    },
+    "editor": {
+      "open": true,
+      "focusInside": true,
+      "active": "session-org-close",
+      "rect": [0, 0, 350, 900],
+      "vw": 360,
+      "vh": 900,
+      "overflowX": false,
+      "overflowY": false
+    },
+    "editorAfterEsc": {
+      "open": false,
+      "active": "session-organize",
+      "inRow": true
+    },
+    "tabSeq": [
+      {
+        "id": "session-filter-text",
+        "inAside": true,
+        "outline": "solid 2px rgba(0, 0, 0, 0)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-toggle",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-sort",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-group",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "Toggle date filter",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": null
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.925095 0.000166705 0.00704803)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Refactor session",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0.862539"
+      },
+      {
+        "id": "Delete session: Refactor session",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0.862539"
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.925095 0.000166705 0.00704803)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Fix flaky e2e on",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Delete session: Fix flaky e2e on",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.925095 0.000166705 0.00704803)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Investigate memo",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      }
+    ]
+  },
+  "org-anubis-800": {
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 54,
+          "iconContrast": 13.89
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 96,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 144,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 13.89,
+          "right": 191,
+          "borderContrast": 3.29
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 55,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 71,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 79,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.45,
+          "right": 67,
+          "borderContrast": 1.94
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.59,
+          "right": 79,
+          "borderContrast": 2.31
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 120,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.51,
+          "right": 99,
+          "borderContrast": 2.47
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "iconContrast": 3.59,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 76,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 110,
+          "borderContrast": 3.21
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "errs": [],
+    "group-status": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 54,
+          "iconContrast": 13.89
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 96,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 144,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 13.89,
+          "right": 191,
+          "borderContrast": 3.29
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 55,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "iconContrast": 3.59,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 76,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 71,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 79,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 110,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.45,
+          "right": 67,
+          "borderContrast": 1.94
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.59,
+          "right": 79,
+          "borderContrast": 2.31
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 120,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.51,
+          "right": 99,
+          "borderContrast": 2.47
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [
+        {
+          "text": "Active8",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "Waiting2",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "In review1",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "Done1",
+          "contrast": 4.97,
+          "fs": "10px"
+        }
+      ],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 4,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "group-task": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 54,
+          "iconContrast": 13.89
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 96,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 144,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 13.89,
+          "right": 191,
+          "borderContrast": 3.29
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 55,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.45,
+          "right": 67,
+          "borderContrast": 1.94
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.59,
+          "right": 79,
+          "borderContrast": 2.31
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 120,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.51,
+          "right": 99,
+          "borderContrast": 2.47
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 110,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 71,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 79,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "iconContrast": 3.59,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 76,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [
+        {
+          "text": "TASK_2026_580_9f771",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "No task9",
+          "contrast": 4.97,
+          "fs": "10px"
+        },
+        {
+          "text": "TASK_2026_581_aa112",
+          "contrast": 4.97,
+          "fs": "10px"
+        }
+      ],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 3,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "group-parent": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 54,
+          "iconContrast": 13.89
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 96,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 144,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 13.89,
+          "right": 191,
+          "borderContrast": 3.29
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 55,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 71,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 79,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.45,
+          "right": 67,
+          "borderContrast": 1.94
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.59,
+          "right": 79,
+          "borderContrast": 2.31
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 120,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.51,
+          "right": 99,
+          "borderContrast": 2.47
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "iconContrast": 3.59,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 76,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 110,
+          "borderContrast": 3.21
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [
+        {
+          "depth": "1",
+          "ml": "12px",
+          "name": "Child session: Child A of root"
+        },
+        {
+          "depth": "2",
+          "ml": "24px",
+          "name": "Child session: Grandchild B 7h"
+        },
+        {
+          "depth": "3",
+          "ml": "36px",
+          "name": "Child session: Great-grandchil"
+        },
+        {
+          "depth": "3",
+          "ml": "36px",
+          "name": "Child session: Depth four D (c"
+        }
+      ],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "popover": {
+      "left": 265,
+      "right": 505,
+      "top": 160,
+      "bottom": 576,
+      "vw": 800,
+      "vh": 900,
+      "clippedX": false
+    },
+    "noMatch": {
+      "text": "No matching sessions\nTry adjusting your search or filters\nClear filters",
+      "clear": 1
+    },
+    "afterClear": {
+      "rows": 12,
+      "text": ""
+    },
+    "organizeBtn": {
+      "count": 1,
+      "size": [24, 24]
+    },
+    "editor": {
+      "open": true,
+      "focusInside": true,
+      "active": "session-org-close",
+      "rect": [0, 0, 790, 900],
+      "vw": 800,
+      "vh": 900,
+      "overflowX": false,
+      "overflowY": false
+    },
+    "editorAfterEsc": {
+      "open": false,
+      "active": "session-organize",
+      "inRow": true
+    },
+    "shift": {
+      "before": {
+        "listH": 1045,
+        "first": 215,
+        "rows": 12,
+        "skeleton": false,
+        "empty": false
+      },
+      "during": {
+        "listH": 1045,
+        "first": 215,
+        "rows": 12,
+        "skeleton": false,
+        "empty": false
+      },
+      "after": {
+        "listH": 1045,
+        "first": 215,
+        "rows": 12,
+        "skeleton": false,
+        "empty": false
+      },
+      "cls": 0.03446194135802469
+    },
+    "listCalls": 9
+  },
+  "org-anubis-1400": {
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 54,
+          "iconContrast": 13.89
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 96,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 144,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 13.89,
+          "right": 191,
+          "borderContrast": 3.29
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 55,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 71,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 79,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.45,
+          "right": 67,
+          "borderContrast": 1.94
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.59,
+          "right": 79,
+          "borderContrast": 2.31
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 120,
+          "borderContrast": 1.77,
+          "iconContrast": 12.29
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.51,
+          "right": 99,
+          "borderContrast": 2.47
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 13.89,
+          "right": 34,
+          "iconContrast": 3.59,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 76,
+          "borderContrast": 3.21
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 140,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.29,
+          "right": 54,
+          "borderContrast": 1.77
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.25,
+          "right": 110,
+          "borderContrast": 3.21
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "errs": [],
+    "organizeBtn": {
+      "count": 1,
+      "size": [24, 24]
+    },
+    "editor": {
+      "open": true,
+      "focusInside": true,
+      "active": "session-org-close",
+      "rect": [0, 0, 1390, 900],
+      "vw": 1400,
+      "vh": 900,
+      "overflowX": false,
+      "overflowY": false
+    },
+    "editorAfterEsc": {
+      "open": false,
+      "active": "session-organize",
+      "inRow": true
+    },
+    "tabSeq": [
+      {
+        "id": "session-filter-text",
+        "inAside": true,
+        "outline": "solid 2px rgba(0, 0, 0, 0)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-toggle",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-sort",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-group",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "Toggle date filter",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": null
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.925095 0.000166705 0.00704803)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Refactor session",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0.862646"
+      },
+      {
+        "id": "Delete session: Refactor session",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0.920971"
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.925095 0.000166705 0.00704803)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Fix flaky e2e on",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Delete session: Fix flaky e2e on",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.925095 0.000166705 0.00704803)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Investigate memo",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      }
+    ]
+  },
+  "org-anubis-light-360": {
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 54,
+          "iconContrast": 14.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 96,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 144,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 14.21,
+          "right": 191,
+          "borderContrast": 2.43
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 55,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 71,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 79,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.5,
+          "right": 67,
+          "borderContrast": 2
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.44,
+          "right": 79,
+          "borderContrast": 1.58
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 120,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.55,
+          "right": 99,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "iconContrast": 3.19,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 76,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 110,
+          "borderContrast": 1.63
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "errs": [],
+    "group-status": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 54,
+          "iconContrast": 14.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 96,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 144,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 14.21,
+          "right": 191,
+          "borderContrast": 2.43
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 55,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "iconContrast": 3.19,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 76,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 71,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 79,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 110,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.5,
+          "right": 67,
+          "borderContrast": 2
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.44,
+          "right": 79,
+          "borderContrast": 1.58
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 120,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.55,
+          "right": 99,
+          "borderContrast": 1.49
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [
+        {
+          "text": "Active8",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "Waiting2",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "In review1",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "Done1",
+          "contrast": 4.48,
+          "fs": "10px"
+        }
+      ],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 4,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "group-task": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 54,
+          "iconContrast": 14.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 96,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 144,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 14.21,
+          "right": 191,
+          "borderContrast": 2.43
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 55,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.5,
+          "right": 67,
+          "borderContrast": 2
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.44,
+          "right": 79,
+          "borderContrast": 1.58
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 120,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.55,
+          "right": 99,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 110,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 71,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 79,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "iconContrast": 3.19,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 76,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [
+        {
+          "text": "TASK_2026_580_9f771",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "No task9",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "TASK_2026_581_aa112",
+          "contrast": 4.48,
+          "fs": "10px"
+        }
+      ],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 3,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "group-parent": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 54,
+          "iconContrast": 14.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 96,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 144,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 14.21,
+          "right": 191,
+          "borderContrast": 2.43
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 55,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 71,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 79,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.5,
+          "right": 67,
+          "borderContrast": 2
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.44,
+          "right": 79,
+          "borderContrast": 1.58
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 120,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.55,
+          "right": 99,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "iconContrast": 3.19,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 76,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 110,
+          "borderContrast": 1.63
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [
+        {
+          "depth": "1",
+          "ml": "12px",
+          "name": "Child session: Child A of root"
+        },
+        {
+          "depth": "2",
+          "ml": "24px",
+          "name": "Child session: Grandchild B 7h"
+        },
+        {
+          "depth": "3",
+          "ml": "36px",
+          "name": "Child session: Great-grandchil"
+        },
+        {
+          "depth": "3",
+          "ml": "36px",
+          "name": "Child session: Depth four D (c"
+        }
+      ],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "popover": {
+      "left": 111,
+      "right": 351,
+      "top": 162,
+      "bottom": 580,
+      "vw": 360,
+      "vh": 900,
+      "clippedX": false
+    },
+    "noMatch": {
+      "text": "No matching sessions\nTry adjusting your search or filters\nClear filters",
+      "clear": 1
+    },
+    "afterClear": {
+      "rows": 12,
+      "text": ""
+    },
+    "organizeBtn": {
+      "count": 1,
+      "size": [24, 24]
+    },
+    "editor": {
+      "open": true,
+      "focusInside": true,
+      "active": "session-org-close",
+      "rect": [0, 0, 350, 900],
+      "vw": 360,
+      "vh": 900,
+      "overflowX": false,
+      "overflowY": false
+    },
+    "editorAfterEsc": {
+      "open": false,
+      "active": "session-organize",
+      "inRow": true
+    },
+    "tabSeq": [
+      {
+        "id": "session-filter-text",
+        "inAside": true,
+        "outline": "solid 2px rgba(0, 0, 0, 0)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-toggle",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-sort",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-group",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "Toggle date filter",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": null
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.23574 0.0451709 -0.0481206)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Refactor session",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.996153"
+      },
+      {
+        "id": "Delete session: Refactor session",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.996153"
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.23574 0.0451709 -0.0481206)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Fix flaky e2e on",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.0173721"
+      },
+      {
+        "id": "Delete session: Fix flaky e2e on",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.0853844"
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.23574 0.0451709 -0.0481206)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Investigate memo",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.0173721"
+      }
+    ]
+  },
+  "org-anubis-light-800": {
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 54,
+          "iconContrast": 14.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 96,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 144,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 14.21,
+          "right": 191,
+          "borderContrast": 2.43
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 55,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 71,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 79,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.5,
+          "right": 67,
+          "borderContrast": 2
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.44,
+          "right": 79,
+          "borderContrast": 1.58
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 120,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.55,
+          "right": 99,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "iconContrast": 3.19,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 76,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 110,
+          "borderContrast": 1.63
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "errs": [],
+    "group-status": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 54,
+          "iconContrast": 14.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 96,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 144,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 14.21,
+          "right": 191,
+          "borderContrast": 2.43
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 55,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "iconContrast": 3.19,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 76,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 71,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 79,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 110,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.5,
+          "right": 67,
+          "borderContrast": 2
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.44,
+          "right": 79,
+          "borderContrast": 1.58
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 120,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.55,
+          "right": 99,
+          "borderContrast": 1.49
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [
+        {
+          "text": "Active8",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "Waiting2",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "In review1",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "Done1",
+          "contrast": 4.48,
+          "fs": "10px"
+        }
+      ],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 4,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "group-task": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 54,
+          "iconContrast": 14.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 96,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 144,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 14.21,
+          "right": 191,
+          "borderContrast": 2.43
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 55,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.5,
+          "right": 67,
+          "borderContrast": 2
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.44,
+          "right": 79,
+          "borderContrast": 1.58
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 120,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.55,
+          "right": 99,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 110,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 71,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 79,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "iconContrast": 3.19,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 76,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [
+        {
+          "text": "TASK_2026_580_9f771",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "No task9",
+          "contrast": 4.48,
+          "fs": "10px"
+        },
+        {
+          "text": "TASK_2026_581_aa112",
+          "contrast": 4.48,
+          "fs": "10px"
+        }
+      ],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 3,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "group-parent": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 54,
+          "iconContrast": 14.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 96,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 144,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 14.21,
+          "right": 191,
+          "borderContrast": 2.43
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 55,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 71,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 79,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.5,
+          "right": 67,
+          "borderContrast": 2
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.44,
+          "right": 79,
+          "borderContrast": 1.58
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 120,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.55,
+          "right": 99,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "iconContrast": 3.19,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 76,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 110,
+          "borderContrast": 1.63
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [
+        {
+          "depth": "1",
+          "ml": "12px",
+          "name": "Child session: Child A of root"
+        },
+        {
+          "depth": "2",
+          "ml": "24px",
+          "name": "Child session: Grandchild B 7h"
+        },
+        {
+          "depth": "3",
+          "ml": "36px",
+          "name": "Child session: Great-grandchil"
+        },
+        {
+          "depth": "3",
+          "ml": "36px",
+          "name": "Child session: Depth four D (c"
+        }
+      ],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "popover": {
+      "left": 265,
+      "right": 505,
+      "top": 162,
+      "bottom": 580,
+      "vw": 800,
+      "vh": 900,
+      "clippedX": false
+    },
+    "noMatch": {
+      "text": "No matching sessions\nTry adjusting your search or filters\nClear filters",
+      "clear": 1
+    },
+    "afterClear": {
+      "rows": 12,
+      "text": ""
+    },
+    "organizeBtn": {
+      "count": 1,
+      "size": [24, 24]
+    },
+    "editor": {
+      "open": true,
+      "focusInside": true,
+      "active": "session-org-close",
+      "rect": [0, 0, 790, 900],
+      "vw": 800,
+      "vh": 900,
+      "overflowX": false,
+      "overflowY": false
+    },
+    "editorAfterEsc": {
+      "open": false,
+      "active": "session-organize",
+      "inRow": true
+    },
+    "shift": {
+      "before": {
+        "listH": 1045,
+        "first": 217,
+        "rows": 12,
+        "skeleton": false,
+        "empty": false
+      },
+      "during": {
+        "listH": 1045,
+        "first": 217,
+        "rows": 12,
+        "skeleton": false,
+        "empty": false
+      },
+      "after": {
+        "listH": 1045,
+        "first": 217,
+        "rows": 12,
+        "skeleton": false,
+        "empty": false
+      },
+      "cls": 0.03428151234567901
+    },
+    "listCalls": 9
+  },
+  "org-anubis-light-1400": {
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "dotInfo": "w-2.5 h-2.5 rounded-full border border-base-content/70 bg-in"
+        },
+        {
+          "id": "session-chip-pinned",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 54,
+          "iconContrast": 14.21
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 96,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_580_9f77",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 144,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_999_gonemissin",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 14.21,
+          "right": 191,
+          "borderContrast": 2.43
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "2",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 55,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 71,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-agent",
+          "text": "Agent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 79,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Urgent",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 11.5,
+          "right": 67,
+          "borderContrast": 2
+        },
+        {
+          "id": "session-chip-status",
+          "text": "In review",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.44,
+          "right": 79,
+          "borderContrast": 1.58
+        },
+        {
+          "id": "session-chip-pr-count",
+          "text": "1",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 120,
+          "borderContrast": 1.49,
+          "iconContrast": 12.88
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Done",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.55,
+          "right": 99,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-live",
+          "text": "",
+          "fs": "13px",
+          "h": 16,
+          "textContrast": 14.21,
+          "right": 34,
+          "iconContrast": 3.19,
+          "dotInfo": "[object SVGAnimatedString]"
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "High",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 76,
+          "borderContrast": 1.63
+        },
+        {
+          "id": "session-chip-task",
+          "text": "TASK_2026_581_aa11",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 140,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-priority",
+          "text": "Low",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.88,
+          "right": 54,
+          "borderContrast": 1.49
+        },
+        {
+          "id": "session-chip-status",
+          "text": "Waiting",
+          "fs": "11px",
+          "h": 20,
+          "textContrast": 12.58,
+          "right": 110,
+          "borderContrast": 1.63
+        }
+      ],
+      "chipsOverflowRow": true,
+      "headers": [],
+      "rows": [],
+      "rowCount": 12,
+      "filterBar": true,
+      "localSearch": true,
+      "organizeBtns": 12,
+      "groupHeaders": 0,
+      "chipsCount": 12,
+      "dateFilterBtn": true,
+      "filterBarRect": [6, 212],
+      "filterControlSizes": [
+        "session-filter-text:176x16",
+        "session-filter-toggle:59x24",
+        "session-filter-sort:104x24",
+        "session-filter-group:104x24"
+      ]
+    },
+    "errs": [],
+    "organizeBtn": {
+      "count": 1,
+      "size": [24, 24]
+    },
+    "editor": {
+      "open": true,
+      "focusInside": true,
+      "active": "session-org-close",
+      "rect": [0, 0, 1390, 900],
+      "vw": 1400,
+      "vh": 900,
+      "overflowX": false,
+      "overflowY": false
+    },
+    "editorAfterEsc": {
+      "open": false,
+      "active": "session-organize",
+      "inRow": true
+    },
+    "tabSeq": [
+      {
+        "id": "session-filter-text",
+        "inAside": true,
+        "outline": "solid 2px rgba(0, 0, 0, 0)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-toggle",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-sort",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-filter-group",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "Toggle date filter",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": null
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.23574 0.0451709 -0.0481206)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Refactor session",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.862667"
+      },
+      {
+        "id": "Delete session: Refactor session",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.920985"
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.23574 0.0451709 -0.0481206)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Fix flaky e2e on",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.0174474"
+      },
+      {
+        "id": "Delete session: Fix flaky e2e on",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.0855908"
+      },
+      {
+        "id": "BUTTON",
+        "inAside": true,
+        "outline": "solid 3px oklab(0.23574 0.0451709 -0.0481206)",
+        "ring": "",
+        "actionsOpacity": null
+      },
+      {
+        "id": "session-organize",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0"
+      },
+      {
+        "id": "Rename session: Investigate memo",
+        "inAside": true,
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "ring": "shadow",
+        "actionsOpacity": "0.0174474"
+      }
+    ]
+  }
+}

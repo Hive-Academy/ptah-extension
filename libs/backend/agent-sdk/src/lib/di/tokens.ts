@@ -199,6 +199,15 @@ export const SDK_TOKENS = {
    * the policy fingerprint a session was built against (TASK_2026_560, N4).
    */
   SDK_HARNESS_POLICY_SYNC: Symbol.for('SdkHarnessPolicySync'),
+  /**
+   * `UnattendedSessionPolicyRegistry`: the tool-call policy of each session
+   * nobody is watching, keyed by its tab id (TASK_2026_584). Injected into
+   * `SdkPermissionHandler` as an optional dependency, so it is registered
+   * before the handler.
+   */
+  SDK_UNATTENDED_SESSION_POLICY_REGISTRY: Symbol.for(
+    'SdkUnattendedSessionPolicyRegistry',
+  ),
 } as const;
 
 /**

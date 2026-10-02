@@ -55,6 +55,7 @@ import {
   type SkillGapCuratorService,
   type DigestItem,
   type QueryOrigin,
+  toSkillSynthesisEventWire,
 } from '@ptah-extension/skill-synthesis';
 import {
   CRON_TOKENS,
@@ -492,7 +493,7 @@ export class SkillsSynthesisRpcHandlers {
         const skillId = (params?.skillId ?? '') as CandidateId;
         if (!skillId) return { invocations: [] };
         const limit = clampLimit(params?.limit, 200);
-        const rows = this.store.listInvocations(skillId, limit);
+        const rows = this.store.listInvocationEvents(skillId, limit);
         return { invocations: rows.map(toInvocation) };
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerInvocations');
@@ -513,7 +514,7 @@ export class SkillsSynthesisRpcHandlers {
           totalPromoted: s.promoted,
           totalRejected: s.rejected,
           totalInvocations: s.invocations,
-          activeSkills: s.promoted,
+          activeSkills: s.active,
         };
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerStats');
@@ -705,19 +706,18 @@ export class SkillsSynthesisRpcHandlers {
           totalPromoted: stats.promoted,
           totalRejected: stats.rejected,
           totalInvocations: stats.invocations,
-          activeSkills: stats.promoted,
+          activeSkills: stats.active,
+          totalMerged: stats.merged,
+          totalRetired: stats.retired,
+          totalDormant: stats.dormant,
           eligibilityHistogram: {
             prefilterTooThin: snapshot.eligibilityHistogram.prefilterTooThin,
             prefilterRejected: snapshot.eligibilityHistogram.prefilterRejected,
             accepted: snapshot.eligibilityHistogram.accepted,
           },
-          recentEvents: snapshot.recentEvents.map((e) => ({
-            kind: e.kind,
-            timestamp: e.timestamp,
-            sessionId: e.sessionId,
-            stats: e.stats,
-            error: e.error,
-          })),
+          // Newest-first, as `getSnapshot` returns it. Same mapper as the live
+          // SKILL_SYNTHESIS_EVENT push, so an id carries one payload on both paths.
+          recentEvents: snapshot.recentEvents.map(toSkillSynthesisEventWire),
           triggers: {
             sessionEnd: snapshot.triggers.sessionEnd,
             idleMs: snapshot.triggers.idleMs,

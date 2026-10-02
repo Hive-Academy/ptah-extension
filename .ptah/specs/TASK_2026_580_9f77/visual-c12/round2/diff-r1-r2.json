@@ -1,0 +1,394 @@
+{
+  "org-anubis-1400-default.png": {
+    "diff": 70,
+    "y": [233, 242]
+  },
+  "org-anubis-1400-editor.png": {
+    "diff": 70,
+    "y": [273, 282]
+  },
+  "org-anubis-1400-focus-0.png": {
+    "diff": 79,
+    "y": [233, 242]
+  },
+  "org-anubis-1400-focus-3.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-1400-focus-6.png": {
+    "diff": 74,
+    "y": [233, 242]
+  },
+  "org-anubis-1400-full.png": {
+    "diff": 79,
+    "y": [273, 282]
+  },
+  "org-anubis-1400-row-hover.png": {
+    "diff": 86,
+    "y": [233, 242]
+  },
+  "org-anubis-360-default.png": {
+    "diff": 70,
+    "y": [233, 242]
+  },
+  "org-anubis-360-editor.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-360-filter-status.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-360-filters-popover.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-360-focus-0.png": {
+    "diff": 68,
+    "y": [233, 242]
+  },
+  "org-anubis-360-focus-3.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-360-focus-6.png": {
+    "diff": 366,
+    "y": [294, 325]
+  },
+  "org-anubis-360-full.png": {
+    "diff": 80,
+    "y": [273, 282]
+  },
+  "org-anubis-360-group-parent.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-360-group-status.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-360-group-task.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-360-no-match.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-360-row-hover.png": {
+    "diff": 70,
+    "y": [233, 242]
+  },
+  "org-anubis-800-default.png": {
+    "diff": 68,
+    "y": [233, 242]
+  },
+  "org-anubis-800-editor.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-800-filter-status.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-800-filters-popover.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-800-full.png": {
+    "diff": 79,
+    "y": [273, 282]
+  },
+  "org-anubis-800-group-parent.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-800-group-status.png": {
+    "diff": 1,
+    "y": [126, 126]
+  },
+  "org-anubis-800-group-task.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-800-kbd-focus-organize.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-800-kbd-focus-rename.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-800-nested.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-800-no-match.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-800-reload-during.png": {
+    "diff": 80,
+    "y": [273, 282]
+  },
+  "org-anubis-800-row-hover.png": {
+    "diff": 79,
+    "y": [233, 242]
+  },
+  "org-anubis-800-row1-hover.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-hover-Child.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-hover-Fix.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-hover-Hotfix.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-hover-Investigate.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-hover-Plain.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-hover-Refactor.png": {
+    "diff": 77,
+    "y": [58, 67]
+  },
+  "org-anubis-light-1400-default.png": {
+    "diff": 164,
+    "y": [213, 224]
+  },
+  "org-anubis-light-1400-editor.png": {
+    "diff": 215,
+    "y": [253, 284]
+  },
+  "org-anubis-light-1400-focus-0.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-1400-focus-3.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-1400-focus-6.png": {
+    "diff": 456,
+    "y": [235, 327]
+  },
+  "org-anubis-light-1400-full.png": {
+    "diff": 240,
+    "y": [253, 284]
+  },
+  "org-anubis-light-1400-row-hover.png": {
+    "diff": 250,
+    "y": [213, 244]
+  },
+  "org-anubis-light-360-default.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-360-editor.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-360-filter-status.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-360-filters-popover.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-360-focus-0.png": {
+    "diff": 74,
+    "y": [235, 244]
+  },
+  "org-anubis-light-360-focus-3.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-360-focus-6.png": {
+    "diff": 480,
+    "y": [235, 327]
+  },
+  "org-anubis-light-360-full.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-360-group-parent.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-360-group-status.png": {
+    "diff": 66,
+    "y": [263, 271]
+  },
+  "org-anubis-light-360-group-task.png": {
+    "diff": 40,
+    "y": [265, 271]
+  },
+  "org-anubis-light-360-no-match.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-360-row-hover.png": {
+    "diff": 80,
+    "y": [235, 244]
+  },
+  "org-anubis-light-800-default.png": {
+    "diff": 80,
+    "y": [235, 244]
+  },
+  "org-anubis-light-800-editor.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-800-filter-status.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-800-filters-popover.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-800-full.png": {
+    "diff": 80,
+    "y": [275, 284]
+  },
+  "org-anubis-light-800-group-parent.png": {
+    "diff": 164,
+    "y": [213, 224]
+  },
+  "org-anubis-light-800-group-status.png": {
+    "diff": 224,
+    "y": [241, 271]
+  },
+  "org-anubis-light-800-group-task.png": {
+    "diff": 164,
+    "y": [241, 252]
+  },
+  "org-anubis-light-800-kbd-focus-organize.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-800-kbd-focus-rename.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-800-nested.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-800-no-match.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-800-reload-during.png": {
+    "diff": 242,
+    "y": [253, 284]
+  },
+  "org-anubis-light-800-row-hover.png": {
+    "diff": 240,
+    "y": [213, 244]
+  },
+  "org-anubis-light-800-row1-hover.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-hover-Child.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-hover-Fix.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-hover-Hotfix.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-hover-Investigate.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-hover-Plain.png": {
+    "diff": 0,
+    "y": null
+  },
+  "org-anubis-light-hover-Refactor.png": {
+    "diff": 74,
+    "y": [58, 67]
+  },
+  "vscode-anubis-1400-full.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-1400-sidebar.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-360-full.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-360-sidebar.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-800-focus-action.png": {
+    "diff": 1076,
+    "y": [133, 899]
+  },
+  "vscode-anubis-800-full.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-800-row-hover.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-800-sidebar.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-light-1400-full.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-light-1400-sidebar.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-light-360-full.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-light-360-sidebar.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-light-800-focus-action.png": {
+    "diff": 1084,
+    "y": [133, 899]
+  },
+  "vscode-anubis-light-800-full.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-light-800-row-hover.png": {
+    "diff": 739,
+    "y": [890, 899]
+  },
+  "vscode-anubis-light-800-sidebar.png": {
+    "diff": 739,
+    "y": [890, 899]
+  }
+}
