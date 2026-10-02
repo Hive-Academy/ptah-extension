@@ -39,7 +39,7 @@ export const GH_PR_LIST_JSON_FIELDS = [
  * from its own `main`, an older closed PR); the reader picks the one whose
  * head repository is this branch's push remote.
  */
-export const GH_PR_LIST_LIMIT = 10;
+export const GH_PR_LIST_LIMIT = 50;
 
 /** Most `gh` stdout read; past it the process is killed → `failed`. */
 export const GH_STDOUT_MAX_BYTES = 8 * 1024 * 1024;
@@ -482,14 +482,19 @@ export class GitHubPrStatusReader {
     cacheKey: string,
   ): Promise<GitPrStatusResult> {
     const generation = this.generationOf(rootKey);
-    const run = this.fetchStatus(workspaceRoot, branch).then((result) => {
-      if (this.inFlight.get(cacheKey) === run) this.inFlight.delete(cacheKey);
-      if (isCacheable(result) && this.generationOf(rootKey) === generation) {
-        const ttl = this.deps.cacheTtlMs ?? DEFAULT_GH_PR_CACHE_TTL_MS;
-        this.cache.set(cacheKey, { expiresAt: this.now() + ttl, result });
-      }
-      return result;
-    });
+    const run = this.fetchStatus(workspaceRoot, branch)
+      .then((result) => {
+        if (isCacheable(result) && this.generationOf(rootKey) === generation) {
+          const ttl = this.deps.cacheTtlMs ?? DEFAULT_GH_PR_CACHE_TTL_MS;
+          this.cache.set(cacheKey, { expiresAt: this.now() + ttl, result });
+        }
+        return result;
+      })
+      // Settled either way, the run no longer stands for this key; a newer
+      // run started after `invalidate` keeps its own entry.
+      .finally(() => {
+        if (this.inFlight.get(cacheKey) === run) this.inFlight.delete(cacheKey);
+      });
     this.inFlight.set(cacheKey, run);
     return run;
   }

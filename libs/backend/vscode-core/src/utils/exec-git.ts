@@ -712,6 +712,16 @@ function acquireUnlessAborted(
 }
 
 /**
+ * `bytes` from its first UTF-8 character start: leading continuation bytes
+ * (0x80-0xBF), left by a cut inside a multi-byte character, are skipped.
+ */
+function fromCharBoundary(bytes: Buffer): Buffer {
+  let start = 0;
+  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
+  return start === 0 ? bytes : bytes.subarray(start);
+}
+
+/**
  * Spawn one git child and supervise it until it exits. Owns `release`: it is
  * called exactly when the child is gone (or the kill grace ran out), which may
  * be well after the returned promise settled.
@@ -858,6 +868,8 @@ function runGitChild(
 
     const keepTailBytes = options?.keepOutputTailBytes;
     const keptBytes = { stdout: 0, stderr: 0 };
+    /** Whether a stream's leading chunks were dropped by {@link keepTail}. */
+    const cut = { stdout: false, stderr: false };
 
     /** Keep `data`, then drop whole leading chunks the tail no longer needs. */
     const keepTail = (
@@ -874,7 +886,17 @@ function runGitChild(
       ) {
         keptBytes[stream] -= chunks[0].byteLength;
         chunks.shift();
+        cut[stream] = true;
       }
+    };
+
+    /** A stream's kept bytes; a cut tail starts at a character boundary. */
+    const keptOutput = (
+      chunks: Buffer[],
+      stream: 'stdout' | 'stderr',
+    ): Buffer => {
+      const kept = Buffer.concat(chunks);
+      return cut[stream] ? fromCharBoundary(kept) : kept;
     };
 
     const collect =
@@ -924,8 +946,8 @@ function runGitChild(
       if (stdoutDecoder) emitOutput('stdout', stdoutDecoder.decode());
       if (stderrDecoder) emitOutput('stderr', stderrDecoder.decode());
       resolve({
-        stdout: Buffer.concat(stdoutChunks),
-        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+        stdout: keptOutput(stdoutChunks, 'stdout'),
+        stderr: keptOutput(stderrChunks, 'stderr').toString('utf8'),
         exitCode: code ?? 1,
       });
     });

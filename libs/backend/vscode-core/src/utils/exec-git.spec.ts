@@ -1031,6 +1031,26 @@ describe('git process supervision', () => {
     expect(seen.join('')).toBe('aaaabbbbccddeeeeffff');
   });
 
+  it('starts a cut tail at a UTF-8 character boundary (MIN-9)', async () => {
+    const call = execGit(['commit', '-m', 'x'], WS, {
+      ...BG,
+      keepOutputTailBytes: 4,
+    });
+    await drain();
+    // `é` is C3 A9; the cut drops the chunk holding C3.
+    held[0].stderr.emit('data', Buffer.from([0x61, 0x61, 0xc3]));
+    held[0].stderr.emit('data', Buffer.from([0xa9, 0x62, 0x63, 0x64]));
+    // Not cut: a whole multi-byte stdout is kept as is.
+    held[0].stdout.emit('data', Buffer.from('é', 'utf8'));
+    held[0].emit('close', 1);
+
+    await expect(call).resolves.toEqual({
+      stdout: 'é',
+      stderr: 'bcd',
+      exitCode: 1,
+    });
+  });
+
   it('frees the slot at once when the child never started', async () => {
     process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
     resetGitProcessGateForTests();

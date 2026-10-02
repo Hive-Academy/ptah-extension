@@ -899,9 +899,56 @@ describe('GitHubPrStatusReader', () => {
       expect(result.status).toBe('ok');
       expect(warnLogs).toHaveLength(0);
     });
+
+    it('finds its own PR behind more than ten newer fork PRs of the same head name (MIN-6)', async () => {
+      const git = fakeGit(null, { origin: 'https://github.com/org/repo.git' });
+      const forkPrs = Array.from({ length: 12 }, (_, index) =>
+        pr(100 - index, 'main', `fork${index}`),
+      );
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify([...forkPrs, pr(42, 'main', 'org')]),
+      };
+      const reader = new GitHubPrStatusReader({
+        spawner: fakeSpawner,
+        exec: git.exec,
+      });
+
+      const result = await reader.read(root, 'main');
+
+      expect(GH_PR_LIST_LIMIT).toBeGreaterThanOrEqual(50);
+      expect(recordedRequests[0].args).toEqual(listArgs('main'));
+      expect(result.status).toBe('ok');
+      if (result.status === 'ok') expect(result.pr.number).toBe(42);
+    });
   });
 
   describe('in-flight reads (MOD-2)', () => {
+    it('drops a rejected run from the in-flight map so the next read spawns again (MIN-8)', async () => {
+      nextProcessOptions = { exitCode: 1, stderr: 'boom' };
+      // A logger that throws is the one way to make the read itself reject.
+      const throwingLogger = {
+        debug: () => {
+          throw new Error('logger down');
+        },
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+      } as unknown as import('../../logging').Logger;
+      const reader = new GitHubPrStatusReader({
+        spawner: fakeSpawner,
+        logger: throwingLogger,
+      });
+
+      await expect(reader.read(root, 'feat/reject')).rejects.toThrow(
+        'logger down',
+      );
+      await expect(reader.read(root, 'feat/reject')).rejects.toThrow(
+        'logger down',
+      );
+      expect(recordedRequests).toHaveLength(2);
+    });
+
     it('does not cache a read that was running when invalidate was called', async () => {
       nextProcessOptions = {
         exitCode: 0,
