@@ -3,7 +3,7 @@ import type {
   FileViewContentResult,
   FileViewFailureReason,
 } from '@ptah-extension/shared';
-import type { FileViewTabState } from '../types/diff-tab.types';
+import type { FileViewTabState } from '../types/file-view.types';
 import { FileViewReaderService } from './file-view-reader.service';
 
 const mockRpcCall = jest.fn();

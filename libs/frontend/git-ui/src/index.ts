@@ -1,64 +1,18 @@
 /**
- * @ptah-extension/git-ui — the webview's entire git surface behind one public API.
+ * @ptah-extension/git-ui — the Electron git dock's review surface.
  *
- * Owns git status, branches, worktrees, source control, the Monaco diff view
- * and the review shell that replaces it. Never depends on `chat` or `editor`.
+ * Depends on core, shared, ui and markdown — never on chat.
  *
- * `MonacoLoaderService` and `git-read-error-messages` are deliberately NOT
- * exported: they are implementation detail of `DiffViewComponent` and
- * `DiffTabsService` respectively.
+ * This main entry carries the review shell (and, behind it, the review canvas
+ * and spot editor), so every consumer reaches it by dynamic `import()` only.
+ * Push-message services that must be eager live in the services-only entry
+ * (`@ptah-extension/git-ui/services`); the Pierre renderer hosts live in
+ * `@ptah-extension/git-ui/diff-renderer`.
  */
 
 // Services
-export { GitStatusService } from './lib/services/git-status.service';
-export { GitBranchesService } from './lib/services/git-branches.service';
-export {
-  WorktreeService,
-  WORKTREE_CHANGED_MESSAGE_TYPE,
-} from './lib/services/worktree.service';
-export { SourceControlService } from './lib/services/source-control.service';
-export { DiffTabsService } from './lib/services/diff-tabs.service';
-export { EditorLauncherService } from './lib/services/editor-launcher.service';
 export { GitReviewService } from './lib/services/git-review.service';
-export {
-  ReviewNavigationService,
-  type ReviewTab,
-} from './lib/services/review-navigation.service';
+export { ReviewNavigationService } from './lib/services/review-navigation.service';
 
 // Components
 export { ReviewShellComponent } from './lib/review-shell/review-shell.component';
-export { DiffViewComponent } from './lib/diff-view/diff-view.component';
-export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
-export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';
-export { WorktreeSectionComponent } from './lib/worktree/worktree-section.component';
-export { GitDockComponent } from './lib/git-dock/git-dock.component';
-export { GitDockHeaderComponent } from './lib/git-dock/git-dock-header.component';
-export { OpenInButtonComponent } from './lib/open-in/open-in-button.component';
-export type {
-  OpenInButtonMode,
-  OpenInRequest,
-} from './lib/open-in/open-in-button.component';
-
-// Diff tab types + helpers
-export type {
-  DiffComparison,
-  DiffProvenance,
-  DiffSideRef,
-  DiffTabState,
-  DiffTabStatus,
-  EditorTab,
-  FileViewOpenRequest,
-  GitApplyHunksOperation,
-  GitApplyHunksResult,
-  GitDiffFileResult,
-  GitHunkRef,
-  HunkApplyFn,
-  HunkApplyRequest,
-  OpenDiffRequest,
-} from './lib/types/diff-tab.types';
-export {
-  diffComparisonLabel,
-  diffTabKey,
-  diffTabLabel,
-  normalizeDiffPath,
-} from './lib/types/diff-tab.types';

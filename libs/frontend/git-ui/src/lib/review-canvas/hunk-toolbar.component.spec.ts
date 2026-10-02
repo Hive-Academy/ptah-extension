@@ -5,7 +5,7 @@ import {
   ReviewDiffService,
   type ReviewDiffEntry,
 } from '../services/review-diff.service';
-import type { DiffTabState, HunkApplyRequest } from '../types/diff-tab.types';
+import type { DiffTabState, HunkApplyRequest } from '../types/review-diff.types';
 import {
   HunkToolbarComponent,
   type HunkToolbarComparison,

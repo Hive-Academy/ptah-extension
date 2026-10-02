@@ -16,7 +16,7 @@ import {
   type ReviewDiffEntry,
   type ReviewDiffRequest,
 } from '../services/review-diff.service';
-import type { DiffTabState } from '../types/diff-tab.types';
+import type { DiffTabState } from '../types/review-diff.types';
 import type {
   FileDiffSectionComponent as SectionType,
   ReviewCanvasFile,

@@ -8,7 +8,7 @@ import type {
 import type {
   FileViewOpenRequest,
   FileViewTabState,
-} from '../types/diff-tab.types';
+} from '../types/file-view.types';
 
 const KNOWN_FAILURE_REASONS = new Set<FileViewFailureReason>([
   'invalid-request',

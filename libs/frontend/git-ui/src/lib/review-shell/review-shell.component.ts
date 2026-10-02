@@ -19,7 +19,6 @@ import { ReviewCanvasComponent } from '../review-canvas/review-canvas.component'
 import { EditorLauncherService } from '../services/editor-launcher.service';
 import { FileContentChangesService } from '../services/file-content-changes.service';
 import { GitBranchesService } from '../services/git-branches.service';
-import { GitStashService } from '../services/git-stash.service';
 import { GitStatusService } from '../services/git-status.service';
 import {
   ReviewNavigationService,
@@ -60,15 +59,12 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
  * ReviewShellComponent — the Electron dock body (implementation-plan
  * Component 23, design-spec §3): the git header, the conflict-banner slot and
  * the review tabs. `electron-shell.component.ts` loads it by dynamic import
- * when the dock opens (cutover, Batch 58), in place of `GitDockComponent`.
+ * when the dock opens.
  *
  * - **Arming.** The constructor arms `GitStatusService` and
  *   `GitBranchesService` (with a branch read) and detects editor targets;
  *   destroy disarms both. Re-arming after a dock close is idempotent because
  *   `startListening()` fetches eagerly.
- * - **Stash routing.** While mounted it registers with
- *   `GitStashService.registerReviewCanvas()`, so a stash file opens here as a
- *   historical comparison; destroy releases the registration.
  * - **Conflict banner.** Above the tabs, `ConflictBannerComponent` shows
  *   while a merge, rebase or cherry-pick is in progress (design-spec §11).
  * - **States (RC3).** "Loading repository…" only before anything was read; a
@@ -411,7 +407,6 @@ export class ReviewShellComponent {
     void this.gitBranches.refreshBranches();
     void this.launchers.detect();
 
-    const releaseStash = inject(GitStashService).registerReviewCanvas();
     const releaseDiskChanges = inject(FileContentChangesService).listen(
       (change) =>
         this.spotEditor()?.notifyDiskChange(change.filePaths, change.truncated),
@@ -428,7 +423,6 @@ export class ReviewShellComponent {
     destroyRef.onDestroy(() => {
       this.gitStatus.stopListening();
       this.gitBranches.stopListening();
-      releaseStash();
       releaseDiskChanges();
       releaseLeaveGuard();
       this.resizeObserver?.disconnect();

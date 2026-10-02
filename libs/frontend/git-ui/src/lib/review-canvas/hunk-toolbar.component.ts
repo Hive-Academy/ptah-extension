@@ -20,7 +20,7 @@ import type {
   GitHunkRef,
 } from '@ptah-extension/shared';
 import { ReviewDiffService } from '../services/review-diff.service';
-import type { DiffTabState } from '../types/diff-tab.types';
+import type { DiffTabState } from '../types/review-diff.types';
 import type { ReviewScope } from '../services/review-navigation.service';
 import { GitConfirmDialogComponent } from '../shared/git-confirm-dialog.component';
 

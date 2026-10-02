@@ -63,7 +63,6 @@ import {
   SetupWizardStateService,
 } from '@ptah-extension/setup-wizard';
 import {
-  DiffTabsService,
   FileContentChangesService,
   GitBranchesService,
   GitOperationOutputService,
@@ -222,9 +221,7 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: GitBranchesService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: WorktreeService, multi: true },
-    { provide: MESSAGE_HANDLERS, useExisting: DiffTabsService, multi: true },
-    // Beside DiffTabsService, not instead of it, until Task 64.1 deletes the
-    // old dock (TASK_2026_576 V6).
+    // The review canvas's diff cache: revalidates on status and file-content pushes.
     { provide: MESSAGE_HANDLERS, useExisting: ReviewDiffService, multi: true },
     // Review shell pushes (TASK_2026_576): `file:content-changed` for the spot
     // editor and `git:operationOutput` for the commit composer's hook log.

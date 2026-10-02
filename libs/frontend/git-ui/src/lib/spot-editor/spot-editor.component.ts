@@ -35,7 +35,7 @@ import {
   fileViewTabKey,
   type FileViewOpenRequest,
   type FileViewTabState,
-} from '../types/diff-tab.types';
+} from '../types/file-view.types';
 // Type-only: erased at build time, so CodeMirror stays out of this chunk.
 import type { SpotEditorHandle } from './codemirror-setup';
 

@@ -38,7 +38,7 @@ import {
   type ReviewTarget,
 } from '../services/review-navigation.service';
 import type { OpenInRequest } from '../open-in/open-in-button.component';
-import { normalizeDiffPath } from '../types/diff-tab.types';
+import { normalizeDiffPath } from '../types/review-diff.types';
 import {
   ChangedFileTreeComponent,
   type ChangedFileSelection,

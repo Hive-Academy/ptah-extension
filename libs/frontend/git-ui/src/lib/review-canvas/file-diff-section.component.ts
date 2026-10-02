@@ -16,7 +16,7 @@ import {
 import type { EditorTarget, GitConflictKind } from '@ptah-extension/shared';
 import type { FileStatusCode } from '@ptah-extension/ui';
 import { PierreDiffHostComponent } from '../renderer/pierre-diff-host.component';
-import type { DiffTabState, DiffUnrenderable } from '../types/diff-tab.types';
+import type { DiffTabState, DiffUnrenderable } from '../types/review-diff.types';
 import type {
   PierreDiffStyle,
   PierreThemeMode,

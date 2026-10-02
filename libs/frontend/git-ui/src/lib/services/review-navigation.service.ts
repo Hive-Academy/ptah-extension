@@ -8,7 +8,7 @@ import type {
   GitStashFileEntry,
 } from '@ptah-extension/shared';
 import { GitStatusService } from './git-status.service';
-import type { FileViewOpenRequest } from '../types/diff-tab.types';
+import type { FileViewOpenRequest } from '../types/file-view.types';
 
 /** The four tabs of the review shell (design-spec §3). */
 export type ReviewTab = 'changes' | 'commit' | 'task' | 'history';

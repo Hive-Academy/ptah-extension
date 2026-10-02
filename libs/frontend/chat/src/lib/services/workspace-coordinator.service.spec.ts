@@ -1,7 +1,7 @@
 /**
  * WorkspaceCoordinatorService specs — orchestrates workspace switching across
  * TabManager, SessionLoader, ConfirmationDialog and dynamically-resolved git
- * services (`GitStatusService`, `GitBranchesService` from `@ptah-extension/git-ui`).
+ * services (`GitStatusService`, `GitBranchesService` from `@ptah-extension/git-ui/services`).
  *
  * Coverage:
  *   - switchWorkspace delegates to tabManager + sessionLoader
@@ -863,10 +863,10 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
   // guard (the same guard `resolveGitServices` itself respects).
   let service: WorkspaceCoordinatorService;
   let gitStatus: InstanceType<
-    typeof import('@ptah-extension/git-ui').GitStatusService
+    typeof import('@ptah-extension/git-ui/services').GitStatusService
   >;
   let gitBranches: InstanceType<
-    typeof import('@ptah-extension/git-ui').GitBranchesService
+    typeof import('@ptah-extension/git-ui/services').GitBranchesService
   >;
   let gitReview: InstanceType<
     typeof import('@ptah-extension/git-ui').GitReviewService
@@ -938,8 +938,8 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     });
 
     service = TestBed.inject(WorkspaceCoordinatorService);
-    gitStatus = TestBed.inject(gitUi.GitStatusService);
-    gitBranches = TestBed.inject(gitUi.GitBranchesService);
+    gitStatus = TestBed.inject(gitUiServices.GitStatusService);
+    gitBranches = TestBed.inject(gitUiServices.GitBranchesService);
     gitReview = TestBed.inject(gitUi.GitReviewService);
     reviewDiff = TestBed.inject(gitUiServices.ReviewDiffService);
   });

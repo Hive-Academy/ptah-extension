@@ -85,10 +85,10 @@ AST test in `e2e/hunk-apply-real-rpc.spec.ts:266`). e2e lines cited are the `tes
 | # | Capability | Status | Successor | Proving test |
 | --- | --- | --- | --- | --- |
 | 31 | Lazy mount, retry on chunk failure | keep | `chat/components/templates/electron-shell.component.ts` loads `ReviewShellComponent` | `chat/components/templates/electron-shell.review-dock.spec.ts:157` loads nothing until the dock opens, then mounts ReviewShell; `:167` shows Retry when the chunk fails; `review-shell/review-shell.mount.spec.ts:218`; e2e `git-dock.spec.ts:194` |
-| 32 | Arms status/branch listening on mount, disarms on unmount | keep | `review-shell/review-shell.component.ts` | `review-shell/review-shell.component.spec.ts:278` arms status and branches...; `:287` disarms; `:297` re-arms idempotently; `webview/git-dock-arming-identity.spec.ts:128,147,163,198` |
-| 33 | Editor targets detected on mount | keep | `review-shell.component.ts` + `EditorLauncherService` | `review-shell.component.spec.ts:278` (`launchers.detect` once); `services/editor-launcher.service.spec.ts:20` |
-| 34 | "Loading repository..." | keep | review shell | `review-shell.component.spec.ts:319` |
-| 35 | "Not a Git repository" state; RC3: a transient failure must not show it | keep | review shell | `review-shell.component.spec.ts:333` never calls a failed first read "not a Git repository"; `:351` says it only for a readable result without a repo; `services/git-status.service.spec.ts:506,553,565` |
+| 32 | Arms status/branch listening on mount, disarms on unmount | keep | `review-shell/review-shell.component.ts` | `review-shell/review-shell.component.spec.ts:274` arms status and branches...; `:283` disarms; `:293` re-arms idempotently; `webview/git-dock-arming-identity.spec.ts:128,147,163,198` |
+| 33 | Editor targets detected on mount | keep | `review-shell.component.ts` + `EditorLauncherService` | `review-shell.component.spec.ts:274` (`launchers.detect` once); `services/editor-launcher.service.spec.ts:20` |
+| 34 | "Loading repository..." | keep | review shell | `review-shell.component.spec.ts:303` |
+| 35 | "Not a Git repository" state; RC3: a transient failure must not show it | keep | review shell | `review-shell.component.spec.ts:317` never calls a failed first read "not a Git repository"; `:335` says it only for a readable result without a repo; `services/git-status.service.spec.ts:506,553,565` |
 | 36 | Collapsed-rail empty state | move | `review-canvas/comparison-bar.component.ts` "Show changed files" while the tree is collapsed (successor of the old in-pane L-13 button), plus the header toggle; the tree itself renders nothing while collapsed | `review-canvas/comparison-bar.component.spec.ts:103`; `review-canvas/changed-file-tree.component.spec.ts:849`; `review-shell/review-shell.mount.spec.ts:301`; e2e `git-rail-collapse.spec.ts:79` |
 | 37 | Rail collapse/expand toggle, persisted | move | `git-dock/git-dock-header.component.ts` (re-hosted in the shell) | `git-dock/git-dock-header.component.spec.ts:106`; `review-shell.mount.spec.ts:301`; e2e `git-rail-collapse.spec.ts:79` |
 | 38 | Rail resize (drag, keys, Escape, persist) | move | `git-dock/rail-resize-handle.component.ts` (re-hosted by the tree) | `git-dock/rail-resize-handle.component.spec.ts:31,40,111,143`; `changed-file-tree.component.spec.ts:824`; e2e `git-rail-collapse.spec.ts:79` |
@@ -122,7 +122,7 @@ AST test in `e2e/hunk-apply-real-rpc.spec.ts:266`). e2e lines cited are the `tes
 | 70 | Stage all (RC1 result shown) | move | tree section header action | `changed-file-tree.component.spec.ts:494`; `:523` (it.each under describe.each Stage all / Unstage all: section alert for refusal, LOCKED and transport failure, re-read, dismiss) |
 | 71 | Unstage all (RC1) | move | tree section header action | `changed-file-tree.component.spec.ts:494`; `:523` |
 | 72 | Empty states | move | tree: an empty section reads "Staged (0)" / "Changes (0)" with no bulk action (successor of the per-section empty item); whole-tree and canvas messages | `changed-file-tree.component.spec.ts:280,582,813`; `review-canvas.component.spec.ts:501` |
-| 73 | "Git status unavailable" notice (RC3: reasons, last good list) | keep | shell and canvas notice, change-set card | `review-canvas.component.spec.ts:509`; `review-shell.component.spec.ts:364`; `services/git-status.service.spec.ts:506,528,680,693` |
+| 73 | "Git status unavailable" notice (RC3: reasons, last good list) | keep | shell and canvas notice, change-set card | `review-canvas.component.spec.ts:509`; `review-shell.component.spec.ts:348`; `services/git-status.service.spec.ts:506,528,680,693` |
 | 74 | Grouped folders | move | tree + `source-control/changed-file-tree.ts` (kept) | `changed-file-tree.component.spec.ts:194`; `source-control/changed-file-tree.spec.ts:4,54` |
 | 75 | Row click opens that comparison's diff, `origPath` on renames | move | tree `fileSelected` to canvas | `changed-file-tree.component.spec.ts:218,778`; `review-canvas.component.spec.ts:612` |
 | 76 | Per-row Stage/Unstage (RC1) | move | tree row | `changed-file-tree.component.spec.ts:315,330,341,387,405` (stale e2e `row-stage-failure.spec.ts`, see findings) |
@@ -149,12 +149,12 @@ AST test in `e2e/hunk-apply-real-rpc.spec.ts:266`). e2e lines cited are the `tes
 
 | # | Capability | Status | Successor | Proving test |
 | --- | --- | --- | --- | --- |
-| 105 | List on open | keep | `stash/stash-popover.component.ts` (header), `history/history-stash-section.component.ts` | `stash/stash-popover.component.spec.ts:60`; `services/git-stash.service.spec.ts:82`; `history-timeline.component.spec.ts:480` |
-| 106 | Select entry, list files | keep | same | `stash-popover.component.spec.ts:118`; `git-stash.service.spec.ts:130`; `history-timeline.component.spec.ts:607` |
-| 107 | Apply (RC2 timeout) | keep | same | `stash-popover.component.spec.ts:132`; `history-timeline.component.spec.ts:506`; `vscode-core/git-info.service.remote-stash.real-git.spec.ts` (suite passed); `services/git-stash.service.spec.ts:159` (it.each apply/pop/drop; 615_000 hook timeout asserted at :181) |
+| 105 | List on open | keep | `stash/stash-popover.component.ts` (header), `history/history-stash-section.component.ts` | `stash/stash-popover.component.spec.ts:60`; `services/git-stash.service.spec.ts:78`; `history-timeline.component.spec.ts:480` |
+| 106 | Select entry, list files | keep | same | `stash-popover.component.spec.ts:118`; `git-stash.service.spec.ts:126`; `history-timeline.component.spec.ts:607` |
+| 107 | Apply (RC2 timeout) | keep | same | `stash-popover.component.spec.ts:132`; `history-timeline.component.spec.ts:506`; `vscode-core/git-info.service.remote-stash.real-git.spec.ts` (suite passed); `services/git-stash.service.spec.ts:155` (it.each apply/pop/drop; 615_000 hook timeout asserted at :177) |
 | 108 | Pop (RC2) | keep | same | same as 107 |
 | 109 | Drop with confirmation | keep | same | `stash-popover.component.spec.ts:143`; `history-timeline.component.spec.ts:514,531` |
-| 110 | Stash file opens parent-vs-stash historical diff | move | `ReviewNavigationService.openStashFile` (canvas) | `services/review-navigation.service.spec.ts:169,201,233`; `git-stash.service.spec.ts:317` |
+| 110 | Stash file opens parent-vs-stash historical diff | move | `ReviewNavigationService.openStashFile` (canvas) | `services/review-navigation.service.spec.ts:169,201,233`; `git-stash.service.spec.ts:245` |
 | 111 | Error banner, loading, empty, busy-disabled | keep | same | `stash-popover.component.spec.ts:68,75,85,101,164`; `history-timeline.component.spec.ts:598,625` |
 | 112 | Close on outside click/Escape, focus returns | keep | same | `stash-popover.component.spec.ts:216`; `git-dock-header.component.spec.ts:333` |
 | 113 | Pending drop resets | keep | same | `stash-popover.component.spec.ts:174,187,205` |
@@ -208,7 +208,7 @@ AST test in `e2e/hunk-apply-real-rpc.spec.ts:266`). e2e lines cited are the `tes
 | 161 | Loading and error with Retry | keep | spot editor | `spot-editor.component.spec.ts:983,1062` |
 | 162 | Blocked state with reason, Open-in | keep | spot editor | `spot-editor.component.spec.ts:1008,1025` |
 | 163 | "Open outside the workspace?" confirmation | keep | spot editor | `spot-editor.component.spec.ts:1025`; e2e `agent-file-links.spec.ts:297` |
-| 164 | Refresh on disk change (plus conflict choice) | keep | spot editor, `services/file-content-changes.service.ts` | `spot-editor.component.spec.ts:803,812,474`; `review-shell.component.spec.ts:850`; `file-content-changes.service.spec.ts:26` |
+| 164 | Refresh on disk change (plus conflict choice) | keep | spot editor, `services/file-content-changes.service.ts` | `spot-editor.component.spec.ts:803,812,474`; `review-shell.component.spec.ts:834`; `file-content-changes.service.spec.ts:26` |
 
 ## 9. Branch review
 
@@ -220,7 +220,7 @@ AST test in `e2e/hunk-apply-real-rpc.spec.ts:266`). e2e lines cited are the `tes
 | 178 | Loading, error, empty states | move | canvas | `review-canvas.component.spec.ts:447,501,509`; `changed-file-tree.component.spec.ts:813` |
 | 179 | Filter files (list and tree) | move | comparison bar filter, canvas, tree | `comparison-bar.component.spec.ts:176`; `review-canvas.component.spec.ts:482`; `changed-file-tree.component.spec.ts:798` |
 | 180 | Tree with folders, click scrolls to diff | move | tree, canvas | `changed-file-tree.component.spec.ts:194,758`; `review-canvas.component.spec.ts:612` |
-| 181 | Responsive: stacks below 520 px | keep | shell and tree | `review-shell.component.spec.ts:879`; `changed-file-tree.component.spec.ts:839` |
+| 181 | Responsive: stacks below 520 px | keep | shell and tree | `review-shell.component.spec.ts:863`; `changed-file-tree.component.spec.ts:839` |
 | 182 | Inline diff with sticky header | move | `file-diff-section` (the sticky header is the section's direct child) | `file-diff-section.component.spec.ts:270`, `:227`; `review-canvas.component.spec.ts:425` (read-only branch review) |
 | 183 | Status badge, rename display | move | section header, tree | `file-diff-section.component.spec.ts:283,342,357,492,507`; `changed-file-tree.component.spec.ts:194,778` |
 | 184 | Binary badge and message | move | section label | `file-diff-section.component.spec.ts:492,507` |

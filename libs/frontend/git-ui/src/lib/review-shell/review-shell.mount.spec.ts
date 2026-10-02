@@ -26,7 +26,7 @@ import type { OpenInRequest } from '../open-in/open-in-button.component';
 import type { PierreHunkToolbarContext } from '../renderer/pierre-diff-host.component';
 import type { GitReviewService as ReviewType } from '../services/git-review.service';
 import type { GitStatusService as StatusType } from '../services/git-status.service';
-import type { FileViewOpenRequest } from '../types/diff-tab.types';
+import type { FileViewOpenRequest } from '../types/file-view.types';
 import type { ReviewShellComponent as ShellType } from './review-shell.component';
 
 @Component({

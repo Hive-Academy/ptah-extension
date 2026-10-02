@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 63/69 (P5 closed)
+Total tasks: 87 | Batches: 69 | Complete: 64/69 (P5 closed)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2517,14 +2517,14 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
   `app.config.ts:66, 225-226` still provide `DiffTabsService`; if `GitReviewService` leaves the main barrel, add it to
   `services.ts` and switch the coordinator import. Verified: chat 1737 tests, typecheck/lint, eager guard.
 
-## Batch 64: Old-surface deletion and barrel rewrite — PENDING
+## Batch 64: Old-surface deletion and barrel rewrite — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 63
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui ptah-extension-webview @ptah-extension/chat`
 
-### Task 64.1: Delete old git-ui files; rewrite barrel; drop `DiffTabsService` routing (V6) — PENDING
+### Task 64.1: Delete old git-ui files; rewrite barrel; drop `DiffTabsService` routing (V6) — COMPLETE
 
 - Files: DELETE the files listed at implementation-plan.md:1183-1187 under D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/ (exception (b)); REWRITE D:/projects/ptah-extension/libs/frontend/git-ui/src/index.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/services.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts
 - Plan reference: implementation-plan.md:1178-1199
@@ -2532,6 +2532,17 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: barrel ≤150 lines; doc comment "depends on core, shared, ui and markdown — never on chat"; keep `rail-resize-handle.*`, `git-dock-header.*`, `changed-file-tree.ts`.
 - Validation notes: only the 4 approved removals lack successors.
 - Implementation details: move still-used types out of `types/diff-tab.types.ts` first.
+- Outcome: executor frontend-developer. Deleted 25 git-ui files (old dock, source-control panel and rows, diff-view,
+  file-view, git-review panel/rows/toolbar, worktree section, `DiffTabsService`, Monaco loader/theme, `diff-tab.types`)
+  per implementation-plan.md:1193-1198, and the unused e2e `support/source-control.ts`. Types moved to
+  `types/review-diff.types.ts` and `types/file-view.types.ts`. Barrel 18 lines (`GitReviewService`,
+  `ReviewNavigationService`, `ReviewShellComponent`) with the "never on chat" doc comment; `DiffTabsService` dropped
+  from `services.ts` and `app.config.ts`. Approved removals 2 and 3 (`getOriginalContent`, `refreshTags`) deleted;
+  the stash dock fallback removed (row 110 moved to the canvas). No parity citation pointed into a deleted file;
+  moved citations remapped (438 resolve). Verified: git-ui 918, webview 313, chat 1737, chat-ui 433,
+  skill-synthesis-ui 428 tests; typecheck/lint green; eager guard `main.js` 357.8 KB gz (was ~369.5 KB);
+  `git-dock.spec.ts` 6/6 after rebuild. Left for 65/66: `provideMonacoEditor`, Monaco packages, stale Monaco
+  comments, the `ptah-diff-view` guard marker.
 
 ## Batch 65: Monaco dependency and provider removal — PENDING
 

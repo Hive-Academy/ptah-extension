@@ -46,7 +46,7 @@ import type {
   FileSaveContentResult,
   FileViewContentResult,
 } from '@ptah-extension/shared';
-import type { FileViewOpenRequest } from '../types/diff-tab.types';
+import type { FileViewOpenRequest } from '../types/file-view.types';
 import { detectLineSeparator } from './codemirror-setup';
 import { SpotEditorComponent } from './spot-editor.component';
 

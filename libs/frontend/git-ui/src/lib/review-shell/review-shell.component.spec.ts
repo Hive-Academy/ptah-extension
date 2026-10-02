@@ -3,7 +3,7 @@
  * Batch 43). Ports the `git-dock.component.spec.ts` cases that still apply to
  * the shell (arming, RC3 status states, re-read keeps the body mounted, Open
  * In through the launcher) and covers what is new: the tablist, the spot
- * editor mode, stash-canvas registration, disk-change forwarding and the one
+ * editor mode, disk-change forwarding and the one
  * width observer.
  *
  * The header, the canvas and the spot editor are replaced at the module
@@ -32,7 +32,7 @@ import { GitBranchesService } from '../services/git-branches.service';
 import { GitStashService } from '../services/git-stash.service';
 import { GitStatusService } from '../services/git-status.service';
 import { ReviewNavigationService } from '../services/review-navigation.service';
-import type { FileViewOpenRequest } from '../types/diff-tab.types';
+import type { FileViewOpenRequest } from '../types/file-view.types';
 import type { ReviewShellComponent as ShellType } from './review-shell.component';
 
 /** Loaded after the module mocks below are registered. */
@@ -190,8 +190,6 @@ describe('ReviewShellComponent', () => {
     detect: jest.Mock;
     openLinkedFile: jest.Mock;
   };
-  let releaseStash: jest.Mock;
-  let stash: { registerReviewCanvas: jest.Mock };
   let navigation: ReviewNavigationService;
 
   beforeEach(() => {
@@ -210,8 +208,6 @@ describe('ReviewShellComponent', () => {
       detect: jest.fn(async () => undefined),
       openLinkedFile: jest.fn(async () => true),
     };
-    releaseStash = jest.fn();
-    stash = { registerReviewCanvas: jest.fn(() => releaseStash) };
 
     TestBed.configureTestingModule({
       imports: [ReviewShellComponent],
@@ -220,7 +216,7 @@ describe('ReviewShellComponent', () => {
         { provide: GitStatusService, useValue: gitStatus },
         { provide: GitBranchesService, useValue: gitBranches },
         { provide: EditorLauncherService, useValue: launchers },
-        { provide: GitStashService, useValue: stash },
+        { provide: GitStashService, useValue: {} },
       ],
     });
     navigation = TestBed.inject(ReviewNavigationService);
@@ -300,18 +296,6 @@ describe('ReviewShellComponent', () => {
 
     expect(gitStatus.startListening).toHaveBeenCalledTimes(2);
     expect(gitBranches.startListening).toHaveBeenCalledTimes(2);
-  });
-
-  // -- Stash routing (Batch 37) ---------------------------------------------
-
-  it('registers as the stash review canvas while mounted and releases on destroy', () => {
-    const fixture = TestBed.createComponent(ReviewShellComponent);
-    expect(stash.registerReviewCanvas).toHaveBeenCalledTimes(1);
-    expect(releaseStash).not.toHaveBeenCalled();
-
-    fixture.destroy();
-
-    expect(releaseStash).toHaveBeenCalledTimes(1);
   });
 
   // -- RC3 states (ported) ---------------------------------------------------
