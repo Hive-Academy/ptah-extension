@@ -3,7 +3,7 @@
  * Component 14, §6): both tabs, both hosts, both themes, at 1024x768, so
  * drift is visible at every commit (execution default 9). Batch 28 added the
  * Providers fold gate (`assertProvidersFold`) and the popover stacking check
- * (`assertPopoverOnTop`); the Orchestration fold follows in Batch 36.
+ * (`assertPopoverOnTop`); Batch 36 added the Orchestration fold gate (`assertOrchestrationFold`).
  *
  * Pattern followed: `../marketplace/marketplace-visual.e2e.spec.ts`
  * (`waitForSettled`, `useAppBuild: true`, captures written under
@@ -168,7 +168,7 @@ async function assertPopoverOnTop(page: Page, popover: string, rows: string): Pr
 /**
  * Batch 30: the CLI matrix (table-xs) and its Codex model, effort and permission popovers, each captured open and
  * fully on screen, then closed with Esc (the model search closes its list first). Row heights are logged; the
- * Orchestration fold assertions follow in Batch 36.
+ * Orchestration fold is asserted in `assertOrchestrationFold` (Batch 36).
  */
 async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', theme: string): Promise<void> {
   const matrix = page.locator('[data-testid="cli-matrix"]');
@@ -274,18 +274,85 @@ async function captureMatrixPopovers(page: Page, host: 'vscode' | 'electron', th
   }
 }
 
+type OrchestrationFoldRegion = 'policyBar' | 'matrixHeader' | 'firstRow' | 'rolesSummary';
+
 /**
- * Batch 33: logs the Orchestration fold (policy bar, matrix header, first matrix row, roles summary; budget 660 px,
- * asserted from Batch 36), then captures the background roles `<details>` opened by its summary, and closes it again.
+ * THE per-host Orchestration fold budget (plan §6 :1049-1052, design-spec §1.2), measured on the 5+2 reference set
+ * (5 installed CLIs / instances, 2 uninstalled). Ratchet (execution default 3), the track B
+ * `SEARCH_VOICE_FOLD_ENFORCED` pattern:
+ * - VS Code: every region is enforced (roles summary at 643 px since Batch 33).
+ * - Electron: the policy bar, matrix header and first row are enforced. The roles summary sits at 779 px (119 px
+ *   over, Batch 33 / Gate V 36 item 4), which is a USER decision (collapse the Uninstalled group, accept the Gate V 28
+ *   precedent, or a denser narrow layout). Until it is taken the summary is measured, logged and annotated
+ *   `fold-pending`, not asserted. Set `ORCHESTRATION_ELECTRON_ROLES_FOLD_ENFORCED` to true once it is.
+ */
+const ORCHESTRATION_ELECTRON_ROLES_FOLD_ENFORCED = false;
+const ORCHESTRATION_FOLD = 660;
+const ORCHESTRATION_FOLD_REGIONS: Readonly<Record<'vscode' | 'electron', readonly OrchestrationFoldRegion[]>> = {
+  vscode: ['policyBar', 'matrixHeader', 'firstRow', 'rolesSummary'],
+  electron: ORCHESTRATION_ELECTRON_ROLES_FOLD_ENFORCED
+    ? ['policyBar', 'matrixHeader', 'firstRow', 'rolesSummary']
+    : ['policyBar', 'matrixHeader', 'firstRow'],
+};
+
+/**
+ * Batch 36 fold gate for Orchestration, per host (`ORCHESTRATION_FOLD_REGIONS`): nothing scrolled, the reference set
+ * (5 installed rows, 2 uninstalled), both tables `table-xs`, the roles `<details>` closed, and the region bottoms at or
+ * above 660 px. Every number (bottoms, matrix row heights) is logged for the report, enforced or not.
+ */
+async function assertOrchestrationFold(page: Page, host: 'vscode' | 'electron', theme: string): Promise<void> {
+  const matrix = page.locator('[data-testid="cli-matrix"]');
+  await expect(matrix).toBeVisible();
+  const details = page.locator('[data-testid="background-roles-details"]');
+  const scroll = await page.evaluate(() => ({
+    window: window.scrollY,
+    page: Math.max(0, ...Array.from(document.querySelectorAll('ptah-orchestration-settings, ptah-orchestration-settings *'))
+      .map((node) => node.scrollTop)),
+  }));
+  const bottoms: Record<OrchestrationFoldRegion, number> = {
+    policyBar: await bottomOf(page, '[data-testid="orchestration-policy-bar"]'),
+    matrixHeader: await bottomOf(page, '[data-testid="cli-matrix"] thead'),
+    firstRow: await bottomOf(page, '[data-testid="cli-matrix"] tbody tr[data-testid^="cli-matrix-row-"]'),
+    rolesSummary: await bottomOf(page, '[data-testid="background-roles-summary"]'),
+  };
+  const rowHeights = await matrix.locator('tr[data-testid^="cli-matrix-row-"]').evaluateAll((rows) => rows.map((row) =>
+    `${row.getAttribute('data-testid')?.replace('cli-matrix-row-', '')}:${Math.round(row.getBoundingClientRect().height)}`));
+  const uninstalledHeader = await matrix.locator('[data-testid="cli-matrix-uninstalled"] tr').first()
+    .evaluate((row) => Math.round(row.getBoundingClientRect().height));
+  const installed = await matrix.locator('tbody:not([data-testid="cli-matrix-uninstalled"]) tr[data-testid^="cli-matrix-row-"]').count();
+  const uninstalled = await matrix.locator('[data-testid="cli-matrix-uninstalled"] tr[data-testid^="cli-matrix-row-"]').count();
+  const over = (Object.keys(bottoms) as OrchestrationFoldRegion[])
+    .filter((region) => bottoms[region] > ORCHESTRATION_FOLD).map((region) => `${region} ${bottoms[region]}px > ${ORCHESTRATION_FOLD}px`);
+  console.log(`B36 fold orchestration ${host}/${theme}: scroll ${scroll.window}/${scroll.page}; bottoms policy bar ${bottoms.policyBar}, `
+    + `matrix header ${bottoms.matrixHeader}, first row ${bottoms.firstRow}, roles summary ${bottoms.rolesSummary} (budget ${ORCHESTRATION_FOLD}); `
+    + `reference set ${installed}+${uninstalled}; uninstalled header ${uninstalledHeader}; row heights ${rowHeights.join(', ')}; `
+    + `over: ${over.length ? over.join('; ') : 'none'}`);
+  expect(scroll).toEqual({ window: 0, page: 0 });
+  expect({ installed, uninstalled }, 'the 5+2 reference set').toEqual({ installed: 5, uninstalled: 2 });
+  await expect(matrix).toHaveClass(/\btable-xs\b/);
+  await expect(page.locator('[data-testid="consumer-table"]')).toHaveClass(/\btable-xs\b/);
+  await expect(details).not.toHaveAttribute('open');
+  for (const region of ORCHESTRATION_FOLD_REGIONS[host]) {
+    expect(bottoms[region], `${region} bottom`).toBeLessThanOrEqual(ORCHESTRATION_FOLD);
+  }
+  const pending = over.filter((entry) => !ORCHESTRATION_FOLD_REGIONS[host].some((region) => entry.startsWith(`${region} `)));
+  if (pending.length) {
+    test.info().annotations.push({
+      type: 'fold-pending',
+      description: `${host}/${theme}: ${pending.join('; ')} — pending user decision (Gate V 36 item 4)`,
+    });
+  }
+}
+
+/**
+ * Batch 33: captures the background roles `<details>` opened by its summary, and closes it again. Batch 36 moved the
+ * fold measurement to `assertOrchestrationFold`.
  */
 async function captureRolesOpen(page: Page, host: 'vscode' | 'electron', theme: string): Promise<void> {
   await expect(page.locator('[data-testid="cli-matrix"]')).toBeVisible();
   const details = page.locator('[data-testid="background-roles-details"]');
   const summary = page.locator('[data-testid="background-roles-summary"]');
   await expect(details).not.toHaveAttribute('open');
-  console.log(`B33 fold ${host}/${theme}: bottoms policy bar ${await bottomOf(page, '[data-testid="orchestration-policy-bar"]')}, `
-    + `matrix header ${await bottomOf(page, '[data-testid="cli-matrix"] thead')}, first row ${await bottomOf(page, '[data-testid="cli-matrix"] tbody tr')}, `
-    + `roles summary ${await bottomOf(page, '[data-testid="background-roles-summary"]')} (budget 660)`);
   // Batch 34 revise 1: the disclosure chevron points right (›) closed and down (⌄) open: one 90° clockwise turn, on its
   // wrapper only. lucide-angular copies its host class onto the <svg>, so a rotate on the icon applied twice (180°, ‹).
   const chevron = summary.locator('[data-testid="background-roles-chevron"]');
@@ -378,7 +445,9 @@ for (const host of ['vscode', 'electron'] as const) {
         await waitForSettled(page);
         await page.screenshot({ path: capturePath(tab.name, host, theme) });
       }
-      // Batch 33: the fold numbers and the roles <details> open. The tab is still open.
+      // Batch 36: the Orchestration fold gate (the tab is still open), then (Batch 33) the roles <details> open.
+      await test.step('orchestration fold', () => assertOrchestrationFold(page, host, theme))
+        .catch((error: unknown) => { foldFailure = error; });
       await captureRolesOpen(page, host, theme);
       await captureOrderPopover(page, host, theme);
       // Batch 30: the CLI matrix's cell popovers (prototype interactions/orchestration-2/-3).
@@ -386,7 +455,7 @@ for (const host of ['vscode', 'electron'] as const) {
       await gotoSettingsTab(page, 'Providers');
       await waitForSettled(page);
       // Batch 28: the fold gate, in both hosts (Q-extra-1: container-width columns, 80 px cards everywhere).
-      await test.step('fold', () => assertProvidersFold(page, host, theme)).catch((error: unknown) => { foldFailure = error; });
+      await test.step('fold', () => assertProvidersFold(page, host, theme)).catch((error: unknown) => { foldFailure ??= error; });
       // Batch 25: the routing map's three work nodes (deferred chunk; wait for it, not its placeholder).
       const nodes = page.locator('[data-testid^="routing-node-"][data-testid$="agent"], [data-testid="routing-node-background-roles"], [data-testid="routing-node-cli-agents"]');
       await expect(page.locator('[data-testid="routing-map"]')).toBeVisible();

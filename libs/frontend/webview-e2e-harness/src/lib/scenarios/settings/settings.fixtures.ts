@@ -652,20 +652,21 @@ export function getFixtureState(page: Page): FixtureState {
  * Boots to chat and enters Settings via SWITCH_VIEW, then waits for the
  * `settings-back` button — settings.component.html has no wrapping shell
  * testid, so the always-present back button is the mount signal, mirroring
- * `marketplace-visual.e2e.spec.ts`'s `boot()`.
+ * `marketplace-visual.e2e.spec.ts`'s `boot()`. `overrides` (Batch 36) replaces single RPC answers for this boot.
  */
 export async function bootSettings(
   page: Page,
   fixtureUrl: string,
   host: 'electron' | 'vscode',
   theme: 'anubis' | 'anubis-light' = 'anubis',
+  overrides: Record<string, unknown> = {},
 ): Promise<FixtureState> {
   const state = createFixtureState();
   stateByPage.set(page, state);
   await installCspStub(page);
   const bridge = await installPostMessageBridge(page);
   await installHost(page, host, 'chat');
-  await installRpcAutoResponder(page, statefulSettingsFixtures(state));
+  await installRpcAutoResponder(page, { ...statefulSettingsFixtures(state), ...overrides });
   await page.addInitScript((t: string) => {
     localStorage.setItem('ptah-theme', t);
   }, theme);

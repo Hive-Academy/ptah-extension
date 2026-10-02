@@ -15,6 +15,11 @@
  * exist yet). A later batch that builds the capability flips its entry to
  * `'restored'` in the SAME commit that mounts it (plan rule 4), and gives it
  * a real `reach`.
+ *
+ * Batch 36 (Gate V 36): no entry here or in the spread-in entry files is
+ * `pending` any more. The last Orchestration ones flipped with the CLI matrix
+ * (Batches 30-32) and the retired instance manager's entries were re-pointed
+ * in Batch 34. Every entry is asserted in both hosts.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 import {
@@ -610,7 +615,7 @@ const other: readonly ReachabilityEntry[] = [
 // ---------------------------------------------------------------------------
 // The 17 restored items (parity-inventory.md "Missing capabilities", minus
 // #21). Each started `pending` and flipped to `restored` in the batch that
-// built it (plan D14 rule 3); since Batch 32 none is pending.
+// built it (plan D14 rule 3); since Batch 32 none is pending (confirmed at Batch 36).
 // ---------------------------------------------------------------------------
 
 const restoredPending: readonly ReachabilityEntry[] = [
