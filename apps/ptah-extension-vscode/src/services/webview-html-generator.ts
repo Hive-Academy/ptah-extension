@@ -277,14 +277,21 @@ export class WebviewHtmlGenerator {
   }
 
   /**
-   * IMPROVED CSP based on research findings - secure policy without unsafe-inline
-   * FIXED: Proper CSP for Angular with inlineCritical: false configuration
+   * Webview CSP. Scripts stay nonce-only (no 'unsafe-inline', no 'unsafe-eval').
+   *
+   * `style-src` allows inline styles, matching the Electron renderer
+   * (apps/ptah-electron/scripts/copy-renderer.js): `@pierre/diffs` injects
+   * un-nonced `<style>` elements and `style="..."` token attributes, which a
+   * nonce cannot cover (TASK_2026_576 gate-p4-pierre-csp, option (c)). The
+   * nonce is deliberately absent from `style-src`: under CSP Level 3 a nonce
+   * makes Chromium ignore 'unsafe-inline'. The `nonce` attributes left on
+   * `<style>`/`<link>` tags are inert under this policy.
    */
   private getImprovedCSP(webview: vscode.Webview, nonce: string): string {
     return `default-src 'none';
             img-src ${webview.cspSource} https: data: blob:;
             script-src 'nonce-${nonce}';
-            style-src ${webview.cspSource} 'nonce-${nonce}' https://fonts.googleapis.com;
+            style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com;
             font-src ${webview.cspSource} https://fonts.gstatic.com https://fonts.googleapis.com data:;
             connect-src 'self' ${webview.cspSource};
             frame-src 'none';

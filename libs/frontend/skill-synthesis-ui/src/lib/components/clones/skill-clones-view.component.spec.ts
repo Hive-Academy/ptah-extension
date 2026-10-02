@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
+import { ThemeService, VSCodeService } from '@ptah-extension/core';
 import type {
   AgentScorecard,
   CloneSummary,
@@ -20,6 +20,12 @@ function vscodeServiceStub(isElectron: boolean): Partial<VSCodeService> {
     config: signal({ isElectron }),
   } as unknown as Partial<VSCodeService>;
 }
+
+/** The diff surface (ptah-lazy-diff-view) follows the app theme. */
+const themeServiceProvider = {
+  provide: ThemeService,
+  useValue: { isDarkMode: signal(true) },
+};
 
 function clone(overrides: Partial<CloneSummary> = {}): CloneSummary {
   return {
@@ -173,6 +179,7 @@ function setup(opts: {
     providers: [
       { provide: SkillClonesStateService, useValue: state },
       { provide: SkillSynthesisRpcService, useValue: rpc },
+      themeServiceProvider,
       {
         provide: VSCodeService,
         useValue: vscodeServiceStub(opts.isElectron ?? true),
@@ -1026,6 +1033,7 @@ describe('SkillClonesViewComponent — body save', () => {
         imports: [SkillClonesViewComponent],
         providers: [
           { provide: SkillSynthesisRpcService, useValue: rpc },
+          themeServiceProvider,
           { provide: VSCodeService, useValue: vscodeServiceStub(true) },
         ],
       });

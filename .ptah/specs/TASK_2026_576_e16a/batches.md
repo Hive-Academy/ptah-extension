@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 37/69
+Total tasks: 87 | Batches: 69 | Complete: 38/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1789,7 +1789,7 @@ executors at once.
 - Validation notes: V3 — Commit, Task and History tabs are added by Batches 48, 50, 56; the shell is not mounted until Batch 58, so no tab ships empty to users.
 - Implementation details: header re-hosts `GitDockHeaderComponent`; banner slot above tabs.
 
-## Batch 44: Skills drawer on `TextDiffViewComponent` — PENDING
+## Batch 44: Skills drawer on `TextDiffViewComponent` — COMPLETE
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
@@ -1797,7 +1797,7 @@ executors at once.
 - Concurrency-eligible with: Batches 33-43
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/skill-synthesis-ui`
 
-### Task 44.1: `LazyDiffViewComponent` imports `@ptah-extension/git-ui/diff-renderer` dynamically — PENDING
+### Task 44.1: `LazyDiffViewComponent` imports `@ptah-extension/git-ui/diff-renderer` dynamically — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/skill-synthesis-ui/src/lib/components/clones/lazy-diff-view.component.ts; CREATE D:/projects/ptah-extension/libs/frontend/skill-synthesis-ui/src/lib/components/clones/lazy-diff-view.component.spec.ts
 - Plan reference: implementation-plan.md:1153, 1164
@@ -1811,6 +1811,17 @@ executors at once.
   nonces cannot cover style attributes. DECISION option (c): VS Code `style-src ${cspSource} 'unsafe-inline'
   https://fonts.googleapis.com` with the nonce REMOVED from style-src (a nonce makes browsers ignore
   'unsafe-inline'); script-src keeps its nonce, no unsafe-inline/eval. Matches the Electron renderer CSP.
+- Outcome: executor frontend-developer (antigravity lane stalled on background shell searches; fallback used).
+  `LazyDiffViewComponent` creates `TextDiffViewComponent` (unified) via runtime
+  `import('@ptah-extension/git-ui/diff-renderer')` only; inputs label/original/modified unchanged; `themeType`
+  follows `ThemeService.isDarkMode()`; loading `role="status"`, error `role="alert"` + Retry. Spec 5 tests (source
+  has no static git-ui import, loading, inputs reach the renderer, live updates, import rejection + retry). jest
+  mock now maps `git-ui/diff-renderer` (old barrel mock deleted). Pre-existing bug fixed: the effect tracked
+  `state()` so a failed import retried in a loop (now `untracked`, regression test counts 1 attempt). Gate applied:
+  VS Code `style-src ${cspSource} 'unsafe-inline' https://fonts.googleapis.com` (nonce removed from style-src
+  only; script-src nonce-only), 2 CSP spec tests. Verified: skill-synthesis-ui 427 tests, vscode 147 tests,
+  typecheck/lint green, no module-boundary error; eager guard passes. Not done: manual check of zero CSP console
+  violations in a live VS Code webview. Noted: stale "Monaco" JSDoc in three skill-synthesis drawers.
 
 ### P4 phase-end review
 
