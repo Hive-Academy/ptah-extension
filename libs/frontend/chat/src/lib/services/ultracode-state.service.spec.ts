@@ -73,6 +73,36 @@ describe('UltracodeStateService', () => {
     expect(setEffort).toHaveBeenLastCalledWith('medium');
   });
 
+  describe('failed effort writes (setEffort swallows failure and rolls back)', () => {
+    /** Simulates EffortStateService on a failed `config:effort-set`: the signal keeps its value. */
+    const failingWrite = () => Promise.resolve();
+
+    it('enable() stays off and resolves false when the xhigh pin does not land', async () => {
+      setEffort.mockImplementationOnce(failingWrite);
+      await expect(service.enable()).resolves.toBe(false);
+      expect(service.enabled()).toBe(false);
+      expect(current).toBe('medium');
+    });
+
+    it('disable() stays on and resolves false when the restore does not land', async () => {
+      await service.enable(); // captured 'medium', now xhigh
+      setEffort.mockImplementationOnce(failingWrite);
+      await expect(service.disable()).resolves.toBe(false);
+      expect(service.enabled()).toBe(true);
+      expect(current).toBe('xhigh');
+
+      // The remembered effort survives the failure, so a retry restores it.
+      await expect(service.disable()).resolves.toBe(true);
+      expect(current).toBe('medium');
+    });
+
+    it('toggle() resolves true when the switch lands', async () => {
+      await expect(service.toggle(true)).resolves.toBe(true);
+      await expect(service.toggle(false)).resolves.toBe(true);
+      expect(service.enabled()).toBe(false);
+    });
+  });
+
   describe('applyKeyword', () => {
     it('leaves content untouched while disabled', () => {
       expect(service.applyKeyword('hello')).toBe('hello');

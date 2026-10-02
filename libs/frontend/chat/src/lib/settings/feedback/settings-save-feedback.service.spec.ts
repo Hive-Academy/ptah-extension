@@ -9,6 +9,7 @@ import {
   SAVE_REFUSED_MESSAGE,
   SETTINGS_TOAST_TIMEOUT_MS,
   SettingsSaveFeedbackService,
+  type SettingsGenericSaveRequest,
   type SettingsSaveRequest,
 } from './settings-save-feedback.service';
 
@@ -303,5 +304,121 @@ describe('SettingsSaveFeedbackService', () => {
     TestBed.resetTestingModule();
 
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  describe('saveGeneric (G2)', () => {
+    function genericRequest(overrides: Partial<SettingsGenericSaveRequest> = {}): SettingsGenericSaveRequest {
+      return {
+        label: 'MCP port',
+        write: jest.fn().mockResolvedValue({ ok: true }),
+        undo: null,
+        ...overrides,
+      };
+    }
+
+    it('toasts "Saved {label}." with no scope words and offers Undo when undo is given', async () => {
+      const undo = jest.fn().mockResolvedValue({ ok: true });
+      await service.saveGeneric(genericRequest({ undo }));
+
+      expect(service.toast()).toEqual({
+        tone: 'status',
+        message: 'Saved MCP port.',
+        canUndo: true,
+      });
+    });
+
+    it('offers no Undo when the request has none', async () => {
+      await service.saveGeneric(genericRequest());
+      expect(service.toast()?.canUndo).toBe(false);
+    });
+
+    it('a failed write shows the failure message and no Undo', async () => {
+      await service.saveGeneric(
+        genericRequest({ write: jest.fn().mockResolvedValue({ ok: false, message: 'Port must be between 1024 and 65535.' }) }),
+      );
+
+      expect(service.toast()).toEqual({
+        tone: 'alert',
+        message: 'Port must be between 1024 and 65535.',
+        canUndo: false,
+      });
+    });
+
+    it('a write that throws reports the save as unconfirmed, with no Undo', async () => {
+      await service.saveGeneric(genericRequest({ write: jest.fn().mockRejectedValue(new Error('boom')) }));
+
+      expect(service.toast()).toEqual({
+        tone: 'alert',
+        message: 'Could not confirm whether MCP port was saved.',
+        canUndo: false,
+      });
+    });
+
+    it('refuses re-entry while a generic save is in flight without calling write', async () => {
+      let finishWrite: () => void = () => void 0;
+      const write = jest.fn(() => new Promise<{ ok: true }>((resolve) => { finishWrite = () => resolve({ ok: true }); }));
+      const first = service.saveGeneric(genericRequest({ write }));
+      expect(service.saving()).toBe(true);
+
+      await service.saveGeneric(genericRequest({ label: 'other', write: jest.fn() }));
+
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(service.toast()).toEqual({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false });
+      finishWrite();
+      await first;
+    });
+
+    it('refuses re-entry while a Providers commit is saving without calling write', async () => {
+      commit.set({ ...EMPTY, status: 'saving' });
+      const write = jest.fn().mockResolvedValue({ ok: true });
+
+      await service.saveGeneric(genericRequest({ write }));
+
+      expect(write).not.toHaveBeenCalled();
+      expect(service.toast()).toEqual({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false });
+    });
+
+    it('Undo performs a second real write through saveGeneric(), and the result offers no further Undo', async () => {
+      const undo = jest.fn().mockResolvedValue({ ok: true });
+      const write = jest.fn().mockResolvedValue({ ok: true });
+      await service.saveGeneric(genericRequest({ write, undo }));
+
+      await service.undo();
+
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(undo).toHaveBeenCalledTimes(1);
+      expect(service.toast()).toEqual({
+        tone: 'status',
+        message: 'Saved MCP port.',
+        canUndo: false,
+      });
+    });
+
+    it('a failed Undo write reports the failure and offers no Undo', async () => {
+      const undo = jest.fn().mockResolvedValue({ ok: false, message: 'Undo failed.' });
+      await service.saveGeneric(genericRequest({ undo }));
+
+      await service.undo();
+
+      expect(service.toast()).toEqual({
+        tone: 'alert',
+        message: 'Undo failed.',
+        canUndo: false,
+      });
+    });
+
+    it('m1: Undo while another save is in flight keeps the toast and its Undo, and runs once that save ends', async () => {
+      const undo = jest.fn().mockResolvedValue({ ok: true });
+      await service.saveGeneric(genericRequest({ undo }));
+      commit.set({ ...EMPTY, status: 'saving' });
+
+      await service.undo();
+
+      expect(undo).not.toHaveBeenCalled();
+      expect(service.toast()).toEqual({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: true });
+      commit.set({ ...EMPTY, status: 'saved' });
+      await service.undo();
+      expect(undo).toHaveBeenCalledTimes(1);
+    });
   });
 });

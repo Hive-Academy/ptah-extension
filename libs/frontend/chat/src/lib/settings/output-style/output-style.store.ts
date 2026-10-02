@@ -20,7 +20,7 @@
  *     nothing else.
  *
  * `activate()` is optimistic-set-then-rollback (the shape used by
- * `workflows-config.component.ts`), which is what makes Req 2.7 — "a failed
+ * `EffortStateService.setEffort`), which is what makes Req 2.7 — "a failed
  * write leaves the previous selection intact" — structural rather than a
  * promise.
  *
@@ -44,6 +44,7 @@ import type {
   OutputStyleDetail,
   OutputStyleEntry,
   OutputStyleOperationError,
+  OutputStyleOperationErrorCode,
   OutputStyleParityOutcome,
   OutputStyleParityRequest,
   OutputStyleSaveParams,
@@ -53,6 +54,44 @@ import type {
 
 /** The SDK's null sentinel. Not a style object — selecting it clears the key. */
 const DEFAULT_STYLE_NAME = 'default';
+
+/**
+ * Parity codes whose backend message is a fixed template over a constant
+ * settings-file path (`claude-settings.writer.ts` :183, :197, :246, :263,
+ * :288-290, :329-330; `output-style-rpc.handlers.ts` :370-371, :392-393).
+ * `SETTINGS_MALFORMED` is excluded: it embeds the `JSON.parse` exception text
+ * (`claude-settings.writer.ts:129-134`), so it gets a fixed sentence here.
+ */
+const FIXED_PARITY_CODES: ReadonlySet<OutputStyleOperationErrorCode> = new Set([
+  'NO_WORKSPACE',
+  'WRITE_FAILED',
+  'SETTINGS_CONFLICT',
+  'IMMUTABLE',
+]);
+const SAVE_FAILED = 'Could not save the output style.';
+const COPY_FAILED = 'Could not copy the output style to the project.';
+const PARITY_FAILED =
+  'Your style is active in Ptah, but the settings file for the command line could not be updated.';
+
+/**
+ * The operation whose failure the list banner reports. The banner maps it to a
+ * fixed sentence; nothing here guesses the operation from host text (D15).
+ */
+export type OutputStyleFailedOperation =
+  | 'list'
+  | 'activate'
+  | 'save'
+  | 'delete'
+  | 'open'
+  | 'copy';
+
+function parityWarningText(error: OutputStyleOperationError): string {
+  if (error.code === 'SETTINGS_MALFORMED') {
+    // `path` is the constant-derived display path (`claude-settings.writer.ts:318`, :339).
+    return `${error.path ?? 'The settings file'} is not a valid settings file. Ptah did not change it — fix the file by hand, or choose a different one.`;
+  }
+  return FIXED_PARITY_CODES.has(error.code) ? error.message : PARITY_FAILED;
+}
 
 @Injectable({ providedIn: 'root' })
 export class OutputStyleStore {
@@ -64,13 +103,14 @@ export class OutputStyleStore {
   readonly decision = signal<ActivationDecision | null>(null);
   readonly loading = signal(false);
   readonly saving = signal(false);
-  readonly error = signal<string | null>(null);
+  /** The last failed operation, or `null`. Never carries host text. */
+  readonly failedOperation = signal<OutputStyleFailedOperation | null>(null);
 
   /**
    * What the last opt-in parity write did, or `null` when none was requested.
    *
-   * Deliberately separate from `error`: `error` means "your selection did not
-   * change". A parity problem means the opposite — the selection DID change,
+   * Deliberately separate from `failedOperation`: an `activate` failure means
+   * "your selection did not change". A parity problem means the opposite — the selection DID change,
    * and only the extra copy for the command line did not.
    */
   readonly parityOutcome = signal<OutputStyleParityOutcome | null>(null);
@@ -122,15 +162,17 @@ export class OutputStyleStore {
   /**
    * A parity failure, phrased as a warning rather than an error — the style is
    * active either way, so nothing here asks the user to retry their selection.
+   * Only proven-fixed backend messages pass through (see `parityWarningText`).
    */
-  readonly parityWarning = computed<string | null>(
-    () => this.parityOutcome()?.error?.message ?? null,
-  );
+  readonly parityWarning = computed<string | null>(() => {
+    const error = this.parityOutcome()?.error;
+    return error ? parityWarningText(error) : null;
+  });
 
   /** `outputStyle:list` + `outputStyle:diagnose`, in parallel. */
   async refresh(): Promise<void> {
     this.loading.set(true);
-    this.error.set(null);
+    this.failedOperation.set(null);
     try {
       const [list, diagnose] = await Promise.all([
         this.rpc.call('outputStyle:list', {}),
@@ -142,7 +184,7 @@ export class OutputStyleStore {
         this.invalid.set([...list.data.invalid]);
         this.active.set(list.data.active);
       } else {
-        this.error.set(list.error ?? 'Could not read the output styles.');
+        this.failedOperation.set('list');
       }
 
       if (diagnose.isSuccess()) {
@@ -172,7 +214,7 @@ export class OutputStyleStore {
     const previous = this.active();
     this.active.set(this.projectSelection(name));
     this.saving.set(true);
-    this.error.set(null);
+    this.failedOperation.set(null);
     this.parityOutcome.set(null);
 
     try {
@@ -188,13 +230,7 @@ export class OutputStyleStore {
       }
 
       this.active.set(previous);
-      this.error.set(
-        this.failureMessage(
-          result.isSuccess() ? result.data.error : undefined,
-          result.error,
-          'Could not change the active output style.',
-        ),
-      );
+      this.failedOperation.set('activate');
       return false;
     } finally {
       this.saving.set(false);
@@ -213,34 +249,13 @@ export class OutputStyleStore {
   async save(
     params: OutputStyleSaveParams,
   ): Promise<OutputStyleOperationError | null> {
-    this.saving.set(true);
-    this.error.set(null);
-
-    try {
-      const result = await this.rpc.call('outputStyle:save', params);
-
-      if (result.isSuccess() && result.data.success) {
-        await this.refresh();
-        return null;
-      }
-
-      const operationError = result.isSuccess() ? result.data.error : undefined;
-      const message = this.failureMessage(
-        operationError,
-        result.error,
-        'Could not save the output style.',
-      );
-      this.error.set(message);
-      return operationError ?? { code: 'WRITE_FAILED', message };
-    } finally {
-      this.saving.set(false);
-    }
+    return this.writeFile(params, 'save');
   }
 
   /** Delete a user- or project-tier style file, then re-read the list. */
   async remove(name: string, tier: WritableOutputStyleTier): Promise<boolean> {
     this.saving.set(true);
-    this.error.set(null);
+    this.failedOperation.set(null);
 
     try {
       const result = await this.rpc.call('outputStyle:delete', { name, tier });
@@ -250,23 +265,21 @@ export class OutputStyleStore {
         return true;
       }
 
-      this.error.set(
-        this.failureMessage(
-          result.isSuccess() ? result.data.error : undefined,
-          result.error,
-          'Could not delete the output style.',
-        ),
-      );
+      this.failedOperation.set('delete');
       return false;
     } finally {
       this.saving.set(false);
     }
   }
 
-  /** One style with its body and the E8 guard stamp, for the editor sub-view. */
+  /**
+   * One style with its body and the E8 guard stamp, for the editor sub-view.
+   * The editor also calls this to re-read a file that changed on disk.
+   */
   async load(
     name: string,
     tier: OutputStyleTier,
+    failedAs: OutputStyleFailedOperation = 'open',
   ): Promise<OutputStyleDetail | null> {
     const result = await this.rpc.call('outputStyle:get', { name, tier });
 
@@ -274,39 +287,49 @@ export class OutputStyleStore {
       return result.data.style;
     }
 
-    this.error.set(result.error ?? 'Could not open that output style.');
+    this.failedOperation.set(failedAs);
     return null;
   }
 
   /**
    * Req 5.5 — the escape hatch out of the fallback-injection path. Copies a
    * user-tier style into the project tier, where every provider reads it as a
-   * file and no injection is needed.
+   * file and no injection is needed. `overwrite` is true only after the user
+   * confirmed replacing a project style of the same name (review item 16).
    */
   async copyToProjectTier(
     name: string,
+    overwrite: boolean,
   ): Promise<OutputStyleOperationError | null> {
-    const source = await this.load(name, 'user');
+    const source = await this.load(name, 'user', 'copy');
 
     if (source === null) {
-      const message = `Could not read "${name}" to copy it into this project.`;
-      this.error.set(message);
-      return { code: 'NOT_FOUND', message };
+      return { code: 'NOT_FOUND', message: COPY_FAILED };
     }
 
-    return this.save({
-      tier: 'project',
-      name: source.name,
-      description: source.description,
-      keepCodingInstructions: source.keepCodingInstructions,
-      body: source.body ?? '',
-      overwrite: true,
-    });
+    return this.writeFile(
+      {
+        tier: 'project',
+        name: source.name,
+        description: source.description,
+        keepCodingInstructions: source.keepCodingInstructions,
+        body: source.body ?? '',
+        ...(overwrite ? { overwrite: true } : {}),
+      },
+      'copy',
+    );
   }
 
-  /** Clear a transient error banner without re-reading anything. */
-  dismissError(): void {
-    this.error.set(null);
+  /**
+   * Clear the failure banner without re-reading anything. With `only`, it is
+   * cleared just when it reports one of those operations, so the editor's
+   * return does not hide a list read failure.
+   */
+  dismissError(only?: readonly OutputStyleFailedOperation[]): void {
+    const current = this.failedOperation();
+    if (only === undefined || (current !== null && only.includes(current))) {
+      this.failedOperation.set(null);
+    }
   }
 
   /** Dismiss the parity confirmation or warning. The selection is unaffected. */
@@ -336,15 +359,30 @@ export class OutputStyleStore {
   }
 
   /**
-   * Operation errors win over transport errors: they are pre-formatted by the
-   * backend and carry a `~`- or workspace-relative path, never a host path or
-   * raw exception text (Req 7.6).
+   * `outputStyle:save`, then a refresh on success. A typed operation error is
+   * returned as is, so the editor can react to `FILE_EXISTS` / `STALE_FILE`; a
+   * transport failure becomes `WRITE_FAILED` with a fixed sentence.
    */
-  private failureMessage(
-    operationError: OutputStyleOperationError | undefined,
-    transportError: string | undefined,
-    fallback: string,
-  ): string {
-    return operationError?.message ?? transportError ?? fallback;
+  private async writeFile(
+    params: OutputStyleSaveParams,
+    failedAs: OutputStyleFailedOperation,
+  ): Promise<OutputStyleOperationError | null> {
+    this.saving.set(true);
+    this.failedOperation.set(null);
+
+    try {
+      const result = await this.rpc.call('outputStyle:save', params);
+
+      if (result.isSuccess() && result.data.success) {
+        await this.refresh();
+        return null;
+      }
+
+      this.failedOperation.set(failedAs);
+      const operationError = result.isSuccess() ? result.data.error : undefined;
+      return operationError ?? { code: 'WRITE_FAILED', message: SAVE_FAILED };
+    } finally {
+      this.saving.set(false);
+    }
   }
 }

@@ -120,4 +120,44 @@ describe('SettingsToastComponent', () => {
 
     expect(query('settings-toast')).toBeNull();
   });
+
+  describe('placement over an open drawer (Batch 49b)', () => {
+    const LIFT = '[body:has(ptah-native-drawer_[role=dialog])_&]:bottom-28';
+    /** The CSS selector Tailwind emits for {@link LIFT}, minus the toast's own class. */
+    const LIFT_CONDITION = 'body:has(ptah-native-drawer [role=dialog])';
+
+    async function showToast(): Promise<HTMLElement | null> {
+      await feedback.save({
+        label: 'voice',
+        scope: 'app',
+        write: settlesTo({ status: 'saved' }),
+        undo: null,
+      });
+      fixture.detectChanges();
+      return query('settings-toast-region');
+    }
+
+    it('sits at bottom-6 and carries the lift above a drawer footer', async () => {
+      const region = await showToast();
+
+      expect(region?.classList.contains('bottom-6')).toBe(true);
+      expect(region?.classList.contains(LIFT)).toBe(true);
+      expect(region?.querySelector('[data-testid="settings-toast"]')?.getAttribute('role')).toBe('status');
+    });
+
+    it('lifts only while a drawer panel is rendered, not for a closed drawer host', () => {
+      const drawer = document.createElement('ptah-native-drawer');
+      document.body.appendChild(drawer);
+      try {
+        expect(document.querySelector(LIFT_CONDITION)).toBeNull();
+
+        const panel = document.createElement('div');
+        panel.setAttribute('role', 'dialog');
+        drawer.appendChild(panel);
+        expect(document.querySelector(LIFT_CONDITION)).toBe(document.body);
+      } finally {
+        drawer.remove();
+      }
+    });
+  });
 });

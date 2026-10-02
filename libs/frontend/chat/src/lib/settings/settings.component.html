@@ -152,77 +152,26 @@
     }
 
     <!-- ============================================ -->
-    <!-- Tab 3: Advanced (System Prompt, MCP Port, VS Code LM) -->
+    <!-- Tab 3: Advanced (membership, agent behaviour, output style, MCP, VS Code LM) -->
     <!-- ============================================ -->
+    <!-- Tabs 3 and 4 are deferred into their own chunks (the eager route is at its bundle budget);
+         the aria-busy placeholder keeps the harness waitForSettled waiting until they load. -->
     @if (activeSettingsTab() === 'pro-features') {
-    <!-- License Status Card -->
-    <ptah-license-status-card />
-
-    <!-- Data Portability -->
-    <div class="border border-secondary/30 rounded-md bg-secondary/5">
-      <div class="p-3">
-        <div class="flex items-center gap-1.5 mb-2">
-          <lucide-angular
-            [img]="ArrowLeftRightIcon"
-            class="w-3.5 h-3.5 text-secondary"
-          />
-          <h2 class="text-xs font-medium uppercase tracking-wide">
-            Data Portability
-          </h2>
-        </div>
-        <p class="text-xs text-base-content-muted mb-3">
-          Export or import your settings, API keys, and preferences.
-        </p>
-        <div class="flex gap-2">
-          <button
-            class="btn btn-outline btn-xs gap-1 flex-1"
-            [disabled]="isExporting()"
-            (click)="exportSettings()"
-            aria-label="Export settings"
-          >
-            @if (isExporting()) {
-              <span class="loading loading-spinner loading-xs"></span>
-            } @else {
-              <lucide-angular [img]="UploadIcon" class="w-3 h-3" />
-            }
-            <span>Export</span>
-          </button>
-          <button
-            class="btn btn-outline btn-xs gap-1 flex-1"
-            [disabled]="isImporting()"
-            (click)="importSettings()"
-            aria-label="Import settings"
-          >
-            @if (isImporting()) {
-              <span class="loading loading-spinner loading-xs"></span>
-            } @else {
-              <lucide-angular [img]="DownloadIcon" class="w-3 h-3" />
-            }
-            <span>Import</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-
-      <ptah-enhanced-prompts-config />
-      <ptah-output-style-config />
-      <ptah-workflows-config />
-      <ptah-mcp-port-config />
-      <ptah-vscode-lm-config (modelChanged)="onModelChanged()" />
+      @defer (on immediate) {
+        <ptah-advanced-settings (modelChanged)="onModelChanged()" />
+      } @placeholder {
+        <div class="min-h-24" aria-busy="true"></div>
+      }
     }
 
     <!-- ============================================ -->
     <!-- Tab 4: Search & Voice (web search + voice transcription) -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'tools') {
-      <!-- Web Search Config (free for all users, not premium-gated) -->
-      <ptah-web-search-config />
-
-      @if (isElectron) {
-        <ptah-voice-config />
-        <!-- go vet consent: Electron only (capability goVetDiagnostics) -->
-        <ptah-go-vet-consent-config />
+      @defer (on immediate) {
+        <ptah-search-voice-settings />
+      } @placeholder {
+        <div class="min-h-24" aria-busy="true"></div>
       }
     }
   </div>

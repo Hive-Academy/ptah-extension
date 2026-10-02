@@ -152,7 +152,7 @@ describe('OutputStyleStore', () => {
       expect(store.decision()?.path).toBe('inject');
       expect(store.usingFallbackInjection()).toBe(true);
       expect(store.loading()).toBe(false);
-      expect(store.error()).toBeNull();
+      expect(store.failedOperation()).toBeNull();
     });
 
     it('surfaces a transport failure and clears the loading flag', async () => {
@@ -163,7 +163,7 @@ describe('OutputStyleStore', () => {
 
       await store.refresh();
 
-      expect(store.error()).toBe('RPC timeout: outputStyle:list');
+      expect(store.failedOperation()).toBe('list');
       expect(store.loading()).toBe(false);
     });
 
@@ -217,7 +217,7 @@ describe('OutputStyleStore', () => {
         path: 'flag',
         styleName: 'Simplified Technical English',
       });
-      expect(store.error()).toBeNull();
+      expect(store.failedOperation()).toBeNull();
     });
 
     it('sends null for the default sentinel and clears the selection', async () => {
@@ -256,9 +256,7 @@ describe('OutputStyleStore', () => {
       expect(applied).toBe(false);
       expect(store.active()).toEqual(previous);
       expect(store.activeName()).toBe('Simplified Technical English');
-      expect(store.error()).toBe(
-        '.claude/settings.json is not valid JSON, so it was left untouched.',
-      );
+      expect(store.failedOperation()).toBe('activate');
       expect(store.saving()).toBe(false);
     });
 
@@ -272,7 +270,7 @@ describe('OutputStyleStore', () => {
 
       expect(applied).toBe(false);
       expect(store.activeName()).toBeNull();
-      expect(store.error()).toBe('RPC timeout: outputStyle:activate');
+      expect(store.failedOperation()).toBe('activate');
     });
   });
 
@@ -358,11 +356,57 @@ describe('OutputStyleStore', () => {
         styleName: 'Simplified Technical English',
       });
       // The failure is a warning, not the error banner that means "not applied".
-      expect(store.error()).toBeNull();
+      expect(store.failedOperation()).toBeNull();
       expect(store.parityWarning()).toBe(
-        '.claude/settings.json is not valid JSON. Ptah did not change it.',
+        '.claude/settings.json is not a valid settings file. Ptah did not change it — fix the file by hand, or choose a different one.',
       );
       expect(store.parityWrittenPath()).toBeNull();
+    });
+
+    it('never shows the JSON parser detail a SETTINGS_MALFORMED message embeds (F1)', async () => {
+      responses['outputStyle:activate'] = ok({
+        success: true,
+        decision: { path: 'none' },
+        parity: {
+          written: false,
+          tier: 'user',
+          error: {
+            code: 'SETTINGS_MALFORMED',
+            message:
+              '~/.claude/settings.json is not valid JSON (host detail). Ptah did not change it — fix the file by hand, or choose a different one.',
+            path: '~/.claude/settings.json',
+          },
+        },
+      });
+
+      await store.activate(null, { enabled: true, tier: 'user' });
+
+      expect(store.parityWarning()).toBe(
+        '~/.claude/settings.json is not a valid settings file. Ptah did not change it — fix the file by hand, or choose a different one.',
+      );
+      expect(store.parityWarning()).not.toContain('host detail');
+    });
+
+    it('keeps the backend message only for codes proven fixed, otherwise a fixed sentence (F1)', async () => {
+      const outcome = (code: string, message: string) =>
+        ok({
+          success: true,
+          decision: { path: 'none' },
+          parity: { written: false, tier: 'project', error: { code, message } },
+        });
+
+      responses['outputStyle:activate'] = outcome(
+        'SETTINGS_CONFLICT',
+        '.claude/settings.json changed on disk while Ptah was updating it. Nothing was written and your chosen style is unaffected — try again.',
+      );
+      await store.activate(null, { enabled: true, tier: 'project' });
+      expect(store.parityWarning()).toContain('changed on disk while Ptah was updating it');
+
+      responses['outputStyle:activate'] = outcome('DELETE_FAILED', 'host detail');
+      await store.activate(null, { enabled: true, tier: 'project' });
+      expect(store.parityWarning()).toBe(
+        'Your style is active in Ptah, but the settings file for the command line could not be updated.',
+      );
     });
 
     it('never surfaces an absolute host path from a parity failure (Req 7.6)', async () => {
@@ -491,10 +535,48 @@ describe('OutputStyleStore', () => {
         code: 'FILE_EXISTS',
         message: 'A style file with that name already exists in this tier.',
       });
-      expect(store.error()).toBe(
-        'A style file with that name already exists in this tier.',
-      );
+      expect(store.failedOperation()).toBe('save');
       expect(store.saving()).toBe(false);
+    });
+
+    it('turns a transport failure into WRITE_FAILED with a fixed sentence, never the host text', async () => {
+      responses['outputStyle:save'] = { isSuccess: () => false, error: 'host detail: EACCES' };
+
+      const error = await store.save(saveParams);
+
+      expect(error).toEqual({ code: 'WRITE_FAILED', message: 'Could not save the output style.' });
+      expect(store.failedOperation()).toBe('save');
+    });
+  });
+
+  describe('failure tagging (Moderate 4)', () => {
+    it('tags a failed load as open, and a failed copy as copy rather than save', async () => {
+      responses['outputStyle:get'] = { isSuccess: () => false, error: 'host detail' };
+      await store.load('Terse', 'user');
+      expect(store.failedOperation()).toBe('open');
+
+      const error = await store.copyToProjectTier('Terse', false);
+      expect(store.failedOperation()).toBe('copy');
+      expect(error?.message).toBe('Could not copy the output style to the project.');
+
+      responses['outputStyle:get'] = ok({ style: { ...USER_STYLE, body: '' } });
+      responses['outputStyle:save'] = { isSuccess: () => false, error: 'could not be written' };
+      await store.copyToProjectTier('Terse', false);
+      expect(store.failedOperation()).toBe('copy');
+    });
+
+    it('dismissError(only) clears just the listed operations', async () => {
+      store.failedOperation.set('list');
+      store.dismissError(['save', 'open']);
+      expect(store.failedOperation()).toBe('list');
+
+      store.failedOperation.set('save');
+      store.dismissError(['save', 'open']);
+      expect(store.failedOperation()).toBeNull();
+
+      store.failedOperation.set('delete');
+      store.dismissError();
+      expect(store.failedOperation()).toBeNull();
     });
   });
 
@@ -531,12 +613,23 @@ describe('OutputStyleStore', () => {
       const removed = await store.remove('Learning', 'user');
 
       expect(removed).toBe(false);
-      expect(store.error()).toBe('Built-in styles cannot be deleted.');
+      expect(store.failedOperation()).toBe('delete');
       expect(call).not.toHaveBeenCalledWith('outputStyle:list', {});
     });
   });
 
   describe('copyToProjectTier()', () => {
+    it('without a confirmed replace, the project save carries no overwrite, so an existing file is never replaced (item 16)', async () => {
+      responses['outputStyle:get'] = ok({ style: { ...USER_STYLE, body: '' } });
+      responses['outputStyle:save'] = ok({ success: true });
+
+      await store.copyToProjectTier('Simplified Technical English', false);
+
+      const saveCall = call.mock.calls.find(([method]) => method === 'outputStyle:save');
+      expect(saveCall?.[1]).toEqual(expect.objectContaining({ tier: 'project' }));
+      expect(saveCall?.[1]).not.toHaveProperty('overwrite');
+    });
+
     it('reads the user-tier style and re-saves it into the project tier (Req 5.5)', async () => {
       responses['outputStyle:get'] = ok({
         style: { ...USER_STYLE, body: '# Style\n\nShort sentences.' },
@@ -545,6 +638,7 @@ describe('OutputStyleStore', () => {
 
       const error = await store.copyToProjectTier(
         'Simplified Technical English',
+        true,
       );
 
       expect(error).toBeNull();

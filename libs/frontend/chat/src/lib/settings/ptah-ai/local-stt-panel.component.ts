@@ -8,9 +8,10 @@ import {
   linkedSignal,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { LucideAngularModule, CheckCircle, Download } from 'lucide-angular';
+import { LucideAngularModule, AlertCircle, Download } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { VoiceProviderConfigLocalDto } from '@ptah-extension/shared';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { VoiceDownloadProgressService } from '../../services/voice-download-progress.service';
 
 interface WhisperModelOption {
@@ -34,22 +35,27 @@ const MULTILINGUAL_MODELS: readonly WhisperModelOption[] = [
 ] as const;
 
 type ModelSource = 'curated' | 'hf' | 'dir';
+type WriteResult = { ok: true } | { ok: false; message: string };
 
 const DOWNLOAD_MODEL_TIMEOUT_MS = 30 * 60 * 1000;
+
+// F1: the backend returns raw error.message on failure, so a visible message
+// is always one of these fixed sentences — never host error text.
+const SAVE_FAILED_MESSAGE = 'Could not save the voice configuration.';
+const DOWNLOAD_FAILED_MESSAGE = 'Could not download the voice model.';
 
 /** `owner/name` HuggingFace repo id shape (letters, digits, `._-`). */
 const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
 
 /**
- * Local Whisper (STT) settings panel (FR-4.1, FR-6.2). Extracted from the legacy
- * voice-config Whisper section: curated model select PLUS a source toggle
- * (Curated / HF repo id / Local folder) with a validated text input for the
- * custom id/path. The download button + live progress bar are unchanged and
- * still driven by `VoiceDownloadProgressService`, keyed by the model name.
- *
- * The panel persists via `voice:setConfig` (curated name always sent as the
- * last-known-good value; `modelSource`/`customModel` carry the custom source)
- * and emits `changed` so the container re-reads the backend config.
+ * Local Whisper (STT) panel, drawer D-VOICE tab "Speech-to-text" (pattern map
+ * V13-V16, V20): the existing controls reflowed as `table-xs` rows. Saves run
+ * through {@link SettingsSaveFeedbackService.saveGeneric} — "Saved" only after
+ * the write's own result, a failed write reverts the control and raises an
+ * alert toast (D15), the "Saved" chip is gone (V20). Returning to Curated saves
+ * immediately with Undo (V13); a custom HF id / folder is committed by its Save
+ * button (V15). The download button + live progress bar are unchanged and still
+ * driven by `VoiceDownloadProgressService`, keyed by the model name.
  */
 @Component({
   selector: 'ptah-local-stt-panel',
@@ -58,196 +64,232 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <p class="text-xs text-base-content-muted mb-2">
+    <p class="text-xs text-base-content-muted mb-3">
       Whisper model used for voice-to-text. Curated models download to
       <code class="text-[10px] bg-base-300 px-1 rounded">~/.ptah/models/</code>
       on first use.
     </p>
 
     @if (errorMessage(); as message) {
-      <div class="text-xs text-error mb-2" data-testid="local-stt-panel-error">
+      <div
+        role="alert"
+        data-testid="local-stt-panel-error"
+        class="mb-3 flex items-center gap-1.5 rounded border border-error/40 p-2 text-xs text-base-content"
+      >
+        <lucide-angular
+          [img]="AlertCircleIcon"
+          class="w-3.5 h-3.5 text-error shrink-0"
+          aria-hidden="true"
+        />
         {{ message }}
       </div>
     }
 
-    <!-- Source toggle -->
-    <div
-      class="flex items-center gap-1 mb-2"
-      role="radiogroup"
-      aria-label="Model source"
-    >
-      @for (opt of sourceOptions; track opt.value) {
-        <button
-          type="button"
-          class="btn btn-xs flex-1"
-          [class.btn-primary]="source() === opt.value"
-          [class.btn-ghost]="source() !== opt.value"
-          role="radio"
-          [attr.aria-checked]="source() === opt.value"
-          [disabled]="isSaving()"
-          (click)="onSourceChange(opt.value)"
-          [attr.data-testid]="'local-stt-source-' + opt.value"
-        >
-          {{ opt.label }}
-        </button>
-      }
-    </div>
+    <table class="table table-xs" data-testid="local-stt-panel-table">
+      <tbody>
+        <!-- V13: source. Returning to Curated saves immediately; a custom source
+             is committed by its Save button (V15). -->
+        <tr>
+          <th scope="row" class="w-24 align-top font-medium text-base-content">
+            Source
+          </th>
+          <td class="align-top">
+            <div
+              class="flex items-center gap-1"
+              role="radiogroup"
+              aria-label="Model source"
+            >
+              @for (opt of sourceOptions; track opt.value) {
+                <button
+                  type="button"
+                  class="btn btn-xs flex-1"
+                  [class.btn-primary]="source() === opt.value"
+                  [class.btn-ghost]="source() !== opt.value"
+                  role="radio"
+                  [attr.aria-checked]="source() === opt.value"
+                  [disabled]="saving()"
+                  (click)="onSourceChange(opt.value)"
+                  [attr.data-testid]="'local-stt-source-' + opt.value"
+                >
+                  {{ opt.label }}
+                </button>
+              }
+            </div>
+          </td>
+        </tr>
 
-    <div>
-      <div class="flex items-center justify-between mb-1">
-        <label
-          for="local-stt-model"
-          class="text-xs font-medium text-base-content-muted"
-        >
-          Whisper Model
-        </label>
-        @if (savedRecently()) {
-          <span
-            class="text-[10px] text-success flex items-center gap-1"
-            data-testid="local-stt-saved"
-          >
-            <lucide-angular [img]="CheckCircleIcon" class="w-2.5 h-2.5" />
-            Saved
-          </span>
-        }
-      </div>
-
-      @if (source() === 'curated') {
-        <select
-          id="local-stt-model"
-          class="select select-bordered select-xs w-full"
-          [value]="selectedModel()"
-          [disabled]="isSaving()"
-          (change)="onModelChange($event)"
-          data-testid="local-stt-model-select"
-        >
-          <optgroup label="English-only">
-            @for (opt of englishModels; track opt.value) {
-              <option
-                [value]="opt.value"
-                [selected]="opt.value === selectedModel()"
+        <!-- V14 curated model select / V15 custom id or folder -->
+        <tr>
+          <th scope="row" class="w-24 align-top font-medium text-base-content">
+            Whisper model
+          </th>
+          <td class="align-top">
+            @if (source() === 'curated') {
+              <select
+                id="local-stt-model"
+                aria-label="Whisper model"
+                class="select select-bordered select-xs w-full"
+                [value]="selectedModel()"
+                [disabled]="saving()"
+                (change)="onModelChange($event)"
+                data-testid="local-stt-model-select"
               >
-                {{ opt.label }}
-              </option>
-            }
-          </optgroup>
-          <optgroup label="Multilingual">
-            @for (opt of multilingualModels; track opt.value) {
-              <option
-                [value]="opt.value"
-                [selected]="opt.value === selectedModel()"
-              >
-                {{ opt.label }}
-              </option>
-            }
-          </optgroup>
-        </select>
-      } @else {
-        <div class="flex items-center gap-1">
-          <input
-            id="local-stt-custom"
-            type="text"
-            class="input input-bordered input-xs w-full"
-            [class.input-error]="
-              customModel().length > 0 && !customModelValid()
-            "
-            [value]="customModel()"
-            [disabled]="isSaving()"
-            [placeholder]="
-              source() === 'hf'
-                ? 'owner/whisper-model (HF repo id)'
-                : 'Absolute path to model folder'
-            "
-            (input)="onCustomModelInput($event)"
-            data-testid="local-stt-custom-input"
-          />
-          <button
-            type="button"
-            class="btn btn-primary btn-xs"
-            [disabled]="isSaving() || !customModelValid()"
-            (click)="saveCustomSource()"
-            data-testid="local-stt-custom-save"
-          >
-            Save
-          </button>
-        </div>
-        @if (customModel().length > 0 && !customModelValid()) {
-          <p
-            class="text-[10px] text-error mt-1"
-            data-testid="local-stt-custom-hint"
-          >
-            {{
-              source() === 'hf'
-                ? 'Enter a valid HuggingFace repo id (owner/name).'
-                : 'Enter an absolute folder path.'
-            }}
-          </p>
-        }
-      }
-    </div>
-
-    <div class="mt-2">
-      @if (isDownloading()) {
-        <div
-          class="flex items-center gap-2"
-          data-testid="local-stt-download-status"
-        >
-          <progress
-            class="progress progress-primary flex-1 h-2"
-            [value]="downloadPercent() ?? 0"
-            max="100"
-            data-testid="local-stt-download-progress"
-          ></progress>
-          <span class="text-[10px] text-base-content-muted w-20 text-right">
-            @if (downloadPercent() !== null) {
-              Downloading {{ downloadPercent() }}%
+                <optgroup label="English-only">
+                  @for (opt of englishModels; track opt.value) {
+                    <option
+                      [value]="opt.value"
+                      [selected]="opt.value === selectedModel()"
+                    >
+                      {{ opt.label }}
+                    </option>
+                  }
+                </optgroup>
+                <optgroup label="Multilingual">
+                  @for (opt of multilingualModels; track opt.value) {
+                    <option
+                      [value]="opt.value"
+                      [selected]="opt.value === selectedModel()"
+                    >
+                      {{ opt.label }}
+                    </option>
+                  }
+                </optgroup>
+              </select>
             } @else {
-              Starting…
+              <div class="flex items-center gap-1">
+                <input
+                  id="local-stt-custom"
+                  type="text"
+                  aria-label="Custom model id or folder"
+                  class="input input-bordered input-xs w-full"
+                  [class.input-error]="
+                    customModel().length > 0 && !customModelValid()
+                  "
+                  [value]="customModel()"
+                  [disabled]="saving()"
+                  [placeholder]="
+                    source() === 'hf'
+                      ? 'owner/whisper-model (HF repo id)'
+                      : 'Absolute path to model folder'
+                  "
+                  (input)="onCustomModelInput($event)"
+                  data-testid="local-stt-custom-input"
+                />
+                <button
+                  type="button"
+                  class="btn btn-primary btn-xs"
+                  [disabled]="saving() || !customModelValid()"
+                  (click)="saveCustomSource()"
+                  data-testid="local-stt-custom-save"
+                >
+                  Save
+                </button>
+              </div>
+              @if (customModel().length > 0 && !customModelValid()) {
+                <p
+                  class="mt-1 flex items-center gap-1 text-[10px] text-base-content"
+                  data-testid="local-stt-custom-hint"
+                >
+                  <lucide-angular
+                    [img]="AlertCircleIcon"
+                    class="w-3 h-3 text-error shrink-0"
+                    aria-hidden="true"
+                  />
+                  {{
+                    source() === 'hf'
+                      ? 'Enter a valid HuggingFace repo id (owner/name).'
+                      : 'Enter an absolute folder path.'
+                  }}
+                </p>
+              }
             }
-          </span>
-        </div>
-      } @else {
-        <div class="flex items-center justify-between gap-2">
-          @if (downloaded()) {
-            <span
-              class="text-[10px] text-success flex items-center gap-1"
-              data-testid="local-stt-download-status"
-            >
-              <span class="text-success">●</span>
-              Downloaded
-            </span>
-          } @else {
-            <span
-              class="text-[10px] text-base-content-muted flex items-center gap-1"
-              data-testid="local-stt-download-status"
-            >
-              <span class="text-base-content-muted">○</span>
-              Not downloaded
-            </span>
-          }
+          </td>
+        </tr>
 
-          <button
-            class="btn btn-outline btn-xs gap-1"
-            [disabled]="isSaving() || !canDownload()"
-            (click)="downloadModel()"
-            data-testid="local-stt-download-btn"
-          >
-            <lucide-angular [img]="DownloadIcon" class="w-3 h-3" />
-            <span>{{ downloaded() ? 'Ready' : 'Download' }}</span>
-          </button>
-        </div>
-      }
-    </div>
+        <!-- V16: download + live progress -->
+        <tr>
+          <th scope="row" class="w-24 align-top font-medium text-base-content">
+            Download
+          </th>
+          <td class="align-top">
+            @if (isDownloading()) {
+              <div
+                class="flex items-center gap-2"
+                data-testid="local-stt-download-status"
+              >
+                <progress
+                  class="progress progress-primary h-2 flex-1"
+                  [value]="downloadPercent() ?? 0"
+                  max="100"
+                  data-testid="local-stt-download-progress"
+                ></progress>
+                <span
+                  class="text-[10px] text-base-content-muted w-20 text-right"
+                >
+                  @if (downloadPercent() !== null) {
+                    Downloading {{ downloadPercent() }}%
+                  } @else {
+                    Starting…
+                  }
+                </span>
+              </div>
+            } @else {
+              <div class="flex items-center justify-between gap-2">
+                @if (downloaded()) {
+                  <span
+                    class="badge badge-outline badge-sm gap-1 whitespace-nowrap text-base-content"
+                    data-testid="local-stt-download-status"
+                  >
+                    <span
+                      class="w-1.5 h-1.5 rounded-full bg-success"
+                      aria-hidden="true"
+                    ></span>
+                    Downloaded
+                  </span>
+                } @else {
+                  <span
+                    class="badge badge-outline badge-sm gap-1 whitespace-nowrap text-base-content"
+                    data-testid="local-stt-download-status"
+                  >
+                    <span
+                      class="w-1.5 h-1.5 rounded-full bg-warning"
+                      aria-hidden="true"
+                    ></span>
+                    Not downloaded
+                  </span>
+                }
+
+                <button
+                  type="button"
+                  class="btn btn-outline btn-xs gap-1"
+                  [disabled]="saving() || !canDownload()"
+                  (click)="downloadModel()"
+                  data-testid="local-stt-download-btn"
+                >
+                  <lucide-angular
+                    [img]="DownloadIcon"
+                    class="w-3 h-3"
+                    aria-hidden="true"
+                  />
+                  <span>{{ downloaded() ? 'Ready' : 'Download' }}</span>
+                </button>
+              </div>
+            }
+          </td>
+        </tr>
+      </tbody>
+    </table>
   `,
 })
 export class LocalSttPanelComponent {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
   private readonly downloadProgress = inject(VoiceDownloadProgressService);
 
   readonly config = input.required<VoiceProviderConfigLocalDto>();
   readonly changed = output<void>();
 
-  readonly CheckCircleIcon = CheckCircle;
+  readonly AlertCircleIcon = AlertCircle;
   readonly DownloadIcon = Download;
 
   readonly englishModels = ENGLISH_MODELS;
@@ -258,6 +300,9 @@ export class LocalSttPanelComponent {
     { value: 'dir', label: 'Local folder' },
   ];
 
+  /** Save triggers are disabled while any settings write is in flight (D3). */
+  readonly saving = this.feedback.saving;
+
   // Editable drafts seeded from the config input; reset whenever the container
   // re-reads and passes a fresh config object (backend source of truth).
   readonly selectedModel = linkedSignal(() => this.config().whisperModel);
@@ -265,9 +310,7 @@ export class LocalSttPanelComponent {
   readonly customModel = linkedSignal(() => this.config().customModel ?? '');
   readonly downloaded = computed(() => this.config().sttDownloaded);
 
-  readonly isSaving = signal(false);
   readonly isDownloading = signal(false);
-  readonly savedRecently = signal(false);
   readonly errorMessage = signal<string | null>(null);
 
   /** True when the custom id/path passes basic shape validation. */
@@ -295,66 +338,124 @@ export class LocalSttPanelComponent {
     return tick.percent;
   });
 
-  onSourceChange(source: ModelSource): void {
-    this.source.set(source);
-    this.savedRecently.set(false);
-    // Switching back to curated is an immediate, always-recoverable save.
-    if (source === 'curated')
-      void this.persist(this.selectedModel(), 'curated');
+  /**
+   * V13: returning to Curated saves immediately (S-sel, Undo restores the
+   * previous source). Picking a custom source only switches the view; the
+   * Save button commits it (V15, S-explicit). Abandoning an unsaved custom
+   * draft needs no write — the backend is already on Curated.
+   */
+  onSourceChange(next: ModelSource): void {
+    if (next === this.source()) return;
+    if (next !== 'curated') {
+      this.source.set(next);
+      return;
+    }
+    const cfg = this.config();
+    if (cfg.modelSource === 'curated') {
+      this.source.set('curated');
+      return;
+    }
+    const previousSource = cfg.modelSource;
+    const previousCustom = cfg.customModel;
+    void this.feedback.saveGeneric({
+      label: 'speech-to-text model source',
+      write: () => this.writeSource('curated', undefined, previousSource),
+      undo: () => this.writeSource(previousSource, previousCustom, 'curated'),
+    });
   }
 
-  onModelChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    this.selectedModel.set(value);
-    void this.persist(value, 'curated');
+  /** V14: saves on selection with Undo; a failed write reverts the select (D15). */
+  async onModelChange(event: Event): Promise<void> {
+    const select = event.target as HTMLSelectElement;
+    const next = select.value;
+    const previous = this.selectedModel();
+    if (next === previous) return;
+    await this.feedback.saveGeneric({
+      label: 'speech-to-text model',
+      write: () => this.writeModel(next, previous),
+      undo: () => this.writeModel(previous, next),
+    });
+    // The binding alone does not repaint when the signal ends where it started.
+    select.value = this.selectedModel();
   }
 
   onCustomModelInput(event: Event): void {
     this.customModel.set((event.target as HTMLInputElement).value);
-    this.savedRecently.set(false);
   }
 
+  /**
+   * V15: explicit save of the custom id/path (S-explicit, no Undo). The draft
+   * stays in the field on failure so it can be retried, like the web-search key
+   * editor (Batch 45); the failure shows inline and as an alert toast.
+   */
   saveCustomSource(): void {
     if (!this.customModelValid()) return;
-    void this.persist(
-      this.selectedModel(),
-      this.source(),
-      this.customModel().trim(),
-    );
+    const modelSource = this.source();
+    const customModel = this.customModel().trim();
+    void this.feedback.saveGeneric({
+      label: 'speech-to-text model source',
+      write: () =>
+        this.setConfig({
+          whisperModel: this.selectedModel(),
+          modelSource,
+          customModel,
+        }),
+      undo: null,
+    });
   }
 
-  private async persist(
-    whisperModel: string,
-    modelSource: ModelSource,
-    customModel?: string,
-  ): Promise<void> {
+  /** Shows `next` while it saves; restores `fallback` when the write fails (D15). */
+  private async writeSource(
+    next: ModelSource,
+    nextCustom: string | undefined,
+    fallback: ModelSource,
+  ): Promise<WriteResult> {
+    this.source.set(next);
+    if (nextCustom !== undefined) this.customModel.set(nextCustom);
+    const result = await this.setConfig({
+      whisperModel: this.selectedModel(),
+      modelSource: next,
+      ...(nextCustom !== undefined ? { customModel: nextCustom } : {}),
+    });
+    if (!result.ok) this.source.set(fallback);
+    return result;
+  }
+
+  private async writeModel(
+    next: string,
+    fallback: string,
+  ): Promise<WriteResult> {
+    this.selectedModel.set(next);
+    const result = await this.setConfig({
+      whisperModel: next,
+      modelSource: 'curated',
+    });
+    if (!result.ok) this.selectedModel.set(fallback);
+    return result;
+  }
+
+  /**
+   * `voice:setConfig` (curated name always sent as the last-known-good value;
+   * `modelSource`/`customModel` carry the custom source). Emits `changed` on
+   * success so the container re-reads the backend config.
+   */
+  private async setConfig(params: {
+    whisperModel: string;
+    modelSource: ModelSource;
+    customModel?: string;
+  }): Promise<WriteResult> {
     this.errorMessage.set(null);
-    this.savedRecently.set(false);
-    this.isSaving.set(true);
     try {
-      const result = await this.rpc.call('voice:setConfig', {
-        whisperModel,
-        modelSource,
-        ...(customModel !== undefined ? { customModel } : {}),
-      });
+      const result = await this.rpc.call('voice:setConfig', params);
       if (result.isSuccess() && result.data.ok) {
-        this.savedRecently.set(true);
         this.changed.emit();
-      } else {
-        this.errorMessage.set(
-          result.isSuccess() && !result.data.ok
-            ? result.data.error
-            : (result.error ?? 'Failed to save voice configuration'),
-        );
+        return { ok: true };
       }
-    } catch (error: unknown) {
-      this.errorMessage.set(
-        error instanceof Error
-          ? error.message
-          : 'Failed to save voice configuration',
-      );
-    } finally {
-      this.isSaving.set(false);
+      this.errorMessage.set(SAVE_FAILED_MESSAGE);
+      return { ok: false, message: SAVE_FAILED_MESSAGE };
+    } catch {
+      this.errorMessage.set(SAVE_FAILED_MESSAGE);
+      return { ok: false, message: SAVE_FAILED_MESSAGE };
     }
   }
 
@@ -372,18 +473,10 @@ export class LocalSttPanelComponent {
       if (result.isSuccess() && result.data.ok) {
         this.changed.emit();
       } else {
-        this.errorMessage.set(
-          result.isSuccess() && !result.data.ok
-            ? result.data.error
-            : (result.error ?? 'Failed to download voice model'),
-        );
+        this.errorMessage.set(DOWNLOAD_FAILED_MESSAGE);
       }
-    } catch (error: unknown) {
-      this.errorMessage.set(
-        error instanceof Error
-          ? error.message
-          : 'Failed to download voice model',
-      );
+    } catch {
+      this.errorMessage.set(DOWNLOAD_FAILED_MESSAGE);
     } finally {
       this.isDownloading.set(false);
       this.downloadProgress.reset();

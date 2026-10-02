@@ -36,6 +36,7 @@ import {
 } from '../marketplace/marketplace.fixtures';
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
+import { withAdvancedSearchVoice } from './settings-advanced-search-voice.fixtures';
 
 export { installHost, installRpcAutoResponder, waitForAnimationsSettled };
 
@@ -666,7 +667,7 @@ export async function bootSettings(
   await installCspStub(page);
   const bridge = await installPostMessageBridge(page);
   await installHost(page, host, 'chat');
-  await installRpcAutoResponder(page, { ...statefulSettingsFixtures(state), ...overrides });
+  await installRpcAutoResponder(page, { ...withAdvancedSearchVoice(state, statefulSettingsFixtures(state)), ...overrides });
   await page.addInitScript((t: string) => {
     localStorage.setItem('ptah-theme', t);
   }, theme);

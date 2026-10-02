@@ -39,7 +39,7 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
-import { TestBed } from '@angular/core/testing';
+import { DeferBlockBehavior, DeferBlockState, TestBed } from '@angular/core/testing';
 import {
   AppStateManager,
   AuthStateService,
@@ -573,6 +573,76 @@ describe('SettingsComponent security copy', () => {
         '[data-testid="builtin-provider-security-copy"]',
       ),
     ).toBeNull();
+  });
+});
+
+/**
+ * The Advanced and Search & Voice tabs are `@defer (on immediate)` blocks so each loads as its own
+ * chunk; the placeholder is `aria-busy` so the harness `waitForSettled` keeps waiting for it.
+ */
+describe('SettingsComponent deferred tabs', () => {
+  @Component({ selector: 'ptah-advanced-settings', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush, template: '' })
+  class AdvancedStub {
+    readonly modelChanged = output<void>();
+  }
+
+  @Component({ selector: 'ptah-search-voice-settings', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush, template: '' })
+  class SearchVoiceStub {}
+
+  let providersState: ReturnType<typeof providersStateFake>;
+
+  function create(behavior: DeferBlockBehavior) {
+    providersState = providersStateFake();
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideSurfaceRouterTesting(),
+        AppStateManager,
+        { provide: AuthStateService, useValue: authStateFake() },
+        { provide: VSCodeService, useValue: { isElectron: false } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ProvidersSettingsStateService, useValue: providersState },
+      ],
+      deferBlockBehavior: behavior,
+    });
+    TestBed.overrideComponent(SettingsComponent, {
+      set: { imports: [AdvancedStub, SearchVoiceStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+    });
+    return TestBed.createComponent(SettingsComponent);
+  }
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('shows an aria-busy placeholder until the Advanced chunk renders, then wires modelChanged', async () => {
+    const fixture = create(DeferBlockBehavior.Manual);
+    fixture.componentInstance.setActiveTab('pro-features');
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('ptah-advanced-settings')).toBeNull();
+    expect(element.querySelector('[aria-busy="true"]')).not.toBeNull();
+
+    const [block] = await fixture.getDeferBlocks();
+    await block.render(DeferBlockState.Complete);
+    expect(element.querySelector('[aria-busy="true"]')).toBeNull();
+    const advanced = element.querySelector('ptah-advanced-settings');
+    expect(advanced).not.toBeNull();
+
+    // The (modelChanged) binding survives the deferral (#84).
+    fixture.debugElement.query((node) => node.nativeElement === advanced).componentInstance.modelChanged.emit();
+    expect(providersState.redetectClis).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['pro-features', 'ptah-advanced-settings'],
+    ['tools', 'ptah-search-voice-settings'],
+  ] as const)('loads the %s tab on its own when shown (Playthrough)', async (tab, selector) => {
+    const fixture = create(DeferBlockBehavior.Playthrough);
+    fixture.componentInstance.setActiveTab(tab);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector(selector)).not.toBeNull();
+    expect(element.querySelector('[aria-busy="true"]')).toBeNull();
   });
 });
 

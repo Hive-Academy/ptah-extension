@@ -27,6 +27,8 @@ import {
 } from './settings.fixtures';
 import { ROUTING_MAP_ENTRIES } from './settings-routing-map.entries';
 import { CLI_MATRIX_ENTRIES } from './settings-cli-matrix.entries';
+import { ADVANCED_ENTRIES } from './settings-advanced.entries';
+import { SEARCH_VOICE_ENTRIES } from './settings-search-voice.entries';
 import {
   advancedTab, applyManualTierModel, card, chooseMainAgentModel, expectHostAppScope, closeCatalog, closeConnectionDrawer, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
   closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
@@ -914,6 +916,7 @@ export const KEPT_SELECTORS: readonly KeptSelector[] = [
 /** Every parity-inventory entry this baseline covers, frozen in S4 (D14 rule 2/3). */
 export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
   ...providersAuth, ...mainAgentModel, ...cliAgents, ...orchestrationPolicy, ...other, ...restoredPending, ...regressedUx, ...ROUTING_MAP_ENTRIES, ...CLI_MATRIX_ENTRIES,
+  ...ADVANCED_ENTRIES, ...SEARCH_VOICE_ENTRIES,
 ];
 
 /**
@@ -925,8 +928,10 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
  * `settings-cli-matrix.entries.ts` with the restored #43, #44, #54, #70 and #71 (moved there from the pending list): 96.
  * Batch 33 added RUX-9 (no repeated "Manage … in Providers" links): 97. Batch 35 added RUX-12 (a background role
  * reassigned in place from its table cell's popover): 98.
+ * Batch 49 (track B, from the 94 above) added the Advanced (ADV-1..24) and Search & Voice (SV-1..19) preserve-list
+ * entries: 43. Merged with the Orchestration additions (track A, 98) after Gate V 36: 98 + 43 = 141.
  */
-export const EXPECTED_CAPABILITY_COUNT = 98;
+export const EXPECTED_CAPABILITY_COUNT = 141;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

@@ -1,28 +1,31 @@
 /**
- * OutputStyleConfigComponent — the output-style section of the Advanced tab.
+ * OutputStyleConfigComponent — the output-style section of the Advanced tab (A19-A25).
  *
- * A thin shell: it owns the list/editor switch and the one round trip needed to
- * open a style for editing, and delegates everything else to `OutputStyleStore`
- * and its two child views.
- *
- * The section loads its data in ITS OWN `ngOnInit`, not in `SettingsComponent`.
- * Because it renders inside the `pro-features` `@if`, it is not instantiated at
- * all until the user opens the Advanced tab, so the settings panel's first
- * render is untouched by construction rather than by a timing promise.
+ * P2 Section card matching `prototypes/final/orchestration.html` and Batch 45:
+ *   - Heading with Palette icon + available styles count + "New style" primary action (A21)
+ *   - Body mounts `OutputStyleListComponent` (matrix table, banners, command-line parity)
+ *   - Drawer D-OS (`OutputStyleEditorComponent`) lazily loaded via `@defer (when view() === 'editor')`
+ *   - Active style selection is persisted through {@link SettingsSaveFeedbackService.saveGeneric}
+ *     with Undo (D15). Parity writes confirm first and have no Undo.
  */
 
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  Injector,
   OnInit,
+  afterNextRender,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
-import { LucideAngularModule, Palette } from 'lucide-angular';
+import { LucideAngularModule, Palette, Plus } from 'lucide-angular';
 import type {
   InvalidOutputStyle,
   OutputStyleDetail,
 } from '@ptah-extension/shared';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { OutputStyleStore } from './output-style.store';
 import {
   OutputStyleListComponent,
@@ -30,6 +33,11 @@ import {
   type OutputStyleSelectionRequest,
 } from './output-style-list.component';
 import { OutputStyleEditorComponent } from './output-style-editor.component';
+
+const OUTPUT_STYLE_ACTIVATE_FAILED = 'Could not change the active output style.';
+/** Serious 2: the selection saved, the requested command-line file did not — the toast says so, not "Saved". */
+const OUTPUT_STYLE_PARITY_FAILED =
+  'Your style is active in Ptah, but the settings file for the command line could not be updated.';
 
 @Component({
   selector: 'ptah-output-style-config',
@@ -40,66 +48,101 @@ import { OutputStyleEditorComponent } from './output-style-editor.component';
     OutputStyleEditorComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'mt-4 block' },
+  host: { class: 'block' },
   template: `
-    <div class="border border-secondary/30 rounded-md bg-secondary/5">
-      <div class="p-3">
-        <div class="flex items-center gap-1.5 mb-2">
+    <section
+      class="card bg-base-200 border border-base-300 p-3"
+      aria-labelledby="output-style-heading"
+      data-testid="output-style-card"
+    >
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="flex items-center gap-1.5">
           <lucide-angular
             [img]="PaletteIcon"
             class="w-4 h-4 text-secondary"
             aria-hidden="true"
           />
-          <h2 class="text-xs font-medium uppercase tracking-wide">
+          <h2
+            id="output-style-heading"
+            class="text-xs font-bold uppercase tracking-wider text-base-content"
+          >
             Output Style
           </h2>
         </div>
-        <p class="text-xs text-base-content-muted mb-3">
-          Choose how the agent writes to you — how much it explains, how it
-          structures an answer, what wording it prefers. A style influences the
-          agent's voice; it does not replace the instructions Ptah already gives
-          it.
-        </p>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-base-content-muted">
+            {{ store.styles().length }} available
+          </span>
+          <button
+            #newStyleButton
+            type="button"
+            class="btn btn-primary btn-xs gap-1"
+            (click)="onCreate()"
+            [disabled]="store.saving()"
+            data-testid="output-style-new-button"
+            aria-label="Create new output style"
+          >
+            <lucide-angular [img]="PlusIcon" class="w-3 h-3" aria-hidden="true" />
+            New style
+          </button>
+        </div>
+      </div>
 
-        @if (view() === 'list') {
-          <ptah-output-style-list
-            [styles]="store.styles()"
-            [invalid]="store.invalid()"
-            [active]="store.active()"
-            [loading]="store.loading()"
-            [saving]="store.saving()"
-            [error]="store.error()"
-            [hasCollision]="store.hasCollision()"
-            [collidingNames]="store.collidingNames()"
-            [usingFallback]="store.usingFallbackInjection()"
-            [parityWrittenPath]="store.parityWrittenPath()"
-            [parityWarning]="store.parityWarning()"
-            (activate)="onActivate($event)"
-            (create)="onCreate()"
-            (edit)="onEdit($event)"
-            (remove)="onRemove($event)"
-            (openInvalid)="onOpenInvalid($event)"
-            (copyToProject)="onCopyToProject($event)"
-            (dismissError)="store.dismissError()"
-            (dismissParity)="store.dismissParityOutcome()"
-          />
-        } @else {
+      <p class="text-xs text-base-content-muted mb-3">
+        Choose how the agent writes to you — how much it explains, how it
+        structures an answer, what wording it prefers. A style influences the
+        agent's voice; it does not replace the instructions Ptah already gives
+        it.
+      </p>
+
+      <ptah-output-style-list
+        [styles]="store.styles()"
+        [invalid]="store.invalid()"
+        [active]="store.active()"
+        [loading]="store.loading()"
+        [saving]="store.saving()"
+        [failedOperation]="store.failedOperation()"
+        [hasCollision]="store.hasCollision()"
+        [collidingNames]="store.collidingNames()"
+        [usingFallback]="store.usingFallbackInjection()"
+        [parityWrittenPath]="store.parityWrittenPath()"
+        [parityWarning]="store.parityWarning()"
+        (activate)="onActivate($event)"
+        (create)="onCreate()"
+        (edit)="onEdit($event)"
+        (remove)="onRemove($event)"
+        (openInvalid)="onOpenInvalid($event)"
+        (copyToProject)="onCopyToProject($event)"
+        (dismissError)="store.dismissError()"
+        (dismissParity)="store.dismissParityOutcome()"
+      />
+
+      @defer (when view() === 'editor') {
+        @if (view() === 'editor') {
           <ptah-output-style-editor
+            [isOpen]="view() === 'editor'"
             [draft]="draft()"
             [repair]="repair()"
             [activeName]="store.activeName()"
-            (saved)="onSaved()"
+            (saved)="onSaved($event)"
             (cancelled)="showList()"
           />
         }
-      </div>
-    </div>
+      }
+    </section>
   `,
 })
 export class OutputStyleConfigComponent implements OnInit {
   readonly store = inject(OutputStyleStore);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
+
+  private readonly list = viewChild(OutputStyleListComponent);
+  private readonly newStyleButton = viewChild<ElementRef<HTMLButtonElement>>('newStyleButton');
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
 
   readonly PaletteIcon = Palette;
+  readonly PlusIcon = Plus;
 
   readonly view = signal<'list' | 'editor'>('list');
   readonly draft = signal<OutputStyleDetail | null>(null);
@@ -110,12 +153,46 @@ export class OutputStyleConfigComponent implements OnInit {
   }
 
   /**
-   * `request.parity` is `undefined` unless the user ticked the opt-in box, and
-   * the store omits the field entirely in that case — so the default path sends
-   * no parity request and no settings file is written (R6).
+   * Persists the active style selection through SettingsSaveFeedbackService.saveGeneric (D15).
+   * Parity writes confirm beforehand and have no Undo (A24). Normal selections offer Undo.
    */
   async onActivate(request: OutputStyleSelectionRequest): Promise<void> {
-    await this.store.activate(request.name, request.parity);
+    const previousName = this.store.activeName();
+    const parity = request.parity?.enabled === true ? request.parity : null;
+    const isParity = parity !== null;
+    const outcome = { activated: false };
+
+    await this.feedback.saveGeneric({
+      label: 'output style',
+      write: async () => {
+        try {
+          const success = await this.store.activate(request.name, request.parity);
+          if (!success) return { ok: false, message: OUTPUT_STYLE_ACTIVATE_FAILED };
+          outcome.activated = true;
+          return isParity && this.store.parityWarning() !== null
+            ? { ok: false, message: OUTPUT_STYLE_PARITY_FAILED }
+            : { ok: true };
+        } catch {
+          return { ok: false, message: OUTPUT_STYLE_ACTIVATE_FAILED };
+        }
+      },
+      undo: isParity
+        ? null
+        : async () => {
+            try {
+              const success = await this.store.activate(previousName);
+              return success
+                ? { ok: true }
+                : { ok: false, message: OUTPUT_STYLE_ACTIVATE_FAILED };
+            } catch {
+              return { ok: false, message: OUTPUT_STYLE_ACTIVATE_FAILED };
+            }
+          },
+    });
+    // N3: the list counts the parity file as requested only once the activation itself succeeded.
+    if (outcome.activated && parity !== null) this.list()?.parityActivated(parity.tier);
+    // A refused or failed activate leaves the clicked radio checked: show the saved style again (D15).
+    this.list()?.syncActiveRadios(this.store.activeName());
   }
 
   onCreate(): void {
@@ -144,18 +221,35 @@ export class OutputStyleConfigComponent implements OnInit {
     await this.store.remove(ref.name, ref.tier);
   }
 
-  /** Req 5.5 — copy the injected user-tier style into the project tier. */
-  async onCopyToProject(name: string): Promise<void> {
-    await this.store.copyToProjectTier(name);
+  /** Req 5.5 — copy the injected user-tier style into the project tier; replaces only after the list's confirm. */
+  async onCopyToProject(request: { readonly name: string; readonly overwrite: boolean }): Promise<void> {
+    await this.store.copyToProjectTier(request.name, request.overwrite);
   }
 
-  onSaved(): void {
+  /**
+   * The save refreshed the list, so the Edit button that opened the drawer is gone: focus moves to the saved
+   * style's Edit button, or to "New style" when that row has none (Moderate 7).
+   */
+  onSaved(name: string): void {
     this.showList();
+    afterNextRender(() => (this.editButtonFor(name) ?? this.newStyleButton()?.nativeElement)?.focus(), {
+      injector: this.injector,
+    });
   }
 
+  /** Back from the editor: a failure that belonged to the editor session no longer applies (Moderate 4). */
   showList(): void {
     this.draft.set(null);
     this.repair.set(null);
     this.view.set('list');
+    this.store.dismissError(['save', 'open']);
+  }
+
+  private editButtonFor(name: string): HTMLButtonElement | undefined {
+    const rows = this.host.nativeElement.querySelectorAll<HTMLElement>('tr[data-testid^="output-style-row-"]');
+    return Array.from(rows)
+      .filter((row) => row.getAttribute('data-testid') === `output-style-row-${name}`)
+      .map((row) => row.querySelector<HTMLButtonElement>('[data-testid="output-style-edit-button"]'))
+      .find((button): button is HTMLButtonElement => button !== null && !button.disabled);
   }
 }
