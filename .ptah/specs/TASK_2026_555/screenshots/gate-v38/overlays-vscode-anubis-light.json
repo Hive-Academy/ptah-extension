@@ -1,0 +1,43 @@
+{
+ "mainPopoverBackdrop": {
+  "closed": true,
+  "focus": "button#routing-node-action:Reassign the main agent:"
+ },
+ "mainPopoverEsc": {
+  "closed": true,
+  "focus": "button#routing-node-action:Reassign the main agent:"
+ },
+ "drawerBackdrop": {
+  "closed": true,
+  "focus": "div#:Moonshot (Kimi): Connect"
+ },
+ "drawerEsc": {
+  "closed": true,
+  "focus": "div#:Moonshot (Kimi): Connect"
+ },
+ "catalogBackdrop": {
+  "closed": true,
+  "focusIsConnect": true,
+  "focus": "button#connect-provider:Connect provider"
+ },
+ "catalogEsc": {
+  "closed": true,
+  "focusIsConnect": true
+ },
+ "addModal-backdrop": {
+  "closed": true,
+  "focus": "button#cli-matrix-add:Add Ptah CLI Instance"
+ },
+ "addModal-esc": {
+  "closed": true,
+  "focus": "button#cli-matrix-add:Add Ptah CLI Instance"
+ },
+ "tierModal-backdrop": {
+  "closed": true,
+  "focus": "button#cli-matrix-tiers-glm-instance-1:Tiers for Glm"
+ },
+ "tierModal-esc": {
+  "closed": true,
+  "focus": "button#cli-matrix-tiers-glm-instance-1:Tiers for Glm"
+ }
+}

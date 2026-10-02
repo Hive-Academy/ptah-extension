@@ -1,0 +1,35 @@
+{
+ "mainList": {
+  "input": 280,
+  "field": 280,
+  "list": 214.421875,
+  "listX": 317,
+  "inputX": 317
+ },
+ "reopen": {
+  "focusedInput": true,
+  "expanded": "true"
+ },
+ "afterEsc1": {
+  "expanded": "false",
+  "popoverOpen": true
+ },
+ "afterEsc2": {
+  "popoverOpen": false,
+  "focus": "routing-node-action"
+ },
+ "tierList": "no combobox found (select?)",
+ "failedCheck": {
+  "cardBefore": "Connected",
+  "drawerBefore": "Connected & verified",
+  "drawerAfter": "Check failed",
+  "cardAfter": "Connected",
+  "cardState": "connected"
+ },
+ "cardAction": {
+  "label": "Retry",
+  "count": 0,
+  "methods": [],
+  "checkConnectionCalls": 0
+ }
+}
