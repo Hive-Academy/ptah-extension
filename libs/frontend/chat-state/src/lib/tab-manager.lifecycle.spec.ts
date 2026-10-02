@@ -530,29 +530,6 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       expect(tabs[1]?.order).toBe(1);
     });
 
-    it('duplicateTab clones the tab with " (Copy)" suffix and activates it', () => {
-      const a = service.createTab('Original');
-      service.duplicateTab(a);
-      const tabs = service.tabs();
-      expect(tabs.length).toBe(2);
-      expect(tabs[1]?.name).toBe('Original (Copy)');
-      expect(service.activeTabId()).toBe(tabs[1]?.id);
-    });
-
-    it('duplicateTab copies the source title origin', () => {
-      const sourceId = service.createTab();
-
-      service.duplicateTab(sourceId);
-
-      expect(service.tabs()[1]?.titleOrigin).toBe('default');
-    });
-
-    it('duplicateTab is a no-op for unknown ids', () => {
-      service.createTab('keep');
-      service.duplicateTab('missing');
-      expect(service.tabs().length).toBe(1);
-    });
-
     it('renameTab trims and truncates titles to 100 chars', () => {
       const a = service.createTab('A');
       const long = 'x'.repeat(200);

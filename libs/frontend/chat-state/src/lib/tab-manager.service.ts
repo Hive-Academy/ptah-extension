@@ -2503,32 +2503,6 @@ export class TabManagerService {
     });
   }
 
-  /**
-   * Duplicate a tab
-   * @param tabId - Tab ID to duplicate
-   */
-  duplicateTab(tabId: string): void {
-    const tab = this._tabs().find((t) => t.id === tabId);
-    if (!tab) return;
-
-    const newTabId = this.generateTabId();
-    const duplicatedTab: TabState = {
-      ...tab,
-      id: newTabId,
-      name: `${tab.name} (Copy)`,
-      title: `${tab.title} (Copy)`,
-      titleOrigin: tab.titleOrigin,
-      order: this._tabs().length,
-      status: 'loaded', // Duplicated tab is loaded (not streaming)
-      isDirty: false,
-      lastActivityAt: Date.now(),
-    };
-
-    this._tabs.update((tabs) => [...tabs, duplicatedTab]);
-    this._activeTabId.set(newTabId);
-    this.saveTabState();
-  }
-
   // ============================================================================
   // PERSISTENCE (per-workspace localStorage)
   // ============================================================================
