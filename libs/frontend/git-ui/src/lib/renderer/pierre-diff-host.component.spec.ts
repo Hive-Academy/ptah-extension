@@ -42,10 +42,13 @@ const pierre = {
   parsedPatches: [] as string[],
   separatorSlots: false,
   parseThrows: false,
+  constructorThrows: false,
+  renderThrows: false,
 };
 
 class FakeFileDiff {
   cleanedUp = false;
+  cleanUpCalls = 0;
   themeTypes: string[] = [];
   rendered: {
     fileDiff: { hunks: FakeHunk[] };
@@ -64,6 +67,7 @@ class FakeFileDiff {
     public workerManager: unknown,
     public isContainerManaged: boolean,
   ) {
+    if (pierre.constructorThrows) throw new Error('FileDiff: bad options');
     pierre.instances.push(this);
   }
 
@@ -97,6 +101,9 @@ class FakeFileDiff {
       pre.appendChild(slot);
     }
     root.appendChild(pre);
+    // Fails after partial content is in the shadow tree, as a highlighter
+    // error mid-render would.
+    if (pierre.renderThrows) throw new Error('render: highlighter failed');
     this.options.onPostRender?.(container, this, 'mount');
     return true;
   }
@@ -107,6 +114,7 @@ class FakeFileDiff {
 
   cleanUp(): void {
     this.cleanedUp = true;
+    this.cleanUpCalls++;
     this.options.onPostRender?.(
       this.rendered?.fileContainer as HTMLElement,
       this,
@@ -275,6 +283,8 @@ describe('PierreDiffHostComponent', () => {
     pierre.parsedPatches = [];
     pierre.separatorSlots = false;
     pierre.parseThrows = false;
+    pierre.constructorThrows = false;
+    pierre.renderThrows = false;
     workerPool.state.set({ status: 'unavailable' });
     workerPool.start.mockClear();
     HostComponent = await createHostComponent();
@@ -407,6 +417,63 @@ describe('PierreDiffHostComponent', () => {
         '[data-testid="pierre-mapping-error"]',
       ).textContent,
     ).toContain('could not be displayed');
+  });
+
+  it('reports parse-failed and keeps no renderer when the FileDiff constructor throws', async () => {
+    const [first] = pierre.instances;
+    pierre.constructorThrows = true;
+    fixture.componentInstance.patch.set(patchOf(LINE_ONE_AND_ADJACENT) + ' ');
+    await settle();
+
+    const host = fixture.componentInstance.host();
+    expect(host.mappingError()).toEqual({
+      reason: 'parse-failed',
+      detail: 'FileDiff: bad options',
+    });
+    expect(host.hunkHosts()).toEqual([]);
+    expect(hostElements()).toHaveLength(0);
+    expect(renderedSlotNames()).toEqual([]);
+    // The previous renderer was disposed and no new one is held: a theme
+    // change reaches nothing.
+    expect(first.cleanedUp).toBe(true);
+    expect(pierre.instances).toEqual([first]);
+    fixture.componentInstance.theme.set('light');
+    await settle();
+    expect(first.themeTypes).not.toContain('light');
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="pierre-mapping-error"]',
+      ).textContent,
+    ).toContain('could not be displayed');
+  });
+
+  it('reports parse-failed, cleans up the instance and clears partial content when render throws', async () => {
+    pierre.renderThrows = true;
+    fixture.componentInstance.patch.set(patchOf(LINE_ONE_AND_ADJACENT) + ' ');
+    await settle();
+
+    const failed = pierre.instances.at(-1) as FakeFileDiff;
+    expect(pierre.instances).toHaveLength(2);
+    expect(failed.cleanUpCalls).toBe(1);
+    const host = fixture.componentInstance.host();
+    expect(host.mappingError()).toEqual({
+      reason: 'parse-failed',
+      detail: 'render: highlighter failed',
+    });
+    expect(host.hunkHosts()).toEqual([]);
+    expect(renderedSlotNames()).toEqual([]);
+
+    // No instance is kept: a theme change does not reach it, and the next
+    // content change does not dispose it a second time.
+    fixture.componentInstance.theme.set('light');
+    await settle();
+    expect(failed.themeTypes).toEqual([]);
+    pierre.renderThrows = false;
+    fixture.componentInstance.patch.set(patchOf(LINE_ONE_AND_ADJACENT));
+    await settle();
+    expect(failed.cleanUpCalls).toBe(1);
+    expect(host.mappingError()).toBeNull();
+    expect(hostElements()).toHaveLength(3);
   });
 
   it('reports a multi-file patch as not displayed, not as read-only hunks', async () => {

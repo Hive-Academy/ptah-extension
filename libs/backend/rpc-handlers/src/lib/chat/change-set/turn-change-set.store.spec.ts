@@ -1,7 +1,7 @@
 /**
  * Unit spec for {@link TurnChangeSetStore}: round-trip under the session's own
- * key, the 100-per-session bound, serialized appends, and tolerance of a
- * malformed stored value.
+ * key, the 100-per-session bound, serialized appends, remove, and tolerance
+ * of a malformed stored value.
  */
 
 import 'reflect-metadata';
@@ -29,6 +29,11 @@ class MemoryStorage implements IStateStorage {
     if (this.failNextUpdate) {
       this.failNextUpdate = false;
       throw new Error('disk full');
+    }
+    // `update(key, undefined)` deletes the key, as the real backends do.
+    if (value === undefined) {
+      this.data.delete(key);
+      return;
     }
     this.data.set(key, JSON.parse(JSON.stringify(value)));
   }
@@ -122,6 +127,35 @@ describe('TurnChangeSetStore', () => {
     await expect(store.append(changeSet('s1', 1))).rejects.toThrow('disk full');
     await store.append(changeSet('s1', 2));
     expect((await store.list('s1')).map((c) => c.turnEndedAt)).toEqual([2]);
+  });
+
+  it('remove deletes only that session\'s key', async () => {
+    await store.append(changeSet('s1', 1));
+    await store.append(changeSet('s2', 2));
+
+    await store.remove('s1');
+
+    expect(storage.keys()).toEqual(['ptah.turnChangeSets:s2']);
+    expect(await store.list('s1')).toEqual([]);
+    expect(await store.list('s2')).toHaveLength(1);
+  });
+
+  it('remove runs after an in-flight append, so the append cannot re-create the key', async () => {
+    const appended = store.append(changeSet('s1', 1));
+    const removed = store.remove('s1');
+    await Promise.all([appended, removed]);
+    expect(storage.keys()).toEqual([]);
+  });
+
+  it('remove of an unknown session resolves and writes nothing', async () => {
+    await expect(store.remove('nobody')).resolves.toBeUndefined();
+    expect(storage.keys()).toEqual([]);
+  });
+
+  it('remove rejects when storage fails', async () => {
+    await store.append(changeSet('s1', 1));
+    storage.failNextUpdate = true;
+    await expect(store.remove('s1')).rejects.toThrow('disk full');
   });
 
   it('treats a malformed stored value as no records and drops bad entries', async () => {

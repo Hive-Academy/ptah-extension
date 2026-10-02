@@ -199,7 +199,20 @@ describe('GitInfoService change-set delegates (real git)', () => {
     createdDirs.push(dir);
     const service = new GitInfoService(makeLogger());
 
-    await expect(service.resolveRepositoryRoot(dir)).resolves.toBeNull();
+    // Stop git's discovery at the temp directory, so an enclosing repository
+    // (a temp dir inside a checkout, a CI workspace) cannot answer. `execGit`
+    // spreads `process.env` into the child at spawn time.
+    const previousCeiling = process.env['GIT_CEILING_DIRECTORIES'];
+    process.env['GIT_CEILING_DIRECTORIES'] = path.dirname(dir);
+    try {
+      await expect(service.resolveRepositoryRoot(dir)).resolves.toBeNull();
+    } finally {
+      if (previousCeiling === undefined) {
+        delete process.env['GIT_CEILING_DIRECTORIES'];
+      } else {
+        process.env['GIT_CEILING_DIRECTORIES'] = previousCeiling;
+      }
+    }
   });
 
   it('reads HEAD text, absent paths and the unborn branch', async () => {

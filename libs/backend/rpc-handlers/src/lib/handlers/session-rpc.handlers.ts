@@ -63,6 +63,7 @@ import type { AgentProcessManager } from '@ptah-extension/cli-agent-runtime';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
 import { z } from 'zod';
 import { CHAT_TOKENS } from '../chat/tokens';
+import { TurnChangeSetStore } from '../chat/change-set/turn-change-set.store';
 import type { ChatSessionService } from '../chat/session/chat-session.service';
 import type { SessionMcpStatusRegistry } from '../chat/session/session-mcp-status.registry';
 import type {
@@ -155,6 +156,12 @@ export class SessionRpcHandlers {
      */
     @inject(SDK_TOKENS.SDK_SESSION_TITLE_SERVICE)
     private readonly sessionTitle: SessionTitleService,
+    /**
+     * Per-session turn change sets live under their own key; `session:delete`
+     * removes that key so the change sets do not outlive the session.
+     */
+    @inject(TurnChangeSetStore)
+    private readonly turnChangeSets: TurnChangeSetStore,
     /**
      * Optional so a host that never registers the manager serves this method
      * exactly as before. See `session:cli-sessions` for the one use.
@@ -508,6 +515,7 @@ export class SessionRpcHandlers {
         const metadata = await this.metadataStore.get(sessionId);
         const workspacePath = metadata?.workspaceId;
         await this.metadataStore.delete(sessionId);
+        await this.removeTurnChangeSets(sessionId);
         if (workspacePath) {
           await this.deleteSessionFiles(sessionId, workspacePath);
         } else {
@@ -535,6 +543,25 @@ export class SessionRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * Drop the session's turn change sets. A failure is logged, not thrown: the
+   * session's metadata is already gone, and failing the delete would undo
+   * nothing — the orphaned key is unreachable from the UI.
+   */
+  private async removeTurnChangeSets(sessionId: string): Promise<void> {
+    try {
+      await this.turnChangeSets.remove(sessionId);
+    } catch (error) {
+      this.logger.warn(
+        'RPC: session:delete - failed to remove turn change sets',
+        {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+    }
   }
 
   /**
