@@ -280,6 +280,13 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
     cursor: not-allowed;
     opacity: 0.6;
   }
+
+  /* Batch 54.1: fields, selects, checkboxes, toggles and radios disabled while a save runs keep focus too
+     (ptahBusyDisabled); they dim like a non-.btn button. */
+  :where(ptah-settings) :is(input, select, textarea)[aria-disabled='true'] {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
 }
 
 /* Light theme overrides for glass morphism and decorative elements */

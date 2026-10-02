@@ -33,6 +33,13 @@ describe('Settings shared styles (Batch 51)', () => {
     expect(rule).not.toContain('pointer-events');
   });
 
+  it('an aria-disabled Settings field, select or checkbox (ptahBusyDisabled, Batch 54.1) is dimmed and stays usable for focus', () => {
+    const rule = declarationsOf(":where(ptah-settings) :is(input, select, textarea)[aria-disabled='true']");
+    expect(rule).toContain('opacity: 0.6');
+    expect(rule).toContain('cursor: not-allowed');
+    expect(rule).not.toContain('pointer-events');
+  });
+
   it('an aria-disabled Settings button that is not a .btn is dimmed', () => {
     const rule = declarationsOf(":where(ptah-settings) button[aria-disabled='true']:not(.btn)");
     expect(rule).toContain('opacity: 0.6');
