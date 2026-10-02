@@ -10,7 +10,6 @@ import {
   withComponentInputBinding,
   withDisabledInitialNavigation,
 } from '@angular/router';
-import { provideMonacoEditor } from 'ngx-monaco-editor-v2';
 import {
   VSCodeService,
   provideVSCodeService,
@@ -309,9 +308,6 @@ export const appConfig: ApplicationConfig = {
       useExisting: BackOfficeActivityService,
       multi: true,
     },
-    provideMonacoEditor({
-      baseUrl: './assets/monaco/vs',
-    }),
     provideMarkdownRendering({ extensions: 'full' }),
     // Installs the document-level file-link listener. It acts only inside a
     // container carrying `data-ptah-file-links`, so non-agent markdown (task

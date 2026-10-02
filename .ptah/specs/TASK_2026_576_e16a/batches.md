@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 64/69 (P5 closed)
+Total tasks: 87 | Batches: 69 | Complete: 65/69 (P5 closed)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2544,14 +2544,14 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
   `git-dock.spec.ts` 6/6 after rebuild. Left for 65/66: `provideMonacoEditor`, Monaco packages, stale Monaco
   comments, the `ptah-diff-view` guard marker.
 
-## Batch 65: Monaco dependency and provider removal — PENDING
+## Batch 65: Monaco dependency and provider removal — COMPLETE
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 64
 - Verification: `npx nx run-many -t typecheck,test,lint,build -p ptah-extension-webview` + `verify-eager-bundle`
 
-### Task 65.1: Remove Monaco packages, provider, asset glob; set `statsJson` (A8) — PENDING
+### Task 65.1: Remove Monaco packages, provider, asset glob; set `statsJson` (A8) — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/package.json (+ lockfile); MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/project.json; MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/.vscodeignore
 - Plan reference: implementation-plan.md:1148-1150, 1155
@@ -2559,6 +2559,14 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: no `assets/monaco` in `dist/apps/ptah-extension-webview`.
 - Validation notes: A8 — inspect `stats.json` for `outputs[].inputs`; record.
 - Implementation details: remove `overrides.monaco-editor`.
+- Outcome: executor devops-engineer. Removed `monaco-editor`, `ngx-monaco-editor-v2` and `overrides.monaco-editor`
+  (`npm uninstall --package-lock-only --ignore-scripts`; shared node_modules untouched), `provideMonacoEditor`, the
+  `/assets/monaco` glob, the `.vscodeignore` Monaco block and the `copy-webview.js` Monaco filter; stale comments in
+  `file-link-router.service.ts` and `skill-synthesis-ui/eslint.config.mjs` corrected. No source imports Monaco.
+  A8: `statsJson: true` (production); `dist/apps/ptah-extension-webview/stats.json` has `outputs[].inputs` (676
+  outputs; `main.js` 283 inputs). Production build has no `assets/monaco` (dist 21.91 MB). Verified: webview 313
+  tests, typecheck/lint, eager guard; typecheck git-ui, chat, skill-synthesis-ui, ptah-electron. Historical Monaco
+  comments left (listed in the report).
 
 ## Batch 66: Packaging — PENDING
 

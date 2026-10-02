@@ -1,8 +1,5 @@
 /**
- * Copy webview build to extension dist, excluding Monaco Editor.
- * Monaco is only needed for Electron, not the VS Code extension.
- * Its AMD loader contains eval()/new Function() which triggers
- * marketplace "suspicious content" scanner.
+ * Copy webview build to extension dist.
  */
 const fs = require('fs');
 const path = require('path');
@@ -11,21 +8,9 @@ const src = 'dist/apps/ptah-extension-webview/browser';
 const dest = 'dist/apps/ptah-extension-vscode/webview/browser';
 const extDist = 'dist/apps/ptah-extension-vscode';
 
-// Copy webview, excluding Monaco
+// Copy webview
 fs.mkdirSync(dest, { recursive: true });
-fs.cpSync(src, dest, {
-  recursive: true,
-  filter: (source) => {
-    const normalized = source.replace(/\\/g, '/');
-    if (
-      normalized.includes('/assets/monaco/') ||
-      normalized.endsWith('/assets/monaco')
-    ) {
-      return false;
-    }
-    return true;
-  },
-});
+fs.cpSync(src, dest, { recursive: true });
 
 // Copy metadata files
 fs.copyFileSync('README.md', path.join(extDist, 'README.md'));
@@ -40,4 +25,4 @@ fs.copyFileSync(
   path.join(extDist, '.vscodeignore'),
 );
 
-console.log('Webview copied (Monaco excluded), metadata files copied.');
+console.log('Webview copied, metadata files copied.');

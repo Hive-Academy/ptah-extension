@@ -56,7 +56,7 @@ interface LinkContext {
  *
  * ## Why git-ui is imported dynamically
  *
- * `@ptah-extension/git-ui` carries Monaco and the whole dock. A static import
+ * `@ptah-extension/git-ui` carries the whole dock (review canvas, Pierre diff renderer). A static import
  * here would pull it into the eager chat chunk, and chat loads on every host
  * including VS Code, where the dock does not exist. Same pattern as
  * `WorkspaceCoordinatorService.resolveGitServices`.

@@ -181,8 +181,6 @@
     "lucide-angular": "^1.0.0",
     "marked": "^18.0.13",
     "minimatch": "10.2.6",
-    "monaco-editor": "^0.56.0",
-    "ngx-monaco-editor-v2": "^22.0.5",
     "node-pty": "1.1.0",
     "nodejs-whisper": "0.3.1",
     "pg": "^8.20.0",
@@ -298,9 +296,6 @@
     "@nx/nx-linux-x64-musl": "23.2.1"
   },
   "overrides": {
-    "monaco-editor": {
-      "dompurify": "^3.3.2"
-    },
     "lucide-angular": {
       "@angular/core": "$@angular/core",
       "@angular/common": "$@angular/common"
