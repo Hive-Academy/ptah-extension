@@ -55,17 +55,39 @@ const UNKNOWN_SIZE_PX = 240;
 /** Scroll anchors kept for comparisons the canvas is not showing. */
 const MAX_SCROLL_ANCHORS = 16;
 
+/**
+ * A restore re-applies its anchor every frame until the anchor section has
+ * not moved for this many frames (sections above it are estimated until they
+ * render and are measured), and gives up after the frame cap.
+ */
+const RESTORE_STABLE_FRAMES = 6;
+const RESTORE_MAX_FRAMES = 60;
+
+/** Input that means the user is scrolling: a running restore yields to it. */
+const USER_SCROLL_EVENTS = [
+  'wheel',
+  'touchstart',
+  'pointerdown',
+  'keydown',
+] as const;
+
 interface ScrollAnchor {
   readonly fileId: string;
   /** Pixels from the top of that file's section to the viewport top. */
   readonly offset: number;
 }
 
+interface AnchorRestore {
+  readonly anchor: ScrollAnchor;
+  frames: number;
+  stable: number;
+}
+
 /**
- * Where each comparison was scrolled to, so leaving the canvas (spot editor,
- * another tab) and coming back lands on the same file (parity §7 "view
- * state"). Module scope because the canvas itself is destroyed in between;
- * bounded and in memory only.
+ * Where each comparison of each workspace was scrolled to, so leaving the
+ * canvas (spot editor, another tab, another comparison) and coming back lands
+ * on the same file (parity §7 "view state"). Module scope because the canvas
+ * itself may be destroyed in between; bounded and in memory only.
  */
 const scrollAnchors = new Map<string, ScrollAnchor>();
 
@@ -111,6 +133,12 @@ function fileId(kind: string, path: string, originalPath?: string): string {
  *   read their diff and create a renderer. Off-screen sections hold an
  *   estimated height, replaced by the height measured when they last left the
  *   window. The observer and the scroll listener are released on destroy.
+ * - Reading position: the top visible file and the offset into it are kept
+ *   per workspace and comparison. They are restored when a comparison shows
+ *   again (also through an empty one) and when the shell shows the Changes
+ *   body again after hiding it (a hidden list loses its `scrollTop`). Because
+ *   sections are estimated until measured, the restore re-anchors frame by
+ *   frame until the anchor file stops moving. Nothing is saved while hidden.
  * - Selecting a file in the tree scrolls its section into view; Alt+Down /
  *   Alt+Up move to the next / previous file.
  * - When the draft bar disappears with focus inside it, focus moves to the
@@ -233,6 +261,11 @@ export class ReviewCanvasComponent {
   /** Without `IntersectionObserver` every section is treated as near. */
   private readonly windowed = typeof IntersectionObserver !== 'undefined';
   private scrollFrame: number | null = null;
+  /** Watches the list's own box: it measures 0 × 0 while the shell hides it. */
+  private resizeObserver: ResizeObserver | null = null;
+  private shown = true;
+  private restore: AnchorRestore | null = null;
+  private restoreFrame: number | null = null;
   private restoredFor: string | null = null;
   private handledSeq = -1;
 
@@ -409,14 +442,16 @@ export class ReviewCanvasComponent {
     return { files: files.length, additions, deletions, binaryFiles };
   });
 
+  /** The workspace and comparison a reading position belongs to. */
   private readonly comparisonId = computed(() => {
     const branch = this.branchComparison();
-    return scopeId(
+    const scope = scopeId(
       this.scope(),
       branch?.kind === 'historical'
         ? `${branch.base.sha}..${branch.head.sha}`
         : null,
     );
+    return `${this.workspaceRoot()}\u0000${scope}`;
   });
 
   protected readonly listMessageIsError = computed(() => {
@@ -567,6 +602,15 @@ export class ReviewCanvasComponent {
     const root = this.scroller().nativeElement;
     this.root = root;
     root.addEventListener('scroll', this.onScroll, { passive: true });
+    for (const type of USER_SCROLL_EVENTS) {
+      root.addEventListener(type, this.stopRestore, { passive: true });
+    }
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver((entries) =>
+        this.onResize(entries),
+      );
+      this.resizeObserver.observe(root);
+    }
     if (!this.windowed) return;
     this.observer = new IntersectionObserver(
       (entries) => this.onIntersect(entries),
@@ -578,9 +622,15 @@ export class ReviewCanvasComponent {
 
   private detach(): void {
     this.root?.removeEventListener('scroll', this.onScroll);
+    for (const type of USER_SCROLL_EVENTS) {
+      this.root?.removeEventListener(type, this.stopRestore);
+    }
     this.root = null;
     if (this.scrollFrame !== null) cancelAnimationFrame(this.scrollFrame);
     this.scrollFrame = null;
+    this.stopRestore();
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     this.observer?.disconnect();
     this.observer = null;
     this.observed.clear();
@@ -638,8 +688,24 @@ export class ReviewCanvasComponent {
     });
   };
 
+  /**
+   * The shell hides an inactive tab body (`display: none`), which resets the
+   * list's `scrollTop`; showing it again restores the saved anchor.
+   */
+  private onResize(entries: readonly ResizeObserverEntry[]): void {
+    const box = entries.at(-1)?.contentRect;
+    if (!box) return;
+    const shown = box.width > 0 || box.height > 0;
+    if (shown === this.shown) return;
+    this.shown = shown;
+    if (shown) this.startRestore(this.comparisonId());
+    else this.stopRestore();
+  }
+
   /** The file at the top of the viewport is the active one. */
   private trackActiveFile(): void {
+    // Hidden, the list reads `scrollTop` 0: not where the user is reading.
+    if (!this.shown) return;
     const root = this.scroller().nativeElement;
     const top = root.getBoundingClientRect().top;
     const element = this.sectionElements()
@@ -650,6 +716,8 @@ export class ReviewCanvasComponent {
     const file = this.visibleFiles().find((candidate) => candidate.id === id);
     if (!file) return;
     this.setActive(file);
+    // A running restore owns the position until the anchor settles.
+    if (this.restore) return;
     rememberAnchor(this.comparisonId(), {
       fileId: id,
       offset: top - element.getBoundingClientRect().top,
@@ -661,7 +729,12 @@ export class ReviewCanvasComponent {
     files: readonly ReviewCanvasFile[],
     comparisonId: string,
   ): void {
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      // Nothing to anchor to. Forget which comparison was restored, so the
+      // next listed one (also the one shown before this) restores its anchor.
+      this.restoredFor = null;
+      return;
+    }
     const target = navigation.target;
     if (navigation.seq !== this.handledSeq && target.kind === 'diff') {
       const path = normalizeDiffPath(target.path);
@@ -679,21 +752,66 @@ export class ReviewCanvasComponent {
     // An unmatched diff target stays pending: its file may not be listed yet.
     if (this.restoredFor === comparisonId) return;
     this.restoredFor = comparisonId;
-    const anchor = scrollAnchors.get(comparisonId);
-    afterNextRender(
-      () => {
-        const root = this.scroller().nativeElement;
-        const section = anchor ? this.sectionFor(anchor.fileId) : null;
-        if (anchor && section) {
-          // The list is the sections' offset parent (`relative`).
-          root.scrollTop = section.offsetTop + Math.max(0, anchor.offset);
-        } else {
-          root.scrollTop = 0;
-        }
-      },
-      { injector: this.injector },
-    );
+    afterNextRender(() => this.startRestore(comparisonId), {
+      injector: this.injector,
+    });
   }
+
+  /** Bring the comparison's saved anchor back, or start at the top. */
+  private startRestore(comparisonId: string): void {
+    this.stopRestore();
+    // Hidden, nothing can be scrolled; showing the body restores then.
+    if (!this.shown || comparisonId !== this.comparisonId()) return;
+    const anchor = scrollAnchors.get(comparisonId);
+    if (!anchor || !this.sectionFor(anchor.fileId)) {
+      this.scroller().nativeElement.scrollTop = 0;
+      return;
+    }
+    this.restore = { anchor, frames: 0, stable: 0 };
+    this.reanchor();
+  }
+
+  /**
+   * Put the anchor file's top back at its saved offset. Sections above it
+   * hold estimated heights until they render and are measured, so repeat on
+   * the next frame until it stays put (bounded).
+   */
+  private reanchor(): void {
+    this.restoreFrame = null;
+    const restore = this.restore;
+    if (!restore) return;
+    const section = this.sectionFor(restore.anchor.fileId);
+    if (!section) {
+      this.stopRestore();
+      return;
+    }
+    const root = this.scroller().nativeElement;
+    const offset =
+      root.getBoundingClientRect().top - section.getBoundingClientRect().top;
+    const drift = Math.max(0, restore.anchor.offset) - offset;
+    if (Math.abs(drift) > 1) {
+      root.scrollTop += drift;
+      restore.stable = 0;
+    } else {
+      restore.stable++;
+    }
+    restore.frames++;
+    if (
+      restore.stable >= RESTORE_STABLE_FRAMES ||
+      restore.frames >= RESTORE_MAX_FRAMES
+    ) {
+      this.stopRestore();
+      return;
+    }
+    this.restoreFrame = requestAnimationFrame(() => this.reanchor());
+  }
+
+  /** Also the listener for user scroll input: the user's scroll wins. */
+  private readonly stopRestore = (): void => {
+    if (this.restoreFrame !== null) cancelAnimationFrame(this.restoreFrame);
+    this.restoreFrame = null;
+    this.restore = null;
+  };
 
   private setActive(file: ReviewCanvasFile): void {
     const current = this.active();
@@ -704,6 +822,7 @@ export class ReviewCanvasComponent {
   }
 
   private scrollToFile(id: string): void {
+    this.stopRestore();
     const section = this.sectionFor(id);
     if (section && typeof section.scrollIntoView === 'function') {
       section.scrollIntoView({ block: 'start' });
