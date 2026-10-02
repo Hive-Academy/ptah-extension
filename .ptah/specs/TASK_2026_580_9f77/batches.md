@@ -64,8 +64,8 @@ section; the batch sections below hold each batch's full task text and review no
 | C0.1 board start carries `taskId`                                         | COMPLETE                   | a83ca9b6e |
 | C0.2 board-start link capture + push handling                             | COMPLETE                   | b968cb66a |
 | C1.1 chips, filter bar, editor                                            | COMPLETE                   | eb80449b4 |
-| C1.2 loader + app-shell sidebar (visual)                                  | READY (PENDING)            | —         |
-| C2.1 open-session bridge                                                  | PENDING (after C0.1, C1.2) | —         |
+| C1.2 loader + app-shell sidebar (visual)                                  | COMPLETE                   | 790030342 |
+| C2.1 open-session bridge                                                  | READY (PENDING)            | —         |
 | C2.2 task links service + card (visual)                                   | COMPLETE                   | 976854b74 |
 | C2.3 task detail sessions list (visual)                                   | PENDING (after C2.1, C2.2) | —         |
 | T1 AC evidence, smoke S1-S8, test-report.md                               | PENDING (after all)        | —         |
@@ -80,16 +80,19 @@ section; the batch sections below hold each batch's full task text and review no
 
 ### Next READY batches (wave 6: four file-disjoint batches in four projects)
 
-Wave 6 is COMPLETE (A5.1, A5.2, C0.2, C2.2). C1.1 is COMPLETE.
+Wave 6 is COMPLETE (A5.1, A5.2, C0.2, C2.2). C1.1 and C1.2 are COMPLETE.
 
-**Next READY: C1.2 — loader query + app-shell sidebar integration** (frontend-developer,
-sequential, 2 tasks; code-logic review plus visual review, which also covers the C1.1
-components now that they are mounted). Verification:
-`npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`. C1.2 inherits the
-C1.1 deviations recorded in the C1.1 section (filter bar owns its search input; the
-components are not exported from `components/index.ts`).
+**Next READY: C2.1 — open-session bridge** (frontend-developer, sequential, 1 task;
+code-logic review only, no rendered change). Verification:
+`npx nx run-many -t typecheck,test,lint -p @ptah-extension/core @ptah-extension/chat`.
+Files (5, two projects): `core/.../app-state.service.ts` (+ its spec if the executor
+adds `requestOpenSession` cases there), new `chat-store/session-open-bridge.service.ts`
+and spec, `chat.store.ts` (inject beside `taskPromptBridge`, now `:88`), and
+`chat-store/index.ts`. The grid/single behaviour to mirror now lives at
+`app-shell.component.ts:619-626` (moved by C1.2); `requestCanvasSession` is at
+`app-state.service.ts:1168`.
 
-After C1.2: C2.1 (open-session bridge), then C2.3 (after C2.1 and C2.2), then T1.
+After C2.1: C2.3 (after C2.1 and C2.2), then T1.
 
 Wave 6 launch notes, kept for reference (A5.1, A5.2 and C0.2 are done):
 
@@ -211,13 +214,33 @@ After wave 6: C1.1 (after C0.2), then C1.2, C2.1 and C2.3, then T1.
   the first board visit grows each linked card by 48px when the sessions row arrives
   (CLS 0.029, under 0.1). Reserve the row height or show a skeleton during the first
   fetch. See the C2.2 section and `visual-review-C2.2.md`.
+- **C1.2 accepted minors (open follow-ups, not blocking):**
+  - logic (`code-logic-review-C1.2.md`): search text typed before
+    `organizationAvailable` is first reported is not handed to the server query;
+  - visual (`visual-review-C1.2.md` round 1): the live-phase pulse trough is 2.57:1 in
+    light; group headers are 4.48:1 on the shared muted token (a token-level fix, not a
+    C1.2 one); the row action cluster overlaps a task-chip border by up to 4px with no
+    text collision.
+- **PR #623 review rounds (recorded 2026-10-02):**
+  - SonarCloud findings: `178e93497` refactor(rpc-handlers),
+    `code-logic-review-sonar-pr623.md` APPROVED 10/10 (behaviour-equivalent).
+  - `.coderabbit.yaml` excludes task specs and unit specs: `59bd15bd1`.
+  - CodeRabbit fixes: `6fb20540d` fix(rpc-handlers) (closed-store mutations now answer;
+    `gh pr create -d` read as draft), `code-logic-review-coderabbit-pr623.md` APPROVED.
+    This closes the B2 accepted deviation "`-d` captured as `open`", addressed at the
+    user's request to resolve the CodeRabbit comments. CodeRabbit finding 3 (board-start
+    capture inside a claimed surface, `chat-message-handler.service.ts`) was declined:
+    board starts always mint a fresh user chat tab through
+    `TaskPromptBridgeService.consume()`, while surface claims only cover workflow and
+    subagent correlation ids, so the case cannot occur.
 - **Plan follow-ups (out of scope):**
   - related defect 1: the Electron gateway lister's `Array.isArray`;
   - related defect 2: `messageCount`/`isActive` on `session:list`;
   - the 584 `childrenOf` reader;
   - the orchestration-skill note to call `ptah_session_link_task`.
 - **Visual evidence owed:** before screenshots (V0, dark and light) from base
-  `a90c086d7`, and after screenshots for C1.2, C2.2 and C2.3.
+  `a90c086d7`, and after screenshots for C2.3. C1.2 (`visual-c12/`, VS Code before and
+  after included) and C2.2 (`visual-c22/`) after shots are committed.
 
 Worktree root (all paths below are absolute under it):
 `D:\projects\ptah-extension\.claude-worktrees\task-580` — branch
@@ -1394,7 +1417,8 @@ dropped` line and returns.
 - Review: `code-logic-review-B2.md` APPROVED 9.5/10 with 3 minors (`--draft=false`
   parsing, `releaseAll` disposer isolation, null payload guard). The executor fixed
   all three; the narrow re-check `code-logic-review-B2-r1.md` APPROVED 10/10.
-  Accepted deviation: `gh pr create -d` (short flag) is captured as `open`.
+  Accepted deviation: `gh pr create -d` (short flag) is captured as `open`. CLOSED by
+  `6fb20540d` (CodeRabbit fixes on PR #623): `-d` is now read as draft.
 - Verification at commit: session-organization typecheck/test (6 suites, 204
   tests)/lint pass; degradation-audit session-organization 0 (baseline 0); di-lint
   passes; prettier clean.
@@ -1906,7 +1930,21 @@ dropped` line and returns.
   Spec: each mutation RPC, and `ok:false` rendering.
 - Implementation details: see plan.
 
-## Batch C1.2: loader query + app-shell sidebar integration — PENDING
+## Batch C1.2: loader query + app-shell sidebar integration — COMPLETE (commit 790030342)
+
+- Code review: `code-logic-review-C1.2.md` APPROVED 10/10, 1 accepted minor (search
+  text typed before availability is first reported is lost).
+- Visual review: `visual-review-C1.2.md` round 1 APPROVED 8.5/10 (round 0 REVISE 7/10),
+  dark `anubis` and light `anubis-light` at 360/800/1400, Electron organization shape
+  plus the VS Code shape before/after (AC7). Evidence: `visual-c12/` (round 0) and
+  `visual-c12/round1/`. Round-1 changes were layout/style only, including the C1.1
+  `session-organization-chips.component.ts` and `session-filter-bar.component.ts`.
+  Accepted minors are listed under "Open risks ... follow-ups".
+- Accepted out-of-list files: `chat.store.ts` (three pass-through members:
+  `listQuery`, `organizationAvailable`, `setListQuery`) and
+  `components/templates/session-row-groups.ts` (pure grouping helper).
+- Verification at commit: `nx run-many -t typecheck,lint -p @ptah-extension/chat`
+  passes; tests passed per the executor report and were not re-run.
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -1921,7 +1959,7 @@ dropped` line and returns.
     VS Code sidebar after shot that must match before (AC7). Output:
     `visual-review-C1.2.md`.
 
-### Task C1.2.1: `SessionLoaderService` `listQuery` + `organizationAvailable` — PENDING
+### Task C1.2.1: `SessionLoaderService` `listQuery` + `organizationAvailable` — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\chat\src\lib\services\chat-store\session-loader.service.ts` (MODIFY; contains a NUL byte, read directly), `...\session-loader.service.spec.ts` (MODIFY)
 - Plan reference: implementation-plan.md:951-972
@@ -1936,7 +1974,7 @@ dropped` line and returns.
   the offset resets. The existing `session-loader.cli-restore.spec.ts` must stay green.
 - Implementation details: see plan.
 
-### Task C1.2.2: app shell renders the filter bar, chips, editor entry and groups when available — PENDING
+### Task C1.2.2: app shell renders the filter bar, chips, editor entry and groups when available — COMPLETE
 
 - Depends on: Task C1.2.1
 - File:
@@ -1973,8 +2011,11 @@ dropped` line and returns.
   - `...\session-open-bridge.service.spec.ts` (CREATE)
   - `...\libs\frontend\chat\src\lib\services\chat.store.ts` (MODIFY, keep the bridge alive beside `:85`)
   - `...\libs\frontend\chat\src\lib\services\chat-store\index.ts` (MODIFY)
-- Plan reference: implementation-plan.md:1047-1052
-- Pattern to follow: `app-state.service.ts:1161,1294-1322`; `task-prompt-bridge.service.ts:38-46`; `chat.store.ts:85`
+- Plan reference: implementation-plan.md:1067-1077, :1085 (bridge spec)
+- Pattern to follow: `app-state.service.ts:1168` (`requestCanvasSession`) and the
+  signal-bridge fields near `:423-442`; `task-prompt-bridge.service.ts:44-53`
+  (effect + consume); `chat.store.ts:88`; grid/single routing as in
+  `app-shell.component.ts:619-626` (line anchors refreshed after C1.2)
 - Quality requirements: `setCurrentView('chat')`; grid → `requestCanvasSession`;
   single → `chatStore.switchSession`.
 - Validation notes: the bridge spec covers grid vs single routing.
@@ -1986,7 +2027,9 @@ dropped` line and returns.
   `code-logic-review-C2.2-r1.md` APPROVED 10/10.
 - Visual review: `visual-review-C2.2.md` round 1 APPROVED 8.5/10, dark `anubis` and light
   `anubis-light` at 360/800/1400. Evidence: `visual-c22/round1/` plus scripts
-  `visual-c22/run2.mjs` and `visual-c22/tab2.mjs`.
+  `visual-c22/run2.mjs` and `visual-c22/tab2.mjs`. The round-0 shots and scripts in
+  `visual-c22/` (cited by the superseded round-0 section of the review) were committed
+  later with the C1.2 docs (about 0.9 MB).
 - Follow-up (accepted moderate, open, not blocking): on the first board visit the
   sessions row arrives after the links fetch and grows each linked card by 48px
   (measured CLS 0.029, under the 0.1 threshold). A fix would reserve the row height or
