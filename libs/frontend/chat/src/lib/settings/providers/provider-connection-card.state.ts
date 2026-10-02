@@ -1,4 +1,4 @@
-import type { EffectiveRouteProvider } from '@ptah-extension/shared';
+import type { ConnectionCheckRecord, EffectiveRouteProvider } from '@ptah-extension/shared';
 
 /**
  * Pure derivations for the compact connection card (plan :627-636, design-spec state table): the
@@ -31,7 +31,8 @@ export type ResolvedConnectionState =
   | 'not-configured'
   | 'checking'
   | 'not-checked'
-  | 'check-unavailable';
+  | 'check-unavailable'
+  | 'check-failed';
 
 export type ConnectionCardTone = 'neutral' | 'primary' | 'warning' | 'error';
 
@@ -58,6 +59,26 @@ export function resolveConnectionState(
   }
 }
 
+/** The states a recorded failed check overrides: they claim, or do not deny, that the connection works. */
+const CHECK_FAILED_OVERRIDES: ReadonlySet<ResolvedConnectionState> = new Set(['active', 'connected', 'not-checked', 'check-unavailable']);
+
+/**
+ * Batch 53.1 (B38-1): the connection's last recorded check (`route.providers[].lastCheck`) on the card, as the drawer
+ * shows it. A failed record that is not older than the route's own probe wins over Active, Connected, Not checked and
+ * Check unavailable: "Check failed" (D15: never verified after a failure). A more specific state (Needs API key,
+ * Unreachable, Not installed, …) or a running check is kept. A later verified record replaces the failed one, so it
+ * clears. An unreadable time on either side counts as "not older" for the check: a failure is never hidden.
+ */
+export function applyRecordedCheck(
+  state: ResolvedConnectionState,
+  check: ConnectionCheckRecord | null,
+  routeProbedAt: string | null,
+): ResolvedConnectionState {
+  if (!check || check.status !== 'failed' || !CHECK_FAILED_OVERRIDES.has(state)) return state;
+  const checkedAt = Date.parse(check.checkedAt), probedAt = routeProbedAt ? Date.parse(routeProbedAt) : Number.NaN;
+  return !Number.isNaN(checkedAt) && !Number.isNaN(probedAt) && checkedAt < probedAt ? state : 'check-failed';
+}
+
 /** Short status label shown on the card face (prototype `.conn-card` labels). */
 export function connectionStateLabel(state: ResolvedConnectionState, credentialRejected: boolean): string {
   switch (state) {
@@ -71,6 +92,7 @@ export function connectionStateLabel(state: ResolvedConnectionState, credentialR
     case 'checking': return 'Checking…';
     case 'not-checked': return 'Not checked';
     case 'check-unavailable': return 'Check unavailable';
+    case 'check-failed': return 'Check failed';
   }
 }
 
@@ -87,6 +109,7 @@ export function connectionStateCopy(state: ResolvedConnectionState, provider: st
     case 'checking': return `Checking ${provider}…`;
     case 'not-checked': return 'Connection has not been verified.';
     case 'check-unavailable': return 'Could not check this connection. Retry.';
+    case 'check-failed': return `The last check of ${provider} failed. Retry, or open the details for the reason.`;
   }
 }
 
@@ -100,14 +123,15 @@ export function connectionCardTone(state: ResolvedConnectionState, blockedMain: 
     case 'active': return 'primary';
     case 'needs-key':
     case 'unreachable': return 'warning';
-    case 'unauthenticated': return 'error';
+    case 'unauthenticated':
+    case 'check-failed': return 'error';
     default: return 'neutral';
   }
 }
 
 /** The spine marks the states that need the eye: the main agent, and attention states. */
 export function connectionCardSpine(state: ResolvedConnectionState, blockedMain: boolean): boolean {
-  return blockedMain || state === 'active' || state === 'needs-key' || state === 'unreachable';
+  return blockedMain || state === 'active' || state === 'needs-key' || state === 'unreachable' || state === 'check-failed';
 }
 
 /**
@@ -120,7 +144,8 @@ export function connectionStateDot(state: ResolvedConnectionState): string {
     case 'connected': return 'bg-success';
     case 'needs-key':
     case 'unreachable': return 'bg-warning';
-    case 'unauthenticated': return 'bg-error';
+    case 'unauthenticated':
+    case 'check-failed': return 'bg-error';
     case 'checking': return 'bg-info animate-pulse';
     default: return 'bg-base-content-muted';
   }
@@ -157,7 +182,8 @@ export function primaryConnectionAction(
     case 'not-installed': return 'check-again';
     case 'not-configured': return 'set-up';
     case 'not-checked': return options.uncheckable ? null : 'check-connection';
-    case 'check-unavailable': return 'retry';
+    case 'check-unavailable':
+    case 'check-failed': return 'retry';
   }
 }
 

@@ -804,6 +804,46 @@ describe('ProvidersSettingsComponent', () => {
     await render(); await openWizardThroughCatalog(); wizard().externalActionRequested.emit({ providerId: 'github-copilot', action: 'sign-in' });
     expect(state.performExternalAuth).toHaveBeenCalledWith('github-copilot', 'sign-in');
   });
+  describe('the card carries its own check (Batch 53, B38-1/B38-2)', () => {
+    const card = (id: string) => element.querySelector<HTMLElement>(`ptah-provider-connection-card[data-connection-id="${id}"]`);
+    const failedSecond = { status: 'failed' as const, reason: 'credential-rejected' as const, latencyMs: null, checkedAt: '2026-09-22T10:05:00Z' };
+
+    it('a failed recorded check newer than the route probe reads "Check failed" with Retry; Retry checks only this connection', async () => {
+      state.route.set(ready({ ...route, providers: [route.providers[0], { ...route.providers[1], lastCheck: failedSecond }] }));
+      await render();
+      const second = card('second');
+      expect(second?.querySelector('[data-testid="provider-connection-card"]')?.getAttribute('data-state')).toBe('check-failed');
+      expect(second?.querySelector('[data-testid="status-copy"]')?.textContent?.trim()).toBe('Check failed');
+      expect(second?.textContent).not.toContain('rejected');
+      second?.querySelector<HTMLButtonElement>('[data-testid="btn-retry"]')?.click();
+      expect(state.checkProviderConnection).toHaveBeenCalledWith('second');
+      expect(state.checkConnection).not.toHaveBeenCalled();
+      // While its own check runs, the card reads "Checking…" and offers no second start.
+      state.connectionCheck.set({ providerId: 'second', status: 'checking' }); await render();
+      expect(card('second')?.querySelector('[data-testid="provider-connection-card"]')?.getAttribute('data-state')).toBe('checking');
+      expect(card('second')?.querySelector('[data-testid="btn-retry"]')).toBeNull();
+    });
+
+    it('a later verified check clears it; a failed one older than the route probe does not win', async () => {
+      state.route.set(ready({ ...route, providers: [route.providers[0], { ...route.providers[1],
+        lastCheck: { status: 'verified', reason: null, latencyMs: 92, checkedAt: '2026-09-22T10:06:00Z' } }] }));
+      await render();
+      expect(card('second')?.querySelector('[data-testid="status-copy"]')?.textContent?.trim()).toBe('Connected');
+      state.route.set(ready({ ...route, providers: [route.providers[0], { ...route.providers[1],
+        lastCheck: { ...failedSecond, checkedAt: '2026-09-22T09:00:00Z' } }] }));
+      await render();
+      expect(card('second')?.querySelector('[data-testid="status-copy"]')?.textContent?.trim()).toBe('Connected');
+    });
+
+    it('when the route itself failed to load, the card Retry keeps the full re-read', async () => {
+      state.route.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
+      await render();
+      card('second')?.querySelector<HTMLButtonElement>('[data-testid="btn-retry"]')?.click();
+      expect(state.checkConnection).toHaveBeenCalled();
+      expect(state.checkProviderConnection).not.toHaveBeenCalled();
+    });
+  });
+
   it('uses native controls with 36px height and a visible 2px focus outline', async () => {
     // One card in a repair state, so the page shows a card's inline action (a connected card has none since Gate V 28).
     state.route.set(ready({ ...route, providers: [route.providers[0], { id: 'second', type: 'apiKey', status: 'unreachable' }] }));

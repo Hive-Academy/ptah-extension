@@ -8,12 +8,13 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, AlertTriangle } from 'lucide-angular';
 import { NativeCardComponent } from '@ptah-extension/ui';
-import type { SettingScope } from '@ptah-extension/shared';
+import type { ConnectionCheckRecord, SettingScope } from '@ptah-extension/shared';
 import {
   SettingScopeRowComponent,
   type SettingScopeDisplay,
 } from './setting-scope-row.component';
 import {
+  applyRecordedCheck,
   authModalityBadge,
   authModalityLabel,
   connectionAvatarTone,
@@ -137,6 +138,10 @@ export class ProviderConnectionCardComponent {
   readonly isActive = input<boolean>(false);
   /** The active route is blocked and needs the user. */
   readonly isBlocked = input<boolean>(false);
+  /** This connection's last recorded check (`route.providers[].lastCheck`); a newer failed one wins (Batch 53.1). */
+  readonly lastCheck = input<ConnectionCheckRecord | null>(null);
+  /** When the route's own statuses were probed (`route.probedAt`): a failed check older than that does not win. */
+  readonly routeProbedAt = input<string | null>(null);
   /** Kept for API stability: the card always opens the drawer; the drawer gates its own edits. */
   readonly canManage = input<boolean>(true);
   /** CLI name used in the not-installed copy (e.g. 'Claude CLI'). */
@@ -190,8 +195,9 @@ export class ProviderConnectionCardComponent {
   protected readonly avatarClass = computed(() =>
     `flex h-7 w-7 shrink-0 items-center justify-center rounded border text-[11px] font-bold text-base-content ${connectionAvatarTone(this.providerId() || this.displayName())}`);
 
-  readonly resolvedState = computed<ResolvedConnectionState>(() =>
-    resolveConnectionState(this.status(), this.positiveProbeEvidence(), this.isActive(), this.isBlocked()));
+  readonly resolvedState = computed<ResolvedConnectionState>(() => applyRecordedCheck(
+    resolveConnectionState(this.status(), this.positiveProbeEvidence(), this.isActive(), this.isBlocked()),
+    this.lastCheck(), this.routeProbedAt()));
 
   /** The host cannot check this connection (`unknown`/`skipped`): not checkable is not failed. */
   private readonly uncheckable = computed(() => this.status() === 'unknown' || this.status() === 'skipped');

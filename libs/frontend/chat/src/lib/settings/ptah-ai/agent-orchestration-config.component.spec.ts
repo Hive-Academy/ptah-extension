@@ -426,4 +426,47 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       expect(button('policy-redetect')?.disabled).toBe(false);
     });
   });
+
+  describe('order strip: only whole chips, then "+N" (Batch 53.4, B38-4)', () => {
+    let resize: (() => void) | null = null;
+    const original = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    beforeAll(() => {
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+        constructor(callback: () => void) { resize = callback; }
+        observe(): void { /* the test calls the callback */ }
+        disconnect(): void { resize = null; }
+      };
+    });
+    afterAll(() => { (globalThis as { ResizeObserver?: unknown }).ResizeObserver = original; });
+
+    /** Lays the strip out: its width, each chip 60 px, the arrow 10 px, "+N" 25 px (gap-1 = 4 px). */
+    function layOut(stripWidth: number): void {
+      const strip = q('[data-testid="policy-order"]');
+      if (!strip) throw new Error('no strip');
+      Object.defineProperty(strip, 'clientWidth', { configurable: true, value: stripWidth });
+      const measure = strip.nextElementSibling as HTMLElement;
+      for (const node of Array.from(measure.querySelectorAll<HTMLElement>('[data-measure]'))) {
+        const kind = node.getAttribute('data-measure');
+        Object.defineProperty(node, 'offsetWidth', { configurable: true, value: kind === 'chip' ? 60 : kind === 'arrow' ? 10 : 25 });
+      }
+      resize?.();
+      fixture.detectChanges();
+    }
+
+    it('a narrow strip shows the whole chips that fit and "+N" for the rest; the Edit button names the whole order', () => {
+      fixture.detectChanges();
+      // 5 chips need 60·5 + 4·18 = 372 px. In 200 px: two chips (60 + 78) plus "→ +3" (43) = 181 px.
+      layOut(200);
+      expect(chips()).toEqual(['codex', 'antigravity']);
+      expect(q('[data-testid="policy-order-more"]')?.textContent?.trim()).toBe('+3');
+      expect(button('policy-order-edit')?.getAttribute('aria-label')).toContain('5. OpenCode. Edit order');
+    });
+
+    it('a wide strip shows every chip and no "+N"', () => {
+      fixture.detectChanges();
+      layOut(400);
+      expect(chips()).toEqual(['codex', 'antigravity', 'glm-1', 'copilot', 'opencode']);
+      expect(q('[data-testid="policy-order-more"]')).toBeNull();
+    });
+  });
 });

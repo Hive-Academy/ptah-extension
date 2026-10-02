@@ -1,6 +1,6 @@
 import {
-  ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit,
-  afterRenderEffect, computed, effect, inject, input, output, signal, untracked,
+  ChangeDetectionStrategy, Component, ElementRef, Injector, OnDestroy, OnInit,
+  afterNextRender, afterRenderEffect, computed, effect, inject, input, output, signal, untracked,
 } from '@angular/core';
 import {
   ProvidersSettingsStateService, type ProvidersConnection, type ProvidersConnectionDraft, type ProvidersEditContext,
@@ -123,16 +123,16 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
                Columns come from the CONTAINER width (Q-extra-1): 3 in VS Code at 1024 px, 2 in the narrower Electron page. -->
           <div class="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3" data-testid="connections-grid">
             @for (connection of shownConnections(); track connection.id) {
-              <ptah-provider-connection-card [providerId]="connection.id" [providerName]="connection.name" [authModality]="connection.authMode"
+              <ptah-provider-connection-card [attr.data-connection-id]="connection.id" [providerId]="connection.id" [providerName]="connection.name" [authModality]="connection.authMode"
                 [sourceLabel]="connection.hasKey ? 'Key stored locally' : null" [authModalityText]="connection.custom ? 'Custom' : null"
                 [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
-                [isBlocked]="isBlocked(connection.id)"
+                [isBlocked]="isBlocked(connection.id)" [lastCheck]="lastCheckOf(connection.id)" [routeProbedAt]="state.route().data?.probedAt ?? null"
                 [usedByCount]="usage().complete ? (usage().byProvider[connection.id]?.length ?? 0) : null"
                 (detailsRequested)="openDrawer(connection.id)"
                 (setupRequested)="openWizard(connection.id)" (addKeyRequested)="openWizard(connection.id)"
                 (replaceKeyRequested)="openWizard(connection.id)" (signInRequested)="externalAction(connection.id, 'sign-in')"
-                (retryRequested)="state.checkConnection()" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
-                (checkConnectionRequested)="state.checkConnection()" />
+                (retryRequested)="checkFromCard(connection.id)" (checkAgainRequested)="externalAction(connection.id, 'cli-check')"
+                (checkConnectionRequested)="checkFromCard(connection.id)" />
             }
             <!-- Prototype tile: the catalog modal from inside the grid. -->
             <button type="button" [class]="'flex min-h-[80px] items-center justify-center gap-2 rounded-xl border border-dashed border-base-300 p-3 text-xs font-medium text-base-content hover:border-primary ' + focusRing"
@@ -217,6 +217,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   readonly focusTarget = input<ProvidersSettingsFocusTarget | null>(null);
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
   protected readonly control = CONTROL;
   protected readonly globalTarget: readonly SettingScope[] = ['global'];
   /** D16 badges of the Main Agent node, in field order: model, effort, authentication, provider (Batch 52.3). */
@@ -449,6 +450,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
       : key === this.state.mainSources().data?.effort?.key ? 'reasoning effort' : 'provider';
   }
   protected connectionStatus(entry: ProvidersConnection): ProviderConnectionCardStatus {
+    // Batch 53.2: this connection's own check is running (from its card or its drawer).
+    if (this.drawerCheckRunning(entry.id)) return 'checking';
     if (this.activeId() === entry.id) return 'active';
     if (this.state.route().status !== 'ready') return this.state.route().status === 'loading' ? 'checking' : 'check-unavailable';
     return this.state.route().data?.providers.find((provider) => provider.id === entry.id)?.status ?? 'not-checked';
@@ -462,6 +465,25 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     const own = check?.providerId === entry.id ? check.status : null;
     if (own === 'checking') return 'checking';
     return this.state.route().status === 'error' || own === 'failed' ? 'check-failed' : this.connectionStatus(entry);
+  }
+  /**
+   * Batch 53.2 (B38-2): a card's Check connection / Retry checks only its own connection, as the drawer does
+   * (`checkProviderConnection`: `auth:checkConnection` for API-key, custom, CLI and sign-in connections, which records
+   * `lastCheck`, then the route re-read; local servers and key-optional routes the host cannot check, such as Ollama,
+   * LM Studio and Ollama Cloud, get the route re-read alone). While the route itself failed to load, the card reads
+   * "Check unavailable" and Retry keeps the full re-read, which is what can repair it. D3: nothing starts while a check
+   * or a save runs. The action leaves the card face while it reads "Checking…", so focus moves to the card itself.
+   */
+  protected checkFromCard(id: string): void {
+    if (this.state.route().status !== 'ready') {
+      void this.state.checkConnection();
+      return;
+    }
+    if (this.saving() || this.state.connectionCheck()?.status === 'checking') return;
+    void this.state.checkProviderConnection(id);
+    afterNextRender(() => this.element.nativeElement
+      .querySelector<HTMLElement>(`ptah-provider-connection-card[data-connection-id="${id}"] [role="button"]`)?.focus(),
+    { injector: this.injector });
   }
   protected drawerCheckRunning(id: string): boolean {
     const check = this.state.connectionCheck();

@@ -1,5 +1,6 @@
 import {
-  ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, computed, inject, signal,
+  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, signal,
+  untracked, viewChild,
 } from '@angular/core';
 import { ChevronDown, ChevronUp, LucideAngularModule, Pencil, RefreshCw, X } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
@@ -8,6 +9,10 @@ import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.
 import { cliMatrixRows } from './cli-matrix-rows';
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+/** One order chip (the strip, its measuring copy and "+N"). */
+const CHIP = 'shrink-0 whitespace-nowrap rounded border border-base-300 bg-base-100 px-1.5 py-0.5 font-bold';
+/** `gap-1` between the strip's items. */
+const ORDER_GAP_PX = 4;
 /**
  * ▲/▼ in the order popover: 24×24 px targets (WCAG 2.5.8). `aria-disabled` looks like `disabled` but keeps focus (Batch
  * 36: a native `disabled` on the focused button during a save dropped focus to the page, where Esc missed the popover).
@@ -60,19 +65,30 @@ interface OrderChip {
             (input)="previewMaxConcurrent($event)" (change)="saveMaxConcurrent($event)" />
         </div>
 
-        <div class="flex min-w-0 flex-1 items-center gap-1.5">
+        <div class="relative flex min-w-0 flex-1 items-center gap-1.5">
           <span class="shrink-0 whitespace-nowrap text-xs font-semibold text-base-content-muted" aria-hidden="true">Order:</span>
           @if (chips().length) {
-            <!-- Read-only chips (the prototype's row); they fade out at the end in a narrow box. The Edit button names the
-                 whole order for screen readers. -->
-            <span class="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs [mask-image:linear-gradient(to_right,black_calc(100%_-_0.75rem),transparent)]"
-              aria-hidden="true" data-testid="policy-order">
-              @for (chip of chips(); track chip.id; let i = $index, first = $first) {
+            <!-- Read-only chips (the prototype's row). Only whole chips that fit are shown, then "+N" for the rest
+                 (Batch 53.4, B38-4: never a chip cut mid-glyph). The Edit button names the whole order for screen readers,
+                 and its popover lists it. -->
+            <span #orderStrip class="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs" aria-hidden="true" data-testid="policy-order">
+              @for (chip of shownChips(); track chip.id; let i = $index, first = $first) {
                 @if (!first) { <span class="shrink-0 text-xs text-base-content-muted">→</span> }
-                <span class="shrink-0 whitespace-nowrap rounded border border-base-300 bg-base-100 px-1.5 py-0.5 font-bold"
-                  [class.text-base-content]="chip.enabled" [class.text-base-content-muted]="!chip.enabled"
+                <span [class]="chipClass" [class.text-base-content]="chip.enabled" [class.text-base-content-muted]="!chip.enabled"
                   [attr.data-testid]="'policy-order-chip-' + chip.id">{{ i + 1 }}. {{ chip.name }}</span>
               }
+              @if (hiddenCount()) {
+                @if (shownChips().length) { <span class="shrink-0 text-xs text-base-content-muted">→</span> }
+                <span [class]="chipClass + ' text-base-content'" [title]="orderSummary()" data-testid="policy-order-more">+{{ hiddenCount() }}</span>
+              }
+            </span>
+            <!-- Measuring copy of every chip (invisible, out of the flow): the widths decide how many whole chips fit. -->
+            <span #orderMeasure class="pointer-events-none invisible absolute left-0 top-0 flex items-center gap-1 whitespace-nowrap text-xs" aria-hidden="true">
+              <span data-measure="arrow" class="text-xs">→</span>
+              @for (chip of chips(); track chip.id; let i = $index) {
+                <span data-measure="chip" [class]="chipClass">{{ i + 1 }}. {{ chip.name }}</span>
+              }
+              <span data-measure="more" [class]="chipClass">+{{ chips().length }}</span>
             </span>
             <ptah-native-popover class="shrink-0" [isOpen]="orderOpen()" placement="bottom-end" [hasBackdrop]="true"
               backdropClass="transparent" (closed)="closeOrder()" (opened)="focusFirstMove()">
@@ -176,6 +192,50 @@ export class AgentOrchestrationConfigComponent {
   /** Both lists must be read: an order written from one of them would drop the other's ids. No move while saving. */
   protected readonly canReorder = computed(() => this.canWrite() && !this.feedback.saving()
     && this.state.orchestration().data !== null && this.state.cliAgents().data !== null);
+
+  /** How many whole chips fit the strip (Batch 53.4); all of them until measured (and in a layout-less test DOM). */
+  private readonly fittingCount = signal<number | null>(null);
+  protected readonly chipClass = CHIP;
+  protected readonly shownChips = computed(() => {
+    const count = this.fittingCount();
+    return count === null ? this.chips() : this.chips().slice(0, count);
+  });
+  protected readonly hiddenCount = computed(() => this.chips().length - this.shownChips().length);
+  private readonly orderStrip = viewChild<ElementRef<HTMLElement>>('orderStrip');
+  private readonly orderMeasure = viewChild<ElementRef<HTMLElement>>('orderMeasure');
+
+  constructor() {
+    // One observer for the strip (released on destroy): a resize, or a changed list, recounts the chips that fit.
+    const destroyRef = inject(DestroyRef);
+    let observer: ResizeObserver | null = null;
+    effect(() => {
+      this.chips();
+      const strip = this.orderStrip()?.nativeElement;
+      untracked(() => afterNextRender(() => this.measureChips(), { injector: this.injector }));
+      if (!strip || observer || typeof ResizeObserver === 'undefined') return;
+      observer = new ResizeObserver(() => this.measureChips());
+      observer.observe(strip);
+    });
+    destroyRef.onDestroy(() => observer?.disconnect());
+  }
+
+  /** Whole chips that fit the strip's width; when not all fit, room is kept for "→ +N". */
+  private measureChips(): void {
+    const strip = this.orderStrip()?.nativeElement, measure = this.orderMeasure()?.nativeElement;
+    if (!strip || !measure) return;
+    const available = strip.clientWidth;
+    const widths = Array.from(measure.querySelectorAll<HTMLElement>('[data-measure="chip"]')).map((node) => node.offsetWidth);
+    const arrow = measure.querySelector<HTMLElement>('[data-measure="arrow"]')?.offsetWidth ?? 0;
+    const more = measure.querySelector<HTMLElement>('[data-measure="more"]')?.offsetWidth ?? 0;
+    if (!available || widths.some((width) => width === 0)) { this.fittingCount.set(null); return; }
+    const step = (i: number) => widths[i] + (i > 0 ? arrow + 2 * ORDER_GAP_PX : 0);
+    const total = widths.reduce((sum, _width, i) => sum + step(i), 0);
+    if (total <= available) { this.fittingCount.set(null); return; }
+    let used = 0, count = 0;
+    const tail = (shown: number) => (shown > 0 ? arrow + 2 * ORDER_GAP_PX : 0) + more;
+    while (count < widths.length && used + step(count) + tail(count + 1) <= available) used += step(count++);
+    this.fittingCount.set(count);
+  }
 
   protected readonly orderOpen = signal(false);
   protected readonly orderError = signal<string | null>(null);
