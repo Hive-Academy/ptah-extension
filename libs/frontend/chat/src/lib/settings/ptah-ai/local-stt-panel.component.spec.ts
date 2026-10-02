@@ -366,7 +366,7 @@ describe('LocalSttPanelComponent', () => {
   ])(
     'shows a fixed sentence, never host text, when the download fails with %s (F1)',
     async (_shape, failure) => {
-      rpc.call.mockImplementation(failure);
+      (rpc.call as jest.Mock).mockImplementation(failure);
       const component = mount(localConfig({ whisperModel: 'small.en' }));
 
       byTestId<HTMLButtonElement>('local-stt-download-btn').click();

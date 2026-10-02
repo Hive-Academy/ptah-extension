@@ -9,7 +9,7 @@ import {
 
 function ready<T>(data: T): ProvidersSettingsSection<T> { return { status: 'ready', data, error: null }; }
 function loading<T>(): ProvidersSettingsSection<T> { return { status: 'loading', data: null, error: null }; }
-function failed<T>(): ProvidersSettingsSection<T> { return { status: 'error', data: null, error: 'x' }; }
+function failed<T>(): ProvidersSettingsSection<T> { return { status: 'error', data: null, error: 'Could not load this section. Retry.' }; }
 
 const ROUTE: ProvidersEffectiveRoute = {
   route: 'cli', ready: true, blockers: [], driverProviderId: 'claude-cli', resolvedAuthModality: 'cli',

@@ -40,9 +40,15 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import type { TabState } from '@ptah-extension/chat-types';
-import type { ExecutionChatMessage } from '@ptah-extension/shared';
+import type { ExecutionChatMessage, SessionId } from '@ptah-extension/shared';
 
-function makeTab(overrides: Partial<TabState> = {}): TabState {
+/** Test tabs take plain-string ids: the brands (TabId, SessionId) are applied by the cast below. */
+function makeTab(
+  overrides: Omit<Partial<TabState>, 'id' | 'claudeSessionId'> & {
+    id?: string;
+    claudeSessionId?: string | null;
+  } = {},
+): TabState {
   return {
     id: 'tab-1',
     title: 'Session',
@@ -395,7 +401,7 @@ describe('MessageSenderService', () => {
       it('also removes the bubble when a rejected queue flush re-queues the text', async () => {
         failContinue({ success: true, data: { success: false, error: 'no' } });
 
-        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
           tabId: 'tab-1',
         });
 
@@ -409,7 +415,7 @@ describe('MessageSenderService', () => {
       it('also removes the bubble when a queue flush throws', async () => {
         failContinue(new Error('socket closed'), true);
 
-        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
           tabId: 'tab-1',
         });
 
@@ -423,7 +429,7 @@ describe('MessageSenderService', () => {
       it('rolls nothing back when the continue is delivered', async () => {
         failContinue({ success: true });
 
-        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
           tabId: 'tab-1',
         });
 
@@ -455,7 +461,7 @@ describe('MessageSenderService', () => {
 
         const pending = service.continueExistingSessionForQueueFlush(
           'queued',
-          'sess-X',
+          'sess-X' as SessionId,
           { tabId: 'tab-1' },
         );
         await continueReached;
@@ -725,7 +731,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe(
+      expect(payload['prompt']).toBe(
         'COUNCIL FRAMING\nObjective:\n\ncompare the two designs',
       );
 
@@ -743,7 +749,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe('plain question');
+      expect(payload['prompt']).toBe('plain question');
     });
 
     it('flags a re-auth banner when chat:start returns AUTH_REQUIRED', async () => {
@@ -787,10 +793,10 @@ describe('MessageSenderService', () => {
         Record<string, unknown>,
       ];
       expect(method).toBe('chat:start');
-      expect(payload.prompt).toBe('hello');
+      expect(payload['prompt']).toBe('hello');
       // workspacePath is either omitted entirely or explicitly undefined;
       // both forms let the backend resolve via IWorkspaceProvider.
-      expect(payload.workspacePath).toBeUndefined();
+      expect(payload['workspacePath']).toBeUndefined();
       // No "No workspace path" warning — that early-return was the bug.
       expect(consoleWarn).not.toHaveBeenCalledWith(
         expect.stringContaining('No workspace path'),
@@ -902,7 +908,7 @@ describe('MessageSenderService', () => {
       // workspacePath must be omitted (or undefined) so backend falls back
       // to IWorkspaceProvider.getWorkspaceRoot().
       expect(
-        (continueCall?.[1] as Record<string, unknown>).workspacePath,
+        (continueCall?.[1] as Record<string, unknown>)['workspacePath'],
       ).toBeUndefined();
       // And we must NOT have started a new conversation — the contract is
       // "send anyway, let the backend surface the error".
@@ -971,7 +977,7 @@ describe('MessageSenderService', () => {
       const existing = new AbortController();
       tabManager.getAbortSignal.mockReturnValue(existing.signal);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
         tabId: 'tab-1',
       });
 
@@ -989,7 +995,7 @@ describe('MessageSenderService', () => {
     it('sends with no signal when no existing controller is tracked (already finalized)', async () => {
       tabManager.getAbortSignal.mockReturnValue(undefined);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
         tabId: 'tab-1',
       });
 
@@ -1011,7 +1017,7 @@ describe('MessageSenderService', () => {
     it('forwards files, images, and effort to the chat:continue payload', async () => {
       tabManager.getAbortSignal.mockReturnValue(undefined);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
         tabId: 'tab-1',
         files: ['a.ts', 'b.ts'],
         images: [{ data: 'base64', mediaType: 'image/png' }],
@@ -1037,7 +1043,7 @@ describe('MessageSenderService', () => {
       const existing = new AbortController();
       tabManager.getAbortSignal.mockReturnValue(existing.signal);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
         tabId: 'tab-1',
       });
 
@@ -1086,7 +1092,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe('plain message');
+      expect(payload['prompt']).toBe('plain message');
     });
 
     it('prefixes the outgoing prompt with `ultracode:` when enabled', async () => {
@@ -1098,7 +1104,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe('ultracode: refactor the auth module');
+      expect(payload['prompt']).toBe('ultracode: refactor the auth module');
     });
 
     it('does not double-stamp content that already carries the keyword', async () => {
@@ -1110,7 +1116,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe('ultracode: already tagged');
+      expect(payload['prompt']).toBe('ultracode: already tagged');
     });
   });
 });

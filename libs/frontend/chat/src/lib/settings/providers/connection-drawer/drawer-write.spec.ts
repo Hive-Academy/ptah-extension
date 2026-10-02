@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import type { ProvidersSettingsCommit } from '@ptah-extension/core';
 import {
   DRAWER_WRITE_BROKEN, DRAWER_WRITE_NO_CONTEXT, DRAWER_WRITE_REFUSED, runDrawerWrite, type DrawerWriteOutcome,
@@ -7,16 +8,16 @@ const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], 
 const CONTEXT = { scopeKey: 'workspace', activePath: '/workspace' };
 
 describe('runDrawerWrite', () => {
-  let commit: ProvidersSettingsCommit;
+  const commit = signal<ProvidersSettingsCommit>(idle);
   let published: DrawerWriteOutcome[];
-  const state = { reviewContext: () => CONTEXT as typeof CONTEXT | null, commit: () => commit };
-  beforeEach(() => { commit = { ...idle, status: 'saved', saved: ['Earlier field'] }; published = []; });
+  const state = { reviewContext: () => CONTEXT as typeof CONTEXT | null, commit };
+  beforeEach(() => { commit.set({ ...idle, status: 'saved', saved: ['Earlier field'] }); published = []; });
   const publish = (outcome: DrawerWriteOutcome) => published.push(outcome);
 
   it('publishes saving, then the commit THIS write left', async () => {
     await runDrawerWrite(state, async (context) => {
       expect(context).toBe(CONTEXT);
-      commit = { ...idle, status: 'failed', message: 'Stored key was not saved.' };
+      commit.set({ ...idle, status: 'failed', message: 'Stored key was not saved.' });
       return true;
     }, publish);
     expect(published).toEqual([{ status: 'saving', message: null }, { status: 'failed', message: 'Stored key was not saved.' }]);

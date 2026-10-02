@@ -414,7 +414,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
     });
 
     it.each([
-      ['a failed detection', async (s: StateStub) => { s.cliDetection.set({ status: 'error', data: null, error: HOST_ERROR }); }],
+      ['a failed detection', async (s: StateStub) => { s.cliDetection.set({ status: 'error', data: null, error: HOST_ERROR as string as ProvidersSettingsSection<unknown>['error'] }); }],
       ['a thrown command', async () => { throw new Error(HOST_ERROR); }],
     ])('shows a fixed sentence after %s, never the host text', async (_label, run) => {
       state.redetectClis.mockImplementation(() => run(state));

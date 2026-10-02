@@ -55,7 +55,12 @@ describe('SystemPromptDrawerComponent', () => {
       frameworks: ['Angular', 'NestJS'],
       languages: ['TypeScript'],
       projectType: 'Monorepo',
+      buildTools: [],
+      testingFrameworks: [],
+      additionalTools: [],
+      configFiles: [],
     },
+    cacheValid: true,
   };
 
   async function render(
@@ -130,7 +135,13 @@ describe('SystemPromptDrawerComponent', () => {
 
   describe('empty state (A18)', () => {
     it('renders empty-state guidance and disables action buttons when no prompt generated', async () => {
-      await render({ enabled: false, hasGeneratedPrompt: false });
+      await render({
+        enabled: false,
+        hasGeneratedPrompt: false,
+        generatedAt: null,
+        detectedStack: null,
+        cacheValid: false,
+      });
 
       const emptyState = element.querySelector('[data-testid="system-prompt-empty-state"]');
       expect(emptyState).not.toBeNull();

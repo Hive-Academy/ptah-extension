@@ -41,7 +41,7 @@ describe('VscodeLmConfigComponent', () => {
     displayName: 'VS Code Language Model',
     isConfigured: true,
     defaultModel: 'gpt-4o',
-    capabilities: ['chat', 'code-completion'] as ProviderItem['capabilities'],
+    capabilities: ['text-chat', 'structured-output'],
   };
 
   beforeEach(() => {
@@ -133,8 +133,8 @@ describe('VscodeLmConfigComponent', () => {
       expect(element.querySelector('section.card')).not.toBeNull();
       expect(element.textContent).toContain('VS Code Language Model');
       expect(element.textContent).toContain('Configured');
-      expect(element.textContent).toContain('Chat');
-      expect(element.textContent).toContain('Code Completion');
+      expect(element.textContent).toContain('Text Chat');
+      expect(element.textContent).toContain('Structured Output');
       expect(element.textContent).toContain('No API key required');
 
       // Outline badges
@@ -340,7 +340,7 @@ describe('VscodeLmConfigComponent', () => {
     });
 
     it('Minor 10: with no previous model there is no Undo, so an empty model id is never written', async () => {
-      providersSignal.set([{ ...sampleVscodeProvider, defaultModel: undefined }]);
+      providersSignal.set([{ ...sampleVscodeProvider, defaultModel: '' }]);
       await render();
 
       await component.onVsCodeModelSelect('claude-3-5-sonnet');

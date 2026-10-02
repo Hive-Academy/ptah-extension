@@ -294,7 +294,7 @@ describe('AdvancedSettingsComponent', () => {
   it('disables the export button while exporting', async () => {
     let finishExport: () => void = () => void 0;
     rpc.call.mockImplementation(
-      () => new Promise((resolve) => { finishExport = () => resolve(rpcSuccess(undefined)); }),
+      () => new Promise((resolve) => { finishExport = () => resolve(rpcSuccess({ success: true })); }),
     );
     await render(false);
     const exportBtn = element.querySelector<HTMLButtonElement>('[aria-label="Export settings"]');

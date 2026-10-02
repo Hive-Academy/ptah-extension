@@ -48,7 +48,7 @@ describe('LocalTtsPanelComponent', () => {
     rpc: MockRpcService,
     routes: Record<string, () => unknown>,
   ): void {
-    rpc.call.mockImplementation((method: string) => {
+    (rpc.call as jest.Mock).mockImplementation((method: string) => {
       const handler = routes[method];
       if (handler) return Promise.resolve(handler());
       return Promise.resolve(rpcSuccess({ ok: true }));
@@ -555,7 +555,7 @@ describe('LocalTtsPanelComponent', () => {
   it('disables save triggers while a write is in flight (D3)', async () => {
     const rpc = createMockRpcService();
     let resolveWrite!: (result: RpcResult<{ ok: boolean }>) => void;
-    rpc.call.mockImplementation((method: string) => {
+    (rpc.call as jest.Mock).mockImplementation((method: string) => {
       if (method === 'voice:listVoices') return Promise.resolve(VOICES());
       if (method !== 'voice:setTtsConfig') {
         return Promise.resolve(rpcSuccess({ ok: true }));
