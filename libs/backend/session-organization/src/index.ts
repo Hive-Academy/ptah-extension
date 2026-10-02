@@ -20,6 +20,7 @@ export { SessionOrganizationCaptureService } from './lib/session-organization-ca
 export type {
   SessionOrganizationLifecycleSink,
   SessionOrganizationMetadataEvents,
+  SessionOrganizationPostToolUseSource,
   SessionOrganizationSessionIdResolvedSource,
 } from './lib/session-organization-capture.service';
 

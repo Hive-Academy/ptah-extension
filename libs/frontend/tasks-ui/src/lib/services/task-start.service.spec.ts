@@ -125,6 +125,7 @@ describe('TaskStartService', () => {
     expect(lastPromptRequest?.prompt).toContain('/orchestrate TASK_2026_201');
     expect(lastPromptRequest?.prompt).toContain(ISOLATION_HINT);
     expect(lastPromptRequest?.prompt).toContain('worktree');
+    expect(lastPromptRequest?.taskId).toBe('TASK_2026_201');
 
     lastPromptRequest?.resolve?.({ success: true });
     await pending;
@@ -183,6 +184,7 @@ describe('TaskStartService', () => {
     await flush();
 
     expect(lastPromptRequest?.prompt).toBe('/orchestrate TASK_2026_208');
+    expect(lastPromptRequest?.taskId).toBe('TASK_2026_208');
     lastPromptRequest?.resolve?.({ success: true });
     await pending;
   });
