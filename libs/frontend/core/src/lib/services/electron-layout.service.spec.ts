@@ -44,6 +44,7 @@ function buildCoordinator() {
     clearWorkspace: jest.fn(),
     removeWorkspaceState: jest.fn(),
     getStreamingSessionIds: jest.fn().mockReturnValue([]),
+    getSessionIds: jest.fn().mockReturnValue([]),
     confirm: jest.fn().mockResolvedValue(true),
   };
 }
@@ -1797,6 +1798,252 @@ describe('ElectronLayoutService — removeFolder()', () => {
     await expect(service.removeFolder(0)).resolves.toBe(false);
 
     expect(service.workspaceFolders()).toHaveLength(1);
+  });
+
+  // TASK_2026_592: removing a folder ends EVERY session of that workspace
+  // (idle ones too), only after the backend accepted the removal; switching
+  // never ends a session.
+  describe('ends the sessions of the removed workspace', () => {
+    /** Session ids per workspace path, served by `getSessionIds`. */
+    function serveSessionIds(byPath: Record<string, string[]>): void {
+      coordinator.getSessionIds = jest.fn((path: string) => byPath[path] ?? []);
+    }
+
+    const callsOf = (method: string): unknown[][] =>
+      (rpc.call as jest.Mock).mock.calls.filter(
+        (c: unknown[]) => c[0] === method,
+      );
+    const abortedIds = (): string[] =>
+      callsOf('chat:abort').map(
+        (c) => (c[1] as { sessionId: string }).sessionId,
+      );
+    /** Index of the first call to `method` (and session) in call order. */
+    const orderOf = (method: string, sessionId?: string): number =>
+      (rpc.call as jest.Mock).mock.calls.findIndex(
+        (c: unknown[]) =>
+          c[0] === method &&
+          (sessionId === undefined ||
+            (c[1] as { sessionId?: string }).sessionId === sessionId),
+      );
+
+    function seedFolders(paths: string[], active = 0): void {
+      (service as never)['_workspaceFolders'].set(
+        paths.map((path) => ({ path, name: path.slice(1) })),
+      );
+      (service as never)['_activeWorkspaceIndex'].set(active);
+    }
+
+    it('idle-only removal sends one chat:abort per idle session, after workspace:removeFolder', async () => {
+      setup(rpcThatRemoves());
+      serveSessionIds({ '/a': ['s-1', 's-2'], '/b': [] });
+      seedFolders(['/a', '/b']);
+
+      await expect(service.removeFolder(0)).resolves.toBe(true);
+
+      expect(coordinator.confirm).not.toHaveBeenCalled();
+      expect(abortedIds()).toEqual(['s-1', 's-2']);
+      const removeAt = orderOf('workspace:removeFolder');
+      expect(removeAt).toBeGreaterThanOrEqual(0);
+      expect(orderOf('chat:abort', 's-1')).toBeGreaterThan(removeAt);
+      expect(orderOf('chat:abort', 's-2')).toBeGreaterThan(removeAt);
+    });
+
+    it('reads the session ids before cleanup destroys the tabs', async () => {
+      setup(rpcThatRemoves());
+      const tabsByPath: Record<string, string[]> = { '/a': ['s-1'] };
+      coordinator.getSessionIds = jest.fn(
+        (path: string) => tabsByPath[path] ?? [],
+      );
+      coordinator.removeWorkspaceState = jest.fn((path: string) => {
+        delete tabsByPath[path];
+      });
+      seedFolders(['/a', '/b']);
+
+      await expect(service.removeFolder(0)).resolves.toBe(true);
+
+      expect(coordinator.removeWorkspaceState).toHaveBeenCalledWith('/a');
+      expect(abortedIds()).toEqual(['s-1']);
+    });
+
+    it('mixed streaming + idle sends each session exactly once', async () => {
+      setup(rpcThatRemoves());
+      coordinator.getStreamingSessionIds = jest.fn().mockReturnValue(['s-1']);
+      serveSessionIds({ '/a': ['s-1', 's-2'], '/b': [] });
+      seedFolders(['/a', '/b']);
+
+      await expect(service.removeFolder(0)).resolves.toBe(true);
+
+      expect(coordinator.confirm).toHaveBeenCalledTimes(1);
+      expect([...abortedIds()].sort()).toEqual(['s-1', 's-2']);
+      // The streaming abort precedes the removal; the idle one follows it.
+      const removeAt = orderOf('workspace:removeFolder');
+      expect(orderOf('chat:abort', 's-1')).toBeLessThan(removeAt);
+      expect(orderOf('chat:abort', 's-2')).toBeGreaterThan(removeAt);
+    });
+
+    it('sends nothing when the streaming confirm is cancelled', async () => {
+      setup(rpcThatRemoves());
+      coordinator.getStreamingSessionIds = jest.fn().mockReturnValue(['s-1']);
+      coordinator.confirm = jest.fn().mockResolvedValue(false);
+      serveSessionIds({ '/a': ['s-1', 's-2'] });
+      seedFolders(['/a', '/b']);
+
+      await expect(service.removeFolder(0)).resolves.toBe(false);
+
+      expect(callsOf('chat:abort')).toHaveLength(0);
+      expect(callsOf('workspace:removeFolder')).toHaveLength(0);
+    });
+
+    it('sends no idle chat:abort when the backend rejects the removal', async () => {
+      const rejecting = buildRpc();
+      rejecting.call = jest.fn(async (method: string) => {
+        if (method === 'workspace:removeFolder')
+          return new RpcResult(false, undefined, 'error');
+        return rpcSuccess(undefined);
+      });
+      setup(rejecting);
+      serveSessionIds({ '/a': ['s-1'] });
+      seedFolders(['/a', '/b']);
+      const consoleError = jest.spyOn(console, 'error').mockImplementation();
+
+      await expect(service.removeFolder(0)).resolves.toBe(false);
+
+      expect(callsOf('chat:abort')).toHaveLength(0);
+      expect(coordinator.removeWorkspaceState).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
+
+    it('sends no idle chat:abort when the removal RPC throws', async () => {
+      const throwing = buildRpc();
+      throwing.call = jest.fn(async (method: string) => {
+        if (method === 'workspace:removeFolder') throw new Error('ipc down');
+        return rpcSuccess(undefined);
+      });
+      setup(throwing);
+      serveSessionIds({ '/a': ['s-1'] });
+      seedFolders(['/a', '/b']);
+      const consoleError = jest.spyOn(console, 'error').mockImplementation();
+
+      await expect(service.removeFolder(0)).resolves.toBe(false);
+
+      expect(callsOf('chat:abort')).toHaveLength(0);
+      consoleError.mockRestore();
+    });
+
+    it('removing the only workspace still ends its sessions', async () => {
+      setup(rpcThatRemoves());
+      serveSessionIds({ '/only': ['s-1'] });
+      seedFolders(['/only']);
+
+      await expect(service.removeFolder(0)).resolves.toBe(true);
+
+      expect(abortedIds()).toEqual(['s-1']);
+      expect(coordinator.clearWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a session that is also open in a workspace that stays', async () => {
+      setup(rpcThatRemoves());
+      serveSessionIds({ '/a': ['s-1', 's-shared'], '/b': ['s-shared'] });
+      seedFolders(['/a', '/b']);
+
+      await expect(service.removeFolder(0)).resolves.toBe(true);
+
+      expect(abortedIds()).toEqual(['s-1']);
+    });
+
+    it('a failing idle chat:abort is logged and never blocks the removal', async () => {
+      const abortFails = rpcThatRemoves();
+      const base = abortFails.call;
+      abortFails.call = jest.fn(async (method: string) => {
+        if (method === 'chat:abort') throw new Error('backend down');
+        return base(method);
+      });
+      setup(abortFails);
+      serveSessionIds({ '/a': ['s-1'] });
+      seedFolders(['/a', '/b']);
+      const consoleError = jest.spyOn(console, 'error').mockImplementation();
+
+      await expect(service.removeFolder(0)).resolves.toBe(true);
+      await Promise.resolve();
+
+      expect(service.workspaceFolders().map((f) => f.path)).toEqual(['/b']);
+      expect(coordinator.removeWorkspaceState).toHaveBeenCalledWith('/a');
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to abort session s-1'),
+        expect.any(Error),
+      );
+      consoleError.mockRestore();
+    });
+
+    it('keeps a streaming session also open in a staying workspace; ends one only the removed workspace streams', async () => {
+      setup(rpcThatRemoves());
+      coordinator.getStreamingSessionIds = jest
+        .fn()
+        .mockReturnValue(['s-shared', 's-only']);
+      serveSessionIds({ '/a': ['s-shared'], '/b': ['s-shared', 's-only'] });
+      seedFolders(['/a', '/b'], 1);
+
+      await expect(service.removeFolder(1)).resolves.toBe(true);
+
+      expect(coordinator.confirm).toHaveBeenCalledTimes(1);
+      expect(abortedIds()).toEqual(['s-only']);
+      // The streaming abort still runs before the removal call.
+      expect(orderOf('chat:abort', 's-only')).toBeLessThan(
+        orderOf('workspace:removeFolder'),
+      );
+    });
+
+    it('logs a failed chat:abort result with console.warn and still completes the removal', async () => {
+      const abortRefused = rpcThatRemoves();
+      const base = abortRefused.call;
+      const refused = new RpcResult(false, undefined, 'session busy');
+      abortRefused.call = jest.fn(async (method: string) => {
+        if (method === 'chat:abort') return refused;
+        return base(method);
+      });
+      setup(abortRefused);
+      coordinator.getStreamingSessionIds = jest.fn().mockReturnValue(['s-1']);
+      serveSessionIds({ '/a': ['s-1', 's-2'], '/b': [] });
+      seedFolders(['/a', '/b']);
+      const consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
+
+      await expect(service.removeFolder(0)).resolves.toBe(true);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('did not abort session s-1'),
+        refused,
+      );
+      expect(consoleWarn).toHaveBeenCalledWith(
+        expect.stringContaining('did not abort session s-2'),
+        refused,
+      );
+      expect(service.workspaceFolders().map((f) => f.path)).toEqual(['/b']);
+      consoleWarn.mockRestore();
+    });
+
+    it('switchWorkspace sends no chat:abort and reads no session ids', async () => {
+      jest.useFakeTimers();
+      setup(rpcThatRemoves());
+      serveSessionIds({ '/a': ['s-1'], '/b': ['s-2'] });
+      seedFolders(['/a', '/b']);
+
+      service.switchWorkspace(1);
+      jest.advanceTimersByTime(150);
+      await Promise.resolve();
+      await Promise.resolve();
+      service.switchWorkspace(0);
+      jest.advanceTimersByTime(150);
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.useRealTimers();
+
+      expect(coordinator.switchWorkspace).toHaveBeenCalled();
+      expect(callsOf('chat:abort')).toHaveLength(0);
+      expect(coordinator.getSessionIds).not.toHaveBeenCalled();
+      expect(coordinator.removeWorkspaceState).not.toHaveBeenCalled();
+    });
   });
 });
 
