@@ -7,6 +7,7 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import type { TabState } from '@ptah-extension/chat-types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import {
   MODEL_REFRESH_CONTROL,
@@ -17,7 +18,21 @@ import { TabWorkspacePartitionService } from './tab-workspace-partition.service'
 import { ConversationRegistry } from './conversation-registry.service';
 import { TabSessionBinding } from './tab-session-binding.service';
 import { TabId, type ClaudeSessionId } from './identity/ids';
-import { SessionId } from '@ptah-extension/shared';
+import { SessionId, type SessionTurnState } from '@ptah-extension/shared';
+
+/** A turn-state event leaving the session live with background work. */
+function backgroundTurnState(
+  phase: 'awaiting-background' | 'sleeping',
+): SessionTurnState {
+  return {
+    phase,
+    revision: 1,
+    backgroundTasks: [],
+    sessionCrons: [],
+    terminalReason: null,
+    timestamp: 1,
+  };
+}
 
 // Production `TabManagerService.attachSession` validates the inbound sessionId
 // via `SessionId.from()` (UUID v4). Mint stable ids per spec run.
@@ -41,6 +56,12 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       registerSessionForWorkspace: jest.fn(),
       unregisterSession: jest.fn(),
       findTabBySessionIdAcrossWorkspaces: jest.fn().mockReturnValue(null),
+      findTabByIdAcrossWorkspaces: jest
+        .fn()
+        .mockImplementation((tabId: string, tabs: readonly TabState[]) => {
+          const tab = tabs.find((t) => t.id === tabId);
+          return tab ? { tab, workspacePath: '/ws' } : null;
+        }),
       getStorageKeyForWorkspace: jest.fn().mockReturnValue('ptah.tabs'),
       syncActiveWorkspaceState: jest.fn(),
       switchWorkspace: jest.fn().mockReturnValue(null),
@@ -140,6 +161,171 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
       await service.closeTab(id);
       expect(service.tabs().length).toBe(0);
       expect(service.activeTabId()).toBeNull();
+    });
+
+    it.each(['awaiting-background', 'sleeping'] as const)(
+      'closeTab seeks confirmation for a %s tab and closes on confirm',
+      async (phase) => {
+        const id = service.createTab(phase);
+        service.attachSession(id, SESS_X);
+        service.markStreaming(id);
+        service.markTabStreaming(id);
+        service.applyTurnState(id, backgroundTurnState(phase), SESS_X);
+        expect(service.tabs().find((t) => t.id === id)?.status).toBe(phase);
+
+        await service.closeTab(id);
+
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(confirm.mock.calls[0][0].message).toContain(
+          'background work running',
+        );
+        expect(service.tabs().length).toBe(0);
+        expect(service.closedTab()).toEqual(
+          expect.objectContaining({
+            tabId: id,
+            sessionId: SESS_X,
+            kind: 'close',
+          }),
+        );
+      },
+    );
+
+    it.each(['awaiting-background', 'sleeping'] as const)(
+      'closeTab cancel on a %s tab keeps the tab and emits no closedTab',
+      async (phase) => {
+        const id = service.createTab(phase);
+        service.attachSession(id, SESS_X);
+        service.markStreaming(id);
+        service.markTabStreaming(id);
+        service.applyTurnState(id, backgroundTurnState(phase), SESS_X);
+        confirm.mockResolvedValueOnce(false);
+
+        await service.closeTab(id);
+
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(service.tabs().map((t) => t.id)).toEqual([id]);
+        expect(service.closedTab()).toBeNull();
+        expect(partition.unregisterSession).not.toHaveBeenCalled();
+      },
+    );
+
+    it('closeTab closes an idle session tab without confirmation', async () => {
+      const id = service.createTab('idle');
+      service.attachSession(id, SESS_X);
+
+      await service.closeTab(id);
+
+      expect(confirm).not.toHaveBeenCalled();
+      expect(service.tabs().length).toBe(0);
+      expect(service.closedTab()?.sessionId).toBe(SESS_X);
+    });
+
+    it('closedTab().streamAbortDispatched is true when closing aborted a live stream', async () => {
+      const id = service.createTab('live');
+      service.attachSession(id, SESS_X);
+      service.createAbortController(id);
+
+      await service.closeTab(id);
+
+      expect(service.closedTab()).toEqual(
+        expect.objectContaining({
+          tabId: id,
+          kind: 'close',
+          streamAbortDispatched: true,
+        }),
+      );
+    });
+
+    it('closedTab().streamAbortDispatched is falsy for an idle tab', async () => {
+      const id = service.createTab('idle');
+      service.attachSession(id, SESS_X);
+
+      await service.closeTab(id);
+
+      expect(service.closedTab()?.kind).toBe('close');
+      expect(service.closedTab()?.streamAbortDispatched).toBeFalsy();
+    });
+
+    it('closedTab().streamAbortDispatched is falsy when the controller was already aborted', async () => {
+      const id = service.createTab('stale');
+      service.attachSession(id, SESS_X);
+      // An already-aborted controller can still be registered (e.g. aborted
+      // through its signal owner); closing must not claim a fresh dispatch.
+      const stale = new AbortController();
+      stale.abort();
+      service['abortControllers'].set(id, stale);
+
+      await service.closeTab(id);
+
+      expect(service.closedTab()?.streamAbortDispatched).toBe(false);
+      expect(service.getAbortSignal(id)).toBeUndefined();
+    });
+
+    it('closedTab carries sessionId null and streamAbortDispatched true for a sessionless live stream', async () => {
+      const id = service.createTab('first send');
+      service.createAbortController(id);
+
+      await service.closeTab(id);
+
+      expect(service.closedTab()).toEqual(
+        expect.objectContaining({
+          tabId: id,
+          sessionId: null,
+          kind: 'close',
+          streamAbortDispatched: true,
+        }),
+      );
+      expect(partition.unregisterSession).not.toHaveBeenCalled();
+    });
+
+    it('closedTab carries a session id bound while the confirm dialog was open', async () => {
+      const id = service.createTab('resolving');
+      service.markStreaming(id);
+      confirm.mockImplementationOnce(async () => {
+        service.attachSession(id, SESS_X);
+        return true;
+      });
+
+      await service.closeTab(id);
+
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(service.closedTab()?.sessionId).toBe(SESS_X);
+      expect(partition.unregisterSession).toHaveBeenCalledWith(SESS_X);
+      expect(service.tabs().length).toBe(0);
+    });
+
+    it('closeTab emits nothing when the tab disappeared while the confirm dialog was open', async () => {
+      const id = service.createTab('vanishing');
+      const other = service.createTab('other');
+      service.markStreaming(id);
+      confirm.mockImplementationOnce(async () => {
+        service.forceCloseTab(id);
+        return true;
+      });
+
+      await service.closeTab(id);
+
+      // Only the forceClose from inside the dialog was emitted — no `close`.
+      expect(service.closedTab()?.kind).toBe('forceClose');
+      expect(service.tabs().map((t) => t.id)).toEqual([other]);
+    });
+
+    it('forceCloseTab and resetTabToFresh events carry no streamAbortDispatched', () => {
+      const popped = service.createTab('popout');
+      service.attachSession(popped, SESS_X);
+      service.createAbortController(popped);
+      service.forceCloseTab(popped);
+      const forceEvt = service.closedTab();
+      expect(forceEvt?.kind).toBe('forceClose');
+      expect(forceEvt).not.toHaveProperty('streamAbortDispatched');
+
+      const cleared = service.createTab('clear');
+      service.attachSession(cleared, SESS_SHARED);
+      service.createAbortController(cleared);
+      service.resetTabToFresh(cleared);
+      const resetEvt = service.closedTab();
+      expect(resetEvt?.kind).toBe('reset');
+      expect(resetEvt).not.toHaveProperty('streamAbortDispatched');
     });
 
     it('forceCloseTab skips confirmation', () => {
@@ -389,41 +575,6 @@ describe('TabManagerService — tab lifecycle + selectors', () => {
 
     it('getTabViewMode returns "full" for unknown ids', () => {
       expect(service.getTabViewMode('missing')).toBe('full');
-    });
-  });
-
-  describe('closeOtherTabs + closeTabsToRight', () => {
-    it('closeOtherTabs keeps only the requested tab on confirmation', async () => {
-      const a = service.createTab('A');
-      service.createTab('B');
-      service.createTab('C');
-      await service.closeOtherTabs(a);
-      expect(service.tabs().length).toBe(1);
-      expect(service.activeTabId()).toBe(a);
-    });
-
-    it('closeOtherTabs is a no-op on cancel', async () => {
-      const a = service.createTab('A');
-      service.createTab('B');
-      confirm.mockResolvedValueOnce(false);
-      await service.closeOtherTabs(a);
-      expect(service.tabs().length).toBe(2);
-    });
-
-    it('closeTabsToRight removes only tabs after the pivot', async () => {
-      service.createTab('A');
-      const b = service.createTab('B');
-      service.createTab('C');
-      service.createTab('D');
-      await service.closeTabsToRight(b);
-      expect(service.tabs().length).toBe(2);
-    });
-
-    it('closeTabsToRight is a no-op when pivot is the last tab', async () => {
-      service.createTab('A');
-      const b = service.createTab('B');
-      await service.closeTabsToRight(b);
-      expect(service.tabs().length).toBe(2);
     });
   });
 

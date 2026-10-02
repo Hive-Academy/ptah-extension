@@ -208,8 +208,39 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     expect(signal.aborted).toBe(false);
   });
 
-  it('abortStreamingForTab is a no-op when no controller is registered', () => {
-    expect(() => service.abortStreamingForTab('nonexistent')).not.toThrow();
+  it('abortStreamingForTab is a no-op returning false when no controller is registered', () => {
+    expect(service.abortStreamingForTab('nonexistent')).toBe(false);
+  });
+
+  it('abortStreamingForTab returns true when it aborts a live controller', () => {
+    const tabId = service.createTab('live');
+    const signal = service.createAbortController(tabId);
+
+    expect(service.abortStreamingForTab(tabId)).toBe(true);
+    expect(signal.aborted).toBe(true);
+    expect(service.getAbortSignal(tabId)).toBeUndefined();
+  });
+
+  it('abortStreamingForTab returns false on a second call for the same tab', () => {
+    const tabId = service.createTab('twice');
+    service.createAbortController(tabId);
+
+    expect(service.abortStreamingForTab(tabId)).toBe(true);
+    expect(service.abortStreamingForTab(tabId)).toBe(false);
+  });
+
+  it('abortStreamingForTab returns false for a registered but already-aborted controller', () => {
+    const tabId = service.createTab('stale');
+    const stale = new AbortController();
+    const onAbort = jest.fn();
+    stale.signal.addEventListener('abort', onAbort);
+    stale.abort();
+    onAbort.mockClear();
+    service['abortControllers'].set(tabId, stale);
+
+    expect(service.abortStreamingForTab(tabId)).toBe(false);
+    expect(onAbort).not.toHaveBeenCalled();
+    expect(service.getAbortSignal(tabId)).toBeUndefined();
   });
 
   // ---------------------------------------------------------------------
