@@ -94,6 +94,13 @@ const GH_PR_CREATE = /(?:^|[\s;&|(])gh\s+pr\s+create(?=\s|$|[;&|)])/;
  * `--draft=false` and `--draft=0` turn it off, so they do not match.
  */
 const DRAFT_FLAG = /(?:^|\s)--draft(?:=(?!(?:false|0)(?:\s|$))\S*)?(?=\s|$)/i;
+/**
+ * The `-d` shorthand of `--draft` as its own word. Case-sensitive: gh flags
+ * are, so `-D` is not the draft flag.
+ */
+const DRAFT_SHORT_FLAG = /(?:^|\s)-d(?=\s|$)/;
+/** A shell operator that ends the `gh pr create` invocation. */
+const COMMAND_END = /[;&|)\n]/;
 /** A GitHub PR URL candidate; {@link parsePrUrl} has the final word. */
 const GITHUB_PR_URL_CANDIDATE =
   /https:\/\/(?:www\.)?github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/gi;
@@ -105,8 +112,10 @@ const GITHUB_PR_URL_CANDIDATE =
  * success. Takes the FIRST GitHub PR URL in the output (the string itself, or
  * the JSON of a structured output) that {@link parsePrUrl} accepts as a GitHub
  * PR, so capture and manual adds canonicalize the same way. `state` is
- * `draft` when the command passes `--draft` (not `--draft=false`), else
- * `open`. Pure; never throws: a null, undefined or non-object payload is null.
+ * `draft` when the `gh pr create` invocation itself passes `--draft` (not
+ * `--draft=false`) or `-d`, else `open`; flags of other commands chained on
+ * the same line are not read. Pure; never throws: a null, undefined or
+ * non-object payload is null.
  */
 export function extractGhPrCreateUrl(
   payload: GhPrCreateToolUse | null | undefined,
@@ -114,7 +123,9 @@ export function extractGhPrCreateUrl(
   if (typeof payload !== 'object' || payload === null) return null;
   if (payload.toolName !== 'Bash' || payload.success !== true) return null;
   const command = commandOf(payload.toolInput);
-  if (command === null || !GH_PR_CREATE.test(command)) return null;
+  if (command === null) return null;
+  const args = ghPrCreateArgs(command);
+  if (args === null) return null;
   const output = outputText(payload.toolOutput);
   if (output === null) return null;
   for (const [candidate] of output.matchAll(GITHUB_PR_URL_CANDIDATE)) {
@@ -122,11 +133,26 @@ export function extractGhPrCreateUrl(
     if (parsed !== null && parsed.number !== null) {
       return {
         url: parsed.url,
-        state: DRAFT_FLAG.test(command) ? 'draft' : 'open',
+        state:
+          DRAFT_FLAG.test(args) || DRAFT_SHORT_FLAG.test(args)
+            ? 'draft'
+            : 'open',
       };
     }
   }
   return null;
+}
+
+/**
+ * The arguments of the first `gh pr create` in `command`, up to the next shell
+ * operator; null when the command does not run `gh pr create`.
+ */
+function ghPrCreateArgs(command: string): string | null {
+  const match = GH_PR_CREATE.exec(command);
+  if (match === null) return null;
+  const rest = command.slice(match.index + match[0].length);
+  const end = rest.search(COMMAND_END);
+  return end === -1 ? rest : rest.slice(0, end);
 }
 
 function commandOf(toolInput: unknown): string | null {

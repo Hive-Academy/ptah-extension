@@ -193,7 +193,7 @@ export class SessionOrganizationRpcHandlers {
       async (params) => {
         const parsed = this.parse(method, schema, params);
         const organization = this.organization;
-        if (!organization) return UNAVAILABLE;
+        if (!organization?.isAvailable()) return UNAVAILABLE;
         try {
           const root = await this.authorizeSession(parsed.sessionId);
           if (root === null) return NOT_FOUND;

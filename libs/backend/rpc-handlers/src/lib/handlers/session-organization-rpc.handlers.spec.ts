@@ -536,6 +536,29 @@ describe('SessionOrganizationRpcHandlers', () => {
       expect(fakes.organization.setOrganization).not.toHaveBeenCalled();
     });
 
+    it.each(VALID_MUTATIONS)(
+      '%s answers organization-unavailable when the store is closed',
+      async (method, params) => {
+        const fakes = createFakes();
+        fakes.organization.isAvailable.mockReturnValue(false);
+        build(fakes);
+        const result = await call<SessionOrganizationMutationResult>(
+          fakes,
+          method,
+          params,
+        );
+        expect(result).toEqual({
+          ok: false,
+          reason: 'organization-unavailable',
+          message: expect.any(String),
+        });
+        expect(fakes.metadataStore.get).not.toHaveBeenCalled();
+        for (const mutation of serviceMutations(fakes)) {
+          expect(mutation).not.toHaveBeenCalled();
+        }
+      },
+    );
+
     it('passes a service not-ok result through unchanged', async () => {
       const fakes = createFakes();
       const unavailable: SessionOrganizationMutationResult = {

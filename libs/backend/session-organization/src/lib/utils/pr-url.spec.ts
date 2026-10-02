@@ -169,8 +169,52 @@ describe('extractGhPrCreateUrl', () => {
         'open',
       ],
       [
-        '-d (short flag) is not read as draft',
-        { toolInput: { command: 'gh pr create -d --fill' } },
+        '-d (short flag)',
+        { toolInput: { command: 'gh pr create -d' } },
+        CANONICAL,
+        'draft',
+      ],
+      [
+        '-d combined with other flags',
+        {
+          toolInput: {
+            command: 'gh pr create --title "Fix" -d --fill --base main',
+          },
+        },
+        CANONICAL,
+        'draft',
+      ],
+      [
+        '-D is not the draft flag (gh flags are case-sensitive)',
+        { toolInput: { command: 'gh pr create -D --fill' } },
+        CANONICAL,
+        'open',
+      ],
+      [
+        'a -d belonging to another command in the chain is not read',
+        {
+          toolInput: {
+            command: `git branch -d old && ${CREATE} ; git push -d origin x`,
+          },
+        },
+        CANONICAL,
+        'open',
+      ],
+      [
+        '-d in a chain after an earlier command',
+        { toolInput: { command: `git push -u origin feat/x && ${CREATE} -d` } },
+        CANONICAL,
+        'draft',
+      ],
+      [
+        '-d inside another flag value is not read',
+        { toolInput: { command: 'gh pr create --body=-d --head x-d' } },
+        CANONICAL,
+        'open',
+      ],
+      [
+        'no draft flag',
+        { toolInput: { command: 'gh pr create --fill' } },
         CANONICAL,
         'open',
       ],
