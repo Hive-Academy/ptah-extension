@@ -21,6 +21,8 @@ const CELL = `inline-flex max-w-[15rem] items-center gap-1 whitespace-nowrap rou
 /** Background roles are settings for every Ptah app (`supportedTargets: ['global']`). */
 const SAVE_SCOPE = 'global';
 const TIMEOUT_NOT_SAVED = 'Could not save the enhancement time limit. The limit shown is the saved one.';
+/** The save never ran: another change was still saving (Gate V 36 re-check N-2). */
+const TIMEOUT_REFUSED = 'The enhancement time limit was not saved because another change was still saving. The limit shown is the saved one.';
 
 /**
  * Background model roles (design-spec §1.2 item 4, plan :765-774, prototype `orchestration.html` section 3): the six
@@ -348,15 +350,16 @@ export class ProviderConsumerAssignmentsComponent {
     const draft = this.currentDraft(), context = this.context;
     if (!row || !context || this.busy() || this.disabled()) return;
     if (draft.provider === row.provider && draft.model === row.model) return;
-    await this.feedback.save({
+    // This save's own result decides the revert, never `commit()` (an earlier save may have left it `saved`).
+    const result = await this.feedback.save({
       label: `${row.name} assignment`, scope: SAVE_SCOPE,
       write: () => this.writeAssignment(id, draft.provider, draft.model, context),
       undo: () => this.writeAssignment(id, row.provider, row.model, context),
     });
-    if (this.activeEditId() !== id) return;
-    if (this.state.commit().status === 'blocked') this.context = this.state.reviewContext();
-    const saved = this.rows().find((r) => r.id === id);
-    if (saved && this.state.commit().status !== 'saved') this.currentDraft.set({ provider: saved.provider, model: saved.model });
+    if (this.activeEditId() !== id || result === 'saved') return;
+    if (result === 'failed' && this.state.commit().status === 'blocked') this.context = this.state.reviewContext();
+    const current = this.rows().find((r) => r.id === id);
+    if (current) this.currentDraft.set({ provider: current.provider, model: current.model });
   }
 
   private async writeAssignment(id: BackgroundConsumerId, provider: string, model: string, context: ProvidersEditContext): Promise<boolean> {
@@ -401,17 +404,12 @@ export class ProviderConsumerAssignmentsComponent {
     const sec = this.timeoutDraftSec(), previousSec = this.timeoutEffectiveSec();
     const context: ProvidersEditContext = this.state.reviewContext() ?? { scopeKey: '', activePath: null };
     this.timeoutSaveError.set(null);
-    let saved = false;
-    await this.feedback.save({
+    const result = await this.feedback.save({
       label: 'enhancement time limit', scope: SAVE_SCOPE,
-      write: async () => {
-        const accepted = await this.writeTimeout(sec, context);
-        saved = accepted && this.state.commit().status === 'saved';
-        return accepted;
-      },
+      write: () => this.writeTimeout(sec, context),
       undo: () => this.writeTimeout(previousSec, context),
     });
-    if (saved) {
+    if (result === 'saved') {
       this.isEditingTimeout.set(false);
       return;
     }
@@ -421,7 +419,7 @@ export class ProviderConsumerAssignmentsComponent {
     // The binding may not change (the same value as before the edit), so the input is reset directly.
     const input = this.timeoutInputRef()?.nativeElement;
     if (input) input.value = String(savedSec);
-    this.timeoutSaveError.set(TIMEOUT_NOT_SAVED);
+    this.timeoutSaveError.set(result === 'refused' ? TIMEOUT_REFUSED : TIMEOUT_NOT_SAVED);
   }
 
   /** One limit write; `timeoutSaved` (the host re-reads judging) follows only this write's own confirmed save. */

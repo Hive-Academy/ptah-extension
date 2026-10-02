@@ -8,7 +8,7 @@ import {
   NativePopoverComponent, PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent, type ProviderModelSearchOption,
 } from '@ptah-extension/ui';
 import type { EffortLevel, ProviderModelInfo, SettingScope } from '@ptah-extension/shared';
-import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
 import { runDrawerWrite, type DrawerWriteOutcome } from './connection-drawer/drawer-write';
 import { injectAppScopeName, saveTargetLabels } from './app-scope-label';
 
@@ -374,8 +374,9 @@ export class MainAgentReassignPopoverComponent {
   protected async applyManual(): Promise<void> {
     const model = this.manualDraft().trim();
     if (!model) return;
-    await this.saveModel(model);
-    if (this.state.commit().status === 'saved') this.closeManual();
+    // The field closes from this save's own result, never `commit()` (an earlier save may have left it `saved`); the
+    // typed id that is already the current model needs no write.
+    if (model === this.currentModel() || (await this.saveModel(model)) === 'saved') this.closeManual();
   }
 
   /** Back to the model search; the ID field leaves the DOM, so focus goes to the search once it has rendered. */
@@ -385,15 +386,17 @@ export class MainAgentReassignPopoverComponent {
       { injector: this.injector });
   }
 
-  protected async saveModel(model: string): Promise<void> {
+  /** This save's own result; `null` when nothing was written (no change, or no context or target). */
+  protected async saveModel(model: string): Promise<SettingsSaveResult | null> {
     const previous = this.currentModel(), applyTo = this.target(), context = this.context;
-    if (!model || model === previous || !context || !applyTo) return;
-    await this.feedback.save({
+    if (!model || model === previous || !context || !applyTo) return null;
+    const result = await this.feedback.save({
       label: 'main agent model', scope: applyTo,
       write: () => this.state.saveSettings({ model: { model, applyTo } }, context),
       undo: previous ? () => this.state.saveSettings({ model: { model: previous, applyTo } }, context) : null,
     });
     this.refreshContextIfBlocked();
+    return result;
   }
 
   protected async saveEffort(effort: EffortLevel | ''): Promise<void> {

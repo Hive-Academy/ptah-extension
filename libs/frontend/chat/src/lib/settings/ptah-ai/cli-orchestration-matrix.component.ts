@@ -43,6 +43,8 @@ export const CLI_INSTALL_GUIDES: Readonly<Record<SystemCliType, { readonly comma
 /** M1: the failed-Test sentence is fixed; only the state's own fixed reasons may follow it. */
 export const CLI_TEST_FAILED = 'The connection test failed.';
 export const CLI_TEST_NOT_RUN = 'The test could not run. Try again.';
+/** A created instance the refreshed list does not show yet: its Test did not start. */
+export const CLI_TEST_NOT_STARTED = 'Its connection test did not start. Use Test on its row once it shows.';
 
 /** Tone → colour slot. Colour sits on dots, badge borders and backgrounds; text stays `text-base-content` (deviation 6). */
 const DOT: Readonly<Record<CliMatrixStatus['tone'], string>> = {
@@ -131,7 +133,7 @@ const SAVE_SCOPE = 'global';
         [class.bg-primary/5]="row.kind === 'instance' && row.interactive" [class.bg-base-300/50]="!row.interactive"
         [attr.data-dimmed]="row.interactive ? null : 'true'">
         <td class="align-middle">
-          <input type="checkbox" [class]="'checkbox checkbox-xs checkbox-primary ' + focusRing"
+          <input type="checkbox" [class]="'cli-check checkbox checkbox-primary ' + focusRing"
             [checked]="row.enabled && (row.kind === 'instance' || row.installed)"
             [disabled]="busy() || !canWrite() || (row.kind === 'system' && !row.installed)"
             [attr.aria-label]="row.name + ' enabled'" (change)="toggle(row, $event)" [attr.data-testid]="'cli-matrix-toggle-' + row.id" />
@@ -289,7 +291,9 @@ const SAVE_SCOPE = 'global';
                     <lucide-angular [img]="MoreIcon" class="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                   @if (isOpen(row.id, 'more')) {
-                    <div content role="group" [attr.aria-label]="'More actions for ' + row.name" class="w-40 p-1 text-left"
+                    <!-- A column: the actions line above is whitespace-nowrap, so inline items would sit side by side and
+                         overflow the panel (visual re-check N1). -->
+                    <div content role="group" [attr.aria-label]="'More actions for ' + row.name" class="flex w-40 flex-col p-1 text-left"
                       data-testid="cli-matrix-more-menu">
                       <button type="button" [class]="MENU_ITEM" [disabled]="busy() || !canWrite()" (click)="openEdit(row)"
                         [attr.aria-label]="'Edit ' + row.name + ' name or key'" [attr.data-testid]="'cli-matrix-edit-' + row.id">Edit name or key</button>
@@ -379,6 +383,11 @@ const SAVE_SCOPE = 'global';
   // name, so no column is cut off and nothing scrolls sideways.
   styles: `
     :host { display: block; container-type: inline-size; }
+    /* The On box at the prototype's ~18 px (Batch 36c.i; checkbox-xs is 16 px). daisyUI 4 draws the tick with full-box
+       gradients, which at 18 px sit 1 px right of centre: the 1 px left shift centres it (the strip it uncovers is the
+       same primary background colour). daisyUI's 0.2 s checkmark bounce still runs; it only animates the y position. */
+    input.cli-check { width: 1.125rem; height: 1.125rem; }
+    input.cli-check:checked { background-position: -1px 0; }
     .cli-narrow-inline, .cli-narrow-only { display: none; }
     @container (max-width: 47.99rem) {
       .cli-col-narrow-hidden, .cli-wide-only { display: none; }
@@ -470,11 +479,15 @@ export class CliOrchestrationMatrixComponent {
 
   /**
    * M4: a created instance's key is stored, not verified, so its Test runs at once and shows inline. Minor 2: from the
-   * empty-state button, focus moves to the new row's first action (that button is gone).
+   * empty-state button, focus moves to the new row's first action (that button is gone). When the refreshed list does
+   * not hold the new instance yet, no Test runs and a fixed toast says so (re-check N-1).
    */
   protected onCreated(name: string): void {
     const created = this.state.cliAgents().data?.find((agent) => agent.name.trim().toLowerCase() === name.toLowerCase());
-    if (!created) return;
+    if (!created) {
+      this.feedback.announce(`Created ${name}. ${CLI_TEST_NOT_STARTED}`, 'alert');
+      return;
+    }
     if (this.addOrigin === 'empty') this.focusAfterRender(`[data-testid="cli-matrix-tiers-${created.id}"]`);
     void this.test(created.id);
   }
@@ -500,11 +513,13 @@ export class CliOrchestrationMatrixComponent {
 
   /**
    * M3: a saved or removed Cursor key moves its row between groups, which re-creates the popover with focus on `body`;
-   * closing returns focus to the row's Credentials trigger wherever the row now is.
+   * closing returns focus to the row's Credentials trigger wherever the row now is. A removed key moves the row into
+   * the Uninstalled group, which collapses again on close unless the user expanded it: focus then goes to that group's
+   * disclosure button, never `body` (re-check N-2).
    */
   protected closeCredentials(rowId: string): void {
     this.close();
-    this.focusAfterRender(`[data-testid="cli-matrix-credentials-${rowId}"]`);
+    this.focusAfterRender(`[data-testid="cli-matrix-credentials-${rowId}"]`, '[data-testid="cli-matrix-uninstalled-toggle"]');
   }
 
   /** The "More actions" Delete: the inline confirm replaces the actions, so focus moves to its Cancel. */
@@ -634,7 +649,14 @@ export class CliOrchestrationMatrixComponent {
     if (result === 'saved') this.confirmDelete.set(null);
   }
 
-  private focusAfterRender(selector: string): void {
-    afterNextRender(() => this.element.nativeElement.querySelector<HTMLElement>(selector)?.focus(), { injector: this.injector });
+  /** Focuses the first selector present after the next render; later ones are fallbacks. */
+  private focusAfterRender(...selectors: readonly string[]): void {
+    afterNextRender(() => {
+      const root = this.element.nativeElement;
+      for (const selector of selectors) {
+        const target = root.querySelector<HTMLElement>(selector);
+        if (target) { target.focus(); return; }
+      }
+    }, { injector: this.injector });
   }
 }

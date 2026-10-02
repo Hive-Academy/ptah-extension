@@ -25,11 +25,13 @@ const MODALITY: Readonly<Record<string, string>> = {
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const FIELD = `input input-bordered input-sm w-full text-xs text-base-content ${FOCUS}`;
 const SAVE_SCOPE = 'global';
-/** Gate V 36 M4: a stored key is not a checked key (the create then runs the instance's Test). */
+/** Gate V 36 M4: a stored key is not a checked key (the matrix then runs the new instance's Test). */
 const KEY_NOT_VERIFIED = 'Key stored, not verified.';
 /** M7: the rename and the key are separate host writes; a partial result says which one landed. */
 const NAME_SAVED_KEY_NOT = 'Name saved. The key was not saved.';
 const NAME_SAVED_KEY_UNKNOWN = 'Name saved. Could not confirm whether the key was saved; check it before retrying.';
+const KEY_SAVED_NAME_NOT = `${KEY_NOT_VERIFIED} The name was not saved.`;
+const KEY_SAVED_NAME_UNKNOWN = `${KEY_NOT_VERIFIED} Could not confirm whether the name was saved; check it before retrying.`;
 const DUPLICATE_NAME = 'Another Ptah CLI instance already uses this name.';
 
 /** How a provider takes credentials in this form (#48). */
@@ -316,7 +318,8 @@ export class AddCliInstanceModalComponent {
       label: `Ptah CLI instance ${name}`, scope: SAVE_SCOPE,
       write: () => this.state.saveSettings({ cli: [{ action: 'create', params: { name, providerId, apiKey: key } }] }, context),
       undo: null,
-      ...(key.trim() ? { successMessage: `Created ${name}. ${KEY_NOT_VERIFIED} Testing the connection.` } : {}),
+      // No promise of a Test here: the matrix runs it only once it finds the new instance (re-check N-1).
+      ...(key.trim() ? { successMessage: `Created ${name}. ${KEY_NOT_VERIFIED}` } : {}),
     });
   }
 
@@ -346,10 +349,17 @@ export class AddCliInstanceModalComponent {
   }
 }
 
-/** M7: "Name saved. The key was not saved." when the rename landed and the key write did not. */
+/**
+ * M7: one of the two writes landed and the other did not, in either direction: "Name saved. The key was not saved."
+ * or, when the rename was rejected and the key stored (re-check N-3), "Key stored, not verified. The name was not saved."
+ */
 function partialEditMessage(commit: ProvidersSettingsCommit, id: string): string | null {
   const nameField = `ptahCliAgents.${id}.name`, keyField = `ptahCliAgents.${id}.apiKey`;
-  if (!commit.saved.includes(nameField)) return null;
-  if (commit.unsaved.includes(keyField)) return NAME_SAVED_KEY_NOT;
-  return commit.unconfirmed.includes(keyField) ? NAME_SAVED_KEY_UNKNOWN : null;
+  if (commit.saved.includes(nameField)) {
+    if (commit.unsaved.includes(keyField)) return NAME_SAVED_KEY_NOT;
+    return commit.unconfirmed.includes(keyField) ? NAME_SAVED_KEY_UNKNOWN : null;
+  }
+  if (!commit.saved.includes(keyField)) return null;
+  if (commit.unsaved.includes(nameField)) return KEY_SAVED_NAME_NOT;
+  return commit.unconfirmed.includes(nameField) ? KEY_SAVED_NAME_UNKNOWN : null;
 }

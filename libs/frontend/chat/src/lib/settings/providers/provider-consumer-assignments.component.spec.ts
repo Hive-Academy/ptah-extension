@@ -499,6 +499,16 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       await choose(providerSelect('archaeologist'), 'anthropic');
       expect(saved).not.toHaveBeenCalled();
       expect(feedback.toast()?.message).toBe('Another change is still saving.');
+      expect(providerSelect('archaeologist').value).toBe('');
+    });
+
+    it('re-check N-1: a write that throws after an earlier saved commit puts the picker back (own result, not commit())', async () => {
+      mockState.commitState.set({ status: 'saved', saved: ['earlier'], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      mockState.saveSettings.mockImplementationOnce(async () => { throw new Error('host broke'); });
+      await openRow('archaeologist');
+      await choose(providerSelect('archaeologist'), 'anthropic');
+      expect(feedback.toast()).toEqual({ tone: 'alert', canUndo: false, message: 'Could not confirm whether Archaeologist lane assignment was saved.' });
+      expect(providerSelect('archaeologist').value).toBe('');
     });
 
     it('writes nothing while another save runs (D3): the cells are aria-disabled (still focusable) and do not open', async () => {
@@ -643,8 +653,9 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       expect(query(fixture, 'timeout-editor')).toBeTruthy();
       expect(inputEl(fixture, 'timeout-input')?.value).toBe('120');
       expect(query(fixture, 'timeout-save-error')?.getAttribute('role')).toBe('alert');
+      // Gate V 36 re-check N-2: a refused save says why it did not run.
       expect(query(fixture, 'timeout-save-error')?.textContent?.trim())
-        .toBe('Could not save the enhancement time limit. The limit shown is the saved one.');
+        .toBe('The enhancement time limit was not saved because another change was still saving. The limit shown is the saved one.');
       expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Another change is still saving.', canUndo: false });
     });
 

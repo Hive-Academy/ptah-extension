@@ -478,6 +478,30 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(document.activeElement).toBe(moved);
     });
 
+    it('re-check N-2: a removed key moves the row into the collapsed group; closing focuses that group\'s disclosure, not body', () => {
+      expandUninstalled();
+      state.orchestration.set(ready({ ...ORCHESTRATION, detectedClis: [...ORCHESTRATION.detectedClis.filter((cli) => cli.cli !== 'cursor'),
+        detected('cursor', true, { version: 'sdk' })], cursorApiKeyStored: true, cursorApiKeyConfigured: true }));
+      fixture.detectChanges();
+      q<HTMLButtonElement>('[data-testid="cli-matrix-credentials-cursor"]')?.click();
+      fixture.detectChanges();
+      state.orchestration.set(ready(ORCHESTRATION));
+      fixture.detectChanges();
+      q<HTMLButtonElement>('[data-testid="cursor-credential-popover"] button[aria-label="Close"]')?.click();
+      render();
+      const toggle = q<HTMLButtonElement>('[data-testid="cli-matrix-uninstalled-toggle"]');
+      expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+      expect(q('[data-testid="cli-matrix-credentials-cursor"]')).toBeNull();
+      expect(document.activeElement).toBe(toggle);
+    });
+
+    it('Batch 36c.i: the On box is the centred-tick "cli-check" (about 18 px), primary, not daisyUI\'s low-tick checkbox-xs', () => {
+      const box = q<HTMLInputElement>('[data-testid="cli-matrix-toggle-codex"]');
+      const classes = box?.className.split(/\s+/) ?? [];
+      expect(classes).toEqual(expect.arrayContaining(['cli-check', 'checkbox', 'checkbox-primary']));
+      expect(classes).not.toContain('checkbox-xs');
+    });
+
     it('V36-7: instance actions stay on one line: Tiers and Test inline, Edit and Delete behind "More actions for {name}"', () => {
       const actions = q<HTMLButtonElement>('[data-testid="cli-matrix-tiers-glm-1"]')?.parentElement;
       expect(actions?.className).toContain('flex-nowrap');
@@ -489,6 +513,12 @@ describe('CliOrchestrationMatrixComponent', () => {
       more('glm-1');
       expect(trigger?.getAttribute('aria-expanded')).toBe('true');
       expect(q('[data-testid="cli-matrix-more-menu"]')?.getAttribute('aria-label')).toBe('More actions for Glm');
+      // Visual re-check N1: the items stack in a column inside the panel (the actions line is whitespace-nowrap).
+      const menuClasses = q('[data-testid="cli-matrix-more-menu"]')?.className.split(/\s+/) ?? [];
+      expect(menuClasses).toEqual(expect.arrayContaining(['flex', 'flex-col', 'w-40']));
+      for (const item of Array.from(q('[data-testid="cli-matrix-more-menu"]')?.querySelectorAll('button') ?? [])) {
+        expect(item.className.split(/\s+/)).toContain('w-full');
+      }
       q<HTMLButtonElement>('[data-testid="cli-matrix-edit-glm-1"]')?.click();
       fixture.detectChanges();
       expect(q('[data-testid="cli-matrix-more-menu"]')).toBeNull();
@@ -596,6 +626,14 @@ describe('CliOrchestrationMatrixComponent', () => {
       render();
       expect(state.testCliConnection).toHaveBeenCalledWith('kimi-9');
       expect(document.activeElement).toBe(q('[data-testid="cli-matrix-tiers-kimi-9"]'));
+    });
+
+    it('re-check N-1: a create the refreshed list does not hold runs no Test and says so in a fixed toast', () => {
+      fixture.debugElement.query((node) => node.name === 'ptah-add-cli-instance-modal')?.triggerEventHandler('created', 'Kimi');
+      expect(state.testCliConnection).not.toHaveBeenCalled();
+      expect(feedback.toast()).toEqual({
+        tone: 'alert', canUndo: false, message: 'Created Kimi. Its connection test did not start. Use Test on its row once it shows.',
+      });
     });
 
     it('renders no Test for system CLIs (D11)', () => {

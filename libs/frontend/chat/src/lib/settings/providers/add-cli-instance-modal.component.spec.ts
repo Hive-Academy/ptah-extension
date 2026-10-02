@@ -167,7 +167,9 @@ describe('AddCliInstanceModalComponent', () => {
       expect(state.saveSettings).toHaveBeenCalledWith(
         { cli: [{ action: 'create', params: { name: 'Kimi-2', providerId: 'moonshot', apiKey: KEY } }] }, CONTEXT);
       // M4: a stored key is not a checked one; the matrix runs the Test on `created`.
-      expect(feedback.toast()).toEqual({ tone: 'status', message: 'Created Kimi-2. Key stored, not verified. Testing the connection.', canUndo: false });
+      // Re-check N-1: the toast promises no Test (the matrix runs it only when it finds the new instance).
+      expect(feedback.toast()).toEqual({ tone: 'status', message: 'Created Kimi-2. Key stored, not verified.', canUndo: false });
+      expect(feedback.toast()?.message).not.toContain('Testing');
       expect(fixture.componentInstance.created).toEqual(['Kimi-2']);
       expect(fixture.componentInstance.closed).toBe(1);
       // Reopened: an empty form, never the earlier key.
@@ -342,7 +344,7 @@ describe('AddCliInstanceModalComponent', () => {
       state.commit.set({ ...idle, status: 'saved' });
       release(true);
       await flush();
-      expect(feedback.toast()?.message).toBe('Created Kimi-2. Key stored, not verified. Testing the connection.');
+      expect(feedback.toast()?.message).toBe('Created Kimi-2. Key stored, not verified.');
       // It does not close (or reopen) again for that late result, nor report a create for the closed form.
       expect(fixture.componentInstance.created).toEqual([]);
       expect(fixture.componentInstance.closed).toBe(1);
@@ -403,6 +405,23 @@ describe('AddCliInstanceModalComponent', () => {
       expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Name saved. The key was not saved.', canUndo: false });
       expect(fixture.componentInstance.closed).toBe(0);
       expect(state.clearCliTest).toHaveBeenCalledWith('glm-1');
+    });
+
+    it.each([
+      ['unsaved', 'Key stored, not verified. The name was not saved.'],
+      ['unconfirmed', 'Key stored, not verified. Could not confirm whether the name was saved; check it before retrying.'],
+    ] as const)('re-check N-3: a rejected rename (%s) with a stored key says the key is stored, in fixed copy', async (bucket, message) => {
+      create(GLM);
+      state.saveSettings.mockImplementationOnce(async () => {
+        state.commit.set({ ...idle, status: 'partial', saved: ['ptahCliAgents.glm-1.apiKey'], [bucket]: ['ptahCliAgents.glm-1.name'] });
+        return true;
+      });
+      type('add-cli-instance-name', 'Glm-Main');
+      type('add-cli-instance-key', KEY);
+      submit()?.click();
+      await flush();
+      expect(feedback.toast()).toEqual({ tone: 'alert', message, canUndo: false });
+      expect(fixture.componentInstance.closed).toBe(0);
     });
 
     it('M9: an edit may keep its own name but not take the name of another instance', () => {

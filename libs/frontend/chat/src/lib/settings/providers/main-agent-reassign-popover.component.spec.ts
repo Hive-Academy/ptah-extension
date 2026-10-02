@@ -244,6 +244,19 @@ describe('MainAgentReassignPopoverComponent', () => {
       expect(document.activeElement).toBe(modelInput());
     });
 
+    it('re-check: a typed id whose write throws after an earlier saved commit keeps the field open (own result, not commit())', async () => {
+      state.commit.set({ ...idle, status: 'saved' });
+      state.saveSettings.mockImplementationOnce(async () => { throw new Error('host broke'); });
+      choose('main-agent-model', '__manual__'); await flush();
+      const input = query<HTMLInputElement>('main-agent-model-manual');
+      if (!input) throw new Error('No manual field');
+      input.value = 'vendor/unlisted'; input.dispatchEvent(new Event('input')); fixture.detectChanges();
+      buttonNamed('Use')?.click(); await flush(); await flush();
+      expect(feedback.toast()).toEqual({ tone: 'alert', canUndo: false, message: 'Could not confirm whether main agent model was saved.' });
+      expect(query('main-agent-model-manual')).not.toBeNull();
+      expect(document.body.textContent).not.toContain('host broke');
+    });
+
     it('a failed catalogue read says so and retries', async () => {
       loader.listModels.mockImplementationOnce(async () => { throw new Error('rpc'); });
       fixture.componentInstance.open.set(false); fixture.detectChanges();
