@@ -54,6 +54,17 @@ import {
   type ReviewFileEditRequest,
 } from './file-diff-section.component';
 import {
+  type AnchorRestore,
+  collapsedCarrier,
+  rememberAnchor,
+  RESTORE_MAX_FRAMES,
+  RESTORE_PENDING_MAX_FRAMES,
+  RESTORE_STABLE_FRAMES,
+  type ScrollAnchor,
+  scrollAnchors,
+  USER_SCROLL_EVENTS,
+} from './review-canvas-position';
+import {
   reviewCanvasFile,
   reviewFileId,
   reviewScopeId,
@@ -64,54 +75,6 @@ import {
 const ESTIMATED_ROW_PX = 20;
 const ESTIMATED_CHROME_PX = 72;
 const UNKNOWN_SIZE_PX = 240;
-
-/** Scroll anchors kept for comparisons the canvas is not showing. */
-const MAX_SCROLL_ANCHORS = 16;
-
-/**
- * A restore re-applies its anchor every frame until the anchor section has
- * not moved for this many frames (sections above it are estimated until they
- * render and are measured), and gives up after the frame cap.
- */
-const RESTORE_STABLE_FRAMES = 6;
-const RESTORE_MAX_FRAMES = 60;
-
-/** Input that means the user is scrolling: a running restore yields to it. */
-const USER_SCROLL_EVENTS = [
-  'wheel',
-  'touchstart',
-  'pointerdown',
-  'keydown',
-] as const;
-
-interface ScrollAnchor {
-  readonly fileId: string;
-  /** Pixels from the top of that file's section to the viewport top. */
-  readonly offset: number;
-}
-
-interface AnchorRestore {
-  readonly anchor: ScrollAnchor;
-  frames: number;
-  stable: number;
-}
-
-/**
- * Where each comparison of each workspace was scrolled to, so leaving the
- * canvas (spot editor, another tab, another comparison) and coming back lands
- * on the same file (parity §7 "view state"). Module scope because the canvas
- * itself may be destroyed in between; bounded and in memory only.
- */
-const scrollAnchors = new Map<string, ScrollAnchor>();
-
-function rememberAnchor(comparisonId: string, anchor: ScrollAnchor): void {
-  scrollAnchors.delete(comparisonId);
-  scrollAnchors.set(comparisonId, anchor);
-  if (scrollAnchors.size > MAX_SCROLL_ANCHORS) {
-    const oldest = scrollAnchors.keys().next().value;
-    if (oldest !== undefined) scrollAnchors.delete(oldest);
-  }
-}
 
 /**
  * ReviewCanvasComponent — the Changes tab body (implementation-plan
@@ -490,6 +453,14 @@ export class ReviewCanvasComponent {
       untracked(() => this.applyNavigation(navigation, files, comparisonId));
     });
 
+    // Staging or unstaging a collapsed file gives it a new id; keep it
+    // collapsed under that id.
+    const carryCollapsed = collapsedCarrier();
+    effect(() => {
+      const next = carryCollapsed(untracked(this.collapsedIds), this.files());
+      if (next) untracked(() => this.collapsedIds.set(next));
+    });
+
     // The draft bar disappears at zero drafts; keep focus inside the canvas.
     let previousDrafts = 0;
     effect(() => {
@@ -738,6 +709,7 @@ export class ReviewCanvasComponent {
     if (this.restore) return;
     rememberAnchor(this.comparisonId(), {
       fileId: id,
+      path: file.path,
       offset: top - element.getBoundingClientRect().top,
     });
   }
@@ -781,7 +753,7 @@ export class ReviewCanvasComponent {
     // Hidden, nothing can be scrolled; showing the body restores then.
     if (!this.shown || comparisonId !== this.comparisonId()) return;
     const anchor = scrollAnchors.get(comparisonId);
-    if (!anchor || !this.sectionFor(anchor.fileId)) {
+    if (!anchor || !this.anchorSection(anchor)) {
       this.scroller().nativeElement.scrollTop = 0;
       return;
     }
@@ -798,7 +770,7 @@ export class ReviewCanvasComponent {
     this.restoreFrame = null;
     const restore = this.restore;
     if (!restore) return;
-    const section = this.sectionFor(restore.anchor.fileId);
+    const section = this.anchorSection(restore.anchor);
     if (!section) {
       this.stopRestore();
       return;
@@ -814,9 +786,11 @@ export class ReviewCanvasComponent {
       restore.stable++;
     }
     restore.frames++;
+    const pending = this.hasPendingRead();
     if (
-      restore.stable >= RESTORE_STABLE_FRAMES ||
-      restore.frames >= RESTORE_MAX_FRAMES
+      (restore.stable >= RESTORE_STABLE_FRAMES && !pending) ||
+      restore.frames >=
+        (pending ? RESTORE_PENDING_MAX_FRAMES : RESTORE_MAX_FRAMES)
     ) {
       this.stopRestore();
       return;
@@ -845,6 +819,25 @@ export class ReviewCanvasComponent {
     if (section && typeof section.scrollIntoView === 'function') {
       section.scrollIntoView({ block: 'start' });
     }
+  }
+
+  /** The anchor's section, or the same path's section after a (un)stage. */
+  private anchorSection(anchor: ScrollAnchor): HTMLElement | null {
+    const moved = this.visibleFiles().find((file) => file.path === anchor.path);
+    return this.sectionFor(anchor.fileId) ?? this.sectionFor(moved?.id ?? '');
+  }
+
+  /**
+   * A section in the window still holds its placeholder height: its first
+   * read has not landed, so the layout below it is not final yet.
+   */
+  private hasPendingRead(): boolean {
+    const near = this.nearIds();
+    return this.sectionElements().some(
+      ({ nativeElement: el }) =>
+        el.style.minHeight !== '' &&
+        (!this.windowed || near.has(this.idOf(el))),
+    );
   }
 
   private sectionFor(id: string): HTMLElement | null {

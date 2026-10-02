@@ -2,6 +2,7 @@ import { registerCustomLanguage, registerCustomTheme } from '@pierre/diffs';
 import {
   createPtahLightTheme,
   labelPierreDiff,
+  loadPtahLightTheme,
   PIERRE_HIGHLIGHT_OPTIONS,
   PIERRE_LIGHT_THEME,
   registerPierreResources,
@@ -137,9 +138,11 @@ describe('light diff theme (Batch 68 light color-contrast)', () => {
 
     expect(theme.name).toBe(PIERRE_LIGHT_THEME);
     expect(theme.type).toBe('light');
-    expect(
-      theme.tokenColors?.map((rule) => rule.settings.foreground),
-    ).toEqual(['#4b535d', '#a0111f', '#032563']);
+    expect(theme.tokenColors?.map((rule) => rule.settings.foreground)).toEqual([
+      '#4b535d',
+      '#a0111f',
+      '#032563',
+    ]);
     // The source theme object is not mutated.
     expect(mockBaseTheme.tokenColors[0].settings.foreground).toBe('#66707b');
   });
@@ -149,12 +152,30 @@ describe('light diff theme (Batch 68 light color-contrast)', () => {
     registerPierreResources();
 
     expect(jest.mocked(registerCustomTheme)).toHaveBeenCalledTimes(1);
-    expect(jest.mocked(registerCustomLanguage).mock.calls.length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      jest.mocked(registerCustomLanguage).mock.calls.length,
+    ).toBeGreaterThan(0);
     const [name, load] = jest.mocked(registerCustomTheme).mock.calls[0];
     expect(name).toBe(PIERRE_LIGHT_THEME);
     const theme = await (load as () => Promise<{ name?: string }>)();
     expect(theme.name).toBe(PIERRE_LIGHT_THEME);
+  });
+
+  it('falls back to a plain readable light theme, logged, when the base theme cannot load', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {
+      // Expected: the failure is logged.
+    });
+
+    const theme = await loadPtahLightTheme(() =>
+      Promise.reject(new Error('chunk failed')),
+    );
+
+    expect(theme).toMatchObject({
+      name: PIERRE_LIGHT_THEME,
+      type: 'light',
+      tokenColors: [],
+    });
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
   });
 });

@@ -459,12 +459,15 @@ export class HunkToolbarComponent {
   }
 
   /**
-   * Remove the refusal chip. Focus goes to the toolbar's tab stop, or, while
-   * the re-read is still pending and the toolbar is away, to the nearest
-   * focusable ancestor, so it never falls to `<body>`.
+   * Remove the refusal chip and bring the buttons back even when the forced
+   * re-read never lands (it can fail before reaching git): a refused apply
+   * wrote nothing, and a retry with a stale token is refused again. Focus
+   * goes to the toolbar's tab stop, else the nearest focusable ancestor, so
+   * it never falls to `<body>`.
    */
   protected dismissRefusal(): void {
     this.refusalMessage.set(null);
+    if (this.outcome()?.kind === 'refused') this.outcome.set(null);
     afterNextRender(
       () => {
         const host = this.host.nativeElement;

@@ -23,3 +23,4 @@ export { FileContentChangesService } from './lib/services/file-content-changes.s
 export { GitOperationOutputService } from './lib/services/git-operation-output.service';
 export { ReviewDiffService } from './lib/services/review-diff.service';
 export { GitReviewService } from './lib/services/git-review.service';
+export { ReviewNavigationService } from './lib/services/review-navigation.service';

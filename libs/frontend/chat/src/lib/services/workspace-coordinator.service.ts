@@ -34,12 +34,14 @@ interface WorkspaceAwareService {
  * cache), AgentDiscoveryFacade / CommandDiscoveryFacade (`/` picker agent and
  * command caches), GitStatusService / GitBranchesService (git state),
  * ReviewDiffService (the review canvas's per-workspace diff cache),
- * GitReviewService (branch review), AppStateManager (which view/layout
+ * GitReviewService (branch review), ReviewNavigationService (where the review
+ * shell is pointed — a commit, stash file or spot-editor file opened in the
+ * workspace being left is dropped), AppStateManager (which view/layout
  * surface is on screen) and ConfirmationDialogService.
  *
  * Git services (GitStatusService, GitBranchesService, ReviewDiffService,
- * GitReviewService) are resolved dynamically via Injector to avoid a static
- * import of `@ptah-extension/git-ui` at this layer. Everything else —
+ * GitReviewService, ReviewNavigationService) are resolved dynamically via
+ * Injector to avoid a static import of `@ptah-extension/git-ui` at this layer. Everything else —
  * TabManagerService, SessionLoaderService, FilePickerService and the two
  * discovery facades — is injected directly and reset synchronously.
  *
@@ -120,7 +122,7 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       return this.gitServices;
     }
 
-    // All four come from the services-only entry by dynamic import, so this
+    // All five come from the services-only entry by dynamic import, so this
     // layer keeps no static edge to git-ui and never loads the review shell's
     // chunks (which the VS Code package does not ship).
     const git = await import('@ptah-extension/git-ui/services');
@@ -129,6 +131,8 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       this.injector.get(git.GitBranchesService),
       this.injector.get(git.ReviewDiffService),
       this.injector.get(git.GitReviewService),
+      // Last: it reads GitStatusService's new active workspace when it resets.
+      this.injector.get(git.ReviewNavigationService),
     ];
     return this.gitServices;
   }

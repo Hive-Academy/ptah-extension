@@ -16,7 +16,10 @@ import {
 import type { EditorTarget, GitConflictKind } from '@ptah-extension/shared';
 import type { FileStatusCode } from '@ptah-extension/ui';
 import { PierreDiffHostComponent } from '../renderer/pierre-diff-host.component';
-import type { DiffTabState, DiffUnrenderable } from '../types/review-diff.types';
+import type {
+  DiffTabState,
+  DiffUnrenderable,
+} from '../types/review-diff.types';
 import type {
   PierreDiffStyle,
   PierreThemeMode,
@@ -595,6 +598,10 @@ export class FileDiffSectionComponent {
       if (diff.modifiedRef.kind === 'absent') chips.push('deleted');
       if (hasNoChanges(diff)) chips.push('no changes');
     }
+    // Collapsed, the composer is hidden but kept; say so.
+    if (this.collapsed() && this.composer() !== null) {
+      chips.push('comment in progress');
+    }
     return chips;
   });
 
@@ -655,9 +662,18 @@ export class FileDiffSectionComponent {
       onCleanup(() => this.reviewDiff.unmount(key));
     });
 
-    // A composer outlives neither the readable diff nor the owner.
+    // A composer outlives neither the owner nor a read that turned out not
+    // to be commentable text. An unmounted read (the file collapsed or
+    // scrolled away) is neither: the draft and its line range are kept and
+    // come back when the body does.
     effect(() => {
-      if (!this.canComment() && untracked(this.composer) !== null) {
+      const diff = this.diff();
+      const unreadable =
+        diff !== null && (diff.status === 'error' || this.labelKind() !== null);
+      if (
+        (this.draftOwner() === null || unreadable) &&
+        untracked(this.composer) !== null
+      ) {
         this.composer.set(null);
         this.composerError.set(null);
       }

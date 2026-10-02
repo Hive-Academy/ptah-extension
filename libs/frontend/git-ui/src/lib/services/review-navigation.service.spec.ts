@@ -588,4 +588,189 @@ describe('ReviewNavigationService', () => {
       expect(service.current().scope).toEqual({ kind: 'staged' });
     });
   });
+
+  describe('in-flight opens (latest click wins)', () => {
+    function holdNextRead(): (value: unknown) => void {
+      let resolve!: (value: unknown) => void;
+      mockRpcCall.mockReturnValueOnce(new Promise((res) => (resolve = res)));
+      return resolve;
+    }
+    const stash = (path: string) => ({
+      base: { name: 'abc^1', sha: PARENT },
+      head: { name: 'abc', sha: SHA },
+      label: 'WIP on main · abc1234',
+      file: { path, status: 'M' as const },
+    });
+
+    it('a slower earlier commit read does not replace a later one', async () => {
+      const { service } = makeService();
+      const OTHER = 'b'.repeat(40);
+      const resolveFirst = holdNextRead();
+      const resolveSecond = holdNextRead();
+      const first = service.openHistorical(SHA);
+      const second = service.openHistorical(OTHER);
+
+      resolveSecond({
+        success: true,
+        data: reviewChanges({ head: { name: OTHER, sha: OTHER } }),
+      });
+      expect(await second).toEqual({ opened: true });
+      resolveFirst({ success: true, data: reviewChanges() });
+
+      expect(await first).toEqual({ opened: false, error: null });
+      expect(service.current().scope).toMatchObject({
+        kind: 'historical',
+        head: { sha: OTHER },
+      });
+    });
+
+    it('a slower earlier stash file read does not replace a later one', async () => {
+      const { service } = makeService();
+      const resolveFirst = holdNextRead();
+      const resolveSecond = holdNextRead();
+      const first = service.openStashFile(stash('a.ts'));
+      const second = service.openStashFile(stash('b.ts'));
+
+      resolveSecond({ success: false, error: 'down' });
+      await second;
+      resolveFirst({ success: false, error: 'down' });
+      await first;
+
+      expect(service.current().target).toEqual({ kind: 'diff', path: 'b.ts' });
+      expect(service.current().seq).toBe(1);
+    });
+
+    it('a stash file read is superseded by a later commit open', async () => {
+      const { service } = makeService();
+      const resolveStash = holdNextRead();
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: reviewChanges(),
+      });
+      const stashOpen = service.openStashFile(stash('a.ts'));
+      const commitOpen = service.openHistorical(SHA);
+      expect(await commitOpen).toEqual({ opened: true });
+      resolveStash({ success: false, error: 'down' });
+      await stashOpen;
+
+      expect(service.current().target).toEqual({ kind: 'none' });
+      expect(service.current().scope).toMatchObject({ label: SHA.slice(0, 7) });
+    });
+  });
+
+  describe('workspace switch and removal', () => {
+    async function openCommitIn(
+      service: ReviewNavigationService,
+    ): Promise<void> {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: reviewChanges(),
+      });
+      expect(await service.openHistorical(SHA)).toEqual({ opened: true });
+    }
+
+    it('a switch drops a commit comparison opened in the previous workspace', async () => {
+      const { service, active } = makeService();
+      service.selectTab('history');
+      await openCommitIn(service);
+
+      active.path = '/other';
+      service.switchWorkspace('/other');
+
+      expect(service.current()).toMatchObject({
+        tab: 'changes',
+        scope: { kind: 'worktree' },
+        target: { kind: 'none' },
+      });
+    });
+
+    it('a switch drops a change set and a diff target but keeps a generic comparison and the tab', () => {
+      const { service, active } = makeService();
+      service.selectComparison('staged');
+      service.openChangeSet({ workspaceRoot: '/ws', files: [{ path: 'a' }] });
+      active.path = '/other';
+      service.switchWorkspace('/other');
+      expect(service.current().target).toEqual({ kind: 'none' });
+
+      active.path = '/ws';
+      service.selectComparison('staged');
+      service.selectTab('task');
+      const seq = service.current().seq;
+      active.path = '/other';
+      service.switchWorkspace('/other');
+
+      expect(service.current()).toMatchObject({
+        seq,
+        tab: 'task',
+        scope: { kind: 'staged' },
+      });
+    });
+
+    it('a switch to the workspace the state belongs to changes nothing', async () => {
+      const { service } = makeService();
+      await openCommitIn(service);
+      const before = service.current();
+      service.switchWorkspace('/ws');
+      expect(service.current()).toBe(before);
+    });
+
+    it('a switch asks before dropping the spot editor; Keep editing keeps it but drops the commit comparison', async () => {
+      const { service, active } = makeService();
+      await openCommitIn(service);
+      service.openFile('/ws/a.ts');
+      const guard = jest.fn(() => false);
+      service.registerLeaveGuard(guard);
+
+      active.path = '/other';
+      service.switchWorkspace('/other');
+
+      expect(guard).toHaveBeenCalledTimes(1);
+      expect(service.current().scope).toEqual({ kind: 'worktree' });
+      expect(service.current().target).toMatchObject({
+        kind: 'file',
+        request: { path: '/ws/a.ts' },
+      });
+    });
+
+    it('a switch drops the spot editor after Discard', () => {
+      const { service, active } = makeService();
+      service.openFile('/ws/a.ts');
+      service.registerLeaveGuard(() => true);
+
+      active.path = '/other';
+      service.switchWorkspace('/other');
+
+      expect(service.current().target).toEqual({ kind: 'none' });
+    });
+
+    it('a switch supersedes an open still reading the previous workspace', async () => {
+      const { service } = makeService();
+      let resolve!: (value: unknown) => void;
+      mockRpcCall.mockReturnValueOnce(new Promise((res) => (resolve = res)));
+      const pending = service.openHistorical(SHA);
+
+      // A rapid A -> B -> A switch leaves the active path where it started.
+      service.switchWorkspace('/other');
+      service.switchWorkspace('/ws');
+      resolve({ success: true, data: reviewChanges() });
+
+      expect(await pending).toEqual({ opened: false, error: null });
+      expect(service.current().seq).toBe(0);
+    });
+
+    it('removing the workspace the state belongs to resets it; another workspace does not', async () => {
+      const { service, active } = makeService();
+      await openCommitIn(service);
+
+      service.removeWorkspaceState('/elsewhere');
+      expect(service.current().scope.kind).toBe('historical');
+
+      active.path = null;
+      service.removeWorkspaceState('/ws');
+      expect(service.current()).toMatchObject({
+        scope: { kind: 'worktree' },
+        target: { kind: 'none' },
+      });
+    });
+  });
 });

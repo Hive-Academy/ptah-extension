@@ -1062,6 +1062,101 @@ describe('ReviewCanvasComponent', () => {
       expect(scrollTop).toBe(20);
     });
 
+    it('restores to a file that was staged while the body was hidden (its id changed)', async () => {
+      await createWithLayout();
+      userScroll(150);
+      expect(readingPosition()).toEqual({ path: 'src/util.ts', offset: 50 });
+
+      hide();
+      statusFiles.set(
+        STATUS.map((file) =>
+          file.path === 'src/util.ts' ? { ...file, staged: true } : file,
+        ),
+      );
+      await settle();
+      show();
+
+      expect(readingPosition()).toEqual({ path: 'src/util.ts', offset: 50 });
+    });
+
+    it('keeps a collapsed file collapsed when staging changes its id', async () => {
+      await createWithLayout();
+      sectionFor('src/util.ts')
+        .querySelector<HTMLButtonElement>('[data-testid="file-section-toggle"]')
+        ?.click();
+      await settle();
+
+      statusFiles.set(
+        STATUS.map((file) =>
+          file.path === 'src/util.ts' ? { ...file, staged: true } : file,
+        ),
+      );
+      await settle();
+
+      const util = sectionInstances().find(
+        (s) => s.file().path === 'src/util.ts',
+      );
+      expect(util?.file().comparison).toBe('staged');
+      expect(util?.collapsed()).toBe(true);
+    });
+
+    it('keeps re-anchoring past the frame cap while a section in the window waits for its first read', async () => {
+      await createWithLayout();
+      userScroll(250);
+      hide();
+      observer().emit([sectionFor('src/util.ts')], true);
+      await settle();
+      resizeObserver().emit(VIEWPORT_PX);
+
+      // Well past the 60-frame cap: the restore is still running.
+      flushFrames(100);
+      expect(frames.size).toBeGreaterThan(0);
+
+      // The slow read lands and the section above grows.
+      const key = reviewDiffKey({
+        comparison: { kind: 'worktree' },
+        path: 'src/util.ts',
+      });
+      entries.set(
+        new Map([
+          [
+            key,
+            {
+              key,
+              comparison: { kind: 'worktree' },
+              path: 'src/util.ts',
+              originalPath: 'src/util.ts',
+              diff: {
+                provenance: { kind: 'mutable', comparison: 'worktree' },
+                comparison: 'worktree',
+                path: 'src/util.ts',
+                originalPath: 'src/util.ts',
+                original: '',
+                modified: '',
+                originalRef: { kind: 'index' },
+                modifiedRef: { kind: 'worktree' },
+                snapshotToken: 'tok-1',
+                hunks: [],
+                isBinary: false,
+                status: 'error',
+                requestId: 1,
+              },
+              invalidated: false,
+            } as ReviewDiffEntry,
+          ],
+        ]),
+      );
+      heights.set('src/util.ts', 520);
+      await settle();
+      flushFrames();
+
+      expect(readingPosition()).toEqual({
+        path: 'src/new-name.ts',
+        offset: 50,
+      });
+      expect(frames.size).toBe(0);
+    });
+
     it('observes the list size and disconnects on destroy', async () => {
       await createWithLayout();
       const ro = resizeObserver();

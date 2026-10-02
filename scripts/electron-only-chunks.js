@@ -19,6 +19,11 @@
  * `scripts/copy-webview.js` (VSIX) skips the listed files; the Electron
  * renderer copy (`apps/ptah-electron/scripts/copy-renderer.js`) keeps all.
  *
+ * `generate` refuses a stats.json that does not describe the `browser/` folder
+ * beside it (a JS file one has and the other lacks), and a list whose dropped
+ * chunks are reachable from `main.js` through static imports, so a stale or
+ * mismatched build fails loudly instead of shipping a wrong VSIX.
+ *
  * Usage: node scripts/electron-only-chunks.js [--dist <dir>]
  */
 const fs = require('fs');
@@ -111,6 +116,60 @@ function classify(stats) {
   return { electronOnly, kept, keptPierre };
 }
 
+/**
+ * Throw unless the top-level JS files of `browserDir` are exactly the JS
+ * outputs `stats` names (case-sensitive): otherwise stats.json is stale or
+ * from another build, and the list would name the wrong files.
+ */
+function assertStatsMatchBuild(stats, browserDir) {
+  if (!fs.existsSync(browserDir)) {
+    throw new Error(
+      `[electron-only-chunks] ${browserDir} not found. Run the production webview build first.`,
+    );
+  }
+  const built = new Set(
+    fs.readdirSync(browserDir).filter((f) => f.endsWith('.js')),
+  );
+  const described = new Set(
+    Object.keys(stats.outputs ?? {}).filter((f) => f.endsWith('.js')),
+  );
+  const notBuilt = [...described].filter((f) => !built.has(f));
+  const notDescribed = [...built].filter((f) => !described.has(f));
+  if (notBuilt.length > 0 || notDescribed.length > 0) {
+    throw new Error(
+      `[electron-only-chunks] stats.json does not match ${browserDir} ` +
+        `(${notBuilt.length} described but not built, e.g. ${notBuilt.slice(0, 3).join(', ') || '-'}; ` +
+        `${notDescribed.length} built but not described, e.g. ${notDescribed.slice(0, 3).join(', ') || '-'}). ` +
+        'Rebuild the production webview so both come from the same build.',
+    );
+  }
+}
+
+/**
+ * Throw if a dropped chunk is in `main.js`'s static import closure: the
+ * VS Code webview would fail to boot without it.
+ */
+function assertEagerClosureKept(stats, electronOnly) {
+  const outputs = stats.outputs ?? {};
+  const dropped = new Set(electronOnly);
+  const seen = new Set();
+  const queue = ['main.js'];
+  while (queue.length > 0) {
+    const file = queue.pop();
+    if (seen.has(file) || !outputs[file]) continue;
+    seen.add(file);
+    for (const imp of outputs[file].imports ?? []) {
+      if (imp.kind === 'import-statement') queue.push(imp.path);
+    }
+  }
+  const reached = [...seen].filter((f) => dropped.has(f));
+  if (reached.length > 0) {
+    throw new Error(
+      `[electron-only-chunks] main.js statically reaches Electron-only chunk(s): ${reached.join(', ')}`,
+    );
+  }
+}
+
 /** Generate the list from `<distDir>/stats.json`; returns the summary. */
 function generate(distDir) {
   const statsPath = path.join(distDir, 'stats.json');
@@ -120,7 +179,9 @@ function generate(distDir) {
     );
   }
   const stats = JSON.parse(fs.readFileSync(statsPath, 'utf8'));
+  assertStatsMatchBuild(stats, path.join(distDir, 'browser'));
   const result = classify(stats);
+  assertEagerClosureKept(stats, result.electronOnly);
   const outPath = path.join(distDir, 'electron-only-chunks.json');
   fs.writeFileSync(
     outPath,
@@ -129,7 +190,13 @@ function generate(distDir) {
   return { ...result, outPath };
 }
 
-module.exports = { generate, classify, isElectronOnlyInput };
+module.exports = {
+  generate,
+  classify,
+  isElectronOnlyInput,
+  assertStatsMatchBuild,
+  assertEagerClosureKept,
+};
 
 if (require.main === module) {
   const args = process.argv.slice(2);

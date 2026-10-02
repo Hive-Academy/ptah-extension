@@ -15,13 +15,18 @@ const extDist = 'dist/apps/ptah-extension-vscode';
 
 // Copy webview
 fs.mkdirSync(dest, { recursive: true });
+// `generate` throws when stats.json is missing or does not describe `src`.
 const { electronOnly } = generate('dist/apps/ptah-extension-webview');
-const skip = new Set(
-  electronOnly.map((f) => path.resolve(src, f).toLowerCase()),
-);
+// esbuild chunk names are mixed case: two may differ only in case where the
+// file system is case-sensitive, so compare exactly except on Windows.
+const pathKey = (p) =>
+  process.platform === 'win32'
+    ? path.resolve(p).toLowerCase()
+    : path.resolve(p);
+const skip = new Set(electronOnly.map((f) => pathKey(path.join(src, f))));
 fs.cpSync(src, dest, {
   recursive: true,
-  filter: (source) => !skip.has(path.resolve(source).toLowerCase()),
+  filter: (source) => !skip.has(pathKey(source)),
 });
 console.log(`Skipped ${skip.size} Electron-only chunks for the VSIX.`);
 

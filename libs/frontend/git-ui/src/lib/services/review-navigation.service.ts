@@ -151,6 +151,18 @@ export class ReviewNavigationService {
   private leaveGuard: ReviewLeaveGuard | null = null;
   /** Bumped per guarded navigation, so only the latest one can land. */
   private leaveTicket = 0;
+  /**
+   * Bumped when a navigation that reads git first ({@link openHistorical},
+   * {@link openStashFile}) starts, and on a workspace reset. Only the open
+   * holding the latest ticket may land, so a slower earlier click never
+   * replaces a later one.
+   */
+  private openTicket = 0;
+  /**
+   * The workspace the current scope and target were opened in, or `null`
+   * while they hold nothing workspace-specific.
+   */
+  private stateWorkspace: string | null = null;
 
   /** The latest navigation. */
   readonly current = this._current.asReadonly();
@@ -195,11 +207,7 @@ export class ReviewNavigationService {
    * chat link's session workspace, or the previewed document it was written
    * in); the backend re-authorizes the path either way.
    */
-  openFile(
-    path: string,
-    line?: number,
-    options?: ReviewOpenFileOptions,
-  ): void {
+  openFile(path: string, line?: number, options?: ReviewOpenFileOptions): void {
     const request: FileViewOpenRequest = {
       path,
       ...(line === undefined ? {} : { line }),
@@ -238,6 +246,7 @@ export class ReviewNavigationService {
     const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return { opened: false, error: NO_WORKSPACE_MESSAGE };
 
+    const ticket = ++this.openTicket;
     const seq = this._current().seq;
     let result: GitReviewChangesResult | undefined;
     let transportError: string | undefined;
@@ -257,10 +266,7 @@ export class ReviewNavigationService {
       console.error('[ReviewNavigationService] git:reviewChanges threw', error);
     }
 
-    if (
-      this._current().seq !== seq ||
-      this.gitStatus.activeWorkspacePath() !== workspaceRoot
-    ) {
+    if (this.superseded(ticket, seq, workspaceRoot)) {
       return { opened: false, error: null };
     }
     const base = result?.base;
@@ -298,16 +304,12 @@ export class ReviewNavigationService {
   async openStashFile(request: ReviewStashFileRequest): Promise<void> {
     const { file } = request;
     const workspaceRoot = this.gitStatus.activeWorkspacePath();
+    const ticket = ++this.openTicket;
     const seq = this._current().seq;
     const listed = workspaceRoot
       ? await this.readStashFileRow(workspaceRoot, request)
       : null;
-    if (
-      this._current().seq !== seq ||
-      this.gitStatus.activeWorkspacePath() !== workspaceRoot
-    ) {
-      return;
-    }
+    if (this.superseded(ticket, seq, workspaceRoot)) return;
     await this.navigate(
       'changes',
       {
@@ -344,6 +346,64 @@ export class ReviewNavigationService {
   /** A comparison was picked in the comparison bar. Clears the target. */
   selectComparison(kind: ReviewComparisonKind): void {
     void this.navigate('changes', { kind }, { kind: 'none' });
+  }
+
+  /**
+   * The active workspace changed (`WorkspaceCoordinatorService`). A commit or
+   * stash comparison, a change set, a diff target or a spot-editor file
+   * opened in another workspace would be read against the new repository, so
+   * they are dropped; the tab and a generic comparison (worktree, staged,
+   * branch) stay. Opens still reading git are superseded.
+   */
+  switchWorkspace(workspacePath: string): void {
+    this.openTicket++;
+    if (this.stateWorkspace === null || this.stateWorkspace === workspacePath) {
+      return;
+    }
+    this.resetWorkspaceState();
+  }
+
+  /** A workspace was closed; drop what was opened in it. */
+  removeWorkspaceState(workspacePath: string): void {
+    if (this.stateWorkspace !== workspacePath) return;
+    this.openTicket++;
+    this.resetWorkspaceState();
+  }
+
+  /**
+   * Point the shell back at a workspace-neutral view. A spot editor still
+   * asks the leave guard before it goes: its comparison is dropped at once
+   * (the editor stays mounted), and the editor itself only when the user
+   * agrees, so unsaved edits are never discarded silently.
+   */
+  private resetWorkspaceState(): void {
+    const { tab, scope, target } = this._current();
+    const neutralScope: ReviewScope =
+      scope.kind === 'historical' ? { kind: 'worktree' } : scope;
+    if (target.kind === 'file') {
+      if (scope.kind === 'historical') {
+        // The file still belongs to the workspace it was opened in.
+        const owner = this.stateWorkspace;
+        this.commit(tab, neutralScope, target);
+        this.stateWorkspace = owner;
+      }
+      void this.navigate(tab, neutralScope, { kind: 'none' });
+      return;
+    }
+    this.commit(tab, neutralScope, { kind: 'none' });
+  }
+
+  /** A newer open, a committed navigation or a workspace switch won. */
+  private superseded(
+    ticket: number,
+    seq: number,
+    workspaceRoot: string | null,
+  ): boolean {
+    return (
+      ticket !== this.openTicket ||
+      this._current().seq !== seq ||
+      this.gitStatus.activeWorkspacePath() !== workspaceRoot
+    );
   }
 
   /** The stash file's `git:reviewChanges` row, or `null` when it cannot be read. */
@@ -426,5 +486,9 @@ export class ReviewNavigationService {
   ): void {
     const seq = this._current().seq + 1;
     this._current.set({ seq, tab, scope, target });
+    this.stateWorkspace =
+      scope.kind === 'historical' || target.kind !== 'none'
+        ? this.gitStatus.activeWorkspacePath()
+        : null;
   }
 }

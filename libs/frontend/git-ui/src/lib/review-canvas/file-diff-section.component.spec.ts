@@ -925,5 +925,44 @@ describe('FileDiffSectionComponent', () => {
       expect(byTestId('comment-composer')).toBeNull();
       expect(document.activeElement).toBe(byTestId('file-section-comment'));
     });
+
+    it('collapsing keeps an in-progress comment, says so, and restores it on expand', async () => {
+      await openComposer();
+      type('comment-to', '3');
+      type('comment-body', 'Half written');
+
+      fixture.componentRef.setInput('collapsed', true);
+      await settle();
+      expect(byTestId('comment-composer')).toBeNull();
+      expect(host().textContent).toContain('comment in progress');
+
+      fixture.componentRef.setInput('collapsed', false);
+      await settle();
+      expect(byTestId('comment-composer')).not.toBeNull();
+      expect(byTestId<HTMLInputElement>('comment-to')?.value).toBe('3');
+      expect(byTestId<HTMLTextAreaElement>('comment-body')?.value).toBe(
+        'Half written',
+      );
+      expect(host().textContent).not.toContain('comment in progress');
+    });
+
+    it('scrolling out of the window keeps an in-progress comment', async () => {
+      await openComposer();
+      type('comment-body', 'Still here');
+      fixture.componentRef.setInput('near', false);
+      await settle();
+      fixture.componentRef.setInput('near', true);
+      await settle();
+      expect(byTestId<HTMLTextAreaElement>('comment-body')?.value).toBe(
+        'Still here',
+      );
+    });
+
+    it('drops the composer when the owner goes away', async () => {
+      await openComposer();
+      fixture.componentRef.setInput('draftOwner', null);
+      await settle();
+      expect(byTestId('comment-composer')).toBeNull();
+    });
   });
 });

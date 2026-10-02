@@ -28,7 +28,14 @@
  * invariant it depends on.
  */
 
-import { existsSync, readFileSync } from 'fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
@@ -60,7 +67,21 @@ const WEBVIEW_OUTPUT_DIR = join(
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const electronOnlyChunks = require(
   join(REPO_ROOT, 'scripts', 'electron-only-chunks.js'),
-) as { isElectronOnlyInput(input: string): boolean };
+) as {
+  isElectronOnlyInput(input: string): boolean;
+  assertStatsMatchBuild(stats: ChunkStats, browserDir: string): void;
+  assertEagerClosureKept(stats: ChunkStats, electronOnly: string[]): void;
+};
+
+interface ChunkStats {
+  outputs: Record<
+    string,
+    {
+      inputs?: Record<string, unknown>;
+      imports?: { path: string; kind: string }[];
+    }
+  >;
+}
 
 const PRUNE_COMMAND = 'apps/ptah-electron/scripts/prune-dist-deps.js';
 
@@ -242,6 +263,64 @@ describe('packaged electron dependency set', () => {
       expect(isElectronOnlyInput('libs/frontend/chat/src/lib/x.ts')).toBe(
         false,
       );
+    });
+
+    describe('stale or mismatched stats.json (MIN-1)', () => {
+      const stats: ChunkStats = {
+        outputs: {
+          'main.js': {
+            imports: [{ path: 'chunk-Ab.js', kind: 'import-statement' }],
+          },
+          'chunk-Ab.js': {},
+        },
+      };
+      let dir: string;
+
+      beforeEach(() => {
+        dir = mkdtempSync(join(tmpdir(), 'electron-only-chunks-'));
+      });
+      afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+      it('accepts a browser folder holding exactly the described JS files', () => {
+        writeFileSync(join(dir, 'main.js'), '');
+        writeFileSync(join(dir, 'chunk-Ab.js'), '');
+        writeFileSync(join(dir, 'styles.css'), '');
+        expect(() =>
+          electronOnlyChunks.assertStatsMatchBuild(stats, dir),
+        ).not.toThrow();
+      });
+
+      it('refuses a described chunk that was not built, or a built one stats.json does not name', () => {
+        writeFileSync(join(dir, 'main.js'), '');
+        expect(() =>
+          electronOnlyChunks.assertStatsMatchBuild(stats, dir),
+        ).toThrow(/does not match/);
+        writeFileSync(join(dir, 'chunk-Ab.js'), '');
+        writeFileSync(join(dir, 'chunk-New.js'), '');
+        expect(() =>
+          electronOnlyChunks.assertStatsMatchBuild(stats, dir),
+        ).toThrow(/1 built but not described/);
+      });
+
+      it('refuses a missing browser folder', () => {
+        expect(() =>
+          electronOnlyChunks.assertStatsMatchBuild(stats, join(dir, 'nope')),
+        ).toThrow(/not found/);
+      });
+
+      it('refuses a list that drops a chunk main.js imports statically', () => {
+        expect(() =>
+          electronOnlyChunks.assertEagerClosureKept(stats, ['chunk-Ab.js']),
+        ).toThrow(/chunk-Ab\.js/);
+        expect(() =>
+          electronOnlyChunks.assertEagerClosureKept(stats, []),
+        ).not.toThrow();
+      });
+
+      it('copy-webview.js compares skipped paths case-sensitively off Windows', () => {
+        const script = readFileSync(COPY_WEBVIEW_PATH, 'utf8');
+        expect(script).toMatch(/process\.platform === 'win32'/);
+      });
     });
   });
 });

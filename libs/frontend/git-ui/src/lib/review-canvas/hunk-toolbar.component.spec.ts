@@ -5,7 +5,10 @@ import {
   ReviewDiffService,
   type ReviewDiffEntry,
 } from '../services/review-diff.service';
-import type { DiffTabState, HunkApplyRequest } from '../types/review-diff.types';
+import type {
+  DiffTabState,
+  HunkApplyRequest,
+} from '../types/review-diff.types';
 import {
   HunkToolbarComponent,
   type HunkToolbarComparison,
@@ -299,6 +302,20 @@ describe('HunkToolbarComponent', () => {
       dismiss.click();
       await settle();
       expect(q('hunk-refused')).toBeNull();
+      expect(document.activeElement).toBe(
+        el().querySelector('[role="toolbar"] [tabindex="0"]'),
+      );
+    });
+
+    it('brings the buttons back on dismiss when the forced re-read never lands', async () => {
+      await refuse();
+      expect(q('hunk-toolbar')).toBeNull();
+
+      (q('hunk-refused-dismiss') as HTMLButtonElement).click();
+      await settle();
+
+      expect(q('hunk-refused')).toBeNull();
+      expect(q('hunk-toolbar')).not.toBeNull();
       expect(document.activeElement).toBe(
         el().querySelector('[role="toolbar"] [tabindex="0"]'),
       );

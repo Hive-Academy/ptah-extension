@@ -134,12 +134,44 @@ export function registerPierreResources(): void {
       [...extensions],
     );
   }
-  registerCustomTheme(PIERRE_LIGHT_THEME, async () =>
-    createPtahLightTheme(
-      (await import('shiki/themes/github-light-high-contrast.mjs'))
-        .default as ThemeRegistration,
+  registerCustomTheme(PIERRE_LIGHT_THEME, () =>
+    loadPtahLightTheme(
+      () => import('shiki/themes/github-light-high-contrast.mjs'),
     ),
   );
+}
+
+/**
+ * Plain dark-on-white text, used when the base theme's chunk cannot load: the
+ * diff stays readable (16:1) without token colours instead of failing to
+ * highlight at all.
+ */
+const PTAH_LIGHT_FALLBACK: ThemeRegistration = {
+  name: PIERRE_LIGHT_THEME,
+  displayName: 'Ptah Light',
+  type: 'light',
+  colors: { 'editor.background': '#ffffff', 'editor.foreground': '#1f2328' },
+  tokenColors: [],
+};
+
+/**
+ * `ptah-light` from the base theme `loadBase` imports, or the plain
+ * {@link PTAH_LIGHT_FALLBACK} (logged) when that import fails.
+ */
+export async function loadPtahLightTheme(
+  loadBase: () => Promise<{ default: unknown }>,
+): Promise<ThemeRegistration> {
+  try {
+    return createPtahLightTheme(
+      (await loadBase()).default as ThemeRegistration,
+    );
+  } catch (error: unknown) {
+    console.error(
+      '[pierre-config] Could not load the light diff theme; showing plain text colours.',
+      error,
+    );
+    return PTAH_LIGHT_FALLBACK;
+  }
 }
 
 /**
@@ -235,8 +267,10 @@ export function labelPierreDiff(
       : pane.hasAttribute('data-additions')
         ? `Changed lines of ${file}`
         : `Diff of ${file}`;
-    if (pane.getAttribute('tabindex') !== '0') pane.setAttribute('tabindex', '0');
-    if (pane.getAttribute('role') !== 'group') pane.setAttribute('role', 'group');
+    if (pane.getAttribute('tabindex') !== '0')
+      pane.setAttribute('tabindex', '0');
+    if (pane.getAttribute('role') !== 'group')
+      pane.setAttribute('role', 'group');
     setLabel(pane, label);
   }
   for (const button of Array.from(

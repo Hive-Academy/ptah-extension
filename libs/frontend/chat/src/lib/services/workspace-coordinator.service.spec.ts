@@ -926,6 +926,9 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
   let reviewDiff: InstanceType<
     typeof import('@ptah-extension/git-ui/services').ReviewDiffService
   >;
+  let reviewNavigation: InstanceType<
+    typeof import('@ptah-extension/git-ui/services').ReviewNavigationService
+  >;
 
   beforeEach(async () => {
     mockGitRpcCall.mockReset();
@@ -994,6 +997,7 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     gitBranches = TestBed.inject(gitUiServices.GitBranchesService);
     gitReview = TestBed.inject(gitUi.GitReviewService);
     reviewDiff = TestBed.inject(gitUiServices.ReviewDiffService);
+    reviewNavigation = TestBed.inject(gitUiServices.ReviewNavigationService);
   });
 
   afterEach(() => {
@@ -1002,11 +1006,12 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     TestBed.resetTestingModule();
   });
 
-  it('notifies the REAL GitStatusService, GitBranchesService, ReviewDiffService and GitReviewService singletons of a workspace switch', async () => {
+  it('notifies the REAL GitStatusService, GitBranchesService, ReviewDiffService, GitReviewService and ReviewNavigationService singletons of a workspace switch', async () => {
     const gitStatusSwitch = jest.spyOn(gitStatus, 'switchWorkspace');
     const gitBranchesSwitch = jest.spyOn(gitBranches, 'switchWorkspace');
     const reviewDiffSwitch = jest.spyOn(reviewDiff, 'switchWorkspace');
     const gitReviewSwitch = jest.spyOn(gitReview, 'switchWorkspace');
+    const navigationSwitch = jest.spyOn(reviewNavigation, 'switchWorkspace');
 
     await service.switchWorkspace('/ws/regression');
 
@@ -1014,6 +1019,7 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     expect(gitBranchesSwitch).toHaveBeenCalledWith('/ws/regression');
     expect(reviewDiffSwitch).toHaveBeenCalledWith('/ws/regression');
     expect(gitReviewSwitch).toHaveBeenCalledWith('/ws/regression');
+    expect(navigationSwitch).toHaveBeenCalledWith('/ws/regression');
   });
 
   it('notifies the REAL git services of a workspace removal', async () => {
@@ -1021,6 +1027,10 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     const gitBranchesRemove = jest.spyOn(gitBranches, 'removeWorkspaceState');
     const reviewDiffRemove = jest.spyOn(reviewDiff, 'removeWorkspaceState');
     const gitReviewRemove = jest.spyOn(gitReview, 'removeWorkspaceState');
+    const navigationRemove = jest.spyOn(
+      reviewNavigation,
+      'removeWorkspaceState',
+    );
 
     await service.removeWorkspaceState('/ws/regression');
 
@@ -1028,5 +1038,16 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     expect(gitBranchesRemove).toHaveBeenCalledWith('/ws/regression');
     expect(reviewDiffRemove).toHaveBeenCalledWith('/ws/regression');
     expect(gitReviewRemove).toHaveBeenCalledWith('/ws/regression');
+    expect(navigationRemove).toHaveBeenCalledWith('/ws/regression');
+  });
+
+  it('drops a spot-editor file opened in the workspace being left (SER-1)', async () => {
+    await service.switchWorkspace('/ws/a');
+    reviewNavigation.openFile('/ws/a/src/x.ts', 3);
+    expect(reviewNavigation.current().target.kind).toBe('file');
+
+    await service.switchWorkspace('/ws/b');
+
+    expect(reviewNavigation.current().target).toEqual({ kind: 'none' });
   });
 });
