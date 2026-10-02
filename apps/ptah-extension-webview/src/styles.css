@@ -245,6 +245,43 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --bcm: 52% 0 0;
 }
 
+/* ============================================================================
+   TABLE HEADERS + aria-disabled BUTTONS (TASK_2026_555 Batch 51)
+   ============================================================================
+   1. daisyUI draws `.table` headers in `base-content` at 60% alpha, which is
+      4.45:1 on anubis-light's base-100 (below AA at 12 px). Headers use the
+      measured muted token instead, which clears 4.5:1 on every base surface
+      (base-content-muted.spec.ts).
+   2. Settings disables a control that may hold focus with
+      `aria-disabled="true"`, never native `disabled`: native `disabled` drops
+      focus to body, and Esc then no longer reaches the enclosing popover
+      (Gate V 36 M-2, re-check 2 N3). Such a `.btn` gets daisyUI's own
+      `.btn:disabled` look (neutral/20 fill, base-content/20 text, no border),
+      but stays focusable and clickable; the handlers refuse the click. A
+      non-`.btn` button (the roles table's cell) is dimmed. Scoped to Settings,
+      whose controls are built for it; other surfaces keep their own styles.
+   Both live in `@layer components`: after daisyUI, and before utilities. ==== */
+@layer components {
+  .table :where(thead, tfoot) {
+    color: var(--fallback-bc, oklch(var(--bcm, var(--bc))));
+  }
+
+  :where(ptah-settings) .btn[aria-disabled='true'],
+  :where(ptah-settings) .btn[aria-disabled='true']:hover {
+    --tw-border-opacity: 0;
+    background-color: var(--fallback-n, oklch(var(--n) / var(--tw-bg-opacity)));
+    --tw-bg-opacity: 0.2;
+    color: var(--fallback-bc, oklch(var(--bc) / var(--tw-text-opacity)));
+    --tw-text-opacity: 0.2;
+    cursor: not-allowed;
+  }
+
+  :where(ptah-settings) button[aria-disabled='true']:not(.btn) {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
 /* Light theme overrides for glass morphism and decorative elements */
 [data-theme='anubis-light'] {
   /* Glass Morphism - Light mode (subtle warm cream overlay) */
