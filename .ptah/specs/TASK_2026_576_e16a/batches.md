@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 45/69
+Total tasks: 87 | Batches: 69 | Complete: 46/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1980,14 +1980,14 @@ executors at once.
   typecheck/lint green; real-git 147 passed / 2 skipped (hook output streams ≥1 s before commit end, cancel leaves
   no `index.lock`, staged diff read, 48 KiB cut).
 
-## Batch 46: Commit-message generator — PENDING
+## Batch 46: Commit-message generator — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 45
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk`
 
-### Task 46.1: `CommitMessageGenerator` on the active provider (Gate 2 default a) — PENDING
+### Task 46.1: `CommitMessageGenerator` on the active provider (Gate 2 default a) — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/commit-message/commit-message-generator.service.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/commit-message/commit-message-prompt.ts; MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/di/tokens.ts; MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/di/register.ts; MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/index.ts
 - Plan reference: implementation-plan.md:1219-1224, 1238-1242
@@ -1995,6 +1995,19 @@ executors at once.
 - Quality requirements: discriminated result, never `''`; 45 s abort; `USER_ACTION_QUERY_LANE`.
 - Validation notes: `ProviderAuthError` rides active provider; `ProviderQuotaError` → `rate-limited`.
 - Implementation details: as plan.
+- Outcome: executor backend-developer. `CommitMessageGenerator` (agent-sdk `commit-message/`, 27 tests; token
+  `SDK_COMMIT_MESSAGE_GENERATOR`, singleton beside `SDK_INTERNAL_QUERY_SERVICE`; exported with
+  `COMMIT_MESSAGE_TIMEOUT_MS`). `generate(workspaceRoot)` never throws / never returns '': `readStagedPatch` none →
+  `no-staged-changes`, failed → `unreachable`; not initialized → `no-provider`; quota → `rate-limited`; auth error →
+  active provider fallback; query `USER_ACTION_QUERY_LANE`, haiku, maxTurns 1, no MCP, cwd `os.tmpdir()`, 45 s
+  abort (inside the 75 s renderer timeout); 429 → `rate-limited`, network → `unreachable`, `AuthRequiredError` →
+  `no-provider`; reply cleaned (fences/quotes, subject ≤72 at a word boundary, no trailing period, body kept);
+  patch and reply never logged. Prompt wraps the diff in `<staged_diff>` with closing-tag neutralisation. For 47:
+  return `generate(params.workspaceRoot)` as is after schema validation. OPEN (security, before cutover):
+  `InternalQueryConfig` has no tool allow-list and internal queries bypass permissions, so a prompt-injected diff
+  could make the single turn run a built-in tool — add a tool allow-list/deny-all to `InternalQueryConfig` +
+  `SdkQueryRunner` and use it here. Verified: agent-sdk typecheck/test/lint green (2357 tests; the unrelated
+  `off-thread-process-spawner.spec.ts` timed out once under load, passes alone).
 
 ## Batch 47: `GitWorkflowRpcHandlers` — commit stream, cancel, generate — PENDING
 

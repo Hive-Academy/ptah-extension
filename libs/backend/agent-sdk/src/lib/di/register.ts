@@ -89,6 +89,7 @@ import {
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
+import { CommitMessageGenerator } from '../commit-message/commit-message-generator.service';
 import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { HarnessPolicySync } from '../harness/harness-policy-sync';
@@ -565,6 +566,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
     { useClass: InternalQueryService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Stateless; resolved lazily by the `git:generateCommitMessage` handler, so
+  // its `TOKENS.GIT_INFO_SERVICE` dependency is the host's registration.
+  container.register(
+    SDK_TOKENS.SDK_COMMIT_MESSAGE_GENERATOR,
+    { useClass: CommitMessageGenerator },
     { lifecycle: Lifecycle.Singleton },
   );
 

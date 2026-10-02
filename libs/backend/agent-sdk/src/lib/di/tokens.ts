@@ -89,6 +89,9 @@ export const SDK_TOKENS = {
 
   SDK_PROVIDER_AUTH_RESOLVER: Symbol.for('SdkProviderAuthResolver'),
 
+  /** `CommitMessageGenerator` — staged diff to commit message (TASK_2026_576). */
+  SDK_COMMIT_MESSAGE_GENERATOR: Symbol.for('SdkCommitMessageGenerator'),
+
   SDK_SUBAGENT_MESSAGE_DISPATCHER: Symbol.for('SubagentMessageDispatcher'),
 
   SDK_SESSION_FORK_SERVICE: Symbol.for('SdkSessionForkService'),
@@ -164,9 +167,7 @@ export const SDK_TOKENS = {
    * Tracks failed stdio/HTTP MCP servers and manages exponential back-off to prevent
    * repeated subprocess leaks on consecutive sessions (TASK_2026_479).
    */
-  SDK_MCP_SERVER_BACKOFF_SERVICE: Symbol.for(
-    'SdkMcpServerBackoffService',
-  ),
+  SDK_MCP_SERVER_BACKOFF_SERVICE: Symbol.for('SdkMcpServerBackoffService'),
   /**
    * The list of OTHER Claude Code sessions this user can reach, read from the
    * CLI's own `~/.claude/sessions` registry (TASK_2026_402, Task 10.2). Not
