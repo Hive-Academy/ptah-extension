@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 46/69
+Total tasks: 87 | Batches: 69 | Complete: 49/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2009,14 +2009,14 @@ executors at once.
   `SdkQueryRunner` and use it here. Verified: agent-sdk typecheck/test/lint green (2357 tests; the unrelated
   `off-thread-process-spawner.spec.ts` timed out once under load, passes alone).
 
-## Batch 47: `GitWorkflowRpcHandlers` — commit stream, cancel, generate — PENDING
+## Batch 47: `GitWorkflowRpcHandlers` — commit stream, cancel, generate — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 46
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers ptah-electron ptah-extension-vscode @ptah-extension/cli-engine`
 
-### Task 47.1: Handler class, schema, registry, manifest — PENDING
+### Task 47.1: Handler class, schema, registry, manifest — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.handlers.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.schema.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/index.ts
 - Plan reference: implementation-plan.md:1214-1218, 1225, 1243-1245
@@ -2024,15 +2024,29 @@ executors at once.
 - Quality requirements: throttle ≤1 push/100 ms, ≤16 KiB per push; `git:commit` accepts `operationId` (existing handler forwards it — if that edit lands in `git-rpc.handlers.ts`, it replaces `handlers/index.ts` in the file count, reported).
 - Validation notes: V5, A14.
 - Implementation details: `git:cancelOperation`, `git:generateCommitMessage` (renderer timeout 75 s).
+- Outcome (`550c380e2`): executor backend-developer. `GitWorkflowRpcHandlers` (`git:cancelOperation`,
+  `git:generateCommitMessage`; manifest entry `gitWorkflow`, `requires: []`; strict schemas, `INVALID_PARAMS`;
+  generation for an unregistered folder or a throwing generator → `unavailable/unreachable`). `git:commit` stays in
+  `GitRpcHandlers` (accepted deviation: it owns the method and `WebviewManager`) under a strict schema; with an
+  `operationId` it forwards `onOutput` through `git-operation-output.throttle.ts` (≤1 push/100 ms, ≤16 KiB UTF-8
+  safe, 256 KiB queue cap with an "earlier output not shown" note, `flush()` in `finally` before the result).
+  Extra file `git-workspace-root.ts` (shared registered-folder check). Security follow-up from Batch 46 folded in:
+  `toolAccess?: 'claude-code' | 'none'` on `InternalQueryConfig`/`OneShotRunInput`; `'none'` sets `tools: []`,
+  `allowedTools: []`, `strictMcpConfig`, `skills: []`, `permissionMode: 'dontAsk'` and a deny-all `canUseTool`
+  (names checked in the SDK 0.3.278 typings); `CommitMessageGenerator` uses it. Sonar items on #629 fixed (node:os,
+  complexity split, `.at`, regex → loop, `String.raw`, `toHaveLength`). Verified: shared 2257, rpc-handlers 3515
+  (1 environment failure `harness-skill-selection`, a leftover state.json), agent-sdk 2365, cli-engine 208,
+  ptah-electron 1081, vscode 148 tests; typecheck/lint green. Notes for 48: `operationId` `^[w.:-]{1,128}$`; push
+  `{ operationId, stream, chunk }`; 75 s client timeout.
 
-## Batch 48: Commit composer UI + shell Commit tab — PENDING
+## Batch 48: Commit composer UI + shell Commit tab — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 43, 47
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 48.1: `CommitComposerComponent` — PENDING
+### Task 48.1: `CommitComposerComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/commit/commit-composer.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-shell/review-shell.component.ts (+ its spec)
 - Plan reference: implementation-plan.md:1207-1213, 1229-1234
@@ -2040,15 +2054,27 @@ executors at once.
 - Quality requirements: log `role="log" aria-live="polite"`; Commit disabled without staged files or message; Cancel while running; generation failure keeps field editable.
 - Validation notes: nothing commits without Commit; no provider call without a click.
 - Implementation details: as plan.
+- Outcome (`dfa5280c9`): executor frontend-developer. `CommitComposerComponent` (`ptah-commit-composer`): draft per
+  workspace; Commit disabled with nothing staged, a blank message, or a run in progress; new `randomUUID` per commit;
+  hook log `<pre role="log" aria-live="polite">` capped at 64 KiB; hook failure keeps the message and the log
+  (falls back to `hookOutput` when nothing streamed); `CANCELLED` status line; Generate only on click, failure keeps
+  the field and any typed text. RPCs in `SourceControlService` (`COMMIT_MESSAGE_RPC_TIMEOUT_MS = 75_000`). New root
+  `GitOperationOutputService` (MessageHandler, one listener per operationId). Shell: Commit tab ("Commit, N staged
+  files") in `@defer (when shownTab() === 'commit')`; both bodies stay mounted afterwards (closes the Batch 43
+  "keep Changes mounted" item). Accepted deviations: generation notice text in `text-base-content` with a warning
+  icon (AA); "Commit blocked by a hook" (no hook name in the result); plain streamed log, no per-hook rows. Verified:
+  git-ui 941 tests incl. axe, typecheck/lint green; eager guard passes (`main.js` 368,690 B gz). Cutover (58):
+  register `GitOperationOutputService` under `MESSAGE_HANDLERS`; in `review-navigation.service.ts` drop the
+  `tab !== current.tab` condition so a tab-only switch does not raise the unsaved-changes prompt.
 
-## Batch 49: PR status reader and `git:prStatus` — PENDING
+## Batch 49: PR status reader and `git:prStatus` — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 47
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core @ptah-extension/rpc-handlers` (3 libs: registry must ship with the handler, V5 — exception (a))
 
-### Task 49.1: `GitHubPrStatusReader` + facade delegate — PENDING
+### Task 49.1: `GitHubPrStatusReader` + facade delegate — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/github-pr-status.reader.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts
 - Plan reference: implementation-plan.md:1261-1271, 1283-1286
@@ -2057,7 +2083,7 @@ executors at once.
 - Validation notes: A10 — defensive parse; each unavailable reason quiet.
 - Implementation details: argv `gh pr view --json ... -- <branch>` after `assertSafeRef`.
 
-### Task 49.2: `git:prStatus` in the workflow handler — PENDING
+### Task 49.2: `git:prStatus` in the workflow handler — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.handlers.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts
 - Plan reference: implementation-plan.md:1272
@@ -2065,6 +2091,17 @@ executors at once.
 - Quality requirements: backend resolves the branch itself.
 - Validation notes: V5.
 - Implementation details: as plan.
+- Outcome (`6ee16b1d8`): 49.1 by antigravity (`lanes/batch-49-1-report.md`), orchestrator fixes (removed a duplicate
+  `getPrStatus` alias, `.*` regex → `includes`); 49.2 by backend-developer (antigravity hit its quota). Reader: `gh pr
+  view --json … -- <branch>` after `assertSafeRef`, no shell, non-interactive env (`GH_PROMPT_DISABLED`,
+  `GH_NO_UPDATE_NOTIFIER`, `NO_COLOR`, `GIT_TERMINAL_PROMPT=0`, `GH_PAGER=cat`), 15 s timeout with tree kill, 60 s
+  cache per (root, branch) for `ok`/`no-pr` only, defensive parse, `https:` urls only, debug-level logs. Result
+  `{status:'ok', pr, checks:{passing,failing,pending,total}} | {status:'unavailable', reason: gh-missing |
+  not-authenticated | no-pr | not-github | timeout | failed}`. Handler: branch from `getBranches(root,false).current`
+  (empty on detached HEAD → `no-pr`, no gh call); throws → `failed`; unregistered folder → `failed` (deviation:
+  catch-all of this result type); `GitPrStatusParams` = `GitWorkspaceScopedParams` (strict, client `branch`
+  rejected). Verified: reader 22, rpc-handlers 3524 (+ the known `harness-skill-selection` env failure), shared 2257,
+  cli-engine 208, ptah-electron 1081, vscode 148 tests; typecheck/lint green.
 
 ## Batch 50: Worktree/PR task view UI + shell Task tab — PENDING
 
