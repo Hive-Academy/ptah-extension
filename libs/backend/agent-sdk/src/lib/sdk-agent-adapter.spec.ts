@@ -1062,6 +1062,77 @@ describe('SdkAgentAdapter', () => {
       );
     });
 
+    describe('metadata identity at creation (TASK_2026_584)', () => {
+      async function resolveSessionId(
+        h: ReturnType<typeof makeAdapter>,
+      ): Promise<void> {
+        const transformArg = h.streamTransformer.transform.mock.calls[0][0];
+        await (
+          transformArg.onSessionIdResolved as unknown as (
+            tabId: string | undefined,
+            realSessionId: string,
+          ) => Promise<void>
+        )('tab_1', 'resolved-session-id');
+      }
+
+      it('lists a worktree child under its workspace and records the worktree as cwd', async () => {
+        const h = makeAdapter();
+        await h.adapter.initialize();
+        h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+          sdkQuery: createFakeQuery(),
+          initialModel: 'claude-sonnet-4-20250514',
+          abortController: new AbortController(),
+        } as ExecuteQueryResult);
+
+        await h.adapter.startChatSession(
+          makeSessionConfig({
+            name: 'Child',
+            workspaceId: '/root',
+            projectPath: '/root/.claude-worktrees/x',
+          }),
+        );
+        await resolveSessionId(h);
+
+        expect(h.metadataStore.create).toHaveBeenCalledTimes(1);
+        expect(h.metadataStore.create).toHaveBeenCalledWith(
+          'resolved-session-id',
+          '/root',
+          'Child',
+          'created',
+          '/root/.claude-worktrees/x',
+        );
+      });
+
+      it.each([
+        ['omitted', undefined],
+        ['blank', '  '],
+        ['equal to projectPath', '/fake/workspace'],
+      ])(
+        'keeps the existing create() call when workspaceId is %s',
+        async (_label, workspaceId) => {
+          const h = makeAdapter();
+          await h.adapter.initialize();
+          h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+            sdkQuery: createFakeQuery(),
+            initialModel: 'claude-sonnet-4-20250514',
+            abortController: new AbortController(),
+          } as ExecuteQueryResult);
+
+          await h.adapter.startChatSession(
+            makeSessionConfig({ name: 'Plain', workspaceId }),
+          );
+          await resolveSessionId(h);
+
+          expect(h.metadataStore.create).toHaveBeenCalledWith(
+            'resolved-session-id',
+            '/fake/workspace',
+            'Plain',
+          );
+          expect(h.metadataStore.create.mock.calls[0]).toHaveLength(3);
+        },
+      );
+    });
+
     it('preserves an explicit sessionTitle independently of sessionName', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();

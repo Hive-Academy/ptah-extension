@@ -328,6 +328,12 @@ describe('buildAgentReportTool', () => {
     expect(description).toContain('reason');
   });
 
+  it('says a child session started by ptah_session_start can call it (TASK_2026_584 F3)', () => {
+    expect(buildAgentReportTool().description).toContain(
+      'A child session started by ptah_session_start can call it too',
+    );
+  });
+
   it('names no CLI vendor', () => {
     const description = buildAgentReportTool().description;
     for (const cli of SYSTEM_CLI_TYPES) {

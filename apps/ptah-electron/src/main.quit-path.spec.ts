@@ -216,6 +216,8 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'messagingGateway',
   'sqliteConnection',
   'disposeVoiceWorker',
+  // Child sessions end BEFORE the agents are reaped (TASK_2026_584).
+  'sessionSpawner',
   'agentProcessManager',
   'cliRegistry',
   // The watch host (TASK_2026_437 C8): captured pre-window beside
@@ -299,6 +301,7 @@ function makeFullRefs(order: string[]): BootRefs {
       order.push('agentProcessManager');
     },
   };
+  refs.sessionSpawner = { dispose: record('sessionSpawner') };
   refs.cliRegistry = { disposeAll: record('cliRegistry') };
   refs.workspaceWatcher = { dispose: record('workspaceWatcher') };
   refs.diagnostics = {

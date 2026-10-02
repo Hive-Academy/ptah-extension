@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Task-spec folders and unit specs push large PRs past CodeRabbit's file
+# limit, so the review covers production source only.
+reviews:
+  path_filters:
+    - '!.ptah/specs/**'
+    - '!**/*.spec.ts'

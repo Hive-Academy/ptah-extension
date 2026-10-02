@@ -146,6 +146,42 @@ describe('SessionMetadataStore', () => {
       await expect(store.get(id)).resolves.toBeNull();
     });
 
+    // TASK_2026_584: an agent child session runs in a worktree but is listed
+    // under its parent's workspace.
+    it('records workingDirectory = workspaceId when no working directory is given', async () => {
+      const md = await store.create('sess-1', WORKSPACE, 'Plain');
+      expect(md.workingDirectory).toBe(WORKSPACE);
+    });
+
+    it('records an explicit workingDirectory and keeps the workspaceId', async () => {
+      const md = await store.create(
+        'sess-child',
+        '/root',
+        'Child',
+        'created',
+        '/root/.claude-worktrees/x',
+      );
+      expect(md).toMatchObject({
+        workspaceId: '/root',
+        workingDirectory: '/root/.claude-worktrees/x',
+      });
+      await expect(store.get('sess-child')).resolves.toMatchObject({
+        workspaceId: '/root',
+        workingDirectory: '/root/.claude-worktrees/x',
+      });
+    });
+
+    it('falls back to workspaceId for a blank workingDirectory', async () => {
+      const md = await store.create(
+        'sess-1',
+        WORKSPACE,
+        'Plain',
+        'created',
+        '  ',
+      );
+      expect(md.workingDirectory).toBe(WORKSPACE);
+    });
+
     it('marks child sessions with isChildSession=true', async () => {
       const md = await store.createChild(
         'sess-child',
@@ -211,6 +247,26 @@ describe('SessionMetadataStore', () => {
         'child-1',
         'parent-1',
       ]);
+    });
+
+    it('lists a session created in a worktree under the parent workspace (session:list source)', async () => {
+      await store.create('parent-1', '/root', 'Parent');
+      await store.create(
+        'child-wt',
+        '/root',
+        'Child',
+        'created',
+        '/root/.claude-worktrees/x',
+      );
+
+      const listed = await store.getForWorkspace('/root');
+      expect(listed.map((m) => m.sessionId).sort()).toEqual([
+        'child-wt',
+        'parent-1',
+      ]);
+      await expect(
+        store.getForWorkspace('/root/.claude-worktrees/x'),
+      ).resolves.toEqual([]);
     });
 
     it('matches workspaceId across path-separator differences (Windows/POSIX)', async () => {
@@ -442,8 +498,7 @@ describe('SessionMetadataStore', () => {
     it('has reached storage by the time an awaited write resolves', async () => {
       await store.create('sess-1', WORKSPACE, 'parent');
       const persisted = storage.__state.entries.get(METADATA_KEY) as
-        | Array<{ sessionId: string }>
-        | undefined;
+        Array<{ sessionId: string }> | undefined;
       expect(persisted?.map((m) => m.sessionId)).toEqual(['sess-1']);
     });
 
@@ -492,8 +547,7 @@ describe('SessionMetadataStore', () => {
 
     function persistedNames(): string[] {
       const blob = storage.__state.entries.get(METADATA_KEY) as
-        | Array<{ name: string }>
-        | undefined;
+        Array<{ name: string }> | undefined;
       return (blob ?? []).map((m) => m.name);
     }
 

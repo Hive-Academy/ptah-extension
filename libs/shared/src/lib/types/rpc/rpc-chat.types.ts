@@ -2,7 +2,7 @@
  * Chat RPC Type Definitions
  *
  * Types for chat:start, chat:continue, chat:abort, chat:running-agents,
- * chat:resume, chat:pending-questions
+ * chat:resume, chat:pending-questions, chat:agent-sessions
  */
 
 import type { SessionId } from '../branded.types';
@@ -12,6 +12,7 @@ import type { AskUserQuestionRequest } from '../permission.types';
 import type { SubagentRecord } from '../subagent-registry.types';
 import type { RpcUserErrorCode } from './rpc-error-codes.types';
 import type { SessionStatsEntry } from './rpc-session.types';
+import type { AgentSessionOpenedPayload } from '../messages/agent-session';
 
 /**
  * Minimal HTTP-flavored MCP server descriptor used by the
@@ -185,6 +186,22 @@ export interface ChatRunningAgentsParams {
 export interface ChatRunningAgentsResult {
   /** List of currently running (non-background) agents */
   agents: { agentId: string; agentType: string }[];
+}
+
+/** Parameters for chat:agent-sessions RPC method (TASK_2026_584) */
+export interface ChatAgentSessionsParams {
+  /** Only children of this workspace root; every live child when absent. */
+  workspaceRoot?: string;
+}
+
+/**
+ * Response from chat:agent-sessions RPC method.
+ *
+ * The child chat sessions that are still live, so a (re)loaded webview can
+ * adopt the tabs whose `agentSession:opened` push it missed.
+ */
+export interface ChatAgentSessionsResult {
+  sessions: AgentSessionOpenedPayload[];
 }
 
 /** Parameters for chat:pending-questions RPC method */

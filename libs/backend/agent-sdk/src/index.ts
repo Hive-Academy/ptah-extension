@@ -86,6 +86,10 @@ export type {
   PermissionPromptLifecycleEvent,
   PermissionPromptLifecycleListener,
 } from './lib/sdk-permission-handler';
+export {
+  UnattendedSessionPolicyRegistry,
+  type UnattendedSessionPolicy,
+} from './lib/permission/unattended-session-policy.registry';
 export type { IAuthEnvProvider } from './lib/auth-env.port';
 export type { IProviderAuthResolver } from './lib/auth/provider-auth-resolver.port';
 export type { OneShotAuthOverride } from './lib/helpers';
