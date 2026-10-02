@@ -99,6 +99,18 @@ export type RpcFixtureResolver = (params: unknown) => unknown;
 /** Page binding the in-page responder calls to reach a {@link RpcFixtureResolver}. */
 const RESOLVE_BINDING = '__ptahMarketplaceResolveRpc';
 
+/** Key of the marker a resolver returns to answer with a transport-level failure (`success: false`). */
+const RPC_ERROR_KEY = '__ptahRpcError';
+
+/**
+ * A resolver's return value that makes the responder answer the call as a failed RPC
+ * (`{ success: false, error }`) instead of a successful one. Used to drive failure paths a component only
+ * takes on `result.isSuccess() === false` (TASK_2026_555 Batch 49, D15 failure scenes).
+ */
+export function rpcError(message: string): Record<string, string> {
+  return { [RPC_ERROR_KEY]: message };
+}
+
 /**
  * Wire an in-page RPC auto-responder over the postMessage bridge. MUST be
  * called after `installPostMessageBridge` (so `acquireVsCodeApi` exists) and
@@ -142,16 +154,19 @@ export async function installRpcAutoResponder(
     staticAnswers,
     resolvedMethods: [...resolvers.keys()],
     binding: RESOLVE_BINDING,
+    errorKey: RPC_ERROR_KEY,
   };
   await page.addInitScript((serializedSetup: string) => {
     const {
       staticAnswers: parsedFixtures,
       resolvedMethods,
       binding,
+      errorKey,
     } = JSON.parse(serializedSetup) as {
       staticAnswers: Record<string, unknown>;
       resolvedMethods: string[];
       binding: string;
+      errorKey: string;
     };
     const w = window as unknown as {
       acquireVsCodeApi?: () => {
@@ -199,7 +214,21 @@ export async function installRpcAutoResponder(
         // an unfixtured method; the error is logged so the spec's own
         // timeout is traceable to it.
         resolve(method, params).then(
-          (data) => respond(correlationId, data),
+          (data) => {
+            const failure =
+              data !== null && typeof data === 'object'
+                ? (data as Record<string, unknown>)[errorKey]
+                : undefined;
+            if (typeof failure === 'string') {
+              window.dispatchEvent(
+                new MessageEvent('message', {
+                  data: { type: 'rpc:response', correlationId, success: false, error: failure },
+                }),
+              );
+              return;
+            }
+            respond(correlationId, data);
+          },
           (error: unknown) =>
             console.error(`RPC fixture resolver for ${method} failed`, error),
         );

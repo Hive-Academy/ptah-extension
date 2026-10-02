@@ -24,6 +24,8 @@ import {
 import { installPostMessageBridge } from '../../postmessage-bridge';
 import { installCspStub } from '../../csp-stub';
 import { ROUTING_MAP_ENTRIES } from './settings-routing-map.entries';
+import { ADVANCED_ENTRIES } from './settings-advanced.entries';
+import { SEARCH_VOICE_ENTRIES } from './settings-search-voice.entries';
 import {
   advancedTab, applyManualTierModel, card, chooseMainAgentModel, expectHostAppScope, closeCatalog, closeConnectionDrawer, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
   cliConfigSection, closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
@@ -963,6 +965,7 @@ export const KEPT_SELECTORS: readonly KeptSelector[] = [
 /** Every parity-inventory entry this baseline covers, frozen in S4 (D14 rule 2/3). */
 export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
   ...providersAuth, ...mainAgentModel, ...cliAgents, ...orchestrationPolicy, ...other, ...restoredPending, ...regressedUx, ...ROUTING_MAP_ENTRIES,
+  ...ADVANCED_ENTRIES, ...SEARCH_VOICE_ENTRIES,
 ];
 
 /**
@@ -970,8 +973,9 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
  * three regressed-UX entries it fixes (RUX-1, RUX-4, RUX-10): 84. Batch 22 added RUX-2: 85. Batch 23 added
  * RUX-5 and RUX-6: 87. Batch 27 added RUX-3: 88. Batch 28 added the routing-map node actions RM-1..3: 91.
  * Batch 28d added the Gate V 28 follow-ups GV28-1..3 (key hint, check latency, Codex CLI under "Used by"): 94.
+ * Batch 49 added the Advanced (ADV-1..24) and Search & Voice (SV-1..19) preserve-list entries: 137.
  */
-export const EXPECTED_CAPABILITY_COUNT = 94;
+export const EXPECTED_CAPABILITY_COUNT = 137;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS
