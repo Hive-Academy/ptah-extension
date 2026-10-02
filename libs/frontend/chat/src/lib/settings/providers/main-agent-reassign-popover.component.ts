@@ -11,6 +11,7 @@ import type { EffortLevel, ProviderModelInfo, SettingScope } from '@ptah-extensi
 import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
 import { runDrawerWrite, type DrawerWriteOutcome } from './connection-drawer/drawer-write';
 import { injectAppScopeName, saveTargetLabels } from './app-scope-label';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 export type MainAgentFocus = 'main-agent' | 'main-model' | 'main-effort';
 
@@ -50,7 +51,7 @@ interface ModelCatalogue {
 @Component({
   selector: 'ptah-main-agent-reassign-popover',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent, ProviderModelSearchFieldComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NativePopoverComponent, ProviderModelSearchFieldComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Angular owns (and removes) this listener with the component.
   host: { '(window:resize)': 'open() && fitToViewport()' },
@@ -67,7 +68,7 @@ interface ModelCatalogue {
           <h2 id="main-agent-popover-title" class="text-xs font-bold text-base-content">Reassign main agent</h2>
           <div class="flex items-center gap-1">
             <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 px-1.5 font-medium text-base-content underline ' + focusRing"
-              [disabled]="state.route().status === 'loading'" (click)="state.checkConnection()" data-testid="main-agent-check">
+              [ptahBusyDisabled]="state.route().status === 'loading'" (click)="state.checkConnection()" data-testid="main-agent-check">
               {{ state.route().status === 'loading' ? 'Checking…' : 'Check connection' }}
             </button>
             <button type="button" [class]="'btn btn-ghost btn-xs btn-square min-h-6 ' + focusRing" aria-label="Close" (click)="closed.emit()">
@@ -99,7 +100,7 @@ interface ModelCatalogue {
                 <p class="text-base-content-muted" data-testid="activation-unchecked-note">Ptah cannot check this connection before use. If new requests fail, check that {{ pending.name }} is running and reachable.</p>
               }
               <div class="flex flex-wrap gap-1.5">
-                <button type="button" [class]="'btn btn-primary btn-xs min-h-6 ' + focusRing" [disabled]="busy() || !pending.writable" (click)="activate()">Use for main agent</button>
+                <button type="button" [class]="'btn btn-primary btn-xs min-h-6 ' + focusRing" [ptahBusyDisabled]="busy() || !pending.writable" (click)="activate()">Use for main agent</button>
                 <button type="button" [class]="'btn btn-ghost btn-xs min-h-6 text-base-content ' + focusRing" [disabled]="busy()" (click)="resetProvider()">Cancel provider change</button>
               </div>
             </div>
@@ -116,7 +117,7 @@ interface ModelCatalogue {
               <input id="main-agent-model" type="text" [class]="'input input-bordered input-sm min-h-8 min-w-0 flex-1 font-mono text-xs ' + focusRing"
                 placeholder="Model ID, e.g. vendor/model-name" [value]="manualDraft()" (input)="manualDraft.set(value($event))"
                 aria-label="Main agent model ID" data-testid="main-agent-model-manual" />
-              <button type="button" [class]="'btn btn-outline btn-xs min-h-8 text-base-content ' + focusRing" [disabled]="busy() || !targetReady() || !manualDraft().trim()"
+              <button type="button" [class]="'btn btn-outline btn-xs min-h-8 text-base-content ' + focusRing" [ptahBusyDisabled]="busy() || !targetReady() || !manualDraft().trim()"
                 (click)="applyManual()">Use</button>
               <button type="button" [class]="'btn btn-ghost btn-xs min-h-8 text-base-content ' + focusRing" (click)="closeManual()">Cancel</button>
             </div>
@@ -142,7 +143,7 @@ interface ModelCatalogue {
             data-testid="main-agent-effort">
             @for (level of efforts; track level.value) {
               <button type="button" [class]="effortClass(level.value)" [attr.aria-pressed]="currentEffort() === level.value"
-                [disabled]="busy() || !targetReady()" (click)="saveEffort(level.value)" [attr.data-effort]="level.value || 'default'">{{ level.label }}</button>
+                [ptahBusyDisabled]="busy() || !targetReady()" (click)="saveEffort(level.value)" [attr.data-effort]="level.value || 'default'">{{ level.label }}</button>
             }
           </div>
         </div>

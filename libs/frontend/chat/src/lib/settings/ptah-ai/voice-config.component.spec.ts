@@ -17,6 +17,7 @@ import type {
 } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { VoiceConfigComponent } from './voice-config.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 function providers(elevenlabsAvailable = false): VoiceProviderCapabilityDto[] {
   return [
@@ -217,7 +218,7 @@ describe('VoiceConfigComponent', () => {
     fixture.detectChanges();
 
     const option = byTestId<HTMLButtonElement>('voice-provider-option-stt-elevenlabs');
-    expect(option.disabled).toBe(true);
+    expect(isDisabledControl(option)).toBe(true);
     expect(option.getAttribute('role')).toBe('radio');
     expect(byTestId('voice-provider-reason-stt-elevenlabs').textContent).toContain('API key not configured');
     expect(byTestId('voice-provider-option-stt-local').getAttribute('aria-checked')).toBe('true');

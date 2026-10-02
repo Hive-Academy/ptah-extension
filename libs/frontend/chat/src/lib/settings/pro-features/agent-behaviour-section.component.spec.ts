@@ -11,6 +11,7 @@ import type { EffortLevel } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { UltracodeStateService } from '../../services/ultracode-state.service';
 import { AgentBehaviourSectionComponent } from './agent-behaviour-section.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 type Handler = (params: unknown) => unknown;
 
@@ -141,7 +142,7 @@ describe('AgentBehaviourSectionComponent', () => {
     it('keeps the harness aria-label and disables the toggle until a prompt exists', async () => {
       handlers['enhancedPrompts:getStatus'] = () => rpcSuccess({ enabled: false, hasGeneratedPrompt: false });
       await render();
-      expect(checkbox('Toggle Enhanced System Prompt').disabled).toBe(true);
+      expect(isDisabledControl(checkbox('Toggle Enhanced System Prompt'))).toBe(true);
       expect(element.querySelector('#agent-behaviour-prompt-note')?.textContent).toContain('Run the Setup Wizard');
     });
 
@@ -334,7 +335,7 @@ describe('AgentBehaviourSectionComponent', () => {
       ultracodeEnabled.set(true);
       await render();
       const trigger = element.querySelector<HTMLButtonElement>('[data-testid="agent-behaviour-effort-value"]');
-      expect(trigger?.disabled).toBe(true);
+      expect(isDisabledControl(trigger)).toBe(true);
       expect(element.querySelector('#agent-behaviour-effort-note')?.textContent).toContain('Pinned to X-High by Ultracode');
     });
   });
@@ -391,7 +392,7 @@ describe('AgentBehaviourSectionComponent', () => {
     it('keeps the toggle disabled and reports the failure when the setting cannot load', async () => {
       handlers['agent:getConfig'] = () => rpcError('host detail: host offline');
       await render();
-      expect(checkbox('Toggle dynamic workflows').disabled).toBe(true);
+      expect(isDisabledControl(checkbox('Toggle dynamic workflows'))).toBe(true);
       const alert = element.querySelector('[data-testid="agent-behaviour-load-error"]');
       expect(alert?.textContent).toContain('Could not load the dynamic workflows setting.');
       expect(alert?.textContent).not.toContain('host detail');
@@ -399,7 +400,7 @@ describe('AgentBehaviourSectionComponent', () => {
       handlers['agent:getConfig'] = () => rpcSuccess({ workflowsDisabled: false });
       alert?.querySelector<HTMLButtonElement>('[data-testid="agent-behaviour-load-retry"]')?.click();
       await settle();
-      expect(checkbox('Toggle dynamic workflows').disabled).toBe(false);
+      expect(isDisabledControl(checkbox('Toggle dynamic workflows'))).toBe(false);
       expect(element.querySelector('[data-testid="agent-behaviour-load-error"]')).toBeNull();
     });
 
@@ -408,7 +409,7 @@ describe('AgentBehaviourSectionComponent', () => {
         throw new Error('host detail: connection refused');
       };
       await render();
-      expect(checkbox('Toggle dynamic workflows').disabled).toBe(true);
+      expect(isDisabledControl(checkbox('Toggle dynamic workflows'))).toBe(true);
       const alert = element.querySelector('[data-testid="agent-behaviour-load-error"]');
       expect(alert?.textContent).toContain('Could not load the dynamic workflows setting.');
       expect(alert?.textContent).not.toContain('host detail');

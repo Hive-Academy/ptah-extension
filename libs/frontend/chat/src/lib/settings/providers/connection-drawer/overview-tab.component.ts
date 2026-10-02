@@ -7,6 +7,7 @@ import type { ConnectionCheckFailureReason, ConnectionCheckRecord } from '@ptah-
 import type { ProviderConnectionCardStatus } from '../provider-connection-card.state';
 import type { UsedBy } from '../connection-usage';
 import type { ConnectionKind } from './connection-kind';
+import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
 
 type StatusTone = 'success' | 'warning' | 'error' | 'neutral';
 
@@ -150,7 +151,7 @@ export function usedByBadge(entry: UsedBy): string {
   selector: 'ptah-connection-overview-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule],
   template: `
     <div class="space-y-4 text-sm" data-testid="connection-overview">
       <div class="rounded border border-base-300 bg-base-200 p-3" [attr.aria-busy]="loading()">
@@ -172,7 +173,7 @@ export function usedByBadge(entry: UsedBy): string {
             }
           </div>
           <button type="button" class="btn btn-outline btn-sm shrink-0 gap-1.5" (click)="checkConnectionRequested.emit()"
-            [disabled]="loading() || checking() || saving()" data-testid="connection-check">
+            [ptahBusyDisabled]="loading() || checking() || saving()" data-testid="connection-check">
             <lucide-angular [img]="CheckIcon" class="h-3.5 w-3.5" aria-hidden="true" />
             {{ checking() ? 'Checking…' : status() === 'check-failed' ? 'Retry check' : 'Check connection' }}
           </button>

@@ -13,6 +13,7 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import type { VoiceProviderConfigLocalDto } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { VoiceDownloadProgressService } from '../../services/voice-download-progress.service';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 interface WhisperModelOption {
   readonly value: string;
@@ -60,7 +61,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
 @Component({
   selector: 'ptah-local-stt-panel',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -107,7 +108,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
                   [class.btn-ghost]="source() !== opt.value"
                   role="radio"
                   [attr.aria-checked]="source() === opt.value"
-                  [disabled]="saving()"
+                  [ptahBusyDisabled]="saving()"
                   (click)="onSourceChange(opt.value)"
                   [attr.data-testid]="'local-stt-source-' + opt.value"
                 >
@@ -130,7 +131,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
                 aria-label="Whisper model"
                 class="select select-bordered select-xs w-full"
                 [value]="selectedModel()"
-                [disabled]="saving()"
+                [ptahBusyDisabled]="saving()"
                 (change)="onModelChange($event)"
                 data-testid="local-stt-model-select"
               >
@@ -178,7 +179,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
                 <button
                   type="button"
                   class="btn btn-primary btn-xs"
-                  [disabled]="saving() || !customModelValid()"
+                  [ptahBusyDisabled]="saving() || !customModelValid()"
                   (click)="saveCustomSource()"
                   data-testid="local-stt-custom-save"
                 >
@@ -262,7 +263,7 @@ const HF_REPO_ID_RE = /^[\w.-]+\/[\w.-]+$/;
                 <button
                   type="button"
                   class="btn btn-outline btn-xs gap-1"
-                  [disabled]="saving() || !canDownload()"
+                  [ptahBusyDisabled]="saving() || !canDownload()"
                   (click)="downloadModel()"
                   data-testid="local-stt-download-btn"
                 >

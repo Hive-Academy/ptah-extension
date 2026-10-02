@@ -24,6 +24,7 @@ import type { OverviewConnectionStatus } from './connection-drawer/overview-tab.
 import type { CredentialsCommit, CredentialsExternalAuth } from './connection-drawer/credentials-tab.component';
 import { runDrawerWrite } from './connection-drawer/drawer-write';
 import { connectionUsage } from './connection-usage';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 /** Deep-link sections the Providers tab owns. Background roles and CLI agents are on Orchestration. */
 export type ProvidersSettingsFocusTarget =
@@ -39,7 +40,7 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
   selector: 'ptah-providers-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MainAgentScopeBadgesComponent, ProviderConnectionCardComponent, ProviderSetupWizardComponent,
+  imports: [SettingsBusyDisabledDirective, MainAgentScopeBadgesComponent, ProviderConnectionCardComponent, ProviderSetupWizardComponent,
     ConnectionDetailDrawerComponent, RoutingMapComponent, MainAgentReassignPopoverComponent, ProviderCatalogModalComponent],
   template: `
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
@@ -83,7 +84,7 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
             @if (clearEndsSessions(key)) {
               <p data-testid="clear-ends-sessions">Clearing this override ends running chat sessions. It cannot be undone from here.</p>
             }
-            <button type="button" [class]="control" (click)="clearOverride()" [disabled]="saving()">Confirm clear override</button>
+            <button type="button" [class]="control" (click)="clearOverride()" [ptahBusyDisabled]="saving()">Confirm clear override</button>
             <button type="button" [class]="control" (click)="clearKey.set(null)" [disabled]="saving()">Cancel clear</button>
           </section>
         }

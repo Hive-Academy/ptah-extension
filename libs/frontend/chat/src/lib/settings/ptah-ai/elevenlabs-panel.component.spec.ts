@@ -19,6 +19,7 @@ import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.
 
 import { ElevenLabsPanelComponent } from './elevenlabs-panel.component';
 import type { ElevenLabsSelectKey } from './elevenlabs-select-rows';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 function elConfig(
   overrides: Partial<VoiceProviderConfigElevenLabsDto> = {},
@@ -163,7 +164,7 @@ describe('ElevenLabsPanelComponent', () => {
 
       typeKey('  sk_draft_value  ');
       const save = byTestId<HTMLButtonElement>('elevenlabs-key-save');
-      expect(save.disabled).toBe(true);
+      expect(isDisabledControl(save)).toBe(true);
       expect(byTestId('elevenlabs-key-hint').textContent).toContain('Test the key first');
 
       byTestId<HTMLButtonElement>('elevenlabs-test-btn').click();
@@ -173,7 +174,7 @@ describe('ElevenLabsPanelComponent', () => {
         { providerId: 'elevenlabs', apiKey: 'sk_draft_value' },
       ]);
       expect(byTestId('elevenlabs-test-result').textContent).toContain('Connection works.');
-      expect(save.disabled).toBe(false);
+      expect(isDisabledControl(save)).toBe(false);
 
       save.click();
       await settle();
@@ -206,7 +207,7 @@ describe('ElevenLabsPanelComponent', () => {
       expect(result.textContent?.trim()).toBe('Authentication: ElevenLabs rejected the key.');
       expect(result.classList).toContain('text-base-content');
       expect(element.textContent).not.toContain('host detail');
-      expect(byTestId<HTMLButtonElement>('elevenlabs-key-save').disabled).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-save'))).toBe(true);
 
       // Even a direct call cannot bypass the probe.
       await component.saveKey();
@@ -246,7 +247,7 @@ describe('ElevenLabsPanelComponent', () => {
           'The connection test failed.',
         );
         expect(element.textContent).not.toContain('host detail');
-        expect(byTestId<HTMLButtonElement>('elevenlabs-key-save').disabled).toBe(true);
+        expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-save'))).toBe(true);
       },
     );
 
@@ -257,10 +258,10 @@ describe('ElevenLabsPanelComponent', () => {
       typeKey('sk_one');
       byTestId<HTMLButtonElement>('elevenlabs-test-btn').click();
       await settle();
-      expect(byTestId<HTMLButtonElement>('elevenlabs-key-save').disabled).toBe(false);
+      expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-save'))).toBe(false);
 
       typeKey('sk_two');
-      expect(byTestId<HTMLButtonElement>('elevenlabs-key-save').disabled).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-save'))).toBe(true);
       expect(element.querySelector('[data-testid="elevenlabs-test-result"]')).toBeNull();
     });
 
@@ -280,7 +281,7 @@ describe('ElevenLabsPanelComponent', () => {
       await settle();
 
       expect(element.querySelector('[data-testid="elevenlabs-test-result"]')).toBeNull();
-      expect(byTestId<HTMLButtonElement>('elevenlabs-key-save').disabled).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-save'))).toBe(true);
     });
 
     it('tests the stored key when no draft is typed, without enabling Save', async () => {
@@ -296,7 +297,7 @@ describe('ElevenLabsPanelComponent', () => {
 
       expect(calls('voice:testConnection')).toEqual([{ providerId: 'elevenlabs' }]);
       expect(byTestId('elevenlabs-test-result').textContent).toContain('Connection works.');
-      expect(byTestId<HTMLButtonElement>('elevenlabs-key-save').disabled).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-save'))).toBe(true);
     });
 
     it.each(HOST_FAILURES)(
@@ -321,7 +322,7 @@ describe('ElevenLabsPanelComponent', () => {
         });
         expectFixedAlert('Could not save the ElevenLabs API key.');
         expect(component.keyDraft()).toBe('sk_retry');
-        expect(byTestId<HTMLButtonElement>('elevenlabs-key-save').disabled).toBe(false);
+        expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-save'))).toBe(false);
       },
     );
 
@@ -629,15 +630,15 @@ describe('ElevenLabsPanelComponent', () => {
     choose('elevenlabs-tts-model-select', 'eleven_turbo_v2_5');
     fixture.detectChanges();
 
-    expect(byTestId<HTMLSelectElement>('elevenlabs-voice-select').disabled).toBe(true);
-    expect(byTestId<HTMLSelectElement>('elevenlabs-output-format-select').disabled).toBe(true);
-    expect(byTestId<HTMLButtonElement>('elevenlabs-key-clear').disabled).toBe(true);
-    expect(byTestId<HTMLInputElement>('elevenlabs-key-input').disabled).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLSelectElement>('elevenlabs-voice-select'))).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLSelectElement>('elevenlabs-output-format-select'))).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('elevenlabs-key-clear'))).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLInputElement>('elevenlabs-key-input'))).toBe(true);
 
     resolveWrite(rpcSuccess({ ok: true }));
     await settle();
 
-    expect(byTestId<HTMLSelectElement>('elevenlabs-voice-select').disabled).toBe(false);
+    expect(isDisabledControl(byTestId<HTMLSelectElement>('elevenlabs-voice-select'))).toBe(false);
   });
 
   it('renders the STT model select and no voice picker or download UI for the stt direction', async () => {

@@ -8,6 +8,7 @@ import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import type { CliDetectionResult, PtahCliSummary } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { CLI_INSTALL_GUIDES, CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 const ready = <T,>(data: T): ProvidersSettingsSection<T> => ({ status: 'ready', data, error: null });
 const unloaded = <T,>(): ProvidersSettingsSection<T> => ({ status: 'unloaded', data: null, error: null });
@@ -133,6 +134,14 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(rowIds('tbody:not([data-testid="cli-matrix-uninstalled"])')).toEqual(['codex', 'antigravity', 'glm-1', 'copilot', 'opencode']);
       expect(rowIds('[data-testid="cli-matrix-uninstalled"]')).toEqual(['cursor', 'pi']);
       expect(q('[data-testid="cli-matrix-uninstalled"] th')?.textContent).toContain('Uninstalled CLI agents');
+    });
+
+    it('Batch 54.1: an uninstalled CLI toggle stays natively disabled; an installed one only goes aria-disabled while busy', () => {
+      const cursor = q<HTMLInputElement>('[data-testid="cli-matrix-toggle-cursor"]');
+      const codex = q<HTMLInputElement>('[data-testid="cli-matrix-toggle-codex"]');
+      expect(cursor?.disabled).toBe(true);
+      expect(codex?.disabled).toBe(false);
+      expect(codex?.getAttribute('aria-disabled')).toBeNull();
     });
 
     it('omits the Uninstalled group when every CLI is installed', () => {
@@ -374,15 +383,15 @@ describe('CliOrchestrationMatrixComponent', () => {
     });
 
     it('disables uninstalled toggles, and every toggle while a save runs or the scopes are not loaded', () => {
-      expect(q<HTMLInputElement>('[data-testid="cli-matrix-toggle-pi"]')?.disabled).toBe(true);
+      expect(isDisabledControl(q<HTMLInputElement>('[data-testid="cli-matrix-toggle-pi"]'))).toBe(true);
       expect(q<HTMLInputElement>('[data-testid="cli-matrix-toggle-pi"]')?.checked).toBe(false);
       state.commit.set({ ...idle, status: 'saving' });
       fixture.detectChanges();
-      expect(q<HTMLInputElement>('[data-testid="cli-matrix-toggle-codex"]')?.disabled).toBe(true);
+      expect(isDisabledControl(q<HTMLInputElement>('[data-testid="cli-matrix-toggle-codex"]'))).toBe(true);
       state.commit.set(idle);
       state.scopes.set({ status: 'loading', data: null, error: null });
       fixture.detectChanges();
-      expect(q<HTMLInputElement>('[data-testid="cli-matrix-toggle-glm-1"]')?.disabled).toBe(true);
+      expect(isDisabledControl(q<HTMLInputElement>('[data-testid="cli-matrix-toggle-glm-1"]'))).toBe(true);
     });
 
     it('deletes an instance after the inline confirm, with no Undo', async () => {

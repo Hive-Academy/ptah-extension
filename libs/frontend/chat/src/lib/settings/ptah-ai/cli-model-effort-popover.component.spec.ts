@@ -8,6 +8,7 @@ import { SAVE_REFUSED_MESSAGE, SettingsSaveFeedbackService } from '../feedback/s
 import { CliModelEffortPopoverComponent, type CliMatrixCellField } from './cli-model-effort-popover.component';
 import type { CliMatrixRow, InstanceCliMatrixRow, SystemCliMatrixRow } from './cli-matrix-rows';
 import { cliPermissionNote } from './cli-permission-notes';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 const ready = <T,>(data: T): ProvidersSettingsSection<T> => ({ status: 'ready', data, error: null });
 const unloaded = <T,>(): ProvidersSettingsSection<T> => ({ status: 'unloaded', data: null, error: null });
@@ -144,7 +145,7 @@ describe('CliModelEffortPopoverComponent', () => {
       state.delegatedModelOptions.set({ status: 'loading', data: null, error: null });
       create(system(), 'model');
       const input = () => fixture.nativeElement.querySelector('input[role="combobox"]') as HTMLInputElement;
-      expect(input().disabled).toBe(true);
+      expect(isDisabledControl(input())).toBe(true);
       expect(document.activeElement).not.toBe(input());
       state.delegatedModelOptions.set(ready(CATALOGUE));
       fixture.detectChanges();
@@ -160,6 +161,21 @@ describe('CliModelEffortPopoverComponent', () => {
       fixture.detectChanges();
       expect(document.activeElement).toBe(elsewhere);
       elsewhere.remove();
+    });
+
+    it('Batch 54.1: a search focused while it was still loading (aria-disabled) opens its list once the catalogue loads', () => {
+      state.delegatedModelOptions.set({ status: 'loading', data: null, error: null });
+      create(system(), 'model');
+      const input = fixture.nativeElement.querySelector('input[role="combobox"]') as HTMLInputElement;
+      input.focus();
+      fixture.detectChanges();
+      expect(input.getAttribute('aria-expanded')).toBe('false');
+      state.delegatedModelOptions.set(ready(CATALOGUE));
+      fixture.detectChanges();
+      TestBed.tick();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(input);
+      expect(input.getAttribute('aria-expanded')).toBe('true');
     });
 
     it('shows the provider/model hint for opencode and Pi only (#67)', () => {
@@ -309,7 +325,7 @@ describe('CliModelEffortPopoverComponent', () => {
       state.contextNow.set(null);
       create(system(), 'effort');
       expect(query('cli-matrix-popover-loading')).not.toBeNull();
-      expect(effortButtons().every((button) => button.disabled)).toBe(true);
+      expect(effortButtons().every((button) => isDisabledControl(button))).toBe(true);
       effortButtons()[2].click();
       await flush();
       expect(state.saveSettings).not.toHaveBeenCalled();

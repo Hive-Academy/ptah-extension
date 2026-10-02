@@ -7,6 +7,7 @@ import {
 import type { CliDetectionResult, PtahCliSummary } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 const ready = <T,>(data: T): ProvidersSettingsSection<T> => ({ status: 'ready', data, error: null });
 const unloaded = <T,>(): ProvidersSettingsSection<T> => ({ status: 'unloaded', data: null, error: null });
@@ -207,7 +208,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       state.orchestration.set(unloaded());
       fixture.detectChanges();
       expect(value()).toBe('—');
-      expect(slider()?.disabled).toBe(true);
+      expect(isDisabledControl(slider())).toBe(true);
     });
   });
 
@@ -226,10 +227,10 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
 
     it('disables ▲ on the first row and ▼ on the last', async () => {
       await openOrder();
-      expect(button('policy-order-up-codex')?.disabled).toBe(true);
-      expect(button('policy-order-down-codex')?.disabled).toBe(false);
-      expect(button('policy-order-up-opencode')?.disabled).toBe(false);
-      expect(button('policy-order-down-opencode')?.disabled).toBe(true);
+      expect(isDisabledControl(button('policy-order-up-codex'))).toBe(true);
+      expect(isDisabledControl(button('policy-order-down-codex'))).toBe(false);
+      expect(isDisabledControl(button('policy-order-up-opencode'))).toBe(false);
+      expect(isDisabledControl(button('policy-order-down-opencode'))).toBe(true);
     });
 
     it('moves an agent down, then up, writing the whole order each time, with Undo', async () => {
@@ -409,7 +410,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
     it('is disabled with a spinner while detection runs', () => {
       state.cliDetection.set({ status: 'loading', data: null, error: null });
       fixture.detectChanges();
-      expect(button('policy-redetect')?.disabled).toBe(true);
+      expect(isDisabledControl(button('policy-redetect'))).toBe(true);
       expect(button('policy-redetect')?.textContent).toContain('Detecting…');
     });
 
@@ -423,7 +424,7 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       expect(q('[data-testid="policy-redetect-error"]')?.textContent?.trim())
         .toBe('Could not re-detect CLI agents. Your saved settings have not changed.');
       expect(element().textContent).not.toContain('EACCES');
-      expect(button('policy-redetect')?.disabled).toBe(false);
+      expect(isDisabledControl(button('policy-redetect'))).toBe(false);
     });
   });
 

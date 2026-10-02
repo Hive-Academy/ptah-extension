@@ -9,6 +9,7 @@ import {
 import { CLI_REASONING_EFFORT_VALUES, PI_REASONING_EFFORT_VALUES } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
 import { cliModelDisplay, type CliEffortSettingKey, type CliMatrixRow, type CliModelSettingKey, type SystemCliMatrixRow } from './cli-matrix-rows';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 export type CliMatrixCellField = 'model' | 'effort';
 
@@ -53,7 +54,7 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
 @Component({
   selector: 'ptah-cli-model-effort-popover',
   standalone: true,
-  imports: [LucideAngularModule, ProviderModelSearchFieldComponent, ProviderModelPickerComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, ProviderModelSearchFieldComponent, ProviderModelPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div role="dialog" [attr.aria-labelledby]="titleId()" class="w-[17rem] max-w-[calc(100vw-2rem)] space-y-2 whitespace-normal p-3 text-left text-xs"
@@ -95,7 +96,7 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
         <div class="grid grid-cols-2 gap-1" role="group" [attr.aria-label]="cell.name + ' reasoning effort'" data-testid="cli-matrix-effort-options">
           @for (option of effortChoices(); track option.value) {
             <button type="button" [class]="effortClass(option.value)" [attr.aria-pressed]="option.value === cell.effort?.value"
-              [disabled]="busy() || !context" [attr.data-effort]="option.value || 'default'"
+              [ptahBusyDisabled]="busy() || !context" [attr.data-effort]="option.value || 'default'"
               (click)="saveEffort(cell, option.value)">{{ option.label }}</button>
           }
         </div>
@@ -190,8 +191,11 @@ export class CliModelEffortPopoverComponent implements OnInit {
       const root = this.host.nativeElement;
       const search = root.querySelector<HTMLInputElement>('input[role="combobox"]:not([disabled])');
       const active = root.ownerDocument.activeElement;
-      if (!search || (active && active !== root.ownerDocument.body && !active.contains(root))) return;
+      if (!search || (active && active !== root.ownerDocument.body && !active.contains(root) && !root.contains(active))) return;
       this.searchFocused = true;
+      // Since Batch 54.1 a loading field is only aria-disabled, so the panel may already have focused it while it was
+      // loading (no list opened then). A fresh focus now opens the list.
+      if (active === search) search.blur();
       search.focus();
     });
   }

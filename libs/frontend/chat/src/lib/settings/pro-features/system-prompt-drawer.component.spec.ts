@@ -6,6 +6,7 @@ import { Download, RotateCw } from 'lucide-angular';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
 import { SystemPromptDrawerComponent } from './system-prompt-drawer.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 @Component({
   selector: 'ptah-markdown-block',
@@ -155,8 +156,8 @@ describe('SystemPromptDrawerComponent', () => {
       const downloadBtn = element.querySelector<HTMLButtonElement>(
         '[data-testid="system-prompt-download-button"]',
       );
-      expect(regenerateBtn?.disabled).toBe(true);
-      expect(downloadBtn?.disabled).toBe(true);
+      expect(isDisabledControl(regenerateBtn)).toBe(true);
+      expect(isDisabledControl(downloadBtn)).toBe(true);
     });
   });
 
@@ -548,7 +549,7 @@ describe('SystemPromptDrawerComponent', () => {
         expect(by('system-prompt-drawer-error')?.textContent).not.toContain('transport closed');
         expect(by('regenerate-may-be-running')).toBeNull();
         expect(call).not.toHaveBeenCalledWith('enhancedPrompts:getStatus', expect.anything());
-        expect((by('system-prompt-regenerate-button') as HTMLButtonElement).disabled).toBe(false);
+        expect(isDisabledControl((by('system-prompt-regenerate-button') as HTMLButtonElement))).toBe(false);
       });
 
       it('re-reads the status, shows a fixed note and blocks a second regenerate', async () => {
@@ -557,7 +558,7 @@ describe('SystemPromptDrawerComponent', () => {
 
         expect(call).toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
         expect(by('regenerate-may-be-running')?.textContent).toContain('may still be running');
-        expect((by('system-prompt-regenerate-button') as HTMLButtonElement).disabled).toBe(true);
+        expect(isDisabledControl((by('system-prompt-regenerate-button') as HTMLButtonElement))).toBe(true);
 
         call.mockClear();
         drawer().requestRegenerate();
@@ -574,7 +575,7 @@ describe('SystemPromptDrawerComponent', () => {
         await settle();
 
         expect(by('regenerate-may-be-running')).toBeNull();
-        expect((by('system-prompt-regenerate-button') as HTMLButtonElement).disabled).toBe(false);
+        expect(isDisabledControl((by('system-prompt-regenerate-button') as HTMLButtonElement))).toBe(false);
         expect(host.changedCalled).toBe(true);
       });
 

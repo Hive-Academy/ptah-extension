@@ -49,6 +49,7 @@ import type {
   WritableOutputStyleTier,
 } from '@ptah-extension/shared';
 import { OutputStyleStore } from './output-style.store';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 interface TierChoice {
   readonly value: WritableOutputStyleTier;
@@ -85,7 +86,7 @@ interface StaleConflict {
 @Component({
   selector: 'ptah-output-style-editor',
   standalone: true,
-  imports: [
+  imports: [SettingsBusyDisabledDirective, 
     LucideAngularModule,
     NativeDrawerComponent,
     NativeTabGroupComponent,
@@ -179,7 +180,7 @@ interface StaleConflict {
             (keydown.escape)="dismissConflict($event)">
             <p>{{ pending.message }}</p>
             <div class="flex gap-1 mt-1">
-              <button type="button" class="btn btn-outline btn-xs border-error text-base-content" [disabled]="saving()"
+              <button type="button" class="btn btn-outline btn-xs border-error text-base-content" [ptahBusyDisabled]="saving()"
                 (click)="confirmOverwrite()">Replace it</button>
               <button #safeChoice type="button" class="btn btn-ghost btn-xs text-base-content"
                 (click)="dismissConflict()">Keep both — I'll rename</button>
@@ -215,7 +216,7 @@ interface StaleConflict {
                 replaces the current file with your edits.
               </p>
               <div class="flex gap-1 mt-1">
-                <button type="button" class="btn btn-outline btn-xs border-error text-base-content" [disabled]="saving()"
+                <button type="button" class="btn btn-outline btn-xs border-error text-base-content" [ptahBusyDisabled]="saving()"
                   (click)="overwriteStale(changed.fresh)" data-testid="output-style-stale-overwrite">Overwrite</button>
                 <button type="button" class="btn btn-outline btn-xs text-base-content"
                   (click)="stale.set({ fresh: changed.fresh, confirmingReload: true })"
@@ -449,7 +450,7 @@ interface StaleConflict {
             type="submit"
             form="output-style-editor-form"
             class="btn btn-primary btn-sm"
-            [disabled]="saving()"
+            [ptahBusyDisabled]="saving()"
             (click)="submit($event)"
             data-testid="output-style-save-button"
           >

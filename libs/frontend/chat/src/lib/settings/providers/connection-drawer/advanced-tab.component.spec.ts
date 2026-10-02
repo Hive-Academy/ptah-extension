@@ -5,6 +5,7 @@ import {
 } from '@ptah-extension/core';
 import type { AuthVerifyDraftConnectionParams, AuthVerifyDraftConnectionResult } from '@ptah-extension/shared';
 import { AdvancedTabComponent, PRICING_NOTE, parsePricing } from './advanced-tab.component';
+import { isDisabledControl } from '../../feedback/busy-disabled.testing';
 
 const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null };
 const CONTEXT = { scopeKey: 'workspace', activePath: '/workspace' };
@@ -85,7 +86,8 @@ describe('AdvancedTabComponent', () => {
     fixture.detectChanges();
   }
   async function flush() { for (let i = 0; i < 10; i += 1) await Promise.resolve(); fixture.detectChanges(); }
-  const disabled = (id: string) => query<HTMLButtonElement>(id)?.disabled;
+  /** Natively disabled, or busy-disabled (aria-disabled, still focusable; Batch 54.1). */
+  const disabled = (id: string) => isDisabledControl(query<HTMLButtonElement>(id));
 
   it('shows the stored endpoint, help URL and pricing, with the pricing note verbatim', () => {
     expect(query<HTMLInputElement>('advanced-base-url')?.value).toBe('https://gateway.example/v1');

@@ -33,6 +33,7 @@ import {
   type ElevenLabsSelectKey,
   type ElevenLabsSelectRow,
 } from './elevenlabs-select-rows';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 type WriteResult = { ok: true } | { ok: false; message: string };
 type SelectionKey = 'voiceId' | ElevenLabsSelectKey;
@@ -81,7 +82,7 @@ function testFailureMessage(category: string | undefined): string {
 @Component({
   selector: 'ptah-elevenlabs-panel',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -158,7 +159,7 @@ function testFailureMessage(category: string | undefined): string {
                   <button
                     type="button"
                     class="btn btn-outline btn-sm border-error text-base-content"
-                    [disabled]="saving()"
+                    [ptahBusyDisabled]="saving()"
                     (click)="clearKey()"
                     data-testid="elevenlabs-clear-confirm"
                   >
@@ -332,7 +333,7 @@ function testFailureMessage(category: string | undefined): string {
                   aria-label="Voice"
                   class="select select-bordered select-xs w-full"
                   [value]="voiceId()"
-                  [disabled]="saving()"
+                  [ptahBusyDisabled]="saving()"
                   (change)="onVoiceChange($event)"
                   data-testid="elevenlabs-voice-select"
                 >
@@ -364,7 +365,7 @@ function testFailureMessage(category: string | undefined): string {
                 [attr.aria-label]="row.ariaLabel"
                 class="select select-bordered select-xs w-full"
                 [value]="selection[row.key]()"
-                [disabled]="saving()"
+                [ptahBusyDisabled]="saving()"
                 (change)="onSelectionChange($event, row)"
                 [attr.data-testid]="'elevenlabs-' + row.slug + '-select'"
               >

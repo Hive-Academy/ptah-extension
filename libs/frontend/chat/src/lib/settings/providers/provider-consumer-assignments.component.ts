@@ -13,6 +13,7 @@ import {
   buildConsumerRows, consumerPatch, formatProviderDisplayName, providerReadiness,
   type BackgroundConsumerId, type BackgroundConsumerRow,
 } from './provider-consumer-rows';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium text-base-content underline underline-offset-2 ${FOCUS}`;
@@ -43,7 +44,7 @@ const TIMEOUT_REFUSED = 'The enhancement time limit was not saved because anothe
 @Component({
   selector: 'ptah-provider-consumer-assignments',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent, ProviderModelPickerComponent, SettingScopeRowComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NativePopoverComponent, ProviderModelPickerComponent, SettingScopeRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="space-y-2" data-testid="provider-consumer-assignments">
@@ -181,7 +182,7 @@ const TIMEOUT_REFUSED = 'The enhancement time limit was not saved because anothe
                               [min]="timeoutMinSec()" [max]="timeoutMaxSec()" [value]="timeoutDraftSec()" [disabled]="busy() || disabled()"
                               (input)="onTimeoutInput($event)" data-testid="timeout-input" />
                             <span class="text-xs text-base-content">seconds</span>
-                            <button type="button" [class]="'btn btn-primary btn-xs h-7 min-h-7 px-2 ' + focusRing" [disabled]="isTimeoutSaveDisabled()"
+                            <button type="button" [class]="'btn btn-primary btn-xs h-7 min-h-7 px-2 ' + focusRing" [ptahBusyDisabled]="isTimeoutSaveDisabled()"
                               aria-label="Save Enhancement time limit" (click)="saveTimeout()" data-testid="timeout-save-button">Save limit</button>
                             <button type="button" [class]="action" [disabled]="busy() || disabled()" aria-label="Cancel editing Enhancement time limit"
                               (click)="cancelTimeoutEdit()" data-testid="timeout-cancel-button">Cancel</button>

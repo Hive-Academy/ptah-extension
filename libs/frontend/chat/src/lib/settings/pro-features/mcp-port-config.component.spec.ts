@@ -14,6 +14,7 @@ import {
   COULD_NOT_UPDATE_LOCALHOST,
   COULD_NOT_LOAD_MCP_CONFIG,
 } from './mcp-port-config.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 type Responder = () => RpcResult<unknown> | Promise<RpcResult<unknown>>;
 
@@ -123,10 +124,10 @@ describe('McpPortConfigComponent', () => {
       expect(alert.getAttribute('role')).toBe('alert');
       expect(alert.textContent).toContain(COULD_NOT_LOAD_MCP_CONFIG);
       expect(alert.textContent).not.toContain('host detail');
-      expect(byTestId<HTMLInputElement>('mcp-port-input').disabled).toBe(true);
-      expect(byTestId<HTMLButtonElement>('mcp-port-save-btn').disabled).toBe(true);
-      expect(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git').disabled).toBe(true);
-      expect(byTestId<HTMLInputElement>('settings-toggle-browser-allow-localhost').disabled).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLInputElement>('mcp-port-input'))).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLButtonElement>('mcp-port-save-btn'))).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git'))).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLInputElement>('settings-toggle-browser-allow-localhost'))).toBe(true);
     });
 
     it('Serious 3: never writes defaults over the stored list while the config is not loaded', async () => {
@@ -154,7 +155,7 @@ describe('McpPortConfigComponent', () => {
 
       expect(queryTestId('mcp-config-load-error')).toBeNull();
       expect(component.isNamespaceEnabled('browser')).toBe(false);
-      expect(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git').disabled).toBe(false);
+      expect(isDisabledControl(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git'))).toBe(false);
 
       await component.toggleNamespace('git');
       await settle();
@@ -166,10 +167,10 @@ describe('McpPortConfigComponent', () => {
       responses['agent:getConfig'] = () => new Promise<RpcResult<unknown>>((resolve) => (answer = resolve));
       await render();
 
-      expect(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git').disabled).toBe(true);
+      expect(isDisabledControl(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git'))).toBe(true);
       answer(ok({ mcpPort: 51820, disabledMcpNamespaces: [], browserAllowLocalhost: false }));
       await settle();
-      expect(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git').disabled).toBe(false);
+      expect(isDisabledControl(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git'))).toBe(false);
     });
   });
 
@@ -178,31 +179,31 @@ describe('McpPortConfigComponent', () => {
       await render();
 
       const saveBtn = byTestId<HTMLButtonElement>('mcp-port-save-btn');
-      expect(saveBtn.disabled).toBe(true); // not dirty
+      expect(isDisabledControl(saveBtn)).toBe(true); // not dirty
 
       // Float input
       component.onPortInput(51820.5);
       fixture.detectChanges();
       expect(component.validationError()).toBe('Port must be a valid integer');
-      expect(saveBtn.disabled).toBe(true);
+      expect(isDisabledControl(saveBtn)).toBe(true);
 
       // Under range
       component.onPortInput(1000);
       fixture.detectChanges();
       expect(component.validationError()).toBe('Port must be between 1024 and 65535');
-      expect(saveBtn.disabled).toBe(true);
+      expect(isDisabledControl(saveBtn)).toBe(true);
 
       // Over range
       component.onPortInput(70000);
       fixture.detectChanges();
       expect(component.validationError()).toBe('Port must be between 1024 and 65535');
-      expect(saveBtn.disabled).toBe(true);
+      expect(isDisabledControl(saveBtn)).toBe(true);
 
       // Valid and dirty
       component.onPortInput(51999);
       fixture.detectChanges();
       expect(component.validationError()).toBeNull();
-      expect(saveBtn.disabled).toBe(false);
+      expect(isDisabledControl(saveBtn)).toBe(false);
     });
 
     it('saves port explicitly with persistent restart hint in row and supports Undo (R4)', async () => {
@@ -294,7 +295,7 @@ describe('McpPortConfigComponent', () => {
 
       const saveBtn = byTestId<HTMLButtonElement>('mcp-port-save-btn');
       expect(component.validationError()).toBeNull();
-      expect(saveBtn.disabled).toBe(false);
+      expect(isDisabledControl(saveBtn)).toBe(false);
 
       responses['agent:setConfig'] = () => ok({ success: true });
       feedback.dismiss();

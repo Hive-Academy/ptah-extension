@@ -26,6 +26,7 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import { MarkdownBlockComponent } from '@ptah-extension/markdown';
 import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
 import { NativeDrawerComponent } from '@ptah-extension/ui';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 const PROMPT_STATUS_LOAD_FAILED = 'Could not load the system prompt status.';
 const PROMPT_REGENERATE_FAILED = 'Could not regenerate the system prompt.';
@@ -66,7 +67,7 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
 @Component({
   selector: 'ptah-system-prompt-drawer',
   standalone: true,
-  imports: [
+  imports: [SettingsBusyDisabledDirective, 
     LucideAngularModule,
     NativeDrawerComponent,
     MarkdownBlockComponent,
@@ -262,7 +263,7 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
               #regenerateButton
               type="button"
               class="btn btn-outline btn-xs gap-1 text-base-content"
-              [disabled]="isRegenerating() || isDownloading() || !hasGeneratedPrompt() || regenerateStartedAt() !== null"
+              [ptahBusyDisabled]="isRegenerating() || isDownloading() || !hasGeneratedPrompt() || regenerateStartedAt() !== null"
               (click)="requestRegenerate()"
               aria-label="Regenerate Enhanced Prompt"
               data-testid="system-prompt-regenerate-button"
@@ -278,7 +279,7 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
             <button
               type="button"
               class="btn btn-ghost btn-xs gap-1 text-base-content"
-              [disabled]="isRegenerating() || isDownloading() || !hasGeneratedPrompt()"
+              [ptahBusyDisabled]="isRegenerating() || isDownloading() || !hasGeneratedPrompt()"
               (click)="downloadEnhancedPrompt()"
               aria-label="Download Enhanced Prompt"
               data-testid="system-prompt-download-button"

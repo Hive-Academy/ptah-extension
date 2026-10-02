@@ -7,6 +7,7 @@ import {
 import { PROVIDER_MODELS_LOADER, ProviderModelPickerComponent } from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
 import { ModelsTiersTabComponent, tiersApply } from './models-tiers-tab.component';
+import { isDisabledControl } from '../../feedback/busy-disabled.testing';
 
 type Tiers = { sonnet: string | null; opus: string | null; haiku: string | null };
 const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null };
@@ -164,7 +165,7 @@ describe('ModelsTiersTabComponent', () => {
       state.commit.set({ ...idle, status: 'saving' });
       fixture.detectChanges();
       expect(picker('opus').disabled()).toBe(true);
-      expect(query<HTMLButtonElement>('models-default-opus')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('models-default-opus'))).toBe(true);
       state.commit.set(idle);
       state.context.set(null);
       fixture.detectChanges();

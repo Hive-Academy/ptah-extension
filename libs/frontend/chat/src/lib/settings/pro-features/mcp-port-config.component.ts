@@ -36,6 +36,7 @@ import {
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 export const COULD_NOT_SAVE_PORT = 'Could not save the MCP port.';
 export const COULD_NOT_UPDATE_NAMESPACES = 'Could not update MCP tool namespaces.';
@@ -45,7 +46,7 @@ export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser set
 @Component({
   selector: 'ptah-mcp-port-config',
   standalone: true,
-  imports: [LucideAngularModule, FormsModule],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -97,7 +98,7 @@ export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser set
           type="button"
           class="btn btn-primary btn-xs gap-1"
           (click)="savePort()"
-          [disabled]="saving() || !loaded() || !isDirty() || validationError() !== null"
+          [ptahBusyDisabled]="saving() || !loaded() || !isDirty() || validationError() !== null"
           aria-label="Save MCP port"
           data-testid="mcp-port-save-btn"
         >
@@ -140,7 +141,7 @@ export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser set
                     class="checkbox checkbox-xs checkbox-primary"
                     [checked]="isNamespaceEnabled(ns.id)"
                     (change)="toggleNamespace(ns.id)"
-                    [disabled]="saving() || !loaded()"
+                    [ptahBusyDisabled]="saving() || !loaded()"
                     [attr.aria-label]="'Toggle ' + ns.label + ' namespace'"
                     [attr.data-testid]="'settings-toggle-mcp-namespace-' + ns.id"
                   />
@@ -198,7 +199,7 @@ export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser set
                       <button
                         type="button"
                         class="btn btn-outline btn-xs border-error text-base-content"
-                        [disabled]="saving()"
+                        [ptahBusyDisabled]="saving()"
                         (click)="confirmEnableLocalhost()"
                         data-testid="allow-localhost-confirm-btn"
                       >

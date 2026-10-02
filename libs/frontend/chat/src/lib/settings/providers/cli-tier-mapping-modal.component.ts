@@ -9,6 +9,7 @@ import {
 import type { ProviderModelInfo } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
 import { SettingsToastComponent } from '../feedback/settings-toast.component';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 /** The instance whose tiers the modal edits. */
 export interface CliTierMappingTarget {
@@ -53,7 +54,7 @@ interface Catalogue {
 @Component({
   selector: 'ptah-cli-tier-mapping-modal',
   standalone: true,
-  imports: [LucideAngularModule, NativeModalComponent, ProviderModelSearchFieldComponent, SettingsToastComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NativeModalComponent, ProviderModelSearchFieldComponent, SettingsToastComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ptah-native-modal [isOpen]="open()" ariaLabelledby="cli-tier-mapping-title" size="md" (closed)="closed.emit()">
@@ -94,7 +95,7 @@ interface Catalogue {
                     <label [for]="'cli-tier-' + row.tier" class="font-bold text-base-content">{{ row.label }} tier</label>
                     @if (own(row.tier)) {
                       <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-base-content ' + focusRing"
-                        [disabled]="busy()" (click)="useInherited(row.tier)" [attr.data-testid]="'cli-tier-inherit-' + row.tier">Use inherited</button>
+                        [ptahBusyDisabled]="busy()" (click)="useInherited(row.tier)" [attr.data-testid]="'cli-tier-inherit-' + row.tier">Use inherited</button>
                     }
                   </div>
                   @if (manualTier() === row.tier) {
@@ -104,7 +105,7 @@ interface Catalogue {
                         [attr.aria-label]="row.label + ' tier model ID'" [attr.aria-invalid]="manualInvalid()"
                         [attr.aria-describedby]="manualInvalid() ? 'cli-tier-manual-error' : null" [attr.data-testid]="'cli-tier-manual-' + row.tier" />
                       <button type="button" [class]="'btn btn-outline btn-xs min-h-8 border-base-content-muted text-base-content ' + focusRing"
-                        [disabled]="busy() || !manualDraft().trim() || manualInvalid()" (click)="applyManual(row.tier)" [attr.data-testid]="'cli-tier-manual-apply-' + row.tier">Use</button>
+                        [ptahBusyDisabled]="busy() || !manualDraft().trim() || manualInvalid()" (click)="applyManual(row.tier)" [attr.data-testid]="'cli-tier-manual-apply-' + row.tier">Use</button>
                       <button type="button" [class]="'btn btn-ghost btn-xs min-h-8 text-base-content ' + focusRing" (click)="closeManual(row.tier)">Cancel</button>
                     </div>
                     @if (manualInvalid()) {

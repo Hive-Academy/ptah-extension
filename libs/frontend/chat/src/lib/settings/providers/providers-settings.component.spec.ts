@@ -14,6 +14,7 @@ import {
   ProviderSetupWizardComponent, type DraftVerifyConnectionFn, type DraftCancelVerificationFn,
   type ProviderWizardCommit, type WizardCommitState, type WizardExternalAction,
 } from './provider-setup-wizard.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 // jsdom has no <dialog> modal API (the catalog modal mounts with the page); the real behaviour is asserted in Playwright.
 beforeAll(() => {
@@ -203,7 +204,7 @@ describe('ProvidersSettingsComponent', () => {
       state.route.set({ status: 'loading', data: route, error: null }); await render();
       expect(element.querySelector('[data-testid="connection-status-skeleton"]')).toBeNull();
       expect(statusText()).toBe('Checking…');
-      expect(checkButton()?.disabled).toBe(true);
+      expect(isDisabledControl(checkButton())).toBe(true);
     });
 
     it('a failed check reads "Check failed" with no host error text, and the check stays retryable', async () => {
@@ -212,7 +213,7 @@ describe('ProvidersSettingsComponent', () => {
       state.route.set({ status: 'error', data: route, error: 'Could not load this section. Retry.' }); await render();
       expect(statusText()).toBe('Check failed');
       expect(element.querySelector('[data-testid="connection-overview"]')?.textContent).not.toContain('Could not load this section');
-      expect(checkButton()?.disabled).toBe(false);
+      expect(isDisabledControl(checkButton())).toBe(false);
       checkButton()?.click();
       // Batch 28d: the drawer checks THIS connection (auth:checkConnection through the state), not a page refresh.
       expect(state.checkProviderConnection).toHaveBeenCalledWith('second');
@@ -242,7 +243,7 @@ describe('ProvidersSettingsComponent', () => {
         await openDrawer('second');
         state.connectionCheck.set({ providerId: 'second', status: 'checking' }); await render();
         expect(statusText()).toBe('Checking…');
-        expect(checkButton()?.disabled).toBe(true);
+        expect(isDisabledControl(checkButton())).toBe(true);
         state.connectionCheck.set({ providerId: 'second', status: 'failed' }); await render();
         expect(statusText()).toBe('Check failed');
         expect(element.querySelector('[data-testid="connection-overview"]')?.textContent).not.toContain('verified');
@@ -284,7 +285,7 @@ describe('ProvidersSettingsComponent', () => {
       state.route.set(ready(route)); await render();
       await openDrawer('second');
       state.commit.set({ ...idle, status: 'saving' }); await render();
-      expect(checkButton()?.disabled).toBe(true);
+      expect(isDisabledControl(checkButton())).toBe(true);
     });
 
     describe('Credentials writes (Batch 21)', () => {
@@ -353,7 +354,7 @@ describe('ProvidersSettingsComponent', () => {
         state.deleteStoredKey.mockImplementationOnce(async () => { throw new Error('host broke'); });
         byId('credentials-delete-confirm-button')?.click(); await render(); await render();
         expect(byId('credentials-commit')?.textContent).toContain('The save could not be completed. Retry.');
-        expect((byId('credentials-delete') as HTMLButtonElement).disabled).toBe(false);
+        expect(isDisabledControl((byId('credentials-delete') as HTMLButtonElement))).toBe(false);
       });
 
       // Batch 21 review, finding 4 (interleavings).
@@ -374,8 +375,8 @@ describe('ProvidersSettingsComponent', () => {
       it('while a page save runs, the drawer\'s write controls are disabled', async () => {
         await credentialsTab('second');
         state.commit.set({ ...idle, status: 'saving' }); await render();
-        expect((byId('credentials-delete') as HTMLButtonElement).disabled).toBe(true);
-        expect((byId('credentials-replace') as HTMLButtonElement).disabled).toBe(true);
+        expect(isDisabledControl((byId('credentials-delete') as HTMLButtonElement))).toBe(true);
+        expect(isDisabledControl((byId('credentials-replace') as HTMLButtonElement))).toBe(true);
       });
 
       // Batch 21 review, finding 2.
@@ -397,7 +398,7 @@ describe('ProvidersSettingsComponent', () => {
         state.connectionSetup.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
         await verifiedReplace('sk-second');
         expect(byId('credentials-setup-missing')?.textContent).toContain('Could not read the stored models');
-        expect((byId('credentials-save') as HTMLButtonElement).disabled).toBe(true);
+        expect(isDisabledControl((byId('credentials-save') as HTMLButtonElement))).toBe(true);
       });
 
       it('the drawer stacks above the page save toast, so the toast never covers its footer Close', async () => {
@@ -414,7 +415,7 @@ describe('ProvidersSettingsComponent', () => {
         expect(state.performExternalAuth).toHaveBeenCalledWith('openai-codex', 'sign-in');
         state.externalAuth.set({ status: 'loading', data: { providerId: 'openai-codex', signInState: 'in-flight', accountLabel: null, cliInstalled: null, message: null }, error: null });
         await render();
-        expect((byId('credentials-open-login') as HTMLButtonElement).disabled).toBe(true);
+        expect(isDisabledControl((byId('credentials-open-login') as HTMLButtonElement))).toBe(true);
         expect(byId('credentials-external-busy')).not.toBeNull();
         state.externalAuth.set({ status: 'error', data: { providerId: 'openai-codex', signInState: 'idle', accountLabel: null, cliInstalled: null, message: 'Sign-in detected.' }, error: 'Could not load this section. Retry.' });
         await render();
@@ -604,7 +605,7 @@ describe('ProvidersSettingsComponent', () => {
     state.route.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
     await render();
     expect(element.querySelectorAll('ptah-provider-connection-card')).toHaveLength(2);
-    expect(button('Connect provider').disabled).toBe(false);
+    expect(isDisabledControl(button('Connect provider'))).toBe(false);
     // Batch 28: the route's failure and Retry live in the Main Agent node (its region), not in a page list.
     element.querySelector<HTMLButtonElement>('[data-testid="routing-node-main-agent"] [data-testid="routing-node-retry"]')?.click(); await render();
     expect(state.refreshRoute).toHaveBeenCalledTimes(1);

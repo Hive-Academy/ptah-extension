@@ -15,6 +15,7 @@ import { CopilotAutoApproveToggleComponent } from './copilot-auto-approve-toggle
 import { CursorCredentialPopoverComponent } from './cursor-credential-popover.component';
 import { AddCliInstanceModalComponent, type CliInstanceEditTarget } from '../providers/add-cli-instance-modal.component';
 import { CliTierMappingModalComponent, type CliTierMappingTarget } from '../providers/cli-tier-mapping-modal.component';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 /** Which popover of which row is open; one at a time. */
 type OpenCell = { readonly rowId: string; readonly kind: CliMatrixCellField | 'permission' | 'install' | 'credentials' | 'more' };
@@ -82,7 +83,7 @@ const SAVE_SCOPE = 'global';
 @Component({
   selector: 'ptah-cli-orchestration-matrix',
   standalone: true,
-  imports: [
+  imports: [SettingsBusyDisabledDirective, 
     LucideAngularModule, NativePopoverComponent, CliModelEffortPopoverComponent, CopilotAutoApproveToggleComponent,
     CursorCredentialPopoverComponent, AddCliInstanceModalComponent, CliTierMappingModalComponent,
   ],
@@ -135,7 +136,7 @@ const SAVE_SCOPE = 'global';
         <td class="align-middle">
           <input type="checkbox" [class]="'cli-check checkbox checkbox-primary ' + focusRing"
             [checked]="row.enabled && (row.kind === 'instance' || row.installed)"
-            [disabled]="busy() || !canWrite() || (row.kind === 'system' && !row.installed)"
+            [disabled]="row.kind === 'system' && !row.installed" [ptahBusyDisabled]="busy() || !canWrite()"
             [attr.aria-label]="row.name + ' enabled'" (change)="toggle(row, $event)" [attr.data-testid]="'cli-matrix-toggle-' + row.id" />
         </td>
         <td>
@@ -273,7 +274,7 @@ const SAVE_SCOPE = 'global';
               <div class="inline-flex flex-wrap items-center justify-end gap-1" role="group" [attr.aria-label]="'Delete ' + row.name"
                 [attr.data-testid]="'cli-matrix-delete-confirm-' + row.id">
                 <span class="text-xs text-base-content">Delete {{ row.name }}?</span>
-                <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="remove(row)"
+                <button type="button" [class]="ACTION" [ptahBusyDisabled]="busy() || !canWrite()" (click)="remove(row)"
                   [attr.aria-label]="'Confirm delete ' + row.name">Delete</button>
                 <button type="button" [class]="ACTION" (click)="cancelDelete(row.id)" data-cancel-delete>Cancel</button>
               </div>
@@ -282,7 +283,7 @@ const SAVE_SCOPE = 'global';
               <div class="ml-auto inline-flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap">
                 <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="openTiers(row)"
                   [attr.aria-label]="'Tiers for ' + row.name" [attr.data-testid]="'cli-matrix-tiers-' + row.id">Tiers</button>
-                <button type="button" [class]="ACTION" [disabled]="testing()" (click)="test(row.id)"
+                <button type="button" [class]="ACTION" [ptahBusyDisabled]="testing()" (click)="test(row.id)"
                   [attr.aria-label]="'Test ' + row.name" [attr.data-testid]="'cli-matrix-test-' + row.id">
                   {{ testingId() === row.id ? 'Testing…' : 'Test' }}
                 </button>

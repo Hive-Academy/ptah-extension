@@ -5,6 +5,7 @@ import {
 } from '@ptah-extension/core';
 import { SAVE_REFUSED_MESSAGE, SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { CopilotAutoApproveToggleComponent } from './copilot-auto-approve-toggle.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 type Orchestration = Pick<ProvidersOrchestration, 'copilotAutoApprove'>;
 const ready = <T,>(data: T): ProvidersSettingsSection<T> => ({ status: 'ready', data, error: null });
@@ -88,11 +89,11 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     toggle()?.click();
     fixture.detectChanges();
     expect(toggle()?.checked).toBe(false);
-    expect(toggle()?.disabled).toBe(true);
+    expect(isDisabledControl(toggle())).toBe(true);
     state.commit.set({ ...idle, status: 'failed', unsaved: ['agentOrchestration.copilotAutoApprove'] });
     release(true);
     await flush();
-    expect(toggle()?.disabled).toBe(false);
+    expect(isDisabledControl(toggle())).toBe(false);
   });
 
   it('shows the re-read value and says it is unchanged when nothing was written (D15)', async () => {
@@ -101,7 +102,7 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     await flush();
     expect(toggle()?.checked).toBe(false);
     expect(error()).toBe('Could not save Copilot auto-approve. The saved setting is unchanged.');
-    expect(toggle()?.disabled).toBe(false);
+    expect(isDisabledControl(toggle())).toBe(false);
     expect(feedback.toast()?.tone).toBe('alert');
     expect(feedback.toast()?.message).not.toContain('Saved');
   });
@@ -111,7 +112,7 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     toggle()?.click();
     await flush();
     expect(toggle()?.indeterminate).toBe(true);
-    expect(toggle()?.disabled).toBe(true);
+    expect(isDisabledControl(toggle())).toBe(true);
     expect(error()).toContain('Could not confirm whether Copilot auto-approve was saved');
     // A write attempt while unconfirmed is ignored.
     state.saveSettings.mockClear();
@@ -121,7 +122,7 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     state.readable = false;
     recheck()?.click();
     await flush();
-    expect(toggle()?.disabled).toBe(true);
+    expect(isDisabledControl(toggle())).toBe(true);
     expect(recheck()).not.toBeNull();
     // The re-read succeeds: the read value is shown and writes are taken again.
     state.readable = true;
@@ -129,7 +130,7 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     await flush();
     expect(toggle()?.indeterminate).toBe(false);
     expect(toggle()?.checked).toBe(true);
-    expect(toggle()?.disabled).toBe(false);
+    expect(isDisabledControl(toggle())).toBe(false);
     expect(error()).toBeNull();
     expect(recheck()).toBeNull();
   });
@@ -157,7 +158,7 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
     state.commit.set({ ...idle, status: 'saving' });
     fixture.detectChanges();
     // The global save gate disables it; a programmatic change is refused by the feedback service.
-    expect(toggle()?.disabled).toBe(true);
+    expect(isDisabledControl(toggle())).toBe(true);
     state.commit.set(idle);
     fixture.detectChanges();
     toggle()?.click();
@@ -170,11 +171,11 @@ describe('CopilotAutoApproveToggleComponent (moved from AgentOrchestrationConfig
   it('offers a re-read when the saved value has not loaded', async () => {
     state.orchestration.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
     fixture.detectChanges();
-    expect(toggle()?.disabled).toBe(true);
+    expect(isDisabledControl(toggle())).toBe(true);
     expect(el().querySelector('[data-testid="copilot-auto-approve-unloaded"]')).not.toBeNull();
     recheck()?.click();
     await flush();
     expect(state.refreshOrchestration).toHaveBeenCalled();
-    expect(toggle()?.disabled).toBe(false);
+    expect(isDisabledControl(toggle())).toBe(false);
   });
 });

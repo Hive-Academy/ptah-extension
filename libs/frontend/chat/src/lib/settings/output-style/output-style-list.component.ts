@@ -58,6 +58,7 @@ import {
   type ParityTierOption,
 } from './output-style-parity-section.component';
 import type { OutputStyleFailedOperation } from './output-style.store';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 export { PARITY_TIERS, type ParityTierOption };
 
@@ -111,7 +112,7 @@ const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not chang
 @Component({
   selector: 'ptah-output-style-list',
   standalone: true,
-  imports: [LucideAngularModule, OutputStyleParitySectionComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, OutputStyleParitySectionComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Write / Operation Error Alert -->
@@ -159,7 +160,7 @@ const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not chang
             type="button"
             class="btn btn-ghost btn-xs mt-1 gap-1 text-base-content"
             (click)="onSelectNull()"
-            [disabled]="saving()"
+            [ptahBusyDisabled]="saving()"
             data-testid="output-style-clear-selection"
           >
             <lucide-angular
@@ -228,7 +229,7 @@ const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not chang
               <button
                 type="button"
                 class="btn btn-outline btn-xs border-error text-base-content"
-                [disabled]="saving()"
+                [ptahBusyDisabled]="saving()"
                 (click)="confirmCopy(name)"
                 data-testid="output-style-confirm-copy"
               >
@@ -284,7 +285,7 @@ const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not chang
                     role="radio"
                     class="radio radio-xs radio-primary cursor-pointer disabled:cursor-not-allowed"
                     [checked]="isActive(style)"
-                    [disabled]="saving() || isShadowed(style)"
+                    [ptahBusyDisabled]="saving() || isShadowed(style)"
                     [attr.aria-checked]="isActive(style)"
                     [attr.aria-label]="'Activate ' + style.name"
                     [attr.title]="shadowNote(style)"
@@ -403,7 +404,7 @@ const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not chang
                       <button
                         type="button"
                         class="btn btn-outline btn-xs border-error text-base-content"
-                        [disabled]="saving()"
+                        [ptahBusyDisabled]="saving()"
                         (click)="confirmDelete(style)"
                         data-testid="output-style-confirm-delete"
                       >

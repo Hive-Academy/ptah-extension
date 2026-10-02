@@ -23,6 +23,7 @@ import type {
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { UltracodeStateService } from '../../services/ultracode-state.service';
 import { SystemPromptDrawerComponent } from './system-prompt-drawer.component';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 interface EffortChoice {
   /** `''` is the SDK default (no stored effort). */
@@ -86,7 +87,7 @@ interface LoadError {
 @Component({
   selector: 'ptah-agent-behaviour-section',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent, SystemPromptDrawerComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NativePopoverComponent, SystemPromptDrawerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -129,7 +130,7 @@ interface LoadError {
             <tr data-testid="agent-behaviour-row-prompt">
               <td class="align-top">
                 <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
-                  [checked]="promptEnabled()" [disabled]="promptToggleDisabled() || saving()"
+                  [checked]="promptEnabled()" [ptahBusyDisabled]="promptToggleDisabled() || saving()"
                   (change)="onPromptModeChange($event)"
                   aria-label="Toggle Enhanced System Prompt" aria-describedby="agent-behaviour-prompt-note" />
               </td>
@@ -192,7 +193,7 @@ interface LoadError {
                           [class.btn-primary]="currentEffort() === choice.value"
                           [class.btn-outline]="currentEffort() !== choice.value"
                           [attr.aria-pressed]="currentEffort() === choice.value"
-                          [disabled]="saving()" (click)="selectEffort(choice.value)"
+                          [ptahBusyDisabled]="saving()" (click)="selectEffort(choice.value)"
                           [attr.data-testid]="'agent-behaviour-effort-choice-' + (choice.value || 'default')">
                           {{ choice.label }}
                         </button>
@@ -208,7 +209,7 @@ interface LoadError {
             <tr data-testid="agent-behaviour-row-workflows">
               <td class="align-top">
                 <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
-                  [checked]="workflowsEnabled()" [disabled]="!workflowsLoaded() || saving()"
+                  [checked]="workflowsEnabled()" [ptahBusyDisabled]="!workflowsLoaded() || saving()"
                   (change)="onWorkflowsChange($event)" aria-label="Toggle dynamic workflows"
                   aria-describedby="agent-behaviour-workflows-note" />
               </td>
@@ -233,7 +234,7 @@ interface LoadError {
             <tr data-testid="agent-behaviour-row-ultracode">
               <td class="align-top">
                 <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
-                  [checked]="ultracode.enabled()" [disabled]="saving()"
+                  [checked]="ultracode.enabled()" [ptahBusyDisabled]="saving()"
                   (change)="onUltracodeChange($event)" aria-label="Toggle Ultracode mode"
                   aria-describedby="agent-behaviour-ultracode-note" />
               </td>

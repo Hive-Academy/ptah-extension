@@ -5,6 +5,7 @@ import { ProvidersSettingsStateService, type ProvidersConnection, type Providers
 import { validateProviderBaseUrl, type AuthVerifyDraftConnectionParams, type AuthVerifyDraftConnectionResult } from '@ptah-extension/shared';
 import type { CancelDraftFn, VerifyDraftFn } from './credentials-tab.component';
 import { runDrawerWrite, type DrawerWriteOutcome } from './drawer-write';
+import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
 
 /** Verbatim (plan :662-664): pricing has no runtime reader (`provider-registry.ts:703-718`). */
 export const PRICING_NOTE = 'Stored for your reference; Ptah does not use it for cost estimates yet.';
@@ -58,6 +59,7 @@ export function parsePricing(input: string, output: string): { readonly ok: true
 @Component({
   selector: 'ptah-connection-advanced-tab',
   standalone: true,
+  imports: [SettingsBusyDisabledDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="space-y-4 text-sm" data-testid="connection-advanced">
@@ -101,7 +103,7 @@ export function parsePricing(input: string, output: string): { readonly ok: true
           <div class="flex gap-2">
             <input id="advanced-help-url" type="url" aria-labelledby="advanced-help-heading" class="input input-bordered input-sm min-w-0 flex-1 text-xs"
               [value]="helpUrl()" placeholder="https://" (input)="helpUrlDraft.set(value($event))" data-testid="advanced-help-url" />
-            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || helpUrlDraft() === null || !!helpUrlError()"
+            <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="busy() || helpUrlDraft() === null || !!helpUrlError()"
               (click)="saveHelpUrl()" data-testid="advanced-save-help">Save</button>
           </div>
           @if (helpUrlError(); as error) { <p class="text-xs text-base-content">{{ error }}</p> }
@@ -121,7 +123,7 @@ export function parsePricing(input: string, output: string): { readonly ok: true
           </div>
           <p class="text-xs text-base-content-muted" data-testid="advanced-pricing-note">{{ pricingNote }}</p>
           @if (!pricing().ok) { <p class="text-xs text-base-content">Enter both prices as numbers of 0 or more, or leave both empty.</p> }
-          <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || !pricingDirty() || !pricing().ok"
+          <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="busy() || !pricingDirty() || !pricing().ok"
             (click)="savePricing()" data-testid="advanced-save-pricing">Save pricing</button>
         </section>
 
@@ -144,7 +146,7 @@ export function parsePricing(input: string, output: string): { readonly ok: true
           <div role="group" aria-label="Confirm delete connection" class="space-y-2 rounded border border-base-300 p-3" data-testid="advanced-delete-confirm">
             <p class="text-xs text-base-content">Delete {{ connection().name }} for good? Its endpoint, settings and stored key are removed.</p>
             <div class="flex gap-2">
-              <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [disabled]="busy() || isDriver()"
+              <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [ptahBusyDisabled]="busy() || isDriver()"
                 (click)="deleteConnection()" data-testid="advanced-delete-confirm-button">Delete for good</button>
               <button type="button" class="btn btn-ghost btn-sm" (click)="confirmingDelete.set(false)">Cancel</button>
             </div>

@@ -8,6 +8,7 @@ import { PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent } from '@ptah
 import type { ProviderGetModelTiersResult, ProviderListModelsResult } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { CliTierMappingModalComponent, type CliTierMappingTarget } from './cli-tier-mapping-modal.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 const ready = <T,>(data: T): ProvidersSettingsSection<T> => ({ status: 'ready', data, error: null });
 const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null };
@@ -147,7 +148,7 @@ describe('CliTierMappingModalComponent', () => {
     fixture.detectChanges();
     expect(field('opus')).toBeUndefined();
     const input = q<HTMLInputElement>('cli-tier-manual-opus');
-    expect(q<HTMLButtonElement>('cli-tier-manual-apply-opus')?.disabled).toBe(true);
+    expect(isDisabledControl(q<HTMLButtonElement>('cli-tier-manual-apply-opus'))).toBe(true);
     if (!input) throw new Error('no manual field');
     input.value = 'vendor/glm-x';
     input.dispatchEvent(new Event('input'));
@@ -245,7 +246,7 @@ describe('CliTierMappingModalComponent', () => {
       input.value = bad;
       input.dispatchEvent(new Event('input'));
       fixture.detectChanges();
-      expect(q<HTMLButtonElement>('cli-tier-manual-apply-opus')?.disabled).toBe(true);
+      expect(isDisabledControl(q<HTMLButtonElement>('cli-tier-manual-apply-opus'))).toBe(true);
       expect(q('cli-tier-manual-error')?.textContent?.trim()).toBe('Enter a model ID without spaces, up to 200 characters.');
       expect(input.getAttribute('aria-invalid')).toBe('true');
     }
@@ -253,7 +254,7 @@ describe('CliTierMappingModalComponent', () => {
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     expect(q('cli-tier-manual-error')).toBeNull();
-    expect(q<HTMLButtonElement>('cli-tier-manual-apply-opus')?.disabled).toBe(false);
+    expect(isDisabledControl(q<HTMLButtonElement>('cli-tier-manual-apply-opus'))).toBe(false);
   });
 
   it('M8: every tier write (and its Undo) drops the last Test result of the instance', async () => {

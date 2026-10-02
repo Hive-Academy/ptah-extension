@@ -21,6 +21,7 @@ import {
   type OutputStyleSelectionRequest,
 } from './output-style-list.component';
 import type { OutputStyleFailedOperation } from './output-style.store';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 const BUILT_IN_DEFAULT: OutputStyleEntry = {
   name: 'default',
@@ -605,8 +606,8 @@ describe('OutputStyleListComponent — shadowed rows (E4/M1)', () => {
   });
 
   it('disables the shadowed row and leaves the winner selectable', () => {
-    expect(shadowedRow().disabled).toBe(true);
-    expect(winnerRow().disabled).toBe(false);
+    expect(isDisabledControl(shadowedRow())).toBe(true);
+    expect(isDisabledControl(winnerRow())).toBe(false);
   });
 
   it('carries the reason on the control and as visible text', () => {

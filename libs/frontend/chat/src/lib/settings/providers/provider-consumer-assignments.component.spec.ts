@@ -34,6 +34,7 @@ import type {
 } from '@ptah-extension/shared';
 import { ProviderConsumerAssignmentsComponent } from './provider-consumer-assignments.component';
 import { toBackendJudgeModel, toPickerModel, type BackgroundConsumerId } from './provider-consumer-rows';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 class MockProvidersSettingsStateService {
   readonly routeStore = signal<ProvidersSettingsSection<ProvidersEffectiveRoute>>({
@@ -624,7 +625,7 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       }
       fixture.detectChanges();
       expect(query(fixture, 'timeout-validation-error')?.textContent?.trim()).toBe('Must be between 15 and 600 seconds.');
-      expect(button(fixture, 'timeout-save-button')?.disabled).toBe(true);
+      expect(isDisabledControl(button(fixture, 'timeout-save-button'))).toBe(true);
     });
 
     it('saves timeout converted to milliseconds, emits timeoutSaved, closes the editor and offers Undo', async () => {

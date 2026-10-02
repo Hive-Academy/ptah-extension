@@ -3,6 +3,7 @@ import { ProvidersSettingsStateService, type ProvidersConnection } from '@ptah-e
 import { ProviderModelPickerComponent, type ProviderModelSelection } from '@ptah-extension/ui';
 import type { ProviderModelTier } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
+import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
 
 interface TierRow {
   readonly tier: ProviderModelTier;
@@ -38,7 +39,7 @@ export function tiersApply(connection: Pick<ProvidersConnection, 'id' | 'authMod
   selector: 'ptah-connection-models-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ProviderModelPickerComponent],
+  imports: [SettingsBusyDisabledDirective, ProviderModelPickerComponent],
   template: `
     <div class="space-y-4 text-sm" data-testid="connection-models">
       @if (!applies()) {
@@ -77,7 +78,7 @@ export function tiersApply(connection: Pick<ProvidersConnection, 'id' | 'authMod
                         </p>
                       </div>
                       @if (current(row.tier)) {
-                        <button type="button" class="btn btn-ghost btn-xs shrink-0" [disabled]="busy()"
+                        <button type="button" class="btn btn-ghost btn-xs shrink-0" [ptahBusyDisabled]="busy()"
                           [attr.aria-label]="'Reset ' + row.label + ' to the provider default'" (click)="save(row, '')"
                           [attr.data-testid]="'models-default-' + row.tier">Default</button>
                       }
@@ -98,7 +99,7 @@ export function tiersApply(connection: Pick<ProvidersConnection, 'id' | 'authMod
           <span [class]="toast.tone === 'status' ? 'h-2 w-2 shrink-0 rounded-full bg-success' : 'h-2 w-2 shrink-0 rounded-full bg-error'" aria-hidden="true"></span>
           <span class="min-w-0 flex-1">{{ toast.message }}</span>
           @if (toast.canUndo) {
-            <button type="button" class="btn btn-outline btn-xs" [disabled]="busy()" (click)="feedback.undo()" data-testid="models-undo">Undo</button>
+            <button type="button" class="btn btn-outline btn-xs" [ptahBusyDisabled]="busy()" (click)="feedback.undo()" data-testid="models-undo">Undo</button>
           }
         </div>
       }

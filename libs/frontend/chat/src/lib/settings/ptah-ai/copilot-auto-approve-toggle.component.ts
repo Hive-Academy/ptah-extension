@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const NOT_SAVED = 'Could not save Copilot auto-approve. The saved setting is unchanged.';
@@ -25,6 +26,7 @@ const NOT_CONFIRMED = 'Could not confirm whether Copilot auto-approve was saved.
 @Component({
   selector: 'ptah-copilot-auto-approve-toggle',
   standalone: true,
+  imports: [SettingsBusyDisabledDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="space-y-1.5 border-t border-base-300 pt-2" data-testid="copilot-auto-approve-section">
@@ -32,7 +34,7 @@ const NOT_CONFIRMED = 'Could not confirm whether Copilot auto-approve was saved.
         <span class="text-xs font-semibold text-base-content">Auto-approve Copilot tool calls</span>
         <input type="checkbox" [class]="'toggle toggle-xs toggle-success ' + focusRing"
           [checked]="saved() ?? false" [indeterminate]="needsRecheck()"
-          [disabled]="saving() || needsRecheck() || feedback.saving()"
+          [ptahBusyDisabled]="saving() || needsRecheck() || feedback.saving()"
           (change)="toggle($event)" aria-label="Auto-approve Copilot tool calls" data-testid="copilot-auto-approve" />
       </label>
       @if (error(); as message) {
@@ -42,7 +44,7 @@ const NOT_CONFIRMED = 'Could not confirm whether Copilot auto-approve was saved.
       }
       @if (needsRecheck()) {
         <button type="button" [class]="'btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ' + focusRing"
-          [disabled]="saving()" (click)="recheck()" data-testid="copilot-auto-approve-recheck">Check saved setting again</button>
+          [ptahBusyDisabled]="saving()" (click)="recheck()" data-testid="copilot-auto-approve-recheck">Check saved setting again</button>
       }
     </div>
   `,

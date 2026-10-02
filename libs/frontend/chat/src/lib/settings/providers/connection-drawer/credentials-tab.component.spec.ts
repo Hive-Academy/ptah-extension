@@ -5,6 +5,7 @@ import {
   CredentialsTabComponent, replaceKeyDraft, type CredentialsCommit, type ReplaceKeyRequest,
 } from './credentials-tab.component';
 import type { ConnectionKind } from './connection-kind';
+import { isDisabledControl } from '../../feedback/busy-disabled.testing';
 
 const connection = (overrides: Partial<ProvidersConnection> = {}): ProvidersConnection => ({
   id: 'moonshot', name: 'Moonshot (Kimi)', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
@@ -133,12 +134,12 @@ describe('CredentialsTabComponent', () => {
     it('Save stays disabled until the typed key passed a check; a verified key saves once', async () => {
       const replace = jest.fn();
       fixture.componentInstance.replaceKeyRequested.subscribe(replace);
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       typeKey('  sk-new  ');
       query('credentials-verify')?.click(); fixture.detectChanges();
       expect(probe.calls[0]).toMatchObject({ providerId: 'moonshot', authMode: 'apiKey', credential: { kind: 'apiKey', value: 'sk-new' } });
       expect(query('credentials-probe')?.textContent).toContain('Checking');
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       probe.settle(); await flush();
       expect(query('credentials-probe')?.textContent).toContain('Key verified (92ms)');
       query('credentials-save')?.click();
@@ -157,7 +158,7 @@ describe('CredentialsTabComponent', () => {
       expect(text).toContain('The provider rejected this key.');
       expect(text).toContain('Nothing was saved.');
       expect(text).not.toContain('host detail');
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       query('credentials-save')?.click();
       expect(replace).not.toHaveBeenCalled();
     });
@@ -166,9 +167,9 @@ describe('CredentialsTabComponent', () => {
       typeKey('sk-new');
       query('credentials-verify')?.click(); fixture.detectChanges();
       probe.settle(); await flush();
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(false);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(false);
       typeKey('sk-newer');
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
     });
 
     it('a rejected check call is shown as a failed check, never as verified', async () => {
@@ -176,7 +177,7 @@ describe('CredentialsTabComponent', () => {
       probe.verify.mockImplementationOnce(async () => { throw new Error('rpc down'); });
       query('credentials-verify')?.click(); await flush();
       expect(query('credentials-probe')?.textContent).toContain('Check failed');
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
     });
 
     it('Cancel and destroy drop the typed key and cancel a running check', () => {
@@ -201,7 +202,7 @@ describe('CredentialsTabComponent', () => {
       query('credentials-save')?.click();
       render({ commit: { status: 'saving', message: null } satisfies CredentialsCommit });
       expect(query('credentials-commit')?.textContent).toContain('Saving…');
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       render({ commit: { status: 'failed', message: 'Connection credential could not be saved.' } });
       expect(query('credentials-commit')?.textContent).toContain('Not saved. Connection credential could not be saved.');
       expect(query('credentials-commit')?.textContent).not.toContain('replaced');
@@ -269,7 +270,7 @@ describe('CredentialsTabComponent', () => {
 
     it('is disabled while a save is in flight', () => {
       render({ saving: true });
-      expect(query<HTMLButtonElement>('credentials-delete')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-delete'))).toBe(true);
     });
   });
 
@@ -321,7 +322,7 @@ describe('CredentialsTabComponent', () => {
 
     it('while the sign-in runs, Open login is disabled and says it is waiting', () => {
       render({ connection: codex, kind: 'oauth', externalAuth: { status: 'loading', message: null } });
-      expect(query<HTMLButtonElement>('credentials-open-login')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-open-login'))).toBe(true);
       expect(query('credentials-open-login')?.textContent?.trim()).toBe('Waiting for sign-in…');
       expect(query('credentials-external-busy')?.getAttribute('role')).toBe('status');
     });
@@ -331,13 +332,13 @@ describe('CredentialsTabComponent', () => {
       expect(query('credentials-external-error')?.getAttribute('role')).toBe('alert');
       expect(query('credentials-external-error')?.textContent).toContain('Sign-in could not be checked. Retry.');
       expect(query('credentials-external-message')).toBeNull();
-      expect(query<HTMLButtonElement>('credentials-open-login')?.disabled).toBe(false);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-open-login'))).toBe(false);
     });
 
     it('Check again (Claude CLI) waits too, and the settled message shows', () => {
       const cli = connection({ id: 'claude-cli', name: 'Claude (Subscription)', authMode: 'cli', hasKey: false });
       render({ connection: cli, kind: 'claude-cli', externalAuth: { status: 'loading', message: null } });
-      expect(query<HTMLButtonElement>('credentials-cli-check')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-cli-check'))).toBe(true);
       render({ externalAuth: { status: 'idle', message: 'Login has not been confirmed. Complete external login, then check again.' } });
       expect(query('credentials-external-message')?.textContent).toContain('Login has not been confirmed');
       expect(query('credentials-cli-detected')?.textContent).toContain('Claude CLI detected on this machine.');
@@ -356,20 +357,20 @@ describe('CredentialsTabComponent', () => {
       render({ setup: null, setupError: false });
       await verifiedKey();
       expect(query('credentials-setup-missing')?.textContent).toContain('Loading the stored models');
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       render({ setupError: true });
       expect(query('credentials-setup-missing')?.textContent).toContain('Could not read the stored models');
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(true);
       render({ setup: SETUP, setupError: false });
       expect(query('credentials-setup-missing')).toBeNull();
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(false);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(false);
     });
 
     it('the Claude API key writes no tiers, so it does not wait for them', async () => {
       render({ connection: connection({ id: 'anthropic', name: 'Claude API' }), isActiveDriver: true, setup: null });
       await verifiedKey();
       expect(query('credentials-setup-missing')).toBeNull();
-      expect(query<HTMLButtonElement>('credentials-save')?.disabled).toBe(false);
+      expect(isDisabledControl(query<HTMLButtonElement>('credentials-save'))).toBe(false);
     });
   });
 

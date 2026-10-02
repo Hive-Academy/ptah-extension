@@ -22,6 +22,7 @@ import {
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 type ProviderId = 'tavily' | 'serper' | 'exa';
 type WriteResult = { ok: true } | { ok: false; message: string };
@@ -103,7 +104,7 @@ function providerLabel(provider: ProviderId): string {
 @Component({
   selector: 'ptah-web-search-config',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NativePopoverComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -156,7 +157,7 @@ function providerLabel(provider: ProviderId): string {
               <tr>
                 <td class="align-top">
                   <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
-                    [checked]="isSelected(opt.value)" [disabled]="saving()"
+                    [checked]="isSelected(opt.value)" [ptahBusyDisabled]="saving()"
                     (change)="onProviderChange(opt.value, $event)"
                     [attr.data-testid]="'settings-toggle-web-search-provider-' + opt.value"
                     [attr.aria-label]="'Use ' + opt.label + ' for web search'" />
@@ -233,7 +234,7 @@ function providerLabel(provider: ProviderId): string {
                         }
                         <div class="flex gap-2">
                           <button type="button" class="btn btn-primary btn-sm"
-                            [disabled]="!apiKeyInput().trim() || saving()" (click)="saveApiKey()"
+                            [ptahBusyDisabled]="!apiKeyInput().trim() || saving()" (click)="saveApiKey()"
                             [attr.aria-label]="'Save API key for ' + opt.label"
                             data-testid="settings-web-search-key-save">
                             @if (isSavingKey()) {
@@ -274,7 +275,7 @@ function providerLabel(provider: ProviderId): string {
                       }
                       <div class="flex gap-2">
                         <button type="button" class="btn btn-outline btn-sm border-error text-base-content"
-                          [disabled]="saving()" (click)="deleteApiKey(opt.value)"
+                          [ptahBusyDisabled]="saving()" (click)="deleteApiKey(opt.value)"
                           [attr.data-testid]="'settings-web-search-clear-confirm-' + opt.value">Clear key</button>
                         <button #clearCancel type="button" class="btn btn-ghost btn-sm" (click)="cancelClear(opt.value)"
                           [attr.data-testid]="'settings-web-search-clear-cancel-' + opt.value">Cancel</button>
@@ -293,7 +294,7 @@ function providerLabel(provider: ProviderId): string {
       <div class="mt-2 flex items-center gap-3 rounded border border-base-300 py-2 px-3 text-xs">
         <label for="web-search-max-results" class="font-bold text-base-content whitespace-nowrap">Max results</label>
         <input id="web-search-max-results" type="range" min="1" max="20" [value]="maxResults()"
-          [disabled]="saving()" (change)="onMaxResultsChange($event)"
+          [ptahBusyDisabled]="saving()" (change)="onMaxResultsChange($event)"
           class="range range-xs range-primary flex-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           data-testid="settings-web-search-max-results" />
         <span class="badge badge-outline badge-sm font-mono text-base-content" aria-hidden="true">{{ maxResults() }}</span>

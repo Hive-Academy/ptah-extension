@@ -16,6 +16,7 @@ import type { VoiceProviderConfigLocalDto } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 import { LocalTtsPanelComponent } from './local-tts-panel.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 function localConfig(
   overrides: Partial<VoiceProviderConfigLocalDto> = {},
@@ -362,9 +363,7 @@ describe('LocalTtsPanelComponent', () => {
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     expect(component.customModelValid()).toBe(false);
-    expect(byTestId<HTMLButtonElement>('local-tts-custom-save').disabled).toBe(
-      true,
-    );
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('local-tts-custom-save'))).toBe(true);
 
     // Valid owner/name → save enabled and persisted.
     input.value = 'owner/kokoro-model';
@@ -548,7 +547,7 @@ describe('LocalTtsPanelComponent', () => {
     const component = mount(rpc, localConfig());
     await settle();
 
-    expect(byTestId<HTMLButtonElement>('local-tts-download-btn').disabled).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('local-tts-download-btn'))).toBe(true);
     expect(component.canDownload()).toBe(false);
   });
 
@@ -572,14 +571,14 @@ describe('LocalTtsPanelComponent', () => {
     select.dispatchEvent(new Event('change'));
     fixture.detectChanges();
 
-    expect(select.disabled).toBe(true);
-    expect(byTestId<HTMLButtonElement>('local-tts-preview-btn').disabled).toBe(true);
-    expect(byTestId<HTMLButtonElement>('local-tts-download-btn').disabled).toBe(true);
+    expect(isDisabledControl(select)).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('local-tts-preview-btn'))).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('local-tts-download-btn'))).toBe(true);
 
     resolveWrite(rpcSuccess({ ok: true }));
     await settle();
 
-    expect(select.disabled).toBe(false);
+    expect(isDisabledControl(select)).toBe(false);
     expect(calls(rpc, 'voice:setTtsConfig')).toEqual([{ voice: 'bf_emma' }]);
   });
 });

@@ -17,6 +17,7 @@ import {
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { WebSearchConfigComponent } from './web-search-config.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 /** Renders the trigger always and the content only while open, like the real popover. */
 @Component({
@@ -263,10 +264,10 @@ describe('WebSearchConfigComponent', () => {
       checkbox('serper').click();
       fixture.detectChanges();
 
-      expect(checkbox('exa').disabled).toBe(true);
+      expect(isDisabledControl(checkbox('exa'))).toBe(true);
       finish();
       await settle();
-      expect(checkbox('exa').disabled).toBe(false);
+      expect(isDisabledControl(checkbox('exa'))).toBe(false);
     });
   });
 

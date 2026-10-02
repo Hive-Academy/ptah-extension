@@ -5,6 +5,7 @@ import type { UsedBy } from '../connection-usage';
 import {
   OverviewTabComponent, checkedAgo, overviewCheckedStatus, overviewStatus, usedByBadge, type OverviewStatus,
 } from './overview-tab.component';
+import { isDisabledControl } from '../../feedback/busy-disabled.testing';
 
 const MAIN: UsedBy = { id: 'main-agent', label: 'Main agent', kind: 'main-agent', followsMain: false };
 const ARCHAEOLOGIST: UsedBy = { id: 'archaeologist', label: 'Archaeologist lane', kind: 'background-role', followsMain: true };
@@ -122,7 +123,7 @@ describe('OverviewTabComponent', () => {
     render({ loading: true });
     expect(query('connection-status')).toBeNull();
     expect(query('connection-status-skeleton')?.closest('[aria-busy="true"]')).not.toBeNull();
-    expect((query('connection-check') as HTMLButtonElement).disabled).toBe(true);
+    expect(isDisabledControl((query('connection-check') as HTMLButtonElement))).toBe(true);
   });
 
   it('Check connection asks the parent to check, and is disabled while a check runs', () => {
@@ -132,15 +133,33 @@ describe('OverviewTabComponent', () => {
     query('connection-check')?.click();
     expect(requested).toHaveBeenCalledTimes(1);
     render({ checking: true });
-    expect((query('connection-check') as HTMLButtonElement).disabled).toBe(true);
+    expect(isDisabledControl((query('connection-check') as HTMLButtonElement))).toBe(true);
     expect(query('connection-check')?.textContent?.trim()).toBe('Checking…');
+  });
+
+  it('N1 (Batch 54.1): while the check runs the focused button keeps focus (aria-disabled, never native disabled) and a second click does nothing', () => {
+    const requested = jest.fn();
+    fixture.componentInstance.checkConnectionRequested.subscribe(requested);
+    render();
+    const check = query('connection-check') as HTMLButtonElement;
+    check.focus();
+    check.click();
+    render({ checking: true });
+    expect(check.getAttribute('aria-disabled')).toBe('true');
+    expect(check.disabled).toBe(false);
+    expect(document.activeElement).toBe(check);
+    check.click();
+    expect(requested).toHaveBeenCalledTimes(1);
+    render({ checking: false });
+    expect(check.hasAttribute('aria-disabled')).toBe(false);
+    expect(document.activeElement).toBe(check);
   });
 
   it('during a check the status line reads "Checking…" (no skeleton) and Check connection is disabled', () => {
     render({ status: 'checking', checking: true, loading: false });
     expect(query('connection-status-skeleton')).toBeNull();
     expect(query('connection-status')?.textContent?.trim()).toBe('Checking…');
-    expect((query('connection-check') as HTMLButtonElement).disabled).toBe(true);
+    expect(isDisabledControl((query('connection-check') as HTMLButtonElement))).toBe(true);
   });
 
   it('a failed check reads "Check failed" with an error dot, base-content text, and stays retryable', () => {
@@ -153,7 +172,7 @@ describe('OverviewTabComponent', () => {
     expect(status?.className).not.toMatch(/text-(success|error|warning|primary)/);
     expect(status?.querySelector('[aria-hidden="true"]')?.className).toContain('bg-error');
     const check = query('connection-check') as HTMLButtonElement;
-    expect(check.disabled).toBe(false);
+    expect(isDisabledControl(check)).toBe(false);
     expect(check.textContent?.trim()).toBe('Retry check');
     check.click();
     expect(requested).toHaveBeenCalledTimes(1);
@@ -161,7 +180,7 @@ describe('OverviewTabComponent', () => {
 
   it('Check connection is disabled while a settings save is in flight', () => {
     render({ saving: true });
-    expect((query('connection-check') as HTMLButtonElement).disabled).toBe(true);
+    expect(isDisabledControl((query('connection-check') as HTMLButtonElement))).toBe(true);
   });
 
   describe('the last recorded check (Batch 28d)', () => {

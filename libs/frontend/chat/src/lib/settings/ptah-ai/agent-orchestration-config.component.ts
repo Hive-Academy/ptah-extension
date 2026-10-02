@@ -7,6 +7,7 @@ import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { cliMatrixRows } from './cli-matrix-rows';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 /** One order chip (the strip, its measuring copy and "+N"). */
@@ -47,7 +48,7 @@ interface OrderChip {
 @Component({
   selector: 'ptah-agent-orchestration-config',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NativePopoverComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="rounded-xl border border-base-300 bg-base-200 px-3 py-2" aria-label="Orchestration policy"
@@ -142,7 +143,7 @@ interface OrderChip {
         </div>
 
         <button type="button" [class]="'btn btn-outline btn-xs h-6 min-h-6 shrink-0 gap-1 border-base-content-muted text-[11px] text-base-content ' + focusRing"
-          [disabled]="detecting()" (click)="redetectClis()" aria-label="Re-detect CLI agents" data-testid="policy-redetect">
+          [ptahBusyDisabled]="detecting()" (click)="redetectClis()" aria-label="Re-detect CLI agents" data-testid="policy-redetect">
           @if (detecting()) {
             <span class="loading loading-spinner loading-xs" aria-hidden="true"></span> Detecting…
           } @else {

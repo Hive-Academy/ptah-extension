@@ -27,6 +27,7 @@ import {
   Check,
 } from 'lucide-angular';
 import type { SettingsTier } from '@ptah-extension/shared';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 export interface ParityTierOption {
   readonly tier: SettingsTier;
@@ -55,7 +56,7 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
 @Component({
   selector: 'ptah-output-style-parity-section',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <details
@@ -142,7 +143,7 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
           <button
             type="button"
             class="btn btn-outline btn-xs border-error text-base-content"
-            [disabled]="saving()"
+            [ptahBusyDisabled]="saving()"
             (click)="confirmed.emit()"
             data-testid="parity-confirm-button"
           >

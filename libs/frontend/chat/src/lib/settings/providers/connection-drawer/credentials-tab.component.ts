@@ -10,6 +10,7 @@ import {
 } from '@ptah-extension/shared';
 import type { ConnectionKind } from './connection-kind';
 import type { DrawerWriteOutcome } from './drawer-write';
+import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
 
 export type VerifyDraftFn = (params: AuthVerifyDraftConnectionParams) => Promise<AuthVerifyDraftConnectionResult>;
 export type CancelDraftFn = (params: AuthCancelDraftVerificationParams) => Promise<AuthCancelDraftVerificationResult>;
@@ -96,7 +97,7 @@ let PROBE_COUNTER = 0;
   selector: 'ptah-connection-credentials-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule],
   template: `
     <div class="space-y-4 text-sm" data-testid="connection-credentials">
       @switch (view()) {
@@ -118,7 +119,7 @@ let PROBE_COUNTER = 0;
               </div>
             }
             <p class="text-xs text-base-content-muted">Run <code class="font-mono">claude login</code> in your terminal; if the CLI is missing, install it first.</p>
-            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('cli-check')"
+            <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('cli-check')"
               data-testid="credentials-cli-check">{{ externalBusy() ? 'Checking…' : 'Check again' }}</button>
           </div>
         }
@@ -143,7 +144,7 @@ let PROBE_COUNTER = 0;
             <div role="group" aria-label="Confirm sign out" class="space-y-2 rounded border border-base-300 p-3" data-testid="credentials-sign-out-confirm">
               <p class="text-xs text-base-content">Sign out of GitHub Copilot on this machine?@if (isActiveDriver()) { It drives the main agent: new requests fail until you sign in again.}</p>
               <div class="flex gap-2">
-                <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [disabled]="busy()"
+                <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [ptahBusyDisabled]="busy()"
                   (click)="confirmSignOut()" data-testid="credentials-sign-out-confirm-button">Sign out</button>
                 <button type="button" class="btn btn-ghost btn-sm" (click)="confirming.set(null)">Cancel</button>
               </div>
@@ -161,14 +162,14 @@ let PROBE_COUNTER = 0;
                 ? 'The token in ~/.codex/auth.json has expired. Open login to sign in again.'
                 : 'Ptah uses the Codex login stored in ~/.codex/auth.json. Open login to switch or refresh the account.' }}
             </p>
-            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('sign-in')"
+            <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('sign-in')"
               data-testid="credentials-open-login">{{ externalBusy() ? 'Waiting for sign-in…' : 'Open login' }}</button>
           </div>
         }
         @case ('oauth') {
           <div class="space-y-2 rounded border border-base-300 bg-base-200 p-3" data-testid="credentials-oauth">
             <p class="text-xs text-base-content">Signed in with your provider account. Open login to switch or refresh it.</p>
-            <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('sign-in')"
+            <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="busy() || externalBusy()" (click)="externalActionRequested.emit('sign-in')"
               data-testid="credentials-open-login">{{ externalBusy() ? 'Waiting for sign-in…' : 'Open login' }}</button>
           </div>
         }
@@ -236,9 +237,9 @@ let PROBE_COUNTER = 0;
                 {{ probeText() }}
               </p>
               <div class="flex flex-wrap gap-2">
-                <button type="button" class="btn btn-outline btn-sm" [disabled]="!keyDraft().trim() || probeState() === 'checking' || busy()"
+                <button type="button" class="btn btn-outline btn-sm" [ptahBusyDisabled]="!keyDraft().trim() || probeState() === 'checking' || busy()"
                   (click)="verify()" data-testid="credentials-verify">{{ probeState() === 'checking' ? 'Checking…' : 'Check key' }}</button>
-                <button type="button" class="btn btn-primary btn-sm" [disabled]="!canSave()" (click)="save()"
+                <button type="button" class="btn btn-primary btn-sm" [ptahBusyDisabled]="!canSave()" (click)="save()"
                   data-testid="credentials-save">Save key</button>
                 <button type="button" class="btn btn-ghost btn-sm" (click)="cancelReplace()" data-testid="credentials-cancel-replace">Cancel</button>
               </div>
@@ -255,7 +256,7 @@ let PROBE_COUNTER = 0;
                 </p>
               }
               <div class="flex gap-2">
-                <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [disabled]="busy()"
+                <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [ptahBusyDisabled]="busy()"
                   (click)="confirmDelete()" data-testid="credentials-delete-confirm-button">Delete key</button>
                 <button type="button" class="btn btn-ghost btn-sm" (click)="confirming.set(null)">Cancel</button>
               </div>

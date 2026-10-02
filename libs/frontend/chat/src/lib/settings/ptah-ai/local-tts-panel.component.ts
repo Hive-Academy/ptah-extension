@@ -17,6 +17,7 @@ import type {
 } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { VoiceDownloadProgressService } from '../../services/voice-download-progress.service';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 /** Matches the backend TTS download-progress sentinel (`TTS_PROGRESS_MODEL`). */
 const TTS_PROGRESS_MODEL = 'tts';
@@ -67,7 +68,7 @@ interface VoiceGroup {
 @Component({
   selector: 'ptah-local-tts-panel',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -115,7 +116,7 @@ interface VoiceGroup {
                   [class.btn-ghost]="source() !== opt.value"
                   role="radio"
                   [attr.aria-checked]="source() === opt.value"
-                  [disabled]="saving()"
+                  [ptahBusyDisabled]="saving()"
                   (click)="onSourceChange(opt.value)"
                   [attr.data-testid]="'local-tts-source-' + opt.value"
                 >
@@ -158,7 +159,7 @@ interface VoiceGroup {
                 <button
                   type="button"
                   class="btn btn-primary btn-xs"
-                  [disabled]="saving() || !customModelValid()"
+                  [ptahBusyDisabled]="saving() || !customModelValid()"
                   (click)="saveCustomSource()"
                   data-testid="local-tts-custom-save"
                 >
@@ -205,7 +206,7 @@ interface VoiceGroup {
                 aria-label="Voice"
                 class="select select-bordered select-xs w-full"
                 [value]="selectedVoice()"
-                [disabled]="saving()"
+                [ptahBusyDisabled]="saving()"
                 (change)="onVoiceChange($event)"
                 data-testid="local-tts-voice-select"
               >
@@ -281,7 +282,7 @@ interface VoiceGroup {
                   <button
                     type="button"
                     class="btn btn-ghost btn-xs gap-1"
-                    [disabled]="isPreviewing() || saving()"
+                    [ptahBusyDisabled]="isPreviewing() || saving()"
                     (click)="previewVoice()"
                     data-testid="local-tts-preview-btn"
                   >
@@ -295,7 +296,7 @@ interface VoiceGroup {
                   <button
                     type="button"
                     class="btn btn-outline btn-xs gap-1"
-                    [disabled]="saving() || !canDownload()"
+                    [ptahBusyDisabled]="saving() || !canDownload()"
                     (click)="downloadTtsModel()"
                     data-testid="local-tts-download-btn"
                   >

@@ -67,6 +67,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { OutputStyleDetail } from '@ptah-extension/shared';
 import { OutputStyleEditorComponent } from './output-style-editor.component';
 import { OutputStyleStore } from './output-style.store';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 const COMPONENT_FILES = [
   'output-style-editor.component.ts',
@@ -295,7 +296,7 @@ describe('OutputStyleEditorComponent', () => {
       const submit = fixture.nativeElement.querySelector(
         'button[type="submit"]',
       );
-      expect(submit.disabled).toBe(false);
+      expect(isDisabledControl(submit)).toBe(false);
     });
 
     it('seeds the toggle from an existing style rather than forcing ON', () => {
@@ -460,7 +461,7 @@ describe('OutputStyleEditorComponent', () => {
       fixture.detectChanges();
       expect(load).toHaveBeenCalledTimes(1);
       expect(dialog()).toBeNull();
-      expect(saveButton().disabled).toBe(true);
+      expect(isDisabledControl(saveButton())).toBe(true);
 
       await component.submit();
       expect(save).toHaveBeenCalledTimes(1);
@@ -469,7 +470,7 @@ describe('OutputStyleEditorComponent', () => {
       await first;
       fixture.detectChanges();
       expect(dialog()).not.toBeNull();
-      expect(saveButton().disabled).toBe(false);
+      expect(isDisabledControl(saveButton())).toBe(false);
     });
 
     it('offers no Overwrite when the current file cannot be read', async () => {

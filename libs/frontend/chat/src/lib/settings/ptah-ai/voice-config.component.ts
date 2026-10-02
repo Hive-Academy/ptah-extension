@@ -28,6 +28,7 @@ import {
   VoiceDetailsDrawerComponent,
   type VoiceDirection,
 } from './voice-details-drawer.component';
+import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 type VoiceProviderId = 'local' | 'elevenlabs';
 type WriteResult = { ok: true } | { ok: false; message: string };
@@ -81,7 +82,7 @@ const SAVE_PROVIDER_FAILED: Record<VoiceDirection, string> = {
 @Component({
   selector: 'ptah-voice-config',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent, VoiceDetailsDrawerComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, NativePopoverComponent, VoiceDetailsDrawerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
@@ -144,7 +145,7 @@ const SAVE_PROVIDER_FAILED: Record<VoiceDirection, string> = {
                           @for (option of row.options; track option.id) {
                             <button type="button" role="radio" [attr.aria-checked]="option.id === row.providerId"
                               class="flex w-full items-start gap-2 rounded border border-base-300 p-2 text-left text-base-content hover:bg-base-300 disabled:cursor-not-allowed disabled:opacity-60"
-                              [disabled]="!option.available || saving()"
+                              [ptahBusyDisabled]="!option.available || saving()"
                               [attr.aria-describedby]="option.available ? null : 'voice-reason-' + row.direction + '-' + option.id"
                               (click)="chooseProvider(row.direction, option.id)"
                               [attr.data-testid]="'voice-provider-option-' + row.direction + '-' + option.id">

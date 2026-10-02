@@ -8,6 +8,7 @@ import { PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent } from '@ptah
 import type { ProviderListModelsResult, SettingScope } from '@ptah-extension/shared';
 import { MainAgentReassignPopoverComponent, type MainAgentFocus } from './main-agent-reassign-popover.component';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 function ready<T>(data: T): ProvidersSettingsSection<T> { return { status: 'ready', data, error: null }; }
 const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null };
@@ -296,10 +297,10 @@ describe('MainAgentReassignPopoverComponent', () => {
 
     it('every trigger is disabled while a save runs (D3)', () => {
       state.commit.set({ ...idle, status: 'saving' }); fixture.detectChanges();
-      expect(query<HTMLSelectElement>('main-agent-provider')?.disabled).toBe(true);
-      expect(modelInput()?.disabled).toBe(true);
-      for (const button of Array.from(query('main-agent-effort')?.querySelectorAll('button') ?? [])) expect((button as HTMLButtonElement).disabled).toBe(true);
-      expect(query<HTMLSelectElement>('main-agent-save-to')?.disabled).toBe(true);
+      expect(isDisabledControl(query<HTMLSelectElement>('main-agent-provider'))).toBe(true);
+      expect(isDisabledControl(modelInput())).toBe(true);
+      for (const button of Array.from(query('main-agent-effort')?.querySelectorAll('button') ?? [])) expect(isDisabledControl((button as HTMLButtonElement))).toBe(true);
+      expect(isDisabledControl(query<HTMLSelectElement>('main-agent-save-to'))).toBe(true);
     });
   });
 
@@ -322,7 +323,7 @@ describe('MainAgentReassignPopoverComponent', () => {
     query<HTMLButtonElement>('main-agent-check')?.click();
     expect(state.checkConnection).toHaveBeenCalledTimes(1);
     state.route.set({ status: 'loading', data: ROUTE, error: null }); fixture.detectChanges();
-    expect(query<HTMLButtonElement>('main-agent-check')?.disabled).toBe(true);
+    expect(isDisabledControl(query<HTMLButtonElement>('main-agent-check'))).toBe(true);
     expect(query('main-agent-check')?.textContent?.trim()).toBe('Checking…');
   });
 
@@ -333,9 +334,9 @@ describe('MainAgentReassignPopoverComponent', () => {
 
     it('loading: model, effort and Save to are disabled, the reason is shown, and no write can start', async () => {
       state.mainSources.set({ status: 'loading', data: null, error: null } as never); fixture.detectChanges(); await flush();
-      expect(modelInput()?.disabled).toBe(true);
-      expect(query<HTMLSelectElement>('main-agent-save-to')?.disabled).toBe(true);
-      expect(effortButton('high')?.disabled).toBe(true);
+      expect(isDisabledControl(modelInput())).toBe(true);
+      expect(isDisabledControl(query<HTMLSelectElement>('main-agent-save-to'))).toBe(true);
+      expect(isDisabledControl(effortButton('high'))).toBe(true);
       expect(query('main-agent-sources-loading')?.textContent).toContain('Loading where the model and effort are saved');
       // Even an event that reaches a handler writes nothing.
       effortButton('high')?.click(); choose('main-agent-model', 'model-b'); await flush();
@@ -350,7 +351,7 @@ describe('MainAgentReassignPopoverComponent', () => {
       expect(state.refreshMainSources).toHaveBeenCalledTimes(1);
       choose('main-agent-provider', 'second');
       expect(query('main-agent-provider-confirm')?.textContent).toContain('Where to save is not loaded yet.');
-      expect(buttonNamed('Use for main agent')?.disabled).toBe(true);
+      expect(isDisabledControl(buttonNamed('Use for main agent'))).toBe(true);
       expect(state.activateConnection).not.toHaveBeenCalled();
     });
   });
