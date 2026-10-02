@@ -114,3 +114,47 @@ D15 itself holds almost everywhere: every write checks `isSuccess()` and the inn
 - A `saveError` signal separate from validation (finding 5).
 - A same-selection guard on radios (finding 6).
 - The 49b Esc/focus pattern on the remaining three confirms and a dirty-draft guard (finding 7).
+
+## Re-check round 1 (7e70f3a80)
+
+Reviewer: code-logic-reviewer subagent (cross-side of the antigravity lane). Read-only. Re-read in full: `output-style-editor`, `output-style-parity-section`, `output-style-list` (selection/parity/sync parts), `output-style-config`, `output-style.store` (failure tagging), `system-prompt-drawer`, `agent-behaviour-section` (load/write parts), `mcp-port-config` (load gate), `vscode-lm-config`, `advanced-settings`. Re-ran `npx jest -c libs/frontend/chat/jest.config.ts output-style system-prompt-drawer agent-behaviour-section mcp-port-config vscode-lm-config advanced-settings.component` → 9 suites, 205 tests passed. Deviations 1-5 of `batch-50b-advanced-report.md`: no failure mode found, accepted.
+
+### Status per finding
+
+| # | Status | Evidence |
+| --- | --- | --- |
+| S1 stale-file Replace loop | FIXED | Editor re-reads the file on `STALE_FILE` (`output-style-editor.component.ts:740` `readCurrentFile`) and offers Reload / Overwrite / Cancel (`:190-230`). `overwriteStamp` (`:524`) sends the fresh mtime/length (`buildParams :748`), so the host stale check passes; it is a `linkedSignal` on `source`, so a Reload clears it (no stale stamp reused). Unreadable file gives Close only. `FILE_EXISTS` keeps Replace / Keep both. |
+| S2A parity confirm in closed details | FIXED | `parity-section:228-234` opens the details when a confirm is pending or a warning arrives and focuses Cancel; collapsing with a confirm pending cancels it and resyncs radios (`:237-243`, `list:596-603`). |
+| S2B parity failure shown as bare "Saved" | FIXED | `config:169-171` returns the fixed parity sentence as an alert toast when `parityWarning()` is set (selection stays saved, no revert). |
+| S3 MCP defaults written over stored list | FIXED | `loadState` (`mcp-port-config.component.ts:247`, `:305-326`): RPC failure, missing data or throw gives `failed`, alert plus Retry; port, Save, namespaces and Allow localhost disabled (`:92,100,143,171`) and every write entry returns early when not loaded (`:343,399,447`). |
+| M4 banner guessed from words | FIXED | `failedOperation` tag (`store:107`, set per writer `:187,233,268,290,379`); list maps tag to a fixed sentence (`list:100`); `showList` clears only `save`/`open` (`config:236`, `store:326`). Copy-to-project failure reports the copy sentence. |
+| M5 failed port save blocks retry | FIXED | `saveError` separate from validation (`mcp:256`); Save gated only by `validationError` (`:100`). |
+| M6 active radio rewrites | FIXED | Early return (`list:565-569`). Residual edge in N3. |
+| M7 Esc/focus (regenerate, parity, conflict, dirty draft, focus after save) | FIXED | Regenerate confirm: Cancel focused, local Esc, focus back to Regenerate (`drawer:421`). Parity confirm: `parity-section:245`. Editor dialogs share one `#safeChoice` focus effect and local Esc (`editor:627`, template `:160-220`). Dirty draft: `requestClose` shows the discard prompt, a second Esc/backdrop keeps the prompt (`:635`); a pristine form closes straight away. After save, config focuses the saved row's Edit or "New style" (`config:228`). |
+| M8 "Saved" beside stale checkbox | FIXED | `writePromptMode` applies the written value locally when the re-read fails (`agent-behaviour:417`); the load error with Retry stays. |
+| M9 regenerate timeout + status-error empty state | FIXED (see N1) | Unanswered regenerate re-reads status, shows the may-still-be-running note, blocks Regenerate until a newer `generatedAt` or a check at least 240 s after start (`drawer:433,474`); host `{success:false}` unchanged (no re-read, fixed sentence). `result.data.error` counts as a load failure in both readers; the empty state needs a successful read (`drawer:245`). |
+| 10 VS Code LM override / empty Undo | FIXED | `selectedModel` cleared in `finally`; select element reset to the saved model (`vscode-lm:188,236`); no Undo when there was no previous model (`:220`). |
+| 11 import wording | FIXED (see N4) | `advanced-settings.component.ts:240`. |
+| 12 docs table line | NOT FIXED | `apps/ptah-docs/SCREENSHOTS.md:119` still lists `browser-settings.png` (declared out of scope). Docs only. |
+| 13 duplicate load / Invalid Date | FIXED | `ngOnInit` removed, one effect-driven load; unparseable timestamp omitted (`drawer:355,376`). |
+| 14 Undo of "localhost off" skips confirm | NOT FIXED | Not in the batch; accepted as a one-step revert of the user's own action. |
+| 15 no download feedback | FIXED | "Saved to the chosen file." only on host `success:true` (`drawer:508`). |
+| 16 Copy to this project overwrites silently | NOT FIXED | Not in the batch; `store.copyToProjectTier` still passes `overwrite:true` with no confirm. |
+
+### New defects introduced by the fixes
+
+All Minor; none blocks.
+
+- **N1 (regenerate block): a fast definitive failure is treated as "may still be running".** `confirmRegenerate` sets `answered` only when `isSuccess()` is true. A transport-level rejection that arrives in milliseconds (host handler unavailable, malformed RPC) takes the same path as the 120 s timeout: Regenerate is blocked and the may-still-be-running note shows. With no timers, the block lifts only when the user presses "Check again" at least 240 s after the start (or a newer `generatedAt` appears). Scenario: instant RPC error at t=2 s, so the user can retry only after 4 minutes, with a message that is wrong for an immediate failure. Fix: enter the blocked path only when elapsed is more than a few seconds (or the error is a timeout), else show the fixed failure sentence. The block also lives in component state, so unmounting the settings tab and returning allows a second regeneration while the host may still run (rare).
+- **N2 (stale flow): the gap between `STALE_FILE` and the stale dialog is unguarded.** `persist` awaits `readCurrentFile()` (a second RPC) with `store.saving` already false, so Save/Enter can start another save before the dialog appears. Outcome is a duplicate prompt or re-read, no data loss. Discarding the drawer while a save is in flight lets the save finish silently after the drawer is gone (same as before the batch).
+- **N3 (parity guard): `parityRequestedTier` is set when the selection is emitted, not when the write succeeds** (`list:621`). If the activation fails, clicking the still-active radio is treated as "parity already written for this tier" and returns without asking, so the user must pick another style or change tier to retry the file write. The failure was reported by the alert toast, so nothing is silent.
+- **N4 (import copy): "The file is not a Ptah settings export." is shown whenever `errors.length > 0 && imported.length === 0`** (`advanced-settings:236-241`). A valid export whose every key failed to apply gets the same sentence, which blames the file. Wording such as "Nothing was imported." is accurate in both cases.
+- **N5 (LM select): the saved value now depends on `fetchProviderStatus` refreshing `defaultModel`.** With `selectedModel` cleared in `finally`, a successful write whose follow-up status refresh silently fails (the service swallows it) shows the old model under a "Saved" toast. Low probability; the service owns the fix.
+
+Checked, no defect: the parity auto-open effect does not fight a user collapse (it re-opens only for a pending confirm or a new warning); collapse-with-pending cancels exactly once; `overwriteStamp` and `reloaded` reset on Reload, so a later save uses the fresh stamp; the dirty guard ignores a pristine New or repair form; the MCP load gate cannot be bypassed through Undo (Undo exists only after a gated write); Retry returns to `loading` with controls disabled; the regenerate success path clears the block and emits `changed`; the agent-behaviour re-read failure keeps the written value and shows the load error.
+
+### New score and verdict
+
+**Score 8/10, APPROVED WITH NOTES.** The three Serious and all six Moderate findings are fixed with code and specs, the previously untested STALE_FILE path is now covered, and the 205 tests pass on re-run. Not 9: five Minor defects were introduced (N1-N5), and 12, 14 and 16 remain open by decision.
+
+Open items (none gating): N1 (instant failure locks Regenerate for 240 s), 12 docs table line, 16 silent overwrite on Copy to this project, and Minors N2-N5.

@@ -170,3 +170,36 @@ Implicit requirements not addressed: None.
   1. Inspect `result.data.error` in `loadPromptStatus()` and surface an inline load alert if present.
   2. Implement standardized Esc listener and focus restoration on the Log Out inline confirm in `license-status-card.component.ts`.
   3. Propagate `$event.stopPropagation()` on `go-vet-consent-config.component.ts` Esc keydown.
+
+
+---
+
+## Re-check round 1 (7e70f3a80)
+
+**Reviewer:** antigravity CLI lane  
+**Commit checked:** `7e70f3a80` (Batch 50b)  
+**Score:** 10/10  
+**Verdict:** APPROVED  
+
+### Finding → Verification Matrix
+
+| Finding ID | Previous Severity | Title | Status | Evidence (`file:line`) | Verification Notes |
+|---|---|---|---|---|---|
+| **Serious 1 / FM-1** | Serious | `loadPromptStatus` silent error concealment | **FIXED** | [`agent-behaviour-section.component.ts:383-395`](file:///D:/projects/ptah-extension/.claude-worktrees/task-555-advanced-search-voice/libs/frontend/chat/src/lib/settings/pro-features/agent-behaviour-section.component.ts#L383-L395) | `loadPromptStatus()` now explicitly validates `result.isSuccess() && !result.data.error`. When `result.data.error` is present or the transport throws, it sets `promptLoadError` to `PROMPT_STATUS_LOAD_FAILED` with an inline Retry button, prevents zeroed metadata corruption of `promptStatus`, and falls back to `PROMPT_NOTE_UNKNOWN` ("The system prompt status is not loaded yet.") instead of misleadingly prompting to run the Setup Wizard. Verified by `agent-behaviour-section.component.spec.ts:360-395`. |
+| **Moderate 2 / FM-2** | Moderate | Log Out inline confirm focus loss & Esc handling | **FIXED** | [`license-status-card.component.ts:378, 399, 435, 470, 641-649`](file:///D:/projects/ptah-extension/.claude-worktrees/task-555-advanced-search-voice/libs/frontend/chat/src/lib/settings/license/license-status-card.component.ts#L378) | Standardized to the Batch 49b P8 confirm pattern: `#logoutCancel` is auto-focused via `effect()` on open; `(keydown.escape)="cancelLogout($event)"` is attached to `role="group"`; `cancelLogout(event?)` verifies the confirm is open and not in-flight, stops propagation, closes the prompt, and restores focus to `#logoutButton` via `afterNextRender()`. Verified by `license-status-card.component.spec.ts:197-248`. |
+| **Moderate 3 / FM-3** | Moderate | False success feedback when refresh fails after `writePromptMode` | **FIXED** | [`agent-behaviour-section.component.ts:417-430`](file:///D:/projects/ptah-extension/.claude-worktrees/task-555-advanced-search-voice/libs/frontend/chat/src/lib/settings/pro-features/agent-behaviour-section.component.ts#L417-L430) | `loadPromptStatus()` now returns a `boolean` indicating refresh success. If the subsequent status re-read fails after `enhancedPrompts:setEnabled` succeeds, `writePromptMode` updates `promptStatus` locally with `{ ...status, enabled }` so the checkbox and badge agree with the "Saved" toast while preserving the inline load error alert with Retry. Verified by `agent-behaviour-section.component.spec.ts:402-429`. |
+| **Minor 4 / FM-4** | Minor | Unstopped event bubbling on `go-vet` Escape dismissal | **FIXED** | [`go-vet-consent-config.component.ts:267, 468-473`](file:///D:/projects/ptah-extension/.claude-worktrees/task-555-advanced-search-voice/libs/frontend/chat/src/lib/settings/ptah-ai/go-vet-consent-config.component.ts#L267) | `(keydown.escape)="cancelEnable($event)"` now passes the event, and `cancelEnable(event?)` invokes `event?.stopPropagation()` when `confirmingRoot() !== null`. Verified by `go-vet-consent-config.component.spec.ts:546-565`. |
+| **Minor 5 / FM-5** | Minor | Remote alert placement on failed Web Search key clear | **FIXED** | [`web-search-config.component.ts:264-270, 501-537`](file:///D:/projects/ptah-extension/.claude-worktrees/task-555-advanced-search-voice/libs/frontend/chat/src/lib/settings/ptah-ai/web-search-config.component.ts#L264-L270) | Replaced card-level alert assignment with a dedicated `clearError` signal rendered as a `role="alert"` element directly inside the open `role="group"` confirmation box (`settings-web-search-clear-error-<id>`). `requestClear()` and `cancelClear()` reset `clearError`. Verified by `web-search-config.component.spec.ts:376-415`. |
+
+### New Defects Check
+
+- **Scope inspected:** All files modified in commit `7e70f3a80` across Stream A (Advanced) and Stream B (Search & Voice + membership).
+- **Diagnostics:** 0 errors across all touched components (`ptah_get_diagnostics`).
+- **Tests:** 10 of 10 targeted test suites (297 tests) passing; workspace test suite passing with 0 failures.
+- **Findings:** No new logic, accessibility, D15, or contrast defects introduced by these fixes.
+
+### Final Assessment
+
+- **Score:** 10/10
+- **Verdict:** APPROVED
+- **Conclusion:** All five logic review findings have been completely resolved with precise file:line implementations and comprehensive unit spec coverage. The Advanced and Search & Voice tabs are fully verified and ready for gate closure.

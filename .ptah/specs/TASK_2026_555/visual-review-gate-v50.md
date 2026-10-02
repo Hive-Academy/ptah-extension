@@ -91,3 +91,49 @@ Moderate and minor:
 - Recommendation: REVISE (gate result FAIL; re-run Task 50.1 after D1-D5, which are one-line class changes plus one layout move)
 - Confidence: HIGH on the measured items (folds, axe, focus, backdrop, geometry); MEDIUM on D6 provenance and M6; LOW on the unrendered states in item 6.
 - Key concern: coloured TEXT in the output-style editor drawer (D1) breaks the user-requested deviation 6 and, in the light theme, fails contrast at 2.46-3.57:1.
+
+## Re-check round 1 (7e70f3a80)
+
+Same-side, disclosed: no image-capable CLI lane; in-process visual-reviewer subagent. No source edited.
+
+Evidence: `dist` main.js (14:11) is newer than every non-spec source file, so the bundle is the one for 7e70f3a80. The committed scene spec passed 8 of 8 (`--workers=2`). A throw-away probe (axe wcag2a/2aa/21aa/22aa, text-node font sizes, coloured-text scan, row geometry, Esc on a dirty drawer, button classes) ran in 4 host/theme combinations and was deleted afterwards. New captures are `gate-v50r1-*` in `screenshots/angular/`. The scene run rewrote 6 Batch 49 capture names with new bytes (the fixes changed pixels, so this is expected); no new `current-*` name, no `baseline-*` touched.
+
+### Status of the earlier findings
+
+| Id | Status | Evidence |
+| --- | --- | --- |
+| D1 | FIXED | `gate-v50r1-editor-errors-vscode-anubis-light.png`: name and description errors and the coding-instructions warning are 12 px base-content text with a red/amber icon. Coloured-text scan of both tabs, the editor and the voice drawer, all four combinations: zero text nodes with `text-primary/error/success/warning`. The initials avatar is `text-base-content` in source (the only remaining `text-primary` in the licence card is an icon at `:131`); still not rendered in the community fixture. |
+| D2 | FIXED | "Active for all sessions" no longer appears in axe in any combination. |
+| D3 | FIXED | "Get API key" is underlined and 12 px (`gate-v50r1-web-search-*`); axe `link-in-text-block` is gone. |
+| D4 | FIXED | ElevenLabs show/hide button measures 24x24; axe `target-size` is gone. |
+| D5 | FIXED | `gate-v50r1-delete-confirm-electron-anubis.png`: a full-width row under the style, `rounded border border-base-300`, `btn-outline border-error text-base-content` Delete, ghost Cancel. One line in Electron. |
+| D6 | DECIDED, still open here | Table headers still measure 4.45:1 in anubis-light (axe, both hosts, both tabs). The user raises the shared muted token in track A after the merge. Dark is clean. |
+| M1 | DECIDED / FIXED | Row heights 43/41/41/41 in both hosts (were 57/74 and 58). The Ultracode note ends in an ellipsis with the full text in a tooltip. Fold bottoms 419 (VS Code) and 483 (Electron). |
+| M2 | FIXED | Slider on keyboard focus: `outline: solid 2px`, `:focus-visible` true, in all four combinations. |
+| M3 | FIXED | Placeholder is now "New API key". |
+| M4 | FIXED | Output style rows are 33 px (VS Code) and 33-41 px (Electron), down from 75-85; the built-in note appears once under the table. |
+| M5 | FIXED | `gate-v50r1-import-confirm-vscode-anubis-light.png`: the confirm replaces Export and Import in the header row ("Replace your settings from a file? [Import settings] [Cancel]"), the badges stay below it. Card height in the confirm state: 110 px (VS Code) and 140 px (Electron, exactly at the 140 budget). |
+| M6 | DECIDED | Drawer panel measures 512 px; the pattern map has been updated. |
+| m1 | PARTIAL, inverted | The go vet description is now 14 px, larger than the Voice and Web search descriptions (12 px) and runs 6 lines (`current-go-vet-electron-anubis-1024x768.png`). The sizes still differ, now the other way round. See N1. |
+| m2 | DECIDED (not changed) | Membership header still has several button styles; optional, left alone. |
+| m3 | FIXED | Localhost confirm, delete confirm, Web search clear confirm, parity and Import confirms all use the same outline button with a red border and `text-base-content`. The resting "Clear" buttons are neutral (computed border is base-content, class has no `border-error`), as decided. |
+
+### New defects found in this round
+
+| Id | Severity | Capture | What is wrong | What the pattern requires |
+| --- | --- | --- | --- | --- |
+| N1 | Minor | `current-go-vet-electron-anubis-1024x768.png` | The go vet description is 14 px and six lines, while sibling card descriptions are 12 px. | One description size across cards (12 px, to match the 12 px rule). |
+| N2 | Minor | `gate-v50r1-web-clear-confirm-electron-anubis-light.png` | While the Clear confirm is open, the Tavily "Clear" trigger renders as a solid dark fill (probably the hover state from the click, not verified without a pointer move). | Confirm it is only hover; otherwise use the disabled look used elsewhere. |
+| N3 | Minor (decided) | all captures | Text under 12 px remains only inside components: daisyUI `btn-xs` labels (11 px), `badge-xs/sm` (9-10 px) and the effort popover's 10 px buttons. All helper and description text is 12 px or more. | The user kept the effort buttons; badges and `btn-xs` labels were not discussed. |
+
+### Re-check of the standing gate items
+
+- Folds, §2.2: membership 80/104 px, behaviour bottom 419/483, rows single line (the literal "row wraps" clause is now met). §3.2: provider rows 41/41/41, web search bottom 382 (VS Code) / 438 (Electron), Electron voice rows 625. All pass.
+- One primary per card, order, `table-xs`: unchanged and passing.
+- Esc: the committed scene reports "all pass" for focus return in both hosts. A dirty output-style drawer now answers Esc with "Discard your changes to this style?" (a second Esc keeps editing), which is the intended new behaviour; my backdrop results from round 0 are unchanged because the changed files do not touch the popover or drawer shells.
+- Axe in this tab's own markup: only the light-theme header contrast (D6). The Electron-dark workspace-name entry (2.96:1, `.truncate.text-sm`) is in the shell sidebar, outside this task.
+- Toast versus drawer footers: not re-measured; the toast and drawer shell were not touched in 50b.
+
+### Verdict
+
+PASS WITH NOTES. The 0 visual-breaking and 0 serious defects remain in this task's own markup apart from D6, which is a shared-token decision tracked for after the merge. Score 8/10. Open items: D6 (4.45:1 light table headers, tracked), N1 (go vet description size), N2 (Clear trigger look while confirm is open, verify), N3 (sub-12 px badge and button labels, undecided). Unrendered states from round 0 item 6 remain unmeasured.
