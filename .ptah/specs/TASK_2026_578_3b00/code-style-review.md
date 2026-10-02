@@ -224,3 +224,65 @@ New findings (all MINOR, none gating):
 - M4 `skill-synthesis-state.service.ts:437-444`: `accept()` now reads stats itself (`loadStats`) and the view also refreshes diagnostics, so two stats-shaped reads follow each accept. Harmless, as the two stores feed different surfaces; worth one line noting why both are kept.
 
 Verdict: APPROVED
+
+## Batch 12
+
+Scope: Remove superseded paths (Tasks 12.1-12.4). In `libs/backend/skill-synthesis/src`: `lib/skill-clustering.service.ts`, `lib/skill-synthesizer.service.ts`, `lib/skill-suggestion.store.ts`, `lib/skill-candidate.store.ts`, `lib/digest/skill-gap-curator.service.ts`, `index.ts`, and the specs for each. Also the rpc-handlers spec mock keys and `tools/degradation-audit/baseline.json`. Read from the uncommitted `git diff`. I also ran `nx run @ptah-extension/skill-synthesis:lint`.
+
+Score: 9/10
+
+Verdict: APPROVED
+
+### Findings
+
+BLOCKING: none.
+
+SERIOUS: none.
+
+MODERATE: none.
+
+MINOR
+- M1. `skill-synthesizer.service.ts:89`: `CLUSTER_MEMBER_MAX_CHARS` is now used only by the umbrella prompt, at `:242` and `:467`. "Cluster" names the deleted path's vocabulary. The executor already adjusted the JSDoc to say "umbrella prompt", so the name is the one leftover. Renaming to `UMBRELLA_MEMBER_MAX_CHARS` would match the neighbouring `UMBRELLA_MAX_MEMBERS`. There is no behaviour cost.
+- M2. `skill-gap-curator.service.spec.ts:~330`: the source scan changed from `'insertPending('` to `'.insert('`. It is still a valid guard, but weaker than before:
+  - `insertPending(` was unique to the one call path. `.insert(` is a substring that would also fire on any unrelated `.insert(` in the curator, such as a Map or DB helper. A false positive would fail loudly, so that direction is safe.
+  - The scan will not catch `store.insert (`, a destructured `const { insert } = store`, or a bracket call. Those are theoretical. The DB-count assertion still backs it up on a seeded pass.
+  - The doc comments at `skill-gap-curator.service.ts:17` and `:760` now say `` `insert` is never called ``. This is accurate. `SkillSuggestionStore.insert` is the public method that survives (`skill-suggestion.store.ts`, around `:95`). Optionally say "`SkillSuggestionStore.insert`" for a reader who lacks the context.
+- M3. `index.ts:144-146`, `:163`: `PoolExclusions`, `PoolMember`, `PoolPartition` and `CuratorPassStats` have zero consumers outside `libs/backend/skill-synthesis/src/lib` (`git grep` over `apps` and `libs` found none). This matches how the barrel already exports the return types of public service methods (`CuratorReport`, `SynthesizedSkill`). `CuratorPassStats` is reachable through `CuratorReport`, so exporting it is defensible. Not a defect.
+
+### Checks 1-6
+
+1. Deleted symbols.
+   - `git grep` over `libs`, `apps` and `tools` found no match for `clusterCandidates`, `SkillCandidateCluster`, `ClusterMemberInput`, `synthesizeFromCluster`, `buildClusterPrompt`, `insertPending`, `hasExistingForCluster`, `listInvocations`, `RawInvocationRow` or `listActiveOrderedByActivity`.
+   - The only `toInvocationRow` hits are the unrelated private method in `skill-scorecard.service.ts:151,217`. That matches the claim.
+   - No orphans remain:
+     - `SkillCandidateRow`, `SkillSynthesisSettings` and `agglomerate` are still used by `partitionPool` (`skill-clustering.service.ts:26-28,94`).
+     - `SkillSynthesisSettings` is still used by the trajectory path (`skill-synthesizer.service.ts:214`).
+     - `SkillInvocationRow` is still used by `listInvocationEvents`.
+     - The prompt constants are still used (`CLUSTER_MEMBER_MAX_CHARS`, see M1).
+   - Doc comments were updated: the clustering header, the synthesizer header and the "per-session / cluster" JSDoc. No remaining comment cites a deleted name.
+2. The gap-curator source scan is still meaningful. See M2. It guards the invariant, with a slightly different shape, and the "never CALLS" intent is intact. The rename of the seed helpers to `insert(x, 'pending')` in the spec is mechanical and correct.
+3. Barrel.
+   - Every new export is defined and exported at its source:
+     - `UmbrellaMemberInput` at `skill-synthesizer.service.ts:192`.
+     - `PoolMember`, `PoolExclusions` and `PoolPartition` at `skill-clustering.service.ts:37,48,55`.
+     - `CuratorPassStats` at `lib/lifecycle/curator-report.ts:13`.
+   - No external consumer of the removed `ClusterMemberInput` or `SkillCandidateCluster` exists in `apps` or `libs`.
+   - `CuratorPassStats` is re-exported from `./lib/skill-curator.service`. I did not check that the source file itself re-exports it, because the new `index.ts` entry sits in the block for that module. The executor ran typecheck, and a missing re-export would fail it. I judge this a low-risk assumption.
+   - Consistent with the existing barrel style (`type` re-exports inside the grouped export blocks).
+4. Spec deletions removed only cases for deleted code:
+   - Four `clusterCandidates` cases in the clustering spec.
+   - The `synthesizeFromCluster` describe in the synthesizer spec (6 cases).
+   - Three `hasExistingForCluster` cases in the suggestion-store spec.
+   - Surviving coverage is intact:
+     - `partitionPool` has 10 cases covering fail-open, orphans, exclusions, the truncation cap, centroids, dimension mismatch and chaining.
+     - `synthesizeUmbrella` has 8 cases. These include the empty cluster, no lane, the schema, and the member cap with clipping. The `user-action` lane case survives at `skill-synthesizer.service.spec.ts:495`, and the shared `runSynthesis` path is covered through it.
+     - Rewriting `insertPending(x)` to `insert(x, 'pending')` across the suggestion-store spec (the roughly -100/+80 delta) is mechanical and loses no assertions.
+   - Slight loss: the bounding-per-member case for the old cluster prompt is replaced by the umbrella's "each clipped" case at `:500`. Equivalent.
+5. R-h holds. The lint output reports `skill-candidate.store.ts` at 1272 lines (`max-lines` warning at `1010:1`), which meets the target of ≤ 1272. The raw file went from 1825 to 1792 lines (HEAD to working tree). A row-mappers split is not needed. The unused `RawInvocationRow` and `toInvocationRow` were removed together with `listInvocations`.
+6. Naming and maintenance.
+   - `linkPromotedCandidate` is kept, as the Batch 9 carry requires.
+   - The baseline went from 6 to 5, matching the carry.
+   - `rpc.types.ts` is untouched and the batch's own diff does not touch it.
+   - `skills-synthesis-rpc.handlers.spec.ts` lost only the two dead mock keys.
+   - The net effect retires about 415 lines of superseded code and introduces none. The only residual naming debt is M1.
+   - Lint's other warnings in the `skill-synthesis` lint output (for example the 906- and 757-line `max-lines` warnings in other files) are not in this diff's scope.

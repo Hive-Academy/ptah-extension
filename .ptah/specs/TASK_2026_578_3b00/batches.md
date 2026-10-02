@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 12/14
+Total tasks: 44 | Batches: 14 | Complete: 13/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -1289,7 +1289,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Carry to Batch 12 (Task 12.3): delete `SkillCandidateStore.listInvocations` (`skill-candidate.store.ts:1562`);
   it has no production caller after this batch.
 
-## Batch 12: Remove superseded paths — PENDING
+## Batch 12: Remove superseded paths — COMPLETE (commit 9a16da40f)
 
 - Recommended executor: backend-developer sub-agent (uses `ptah_lsp_references` before each deletion)
 - Fallback executor: CLI lane x 1 (antigravity) with grep-based reference checks
@@ -1300,24 +1300,24 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail), `:typecheck`, `:lint` (confirm
   `skill-candidate.store.ts` max-lines did not grow beyond the R-h target)
 
-### Task 12.1: Delete old clustering and synthesizer paths — PENDING
+### Task 12.1: Delete old clustering and synthesizer paths — COMPLETE
 
 - Files: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-clustering.service.ts` (+ spec), `.../skill-synthesizer.service.ts` (+ spec)
 - Implementation details: delete `clusterCandidates`, `synthesizeFromCluster`, `buildClusterPrompt` and their spec cases.
 
-### Task 12.2: Delete old suggestion-store methods — PENDING
+### Task 12.2: Delete old suggestion-store methods — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-suggestion.store.ts` (+ spec)
 - Implementation details: delete `insertPending`, `hasExistingForCluster`; update the doc comments that cite
   `insertPending` in `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/digest/skill-gap-curator.service.ts:17,760` and its spec's assertion name to `insert`.
 
-### Task 12.3: Delete listInvocations from the candidate store — PENDING
+### Task 12.3: Delete listInvocations from the candidate store — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-candidate.store.ts`
 - Implementation details: delete `listInvocations` and `toInvocationRow` if unused; remove the stale
   `listActiveOrderedByActivity` mock key at `SS/skill-promotion.service.spec.ts:103`. Report final line delta (R-h).
 
-### Task 12.4: Barrel exports — PENDING
+### Task 12.4: Barrel exports — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/index.ts`
 - Implementation details: `ClusterMemberInput` → `UmbrellaMemberInput` (`:138-139`); `SkillCandidateCluster` →
@@ -1327,6 +1327,49 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 ### Batch 12 verification
 
 - No reference to any deleted symbol remains (grep evidence); tests, typecheck, lint pass; reviewer accepted
+
+### Batch 12 on-disk verification and commit (team-leader)
+
+- Deleted symbols: `git grep -nw` over `libs`/`apps` finds 0 references to `clusterCandidates`,
+  `SkillCandidateCluster`, `ClusterMemberInput`, `synthesizeFromCluster`, `buildClusterPrompt`, `insertPending`,
+  `hasExistingForCluster`, `listInvocations`, `RawInvocationRow`, `listActiveOrderedByActivity`. The only
+  `toInvocationRow` left is `skill-scorecard.service.ts:217`, its own private mapper over `GradedInvocationRow`.
+  `linkPromotedCandidate` is kept (`skill-curator.service.ts:632`, plus its specs).
+- Barrel (`src/index.ts`): `ClusterMemberInput` → `UmbrellaMemberInput`; `SkillCandidateCluster` → `PoolExclusions`,
+  `PoolMember`, `PoolPartition`; `CuratorPassStats` added. `rpc.types.ts` is untouched. The rpc-handlers change is 2
+  removed mock keys in `skills-synthesis-rpc.handlers.spec.ts`.
+- Batch 9 carry closed: `tools/degradation-audit/baseline.json` skill-synthesis 6 → 5; audit exit 0 (`5 ok (baseline 5)`).
+- R-h: executor reports `skill-candidate.store.ts` 1302 → 1272 ESLint lines (target met; no row-mappers split). The
+  reviewer confirmed it.
+- Re-run by team-leader (`--skip-nx-cache`): typecheck for skill-synthesis and rpc-handlers both pass. skill-synthesis
+  lint shows 0 errors / 27 warnings, unchanged. skill-synthesis test: 85 suites passed + 1 skipped, 1793 passed /
+  1 skipped / 0 failed. `rpc-handlers:test --testFile=skills-synthesis-rpc`: 5 suites, 523/523.
+- Full rpc-handlers failures, judged environmental, not Batch 12:
+  - `skills-sh-legacy-adoption.spec` is a load timeout and passes alone.
+  - `harness/selection/harness-skill-selection-rpc.service.spec.ts:113` ("never writes state.json") also fails alone.
+    A stray `%TEMP%\.ptah\harness\state.json` (mtime 2026-10-02 03:35) breaks it: the spec makes its workspace under
+    `tmpdir()`, and `resolveHarnessWorkspaceRoot` walks up to that ancestor `.ptah`. The spec imports only
+    vscode-core, harness-sync, platform-core and shared, with no skill-synthesis code. Batch 12's whole rpc-handlers
+    diff against 7998b9ce3 is 2 mock-key lines in another spec, so the spec fails the same way on the parent commit.
+    The temp dir was not deleted.
+- Review: in-process code-style-reviewer APPROVED 9/10 (`code-style-review.md` `## Batch 12`, verdict on disk), with
+  3 MINOR findings and nothing blocking. This follows the same user decision as Batch 9: an antigravity lane
+  re-reviews 9a16da40f before the PR.
+- Committed as 9a16da40f with exactly the 13 Batch 12 files (11 skill-synthesis, 1 rpc-handlers spec,
+  `baseline.json`). The pre-commit lint-staged/prettier hook reformatted the 3 prettier-flagged files (commit shows
+  +99/-410 against the +102/-410 working diff), with no behaviour change. Not staged: `context.md`,
+  `visual/batch-14/_work/`.
+
+### Batch 12 carries
+
+- M1: rename `CLUSTER_MEMBER_MAX_CHARS` to `UMBRELLA_MEMBER_MAX_CHARS` in `skill-synthesizer.service.ts`; its only
+  remaining user is the umbrella prompt.
+- M2: the gap-curator source scan now pins `'.insert('`, which is looser than the old `insertPending` scan. The doc
+  comments (`digest/skill-gap-curator.service.ts:17,760`) could name `SkillSuggestionStore.insert` explicitly.
+- M3: the new barrel types (`UmbrellaMemberInput`, `PoolExclusions`, `PoolMember`, `PoolPartition`,
+  `CuratorPassStats`) have no external consumer yet. This matches the barrel's existing pattern; no action unless
+  the barrel is trimmed.
+- These go to the antigravity pre-PR re-review / `future-enhancements.md` at Mode 3, together with the Batch 9 carries.
 
 ## Batch 13: Lifecycle reachability integration spec — PENDING
 
