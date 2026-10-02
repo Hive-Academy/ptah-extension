@@ -66,6 +66,11 @@ function makeGitInfo(): jest.Mocked<GitInfoService> {
     getGitInfo: jest.fn(result),
     refreshGitInfo: jest.fn(result),
     getWorktrees: jest.fn(async (): Promise<GitWorktreeInfo[]> => []),
+    pruneWorktrees: jest.fn(
+      async (): Promise<{ success: boolean; error?: string }> => ({
+        success: true,
+      }),
+    ),
   } as unknown as jest.Mocked<GitInfoService>;
 }
 
@@ -837,6 +842,256 @@ describe('GitWatcherService', () => {
       expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(3);
       expect(workspaceSubs()).toHaveLength(2);
       expect(liveWorkspaceSubs()).toHaveLength(1);
+    });
+  });
+
+  // ===========================================================================
+  // VANISHED AGENT WORKTREES (TASK_2026_576 RC10)
+  //
+  // At most once per 30 s, riding on a worktree re-list or a status refresh,
+  // an unlocked `prunable` worktree under `<main>/.claude-worktrees/` is pruned
+  // and announced as `git:worktreeChanged` `removed`.
+  // ===========================================================================
+
+  describe('agent worktree audit', () => {
+    let root: string;
+    let gitDir: string;
+
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+      root = tempDir('gw-audit-');
+      makeGitDir(root, true);
+      gitDir = fs.realpathSync.native(path.join(root, '.git'));
+    });
+
+    async function settle(): Promise<void> {
+      for (let i = 0; i < 4; i++) await flush();
+    }
+
+    function main(): GitWorktreeInfo {
+      return { path: root, isMain: true } as GitWorktreeInfo;
+    }
+
+    function agentWorktree(
+      name: string,
+      labels: Partial<GitWorktreeInfo> = {},
+    ): GitWorktreeInfo {
+      return {
+        path: path.join(root, '.claude-worktrees', name),
+        isMain: false,
+        ...labels,
+      } as GitWorktreeInfo;
+    }
+
+    function removedPushes(): unknown[] {
+      return calls('git:worktreeChanged').map(([, payload]) => payload);
+    }
+
+    /** One worktree administration change on the git-directory feed. */
+    async function adminChange(): Promise<void> {
+      liveGitDirSubs()[0].fire(
+        'update',
+        path.join(gitDir, 'worktrees', 'wt1', 'HEAD'),
+      );
+      jest.advanceTimersByTime(500);
+      await settle();
+    }
+
+    it('prunes a vanished agent worktree at arm and pushes removed for it', async () => {
+      const vanished = agentWorktree('agent-1', {
+        prunable: true,
+        prunableReason: 'gitdir file points to non-existent location',
+      });
+      gitInfo.getWorktrees
+        .mockResolvedValueOnce([main(), vanished])
+        .mockResolvedValueOnce([main()]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(1);
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledWith(root);
+      expect(removedPushes()).toEqual([
+        { action: 'removed', path: vanished.path },
+      ]);
+    });
+
+    it('pushes removed only for the paths that actually left the list', async () => {
+      const gone = agentWorktree('gone', { prunable: true });
+      const stuck = agentWorktree('stuck', { prunable: true });
+      gitInfo.getWorktrees
+        .mockResolvedValueOnce([main(), gone, stuck])
+        .mockResolvedValueOnce([main(), stuck]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(removedPushes()).toEqual([{ action: 'removed', path: gone.path }]);
+    });
+
+    it('pushes nothing when the confirming listing fails after a prune', async () => {
+      // `getWorktrees` reports a failed listing as `[]`: no main worktree, so
+      // it confirms nothing about the candidates.
+      gitInfo.getWorktrees
+        .mockResolvedValueOnce([main(), agentWorktree('agent-1', { prunable: true })])
+        .mockResolvedValueOnce([]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(1);
+      expect(removedPushes()).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Could not confirm pruned agent worktrees: listing failed',
+        expect.objectContaining({ workspaceRoot: root }),
+      );
+    });
+
+    it('never prunes a prunable worktree outside .claude-worktrees', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        main(),
+        { path: path.join(root, 'sandbox', 'wt1'), prunable: true },
+        { path: path.join(root, '.claude-worktrees'), prunable: true },
+        { path: path.join(os.tmpdir(), 'elsewhere', 'wt2'), prunable: true },
+      ] as GitWorktreeInfo[]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+      expect(removedPushes()).toHaveLength(0);
+    });
+
+    it('never prunes a locked agent worktree', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        main(),
+        agentWorktree('held', {
+          prunable: true,
+          locked: true,
+          lockReason: 'on a removable drive',
+        }),
+      ]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+      expect(removedPushes()).toHaveLength(0);
+    });
+
+    it('audits on a worktree administration change at most once per 30 s', async () => {
+      svc.start(root, broadcast);
+      jest.advanceTimersByTime(50);
+      await settle();
+      gitInfo.getWorktrees.mockResolvedValue([
+        main(),
+        agentWorktree('agent-1', { prunable: true }),
+      ]);
+
+      // Inside 30 s of the arm-time audit: the re-list runs, no audit.
+      await adminChange();
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(2);
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(30_000);
+      await adminChange();
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(1);
+
+      // A second change inside the next 30 s does not audit again.
+      jest.advanceTimersByTime(10_000);
+      await adminChange();
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(20_000);
+      await adminChange();
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(2);
+    });
+
+    it('a status refresh re-lists worktrees for the audit at most once per 30 s', async () => {
+      svc.start(root, broadcast);
+      jest.advanceTimersByTime(50);
+      await settle();
+      gitInfo.getWorktrees.mockClear();
+
+      const head = (): void =>
+        liveGitDirSubs()[0].fire('update', path.join(gitDir, 'HEAD'));
+
+      // Inside 30 s of the arm-time audit: status only.
+      head();
+      jest.advanceTimersByTime(500);
+      await settle();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(2);
+      expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(30_000);
+      head();
+      jest.advanceTimersByTime(500);
+      await settle();
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(1);
+      expect(gitInfo.getWorktrees).toHaveBeenCalledWith(root);
+
+      head();
+      jest.advanceTimersByTime(500);
+      await settle();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(4);
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(1);
+    });
+
+    it('a non-git workspace never audits', async () => {
+      const plain = tempDir('gw-audit-plain-');
+      svc.start(plain, broadcast);
+      liveWorkspaceSubs()[0].fire('update', path.join(plain, 'a.ts'));
+      jest.advanceTimersByTime(40_000);
+      await settle();
+      liveWorkspaceSubs()[0].fire('update', path.join(plain, 'a.ts'));
+      jest.advanceTimersByTime(10_000);
+      await settle();
+
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalled();
+      expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+    });
+
+    it('logs a failed prune, pushes nothing and keeps watching', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        main(),
+        agentWorktree('agent-1', { prunable: true }),
+      ]);
+      gitInfo.pruneWorktrees.mockResolvedValueOnce({
+        success: false,
+        error: 'fatal: cannot lock',
+      });
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(removedPushes()).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Pruning vanished agent worktrees failed',
+        expect.objectContaining({ error: 'fatal: cannot lock' }),
+      );
+      expect(liveGitDirSubs()).toHaveLength(1);
+    });
+
+    it('logs a prune that throws and keeps watching', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        main(),
+        agentWorktree('agent-1', { prunable: true }),
+      ]);
+      gitInfo.pruneWorktrees.mockRejectedValueOnce(new Error('spawn failed'));
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(removedPushes()).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Agent worktree audit failed',
+        expect.objectContaining({ error: 'spawn failed' }),
+      );
+
+      liveGitDirSubs()[0].fire('update', path.join(gitDir, 'HEAD'));
+      jest.advanceTimersByTime(500);
+      await settle();
+      expect(calls('git:status-update').length).toBeGreaterThanOrEqual(1);
     });
   });
 

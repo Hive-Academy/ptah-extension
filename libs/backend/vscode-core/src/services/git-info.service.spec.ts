@@ -71,7 +71,7 @@ jest.mock('os', () => ({
 
 import { GitInfoService, isMutatingGitCommand } from './git-info.service';
 import { GitOutputLimitError } from '../utils/exec-git';
-import { GIT_LOCKED_MESSAGE } from '@ptah-extension/shared';
+import { GIT_DIFF_MAX_SIDE_BYTES } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
 // Minimal logger double
@@ -210,9 +210,31 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       expect(mockSpawn.mock.calls[0][1]).toEqual([
         'worktree',
         'add',
+        '--end-of-options',
         explicit,
         'feature/x',
       ]);
+    });
+
+    it('reports the minimum git version when worktree add rejects --end-of-options', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr:
+            "error: unknown option `end-of-options'\nusage: git worktree add [<options>] <path> [<commit-ish>]\n",
+          exitCode: 129,
+        }),
+      );
+
+      const result = await service.addWorktree(WS, {
+        branch: 'feature/x',
+        path: path.resolve('/worktrees/old-git'),
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Git 2.24 or later is required for this action.',
+      });
     });
   });
   describe('getBranches()', () => {
@@ -623,8 +645,8 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       await service.getBranches(WS, false);
       expect(mockSpawn).toHaveBeenCalledTimes(1);
 
-      // force=true skips the dirty-tree probe and goes straight to the
-      // `checkout` spawn, which `isMutatingGitCommand` recognises.
+      // force=true is a single `switch --discard-changes` spawn, which
+      // `isMutatingGitCommand` recognises.
       await service.checkout(WS, 'other', false, true);
       await service.getBranches(WS, false);
 
@@ -650,17 +672,24 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
     it('getGitInfo coalesces concurrently but is never served from a settled entry', async () => {
       mockSpawn.mockImplementation((_cmd: unknown, args: string[]) =>
         args[0] === 'rev-parse'
-          ? makeSpawnResult({ stdout: 'true\n', exitCode: 0 })
+          ? makeSpawnResult({
+              stdout: args.includes('--git-path')
+                ? '.git/MERGE_HEAD\n.git/CHERRY_PICK_HEAD\n.git/rebase-merge\n.git/rebase-apply\n'
+                : 'true\n',
+              exitCode: 0,
+            })
           : makeSpawnResult({ stdout: '# branch.head main\0', exitCode: 0 }),
       );
 
       await Promise.all([service.getGitInfo(WS), service.getGitInfo(WS)]);
-      // rev-parse + status + staged/worktree numstat, once — not twice.
-      expect(mockSpawn).toHaveBeenCalledTimes(4);
+      // rev-parse + status + staged/worktree numstat + the operation markers'
+      // `rev-parse --git-path`, once — not twice.
+      expect(mockSpawn).toHaveBeenCalledTimes(5);
 
       await service.getGitInfo(WS);
 
-      expect(mockSpawn).toHaveBeenCalledTimes(8);
+      // A fresh run; the marker paths are already resolved, so no fifth spawn.
+      expect(mockSpawn).toHaveBeenCalledTimes(9);
     });
   });
 
@@ -669,64 +698,35 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
   // ==========================================================================
 
   describe('checkout()', () => {
-    it('returns { success: false, dirty: true } when status check has output and force=false', async () => {
-      // First call: status --porcelain=v2 -z (returns dirty output)
-      mockSpawn.mockImplementationOnce(() =>
-        makeSpawnResult({ stdout: '1 .M... \0', exitCode: 0 }),
-      );
-
-      const result = await service.checkout(WS, 'feat/x', false, false);
-
-      expect(result).toEqual({ success: false, dirty: true });
-      // Checkout itself should NOT have been called
-      expect(mockSpawn).toHaveBeenCalledTimes(1);
-      const args: string[] = mockSpawn.mock.calls[0][1] as string[];
-      expect(args).toContain('--porcelain=v2');
-      expect(args).toContain('-z');
-      expect(args).toContain('--untracked-files=all');
-    });
-
-    it('returns LOCKED failure when status check encounters index.lock contention and force=false', async () => {
+    it('reports dirty + conflictingPaths when git refuses the switch (no status pre-check)', async () => {
       mockSpawn.mockImplementationOnce(() =>
         makeSpawnResult({
           stdout: '',
           stderr:
-            "fatal: Unable to create '/repo/.git/index.lock': File exists.",
-          exitCode: 128,
-        }),
-      );
-
-      const result = await service.checkout(WS, 'feat/x', false, false);
-
-      expect(result).toEqual({
-        success: false,
-        code: 'LOCKED',
-        error: GIT_LOCKED_MESSAGE,
-      });
-      expect(mockSpawn).toHaveBeenCalledTimes(1);
-    });
-
-    it('returns GIT_ERROR failure when status check fails and force=false', async () => {
-      mockSpawn.mockImplementationOnce(() =>
-        makeSpawnResult({
-          stdout: '',
-          stderr: 'error: bad index file',
+            'error: Your local changes to the following files would be overwritten by checkout:\n' +
+            '\tsrc/index.ts\n' +
+            'Please commit your changes or stash them before you switch branches.\n' +
+            'Aborting\n',
           exitCode: 1,
         }),
       );
 
       const result = await service.checkout(WS, 'feat/x', false, false);
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: false,
-        code: 'GIT_ERROR',
-        error: 'Could not read file status; checkout was not run.',
+        dirty: true,
+        conflictingPaths: ['src/index.ts'],
       });
       expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'switch',
+        '--end-of-options',
+        'feat/x',
+      ]);
     });
 
-    it('proceeds with checkout when force=true even if status shows dirty tree', async () => {
-      // Only the checkout call — status is skipped when force=true
+    it('runs switch --discard-changes when force=true', async () => {
       mockSpawn.mockImplementationOnce(() =>
         makeSpawnResult({ stdout: '', exitCode: 0 }),
       );
@@ -734,12 +734,79 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       const result = await service.checkout(WS, 'feat/x', false, true);
 
       expect(result).toEqual({ success: true });
-      // Only 1 call: the checkout; status was skipped
       expect(mockSpawn).toHaveBeenCalledTimes(1);
-      const args: string[] = mockSpawn.mock.calls[0][1] as string[];
-      expect(args).toContain('--force');
-      expect(args).toContain('feat/x');
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'switch',
+        '--discard-changes',
+        '--end-of-options',
+        'feat/x',
+      ]);
     });
+
+    it('reports an untracked blocker of switch --discard-changes as dirty with a move-or-delete message', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({
+          stdout: '',
+          stderr:
+            "error: Untracked working tree file 'docs/it''s.txt' would be overwritten by merge.\n",
+          exitCode: 128,
+        }),
+      );
+
+      const result = await service.checkout(WS, 'feat/x', false, true);
+
+      expect(result).toEqual({
+        success: false,
+        dirty: true,
+        conflictingPaths: ["docs/it''s.txt"],
+        error:
+          "Untracked files block this switch: docs/it''s.txt. Move or delete them, then try again.",
+      });
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the untracked list refusal of a plain switch as dirty, keeping git text', async () => {
+      const stderr =
+        'error: The following untracked working tree files would be overwritten by checkout:\n' +
+        '\tu1.txt\n' +
+        '\tu2.txt\n' +
+        'Please move or remove them before you switch branches.\n' +
+        'Aborting\n';
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({ stdout: '', stderr, exitCode: 1 }),
+      );
+
+      const result = await service.checkout(WS, 'feat/x', false, false);
+
+      expect(result).toEqual({
+        success: false,
+        dirty: true,
+        conflictingPaths: ['u1.txt', 'u2.txt'],
+        error: stderr.trim(),
+      });
+    });
+
+    it.each([
+      ["git: 'switch' is not a git command. See 'git --help'.\n", 1],
+      [
+        "error: unknown option `end-of-options'\nusage: git switch [<options>] [<branch>]\n",
+        129,
+      ],
+    ])(
+      'reports the minimum git version when git is too old (%#)',
+      async (stderr, exitCode) => {
+        mockSpawn.mockImplementationOnce(() =>
+          makeSpawnResult({ stdout: '', stderr, exitCode }),
+        );
+
+        const result = await service.checkout(WS, 'feat/x', false, false);
+
+        expect(result).toEqual({
+          success: false,
+          error: 'Git 2.24 or later is required for this action.',
+        });
+      },
+    );
 
     it('returns { success: false, error: "Invalid branch name" } for path traversal attempt', async () => {
       const result = await service.checkout(WS, '../evil', false, false);
@@ -749,21 +816,49 @@ describe('GitInfoService — new git methods (TASK_2026_111)', () => {
       expect(mockSpawn).not.toHaveBeenCalled();
     });
 
-    it('returns { success: true } for clean tree when force=false', async () => {
-      let callIdx = 0;
-      mockSpawn.mockImplementation(() => {
-        callIdx++;
-        if (callIdx === 1) {
-          // status --porcelain: clean
-          return makeSpawnResult({ stdout: '', exitCode: 0 });
-        }
-        // checkout call
-        return makeSpawnResult({ stdout: '', exitCode: 0 });
-      });
+    it('returns { success: true } when git switch succeeds', async () => {
+      mockSpawn.mockImplementation(() =>
+        makeSpawnResult({ stdout: '', exitCode: 0 }),
+      );
 
       const result = await service.checkout(WS, 'main', false, false);
 
       expect(result).toEqual({ success: true });
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses track when refs/remotes/<branch> does not resolve, without switching', async () => {
+      mockSpawn.mockImplementationOnce(() =>
+        makeSpawnResult({ stdout: '', exitCode: 1 }),
+      );
+
+      const result = await service.checkout(WS, 'origin/x', false, false, {
+        track: true,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "'origin/x' is not a remote-tracking branch",
+      });
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(mockSpawn.mock.calls[0][1]).toEqual([
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        'refs/remotes/origin/x',
+      ]);
+    });
+
+    it('refuses track for a branch name without a remote prefix, running no git', async () => {
+      const result = await service.checkout(WS, 'main', false, false, {
+        track: true,
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: "'main' is not a remote-tracking branch",
+      });
+      expect(mockSpawn).not.toHaveBeenCalled();
     });
   });
 
@@ -2151,7 +2246,13 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
     return jest.fn((opts: { args: string[] }) => {
       const verb = opts.args[0];
       const stdout =
-        verb === 'rev-parse' ? 'true\n' : verb === 'status' ? statusStdout : '';
+        verb === 'rev-parse'
+          ? opts.args.includes('--git-path')
+            ? '.git/MERGE_HEAD\n.git/CHERRY_PICK_HEAD\n.git/rebase-merge\n.git/rebase-apply\n'
+            : 'true\n'
+          : verb === 'status'
+            ? statusStdout
+            : '';
       const dataListeners: Array<(chunk: Buffer) => void> = [];
       const closeListeners: Array<(code: number) => void> = [];
       // A macrotask, not a microtask: exec-git skips `setPriority` for a
@@ -2193,9 +2294,10 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
     await service.refreshGitInfo(WS);
 
-    // rev-parse, status, and the staged + worktree numstat reads.
-    expect(spawnProcess).toHaveBeenCalledTimes(4);
-    expect(mockSetPriority).toHaveBeenCalledTimes(4);
+    // rev-parse, status, the staged + worktree numstat reads, and the
+    // operation markers' `rev-parse --git-path`.
+    expect(spawnProcess).toHaveBeenCalledTimes(5);
+    expect(mockSetPriority).toHaveBeenCalledTimes(5);
     for (const call of mockSetPriority.mock.calls) {
       expect(call).toEqual([
         31337,
@@ -2213,7 +2315,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
     await service.getGitInfo(WS);
 
-    expect(spawnProcess).toHaveBeenCalledTimes(4);
+    expect(spawnProcess).toHaveBeenCalledTimes(5);
     expect(mockSetPriority).not.toHaveBeenCalled();
   });
 
@@ -2288,7 +2390,51 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
     expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it('reads a blob without an output cap, so a large binary still classifies', async () => {
+  it('reports a blob past the per-side cap as too-large with its real size', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    const seam = service as unknown as {
+      execGitBuffer: (...args: unknown[]) => Promise<unknown>;
+      execGit: (args: string[]) => Promise<unknown>;
+    };
+    jest
+      .spyOn(seam, 'execGitBuffer')
+      .mockRejectedValue(
+        new GitOutputLimitError('show', GIT_DIFF_MAX_SIDE_BYTES),
+      );
+    const exec = jest.spyOn(seam, 'execGit').mockResolvedValue({
+      stdout: '3145728\n',
+      stderr: '',
+      exitCode: 0,
+    });
+
+    const result = await service.readBlob(WS, 'HEAD', 'big.txt');
+
+    expect(result).toEqual({ outcome: 'too-large', byteLength: 3145728 });
+    expect(exec.mock.calls[0][0]).toEqual(['cat-file', '-s', 'HEAD:big.txt']);
+  });
+
+  it('reports the cap as the size when git cannot say how big the blob is', async () => {
+    const service = new GitInfoService(makeLogger() as never);
+    const seam = service as unknown as {
+      execGitBuffer: (...args: unknown[]) => Promise<unknown>;
+      execGit: (args: string[]) => Promise<unknown>;
+    };
+    jest
+      .spyOn(seam, 'execGitBuffer')
+      .mockRejectedValue(
+        new GitOutputLimitError('show', GIT_DIFF_MAX_SIDE_BYTES),
+      );
+    jest.spyOn(seam, 'execGit').mockRejectedValue(new Error('spawn failed'));
+
+    const result = await service.readBlob(WS, '', 'big.txt');
+
+    expect(result).toEqual({
+      outcome: 'too-large',
+      byteLength: GIT_DIFF_MAX_SIDE_BYTES,
+    });
+  });
+
+  it('reads a blob capped at the per-side limit, so a binary still classifies', async () => {
     const service = new GitInfoService(makeLogger() as never);
     const seam = service as unknown as {
       execGitBuffer: (
@@ -2307,7 +2453,7 @@ describe('GitInfoService — status pipeline bounds (TASK_2026_437 C11)', () => 
 
     expect(result).toEqual({ outcome: 'binary', byteLength: 2 });
     expect(buffer.mock.calls[0][2]).toEqual({
-      maxOutputBytes: Number.POSITIVE_INFINITY,
+      maxOutputBytes: GIT_DIFF_MAX_SIDE_BYTES,
     });
   });
 

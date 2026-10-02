@@ -35,6 +35,14 @@ export const GIT_INDEX_LOCK_RETRY_DELAYS_MS = [
 export const GIT_LOCKED_MESSAGE =
   'Another git process is using this repository.';
 
+/**
+ * Largest diff side, in bytes, the backend ships to the renderer. A bigger
+ * side is reported as `too-large` with its size and no content. The same
+ * 2 MiB as `FILE_VIEW_MAX_BYTES`: one rule for the largest file the renderer
+ * receives.
+ */
+export const GIT_DIFF_MAX_SIDE_BYTES = 2 * 1024 * 1024;
+
 /** Renderer RPC timeout for a git call whose backend timeout is `backendMs`. */
 export function gitRpcTimeoutFor(backendMs: number): number {
   return backendMs + GIT_RPC_TIMEOUT_MARGIN_MS;

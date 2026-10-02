@@ -1,0 +1,1546 @@
+{
+  "badges-dark": {
+    "badges": [
+      "+?-?=Change counts",
+      "M=Modified",
+      "+?-?=Change counts",
+      "A=Added",
+      "+?-?=Change counts",
+      "D=Deleted",
+      "+?-?=Change counts",
+      "R=Renamed",
+      "+?-?=Change counts",
+      "U=Untracked",
+      "+?-?=Change counts",
+      "!=Conflicted",
+      "+?-?=Change counts",
+      "T=Type changed",
+      "+?-?=Change counts",
+      "I=Ignored"
+    ],
+    "badgeMeasures": [
+      {
+        "label": "badge +?-?",
+        "text": "+?-?",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          19,
+          19,
+          23
+        ],
+        "opacity": 1,
+        "ratio": 14.86,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 14.97,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 28,
+        "h": 16
+      },
+      {
+        "label": "badge M",
+        "text": "M",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          19,
+          19,
+          23
+        ],
+        "opacity": 1,
+        "ratio": 14.86,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 14.97,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 6,
+        "h": 16
+      },
+      {
+        "label": "badge +?-?",
+        "text": "+?-?",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          19,
+          19,
+          23
+        ],
+        "opacity": 1,
+        "ratio": 14.86,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 14.97,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 28,
+        "h": 16
+      },
+      {
+        "label": "badge A",
+        "text": "A",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          19,
+          19,
+          23
+        ],
+        "opacity": 1,
+        "ratio": 14.86,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 14.97,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 6,
+        "h": 16
+      },
+      {
+        "label": "badge +?-?",
+        "text": "+?-?",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          19,
+          19,
+          23
+        ],
+        "opacity": 1,
+        "ratio": 14.86,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 14.97,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 28,
+        "h": 16
+      },
+      {
+        "label": "badge D",
+        "text": "D",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          19,
+          19,
+          23
+        ],
+        "opacity": 1,
+        "ratio": 14.86,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 14.97,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 6,
+        "h": 16
+      },
+      {
+        "label": "badge +?-?",
+        "text": "+?-?",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          19,
+          19,
+          23
+        ],
+        "opacity": 1,
+        "ratio": 14.86,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 14.97,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 28,
+        "h": 16
+      },
+      {
+        "label": "badge R",
+        "text": "R",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          19,
+          19,
+          23
+        ],
+        "opacity": 1,
+        "ratio": 14.86,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 14.97,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 6,
+        "h": 16
+      }
+    ]
+  },
+  "blocked-dark": {
+    "active": "stash-switch",
+    "m": [
+      {
+        "label": "lead sentence",
+        "text": "Local changes would be overwritten by switching to",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 12.1,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 12.19,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "conflicting paths li",
+        "text": "libs/frontend/git-ui/src/lib/branch-picker/branch-",
+        "fg": [
+          195,
+          191,
+          186
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 0.8,
+        "ratio": 8.26,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          193,
+          192,
+          194
+        ],
+        "borderRatio": 8.32,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "Stash & switch (focused)",
+        "text": "Stash & switch",
+        "fg": [
+          248,
+          247,
+          244
+        ],
+        "bg": [
+          37,
+          99,
+          235
+        ],
+        "opacity": 1,
+        "ratio": 4.82,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          37,
+          99,
+          235
+        ],
+        "borderRatio": 1,
+        "outline": "solid 2px off 2px oklch(0.766528 0.138677 91.0594)",
+        "outlineRatioVsBg": 2.46,
+        "w": 88,
+        "h": 24
+      },
+      {
+        "label": "Discard & switch…",
+        "text": "Discard & switch…",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 12.1,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          220,
+          38,
+          38
+        ],
+        "borderRatio": 3.12,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 109,
+        "h": 24
+      },
+      {
+        "label": "Cancel",
+        "text": "Cancel",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 12.1,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          48,
+          35,
+          31
+        ],
+        "borderRatio": 1,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 47,
+        "h": 24
+      }
+    ],
+    "iconRatio": [
+      {
+        "label": "warning icon",
+        "text": "",
+        "fg": [
+          249,
+          115,
+          22
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 5.38,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 12.19,
+        "outline": "none 3px off 0px oklch(0.704871 0.186721 47.6044)",
+        "outlineRatioVsBg": null,
+        "w": 12,
+        "h": 12
+      }
+    ]
+  },
+  "confirm-dark": {
+    "active": "confirm-discard",
+    "m": [
+      {
+        "label": "confirm copy",
+        "text": "Discard all uncommitted changes? This cannot be un",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          65,
+          36,
+          32
+        ],
+        "opacity": 1,
+        "ratio": 11.24,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 11.33,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 438,
+        "h": 16
+      },
+      {
+        "label": "Discard changes (focused)",
+        "text": "Discard changes",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          65,
+          36,
+          32
+        ],
+        "opacity": 1,
+        "ratio": 11.24,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          220,
+          38,
+          38
+        ],
+        "borderRatio": 2.9,
+        "outline": "solid 2px off 2px oklch(0.766528 0.138677 91.0594)",
+        "outlineRatioVsBg": 6.67,
+        "w": 99,
+        "h": 24
+      },
+      {
+        "label": "Back",
+        "text": "Back",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 12.1,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          48,
+          35,
+          31
+        ],
+        "borderRatio": 1,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 36,
+        "h": 24
+      },
+      {
+        "label": "error icon",
+        "text": "",
+        "fg": [
+          220,
+          38,
+          38
+        ],
+        "bg": [
+          65,
+          36,
+          32
+        ],
+        "opacity": 1,
+        "ratio": 2.9,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 11.33,
+        "outline": "none 3px off 0px oklch(0.577099 0.215157 27.325)",
+        "outlineRatioVsBg": null,
+        "w": 12,
+        "h": 12
+      }
+    ]
+  },
+  "refusal-dark": {
+    "active": "stash-switch",
+    "discardSwitchPresent": 0,
+    "m": [
+      {
+        "label": "refusal copy",
+        "text": "Git refused to discard untracked files: notes/todo",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          65,
+          36,
+          32
+        ],
+        "opacity": 1,
+        "ratio": 11.24,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 11.33,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 240,
+        "h": 32
+      },
+      {
+        "label": "lead sentence",
+        "text": "Local changes would be overwritten by switching to",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 12.1,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 12.19,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 270,
+        "h": 32
+      },
+      {
+        "label": "Stash & switch",
+        "text": "Stash & switch",
+        "fg": [
+          248,
+          247,
+          244
+        ],
+        "bg": [
+          37,
+          99,
+          235
+        ],
+        "opacity": 1,
+        "ratio": 4.82,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          37,
+          99,
+          235
+        ],
+        "borderRatio": 1,
+        "outline": "solid 2px off 2px oklch(0.766528 0.138677 91.0594)",
+        "outlineRatioVsBg": 2.46,
+        "w": 88,
+        "h": 24
+      }
+    ]
+  },
+  "create-error-dark": [
+    {
+      "label": "create-error copy",
+      "text": "Could not create branch dup: a branch named dup al",
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        45,
+        27,
+        33
+      ],
+      "opacity": 1,
+      "ratio": 13,
+      "fontPx": "12px",
+      "borderStyle": "solid",
+      "borderW": "0px",
+      "borderEff": [
+        229,
+        231,
+        235
+      ],
+      "borderRatio": 13.1,
+      "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+      "outlineRatioVsBg": null,
+      "w": 240,
+      "h": 32
+    },
+    {
+      "label": "error icon",
+      "text": "Could not create branch dup: a branch named dup al",
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        45,
+        27,
+        33
+      ],
+      "opacity": 1,
+      "ratio": 13,
+      "fontPx": "12px",
+      "borderStyle": "solid",
+      "borderW": "0px",
+      "borderEff": [
+        229,
+        231,
+        235
+      ],
+      "borderRatio": 13.1,
+      "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+      "outlineRatioVsBg": null,
+      "w": 240,
+      "h": 32
+    }
+  ],
+  "notice-dark": {
+    "active": "dismiss-stash-notice",
+    "m": [
+      {
+        "label": "notice copy",
+        "text": "Changes stashed as 0123456 — find them in Stashes.",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          29,
+          36,
+          54
+        ],
+        "opacity": 1,
+        "ratio": 12.35,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 12.44,
+        "outline": "none 3px off 0px oklch(0.925095 0.00705 88.6451)",
+        "outlineRatioVsBg": null,
+        "w": 210,
+        "h": 32
+      },
+      {
+        "label": "Dismiss (focused)",
+        "text": "Dismiss",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          29,
+          36,
+          54
+        ],
+        "opacity": 1,
+        "ratio": 12.35,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          29,
+          36,
+          54
+        ],
+        "borderRatio": 1,
+        "outline": "solid 2px off 2px oklch(0.766528 0.138677 91.0594)",
+        "outlineRatioVsBg": 7.33,
+        "w": 52,
+        "h": 24
+      }
+    ]
+  },
+  "badges-light": {
+    "badges": [
+      "+?-?=Change counts",
+      "M=Modified",
+      "+?-?=Change counts",
+      "A=Added",
+      "+?-?=Change counts",
+      "D=Deleted",
+      "+?-?=Change counts",
+      "R=Renamed",
+      "+?-?=Change counts",
+      "U=Untracked",
+      "+?-?=Change counts",
+      "!=Conflicted",
+      "+?-?=Change counts",
+      "T=Type changed",
+      "+?-?=Change counts",
+      "I=Ignored"
+    ],
+    "badgeMeasures": [
+      {
+        "label": "badge +?-?",
+        "text": "+?-?",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          250,
+          247,
+          245
+        ],
+        "opacity": 1,
+        "ratio": 15.92,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.16,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 28,
+        "h": 16
+      },
+      {
+        "label": "badge M",
+        "text": "M",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          250,
+          247,
+          245
+        ],
+        "opacity": 1,
+        "ratio": 15.92,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.16,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 6,
+        "h": 16
+      },
+      {
+        "label": "badge +?-?",
+        "text": "+?-?",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          250,
+          247,
+          245
+        ],
+        "opacity": 1,
+        "ratio": 15.92,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.16,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 28,
+        "h": 16
+      },
+      {
+        "label": "badge A",
+        "text": "A",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          250,
+          247,
+          245
+        ],
+        "opacity": 1,
+        "ratio": 15.92,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.16,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 6,
+        "h": 16
+      },
+      {
+        "label": "badge +?-?",
+        "text": "+?-?",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          250,
+          247,
+          245
+        ],
+        "opacity": 1,
+        "ratio": 15.92,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.16,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 28,
+        "h": 16
+      },
+      {
+        "label": "badge D",
+        "text": "D",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          250,
+          247,
+          245
+        ],
+        "opacity": 1,
+        "ratio": 15.92,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.16,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 6,
+        "h": 16
+      },
+      {
+        "label": "badge +?-?",
+        "text": "+?-?",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          250,
+          247,
+          245
+        ],
+        "opacity": 1,
+        "ratio": 15.92,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.16,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 28,
+        "h": 16
+      },
+      {
+        "label": "badge R",
+        "text": "R",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          250,
+          247,
+          245
+        ],
+        "opacity": 1,
+        "ratio": 15.92,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.16,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 6,
+        "h": 16
+      }
+    ]
+  },
+  "blocked-light": {
+    "active": "stash-switch",
+    "m": [
+      {
+        "label": "lead sentence",
+        "text": "Local changes would be overwritten by switching to",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 13.07,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.05,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "conflicting paths li",
+        "text": "libs/frontend/git-ui/src/lib/branch-picker/branch-",
+        "fg": [
+          81,
+          60,
+          83
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 0.8,
+        "ratio": 7.64,
+        "fontPx": "10px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          231,
+          229,
+          229
+        ],
+        "borderRatio": 1.04,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "Stash & switch (focused)",
+        "text": "Stash & switch",
+        "fg": [
+          0,
+          93,
+          88
+        ],
+        "bg": [
+          68,
+          235,
+          211
+        ],
+        "opacity": 1,
+        "ratio": 5.2,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "2px",
+        "borderEff": [
+          68,
+          235,
+          211
+        ],
+        "borderRatio": 1,
+        "outline": "solid 2px off 2px oklch(0.58 0.132 75)",
+        "outlineRatioVsBg": 2.94,
+        "w": 90,
+        "h": 24
+      },
+      {
+        "label": "Discard & switch…",
+        "text": "Discard & switch…",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 13.07,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "2px",
+        "borderEff": [
+          254,
+          28,
+          85
+        ],
+        "borderRatio": 2.93,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 111,
+        "h": 24
+      },
+      {
+        "label": "Cancel",
+        "text": "Cancel",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 13.07,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          240,
+          223,
+          207
+        ],
+        "borderRatio": 1,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 47,
+        "h": 24
+      }
+    ],
+    "iconRatio": [
+      {
+        "label": "warning icon",
+        "text": "",
+        "fg": [
+          247,
+          127,
+          0
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 2.02,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.05,
+        "outline": "none 3px off 0px oklch(0.72 0.18 55)",
+        "outlineRatioVsBg": null,
+        "w": 12,
+        "h": 12
+      }
+    ]
+  },
+  "confirm-light": {
+    "active": "confirm-discard",
+    "m": [
+      {
+        "label": "confirm copy",
+        "text": "Discard all uncommitted changes? This cannot be un",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          241,
+          203,
+          194
+        ],
+        "opacity": 1,
+        "ratio": 11.41,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.2,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 438,
+        "h": 16
+      },
+      {
+        "label": "Discard changes (focused)",
+        "text": "Discard changes",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          241,
+          203,
+          194
+        ],
+        "opacity": 1,
+        "ratio": 11.41,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "2px",
+        "borderEff": [
+          254,
+          28,
+          85
+        ],
+        "borderRatio": 2.56,
+        "outline": "solid 2px off 2px oklch(0.58 0.132 75)",
+        "outlineRatioVsBg": 2.95,
+        "w": 101,
+        "h": 24
+      },
+      {
+        "label": "Back",
+        "text": "Back",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 13.07,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          240,
+          223,
+          207
+        ],
+        "borderRatio": 1,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 36,
+        "h": 24
+      },
+      {
+        "label": "error icon",
+        "text": "",
+        "fg": [
+          254,
+          28,
+          85
+        ],
+        "bg": [
+          241,
+          203,
+          194
+        ],
+        "opacity": 1,
+        "ratio": 2.56,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.2,
+        "outline": "none 3px off 0px oklch(0.64 0.246 16.439)",
+        "outlineRatioVsBg": null,
+        "w": 12,
+        "h": 12
+      }
+    ]
+  },
+  "refusal-light": {
+    "active": "stash-switch",
+    "discardSwitchPresent": 0,
+    "m": [
+      {
+        "label": "refusal copy",
+        "text": "Git refused to discard untracked files: notes/todo",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          241,
+          203,
+          194
+        ],
+        "opacity": 1,
+        "ratio": 11.41,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.2,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 240,
+        "h": 32
+      },
+      {
+        "label": "lead sentence",
+        "text": "Local changes would be overwritten by switching to",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 13.07,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.05,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 270,
+        "h": 32
+      },
+      {
+        "label": "Stash & switch",
+        "text": "Stash & switch",
+        "fg": [
+          0,
+          93,
+          88
+        ],
+        "bg": [
+          68,
+          235,
+          211
+        ],
+        "opacity": 1,
+        "ratio": 5.2,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "2px",
+        "borderEff": [
+          68,
+          235,
+          211
+        ],
+        "borderRatio": 1,
+        "outline": "solid 2px off 2px oklch(0.58 0.132 75)",
+        "outlineRatioVsBg": 2.94,
+        "w": 90,
+        "h": 24
+      }
+    ]
+  },
+  "create-error-light": [
+    {
+      "label": "create-error copy",
+      "text": "Could not create branch dup: a branch named dup al",
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        241,
+        213,
+        216
+      ],
+      "opacity": 1,
+      "ratio": 12.32,
+      "fontPx": "12px",
+      "borderStyle": "solid",
+      "borderW": "0px",
+      "borderEff": [
+        229,
+        231,
+        235
+      ],
+      "borderRatio": 1.11,
+      "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+      "outlineRatioVsBg": null,
+      "w": 240,
+      "h": 32
+    },
+    {
+      "label": "error icon",
+      "text": "Could not create branch dup: a branch named dup al",
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        241,
+        213,
+        216
+      ],
+      "opacity": 1,
+      "ratio": 12.32,
+      "fontPx": "12px",
+      "borderStyle": "solid",
+      "borderW": "0px",
+      "borderEff": [
+        229,
+        231,
+        235
+      ],
+      "borderRatio": 1.11,
+      "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+      "outlineRatioVsBg": null,
+      "w": 240,
+      "h": 32
+    }
+  ],
+  "notice-light": {
+    "active": "dismiss-stash-notice",
+    "m": [
+      {
+        "label": "notice copy",
+        "text": "Changes stashed as 0123456 — find them in Stashes.",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          215,
+          226,
+          231
+        ],
+        "opacity": 1,
+        "ratio": 12.87,
+        "fontPx": "12px",
+        "borderStyle": "solid",
+        "borderW": "0px",
+        "borderEff": [
+          229,
+          231,
+          235
+        ],
+        "borderRatio": 1.07,
+        "outline": "none 3px off 0px oklch(0.23574 0.066 313.189)",
+        "outlineRatioVsBg": null,
+        "w": 210,
+        "h": 32
+      },
+      {
+        "label": "Dismiss (focused)",
+        "text": "Dismiss",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          215,
+          226,
+          231
+        ],
+        "opacity": 1,
+        "ratio": 12.87,
+        "fontPx": "11px",
+        "borderStyle": "solid",
+        "borderW": "1px",
+        "borderEff": [
+          215,
+          226,
+          231
+        ],
+        "borderRatio": 1,
+        "outline": "solid 2px off 2px oklch(0.58 0.132 75)",
+        "outlineRatioVsBg": 3.33,
+        "w": 52,
+        "h": 24
+      }
+    ]
+  }
+}

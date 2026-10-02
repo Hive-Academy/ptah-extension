@@ -2,14 +2,37 @@
  * Git RPC Type Definitions: Git info and worktree types.
  */
 
+/**
+ * How an unmerged (`U`) entry conflicts. A closed set derived from the
+ * porcelain v2 `u` record:
+ * - `delete-modify` — one side deleted the path, the other changed it (`DU`/`UD`);
+ * - `add-add` — both sides added the path (`AA`);
+ * - `symlink` — a stage has mode `120000`;
+ * - `submodule` — the path is a submodule;
+ * - `content` — every other unmerged entry.
+ */
+export type GitConflictKind =
+  | 'content'
+  | 'delete-modify'
+  | 'add-add'
+  | 'symlink'
+  | 'submodule';
+
 /** Single file's git status */
 export interface GitFileStatus {
   /** Relative path from workspace root */
   path: string;
-  /** Git status code: M=modified, A=added, D=deleted, R=renamed, ??=untracked */
-  status: 'M' | 'A' | 'D' | 'R' | 'C' | '??' | '!';
+  /**
+   * Git status code: M=modified, A=added, D=deleted, R=renamed, C=copied,
+   * U=unmerged (conflicted), T=type changed, ??=untracked, !=ignored.
+   */
+  status: 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | 'T' | '??' | '!';
   /** Whether the change is staged (index) vs unstaged (worktree) */
   staged: boolean;
+  /** Present only when `status` is `'U'`: how the entry conflicts. */
+  conflict?: { kind: GitConflictKind };
+  /** True when the entry is a submodule. */
+  submodule?: boolean;
   /** Whether this entry is a directory (untracked directories from git status) */
   isDirectory?: boolean;
   /**
@@ -126,10 +149,26 @@ export interface GitInfoResult {
    * {@link GitStatusUnavailableReason} for the other reasons.
    */
   statusUnavailable?: GitStatusUnavailableReason;
+  /**
+   * The merge, rebase or cherry-pick in progress, with the paths that still
+   * conflict. Omitted when no operation is in progress or when it could not
+   * be read; the rest of the status is valid either way.
+   */
+  operation?: GitRepoOperation;
+}
+
+/** Which multi-step git operation is in progress in a worktree. */
+export type GitRepoOperationKind = 'merge' | 'rebase' | 'cherry-pick';
+
+/** An in-progress repository operation and its unresolved paths. */
+export interface GitRepoOperation {
+  kind: GitRepoOperationKind;
+  /** Workspace-relative paths of the unmerged (`U`) entries. */
+  conflictedPaths: string[];
 }
 
 /** Parameters for git:worktrees RPC method */
-export type GitWorktreesParams = Record<string, never>;
+export type GitWorktreesParams = GitWorkspaceScopedParams;
 
 /** Single worktree entry */
 export interface GitWorktreeInfo {
@@ -143,6 +182,17 @@ export interface GitWorktreeInfo {
   isMain: boolean;
   /** Whether the worktree is bare */
   isBare: boolean;
+  /** Set when `git worktree lock` protects this worktree from prune and remove. */
+  locked?: boolean;
+  /** The reason given to `git worktree lock --reason`, when there is one. */
+  lockReason?: string;
+  /**
+   * Set when git reports the worktree's directory is gone (for example
+   * deleted with `rm -rf`), so `git worktree prune` would drop its entry.
+   */
+  prunable?: boolean;
+  /** Git's explanation of why the worktree is prunable. */
+  prunableReason?: string;
 }
 
 /** Response from git:worktrees RPC method */
@@ -151,7 +201,7 @@ export interface GitWorktreesResult {
 }
 
 /** Parameters for git:addWorktree RPC method */
-export interface GitAddWorktreeParams {
+export interface GitAddWorktreeParams extends GitWorkspaceScopedParams {
   /** Branch name to checkout in the new worktree */
   branch: string;
   /** Optional custom path for the worktree directory. */
@@ -180,7 +230,7 @@ export interface GitAddWorktreeResult {
 }
 
 /** Parameters for git:removeWorktree RPC method */
-export interface GitRemoveWorktreeParams {
+export interface GitRemoveWorktreeParams extends GitWorkspaceScopedParams {
   /** Absolute path to the worktree to remove */
   path: string;
   /** Whether to force removal (--force flag) */
@@ -364,10 +414,17 @@ export type GitReadErrorCode =
  * exist at that side (untracked file, staged addition, deletion). It is
  * distinct from `error`, which means the read could not be performed. Callers
  * MUST NOT render `error` as empty content.
+ *
+ * `too-large` means the side is bigger than the backend's per-side limit and
+ * was not shipped. `lfs-pointer` means the side is a Git LFS pointer file
+ * (`oid` and `size` describe the real object). Neither carries content, so no
+ * patch is computed and hunk operations are refused for both.
  */
 export type GitBlobRead =
   | { outcome: 'content'; content: string }
   | { outcome: 'binary'; byteLength: number }
+  | { outcome: 'too-large'; byteLength: number }
+  | { outcome: 'lfs-pointer'; oid: string; size: number }
   | { outcome: 'absent' }
   | { outcome: 'error'; code: GitReadErrorCode; message: string };
 
@@ -639,8 +696,20 @@ export interface GitCheckoutParams extends GitWorkspaceScopedParams {
   branch: string;
   /** Whether to create a new branch (-b flag) */
   createNew?: boolean;
-  /** Force checkout even with a dirty working tree (--force flag) */
+  /** Discard local changes that would block the switch (`--discard-changes`) */
   force?: boolean;
+  /**
+   * Stash local changes (untracked files included) before switching. On
+   * success the result carries `stashRef`; if the switch fails the stash is
+   * popped back.
+   */
+  stash?: boolean;
+  /**
+   * `branch` names a remote-tracking ref (`origin/x`): switch to local `x`
+   * when it exists, otherwise create it tracking the remote. Never detaches.
+   * A `branch` that is not a remote-tracking ref fails the checkout.
+   */
+  track?: boolean;
 }
 
 /** Result from git:checkout RPC method */
@@ -649,8 +718,16 @@ export interface GitCheckoutResult {
   error?: string;
   /** Machine-readable failure reason; present only when `success` is false. */
   code?: GitMutationFailureCode;
-  /** True when working tree had uncommitted changes and force=false caused the checkout to abort */
+  /** True when git refused the switch because local changes would be overwritten */
   dirty?: boolean;
+  /** With `dirty`: the paths git listed as would-be-overwritten */
+  conflictingPaths?: string[];
+  /**
+   * Commit SHA of the stash entry holding the changes set aside by
+   * `stash: true`. Present on success, and on failure when popping the stash
+   * back also failed (the entry is kept so nothing is lost).
+   */
+  stashRef?: string;
 }
 
 /** Single git stash entry */

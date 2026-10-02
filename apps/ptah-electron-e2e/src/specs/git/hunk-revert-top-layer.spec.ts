@@ -111,8 +111,14 @@ async function waitForWorktreeDiff(
   const deadline = Date.now() + timeoutMs;
   let last = '';
   for (;;) {
-    last = read();
-    if (predicate(last)) return last;
+    try {
+      last = read();
+      if (predicate(last)) return last;
+    } catch (error: unknown) {
+      // `git apply` replaces a file by unlink + create, so a `git diff` that
+      // lands in between fails with "stat ...: No such file". Poll again.
+      last = `(git diff failed: ${error instanceof Error ? error.message : String(error)})`;
+    }
     if (Date.now() > deadline) {
       throw new Error(
         `Timed out after ${timeoutMs}ms waiting on the working tree.\n` +

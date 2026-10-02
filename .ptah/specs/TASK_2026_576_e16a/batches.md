@@ -1,20 +1,23 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 8/69
+Total tasks: 87 | Batches: 69 | Complete: 19/69
 
-Branch: `feat/task-2026-576-git-review` (main checkout `D:/projects/ptah-extension`). Base: `main` 722d921ab.
+Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
 or `.claude/skills/ptah-cli-usage/references/internal-mcp.md`.
 
 ## Execution defaults (recorded by team-leader)
 
-- **Phase gates.** P1 (Batches 1-8) ships as its own PR. **Batches 9-69 wait until the user has merged the P1 PR**
-  (context.md Gate decisions; implementation-plan.md:1518). At the P1 boundary the team-leader runs a P1 verification
+- **Phase gates.** P1 (Batches 1-8) ships as its own PR. ~~Batches 9-69 wait until the user has merged the P1 PR~~
+  (context.md Gate decisions; implementation-plan.md:1518) — superseded 2026-09-30 by "Stacked phase branches" (top
+  of P2): each phase is stacked on the previous phase's branch. At the P1 boundary the team-leader runs a P1 verification
   (every P1 batch COMPLETE with a SHA, OS-matrix job defined, B7 before/after screenshots present) and the
-  orchestrator hands the branch to the user for the PR. The user opens and merges PRs; nobody here pushes or opens one.
-  Default for P2 onward: work continues on a branch cut from the updated `main` after the P1 merge (or this branch
-  rebased onto it); the team-leader checks `git merge-base` before Batch 9. P2-P5 phase ends are checkpoints; PR
-  grouping after P1 is the orchestrator's call.
+  orchestrator hands the branch to the user for the PR. From P2 onward (context.md "Auto mode", 2026-10-01) the
+  orchestrator pushes each phase branch and opens one stacked draft PR per phase; the user merges. P1 merged into
+  `main` (PR #611); P2 = `feat/task-2026-576-p2` on `main` (PR #619); P3 = `feat/task-2026-576-p3` stacked on P2
+  (PR #625, base `feat/task-2026-576-p2`); P4, P5 and Cutover each stack on the previous phase's branch. When a lower
+  PR merges, `origin/main` (or the new base) is merged into the next branch: no rebase of a pushed branch, no force
+  push. Each phase end is a checkpoint (phase-end review) before the next phase's branch is cut.
 - **Cutover moved after P5 (validation finding V3).** The plan puts the review-shell mount (Component 23) and the
   old-surface deletion (Component 29) at the end of P4, but parity rows for the commit box, worktree section,
   branch details and fetch/pull/push (`parity-inventory.md:49-57, 64-65, 85-91`) move to P5 surfaces (commit composer,
@@ -711,8 +714,9 @@ P1 boundary checklist additions (from Batch 8):
 
 After Batch 8 is COMPLETE the team-leader verifies P1 (all eight SHAs resolve, B7 screenshots present, `git diff main --stat`
 touches only P1 files), confirms the Batch 5 e2e gate (`commit-hook-failure.spec.ts` pass) and the Batch 7
-follow-up (deterministic row-error e2e, senior-tester) are closed, and returns. The orchestrator reports to the user for the P1 PR. **Batches 9-69 stay PENDING until
-the user confirms the P1 PR is merged.**
+follow-up (deterministic row-error e2e, senior-tester) are closed, and returns. The orchestrator reports to the user
+for the P1 PR. ~~Batches 9-69 stay PENDING until the user confirms the P1 PR is merged.~~ Superseded 2026-09-30 by
+"Stacked phase branches" (top of P2): P2 starts now, stacked on the P1 branch.
 
 P1 verification (team-leader, 2026-09-30) — PASSED:
 
@@ -728,6 +732,16 @@ P1 verification (team-leader, 2026-09-30) — PASSED:
 - Batch 5 e2e gate closed (`commit-hook-failure.spec.ts` `1 passed`); Batch 7 row-error follow-up closed (above).
 - Still open for the P1 PR (not batch work): the first real `git-real-git` run (R3), and the branch-protection
   suggestion to the user.
+
+P1 handover (2026-09-30):
+
+- P1 approval: `reviews/p1-approval.md` — independent Glm lane, APPROVED; committed as b0a9b6f28
+  (`docs(vscode-core): p1 approval by an independent lane`).
+- The follow-up below landed on the P1 branch as 3346f60a6. The branch was pushed and **PR #611** opened against
+  `main` (https://github.com/Hive-Academy/ptah-extension/pull/611). P1 PR review fixes land on the P1 branch
+  (worktree `.claude-worktrees/task-576-p1`) and P2 is rebased on top.
+- Open items on the P1 PR: R3 — the first `git-real-git` run on the PR, all three OS legs green (record the run URL
+  here); recommend to the user that `git-real-git` (all three legs) become a required status check on `main`.
 
 P1 follow-up (orchestrator, 2026-09-30, after the Glm approval):
 
@@ -747,7 +761,43 @@ P1 follow-up (orchestrator, 2026-09-30, after the Glm approval):
 
 ---
 
-# P2 — Reliability hardening (RC9-RC14) — waits for P1 merge
+# P2 — Reliability hardening (RC9-RC14) — stacked on the P1 branch
+
+## Stacked phase branches (user decision 2026-09-30)
+
+Recorded in `context.md`. One branch and one PR per phase, each based on the previous phase's branch.
+
+- P1 = `feat/task-2026-576-git-review` (PR #611, HEAD 3346f60a6), worktree
+  `D:/projects/ptah-extension/.claude-worktrees/task-576-p1`. P2 = `feat/task-2026-576-p2`, rebased on 3346f60a6,
+  worktree `D:/projects/ptah-extension/.claude-worktrees/task-576-p2`. Worktrees live inside the workspace, so Node
+  resolves the main `node_modules` upward and CLI lanes accept them as `workingDirectory`. The main checkout stays on
+  `main`. P3, P4, P5 and Cutover follow the same pattern (`.claude-worktrees/task-576-p3`, …).
+- "Depends on: P1 merged" now reads "stacked on the P1 branch" (Batches 9, 18, 19 say `P1 branch (stacked)`).
+- P1 PR review fixes land on the P1 branch; P2 is then rebased on it. When P1 merges, P2 is rebased onto `main` and
+  its PR targets `main`. (Done: P2 sits on `main` after the P1 merge. From then on, pushed phase branches are never
+  rebased; a merged base is merged into the next branch instead — see "Phase gates" under Execution defaults.)
+- The team-leader checks `git branch --show-current` = the phase branch before every commit.
+
+## P2 execution waves (team-leader, 2026-09-30)
+
+One checkout, no extra worktrees. A wave holds more than one batch only when the batches are file-disjoint AND
+neither batch's typecheck/test scope compiles the other's files, so one executor's half-done edits cannot break the
+other's checks. `git-info.service.ts` batches stay serial. Each batch is committed on its own once its checks pass;
+in a two-batch wave the team-leader commits each batch separately by explicit path.
+
+| Wave | Batches             | Why                                                                                                                                                                                                                    |
+| ---- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | 9 ∥ 19              | 9 = `vscode-core` only (hot spot); 19 = `git-ui` only. git-ui imports no backend lib (grep of `libs/frontend/git-ui/src`: 0 hits for vscode-core/rpc-handlers/agent-sdk), so neither scope compiles the other's files. |
+| 2    | 18                  | `ptah-extension-vscode` and `cli-engine` both import `@ptah-extension/vscode-core` (`container.ts`), so 18 cannot run beside any vscode-core/shared batch; alone, after 9 is committed.                                |
+| 3    | 10                  | `shared` + `git-info.service.ts`; shared is in every backend and git-ui scope.                                                                                                                                         |
+| 4    | 11                  | rpc-handlers + git-ui; needs 10's params.                                                                                                                                                                              |
+| 5    | 12                  | `shared` + `git-info.service.ts`.                                                                                                                                                                                      |
+| 6    | 13                  | agent-sdk + rpc-handlers; needs 12.                                                                                                                                                                                    |
+| 7    | 14                  | ptah-electron + git-ui; needs 13 (and 3).                                                                                                                                                                              |
+| 8    | 15                  | `shared` union growth + git-ui; shared reaches every scope, so not beside 13/14.                                                                                                                                       |
+| 9    | 16                  | `git-info.service.ts` + status parser; needs 15.                                                                                                                                                                       |
+| 10   | 17                  | vscode-core review reader; needs 16.                                                                                                                                                                                   |
+| end  | P2 phase-end review | per Review cadence (DONE 2026-10-01).                                                                                                                                                                                                  |
 
 ## Review cadence (user decision 2026-09-30)
 
@@ -764,15 +814,17 @@ under "Execution defaults".
 - Each batch's "Reviewer" line below names the scope the phase-end review must cover for that batch; it is not a
   per-batch gate.
 
-## Batch 9: Ref guard (RC14) — PENDING
+## Batch 9: Ref guard (RC14) — COMPLETE (7800dde50)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Rationale: guard + call-site edits in the hot-spot facade.
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
-- Tasks: 1 | Depends on: P1 merged
-- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
+- Tasks: 1 | Depends on: P1 branch (stacked)
+- Wave: 1 (with Batch 19)
+- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`; real-git specs
+  (`--testPathPatterns=real-git --passWithNoTests=false`); `npx nx run degradation-audit:lint`
 
-### Task 9.1: `assertSafeRef`/`assertSafeRevision` and `--end-of-options` at call sites — PENDING
+### Task 9.1: `assertSafeRef`/`assertSafeRevision` and `--end-of-options` at call sites — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-ref-guard.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-ref-guard.spec.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ref-guard.real-git.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts
 - Plan reference: implementation-plan.md:497-525
@@ -780,15 +832,42 @@ under "Execution defaults".
 - Quality requirements: `--output=/tmp/x` and `-b` refused, no file written; `validatePathSegment` comment corrected.
 - Validation notes: `stash@{N}` built internally stays allowed.
 - Implementation details: getLastCommit, checkout, addWorktree, removeWorktree (`-- <path>`).
+- State (2026-09-30, end of session): IMPLEMENTED, **not committed** (uncommitted in worktree
+  `.claude-worktrees/task-576-p2`). Files: the 4 above plus `git-info.service.spec.ts` (one expectation now includes
+  `--end-of-options`; approved fifth file). Passing: ref-guard specs 86/86; `git-info.service.spec.ts` 154/154;
+  vscode-core typecheck + lint; `degradation-audit:lint`. Deviation: `checkout -b` has no `--end-of-options` (`-b`
+  takes the branch as its value).
+- **Open gate before commit** (run with no lanes or agents active):
+  1. Default unit run (real-git ignored): 4 failures in `git-info.service.remote-stash.spec.ts` (push, pull/fetch).
+     That suite spawns real git but is not named `*.real-git.spec.ts`, so the P1 split (3346f60a6) misses it. Fix on
+     the **P1 branch** (PR #611): rename it to `*.real-git.spec.ts` (check for other real-git suites without the
+     suffix), then rebase P2.
+  2. Serial real-git run (`--runInBand`, 5 suites incl. Batch 9's): 1 failure, the kill-guard test "a cancel of
+     `commit -a` mid-hook kills the tree and Ptah removes the lock it left". It passes alone (14/14) and passed 10
+     times before; it failed once when all 5 suites ran in one process. Rule out an interaction with the new
+     ref-guard real-git suite: run `nx run @ptah-extension/vscode-core:test-real-git` 3 times; if it fails again,
+     capture the assertion and return Batch 9 to backend-developer.
+  3. Out of scope, noted: `libs/backend/rpc-handlers/src/lib/handlers/git-rpc.schema.ts:14` still names
+     `validatePathSegment` as the guard.
+- Gate closed (orchestrator, 2026-09-30):
+  1. P1 fix e22402369 on the P1 branch (pushed, PR #611): `remote-stash`, `review` and `apply-hunks` specs spawn
+     real git and are renamed to `*.real-git.spec.ts` (the only three without the suffix; `main-loop-watchdog.spec.ts`
+     uses `mkdtempSync` but no git). P1 evidence: `vscode-core:test --coverage` 40 suites, 716 passed, thresholds
+     met; `test-real-git` 3 runs, 7 suites, 86 passed, 2 skipped. P2 rebased on e22402369.
+  2. The first P1 real-git attempt failed 2 tests (hooks, remote-stash; suites 220 s / 342 s) because an orphaned
+     `grep` from another session (7 GB, scan of `claude.exe`) loaded the machine; it was stopped with the user's
+     approval and the runs were repeated on a quiet machine.
+  3. P2 with Batch 9: `vscode-core:test --coverage` 41 suites, 793 passed, thresholds met; `test-real-git` 3 runs,
+     8 suites, 95 passed, 2 skipped. The kill-guard test passed in all three runs. Committed as 7800dde50.
 
-## Batch 10: Branch switching backend (RC9) — PENDING
+## Batch 10: Branch switching backend (RC9) — COMPLETE (4ff38bc5c)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 9
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core @ptah-extension/shared`
 
-### Task 10.1: `git switch` semantics with stash, force, track — PENDING
+### Task 10.1: `git switch` semantics with stash, force, track — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.switch.real-git.spec.ts
 - Plan reference: implementation-plan.md:527-549
@@ -797,14 +876,14 @@ under "Execution defaults".
 - Validation notes: switch failure after stash → pop; pop failure → both errors, stash kept.
 - Implementation details: `GitCheckoutParams.stash?/track?`, `GitCheckoutResult.conflictingPaths?/stashRef?`.
 
-## Batch 11: Branch switching handler and picker UI (RC9) — PENDING
+## Batch 11: Branch switching handler and picker UI (RC9) — COMPLETE (2ae839735)
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope; visual-reviewer (before/after picker, dark + light)
 - Tasks: 1 | Depends on: Batch 10
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers @ptah-extension/git-ui`
 
-### Task 11.1: Pass new params; "Stash & switch" primary, "Discard & switch" behind confirmation — PENDING
+### Task 11.1: Pass new params; "Stash & switch" primary, "Discard & switch" behind confirmation — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.spec.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/branch-picker/branch-picker-dropdown.component.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/branch-picker/branch-picker-dropdown.component.spec.ts
 - Plan reference: implementation-plan.md:538-540, 554-556
@@ -813,14 +892,14 @@ under "Execution defaults".
 - Validation notes: parity row `parity-inventory.md:122` (force stays as secondary confirmed action).
 - Implementation details: zod schema in `git-rpc.schema.ts` accepts the new optional fields if the handler validates with it (then that file is the 5th file).
 
-## Batch 12: Worktree admin core (RC10) — PENDING
+## Batch 12: Worktree admin core (RC10) — COMPLETE (ca36b19de)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 11
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core @ptah-extension/shared`
 
-### Task 12.1: Exclude on create, labels, prune, scoped params — PENDING
+### Task 12.1: Exclude on create, labels, prune, scoped params — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/agent-worktree-admin.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.worktrees.real-git.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/utils/git.utils.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/utils/git.utils.spec.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts
 - Plan reference: implementation-plan.md:558-577, 589-595
@@ -829,14 +908,14 @@ under "Execution defaults".
 - Validation notes: exclude write failure warns and does not block add; locked worktree never force-removed.
 - Implementation details: `GitWorktreeInfo.locked?/lockReason?/prunable?/prunableReason?`; `GitWorktreesParams = GitWorkspaceScopedParams`, add/remove params extend it.
 
-## Batch 13: Worktree remove hook and RPC scoping (RC10) — PENDING
+## Batch 13: Worktree remove hook and RPC scoping (RC10) — COMPLETE (ddafac963)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 12
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk @ptah-extension/rpc-handlers`
 
-### Task 13.1: `WorktreeRemove` hook removes + prunes; handlers use `resolveRoot` — PENDING
+### Task 13.1: `WorktreeRemove` hook removes + prunes; handlers use `resolveRoot` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/helpers/worktree-hook-handler.ts; MODIFY D:/projects/ptah-extension/libs/backend/agent-sdk/src/lib/helpers/worktree-hook-handler.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-rpc.handlers.spec.ts
 - Plan reference: implementation-plan.md:565, 572-576, 585-587
@@ -844,15 +923,16 @@ under "Execution defaults".
 - Quality requirements: path must be listed by `git worktree list` and under `<main>/.claude-worktrees/`; hook always returns `continue: true`.
 - Validation notes: A5 — log which removal path fired.
 - Implementation details: worktree RPCs (`:317-460`) honour `params.workspaceRoot`.
+- Outcome (ddafac963): hook calls `removeWorktree(main, gitPath, true)` then `pruneWorktrees(main)`; prunable entry → prune only; locked → skipped. Log field `removalPath` (A5). `git:worktrees` validates with `parseGitWorkspaceScopedParams`; add/remove use `resolveRoot`. Verified: agent-sdk + rpc-handlers typecheck/lint/test green except the known unrelated `harness-skill-selection-rpc.service.spec.ts` failure (unchanged from main).
 
-## Batch 14: Worktree removal detection and frontend scoping (RC10) — PENDING
+## Batch 14: Worktree removal detection and frontend scoping (RC10) — COMPLETE (6a62feb31)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 3, 13
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-electron @ptah-extension/git-ui`
 
-### Task 14.1: Watcher re-lists worktrees on admin change (≤1 per 30 s piggyback); `WorktreeService` passes `workspaceRoot` — PENDING
+### Task 14.1: Watcher re-lists worktrees on admin change (≤1 per 30 s piggyback); `WorktreeService` passes `workspaceRoot` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/apps/ptah-electron/src/services/git-watcher.service.ts; MODIFY D:/projects/ptah-extension/apps/ptah-electron/src/services/git-watcher.service.spec.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/worktree.service.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/worktree.service.spec.ts
 - Plan reference: implementation-plan.md:566-570, 576, 596
@@ -860,15 +940,26 @@ under "Execution defaults".
 - Quality requirements: no free-running timer (last-run timestamp); prunable under `.claude-worktrees/` → prune + `git:worktreeChanged {action:'removed'}`.
 - Validation notes: parity row `parity-inventory.md:92` (removed worktree unregistered) stays green.
 - Implementation details: as plan.
+- Outcome: executor backend-developer; only the four listed files changed. Agent-worktree audit
+  (`pruneVanishedAgentWorktrees`) runs at arm, on a worktree admin re-list, and on a status refresh, at most once per
+  30 s (`lastWorktreeAuditAt` timestamp, no timer; cleared in `stop()`, so non-git workspaces never audit). Unlocked
+  `prunable` entries under `<main>/.claude-worktrees/` → `pruneWorktrees(main)`, re-list, `git:worktreeChanged
+  {action:'removed', path}` only for paths that left the list. Failures logged, never thrown. `WorktreeService` sends
+  `workspaceRoot` from `GitStatusService.activeWorkspacePath()` on list/add/remove. Deviation (accepted): the 30 s
+  throttle applies to the prune audit, not to the admin-change re-list — throttling the re-list would leave a second
+  new worktree inside 30 s unexcluded from the workspace watch (event-storm regression). Parity row is at
+  `parity-inventory.md:94` in this copy; still green. Verified by the orchestrator: `nx run-many -t typecheck,test,lint
+  -p ptah-electron @ptah-extension/git-ui` green; `ptah-electron:validate-deps` green (executor). One earlier executor
+  run had 7 `shell-csp.spec.ts` timeouts under load; green on rerun (file not touched).
 
-## Batch 15: Status union growth and frontend consumers (RC12, V10) — PENDING
+## Batch 15: Status union growth and frontend consumers (RC12, V10) — COMPLETE (183aac6e6)
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 12
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/git-ui`
 
-### Task 15.1: `GitFileStatus.status` gains `'U' | 'T'`, `conflict?`, `submodule?`; `GitInfoResult.operation?`; `GitBlobRead` outcomes — PENDING
+### Task 15.1: `GitFileStatus.status` gains `'U' | 'T'`, `conflict?`, `submodule?`; `GitInfoResult.operation?`; `GitBlobRead` outcomes — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/source-control/source-control-file.component.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/source-control/changed-file-tree.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/source-control/changed-file-tree.spec.ts
 - Plan reference: implementation-plan.md:612-624, 644-646
@@ -876,15 +967,16 @@ under "Execution defaults".
 - Quality requirements: every `switch` over the status is exhaustive; `U` rendered as Conflicted, `T` as Type changed.
 - Validation notes: V10; backend still emits the old values until Batch 16.
 - Implementation details: typecheck finds all switches; add spec cases for U/T rows.
+- Outcome (183aac6e6): new `GitConflictKind`, `GitRepoOperation(Kind)`, blob outcomes `too-large`/`lfs-pointer`. Badges: conflicted `!` (VS Code letters; `U` already = untracked), ignored now `I`; label carries meaning. `changed-file-tree.ts` unchanged (no status switch). Extra file: `describeBlob` cases in `git-info.service.ts`; `GitChangeKind` doc comment fixed (carried item closed). Follow-up for the change-set card: `.err-solid-text` class does not exist yet.
 
-## Batch 16: Repo operation, conflict kinds, size limit and LFS in the facade (RC12) — PENDING
+## Batch 16: Repo operation, conflict kinds, size limit and LFS in the facade (RC12) — COMPLETE (4b458351a)
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 15
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
 
-### Task 16.1: `readRepoOperation`, `u` → `'U'` + conflict kind, `T`, submodule, blob too-large / LFS — PENDING
+### Task 16.1: `readRepoOperation`, `u` → `'U'` + conflict kind, `T`, submodule, blob too-large / LFS — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-repo-operation.reader.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-status-parser.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-status-parser.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.operation.real-git.spec.ts
 - Plan reference: implementation-plan.md:608-646
@@ -892,15 +984,16 @@ under "Execution defaults".
 - Quality requirements: ≤1 extra spawn per status, only when needed; `GIT_DIFF_MAX_SIDE_BYTES` (add to `git-operation.constants.ts` — if so it is a shared file; keep it in the batch report as the 6th file).
 - Validation notes: merge, rebase, cherry-pick conflicts incl. linked worktree; 3 MiB → too-large; LFS pointer labelled; `applyHunks` refuses both with `BINARY_UNSUPPORTED`.
 - Implementation details: as plan.
+- Outcome (4b458351a): new `git/git-repo-operation.reader.ts` (marker paths via one cached `rev-parse --git-path` per workspace, then fs checks only; rebase > merge > cherry-pick; `git am` not reported) and `git/git-blob-classifier.ts` (+spec; too-large / LFS / binary / text — reuse it in Batch 17). `GIT_DIFF_MAX_SIDE_BYTES = 2 MiB` in shared `git-operation.constants.ts`. Conflict kind order: submodule, symlink, delete-modify, add-add, content. Too-large size from `cat-file -s`; worktree side uses fs stat before reading. LFS `oid` keeps its `sha256:` prefix. Verified: vscode-core unit 817/817, real-git 131 passed / 2 skipped (11 suites), typecheck of vscode-core, rpc-handlers, git-ui, shared green.
 
-## Batch 17: Review reader size limit (RC12) — PENDING
+## Batch 17: Review reader size limit (RC12) — COMPLETE (e44c7cb95)
 
 - Recommended executor: CLI lane | Fallback: backend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 16
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core`
 
-### Task 17.1: `GitReviewReaderService.readBlob` uses the 2 MiB limit and the new outcomes — PENDING
+### Task 17.1: `GitReviewReaderService.readBlob` uses the 2 MiB limit and the new outcomes — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-review-reader.service.ts; MODIFY its spec D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-review-reader.service.spec.ts
 - Plan reference: implementation-plan.md:622, 643
@@ -908,16 +1001,21 @@ under "Execution defaults".
 - Quality requirements: replaces the 64 MiB cap at `:383-387`.
 - Validation notes: none beyond plan.
 - Implementation details: spec for too-large and LFS pointer.
+- Outcome: executor opencode lane (`opencode-go/kimi-k2.7-code`, backend-developer role); only the two listed files
+  changed. `git show` runs with `maxOutputBytes: GIT_DIFF_MAX_SIDE_BYTES`; exit 0 → `classifyBlobBytes` (reused, local
+  NUL sniff removed); `GitOutputLimitError` → `too-large` with the size from `cat-file -s` (falls back to the cap as a
+  lower bound). Specs: too-large (real and fallback size), LFS pointer, runner option. Verified by the orchestrator:
+  `nx run-many -t typecheck,test,lint -p @ptah-extension/vscode-core` green. Lane report: `reviews/batch-17-report.md`.
 
-## Batch 18: One `GitInfoService` per host (RC13) — PENDING
+## Batch 18: One `GitInfoService` per host (RC13) — COMPLETE (e7b30b433)
 
 - Recommended executor: CLI lane | Fallback: backend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
-- Tasks: 2 | Depends on: P1 merged
-- Concurrency-eligible with: Batches 9-17
+- Tasks: 2 | Depends on: P1 branch (stacked)
+- Concurrency-eligible with: none in the single checkout (its scope compiles vscode-core); Wave 2
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-extension-vscode @ptah-extension/cli-engine`
 
-### Task 18.1: VS Code singleton registration — PENDING
+### Task 18.1: VS Code singleton registration — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/src/di/phase-3-handlers.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/src/di/container.smoke.spec.ts
 - Plan reference: implementation-plan.md:648-660
@@ -926,7 +1024,7 @@ under "Execution defaults".
 - Validation notes: none.
 - Implementation details: replace `phase-3-handlers.ts:58-60`.
 
-### Task 18.2: CLI singleton registration + new spec (V11) — PENDING
+### Task 18.2: CLI singleton registration + new spec (V11) — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/cli-engine/src/lib/container.ts; CREATE D:/projects/ptah-extension/libs/backend/cli-engine/src/lib/container-git-info-singleton.spec.ts
 - Plan reference: implementation-plan.md:655-660
@@ -935,15 +1033,20 @@ under "Execution defaults".
 - Validation notes: V11.
 - Implementation details: replace `container.ts:445-447`.
 
-## Batch 19: Scoped, queued diff refresh (RC11) — PENDING
+## Batch 19: Scoped, queued diff refresh (RC11) — COMPLETE (0c3189fbc)
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
-- Tasks: 1 | Depends on: P1 merged
-- Concurrency-eligible with: Batches 9-18
-- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
+- Tasks: 1 | Depends on: P1 branch (stacked)
+- Concurrency-eligible with: Batch 9 only (Wave 1); git-ui imports no backend lib
+- Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`; `npx nx run degradation-audit:lint`
 
-### Task 19.1: Cause-scoped refresh with `rerunRequested` trailing run — PENDING
+### Task 19.1: Cause-scoped refresh with `rerunRequested` trailing run — COMPLETE
+
+- Result (2026-09-30): executor Glm CLI lane (frontend-developer role); only the two listed files changed (+363/−8).
+  `nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui` passed (git-ui jest 486/486; diff-tabs spec 64 tests,
+  6 new RC11 cases); `degradation-audit:lint` passed (293 sites, unchanged). Committed as 39d0daffe, rebased to
+  0c3189fbc. Per-phase cadence: no per-batch review; covered by the P2 phase-end review.
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/diff-tabs.service.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/diff-tabs.service.spec.ts
 - Plan reference: implementation-plan.md:662-680
@@ -954,7 +1057,34 @@ under "Execution defaults".
 
 ### P2 phase-end review
 
-- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P2 phase diff, the full e2e set; findings fixed in follow-up commits before the next phase starts.
+- [x] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P2 phase diff, the full e2e set; findings fixed in follow-up commits before the next phase starts.
+
+Outcome (orchestrator, 2026-10-01):
+
+- Logic review, cross-side and cross-family: Glm lane on the subagent-authored batches
+  (`reviews/p2-phase-review-glm.md`, APPROVED WITH FIXES 7/10 → round 1 APPROVED) and code-logic-reviewer subagent on
+  the lane-authored Batches 17 and 19 (`reviews/p2-phase-review-subagent.md`, APPROVED WITH FIXES 7/10 → round 1
+  APPROVED). Rejected with evidence, reviewer agreed: Glm F2 (JS `split(' ', 6)` truncates; parser is correct) and F4
+  (the exclude line always starts with `/`; real-git spec added). Decision on Glm F1: a discard blocked by untracked
+  files is refused with paths and a move-or-delete message; untracked files are never deleted.
+- Fixes: 00f21739b (untracked switch blockers, git ≥2.24 message, `git:worktrees` invalid-params log), c9a316661
+  (stash notice, discard refusal panel, degraded diff refresh), 218acd989 (stale after a dropped refresh, log
+  throws), d792cd593 (stash named by short SHA).
+- CI fixes: 8499ad4e8 (orphaned degradation-audit marker; worktree real-git spec uses `realpathSync.native` for
+  Windows 8.3 temp paths and a read-only exclude file for POSIX; review-controls e2e checkout params),
+  d83b3fbb1 (hunk-revert e2e poll tolerates the `git apply` unlink window).
+- Full e2e set: CI `electron-e2e` green on d83b3fbb1 (199 specs); `webview-e2e`, `CLI E2E`, `git-real-git` on
+  ubuntu/macos/windows green. The local full Electron run did not finish (stopped at 2 h): on this machine the
+  e2e app competes with the user's running Ptah desktop app ("Renderer did not load … ERR_FAILED"); CI is the
+  e2e evidence for this phase.
+- Visual review (visual-reviewer, `reviews/p2-visual-review.md`, screenshots `screenshots/p2/`): round 0 APPROVED WITH
+  FIXES 6/10 (error copy, destructive cue and badge letters under AA; focus ring) → fixed in 3c2d3c51e → round 1
+  APPROVED 8/10.
+- Carried to P3 Batch 24 (owns `styles.css`): light-theme focus ring 2.94–3.33:1 against the panel; error icon and
+  error border 2.56–2.93:1 (non-text cues); the `[data-theme='anubis-light'] .btn-ghost` override at
+  `styles.css:1838-1852` silently replaces any `text-*` colour on ghost buttons.
+- Carried to P3/P5: real-git spec for the review reader 2 MiB cap and an exactly-2 MiB boundary case (Component 13);
+  diff-tabs specs for the workspace-switch restore and `refs`/`initial` causes (moves with Task 35.1).
 
 ---
 

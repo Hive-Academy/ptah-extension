@@ -1,0 +1,342 @@
+{
+  "dark": [
+    {
+      "file": "Open diff for modified.ts",
+      "letter": "M",
+      "aria": "Modified",
+      "title": "Modified",
+      "fg": [
+        104,
+        103,
+        104
+      ],
+      "bg": [
+        19,
+        19,
+        23
+      ],
+      "opacity": 0.4,
+      "ratio": 3.31,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for added.ts",
+      "letter": "A",
+      "aria": "Added",
+      "title": "Added",
+      "fg": [
+        104,
+        103,
+        104
+      ],
+      "bg": [
+        19,
+        19,
+        23
+      ],
+      "opacity": 0.4,
+      "ratio": 3.31,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for deleted.ts",
+      "letter": "D",
+      "aria": "Deleted",
+      "title": "Deleted",
+      "fg": [
+        104,
+        103,
+        104
+      ],
+      "bg": [
+        19,
+        19,
+        23
+      ],
+      "opacity": 0.4,
+      "ratio": 3.31,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for renamed.ts",
+      "letter": "R",
+      "aria": "Renamed",
+      "title": "Renamed",
+      "fg": [
+        104,
+        103,
+        104
+      ],
+      "bg": [
+        19,
+        19,
+        23
+      ],
+      "opacity": 0.4,
+      "ratio": 3.31,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for untracked.ts",
+      "letter": "U",
+      "aria": "Untracked",
+      "title": "Untracked",
+      "fg": [
+        104,
+        103,
+        104
+      ],
+      "bg": [
+        19,
+        19,
+        23
+      ],
+      "opacity": 0.4,
+      "ratio": 3.31,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for conflicted.ts",
+      "letter": "U",
+      "aria": "U",
+      "title": "U",
+      "fg": [
+        104,
+        103,
+        104
+      ],
+      "bg": [
+        19,
+        19,
+        23
+      ],
+      "opacity": 0.4,
+      "ratio": 3.31,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for typechanged.ts",
+      "letter": "T",
+      "aria": "T",
+      "title": "T",
+      "fg": [
+        104,
+        103,
+        104
+      ],
+      "bg": [
+        19,
+        19,
+        23
+      ],
+      "opacity": 0.4,
+      "ratio": 3.31,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for ignored.log",
+      "letter": "!",
+      "aria": "!",
+      "title": "!",
+      "fg": [
+        104,
+        103,
+        104
+      ],
+      "bg": [
+        19,
+        19,
+        23
+      ],
+      "opacity": 0.4,
+      "ratio": 3.31,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    }
+  ],
+  "light": [
+    {
+      "file": "Open diff for modified.ts",
+      "letter": "M",
+      "aria": "Modified",
+      "title": "Modified",
+      "fg": [
+        166,
+        156,
+        168
+      ],
+      "bg": [
+        250,
+        247,
+        245
+      ],
+      "opacity": 0.4,
+      "ratio": 2.48,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for added.ts",
+      "letter": "A",
+      "aria": "Added",
+      "title": "Added",
+      "fg": [
+        166,
+        156,
+        168
+      ],
+      "bg": [
+        250,
+        247,
+        245
+      ],
+      "opacity": 0.4,
+      "ratio": 2.48,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for deleted.ts",
+      "letter": "D",
+      "aria": "Deleted",
+      "title": "Deleted",
+      "fg": [
+        166,
+        156,
+        168
+      ],
+      "bg": [
+        250,
+        247,
+        245
+      ],
+      "opacity": 0.4,
+      "ratio": 2.48,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for renamed.ts",
+      "letter": "R",
+      "aria": "Renamed",
+      "title": "Renamed",
+      "fg": [
+        166,
+        156,
+        168
+      ],
+      "bg": [
+        250,
+        247,
+        245
+      ],
+      "opacity": 0.4,
+      "ratio": 2.48,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for untracked.ts",
+      "letter": "U",
+      "aria": "Untracked",
+      "title": "Untracked",
+      "fg": [
+        166,
+        156,
+        168
+      ],
+      "bg": [
+        250,
+        247,
+        245
+      ],
+      "opacity": 0.4,
+      "ratio": 2.48,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for conflicted.ts",
+      "letter": "U",
+      "aria": "U",
+      "title": "U",
+      "fg": [
+        166,
+        156,
+        168
+      ],
+      "bg": [
+        250,
+        247,
+        245
+      ],
+      "opacity": 0.4,
+      "ratio": 2.48,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for typechanged.ts",
+      "letter": "T",
+      "aria": "T",
+      "title": "T",
+      "fg": [
+        166,
+        156,
+        168
+      ],
+      "bg": [
+        250,
+        247,
+        245
+      ],
+      "opacity": 0.4,
+      "ratio": 2.48,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    },
+    {
+      "file": "Open diff for ignored.log",
+      "letter": "!",
+      "aria": "!",
+      "title": "!",
+      "fg": [
+        166,
+        156,
+        168
+      ],
+      "bg": [
+        250,
+        247,
+        245
+      ],
+      "opacity": 0.4,
+      "ratio": 2.48,
+      "fontPx": "10px",
+      "w": 6,
+      "h": 16
+    }
+  ]
+}
