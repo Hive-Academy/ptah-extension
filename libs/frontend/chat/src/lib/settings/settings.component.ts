@@ -181,16 +181,6 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * A background role asked to set up a provider from the Orchestration tab: the setup wizard
-   * lives on Providers, so switch there and hand it the provider id.
-   */
-  openProviderSetup(providerId: string): void {
-    this.setActiveTab('providers');
-    this.providersTarget.set(null);
-    this.requestedProviderId.set(providerId);
-  }
-
-  /**
    * Routing table: implementation-plan.md Component 10. `cli-agents` lands on Orchestration, which focuses the CLI
    * matrix table (`[data-testid="cli-matrix"]`, the S6 row; Batch 34 retired the interim CLI manager heading).
    */
@@ -220,7 +210,15 @@ export class SettingsComponent implements OnInit {
   setActiveTab(
     tab: 'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools',
   ): void {
-    this.activeSettingsTab.set(tab === 'providers' ? 'claude-auth' : tab);
+    const next = tab === 'providers' ? 'claude-auth' : tab;
+    if (next !== this.activeSettingsTab()) {
+      // A deep-link target belongs to the visit it opened: a tab is torn down when left and rebuilt on return, and a
+      // kept target would re-open the roles (or a role's popover) and take focus again (Batch 35 revise, R3).
+      // applyPendingTab sets the new target after this call.
+      this.providersTarget.set(null);
+      this.orchestrationTarget.set(null);
+    }
+    this.activeSettingsTab.set(next);
   }
 
   /**

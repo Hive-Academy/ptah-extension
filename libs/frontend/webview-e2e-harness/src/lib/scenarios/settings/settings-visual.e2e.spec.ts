@@ -299,9 +299,32 @@ async function captureRolesOpen(page: Page, host: 'vscode' | 'electron', theme: 
   await expect(page.locator('[data-testid="assignments-heading"]')).toBeVisible();
   await expect.poll(turn, { message: 'open chevron points down: the wrapper turns 90° clockwise, the icon does not turn' })
     .toEqual({ wrapper: 'matrix(0, 1, -1, 0, 0, 0)', icons: 'none' });
+  // Batch 35 revise R1: every role's Provider & model cell is one line in both hosts (the label truncates instead).
+  const cellHeights = await page.locator('[data-testid^="consumer-edit-"]').evaluateAll((cells) =>
+    cells.map((cell) => Math.round(cell.getBoundingClientRect().height)));
+  const rowHeights = await page.locator('[data-testid^="consumer-row-"]').evaluateAll((rows) =>
+    rows.map((row) => Math.round(row.getBoundingClientRect().height)));
+  console.log(`B35 role cells ${host}/${theme}: cell heights ${cellHeights.join(',')}; row heights ${rowHeights.join(',')}`);
+  expect(cellHeights).toHaveLength(6);
+  for (const height of cellHeights) expect(height, 'role cell is one line').toBeLessThanOrEqual(24);
   await summary.evaluate((node) => node.scrollIntoView({ block: 'start' }));
   await waitForSettled(page);
   await page.screenshot({ path: capturePath('orchestration-roles-open', host, theme), animations: 'disabled' });
+  // Batch 35: a role's reassignment popover (the Judge lane cell), on screen and painted on top; Esc returns focus.
+  const roleCell = page.locator('[data-testid="consumer-edit-judge"]');
+  await roleCell.click();
+  const rolePopover = page.locator('[data-testid="consumer-editor-judge"]');
+  await expect(rolePopover).toBeVisible();
+  const popoverBox = await rolePopover.boundingBox();
+  const viewport = page.viewportSize();
+  expect(popoverBox && viewport && popoverBox.y + popoverBox.height <= viewport.height && popoverBox.x + popoverBox.width <= viewport.width,
+    'role popover is fully on screen').toBeTruthy();
+  console.log(`B35 role popover ${host}/${theme}: ${Math.round(popoverBox?.width ?? 0)}x${Math.round(popoverBox?.height ?? 0)} at ${Math.round(popoverBox?.x ?? 0)},${Math.round(popoverBox?.y ?? 0)}`);
+  await waitForSettled(page);
+  await page.screenshot({ path: capturePath('orchestration-role-popover', host, theme), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(rolePopover).toHaveCount(0);
+  await expect(roleCell).toBeFocused();
   await summary.click();
   await expect(details).not.toHaveAttribute('open');
   await page.evaluate(() => {

@@ -65,8 +65,10 @@ for (const host of HOSTS) {
   test.describe(`webview > settings > reachability (${host})`, () => {
     test('every present/restored capability is reachable', async ({ page, fixtureServer }) => {
       // 64 sequential real-click entries in one session (each opens and
-      // closes its own control) comfortably exceed the 30s default.
-      test.setTimeout(180_000);
+      // closes its own control) comfortably exceed the 30s default. Batch 49
+      // added the Advanced and Search & Voice entries (about 2 minutes more,
+      // and the base entries alone took up to 3.4 minutes under load).
+      test.setTimeout(600_000);
       await bootSettings(page, fixtureServer.url, host);
       await waitForSettled(page);
 

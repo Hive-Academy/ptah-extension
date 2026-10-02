@@ -228,11 +228,34 @@ describe('SettingsComponent deep-link', () => {
     expect(appState.pendingSettingsTab()).toBeNull();
   });
 
-  it('a background role asking for provider setup switches to Providers with that provider', async () => {
+  // Batch 35: the Orchestration container raises `requestSettingsTab({tab:'providers', providerId})` for a background
+  // role's "Set up"; Settings is already open, so the pending-tab effect lands on Providers with the wizard's provider.
+  it('a background role asking for provider setup (raised while open) switches to Providers with that provider', async () => {
+    const fixture = TestBed.createComponent(SettingsComponent);
+    await fixture.componentInstance.ngOnInit();
+    fixture.componentInstance.setActiveTab('orchestration');
+    fixture.detectChanges();
+    appState.requestSettingsTab({ tab: 'providers', providerId: 'moonshot' });
+    TestBed.tick();
+    expect(fixture.componentInstance.activeSettingsTab()).toBe('claude-auth');
+    expect(fixture.componentInstance.requestedProviderId()).toBe('moonshot');
+    expect(appState.pendingSettingsTab()).toBeNull();
+  });
+
+  // Batch 35 revise R3: a deep-link target belongs to the visit it opened; leaving the tab clears it.
+  it('clears a deep-link target when the tab changes, so a later visit does not re-apply it', async () => {
     const page = await landWith({ tab: 'providers', section: 'judge' });
-    page.openProviderSetup('moonshot');
-    expect(page.activeSettingsTab()).toBe('claude-auth');
-    expect(page.requestedProviderId()).toBe('moonshot');
+    expect(page.orchestrationTarget()).toBe('judge');
+    page.setActiveTab('orchestration');
+    expect(page.orchestrationTarget()).toBe('judge');
+    page.setActiveTab('pro-features');
+    expect(page.orchestrationTarget()).toBeNull();
+    page.setActiveTab('orchestration');
+    expect(page.orchestrationTarget()).toBeNull();
+    const providers = await landWith({ tab: 'orchestration', section: 'connections' });
+    expect(providers.providersTarget()).toBe('connections');
+    providers.setActiveTab('tools');
+    expect(providers.providersTarget()).toBeNull();
   });
 
   it('#84: a VS Code LM model change re-detects CLIs through the shared state', async () => {
@@ -300,6 +323,40 @@ describe('SettingsComponent Orchestration landing', () => {
     expect(table).not.toBeNull();
     expect(document.activeElement).toBe(table);
     expect(element.querySelector('#providers-cli-heading')).toBeNull();
+  });
+
+  // Batch 35 revise R3: the sticky deep link. Leaving Orchestration and coming back must not re-open the roles.
+  it('re-visiting Orchestration after a background-role deep link leaves the roles closed and unfocused', async () => {
+    const state = providersStateFake();
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideSurfaceRouterTesting(),
+        AppStateManager,
+        { provide: AuthStateService, useValue: authStateFake() },
+        { provide: VSCodeService, useValue: { isElectron: false } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ProvidersSettingsStateService, useValue: state },
+      ],
+    });
+    TestBed.overrideComponent(SettingsComponent, { set: { imports: [OrchestrationSettingsComponent], schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    TestBed.overrideComponent(OrchestrationSettingsComponent, { set: { imports: [CliMatrixStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    TestBed.inject(AppStateManager).requestSettingsTab({ tab: 'providers', section: 'judge' });
+    const fixture = TestBed.createComponent(SettingsComponent);
+    await fixture.componentInstance.ngOnInit();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector<HTMLDetailsElement>('[data-testid="background-roles-details"]')?.open).toBe(true);
+    fixture.componentInstance.setActiveTab('pro-features');
+    fixture.detectChanges();
+    (document.activeElement as HTMLElement | null)?.blur();
+    fixture.componentInstance.setActiveTab('orchestration');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(element.querySelector<HTMLDetailsElement>('[data-testid="background-roles-details"]')?.open).toBe(false);
+    expect(document.activeElement).not.toBe(element.querySelector('[data-focus="background-models"]'));
   });
 
   it.each([{ tab: 'orchestration' }, { tab: 'providers', section: 'cli-agents' }] as const)(

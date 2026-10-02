@@ -1,5 +1,5 @@
 import type { CliDetectionResult, PtahCliSummary, SkillLaneDto, SkillLaneIdDto } from '@ptah-extension/shared';
-import type { BackgroundConsumerId } from './provider-consumer-assignments.component';
+import type { BackgroundConsumerId } from './provider-consumer-rows';
 
 /** One consumer of a connection, for the drawer's "Used by" list and the card's count. */
 export interface UsedBy {

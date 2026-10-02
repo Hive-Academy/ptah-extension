@@ -803,6 +803,43 @@ const regressedUx: readonly ReachabilityEntry[] = [
       await expect(policyBar(page)).toBeVisible();
       await expect(page.getByText(/Manage .* in Providers/)).toHaveCount(0);
     } },
+  { id: 'RUX-12', capability: 'Background role reassigned in place: a popover from its cell (or "Follows main agent →" chip), saved on selection', status: 'restored',
+    // Batch 35: the roles table-xs. Judge lane's cell opens its popover; choosing "follow the main agent" (provider '')
+    // writes `skillSynthesis:setLanes` at once. The fixture's `getLanes` is static, so the read-back cannot confirm the
+    // write: the entry asserts the write and that the toast does not claim it saved (D15). Esc returns focus to the
+    // cell; the roles are closed again for later entries.
+    reach: async (page) => {
+      await orchestrationTab(page);
+      const details = page.locator('[data-testid="background-roles-details"]');
+      // Batch 35 revise R3: #83's `background-models` deep link (earlier in this session) belongs to that visit only;
+      // a later visit finds the roles closed.
+      await expect(details).not.toHaveAttribute('open');
+      await page.locator('[data-testid="background-roles-summary"]').click();
+      await expect(details).toHaveAttribute('open', '');
+      try {
+        await expect(page.locator('[data-testid="consumer-table"]')).toBeVisible();
+        await expect(page.locator('[data-testid="consumer-summary-archaeologist"]')).toHaveText('Follows main agent → Claude (Subscription)');
+        // R1: one line, the full route in the cell's title.
+        await expect(page.locator('[data-testid="consumer-edit-archaeologist"]')).toHaveAttribute('title', /^Follows main agent → Claude \(Subscription\)/);
+        const cell = page.locator('[data-testid="consumer-edit-judge"]');
+        await expect(cell).toHaveText(/Moonshot \(Kimi\) · kimi-k2\.5/);
+        await visibleEnabled(cell);
+        await cell.click();
+        const popover = page.locator('[data-testid="consumer-editor-judge"]');
+        await expect(popover).toBeVisible();
+        const before = getFixtureState(page).calls.length;
+        await popover.locator('[data-testid="provider-model-picker-provider"]').selectOption('');
+        await expectCall(page, before, 'skillSynthesis:setLanes', { lanes: { judge: { provider: '' } } });
+        await expect(page.locator('[data-testid="settings-toast-message"]')).toBeVisible();
+        await expect(page.locator('[data-testid="settings-toast-message"]')).not.toContainText('Saved Judge lane');
+        await popover.locator('[data-testid="provider-model-picker-provider"]').focus();
+        await page.keyboard.press('Escape');
+        await expect(popover).toHaveCount(0);
+        await expect(cell).toBeFocused();
+      } finally {
+        if (await details.getAttribute('open') !== null) await page.locator('[data-testid="background-roles-summary"]').click();
+      }
+    } },
   // Gate V 28 follow-ups (Batch 28d, task.md "Gate V 28 (2026-10-01, user)"): the deviations the user did not accept.
   { id: 'GV28-1', capability: 'Stored key shown as its masked hint (bullets + last 4) in Credentials and Overview', status: 'restored',
     reach: async (page) => {
@@ -872,9 +909,10 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
  * Batch 28d added the Gate V 28 follow-ups GV28-1..3 (key hint, check latency, Codex CLI under "Used by"): 94.
  * Batch 30 added the CLI matrix's regressed-UX fixes RUX-8 (2-click model/effort) and RUX-11 (inline test result), in
  * `settings-cli-matrix.entries.ts` with the restored #43, #44, #54, #70 and #71 (moved there from the pending list): 96.
- * Batch 33 added RUX-9 (no repeated "Manage … in Providers" links): 97.
+ * Batch 33 added RUX-9 (no repeated "Manage … in Providers" links): 97. Batch 35 added RUX-12 (a background role
+ * reassigned in place from its table cell's popover): 98.
  */
-export const EXPECTED_CAPABILITY_COUNT = 97;
+export const EXPECTED_CAPABILITY_COUNT = 98;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

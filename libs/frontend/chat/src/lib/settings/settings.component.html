@@ -148,8 +148,7 @@
     <!-- Tab 2: Agent Orchestration                  -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'orchestration') {
-      <ptah-orchestration-settings [focusTarget]="orchestrationTarget()"
-        (providerSetupRequested)="openProviderSetup($event)" />
+      <ptah-orchestration-settings [focusTarget]="orchestrationTarget()" />
     }
 
     <!-- ============================================ -->

@@ -2,14 +2,13 @@ import { ChangeDetectionStrategy, Component, input, output, signal } from '@angu
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import {
-  ProvidersSettingsStateService, type ProvidersSettingsCommit, type ProvidersSettingsSection,
+  AppStateManager, ProvidersSettingsStateService, type ProvidersSettingsCommit, type ProvidersSettingsSection,
 } from '@ptah-extension/core';
 import { OrchestrationSettingsComponent } from './orchestration-settings.component';
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
-import {
-  ProviderConsumerAssignmentsComponent, type BackgroundConsumerId,
-} from '../providers/provider-consumer-assignments.component';
+import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
+import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
 
 @Component({ selector: 'ptah-agent-orchestration-config', standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush, template: '<p>Orchestration policy</p>' })
@@ -57,12 +56,17 @@ describe('OrchestrationSettingsComponent', () => {
   let fixture: ComponentFixture<OrchestrationSettingsComponent>;
   let element: HTMLElement;
   let state: StateStub;
+  let appState: { requestSettingsTab: jest.Mock };
 
   beforeEach(async () => {
     state = new StateStub();
+    appState = { requestSettingsTab: jest.fn() };
     await TestBed.configureTestingModule({
       imports: [OrchestrationSettingsComponent],
-      providers: [{ provide: ProvidersSettingsStateService, useValue: state }],
+      providers: [
+        { provide: ProvidersSettingsStateService, useValue: state },
+        { provide: AppStateManager, useValue: appState },
+      ],
     }).overrideComponent(OrchestrationSettingsComponent, {
       remove: { imports: [AgentOrchestrationConfigComponent, ProviderConsumerAssignmentsComponent, CliOrchestrationMatrixComponent] },
       add: { imports: [OrchestrationPolicyStub, ConsumerStub, CliMatrixStub] },
@@ -105,6 +109,10 @@ describe('OrchestrationSettingsComponent', () => {
     expect(summary?.getAttribute('data-testid')).toBe('background-roles-summary');
     expect(summary?.textContent).toContain('Background Model Roles');
     expect(summary?.textContent).toContain('6 roles');
+    // Batch 35 revise R2 (deviation 6): the role list is plain text, never the theme's tinted muted colour.
+    const list = Array.from(summary?.querySelectorAll('span') ?? []).find((span) => span.textContent?.includes('archaeologist'));
+    expect(list?.className).toContain('text-base-content');
+    expect(list?.className).not.toContain('text-base-content-muted');
   });
 
   // Batch 34 revise 1: › closed, ⌄ open. lucide-angular copies its host class onto the <svg>, so the turn must sit on the
@@ -150,14 +158,13 @@ describe('OrchestrationSettingsComponent', () => {
     expect(document.activeElement).toBe(matrixTable());
   });
 
-  it('hands a provider-setup request up (the wizard lives on Providers) and refreshes after saves', async () => {
+  // Batch 35 (plan :772-774): the existing deep-link path opens the setup wizard on Providers.
+  it('routes a role\'s provider setup to Providers with the wizard\'s provider, and refreshes after saves', async () => {
     await render();
-    const requested: string[] = [];
-    fixture.componentInstance.providerSetupRequested.subscribe((id) => requested.push(id));
     consumer().setupProviderRequested.emit('moonshot');
     consumer().assignmentSaved.emit({ id: 'judge', provider: 'moonshot', model: 'kimi' });
     consumer().timeoutSaved.emit(30);
-    expect(requested).toEqual(['moonshot']);
+    expect(appState.requestSettingsTab).toHaveBeenCalledWith({ tab: 'providers', providerId: 'moonshot' });
     expect(state.refresh).toHaveBeenCalledTimes(1);
     expect(state.refreshJudging).toHaveBeenCalledTimes(1);
   });

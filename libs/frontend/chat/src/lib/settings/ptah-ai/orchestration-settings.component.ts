@@ -1,13 +1,12 @@
 import {
-  ChangeDetectionStrategy, Component, ElementRef, OnInit, afterRenderEffect, computed, inject, input, output, viewChild,
+  ChangeDetectionStrategy, Component, ElementRef, OnInit, afterRenderEffect, computed, inject, input, viewChild,
 } from '@angular/core';
 import { ChevronRight, LucideAngularModule } from 'lucide-angular';
-import { ProvidersSettingsStateService } from '@ptah-extension/core';
+import { AppStateManager, ProvidersSettingsStateService } from '@ptah-extension/core';
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
-import {
-  ProviderConsumerAssignmentsComponent, type BackgroundConsumerId,
-} from '../providers/provider-consumer-assignments.component';
+import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
+import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
 
 /** Deep-link sections the Orchestration tab owns (plan Component 10). */
 export type OrchestrationSettingsFocusTarget = 'background-models' | 'cli-agents' | BackgroundConsumerId;
@@ -68,11 +67,12 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
           </span>
           <span class="text-xs font-bold uppercase tracking-wider text-base-content">Background Model Roles</span>
           <span class="badge badge-outline badge-xs whitespace-nowrap border-info/30 bg-info/10 font-medium text-base-content">{{ roleCount }} roles</span>
-          <span class="ml-auto hidden min-w-0 truncate text-[10px] text-base-content-muted sm:block">Memory curator, archaeologist, synthesis, judge, replay, judging</span>
+          <!-- text-base-content: at 10 px the light theme's rose-tinted muted grey read as coloured words (deviation 6). -->
+          <span class="ml-auto hidden min-w-0 truncate text-[10px] text-base-content sm:block">Memory curator, archaeologist, synthesis, judge, replay, judging</span>
         </summary>
         <section data-focus="background-models" tabindex="-1" aria-label="Background models" class="scroll-mt-4 border-t border-base-300 p-3">
           <ptah-provider-consumer-assignments [disabled]="saving()" [initialEditingConsumerId]="consumerTarget()"
-            (setupProviderRequested)="providerSetupRequested.emit($event)" (assignmentSaved)="state.refresh()"
+            (setupProviderRequested)="openProviderSetup($event)" (assignmentSaved)="state.refresh()"
             (timeoutSaved)="state.refreshJudging()" />
         </section>
       </details>
@@ -91,9 +91,8 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
 })
 export class OrchestrationSettingsComponent implements OnInit {
   readonly focusTarget = input<OrchestrationSettingsFocusTarget | null>(null);
-  /** A background role asked to set up a provider: the setup wizard lives on the Providers tab. */
-  readonly providerSetupRequested = output<string>();
   protected readonly state = inject(ProvidersSettingsStateService);
+  private readonly appState = inject(AppStateManager);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly control = CONTROL;
   protected readonly focusRing = FOCUS;
@@ -127,6 +126,14 @@ export class OrchestrationSettingsComponent implements OnInit {
   }
 
   ngOnInit(): void { void this.state.open(); }
+
+  /**
+   * A background role asked to set up a provider (plan :772-774): the existing deep-link path switches Settings to
+   * Providers and opens the setup wizard for that provider.
+   */
+  protected openProviderSetup(providerId: string): void {
+    this.appState.requestSettingsTab({ tab: 'providers', providerId });
+  }
 
   /** The matrix table; null until the deferred matrix has rendered. */
   private matrixTable(): HTMLElement | null {
