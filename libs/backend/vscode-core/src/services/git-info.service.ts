@@ -66,6 +66,7 @@ import {
   type GitApplyHunksResult,
   type GitReviewChangesResult,
   type GitReviewFileResult,
+  type GitLogResult,
 } from '@ptah-extension/shared';
 import {
   GitReviewReaderService,
@@ -86,6 +87,7 @@ import { GitHubPrStatusReader } from './git/github-pr-status.reader';
 import { GitRemoteSync } from './git/git-remote-sync';
 import { AgentWorktreeAdmin } from './git/agent-worktree-admin';
 import { GitRepoOperationReader } from './git/git-repo-operation.reader';
+import { GitHistoryReader } from './git/git-history.reader';
 import {
   GitOperationActions,
   type GitConflictStagesResult,
@@ -523,6 +525,7 @@ export class GitInfoService {
   private readonly operationActions: GitOperationActions;
   private readonly changeSetNumstat: GitChangeSetNumstatReader;
   private readonly stagedPatch: GitStagedPatchReader;
+  private readonly historyReader: GitHistoryReader;
   private readonly prStatusReader: GitHubPrStatusReader;
   private readonly operations = new GitOperationRegistry();
 
@@ -573,6 +576,7 @@ export class GitInfoService {
       logger,
       diffFlags: DIFF_FLAGS,
     });
+    this.historyReader = new GitHistoryReader({ exec: deps.exec, logger });
     this.prStatusReader = new GitHubPrStatusReader({
       spawner,
       logger,
@@ -1242,6 +1246,14 @@ export class GitInfoService {
    */
   readStagedPatch(workspacePath: string): Promise<StagedPatchRead> {
     return this.stagedPatch.read(workspacePath);
+  }
+
+  /**
+   * The branch's commits since its base, or the recent commits when no base
+   * applies: see {@link GitHistoryReader}. Never throws.
+   */
+  getLog(workspacePath: string): Promise<GitLogResult> {
+    return this.historyReader.read(workspacePath);
   }
 
   /**

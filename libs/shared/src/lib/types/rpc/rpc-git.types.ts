@@ -981,3 +981,66 @@ export type GitPrStatusResult =
  * the client.
  */
 export type GitPrStatusParams = GitWorkspaceScopedParams;
+
+/**
+ * Parameters for git:log RPC method (TASK_2026_576 Requirement 12). Names
+ * only the workspace folder: the backend resolves the base and the range
+ * itself and never takes a ref from the client.
+ */
+export type GitLogParams = GitWorkspaceScopedParams;
+
+/** One commit of the git:log history, newest first. */
+export interface GitHistoryCommit {
+  /** Full commit SHA. */
+  sha: string;
+  /** Abbreviated commit SHA (`%h`). */
+  shortSha: string;
+  /** Commit subject line. */
+  subject: string;
+  /** Author display name. */
+  authorName: string;
+  /** Author date, strict ISO 8601 with offset (`%aI`). */
+  authorDate: string;
+  /** Number of parents: 0 for a root commit, 2+ for a merge. */
+  parentCount: number;
+  /** True when the commit has no parent (a root commit has no `<sha>^`). */
+  isRoot: boolean;
+}
+
+/**
+ * Which list git:log returned:
+ * - `since-base` — the commits on HEAD that are not on `base` (at most 200);
+ * - `recent` — no base applies (HEAD is the base branch itself, or no base
+ *   resolved): the last commits of HEAD (at most 50).
+ */
+export type GitLogMode = 'since-base' | 'recent';
+
+/** Why git:log could not read the history. */
+export type GitLogUnavailableReason = 'not-a-repository' | 'git-failed';
+
+/**
+ * Result from git:log RPC method. Discriminated on `status`.
+ * - `ok` — `commits` may be empty: no own commits yet on the branch, or an
+ *   unborn branch.
+ * - `unavailable` — git could not be read; `reason` is a quiet code.
+ */
+export type GitLogResult =
+  | {
+      status: 'ok';
+      mode: GitLogMode;
+      /**
+       * The base the list is measured from (`origin/main`, `main`, `master`),
+       * or null when none resolved.
+       */
+      base: string | null;
+      /** Current branch, or null when HEAD is detached. */
+      branch: string | null;
+      /** Newest first. */
+      commits: GitHistoryCommit[];
+      /** True when more commits exist than the cap returned. */
+      truncated: boolean;
+    }
+  | {
+      status: 'unavailable';
+      reason: GitLogUnavailableReason;
+    };
