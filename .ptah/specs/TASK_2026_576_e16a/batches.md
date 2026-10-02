@@ -1505,6 +1505,17 @@ executors at once.
 
 # P4 — Review canvas, spot editor (built unmounted; see "Cutover moved after P5")
 
+### P4 waves (branch `feat/task-2026-576-p4`, worktree `.claude-worktrees/task-576-p4`, PR stacked on P3)
+
+| Wave | Batches | Notes |
+|---|---|---|
+| W1 | 33 ∥ 39 ∥ CSP gate | gate: independent lane decides Pierre `<style>` vs VS Code `style-src` before 44 |
+| W2 | 34 ∥ 40 | |
+| W3 | 35 ∥ 41 | |
+| W4 | 36 ∥ 37 ∥ 44 | 44 after the gate decision |
+| W5 | 38 ∥ 42 | |
+| W6 | 43 | then the P4 phase-end review |
+
 ## Batch 33: Agent-feedback port token and confirm dialog — PENDING
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
