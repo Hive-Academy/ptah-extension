@@ -232,8 +232,8 @@ function rowNames(fixture: ComponentFixture<AppShellComponent>): string[] {
 }
 
 /**
- * The filter bar, chips and editor sit in `@defer` blocks (kept out of the
- * initial bundle); let those blocks load and render before asserting.
+ * The organization editor sits in a `@defer` block (kept out of the initial
+ * bundle); let it load and render before asserting.
  */
 async function settle(
   fixture: ComponentFixture<AppShellComponent>,
@@ -343,8 +343,8 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
         session('a', 'Alpha', { organization: organization() }),
         session('b', 'Beta', { organization: organization() }),
       ]);
-      // After the deferred blocks settled: the filter bar's debounce is the
-      // only timer this test drives.
+      // After the shell settled: the filter bar's debounce is the only timer
+      // this test drives.
       jest.useFakeTimers();
 
       type(

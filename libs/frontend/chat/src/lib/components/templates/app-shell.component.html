@@ -97,12 +97,10 @@
       @if (organizationAvailable()) {
         <!-- Organization host: search text, filters, sort and grouping go to
              the server (TASK_2026_580). The date range below stays local. -->
-        @defer (on immediate) {
-          <ptah-session-filter-bar
-            [query]="listQuery()"
-            (queryChange)="onListQueryChange($event)"
-          />
-        }
+        <ptah-session-filter-bar
+          [query]="listQuery()"
+          (queryChange)="onListQueryChange($event)"
+        />
       } @else {
         <!-- Search input (local name filter over the loaded pages) -->
         <label
@@ -333,9 +331,7 @@
                      keep the actions off both. -->
 
               <div class="pl-3 pr-24 has-[li]:-mt-1.5 has-[li]:pb-2">
-                @defer (on immediate) {
-                  <ptah-session-organization-chips [session]="session" />
-                }
+                <ptah-session-organization-chips [session]="session" />
               </div>
             }
           }
