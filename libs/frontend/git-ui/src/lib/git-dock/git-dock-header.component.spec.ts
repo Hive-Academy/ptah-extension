@@ -116,6 +116,16 @@ describe('GitDockHeaderComponent', () => {
     expect(toggle.getAttribute('aria-label')).toBe('Show source control');
   });
 
+  it('announces the current branch through a screen-reader status region (parity §2 row 53)', () => {
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const status = fixture.nativeElement.querySelector(
+      '[role="status"][aria-label="Git status"]',
+    ) as HTMLElement;
+    expect(status.className).toContain('sr-only');
+    expect(status.textContent?.trim()).toBe('main');
+  });
+
   it('hides the rail toggle in historical review mode', () => {
     reviewMode.set('branch-review');
     const fixture = TestBed.createComponent(GitDockHeaderComponent);

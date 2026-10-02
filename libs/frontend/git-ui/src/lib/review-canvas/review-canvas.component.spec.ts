@@ -648,6 +648,27 @@ describe('ReviewCanvasComponent', () => {
       );
     });
 
+    it("a tree row's Open-in launches the external editor at that file in the active workspace (parity §1 row 41)", async () => {
+      await create();
+      const { ChangedFileTreeComponent } =
+        await import('./changed-file-tree.component');
+      const tree = fixture.debugElement.query(
+        By.directive(ChangedFileTreeComponent),
+      );
+      expect(tree).not.toBeNull();
+
+      (
+        tree.componentInstance as InstanceType<typeof ChangedFileTreeComponent>
+      ).openFile.emit({ target: 'vscode', path: 'src/app.ts', line: 7 });
+
+      expect(launchers.openFile).toHaveBeenCalledWith(
+        'vscode',
+        '/ws',
+        'src/app.ts',
+        7,
+      );
+    });
+
     it('brings a navigation target into view', async () => {
       await create();
       navigate({

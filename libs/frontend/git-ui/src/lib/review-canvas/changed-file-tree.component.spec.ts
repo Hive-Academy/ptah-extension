@@ -223,6 +223,25 @@ describe('ChangedFileTreeComponent', () => {
       expect(selections[1]).toEqual({ path: 'src/app.ts', staged: true });
     });
 
+    it('never selects an untracked directory row, and offers it no Open-in (parity §3 row 81)', () => {
+      render('worktree', {
+        statusFiles: [
+          ...STATUS,
+          {
+            path: 'build-output/',
+            status: '??',
+            staged: false,
+            isDirectory: true,
+          },
+        ],
+      });
+      const row = item('build-output');
+      row.click();
+      key(row, 'Enter');
+      expect(selections).toEqual([]);
+      expect(row.querySelector('[data-testid="open-in-button"]')).toBeNull();
+    });
+
     it('stages a file without selecting it, awaits the result and re-reads the status', async () => {
       render('worktree');
       const row = item('util.ts');
