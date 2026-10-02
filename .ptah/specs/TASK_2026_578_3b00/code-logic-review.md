@@ -1320,3 +1320,249 @@ None.
 - Top risk: None. Changes are tightly scoped, typechecked, and fully verified by unit and integration suites.
 - What a robust implementation would add:
   1. Align the mock numbers in `skill-diagnostics-state.service.spec.ts:36-39` so `activeSkills <= totalPromoted` reflects database invariants.
+
+---
+
+## Batch 9
+
+Reviewer: code-logic-reviewer (in-process; an antigravity lane re-reviews later). Reviewed 2026-10-02.
+
+### Scope
+
+Read in full: `skill-curator.service.ts` (834 lines), `lifecycle/adoptable-slug.ts`, `lifecycle/curator-report.ts`, the
+`linkPromotedCandidate` diff in `skill-suggestion.store.ts` (+ its 4 specs), `skill-curator.service.spec.ts` (accept /
+reconcile / orchestration cases), `gates/cluster-holdout-end-to-end.spec.ts` (header, harness, imports), the
+`register.spec.ts` diff. Collaborators opened for contracts: `skill-promotion.service.ts:400-660`
+(`promoteSuggestion`, `adoptMaterializedSkill`, `commitResidentPromotion`, `linkRegistryRow`, `emitRepropagation`),
+`lifecycle/skill-retirement.service.ts:201-261` (`removeMaterializations`, `retire`), `skill-md-generator.ts:279-290,419`
+(`promoteToActive`, `sanitizeSlug`). Frontend changes ignored.
+
+### Verification
+
+- `npx nx run @ptah-extension/skill-synthesis:test --skip-nx-cache --testPathPattern=...`: the pattern did not narrow
+  (jest ran the whole project): 85 suites, 84 passed, 1 skipped; 1788 tests passed, 1 skipped, 0 failed.
+- `npx nx run @ptah-extension/skill-synthesis:typecheck --skip-nx-cache`: completed with no errors.
+- Grep (libs, apps): `clusterCandidates`, `synthesizeFromCluster`, `insertPending`, `hasExistingForCluster` no longer
+  appear in the curator, its spec, or `cluster-holdout-end-to-end.spec.ts`. Remaining hits are the definitions
+  (`skill-clustering.service.ts:186`, the store) and their own specs, plus `skill-gap-curator.service.spec.ts` (calls the
+  store's `insertPending`, which the store still defines until Batch 12) and an rpc-handlers spec mock object. No
+  production caller outside the defining files.
+
+### Score: 7/10
+
+### Verdict: NEEDS_REVISION
+
+The production logic is sound on every R-f / R-f2 / fail-closed question I traced. The verdict rests on two explicit
+Batch 6 HARD-carry spec obligations and the R-f2 adopt equivalent that are not met in the spec (S-1), plus one
+fail-open path in the exempt-set builder (M-1). Both are small fixes. 7 rather than 8 because a HARD carry is
+unproven; not lower because the code itself holds.
+
+### BLOCKING
+
+None.
+
+### SERIOUS
+
+**S-1 Missing specs for the adopt path (Batch 6 HARD carry 1, review focus 1).**
+- `skill-curator.service.spec.ts:1015-1029` is the only adopt-failure case and it uses
+  `jest.spyOn(promotion, 'adoptMaterializedSkill').mockRejectedValue(...)`. That proves the catch at
+  `skill-curator.service.ts:610-620` and the `'failed'` count, but NOT that a throw after the adopt's writes rolls
+  back. The accept side has the real proof (`:774-791`: `rejectIfStatus` throws mid-callback, suggestion pending, no
+  promoted row, directory gone). There is no equivalent for adopt: nothing makes `mergeMembers` or
+  `linkPromotedCandidate` throw inside `commitReconcile` (`:627-638`) and then asserts that no promoted row exists,
+  `promoted_candidate_id` is still NULL and the registry row is not flipped to `synth`.
+- No adopt-side `RegistrySlugOwnedByPluginError` spec. The accept side has one (`:793-810`). The carry required "a
+  spec each". `findAdoptableSlug` filters to `authored|synth` so the throw is normally unreachable, but a registry row
+  turned `clone` between `findAdoptableSlug` and the transaction would hit `linkRegistryRow`
+  (`skill-promotion.service.ts:620-624`), and that branch has no curator-level proof it returns `'failed'` without
+  throwing out of `start()`.
+- Also untested: the `linkedOnly` adopt branch (slug already `promoted`, `holder.status === 'promoted'` at
+  `skill-curator.service.ts:583-584`), where `onCommit` runs on an existing row via a bare `inImmediateTransaction`
+  (`skill-promotion.service.ts:512-516`); a pass awaiting an in-flight reconcile (`:271`); and a reconcile that merges
+  a promoted member (only a `candidate` member is asserted at spec `:889-891`).
+- Fix: three real-DB cases in the reconcile describe: (a) `jest.spyOn(suggestions,'linkPromotedCandidate')` or
+  `store.rejectIfStatus` throwing once; assert no new candidate row, link NULL, registry row unchanged, adopt reports
+  `failed`, and a second start (spy removed) then adopts. (b) a registry row for the proven slug turned to
+  `clone`/`originPluginId` after the proof (spy on `registry.getBySlug` once), assert warn and row left. (c) the
+  `linkedOnly` branch plus a promoted-member merge with `removeMaterializations` called.
+
+### MODERATE
+
+**M-1 `readExemptSlugs` can return a partial set (fail-open) on a mid-build throw.** `skill-curator.service.ts:690-699`:
+`exempt = new Set(owned)` is assigned at `:690` before `this.store.listByStatus('promoted')` runs at `:691`. If that
+read throws, the catch at `:696` only warns and `:701` returns the authored/diverged set WITHOUT the pinned and
+case-variant promoted names. The doc comment (`:666-670`) and the plan promise `null` (fail closed) on an unreadable
+read. Impact: the umbrella pass receives a set missing pinned promoted skills, so `partitionPool` may pool them
+(accept still skips pinned members via `member.pinned` at `:452`, which limits the damage to a wrongly proposed
+umbrella). Fix: build into a local and assign `exempt` only after the loop succeeds (or set `exempt = null` in the
+catch). Add a spec where `store.listByStatus` throws and assert the umbrella pass is skipped with
+`registry-unavailable`.
+
+**M-2 Reconcile applies the full member merge (including deleting promoted members' directories) to legacy accepted
+suggestions at startup, with no user action.** `commitReconcile` -> `mergeMembers` (`:637`, `:458-464`) then
+`afterMerge` -> `removeMaterializations` (`:622`). Plan component 10 asks for "the same member merge", so this is as
+designed, but for a suggestion accepted weeks earlier any member that was independently promoted since (and is neither
+pinned nor `authored`/`diverged`) is rejected `merged-into:` and its directory deleted on boot. The pre-578 accept only
+ever merged `candidate` members. Safer: reconcile merges only `candidate` members and leaves promoted ones to the
+retirement pass, or the plan owner explicitly accepts this. Raise with the architect before the lane re-review.
+
+**M-3 Unproven rows warn forever and stay outside the lifecycle.** `holdsBody` (`adoptable-slug.ts:79-94`) requires the
+on-disk body to equal `suggestion.body` exactly. A legacy accepted skill that was later enhanced
+(`SkillEnhancerService` rewrites `SKILL.md` for `synth` clones) or hand-edited stops matching, so it is `missing` on
+every start (`skill-curator.service.ts:571-582`): never linked, so retirement and the cap never see it, and a warn per
+suggestion per start. Same for `blockedByCandidateRow` (`:583-595`). Safe (fail-closed) but unbounded. Record as a
+follow-up: surface the counts in the Batch 11 diagnostics, or log one summary line instead of one warn per row.
+
+**M-4 A pass blocks on the reconcile with no timeout.** `skill-curator.service.ts:271` awaits `this.reconciliation`.
+Each adopt awaits `emitRepropagation` per slug with origin `{}` (`skill-promotion.service.ts:552`, `:750-756`), the
+non-user-initiated path, which can wait on the background governor. N legacy suggestions x slugs delays every pass,
+including a user-initiated `runManual`, behind a startup repair. Only two live rows are expected, so likelihood is low.
+Consider `{ userInitiated: true }` for the reconcile (it is data repair) or bounding the await.
+
+### MINOR
+
+- Plan says 9 constructor deps; there are 10 (`mdGenerator` kept for `activeRoot()` at `:211-213`, `:567`). Justified
+  in a comment; update the plan or batches note.
+- `reconcileAcceptedSuggestions` builds `exempt` once before the loop (`:547`); earlier adopts in the same loop do not
+  change authored/diverged membership, so staleness is harmless today.
+- `acceptSuggestion` reads `exempt` before the awaited promotion (`:381`); negligible window.
+- `start()` called twice leaks the first `setInterval` handle (`:229-241`): identical to pre-batch behaviour, noted only.
+- `CuratorReport` exposes an extra `lifecycle` field (`:100`) beyond the plan's four keys; additive and harmless.
+  `overlaps` is gone from the type while the frontend tab still reads `report.overlaps` (optional,
+  `skill-synthesis-tab.component.ts:638`), so it is safe.
+
+### Focus answers
+
+1. **R-f / R-f2: holds in code, accept proven, adopt not proven (S-1).** `commitAccept` (`:412-428`), `mergeMembers`
+   (`:437-468`) and `commitReconcile` (`:627-638`) call only: `suggestionStore.accept` (single `transition`, no own
+   transaction), `linkPromotedCandidate` (one UPDATE), `store.findById`, `store.rejectIfStatus`, `registry.remove`.
+   No `try/catch` inside any callback or function they call. The fail-soft answers come from catches around the whole
+   call: accept `:383-401`, adopt `:597-620`, whole reconcile `:506-518`. `commitResidentPromotion`
+   (`skill-promotion.service.ts:561-594`) runs `onCommit` inside the same `inImmediateTransaction`, and
+   `promoteSuggestion` removes the directory it created on any throw (`:453-463`). Accept spec `:774-791` (mid-callback
+   throw: pending, no promoted row, no dir) and `:828-840` (decided after read: rolled back) are real-DB proofs.
+   Adopt equivalent absent: see S-1.
+2. **Batch 6 HARD carries: code yes, specs partial.** Catch around `promoteSuggestion`: yes (`:383-401`); specs for
+   `RegistrySlugOwnedByPluginError` (`:793-810`) and a generic failure (`:812-826`). Catch around
+   `adoptMaterializedSkill`: yes (`:597-620`, any throw incl. the plugin error becomes `'failed'`); spec generic only
+   (S-1). Adoption provenance: only a slug that is the sanitized base or `-2..-5`, with an `authored|synth`
+   `kind='skill'` registry row, an existing `SKILL.md` and an exactly equal body (`adoptable-slug.ts:33-62`); more than
+   one proven slug adopts nothing. Specs: hand-written same-name skill not adopted (`:962-973`), ambiguous
+   (`:975-995`), `it.each` synth/authored with a hand-written base slug and a suffixed proven one (`:~881-918`).
+   Non-promoted holder (Batch 6 M-1 carry): skipped with warn and counted, never thrown (`:583-595`), spec `:997-1013`.
+3. **Reconcile: yes on all four.** It runs in `start()` before the `curatorEnabled` return (`:224` vs `:225`), spec
+   `:252-266`. Idempotent: it selects `promoted_candidate_id IS NULL` rows and `linkPromotedCandidate` is guarded on
+   `status='accepted' AND promoted_candidate_id IS NULL`; the second-start spec (`:920-941`) asserts no adopt call and
+   no new rows. `start()` cannot throw from it: `startReconciliation` (`:504-519`) chains `.catch`, and the sync part
+   of `reconcileAcceptedSuggestions` runs inside an async function, so even
+   `listAcceptedWithoutPromotedCandidate` throwing becomes a caught rejection. A pass awaits it (`:271`); no spec
+   asserts that ordering (S-1 list).
+4. **Exempt set: fail closed except one path.** No registry or unreadable `listAll()` gives `null`: umbrella pass
+   skipped with `umbrellaSkippedReason: 'registry-unavailable'` (`:330-335`, spec `:430-439`) and accept leaves every
+   promoted member unmerged (`:459-460`). The partial-set hole when `listByStatus` throws is M-1. Authored/diverged
+   skills are protected twice: exempt names are never merged (`isExempt`, `:830-833`, case-insensitive; spec
+   `:728-772` asserts `owned-skill` stays promoted with an `authored` registry row), and `removeMaterializations`
+   only receives rows whose conditional reject succeeded. Per-row containment is the retirement service's (Batch 7).
+5. **runPass: yes.** Order retirement (`:274`), umbrella (`:275`), enhancement (`:276`), report (`:281`),
+   `curator-pass` event (`:283-287`); retirement and umbrella each in their own catch with a `NOT_RUN_*` result
+   (`:305-361`), enhancement catches per slug and on selection, report write catches and returns `''` (`:806-817`),
+   `onPassComplete` guarded. Specs `:297-387`, `:389-486`. The 0-promoted early return and the LLM overlap review are
+   gone; the old-symbol grep and the e2e spec are clean (see Verification). The e2e spec drives a real
+   `SkillUmbrellaMergeService.runPass`.
+6. **`materializedBaseSlug` duplicate: low correctness risk, real drift risk, no pin.** Today the body is equivalent to
+   `SkillMdGenerator.sanitizeSlug` (`skill-md-generator.ts:419-426`) except the time-based fallback (returns
+   `null`). If the generator's rule changes, the reconcile derives a different base and `findAdoptableSlug` returns
+   `missing`: it fails closed, never adopts a wrong directory, but silently strands legacy skills. There is no spec for
+   `adoptable-slug.ts` and none pinning the two together; the reconcile specs use only the plain name `deploy-flow`,
+   which any sanitizer handles. Recommend exporting `sanitizeSlug` as a pure function used by both, or one parity spec
+   over `'Foo Bar!'`, `'--x--'`, a 70-char name and a non-ASCII name. Treated as MINOR for this verdict.
+7. **Silent failures, stale state, races.** Concurrent accepts of the same id: both materialize and commit
+   synchronously (no await between `promoteToActive` and `commitResidentPromotion`,
+   `skill-promotion.service.ts:424-452`), the loser gets a suffixed directory, throws in `commitAccept`, and
+   `removeActiveAfterRollback` removes only its own directory: safe. Accept vs pass on shared members: member status is
+   re-read inside the IMMEDIATE transaction and written with compare-and-set, so a member already merged is skipped,
+   not double-merged. Accept vs reconcile touch disjoint suggestion rows (pending vs accepted-unlinked). A post-commit
+   directory removal failure is logged and the merge stays committed (orphan folder; existing Batch 7 behaviour, not
+   new). `purgeSkippedReason: 'failed'` and the retirement/umbrella skip reasons surface in the report and the event
+   (`curator-report.ts:107-133`, `skill-curator.service.ts:283-287`; spec `:389-405`). One quiet gap: `skippedExempt`
+   members of an accept are only logged (`:493-500`), not returned to the caller.
+
+### Data flow (accept)
+
+1. RPC to `acceptSuggestion`: pending check on a fresh read `:377-380` OK (re-validated inside the transaction).
+2. `readExemptSlugs` `:381`: M-1 on a mid-build throw.
+3. `promoteSuggestion` (cap read, materialize, one transaction: register, promote, registry link, `commitAccept`) OK.
+4. `commitAccept`: `accept(id,row.id)` verified by the returned row `:418-426`; `mergeMembers` CAS per member OK.
+5. Throw anywhere in 3-4: rollback, directory removed, caught `:390`, `{accepted:false}` OK.
+6. `afterMerge` -> `removeMaterializations` after commit, failure contained OK.
+7. Reconcile mirror: `findAdoptableSlug` (proof), holder check, `adoptMaterializedSkill`, `commitReconcile`
+   (`linkPromotedCandidate` throws on false), `afterMerge`. Rollback proof for adopt missing (S-1).
+
+## Batch 9 re-review
+
+Reviewer: code-logic-reviewer (in-process; antigravity lane re-reviews later). Reviewed 2026-10-02. Read in full:
+`skill-curator.service.ts`, `skill-curator.service.spec.ts` (new cases `:441-460`, `:1036-1275`), `lifecycle/adoptable-slug.ts`,
+`lifecycle/adoptable-slug.spec.ts`, and `skill-promotion.service.ts:490-640` (adopt, `commitResidentPromotion`, `linkRegistryRow`).
+
+### Verification
+
+- `npx jest -c libs/backend/skill-synthesis/jest.config.ts skill-curator.service.spec`: 1 suite passed, 31 tests passed, 0 failed.
+- `npx jest -c libs/backend/skill-synthesis/jest.config.ts adoptable-slug.spec`: 1 suite passed, 12 tests passed, 0 failed.
+- R-f / R-f2 regression grep: every `try`/`catch` in `skill-curator.service.ts` sits outside the callbacks. The callback bodies
+  (`commitAccept :412-428`, `mergeMembers :437-468`, `commitReconcile :627-638`) contain none. The adopt catch is at `:597-620`,
+  outside `onCommit`. Writes inside callbacks stay plain statements: `accept`, `linkPromotedCandidate`, `rejectIfStatus`,
+  `registry.remove`. No regression.
+
+### Resolution of the revision list
+
+- S-1(a) RESOLVED. `spec :1073-1120`. It is real-DB (the store, suggestion store and registry are real). The spy on `store.rejectIfStatus`
+  throws once, and `reject` called once proves the throw happened in `mergeMembers` after the `linkPromotedCandidate` UPDATE
+  (`commitReconcile :628-633`). It asserts `promotedCandidateId` NULL, no candidate row for the slug, 0 rows with the trajectory
+  hash, registry still `authored` with `candidateId` null, member still `candidate`, directory kept and
+  `removeMaterializations` not called. It then restores the spy and shows that the next start adopts. The executor's claim is
+  accurate. The spec is load-bearing: without the transaction, the link and the registered row would persist and the NULL, row and
+  registry assertions would fail.
+- S-1(b) RESOLVED. `spec :1122-1156`. The registry row is flipped to `clone` after the proof, through a wrapped
+  `adoptMaterializedSkill` (`:1125-1131`). The real `linkRegistryRow` throws, which is `RegistrySlugOwnedByPluginError`
+  (`skill-promotion.service.ts:620-624`). The spec asserts `errorName`, `failed: 1`, no candidate row, link NULL and the registry
+  row untouched. Real throw, real rollback, not a mocked return.
+- S-1(c) RESOLVED. `spec :1158-1188`. A promoted holder is created, so the `linkedOnly` branch (`skill-promotion.service.ts:512-516`)
+  is taken. The spec asserts the link points at the holder, the row count is unchanged, there is no trajectory-hash row, the
+  member is merged, and `adopted: 1`. Load-bearing: a fall-through to `registerCandidate` would add a row or hit UNIQUE. Gap
+  (minor): the `linkedOnly` rollback is not exercised on its own; the shared transaction wrapper is proven by (a).
+- S-1(d) RESOLVED. `spec :1190-1230`. The adopt is held on a gate. After a `setImmediate` flush the spec asserts that
+  `retirement.run` has not been called. After release, it asserts the suggestion was already linked at the moment retirement
+  ran (`linkedWhenPassRan` equals the candidate id and is truthy). If `runPass` stopped awaiting `this.reconciliation`
+  (`skill-curator.service.ts:271`), retirement would run during the flush and the first assertion would fail. Load-bearing.
+- S-1(e) RESOLVED. `spec :1232-1273`. A promoted member is merged. `removeMaterializations` is replaced by a probe that runs
+  `BEGIN IMMEDIATE` on the shared connection; that throws inside an open transaction, so `committedAtRemoval === true` proves
+  no transaction is open at removal. The probe also records the member as already `rejected` at removal, and the spec asserts
+  the registry row is gone, the removed rows are `['old-skill']` and the origin is `{}`. The executor's claim is accurate
+  (`outsideTransaction :1057-1066`). The probe is sound: a real nested `BEGIN` fails, so a false pass is unlikely. Load-bearing.
+- M-1 RESOLVED. Code `skill-curator.service.ts:680-701`: `built` is local, `exempt = built` runs only after the loop, and the
+  catch leaves `null`. Spec `:441-460` makes `listAll` succeed (one `authored` row) and `listByStatus` throw. It asserts
+  `listAll` was called, `umbrella.runPass` was not called, `umbrellaSkippedReason === 'registry-unavailable'`, retirement ran
+  once, and the exact warn payload. Reverting to the old partial assignment would run the umbrella pass and fail it.
+  Load-bearing, and it covers the exact hole. One caveat: the retirement and enhancement steps are mocks here, so "retirement
+  still runs" is only shown by the call count; that is adequate for this contract.
+- Slug pin (decision 2) RESOLVED. `adoptable-slug.spec.ts:46-71` drives the real `SkillMdGenerator.promoteToActive` against
+  `materializedBaseSlug` for 10 names (kebab, spaces, uppercase, punctuation, `--x--`, accented, emoji/CJK mix, 70 characters,
+  a long name cut at a separator, a long name with spaces). It asserts the written slug equals the derived one and that
+  `SKILL.md` exists there. `:73-83`: the two names that sanitize to nothing return `null`, while the generator writes
+  `skill-<time>`. Tests pass, 12 in all. Load-bearing: a change on either side makes the generator output differ from the helper.
+
+### New findings
+
+None blocking or serious. Minor only: (1) S-1(c) has no linkedOnly-specific rollback case (covered by the shared transaction in
+(a)). (2) The M-1 spec makes `listByStatus` throw for every caller, so it does not distinguish a throw on the first versus a
+later call; acceptable, since the read is single-shot.
+
+Carried by decision and not re-scored: M-2, M-3, M-4 and the MINOR items.
+
+### Score: 8/10
+
+The previous 7 was held down by an unproven HARD carry. All five adopt-path proofs are now real-DB and would fail on regression,
+the fail-open hole is closed with a matching spec, and drift between the sanitizers is pinned against the real generator. Not 9:
+the carried M-2 (boot-time directory removal) and M-3/M-4 are unresolved by decision.
+
+### Verdict: APPROVED

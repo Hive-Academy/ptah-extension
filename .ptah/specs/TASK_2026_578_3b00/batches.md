@@ -1,6 +1,6 @@
 # Batches - TASK_2026_578_3b00
 
-Total tasks: 44 | Batches: 14 | Complete: 10/14
+Total tasks: 44 | Batches: 14 | Complete: 12/14
 
 Root of every path below: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/` (branch
 `feat/task-578-skill-lifecycle`, base `c4ab013f3`). `SS` = `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib`.
@@ -995,7 +995,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
   read); its warn text still says "purge will skip" though the effect is a rollback; a cluster skipped for
   having no judge anchor has already spent a `skill.analyze` token.
 
-## Batch 9: SkillCuratorService rewrite (facade) — IN_PROGRESS
+## Batch 9: SkillCuratorService rewrite (facade) — COMPLETE (commit 678db0b17)
 
 - Recommended executor: backend-developer sub-agent
 - Fallback executor: none (needs design judgement on the facade); re-run the sub-agent with reviewer findings
@@ -1005,7 +1005,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 - Tasks: 4 | Depends on: Batches 6, 7, 8
 - Verification command: `npx nx run @ptah-extension/skill-synthesis:test` (tail) and `:typecheck`
 
-### Task 9.1: runPass orchestration and report — PENDING
+### Task 9.1: runPass orchestration and report — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/skill-curator.service.ts` (+ `skill-curator.service.spec.ts`, rewritten)
 - Plan reference: implementation-plan.md:659-725
@@ -1015,14 +1015,14 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
   (logger, store, rateLimiter, registry, enhancer, suggestionStore, umbrella, retirement, promotion), all explicit
   `@inject`. Remove `technologyFingerprint`/`readCandidateBody` copies.
 
-### Task 9.2: acceptSuggestion delegates to promoteSuggestion — PENDING
+### Task 9.2: acceptSuggestion delegates to promoteSuggestion — COMPLETE
 
 - Same files. Plan reference: implementation-plan.md:677-688
 - Validation notes: R-f; R-f2 (`{accepted:false}` comes from a catch around the whole transaction call, after
   rollback; spec: a throw after the promotion write leaves the suggestion pending and no promoted row); pinned members skipped; registry `remove` for merged promoted members inside the
   transaction; `retirement.removeMaterializations` after commit; `{accepted:false}` on any failure, suggestion stays pending.
 
-### Task 9.3: reconcileAcceptedSuggestions at start — PENDING
+### Task 9.3: reconcileAcceptedSuggestions at start — COMPLETE
 
 - Same files. Plan reference: implementation-plan.md:689-696
 - Validation notes: A1 — match registry rows of either `authored` or `synth`, require `<activeRoot>/<slug>/SKILL.md`,
@@ -1038,7 +1038,7 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
   `SS/skill-suggestion.store.ts`, `SS/skill-suggestion.store.spec.ts`. Batch 12 (deletions in the same store) runs
   later and must keep this method.
 
-### Task 9.4: Retarget the cluster hold-out end-to-end spec — PENDING
+### Task 9.4: Retarget the cluster hold-out end-to-end spec — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-578-skill-lifecycle/libs/backend/skill-synthesis/src/lib/gates/cluster-holdout-end-to-end.spec.ts`
 - Validation notes: R-d — it mocks `clusterCandidates`, `synthesizeFromCluster`, `hasExistingForCluster`,
@@ -1049,6 +1049,115 @@ Fix-up list (pending the logic-lane verdict; all small, no behaviour change exce
 
 - Curator rewritten (~550 lines), no caller of the old methods remains outside their own files; tests + typecheck
   pass; reviewer accepted
+
+### Batch 9 on-disk verification (team-leader)
+
+- Files on disk, real implementations (no stubs): `SS/skill-curator.service.ts` (834 lines), `SS/lifecycle/adoptable-slug.ts`
+  and `SS/lifecycle/curator-report.ts` (new), `SS/skill-suggestion.store.ts` (+`linkPromotedCandidate`, +17), and specs
+  `skill-curator.service.spec.ts`, `skill-suggestion.store.spec.ts`, `gates/cluster-holdout-end-to-end.spec.ts`,
+  `di/register.spec.ts`.
+- R-f / R-f2 by reading: `commitAccept` (`:412-428`), `mergeMembers` (`:437-468`), `commitReconcile` (`:627-638`) call only
+  plain statements (`accept`, `findById`, `rejectIfStatus`, `registry.remove`, `linkPromotedCandidate`) and hold no catch.
+  The fail-soft answers come from catches around the whole `promoteSuggestion` (`:383-401`) / `adoptMaterializedSkill`
+  (`:597-620`) call.
+- Re-run by team-leader (`--skip-nx-cache`): `skill-synthesis:typecheck` pass; `lint` 0 errors, 27 warnings, none in a
+  Batch 9 file; tests 84 suites passed + 1 skipped, 1788 passed / 1 skipped / 0 failed; degradation audit exit 0,
+  `libs/backend/skill-synthesis: 5 ok (baseline 6)`.
+- Not Batch 9 (do not stage): `libs/frontend/skill-synthesis-ui/**` (Batch 14, another team-leader), `context.md`,
+  `visual-review.md`, `visual/`.
+
+### Batch 9 open-point decisions (team-leader)
+
+1. `linkPromotedCandidate` — ACCEPTED. It is the scope addition approved during Batch 9 (Task 9.3 above). It is one guarded
+   UPDATE with no own transaction and no catch, and it has 4 store specs. Batch 12 must keep it.
+2. `materializedBaseSlug` duplicates the private `SkillMdGenerator.sanitizeSlug` (`skill-md-generator.ts:419-426`). It is
+   ACCEPTED as a copy: making `sanitizeSlug` public widens the generator's API for one caller. Condition: a spec must
+   pin the two together, e.g. `promoteToActive` with an awkward name writes `<root>/<materializedBaseSlug(name)>`. If
+   they drift, the result is fail-closed but silent (legacy accepted suggestions are never adopted). This spec is part
+   of the revision below.
+3. `lifecycle/adoptable-slug.ts` and `lifecycle/curator-report.ts` — ACCEPTED under the facade rule. Each module has
+   one nameable purpose: the A1 proof rule (`findAdoptableSlug`), and the pass-stats type plus its report writer
+   (`CuratorPassStats`, `writeCuratorReport`). Neither is a fragment of the curator's private state, and both sit in
+   `lifecycle/` next to their siblings.
+4. 10 constructor deps (plan: 9) — ACCEPTED. `mdGenerator` is read only for `activeRoot()` (reconcile rule A1), and a
+   root-path token would be a new DI surface for the same value. Carry: if Batch 12 adds an 11th dep, extract the
+   reconcile (`reconcileAcceptedSuggestions`, `reconcileOne`, `commitReconcile`) into a `lifecycle/` collaborator.
+5. Degradation baseline 6 → 5 — ACCEPTED. The drop comes from removing the old curator's sentinel catch. `tools/degradation-audit/baseline.json` is
+   shared config outside this batch's files and is NOT edited here. Carry to Batch 12 / Mode 3: ratchet the
+   `libs/backend/skill-synthesis` entry down to the final count after Batch 12's deletions.
+
+### Batch 9 review verdict
+
+- Review mode (user decision, 2026-10-02: "In-process now, lane later"): no CLI vendor had quota, so an in-process
+  code-logic-reviewer is this batch's review. An antigravity lane re-reviews the same Batch 9 commits before the PR,
+  and its findings land as fix-up commits.
+- Logic (in-process code-logic-reviewer): NEEDS_REVISION 7/10 (`code-logic-review.md` `## Batch 9`). No BLOCKING
+  findings; production logic holds for R-f, R-f2, the Batch 6 HARD carries (in code) and the Task 9.1 order.
+- Revision list (same executor; real fixes, no suppressions):
+  1. S-1 (spec gaps on the adopt path, `skill-curator.service.spec.ts:1015-1029`). Add (a) a real-DB mid-callback
+     throw in the adopt `onCommit` proving rollback: no promoted row, `promoted_candidate_id` NULL, registry row
+     unchanged. This is the R-f2 proof on the adopt side; accept already has it at `:774-791`. Add (b) an adopt-side
+     `RegistrySlugOwnedByPluginError` → `failed` case (Batch 6 HARD carry 1: "a spec each"). Add (c) the
+     `linkedOnly` adopt branch, (d) `runManual` awaiting an in-flight reconcile, and (e) a reconcile that merges a
+     promoted member and removes its directory after commit.
+  2. M-1 (`skill-curator.service.ts:690-701`): `exempt` is assigned before `listByStatus('promoted')` runs, so a throw
+     there returns a PARTIAL set and the umbrella pass runs fail-open. Build the set in a local and assign it only
+     after both reads succeed, so a throw returns `null`. Add a spec for that case.
+  3. Decision 2 above: a spec pinning `materializedBaseSlug` to `SkillMdGenerator`'s slug derivation.
+- Carried, not part of this revision:
+  - M-2: reconcile applies the full member merge to legacy accepted suggestions, so promoted members' directories are
+    removed at boot. This follows plan A1/9.3; it goes to the Mode 3 handoff for user visibility.
+  - M-3: unproven legacy rows (edited body) warn on every start and are never adopted. This fails safe; it goes to
+    `future-enhancements.md` (a one-time warn, or a relaxed proof).
+  - M-4: a pass awaits the reconcile with no timeout, and the reconcile's repropagation is not user-initiated. This
+    goes to `future-enhancements.md`.
+  - MINOR: `start()` twice leaks the interval (pre-existing); `skippedExempt` is only logged. Both go to
+    `future-enhancements.md`.
+
+### Batch 9 re-review and commit
+
+- Revision (same executor): adopt-path specs S-1 (a)-(e) in `skill-curator.service.spec.ts:1073-1273`; M-1 fixed
+  (`skill-curator.service.ts:680-701`, local `built`, `null` on throw; spec `:441-460`); slug pin in the new
+  `lifecycle/adoptable-slug.spec.ts:46-83` (10 names through the real `promoteToActive`, 2 that sanitize to nothing).
+- Logic re-review (in-process code-logic-reviewer): APPROVED 8/10 (`code-logic-review.md` `## Batch 9 re-review`).
+  Every revision item is resolved and every spec is load-bearing; R-f / R-f2 hold. Two MINOR notes (no `linkedOnly`
+  rollback case of its own; the M-1 spec throws on every `listByStatus` call), not blocking.
+- Team-leader pre-commit re-run (`--skip-nx-cache`): skill-synthesis typecheck pass; lint 0 errors / 27 warnings
+  (unchanged); degradation audit exit 0 (`skill-synthesis: 5 ok (baseline 6)`). Each suite was run alone:
+  - `skill-curator.service.spec` 31/31
+  - `adoptable-slug.spec` 12/12
+  - `cluster-holdout-end-to-end.spec` 3/3
+  - `skill-suggestion.store.spec` 33/33
+  - `register.spec` 13/13
+- Load flakes, not regressions: `spec-harvester.service.spec` (13/13) and
+  `cleanup/skill-backlog-cleanup.integration.spec` (2/2) pass in isolation. They timed out at 5000 ms only in
+  full-project runs. Batch 9 does not touch either file.
+- Committed as 678db0b17 with exactly the 9 Batch 9 source/spec files. Not staged: `context.md`,
+  `visual/batch-14/_work/`.
+- Antigravity lane re-review of 678db0b17 is still owed before the PR (user decision); its findings land as fix-up
+  commits.
+
+### Batch 9 carries
+
+`future-enhancements.md` does not exist yet; these are the carries until Mode 3 consolidates them.
+
+- Batch 12:
+  - keep `SkillSuggestionStore.linkPromotedCandidate`;
+  - ratchet `tools/degradation-audit/baseline.json` `libs/backend/skill-synthesis` down to the final count after the
+    deletions (5 today);
+  - if the curator gains an 11th constructor dep, extract the reconcile (`reconcileAcceptedSuggestions`,
+    `reconcileOne`, `commitReconcile`) into a `lifecycle/` collaborator.
+- Mode 3 handoff (user visibility), M-2: the boot reconcile merges promoted members of legacy accepted suggestions and
+  removes their directories. This follows plan A1/9.3, but before 578 an accept never merged promoted members.
+- Future enhancements:
+  - M-3: unproven legacy rows (body edited) warn on every start and are never adopted. Options: a one-time warn, or a
+    relaxed proof.
+  - M-4: a pass awaits the reconcile with no timeout, and the reconcile's repropagation is not user-initiated, so a
+    manual run can wait behind it.
+  - MINOR: a second `start()` leaks the first interval (pre-existing).
+  - MINOR: `skippedExempt` is only logged, not returned.
+  - MINOR: no dedicated rollback spec for the `linkedOnly` adopt branch.
+  - R-l (from Batch 3): N+1 in `listActiveOrderedByDecayScore`.
 
 ## Batch 10: Diagnostics counts and SS default (post-586) — COMPLETE (1a6c5f2fe)
 
