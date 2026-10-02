@@ -130,14 +130,16 @@ describe('AdvancedSettingsComponent', () => {
     expect(element.querySelector('[data-testid="import-confirm"]')).toBeNull();
   });
 
-  it('surfaces an Electron import result with errors as an inline alert, not a success line', async () => {
-    rpc.call.mockResolvedValue(rpcSuccess({ cancelled: false, result: { imported: [], skipped: [], errors: ['secrets:boom'] } }));
+  it('surfaces an Electron import result with errors as an inline alert without leaking host error text', async () => {
+    rpc.call.mockResolvedValue(rpcSuccess({ cancelled: false, result: { imported: [], skipped: [], errors: ['secrets:boom: host detail'] } }));
     await render(true);
     await confirmImport();
     expect(rpc.call).toHaveBeenCalledWith('settings:import', {});
     const outcome = element.querySelector('[data-testid="import-outcome"]');
     expect(outcome?.getAttribute('role')).toBe('alert');
-    expect(outcome?.textContent).toContain('secrets:boom');
+    expect(outcome?.textContent).toContain('Some settings could not be imported.');
+    expect(outcome?.textContent).not.toContain('secrets:boom');
+    expect(outcome?.textContent).not.toContain('host detail');
   });
 
   it('shows the import outcome only from the write result on Electron success', async () => {
@@ -156,13 +158,34 @@ describe('AdvancedSettingsComponent', () => {
     expect(element.querySelector('[data-testid="import-outcome"]')).toBeNull();
   });
 
-  it('surfaces an Electron import RPC error as an inline alert', async () => {
-    rpc.call.mockResolvedValue(rpcError('import handler missing'));
+  it('surfaces an Electron import RPC error as an inline alert without leaking host error text', async () => {
+    rpc.call.mockResolvedValue(rpcError('import handler missing: internal details'));
     await render(true);
     await confirmImport();
     const outcome = element.querySelector('[data-testid="import-outcome"]');
     expect(outcome?.getAttribute('role')).toBe('alert');
-    expect(outcome?.textContent).toContain('import handler missing');
+    expect(outcome?.textContent).toContain('Could not import the settings.');
+    expect(outcome?.textContent).not.toContain('import handler missing');
+  });
+
+  it('surfaces a VS Code import execution error as an inline alert without leaking host error text', async () => {
+    rpc.call.mockResolvedValue(rpcError('command execution failed: internal details'));
+    await render(false);
+    await confirmImport();
+    const outcome = element.querySelector('[data-testid="import-outcome"]');
+    expect(outcome?.getAttribute('role')).toBe('alert');
+    expect(outcome?.textContent).toContain('Could not import the settings.');
+    expect(outcome?.textContent).not.toContain('command execution failed');
+  });
+
+  it('surfaces a thrown import exception as an inline alert without leaking Error message', async () => {
+    rpc.call.mockRejectedValue(new Error('connection reset: internal details'));
+    await render(true);
+    await confirmImport();
+    const outcome = element.querySelector('[data-testid="import-outcome"]');
+    expect(outcome?.getAttribute('role')).toBe('alert');
+    expect(outcome?.textContent).toContain('Could not import the settings.');
+    expect(outcome?.textContent).not.toContain('connection reset');
   });
 
   it('uses settings:export/settings:import in Electron', async () => {

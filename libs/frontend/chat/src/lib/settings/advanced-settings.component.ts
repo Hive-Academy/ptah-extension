@@ -207,7 +207,7 @@ export class AdvancedSettingsComponent {
           if (errors.length > 0) {
             this.importOutcome.set({
               tone: 'alert',
-              message: `Import finished with errors: ${errors.join('; ')}`,
+              message: 'Some settings could not be imported.',
             });
           } else {
             this.importOutcome.set({
@@ -218,7 +218,7 @@ export class AdvancedSettingsComponent {
         } else {
           this.importOutcome.set({
             tone: 'alert',
-            message: result.error ?? 'Import failed. Please try again.',
+            message: 'Could not import the settings.',
           });
         }
       } else {
@@ -231,17 +231,14 @@ export class AdvancedSettingsComponent {
         if (!result.isSuccess()) {
           this.importOutcome.set({
             tone: 'alert',
-            message: result.error ?? 'Import failed. Please try again.',
+            message: 'Could not import the settings.',
           });
         }
       }
-    } catch (error: unknown) {
+    } catch {
       this.importOutcome.set({
         tone: 'alert',
-        message:
-          error instanceof Error
-            ? `Import failed: ${error.message}`
-            : 'Import failed. Please try again.',
+        message: 'Could not import the settings.',
       });
     } finally {
       this.isImporting.set(false);

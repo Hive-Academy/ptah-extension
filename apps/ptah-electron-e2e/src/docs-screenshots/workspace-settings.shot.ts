@@ -69,10 +69,10 @@ test.describe('docs screenshots — workspace, settings, setup', () => {
       await shoot(page, 'agents-orchestration', { crop: settings });
     }
 
-    // NOT captured: `ptah-browser-settings` (Advanced tab) exists, but it holds
-    // a single "Allow Localhost" toggle, while browser-automation/launching-a-
-    // browser.mdx describes an executable path, a headless toggle and a
-    // user-data dir. Shipping the panel under that prose would document three
+    // NOT captured: `ptah-browser-settings` was deleted (Batch 44) and folded
+    // into the MCP & browser card as "Allow localhost", while browser-automation/
+    // launching-a-browser.mdx describes an executable path, a headless toggle and
+    // a user-data dir. Shipping the panel under that prose would document three
     // controls the app does not have — the reference was removed instead, and
     // the prose drift left for a docs pass.
 
