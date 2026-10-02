@@ -208,8 +208,15 @@ describe('LicenseStatusCardComponent', () => {
     expect(element.querySelector('[data-testid="logout-confirm"]')).toBeNull();
   });
 
-  it('keeps the confirm open with the failure inline when license:clearKey fails', async () => {
-    rpc.call.mockResolvedValue(rpcSuccess({ success: false, error: 'server says no' }));
+  /** F1: an RPC failure, `{ success:false, error }` and a thrown Error never show host text. */
+  const HOST_FAILURES: ReadonlyArray<[string, (mock: MockRpcService['call']) => void]> = [
+    ['an RPC failure', (call) => call.mockResolvedValue(rpcError('host detail'))],
+    ['a { success:false, error } answer', (call) => call.mockResolvedValue(rpcSuccess({ success: false, error: 'host detail' }))],
+    ['a thrown Error', (call) => call.mockRejectedValue(new Error('host detail'))],
+  ];
+
+  it.each(HOST_FAILURES)('keeps the log-out confirm open with a fixed sentence on %s', async (_case, arrange) => {
+    arrange(rpc.call);
     await render(premiumStatus);
     element.querySelector<HTMLButtonElement>('[data-testid="logout-button"]')?.click();
     fixture.detectChanges();
@@ -220,7 +227,8 @@ describe('LicenseStatusCardComponent', () => {
     expect(element.querySelector('[data-testid="logout-confirm"]')).not.toBeNull();
     const error = element.querySelector('[data-testid="logout-error"]');
     expect(error?.getAttribute('role')).toBe('alert');
-    expect(error?.textContent).toContain('server says no');
+    expect(error?.textContent?.trim()).toBe('Could not log out.');
+    expect(element.textContent).not.toContain('host detail');
   });
 
   it('rejects a malformed key locally without an RPC call', async () => {
@@ -247,25 +255,16 @@ describe('LicenseStatusCardComponent', () => {
     expect(element.querySelector('[data-testid="membership-key-error"]')).toBeNull();
   });
 
-  it('shows the server rejection inline when the key is not accepted', async () => {
-    rpc.call.mockResolvedValue(rpcSuccess({ success: false, error: 'Key not recognized' }));
+  it.each(HOST_FAILURES)('shows a fixed sentence inline when key activation fails with %s', async (_case, arrange) => {
+    arrange(rpc.call);
     await render(status());
     await openKeyPopover();
     await activate(VALID_KEY);
     const error = element.querySelector('[data-testid="membership-key-error"]');
     expect(error?.getAttribute('role')).toBe('alert');
-    expect(error?.textContent).toContain('Key not recognized');
+    expect(error?.textContent?.trim()).toBe('Could not activate the membership key.');
+    expect(element.textContent).not.toContain('host detail');
     expect(element.querySelector('[data-testid="membership-key-success"]')).toBeNull();
-  });
-
-  it('shows an inline error when the key RPC fails outright', async () => {
-    rpc.call.mockResolvedValue(rpcError('connection lost'));
-    await render(status());
-    await openKeyPopover();
-    await activate(VALID_KEY);
-    const error = element.querySelector('[data-testid="membership-key-error"]');
-    expect(error?.getAttribute('role')).toBe('alert');
-    expect(error?.textContent).toContain('connection lost');
   });
 
   it('never persists a typed key after the popover closes', async () => {

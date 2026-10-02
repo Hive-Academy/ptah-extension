@@ -24,6 +24,10 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { ChatStore } from '../../services/chat.store';
 
+/** One fixed sentence per action (F1): no host, server or transport text reaches the UI. */
+const ACTIVATE_KEY_FAILED = 'Could not activate the membership key.';
+const LOGOUT_FAILED = 'Could not log out.';
+
 /**
  * LicenseStatusCardComponent — the "Membership & data" section card
  * (TASK_2026_555 Advanced tab, pattern map rows A1-A7).
@@ -594,17 +598,11 @@ export class LicenseStatusCardComponent {
         );
         this.licenseKeyInput.set('');
       } else {
-        const errorMsg = result.isSuccess() ? result.data.error : result.error;
-        this.licenseKeyError.set(
-          errorMsg ?? 'Membership verification failed. Please check your key.',
-        );
+        this.licenseKeyError.set(ACTIVATE_KEY_FAILED);
       }
-    } catch (error: unknown) {
-      this.licenseKeyError.set(
-        error instanceof Error
-          ? `Failed to verify membership key: ${error.message}`
-          : 'Failed to verify membership key. Please try again.',
-      );
+    } catch {
+      // A thrown transport error gets the same fixed sentence.
+      this.licenseKeyError.set(ACTIVATE_KEY_FAILED);
     } finally {
       this.isSubmittingKey.set(false);
     }
@@ -635,17 +633,11 @@ export class LicenseStatusCardComponent {
       if (result.isSuccess() && result.data.success) {
         this.confirmingLogout.set(false);
       } else {
-        const errorMsg = result.isSuccess() ? result.data.error : result.error;
-        this.logoutError.set(
-          errorMsg ?? 'Log out failed. Please try again.',
-        );
+        this.logoutError.set(LOGOUT_FAILED);
       }
-    } catch (error: unknown) {
-      this.logoutError.set(
-        error instanceof Error
-          ? `Log out failed: ${error.message}`
-          : 'Log out failed. Please try again.',
-      );
+    } catch {
+      // A thrown transport error gets the same fixed sentence.
+      this.logoutError.set(LOGOUT_FAILED);
     } finally {
       this.isLoggingOut.set(false);
     }
