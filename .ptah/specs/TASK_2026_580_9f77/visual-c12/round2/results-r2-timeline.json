@@ -1,0 +1,924 @@
+{
+  "anubis-360": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 595,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 797,
+        "rows": 12,
+        "chips": 0,
+        "fb": false,
+        "localSearch": false,
+        "sk": false,
+        "h": 783,
+        "top": 123
+      },
+      {
+        "t": 820,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      }
+    ],
+    "ls": [
+      {
+        "t": 701,
+        "v": 0.0007,
+        "had": false,
+        "srcs": ["BUTTON", "BUTTON", "BUTTON", "SPAN", "BUTTON"]
+      },
+      {
+        "t": 798,
+        "v": 0.0101,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      },
+      {
+        "t": 821,
+        "v": 0.0783,
+        "had": false,
+        "srcs": ["DIV", "LI", "LI", "LI", "LI"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4097,
+        "v": 0.0347,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5410,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 243
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6095,
+        "v": 0.0022,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ],
+    "aria": "- list:\n  - listitem:\n    - button \"Refactor session loader 12m ago 12 msgs\"\n    - 'button \"Organize session: Refactor session loader\"'\n    - 'button \"Rename session: Refactor session loader\"'\n    - 'button \"Delete session: Refactor session loader\"'\n    - list \"Session organization\":\n      - 'listitem \"Live: Running\"'\n      - listitem \"Pinned\"\n      - 'listitem \"Priority: High\"': High\n      - listitem \"Linked primary task TASK_2026_580_9f77\": TASK_2026_580_9f77\n      - listitem \"Linked related task TASK_2026_999_gone (missing)\": TASK_2026_999_gone missing\n      - listitem \"2 pull requests\": \"2\"\n  - listitem:",
+    "listRoles": {
+      "uls": ["(native)", "(native)", "(native)", "(native)"],
+      "lis": 31,
+      "explicitRoles": 0
+    },
+    "confirmOpenMs": 5032,
+    "confirm": {
+      "open": false,
+      "focusInside": false,
+      "active": "BUTTON",
+      "rect": null,
+      "vw": 360,
+      "text": null
+    },
+    "confirmAfterEsc": {
+      "open": false,
+      "active": "Delete session",
+      "inRow": true,
+      "deleteRpc": 0,
+      "rows": 12
+    },
+    "confirmSecond": {
+      "open": false,
+      "rows": 12
+    }
+  },
+  "anubis-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 565,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 675,
+        "rows": 12,
+        "chips": 0,
+        "fb": false,
+        "localSearch": false,
+        "sk": false,
+        "h": 783,
+        "top": 123
+      },
+      {
+        "t": 699,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      }
+    ],
+    "ls": [
+      {
+        "t": 602,
+        "v": 0.0006,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 676,
+        "v": 0.01,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      },
+      {
+        "t": 699,
+        "v": 0.0774,
+        "had": false,
+        "srcs": ["DIV", "LI", "LI", "LI", "LI"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 3961,
+        "v": 0.0345,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5287,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 243
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 5977,
+        "v": 0.0021,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ],
+    "aria": "- list:\n  - listitem:\n    - button \"Refactor session loader 12m ago 12 msgs\"\n    - 'button \"Organize session: Refactor session loader\"'\n    - 'button \"Rename session: Refactor session loader\"'\n    - 'button \"Delete session: Refactor session loader\"'\n    - list \"Session organization\":\n      - 'listitem \"Live: Running\"'\n      - listitem \"Pinned\"\n      - 'listitem \"Priority: High\"': High\n      - listitem \"Linked primary task TASK_2026_580_9f77\": TASK_2026_580_9f77\n      - listitem \"Linked related task TASK_2026_999_gone (missing)\": TASK_2026_999_gone missing\n      - listitem \"2 pull requests\": \"2\"\n  - listitem:",
+    "listRoles": {
+      "uls": ["(native)", "(native)", "(native)", "(native)"],
+      "lis": 31,
+      "explicitRoles": 0
+    },
+    "confirmOpenMs": 5029,
+    "confirm": {
+      "open": false,
+      "focusInside": false,
+      "active": "BUTTON",
+      "rect": null,
+      "vw": 800,
+      "text": null
+    },
+    "confirmAfterEsc": {
+      "open": false,
+      "active": "Delete session",
+      "inRow": true,
+      "deleteRpc": 0,
+      "rows": 12
+    },
+    "confirmSecond": {
+      "open": false,
+      "rows": 12
+    }
+  },
+  "anubis-1400": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 768,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 942,
+        "rows": 12,
+        "chips": 0,
+        "fb": false,
+        "localSearch": false,
+        "sk": false,
+        "h": 783,
+        "top": 123
+      },
+      {
+        "t": 1005,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      }
+    ],
+    "ls": [
+      {
+        "t": 814,
+        "v": 0.0004,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 945,
+        "v": 0.0037,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      },
+      {
+        "t": 1007,
+        "v": 0.0284,
+        "had": false,
+        "srcs": ["DIV", "LI", "LI", "LI", "LI"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4274,
+        "v": 0.0127,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5615,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 243
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6304,
+        "v": 0.0008,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-light-360": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 617,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 753,
+        "rows": 12,
+        "chips": 0,
+        "fb": false,
+        "localSearch": false,
+        "sk": false,
+        "h": 783,
+        "top": 123
+      },
+      {
+        "t": 805,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 217
+      }
+    ],
+    "ls": [
+      {
+        "t": 659,
+        "v": 0.0007,
+        "had": false,
+        "srcs": ["BUTTON", "BUTTON", "BUTTON", "SPAN", "BUTTON"]
+      },
+      {
+        "t": 755,
+        "v": 0.0101,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      },
+      {
+        "t": 806,
+        "v": 0.0783,
+        "had": false,
+        "srcs": ["DIV", "LI", "LI", "LI", "LI"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4128,
+        "v": 0.0345,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5443,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 245
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6150,
+        "v": 0.002,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ],
+    "aria": "- list:\n  - listitem:\n    - button \"Refactor session loader 12m ago 12 msgs\"\n    - 'button \"Organize session: Refactor session loader\"'\n    - 'button \"Rename session: Refactor session loader\"'\n    - 'button \"Delete session: Refactor session loader\"'\n    - list \"Session organization\":\n      - 'listitem \"Live: Running\"'\n      - listitem \"Pinned\"\n      - 'listitem \"Priority: High\"': High\n      - listitem \"Linked primary task TASK_2026_580_9f77\": TASK_2026_580_9f77\n      - listitem \"Linked related task TASK_2026_999_gone (missing)\": TASK_2026_999_gone missing\n      - listitem \"2 pull requests\": \"2\"\n  - listitem:",
+    "listRoles": {
+      "uls": ["(native)", "(native)", "(native)", "(native)"],
+      "lis": 31,
+      "explicitRoles": 0
+    },
+    "confirmOpenMs": 5012,
+    "confirm": {
+      "open": false,
+      "focusInside": false,
+      "active": "BUTTON",
+      "rect": null,
+      "vw": 360,
+      "text": null
+    },
+    "confirmAfterEsc": {
+      "open": false,
+      "active": "Delete session",
+      "inRow": true,
+      "deleteRpc": 0,
+      "rows": 12
+    },
+    "confirmSecond": {
+      "open": false,
+      "rows": 12
+    }
+  },
+  "anubis-light-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 498,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 701,
+        "rows": 12,
+        "chips": 0,
+        "fb": false,
+        "localSearch": false,
+        "sk": false,
+        "h": 783,
+        "top": 123
+      },
+      {
+        "t": 735,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      },
+      {
+        "t": 804,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 217
+      }
+    ],
+    "ls": [
+      {
+        "t": 701,
+        "v": 0.01,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      },
+      {
+        "t": 736,
+        "v": 0.0958,
+        "had": false,
+        "srcs": ["DIV", "#text", "DIV", "LI", "LI"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4060,
+        "v": 0.0343,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5385,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 245
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6093,
+        "v": 0.002,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ],
+    "aria": "- list:\n  - listitem:\n    - button \"Refactor session loader 13m ago 12 msgs\"\n    - 'button \"Organize session: Refactor session loader\"'\n    - 'button \"Rename session: Refactor session loader\"'\n    - 'button \"Delete session: Refactor session loader\"'\n    - list \"Session organization\":\n      - 'listitem \"Live: Running\"'\n      - listitem \"Pinned\"\n      - 'listitem \"Priority: High\"': High\n      - listitem \"Linked primary task TASK_2026_580_9f77\": TASK_2026_580_9f77\n      - listitem \"Linked related task TASK_2026_999_gone (missing)\": TASK_2026_999_gone missing\n      - listitem \"2 pull requests\": \"2\"\n  - listitem:",
+    "listRoles": {
+      "uls": ["(native)", "(native)", "(native)", "(native)"],
+      "lis": 31,
+      "explicitRoles": 0
+    },
+    "confirmOpenMs": 5022,
+    "confirm": {
+      "open": false,
+      "focusInside": false,
+      "active": "BUTTON",
+      "rect": null,
+      "vw": 800,
+      "text": null
+    },
+    "confirmAfterEsc": {
+      "open": false,
+      "active": "Delete session",
+      "inRow": true,
+      "deleteRpc": 0,
+      "rows": 12
+    },
+    "confirmSecond": {
+      "open": false,
+      "rows": 12
+    }
+  },
+  "anubis-light-1400": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 537,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 763,
+        "rows": 12,
+        "chips": 0,
+        "fb": false,
+        "localSearch": false,
+        "sk": false,
+        "h": 783,
+        "top": 123
+      },
+      {
+        "t": 802,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 217
+      }
+    ],
+    "ls": [
+      {
+        "t": 611,
+        "v": 0.0004,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 764,
+        "v": 0.0037,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      },
+      {
+        "t": 804,
+        "v": 0.0284,
+        "had": false,
+        "srcs": ["DIV", "LI", "LI", "LI", "LI"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4127,
+        "v": 0.0126,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5459,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 245
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6158,
+        "v": 0.0007,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "vscode-anubis-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 558,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 787,
+        "top": 113
+      },
+      {
+        "t": 721,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 1014,
+        "top": 119
+      },
+      {
+        "t": 2377,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 838,
+        "top": 119
+      },
+      {
+        "t": 2394,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 822,
+        "top": 119
+      },
+      {
+        "t": 2411,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 806,
+        "top": 119
+      }
+    ],
+    "ls": [
+      {
+        "t": 605,
+        "v": 0.0024,
+        "had": false,
+        "srcs": ["DIV", "#text", "BUTTON", "DIV", "H2"]
+      },
+      {
+        "t": 2244,
+        "v": 0.0063,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2261,
+        "v": 0.0129,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2278,
+        "v": 0.0219,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2297,
+        "v": 0.2917,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "#text", "IMG"]
+      },
+      {
+        "t": 2317,
+        "v": 0.0342,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2335,
+        "v": 0.0709,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2349,
+        "v": 0.0228,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "SPAN"]
+      },
+      {
+        "t": 2364,
+        "v": 0.0166,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "SPAN"]
+      },
+      {
+        "t": 2378,
+        "v": 0.1832,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "LI", "LI", "LI"]
+      },
+      {
+        "t": 2396,
+        "v": 0.0168,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "LI", "LI", "LI"]
+      },
+      {
+        "t": 2413,
+        "v": 0.0068,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2430,
+        "v": 0.0051,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "IMG"]
+      },
+      {
+        "t": 2445,
+        "v": 0.0041,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV"]
+      },
+      {
+        "t": 2462,
+        "v": 0.0027,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV"]
+      }
+    ],
+    "aria": "- list:\n  - listitem:\n    - button \"Refactor session loader 13m ago 12 msgs\"\n    - 'button \"Rename session: Refactor session loader\"'\n    - 'button \"Delete session: Refactor session loader\"'\n  - listitem:\n    - button \"Fix flaky e2e on CI 1h ago 13 msgs\"\n    - 'button \"Rename session: Fix flaky e2e on CI\"'\n    - 'button \"Delete session: Fix flaky e2e on CI\"'\n  - listitem:\n    - button \"Investigate memory leak in the renderer process... 2h ago 14 msgs\"\n    - 'button \"Rename session: Investigate memory leak in the renderer process...\"'",
+    "listRoles": {
+      "uls": ["(native)"],
+      "lis": 13,
+      "explicitRoles": 0,
+      "listStyle": "none",
+      "ulPad": "0px"
+    }
+  },
+  "vscode-anubis-light-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 579,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 787,
+        "top": 113
+      },
+      {
+        "t": 743,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 1014,
+        "top": 119
+      },
+      {
+        "t": 2423,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 838,
+        "top": 119
+      },
+      {
+        "t": 2439,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 822,
+        "top": 119
+      },
+      {
+        "t": 2457,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 806,
+        "top": 119
+      }
+    ],
+    "ls": [
+      {
+        "t": 653,
+        "v": 0.0024,
+        "had": false,
+        "srcs": ["DIV", "#text", "BUTTON", "DIV", "H2"]
+      },
+      {
+        "t": 2289,
+        "v": 0.0063,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2309,
+        "v": 0.0128,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2326,
+        "v": 0.0221,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2342,
+        "v": 0.2911,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "#text", "IMG"]
+      },
+      {
+        "t": 2357,
+        "v": 0.0344,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2374,
+        "v": 0.0709,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2395,
+        "v": 0.0228,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "SPAN"]
+      },
+      {
+        "t": 2408,
+        "v": 0.0166,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "SPAN"]
+      },
+      {
+        "t": 2425,
+        "v": 0.1832,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "LI", "LI", "LI"]
+      },
+      {
+        "t": 2440,
+        "v": 0.0168,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "LI", "LI", "LI"]
+      },
+      {
+        "t": 2458,
+        "v": 0.0068,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2473,
+        "v": 0.0052,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV", "IMG"]
+      },
+      {
+        "t": 2491,
+        "v": 0.0041,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV"]
+      },
+      {
+        "t": 2508,
+        "v": 0.0026,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV"]
+      }
+    ],
+    "aria": "- list:\n  - listitem:\n    - button \"Refactor session loader 13m ago 12 msgs\"\n    - 'button \"Rename session: Refactor session loader\"'\n    - 'button \"Delete session: Refactor session loader\"'\n  - listitem:\n    - button \"Fix flaky e2e on CI 1h ago 13 msgs\"\n    - 'button \"Rename session: Fix flaky e2e on CI\"'\n    - 'button \"Delete session: Fix flaky e2e on CI\"'\n  - listitem:\n    - button \"Investigate memory leak in the renderer process... 2h ago 14 msgs\"\n    - 'button \"Rename session: Investigate memory leak in the renderer process...\"'",
+    "listRoles": {
+      "uls": ["(native)"],
+      "lis": 13,
+      "explicitRoles": 0,
+      "listStyle": "none",
+      "ulPad": "0px"
+    }
+  }
+}

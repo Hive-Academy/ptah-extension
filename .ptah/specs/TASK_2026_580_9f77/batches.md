@@ -2308,20 +2308,22 @@ store not open` and left organization, task-link and PR-link rows that nothing
 
 ## Post-plan commits (after T1/T2; recorded 2026-10-02)
 
-| Commit      | What                                                                                                                                                                                                                         | Review                                                             |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `f4f8df705` | Merge `origin/main`: #622 (TASK_2026_584), #624 boot-gate fix `1095a8f20` (root cause of the F1 window), #626 (TASK_2026_578 migration 0051). 0050 before 0051; 12 max-version asserts `toBe(51)`; MCP sweep counts 62/59.   | `code-logic-review-main-merge.md` APPROVED 10/10                   |
-| `58bfdf744` | R-TL8: `SessionSpawnerService` records agent-started child sessions; Electron + CLI container smoke specs pin the recorder injection (mutation-checked). Docs `753fa9e05`.                                                   | `code-logic-review-R-TL8.md` APPROVED 8/10 (opencode fallback)     |
-| `31dc6f05c` | Electron e2e regression from C1.2: a `session:list` reply without `sessions` left the list undefined, so `groupSessionRows` threw in change detection and aborted the shell render; it now reads as empty. Docs `14bc64c90`. | `code-logic-review-e2e-fix.md` APPROVED 10/10                      |
-| `e65b1038c` | Merge `origin/main`: #628 close-tab-ends-session, TASK_2026_592. Clean.                                                                                                                                                      | none needed (clean merge)                                          |
-| `dd88cfb3e` | CI round 2: `ClosedTabSessionEnderService` stub in `app-shell.organization.spec.ts`; e2e fixture `sessionRowButton` no longer depends on the removed `role="listitem"`. Docs `724a4515a`.                                    | `code-logic-review-ci-round2.md` APPROVED 9/10 (opencode fallback) |
+| Commit      | What                                                                                                                                                                                                                         | Review                                                                                                                  |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `f4f8df705` | Merge `origin/main`: #622 (TASK_2026_584), #624 boot-gate fix `1095a8f20` (root cause of the F1 window), #626 (TASK_2026_578 migration 0051). 0050 before 0051; 12 max-version asserts `toBe(51)`; MCP sweep counts 62/59.   | `code-logic-review-main-merge.md` APPROVED 10/10                                                                        |
+| `58bfdf744` | R-TL8: `SessionSpawnerService` records agent-started child sessions; Electron + CLI container smoke specs pin the recorder injection (mutation-checked). Docs `753fa9e05`.                                                   | `code-logic-review-R-TL8.md` APPROVED 8/10 (opencode fallback)                                                          |
+| `31dc6f05c` | Electron e2e regression from C1.2: a `session:list` reply without `sessions` left the list undefined, so `groupSessionRows` threw in change detection and aborted the shell render; it now reads as empty. Docs `14bc64c90`. | `code-logic-review-e2e-fix.md` APPROVED 10/10                                                                           |
+| `e65b1038c` | Merge `origin/main`: #628 close-tab-ends-session, TASK_2026_592. Clean.                                                                                                                                                      | none needed (clean merge)                                                                                               |
+| `55277f333` | V1 fix: render the sidebar filter bar and chips synchronously again (reverts their `@defer (on immediate)` from `46a5020da`; first-paint CLS 0.106 → 0.006-0.018). Docs `901d472c4`.                                         | `code-logic-review-defer-revert.md` APPROVED 9/10 (opencode fallback); `visual-review-C1.2-r2.md` round 3 APPROVED 9/10 |
+| `dd88cfb3e` | CI round 2: `ClosedTabSessionEnderService` stub in `app-shell.organization.spec.ts`; e2e fixture `sessionRowButton` no longer depends on the removed `role="listitem"`. Docs `724a4515a`.                                    | `code-logic-review-ci-round2.md` APPROVED 9/10 (opencode fallback)                                                      |
 
 Gate note: the antigravity quota is exhausted (about 125 h). Per the lane rules, the R-TL8
 and CI round-2 reviews ran on opencode after two antigravity failures each.
 
 ## Completion pass (team-leader Mode 3, 2026-10-02, at `724a4515a`)
 
-**Result: PASSED WITH ONE OPEN VISUAL CHECK** (Gap V1 below). Task status set to
+**Result: PASSED** (final, 2026-10-02, at `901d472c4`). Gap V1, opened at `724a4515a`, was
+closed by fix `55277f333` and visual round 3 (see Gap V1 below). Task status
 `in_review` (PR #623 open).
 
 ### Batches, commits, reviews
@@ -2359,15 +2361,25 @@ were extended:
   `visual-c23/`; base-commit before shots and the after comparison in `visual-v0/`.
 - No prototype exists (plan :973); fidelity was checked against plan components 11-12
   and the before shots.
-- **Gap V1 (open; blocks marking PR #623 ready until done):** `46a5020da` (CI fixes)
-  moved the sidebar filter bar and the per-row chips behind `@defer (on immediate)`
-  with no `@placeholder`, and removed list roles. These are rendered changes made after
-  the C1.2 visual review, and only a logic review checked them. Needed: one
-  visual-reviewer pass on the current build, written to `visual-review-C1.2-r2.md`:
-  - Electron sidebar at 360 and 800, dark and light;
-  - first-paint layout shift when the deferred filter bar and chips arrive;
-  - steady state unchanged from `visual-c12/round1/`;
-  - the VS Code shape still matching the before shots.
+- **Gap V1 (CLOSED):** `46a5020da` (CI fixes) had moved the sidebar filter bar and
+  per-row chips behind `@defer (on immediate)` with no placeholder, after the C1.2
+  visual review.
+  - Round 2 (`visual-review-C1.2-r2.md`, REVISE 7.5/10) confirmed the defect: a 1-3
+    frame no-chips state and a first-paint CLS of up to 0.106.
+  - Fix `55277f333` (`fix(chat): render the session filter bar and chips with the
+sidebar`) renders both synchronously again. It keeps the on-demand deferrals of the
+    editor, confirm dialog, transcript overlay and wizard, and fixes stale spec
+    comments. Webview initial bundle: 3,457 kB, under the 3,500 kB budget. Review:
+    `code-logic-review-defer-revert.md` APPROVED 9/10 (opencode, after two antigravity
+    quota failures). Docs `901d472c4`.
+  - Round 3 (top section of `visual-review-C1.2-r2.md`) APPROVED 9/10 at 360/800/1400,
+    dark and light: first-paint CLS 0.006-0.018. Steady state, editor focus and the
+    VS Code shape are unchanged; the steady-state `r3-*` shots are byte-identical to
+    `r2-*`.
+  - Evidence: `visual-c12/round2/`, `visual-c12/round3/`, and scripts `c12r2.mjs`,
+    `c12r3.mjs`, `extra-r2.mjs`, `extra-r3.mjs`, `hover-r2.mjs`, `confirm-r2.mjs`,
+    `timeline-pre.mjs`, `timeline-r2.mjs`, `timeline-r3.mjs`. The unreferenced
+    `confirm-tail.txt` was dropped (an exact fragment of `confirm-r2.mjs`).
 
 ### Write-path trace
 
@@ -2426,8 +2438,12 @@ were extended:
 
 ### Consolidated follow-ups (open; not blocking unless marked)
 
-- **Blocking before PR #623 is marked ready (V1):** visual re-check of the deferred
-  sidebar (see above).
+- **V1:** closed (`55277f333`, round 3 APPROVED). No blocking follow-ups remain.
+- **Confirm dialog (pre-existing, not task 580):** `ConfirmationDialogComponent` does not
+  move focus into the modal, does not close on Escape, and drops focus to `BODY` after
+  Cancel (`visual-review-C1.2-r2.md` round-2 minor 2). Also open from round 2: the VS
+  Code mock import settling note and a 2px theme-token settle at 360 light (also present
+  before the deferral).
 - **Smoke owed:**
   - S2, S3, S4, AC5 resume and the CLI host, with a credentialed profile;
   - S6 steady-state cascade on an idle machine with an exclusive `dist`;
