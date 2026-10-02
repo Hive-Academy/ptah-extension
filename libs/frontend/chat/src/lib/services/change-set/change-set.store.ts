@@ -106,9 +106,15 @@ function changeSetKey(changeSet: TurnChangeSet): string {
   return `${changeSet.turnStartedAt}:${changeSet.turnEndedAt}`;
 }
 
+function trimTrailingSlashes(path: string): string {
+  let end = path.length;
+  while (end > 0 && path[end - 1] === '/') end--;
+  return path.slice(0, end);
+}
+
 /** Forward slashes, no trailing slash, drive paths case-folded. */
 function normalizeRoot(root: string): string {
-  const slashed = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  const slashed = trimTrailingSlashes(root.replaceAll('\\', '/'));
   return /^[a-z]:\//i.test(slashed) ? slashed.toLowerCase() : slashed;
 }
 
@@ -148,9 +154,9 @@ function toSnapshot(
   const conflicted = new Set<string>();
   for (const file of info.files) {
     if (!isRecord(file) || typeof file.path !== 'string') continue;
-    const path = file.path.replace(/\\/g, '/');
+    const path = file.path.replaceAll('\\', '/');
     if (file.isDirectory) {
-      untrackedDirs.push(path.replace(/\/+$/, ''));
+      untrackedDirs.push(trimTrailingSlashes(path));
       continue;
     }
     present.add(path);

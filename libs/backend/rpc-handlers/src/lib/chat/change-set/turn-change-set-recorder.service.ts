@@ -74,7 +74,15 @@ interface PathState {
 }
 
 type Snapshot =
-  | { readonly kind: 'ok'; readonly paths: ReadonlyMap<string, PathState> }
+  | {
+      readonly kind: 'ok';
+      /**
+       * The repository top level the paths are relative to (git status
+       * reports root-relative paths, also from a subdirectory).
+       */
+      readonly repositoryRoot: string;
+      readonly paths: ReadonlyMap<string, PathState>;
+    }
   | { readonly kind: 'not-repo' }
   | { readonly kind: 'unavailable'; readonly reason: string };
 
@@ -217,7 +225,12 @@ export class TurnChangeSetRecorder {
     const baselineMissing = baselineSnapshot?.kind !== 'ok';
     const before: ReadonlyMap<string, PathState> =
       baselineSnapshot?.kind === 'ok' ? baselineSnapshot.paths : new Map();
-    const changed = diffSnapshots(before, after.paths);
+    const gone = [...before.keys()].filter((p) => !after.paths.has(p));
+    const goneStats = await statPaths(after.repositoryRoot, gone);
+    const goneButOnDisk = new Set(
+      gone.filter((_, index) => goneStats[index].mtimeMs !== null),
+    );
+    const changed = diffSnapshots(before, after.paths, goneButOnDisk);
     if (changed.length === 0) return;
 
     const changeSet = await this.buildChangeSet({
@@ -356,8 +369,11 @@ export class TurnChangeSetRecorder {
 
     const rows = groupRows(files);
     const relPaths = [...rows.keys()];
+    const repositoryRoot =
+      (await this.gitInfo.resolveRepositoryRoot(workspaceRoot)) ??
+      workspaceRoot;
     const stats = await statPaths(
-      workspaceRoot,
+      repositoryRoot,
       relPaths.slice(0, MAX_STAT_PATHS),
     );
     const paths = new Map<string, PathState>();
@@ -378,7 +394,7 @@ export class TurnChangeSetRecorder {
         size: stat?.size ?? null,
       });
     });
-    return { kind: 'ok', paths };
+    return { kind: 'ok', repositoryRoot, paths };
   }
 }
 
@@ -389,10 +405,20 @@ interface ChangedPath {
   readonly status: TurnChangeSetFileStatus;
 }
 
-/** The paths that differ between two snapshots, in after-then-gone order. */
+/**
+ * The paths that differ between two snapshots, in after-then-gone order.
+ *
+ * A path gone from status at turn end is clean against HEAD, so the disk
+ * tells what the turn did to it (`goneButOnDisk`):
+ * - absent on disk: `D` — deleted, or its deletion committed;
+ * - present and untracked or added at baseline: `A` — the turn committed a
+ *   new file (git status alone cannot tell this from a delete);
+ * - present otherwise: `M` — modified and committed, or put back to HEAD.
+ */
 function diffSnapshots(
   before: ReadonlyMap<string, PathState>,
   after: ReadonlyMap<string, PathState>,
+  goneButOnDisk: ReadonlySet<string>,
 ): ChangedPath[] {
   const changed: ChangedPath[] = [];
   for (const [relPath, now] of after) {
@@ -407,9 +433,12 @@ function diffSnapshots(
   }
   for (const [relPath, then] of before) {
     if (after.has(relPath)) continue;
-    // Gone from status: a file the turn added is now deleted; anything else
-    // was put back to HEAD's content.
-    changed.push({ path: relPath, status: then.status === 'A' ? 'D' : 'M' });
+    const status: TurnChangeSetFileStatus = !goneButOnDisk.has(relPath)
+      ? 'D'
+      : then.status === 'A'
+        ? 'A'
+        : 'M';
+    changed.push({ path: relPath, status });
   }
   return changed;
 }
@@ -451,8 +480,15 @@ function signatureOf(entries: readonly GitFileStatus[]): string {
           e.additions ?? '?',
         )}|${String(e.deletions ?? '?')}`,
     )
-    .sort()
+    // Ordinal (UTF-16 code unit) order, as the default sort gave: only a
+    // stable, locale-independent order matters for comparing signatures.
+    .sort(compareOrdinal)
     .join(';');
+}
+
+function compareOrdinal(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }
 
 async function statPaths(

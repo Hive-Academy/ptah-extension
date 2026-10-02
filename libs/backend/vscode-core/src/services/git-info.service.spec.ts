@@ -2593,7 +2593,11 @@ describe('GitInfoService — change-set delegates (TASK_2026_576)', () => {
     it('counts tracked changes against HEAD and untracked files from disk', async () => {
       const service = new GitInfoService(makeLogger() as never);
       const exec = seamOf(service, (args) => {
-        if (args[0] === 'rev-parse') return ok('abc123\n');
+        if (args[0] === 'rev-parse') {
+          return args.includes('--show-toplevel')
+            ? ok('/fake/repo\n')
+            : ok('abc123\n');
+        }
         if (args[0] === 'diff') {
           return ok(
             '3\t1\tsrc/a.ts\0' + '0\t4\tsrc/gone.ts\0' + '-\t-\timg.png\0',
@@ -2602,7 +2606,7 @@ describe('GitInfoService — change-set delegates (TASK_2026_576)', () => {
         if (args[0] === 'ls-files') return ok('new.ts\0');
         throw new Error(`unexpected ${args.join(' ')}`);
       });
-      jest
+      const readUntracked = jest
         .spyOn(
           service as unknown as {
             readUntrackedNumstat: (ws: string, p: string) => Promise<unknown>;
@@ -2647,6 +2651,36 @@ describe('GitInfoService — change-set delegates (TASK_2026_576)', () => {
         `${LITERAL}new.ts`,
         `${LITERAL}reverted.ts`,
       ]);
+      // Untracked paths are root-relative: read from the repository top level.
+      expect(exec.mock.calls[3][0]).toEqual(['rev-parse', '--show-toplevel']);
+      expect(readUntracked).toHaveBeenCalledWith(
+        path.normalize('/fake/repo'),
+        'new.ts',
+      );
+    });
+
+    it('leaves untracked counts unknown when the top level cannot be resolved', async () => {
+      const logger = makeLogger();
+      const service = new GitInfoService(logger as never);
+      seamOf(service, (args) => {
+        if (args[0] === 'rev-parse') {
+          return args.includes('--show-toplevel') ? exit(128) : ok('abc\n');
+        }
+        if (args[0] === 'ls-files') return ok('new.ts\0');
+        return ok('');
+      });
+      const readUntracked = jest.spyOn(
+        service as unknown as {
+          readUntrackedNumstat: (ws: string, p: string) => Promise<unknown>;
+        },
+        'readUntrackedNumstat',
+      );
+
+      const counts = await service.readChangeSetNumstat(WS, ['new.ts']);
+
+      expect(counts.get('new.ts')).toEqual({ additions: null, deletions: null });
+      expect(readUntracked).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalled();
     });
 
     it('diffs against the empty tree on an unborn branch', async () => {

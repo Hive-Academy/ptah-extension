@@ -11,13 +11,18 @@
  * resolved. A refusal throws `Error('Path is outside the workspace.')` so
  * `command:execute` reports the failure; no absolute path is ever put in an
  * error message.
+ *
+ * Change-set paths are repository-root relative (git status and numstat
+ * report them that way), so they are resolved against the repository's top
+ * level — above the workspace folder when the folder is a repository
+ * subdirectory — and only then checked for containment in the folder.
  */
 
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import * as vscode from 'vscode';
 import { z } from 'zod';
-import type { Logger } from '@ptah-extension/vscode-core';
+import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
 import { isPathWithinRoots } from '@ptah-extension/platform-core';
 import type { TurnChangeSetFileStatus } from '@ptah-extension/shared';
 import { toGitHeadUri } from './ptah-git-head-content-provider';
@@ -57,7 +62,7 @@ export type ReviewFileArgs = z.infer<typeof fileArgsSchema>;
 
 /** One validated file: the URIs the native editors receive. */
 interface ReviewEntry {
-  /** Workspace-relative, forward slashes. */
+  /** Repository-root relative, forward slashes. */
   relativePath: string;
   /** Identifies the row in the changes editor. */
   label: vscode.Uri;
@@ -73,10 +78,25 @@ interface ValidatedRoot {
   root: string;
   /** Symlink-resolved root, for the post-resolution containment check. */
   realRoot: string;
+  /**
+   * Symlink-resolved repository top level the change-set paths are relative
+   * to; `realRoot` when the folder is not inside a git work tree.
+   */
+  realRepositoryRoot: string;
+}
+
+interface ContainedPath {
+  /** Inside the workspace folder, under its lexical root. */
+  absolutePath: string;
+  /** Repository-root relative, forward slashes. */
+  repositoryPath: string;
 }
 
 export class ReviewCommands {
-  constructor(private readonly logger: Logger) {}
+  constructor(
+    private readonly logger: Logger,
+    private readonly gitInfo: Pick<GitInfoService, 'resolveRepositoryRoot'>,
+  ) {}
 
   registerCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
@@ -98,17 +118,32 @@ export class ReviewCommands {
   /**
    * One multi-file changes editor. When `vscode.changes` is unavailable or
    * rejects, each file opens in its own diff (or single) editor, in order.
+   *
+   * A file that cannot be opened (a refused path, an editor command that
+   * rejects) is skipped and logged; the rest still open and the user is told
+   * how many were skipped. Only when no file can be opened at all does the
+   * command fail, with the first file's error.
    */
   async openChanges(rawArgs: unknown): Promise<void> {
     const args = parseArgs(changesArgsSchema, rawArgs);
     const root = await this.validateRoot(args.workspaceRoot);
     const entries: ReviewEntry[] = [];
+    let firstError: Error | undefined;
     for (const file of args.files) {
-      entries.push(await this.toEntry(root, file));
+      try {
+        entries.push(await this.toEntry(root, file));
+      } catch (error: unknown) {
+        firstError ??= asError(error);
+        this.warnSkipped(file.path, error);
+      }
+    }
+    if (entries.length === 0) {
+      throw firstError ?? new Error(OUTSIDE_WORKSPACE_MESSAGE);
     }
 
     const count = entries.length;
     const title = `Agent changes (${count} ${count === 1 ? 'file' : 'files'})`;
+    let opened = count;
     try {
       await vscode.commands.executeCommand(
         'vscode.changes',
@@ -120,10 +155,32 @@ export class ReviewCommands {
         '[ReviewCommands] vscode.changes failed; opening per-file diffs',
         { error: error instanceof Error ? error.message : String(error) },
       );
+      opened = 0;
       for (const entry of entries) {
-        await this.openEntry(entry, false);
+        try {
+          await this.openEntry(entry, false);
+          opened++;
+        } catch (openError: unknown) {
+          firstError ??= asError(openError);
+          this.warnSkipped(entry.relativePath, openError);
+        }
       }
+      if (opened === 0) throw firstError ?? asError(error);
     }
+
+    const skipped = args.files.length - opened;
+    if (skipped > 0) {
+      void vscode.window.showWarningMessage(
+        `Ptah could not open ${skipped} of ${args.files.length} changed files; see the Ptah log.`,
+      );
+    }
+  }
+
+  private warnSkipped(file: string, error: unknown): void {
+    this.logger.warn('[ReviewCommands] skipped a changed file', {
+      file,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   /** One file against HEAD; `status` defaults to modified. */
@@ -194,15 +251,14 @@ export class ReviewCommands {
       file.status === 'R' && file.origPath
         ? await this.containedPath(root, file.origPath)
         : target;
-    const index = root.folder.index;
     const workingTree = vscode.Uri.file(target.absolutePath);
     return {
-      relativePath: target.relativePath,
+      relativePath: target.repositoryPath,
       label: workingTree,
       left:
         file.status === 'A'
           ? undefined
-          : toGitHeadUri(original.relativePath, index),
+          : toGitHeadUri(original.repositoryPath, root.folder.uri),
       right: file.status === 'D' ? undefined : workingTree,
     };
   }
@@ -220,30 +276,69 @@ export class ReviewCommands {
       const realRoot =
         (await realOrNull(folder.uri.fsPath)) ?? folder.uri.fsPath;
       if (samePath(requested, realRoot)) {
-        return { folder, root: folder.uri.fsPath, realRoot };
+        return {
+          folder,
+          root: folder.uri.fsPath,
+          realRoot,
+          realRepositoryRoot: await this.realRepositoryRoot(
+            folder.uri.fsPath,
+            realRoot,
+          ),
+        };
       }
     }
     throw new Error(OUTSIDE_WORKSPACE_MESSAGE);
   }
 
   /**
-   * Resolves a workspace-relative (or absolute) path and proves it stays in
-   * the root, first lexically and then after symlink resolution of the
-   * nearest existing ancestor (a deleted file has no inode of its own).
+   * The folder's repository top level, symlink-resolved like `realRoot`. A
+   * folder outside any work tree has no HEAD to diff against; its own root
+   * stands in, so paths still resolve and containment still applies.
+   */
+  private async realRepositoryRoot(
+    folderPath: string,
+    realRoot: string,
+  ): Promise<string> {
+    const topLevel = await this.gitInfo.resolveRepositoryRoot(folderPath);
+    if (topLevel === null) {
+      this.logger.warn(
+        '[ReviewCommands] no repository top level for the workspace folder; resolving paths against the folder',
+      );
+      return realRoot;
+    }
+    return (await realOrNull(topLevel)) ?? topLevel;
+  }
+
+  /**
+   * Resolves a repository-relative (or absolute) path and proves it stays in
+   * the workspace folder, first lexically and then after symlink resolution
+   * of the nearest existing ancestor (a deleted file has no inode of its own).
+   *
+   * A relative path is resolved against the real repository top level, so it
+   * is compared with the folder's real root; the path handed to the editor is
+   * then rebuilt under the folder's lexical root.
    */
   private async containedPath(
     root: ValidatedRoot,
     candidate: string,
-  ): Promise<{ absolutePath: string; relativePath: string }> {
+  ): Promise<ContainedPath> {
     if (candidate.includes('\0')) throw new Error(OUTSIDE_WORKSPACE_MESSAGE);
-    const absolutePath = path.resolve(root.root, candidate);
-    if (
-      !isPathWithinRoots(absolutePath, [root.root]) ||
-      samePath(absolutePath, root.root)
+    const fromRepository = path.resolve(root.realRepositoryRoot, candidate);
+    let folderRelative: string;
+    if (isPathWithinRoots(fromRepository, [root.realRoot])) {
+      folderRelative = path.relative(root.realRoot, fromRepository);
+    } else if (
+      path.isAbsolute(candidate) &&
+      isPathWithinRoots(candidate, [root.root])
     ) {
+      // An absolute path spelled through the folder's lexical root.
+      folderRelative = path.relative(root.root, candidate);
+    } else {
       throw new Error(OUTSIDE_WORKSPACE_MESSAGE);
     }
+    if (folderRelative === '') throw new Error(OUTSIDE_WORKSPACE_MESSAGE);
 
+    const absolutePath = path.resolve(root.root, folderRelative);
     const realTarget = await realNearestAncestor(absolutePath, root.root);
     if (realTarget === null || !isPathWithinRoots(realTarget, [root.realRoot])) {
       throw new Error(OUTSIDE_WORKSPACE_MESSAGE);
@@ -251,12 +346,19 @@ export class ReviewCommands {
 
     return {
       absolutePath,
-      relativePath: path
-        .relative(root.root, absolutePath)
+      repositoryPath: path
+        .relative(
+          root.realRepositoryRoot,
+          path.resolve(root.realRoot, folderRelative),
+        )
         .split(path.sep)
         .join('/'),
     };
   }
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function parseArgs<S extends z.ZodType>(

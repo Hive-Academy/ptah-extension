@@ -39,7 +39,8 @@ function git(repo: string, ...args: string[]): string {
 const createdDirs: string[] = [];
 
 function makeRepo(): string {
-  const dir = fs.realpathSync(
+  // `.native` expands Windows 8.3 short names, as git's own paths do.
+  const dir = fs.realpathSync.native(
     fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-change-set-')),
   );
   createdDirs.push(dir);
@@ -142,6 +143,63 @@ describe('GitInfoService change-set delegates (real git)', () => {
       deletions: 0,
       binary: false,
     });
+  });
+
+  it('resolves the top level and counts untracked root-relative paths from a subdirectory', async () => {
+    const repo = makeRepo();
+    write(repo, 'pkg/src/a.ts', 'one\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'base');
+    write(repo, 'pkg/fresh.ts', 'a\nb\nc\n');
+    // A same-named decoy where a workspace-relative read would look.
+    write(repo, 'pkg/pkg/fresh.ts', 'decoy\n');
+    git(repo, 'add', 'pkg/pkg/fresh.ts');
+    git(repo, 'commit', '-q', '-m', 'decoy');
+    const workspace = path.join(repo, 'pkg');
+    const service = new GitInfoService(makeLogger());
+
+    await expect(service.resolveRepositoryRoot(workspace)).resolves.toBe(repo);
+
+    const counts = await service.readChangeSetNumstat(workspace, [
+      'pkg/fresh.ts',
+    ]);
+    expect(counts.get('pkg/fresh.ts')).toEqual({
+      additions: 3,
+      deletions: 0,
+      binary: false,
+    });
+
+    const info = await service.getGitInfo(workspace);
+    expect(info.files).toContainEqual(
+      expect.objectContaining({
+        path: 'pkg/fresh.ts',
+        status: '??',
+        additions: 3,
+        deletions: 0,
+      }),
+    );
+  });
+
+  it('reads HEAD text by root-relative path from a subdirectory', async () => {
+    const repo = makeRepo();
+    write(repo, 'pkg/src/a.ts', 'at head\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'base');
+    const service = new GitInfoService(makeLogger());
+
+    await expect(
+      service.readHeadText(path.join(repo, 'pkg'), 'pkg/src/a.ts'),
+    ).resolves.toEqual({ outcome: 'content', content: 'at head\n' });
+  });
+
+  it('has no top level outside a work tree', async () => {
+    const dir = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-not-a-repo-')),
+    );
+    createdDirs.push(dir);
+    const service = new GitInfoService(makeLogger());
+
+    await expect(service.resolveRepositoryRoot(dir)).resolves.toBeNull();
   });
 
   it('reads HEAD text, absent paths and the unborn branch', async () => {

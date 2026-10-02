@@ -15,6 +15,7 @@ import {
   isAsyncStateStorage,
   type IStateStorage,
 } from '@ptah-extension/platform-core';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { TurnChangeSet } from '@ptah-extension/shared';
 
 /** Key prefix; one key per session. */
@@ -47,15 +48,26 @@ export class TurnChangeSetStore {
   constructor(
     @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
     private readonly storage: IStateStorage,
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
   ) {}
 
-  /** The session's change sets, oldest first; empty when none are stored. */
+  /**
+   * The session's change sets, oldest first; empty when none are stored.
+   * Stored records that fail the shape guard are left out and logged — the
+   * next append rewrites the list without them.
+   */
   async list(sessionId: string): Promise<TurnChangeSet[]> {
     const key = turnChangeSetsKey(sessionId);
     const stored = isAsyncStateStorage(this.storage)
       ? await this.storage.getAsync<unknown>(key)
       : this.storage.get<unknown>(key);
-    return readChangeSets(stored);
+    const { changeSets, dropped } = readChangeSets(stored);
+    if (dropped > 0) {
+      this.logger.warn(
+        `[TurnChangeSetStore] dropped ${dropped} stored change set(s) with an unknown shape (sessionId=${sessionId}); the next append rewrites the list without them`,
+      );
+    }
+    return changeSets;
   }
 
   /**
@@ -95,13 +107,27 @@ export class TurnChangeSetStore {
 /**
  * Workspace state is external input: keep only records with the shape the
  * card relies on, and treat anything else under the key as no records.
+ * `dropped` counts the stored records that were left out.
  */
-function readChangeSets(stored: unknown): TurnChangeSet[] {
-  if (!isRecord(stored) || stored['schemaVersion'] !== SCHEMA_VERSION) {
-    return [];
+function readChangeSets(stored: unknown): {
+  changeSets: TurnChangeSet[];
+  dropped: number;
+} {
+  if (stored === undefined || stored === null) {
+    return { changeSets: [], dropped: 0 };
   }
-  const changeSets = stored['changeSets'];
-  return Array.isArray(changeSets) ? changeSets.filter(isTurnChangeSet) : [];
+  const records =
+    isRecord(stored) && Array.isArray(stored['changeSets'])
+      ? (stored['changeSets'] as unknown[])
+      : null;
+  if (!isRecord(stored) || stored['schemaVersion'] !== SCHEMA_VERSION) {
+    // A value under the key that this version cannot read: every record in
+    // it (or the value itself, when it holds no list) is dropped.
+    return { changeSets: [], dropped: records?.length ?? 1 };
+  }
+  if (records === null) return { changeSets: [], dropped: 1 };
+  const changeSets = records.filter(isTurnChangeSet);
+  return { changeSets, dropped: records.length - changeSets.length };
 }
 
 function isTurnChangeSet(value: unknown): value is TurnChangeSet {

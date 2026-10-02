@@ -61,10 +61,15 @@ if (entries.length === 0) {
 }
 
 // Static imports only: `from"./x.js"` and bare `import"./x.js"`; `import("...")` is dynamic and skipped.
-const STATIC_IMPORT = /(?:\bfrom\s*|\bimport\s*)["']([^"']+\.js)["']/g;
+// A `?query` or `#hash` suffix (`./x.js?v=1`) is matched but not captured: the file on disk is `./x.js`.
+const STATIC_IMPORT = /(?:\bfrom\s*|\bimport\s*)["']([^"'?#]+\.js)(?:[?#][^"']*)?["']/g;
+const stripSuffix = (specifier) => {
+  const cut = specifier.search(/[?#]/);
+  return cut === -1 ? specifier : specifier.slice(0, cut);
+};
 
 const closure = new Map(); // abs path -> source
-const queue = entries.map((e) => resolve(root, e.replace(/^\//, '')));
+const queue = entries.map((e) => resolve(root, stripSuffix(e).replace(/^\//, '')));
 while (queue.length) {
   const file = queue.pop();
   if (closure.has(file)) continue;
@@ -89,7 +94,7 @@ let mainGz = null;
 let mainRaw = null;
 const offenders = [];
 for (const [file, src] of closure) {
-  const rel = file.slice(root.length + 1).replace(/\\/g, '/');
+  const rel = file.slice(root.length + 1).replaceAll('\\', '/');
   const size = gz(src);
   closureRaw += Buffer.byteLength(src);
   closureGz += size;

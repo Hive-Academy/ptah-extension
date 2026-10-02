@@ -35,9 +35,16 @@ export interface GitChangeSetNumstatReaderDeps {
   readonly logger: Logger;
   /** The service's `git diff --numstat -z` parser, keyed by new path. */
   readonly parseNumstat: (stdout: string) => Map<string, ChangeSetLineCounts>;
-  /** The service's untracked-file line counter (bounded per file size). */
-  readonly countUntracked: (
+  /** The service's `git rev-parse --show-toplevel`; null when git failed. */
+  readonly resolveRepositoryRoot: (
     workspacePath: string,
+  ) => Promise<string | null>;
+  /**
+   * The service's untracked-file line counter (bounded per file size);
+   * `relativePath` is relative to `repositoryRoot`.
+   */
+  readonly countUntracked: (
+    repositoryRoot: string,
     relativePath: string,
   ) => Promise<ChangeSetLineCounts>;
   /** Untracked files counted per read; the rest report unknown counts. */
@@ -52,7 +59,8 @@ export interface GitChangeSetNumstatReaderDeps {
  * git rev-parse --verify --quiet HEAD        exit 1 -> empty tree (unborn)
  * git diff --numstat -z --find-renames --end-of-options <base> -- <paths>
  * git ls-files -z --others --exclude-standard --full-name -- <not in diff>
- *   untracked -> the service's untracked counter
+ *   untracked -> git rev-parse --show-toplevel, then the service's
+ *                untracked counter on <top level>/<path>
  *   otherwise -> 0 / 0 (no difference from HEAD)
  * ```
  *
@@ -99,14 +107,26 @@ export class GitChangeSetNumstatReader {
         this.warn(workspacePath, 'git ls-files --others failed');
         return result;
       }
+      // `--full-name` paths are root-relative: read the files from the top
+      // level, which is not the workspace when it is a subdirectory.
+      const repositoryRoot =
+        untracked.size > 0
+          ? await this.deps.resolveRepositoryRoot(workspacePath)
+          : null;
+      if (untracked.size > 0 && repositoryRoot === null) {
+        this.warn(workspacePath, 'the repository top level is unknown');
+      }
       let untrackedRead = 0;
       for (const p of notInDiff) {
         if (!untracked.has(p)) {
           // Neither in the diff nor untracked: it matches HEAD (or is gone
           // and never was in HEAD).
           result.set(p, { additions: 0, deletions: 0, binary: false });
-        } else if (untrackedRead++ < this.deps.maxUntrackedFiles) {
-          result.set(p, await this.deps.countUntracked(workspacePath, p));
+        } else if (
+          repositoryRoot !== null &&
+          untrackedRead++ < this.deps.maxUntrackedFiles
+        ) {
+          result.set(p, await this.deps.countUntracked(repositoryRoot, p));
         }
       }
       return result;
@@ -202,7 +222,7 @@ function unknownCounts(): ChangeSetLineCounts {
 function isSafeRelativePath(p: string): boolean {
   if (typeof p !== 'string' || p.trim().length === 0) return false;
   if (p.includes('\0')) return false;
-  const normalized = p.replace(/\\/g, '/');
+  const normalized = p.replaceAll('\\', '/');
   if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) {
     return false;
   }

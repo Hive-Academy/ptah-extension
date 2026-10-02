@@ -101,7 +101,7 @@ export class PtahExtension implements vscode.Disposable {
         new PtahGitHeadContentProvider(gitInfo, this.logger),
       ),
     );
-    new ReviewCommands(this.logger).registerCommands(this.context);
+    new ReviewCommands(this.logger, gitInfo).registerCommands(this.context);
     this.logger.info('Review commands registered');
   }
 

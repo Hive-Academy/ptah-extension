@@ -93,6 +93,7 @@ describe('TurnChangeSetRecorder', () => {
   let gitInfo: {
     getGitInfo: jest.Mock;
     readChangeSetNumstat: jest.Mock;
+    resolveRepositoryRoot: jest.Mock;
   };
   let metadata: { get: jest.Mock };
   let storage: MemoryStorage;
@@ -114,10 +115,11 @@ describe('TurnChangeSetRecorder', () => {
       readChangeSetNumstat: jest.fn(
         async (_root: string, paths: readonly string[]) => numstat(paths),
       ),
+      resolveRepositoryRoot: jest.fn(async (dir: string) => dir),
     };
     metadata = { get: jest.fn(async () => null) };
     storage = new MemoryStorage();
-    store = new TurnChangeSetStore(storage);
+    store = new TurnChangeSetStore(storage, asLogger);
     pushes = [];
     const broadcaster: WebviewBroadcaster = {
       broadcastMessage: jest.fn(async (type: string, payload: unknown) => {
@@ -381,6 +383,54 @@ describe('TurnChangeSetRecorder', () => {
     await waitUntil(() => pushes.length === 1);
     expect(pushes[0].changeSet.files).toEqual([
       { path: 'tmp.ts', status: 'D', additions: 3, deletions: 1 },
+    ]);
+  });
+
+  it('reports a file the turn added and committed as added, not deleted', async () => {
+    await fs.writeFile(path.join(root, 'kept.ts'), 'k\n');
+    gitInfoResult = repo([{ path: 'kept.ts', status: '??', staged: false }]);
+    submitPrompt();
+    await settle();
+    // Committed: clean against HEAD, so gone from status, still on disk.
+    gitInfoResult = repo([]);
+    endTurn();
+    await waitUntil(() => pushes.length === 1);
+    expect(pushes[0].changeSet.files).toEqual([
+      { path: 'kept.ts', status: 'A', additions: 3, deletions: 1 },
+    ]);
+  });
+
+  it('reports a committed deletion as deleted and a committed edit as modified', async () => {
+    await fs.writeFile(path.join(root, 'edited.ts'), 'e\n');
+    gitInfoResult = repo([
+      { path: 'edited.ts', status: 'M', staged: false },
+      { path: 'removed.ts', status: 'D', staged: false },
+    ]);
+    submitPrompt();
+    await settle();
+    gitInfoResult = repo([]);
+    endTurn();
+    await waitUntil(() => pushes.length === 1);
+    expect(pushes[0].changeSet.files).toEqual([
+      { path: 'edited.ts', status: 'M', additions: 3, deletions: 1 },
+      { path: 'removed.ts', status: 'D', additions: 3, deletions: 1 },
+    ]);
+  });
+
+  it('checks the disk at the repository top level when the session runs in a subdirectory', async () => {
+    const sub = path.join(root, 'pkg');
+    await fs.mkdir(sub);
+    await fs.writeFile(path.join(sub, 'new.ts'), 'n\n');
+    gitInfo.resolveRepositoryRoot.mockResolvedValue(root);
+    gitInfoResult = repo([{ path: 'pkg/new.ts', status: '??', staged: false }]);
+    submitPrompt(sub);
+    await settle();
+    gitInfoResult = repo([]);
+    endTurn({ cwd: sub });
+    await waitUntil(() => pushes.length === 1);
+    expect(gitInfo.resolveRepositoryRoot).toHaveBeenCalledWith(sub);
+    expect(pushes[0].changeSet.files).toEqual([
+      { path: 'pkg/new.ts', status: 'A', additions: 3, deletions: 1 },
     ]);
   });
 

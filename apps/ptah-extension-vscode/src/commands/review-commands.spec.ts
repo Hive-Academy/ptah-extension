@@ -5,12 +5,20 @@ import * as os from 'node:os';
 const executeCommand = jest.fn();
 const registerCommand = jest.fn();
 const getExtension = jest.fn();
+const showWarningMessage = jest.fn();
+
+interface FolderUri {
+  scheme: string;
+  fsPath: string;
+  toString(): string;
+}
+
+function folderUri(fsPath: string): FolderUri {
+  return { scheme: 'file', fsPath, toString: () => `file:${fsPath}` };
+}
+
 const workspaceState: {
-  workspaceFolders: Array<{
-    index: number;
-    name: string;
-    uri: { scheme: string; fsPath: string };
-  }>;
+  workspaceFolders: Array<{ index: number; name: string; uri: FolderUri }>;
 } = { workspaceFolders: [] };
 
 jest.mock('vscode', () => ({
@@ -28,6 +36,9 @@ jest.mock('vscode', () => ({
     registerCommand: (...args: unknown[]) => registerCommand(...args),
   },
   extensions: { getExtension: (id: string) => getExtension(id) },
+  window: {
+    showWarningMessage: (...args: unknown[]) => showWarningMessage(...args),
+  },
 }));
 
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -49,6 +60,7 @@ describe('ReviewCommands', () => {
   let root: string;
   let outside: string;
   let commands: ReviewCommands;
+  let resolveRepositoryRoot: jest.Mock<Promise<string | null>, [string]>;
 
   beforeAll(async () => {
     base = await fs.realpath(
@@ -73,14 +85,20 @@ describe('ReviewCommands', () => {
     jest.clearAllMocks();
     executeCommand.mockResolvedValue(undefined);
     workspaceState.workspaceFolders = [
-      { index: 0, name: 'other', uri: { scheme: 'file', fsPath: outside } },
-      { index: 1, name: 'ws', uri: { scheme: 'file', fsPath: root } },
+      { index: 0, name: 'other', uri: folderUri(outside) },
+      { index: 1, name: 'ws', uri: folderUri(root) },
     ];
-    commands = new ReviewCommands(logger);
+    // By default each folder is its own repository top level.
+    resolveRepositoryRoot = jest.fn(async (folder: string) => folder);
+    commands = new ReviewCommands(logger, { resolveRepositoryRoot });
   });
 
-  function headUri(rel: string, index = 1) {
-    return { scheme: 'ptah-git-head', path: `/${rel}`, query: `root=${index}` };
+  function headUri(rel: string, folder = root) {
+    return {
+      scheme: 'ptah-git-head',
+      path: `/${rel}`,
+      query: new URLSearchParams({ root: `file:${folder}` }).toString(),
+    };
   }
   function fileUri(rel: string) {
     const p = path.join(root, ...rel.split('/'));
@@ -189,6 +207,69 @@ describe('ReviewCommands', () => {
       expect(executeCommand).not.toHaveBeenCalled();
     });
 
+    it('opens the valid files and skips, logs and counts the refused ones', async () => {
+      await commands.openChanges({
+        workspaceRoot: root,
+        files: [
+          { path: 'src/a.ts', status: 'M' },
+          { path: '../outside/secret.txt', status: 'M' },
+          { path: 'src/new.ts', status: 'A' },
+        ],
+      });
+
+      expect(executeCommand).toHaveBeenCalledWith(
+        'vscode.changes',
+        'Agent changes (2 files)',
+        [
+          [fileUri('src/a.ts'), headUri('src/a.ts'), fileUri('src/a.ts')],
+          [fileUri('src/new.ts'), undefined, fileUri('src/new.ts')],
+        ],
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[ReviewCommands] skipped a changed file',
+        { file: '../outside/secret.txt', error: OUTSIDE_WORKSPACE_MESSAGE },
+      );
+      expect(showWarningMessage).toHaveBeenCalledWith(
+        'Ptah could not open 1 of 3 changed files; see the Ptah log.',
+      );
+    });
+
+    it('keeps opening per-file diffs after one of them rejects', async () => {
+      executeCommand.mockImplementation(async (id: string, left: unknown) => {
+        if (id === 'vscode.changes') throw new Error('command not found');
+        if (id === 'vscode.diff' && left !== undefined) {
+          throw new Error('editor failed');
+        }
+      });
+
+      await commands.openChanges({
+        workspaceRoot: root,
+        files: [
+          { path: 'src/a.ts', status: 'M' },
+          { path: 'src/new.ts', status: 'A' },
+        ],
+      });
+
+      expect(executeCommand).toHaveBeenLastCalledWith(
+        'vscode.open',
+        fileUri('src/new.ts'),
+        { preview: false },
+      );
+      expect(showWarningMessage).toHaveBeenCalledWith(
+        'Ptah could not open 1 of 2 changed files; see the Ptah log.',
+      );
+    });
+
+    it('fails with the first error when no per-file diff opens', async () => {
+      executeCommand.mockRejectedValue(new Error('editor failed'));
+      await expect(
+        commands.openChanges({
+          workspaceRoot: root,
+          files: [{ path: 'src/a.ts', status: 'M' }],
+        }),
+      ).rejects.toThrow('editor failed');
+    });
+
     it('refuses a rename whose origPath escapes', async () => {
       await expect(
         commands.openChanges({
@@ -241,6 +322,64 @@ describe('ReviewCommands', () => {
         }),
       ).rejects.toThrow('Invalid review command arguments.');
     });
+  });
+
+  describe('a workspace folder that is a repository subdirectory', () => {
+    beforeEach(() => {
+      // The repository top level is `base`; the open folder is `base/ws`.
+      resolveRepositoryRoot.mockResolvedValue(base);
+    });
+
+    it('resolves repository-relative paths against the top level', async () => {
+      await commands.openChanges({
+        workspaceRoot: root,
+        files: [
+          { path: 'ws/src/a.ts', status: 'M' },
+          { path: 'ws/src/a.ts', origPath: 'ws/src/old.ts', status: 'R' },
+        ],
+      });
+
+      expect(resolveRepositoryRoot).toHaveBeenCalledWith(root);
+      expect(executeCommand).toHaveBeenCalledWith(
+        'vscode.changes',
+        'Agent changes (2 files)',
+        [
+          [fileUri('src/a.ts'), headUri('ws/src/a.ts'), fileUri('src/a.ts')],
+          [fileUri('src/a.ts'), headUri('ws/src/old.ts'), fileUri('src/a.ts')],
+        ],
+      );
+    });
+
+    it('refuses a repository path outside the open folder', async () => {
+      await expect(
+        commands.openDiff({ workspaceRoot: root, path: 'outside/secret.txt' }),
+      ).rejects.toThrow(OUTSIDE_WORKSPACE_MESSAGE);
+      await expect(
+        commands.openDiff({ workspaceRoot: root, path: 'src/a.ts' }),
+      ).rejects.toThrow(OUTSIDE_WORKSPACE_MESSAGE);
+      expect(executeCommand).not.toHaveBeenCalled();
+    });
+
+    it('opens the merge editor on the folder file a repository path names', async () => {
+      getExtension.mockReturnValue(undefined);
+      await commands.openMerge({ workspaceRoot: root, path: 'ws/src/a.ts' });
+      expect(executeCommand).toHaveBeenCalledWith(
+        'vscode.open',
+        fileUri('src/a.ts'),
+      );
+    });
+  });
+
+  it('resolves against the folder itself when it is not in a git work tree', async () => {
+    resolveRepositoryRoot.mockResolvedValue(null);
+    await commands.openDiff({ workspaceRoot: root, path: 'src/a.ts' });
+    expect(executeCommand).toHaveBeenCalledWith(
+      'vscode.diff',
+      headUri('src/a.ts'),
+      fileUri('src/a.ts'),
+      'a.ts (HEAD ↔ Working Tree)',
+      { preview: true },
+    );
   });
 
   describe('openDiff', () => {

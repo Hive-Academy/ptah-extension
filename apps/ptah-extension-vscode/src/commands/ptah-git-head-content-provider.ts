@@ -13,23 +13,30 @@ import * as vscode from 'vscode';
 import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
 import type { GitBlobRead } from '@ptah-extension/shared';
 
-/** URI scheme of the HEAD side: `ptah-git-head:/<rel>?root=<folderIndex>`. */
+/** URI scheme of the HEAD side: `ptah-git-head:/<rel>?root=<folderUri>`. */
 export const PTAH_GIT_HEAD_SCHEME = 'ptah-git-head';
 
 const ROOT_QUERY_KEY = 'root';
 
 /**
- * The HEAD-side URI of `relativePath` (forward slashes) inside the workspace
- * folder at `folderIndex`.
+ * The HEAD-side URI of `repositoryPath` (repository-root relative, forward
+ * slashes) for the workspace folder at `folderUri`.
+ *
+ * The folder is pinned by its URI, not its index: VS Code can re-request the
+ * content later (a reload with restored editors, a revert), after folders
+ * were reordered, added or removed, and an index would then name another
+ * folder.
  */
 export function toGitHeadUri(
-  relativePath: string,
-  folderIndex: number,
+  repositoryPath: string,
+  folderUri: vscode.Uri,
 ): vscode.Uri {
   return vscode.Uri.from({
     scheme: PTAH_GIT_HEAD_SCHEME,
-    path: `/${relativePath}`,
-    query: `${ROOT_QUERY_KEY}=${folderIndex}`,
+    path: `/${repositoryPath}`,
+    query: new URLSearchParams({
+      [ROOT_QUERY_KEY]: folderUri.toString(),
+    }).toString(),
   });
 }
 
@@ -78,14 +85,23 @@ export class PtahGitHeadContentProvider
   }
 }
 
+/**
+ * The open workspace folder the URI pins, and the repository-relative path.
+ * Null when that folder is no longer open: the content is then explained,
+ * never read from another folder.
+ */
 function resolveTarget(
   uri: vscode.Uri,
 ): { root: string; relativePath: string } | null {
-  const rawIndex = new URLSearchParams(uri.query).get(ROOT_QUERY_KEY);
-  if (rawIndex === null || !/^\d+$/.test(rawIndex)) return null;
-  const folder = vscode.workspace.workspaceFolders?.[Number(rawIndex)];
+  const folderUri = new URLSearchParams(uri.query).get(ROOT_QUERY_KEY);
+  if (!folderUri) return null;
+  const folder = vscode.workspace.workspaceFolders?.find(
+    (candidate) => candidate.uri.toString() === folderUri,
+  );
   const relativePath = uri.path.replace(/^\/+/, '');
   if (!folder || !relativePath) return null;
+  // `readHeadText` reads `<sha>:<path>` from the top level, so the folder —
+  // even a repository subdirectory — is a valid working directory for it.
   return { root: folder.uri.fsPath, relativePath };
 }
 

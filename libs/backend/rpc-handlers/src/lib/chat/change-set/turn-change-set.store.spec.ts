@@ -7,6 +7,7 @@
 import 'reflect-metadata';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { TurnChangeSet } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 
 import {
   MAX_CHANGE_SETS_PER_SESSION,
@@ -57,11 +58,13 @@ function changeSet(
 
 describe('TurnChangeSetStore', () => {
   let storage: MemoryStorage;
+  let logger: { warn: jest.Mock };
   let store: TurnChangeSetStore;
 
   beforeEach(() => {
     storage = new MemoryStorage();
-    store = new TurnChangeSetStore(storage);
+    logger = { warn: jest.fn() };
+    store = new TurnChangeSetStore(storage, logger as unknown as Logger);
   });
 
   it('uses the key ptah.turnChangeSets:<sessionId>', () => {
@@ -138,6 +141,31 @@ describe('TurnChangeSetStore', () => {
     expect(await store.list('s3')).toEqual([]);
   });
 
+  it('warns with the count of stored records the shape guard drops', async () => {
+    storage.data.set(turnChangeSetsKey('s1'), {
+      schemaVersion: 1,
+      changeSets: [changeSet('s1', 1), { sessionId: 's1' }, null],
+    });
+    await store.list('s1');
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn.mock.calls[0][0]).toContain('dropped 2 stored change set(s)');
+    expect(logger.warn.mock.calls[0][0]).toContain('sessionId=s1');
+
+    storage.data.set(turnChangeSetsKey('s3'), {
+      schemaVersion: 99,
+      changeSets: [changeSet('s3', 1), changeSet('s3', 2)],
+    });
+    await store.list('s3');
+    expect(logger.warn.mock.calls[1][0]).toContain('dropped 2 stored change set(s)');
+  });
+
+  it('does not warn when nothing is stored or every record is valid', async () => {
+    await store.list('nobody');
+    await store.append(changeSet('s1', 1));
+    await store.list('s1');
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
   it('reads through getAsync when the storage is asynchronous', async () => {
     const stored = { schemaVersion: 1, changeSets: [changeSet('s1', 1)] };
     const asyncStorage = Object.assign(new MemoryStorage(), {
@@ -145,7 +173,10 @@ describe('TurnChangeSetStore', () => {
       readJsonSequence: jest.fn(),
       replaceJsonSequence: jest.fn(),
     });
-    const asyncStore = new TurnChangeSetStore(asyncStorage);
+    const asyncStore = new TurnChangeSetStore(
+      asyncStorage,
+      logger as unknown as Logger,
+    );
     expect(await asyncStore.list('s1')).toEqual(stored.changeSets);
     expect(asyncStorage.getAsync).toHaveBeenCalledWith(
       'ptah.turnChangeSets:s1',
