@@ -352,16 +352,23 @@ export class ElectronLayoutService implements MessageHandler {
       streamingSessionIds = this.coordinator.getStreamingSessionIds(
         removedFolder.path,
       );
+      // A streaming session also open in a workspace that stays keeps
+      // running there; only sessions this workspace alone shows are ended, and
+      // only those are counted in (and trigger) the confirm.
+      const openElsewhere = this.sessionIdsOpenIn(
+        folders.filter((_, i) => i !== index),
+      );
+      const toAbort = streamingSessionIds.filter(
+        (sessionId) => !openElsewhere.has(sessionId),
+      );
 
-      if (streamingSessionIds.length > 0) {
+      if (toAbort.length > 0) {
         const confirmed = await this.coordinator.confirm({
           title: 'Close Workspace?',
-          message: `This workspace has ${
-            streamingSessionIds.length
-          } active streaming session${
-            streamingSessionIds.length > 1 ? 's' : ''
+          message: `This workspace has ${toAbort.length} active streaming session${
+            toAbort.length > 1 ? 's' : ''
           }. Closing it will abort ${
-            streamingSessionIds.length > 1 ? 'them' : 'it'
+            toAbort.length > 1 ? 'them' : 'it'
           }. Continue?`,
           confirmLabel: 'Close Workspace',
           cancelLabel: 'Cancel',
@@ -371,15 +378,8 @@ export class ElectronLayoutService implements MessageHandler {
         if (!confirmed) {
           return false;
         }
-        // A streaming session also open in a workspace that stays keeps
-        // running there; only sessions this workspace alone shows are ended.
-        const openElsewhere = this.sessionIdsOpenIn(
-          folders.filter((_, i) => i !== index),
-        );
         await Promise.allSettled(
-          streamingSessionIds
-            .filter((sessionId) => !openElsewhere.has(sessionId))
-            .map((sessionId) => this.dispatchSessionAbort(sessionId)),
+          toAbort.map((sessionId) => this.dispatchSessionAbort(sessionId)),
         );
       }
     }

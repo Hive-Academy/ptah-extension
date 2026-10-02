@@ -1986,11 +1986,32 @@ describe('ElectronLayoutService — removeFolder()', () => {
       await expect(service.removeFolder(1)).resolves.toBe(true);
 
       expect(coordinator.confirm).toHaveBeenCalledTimes(1);
+      // The confirm counts only the session that will actually be aborted.
+      expect(coordinator.confirm).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('has 1 active streaming session.'),
+        }),
+      );
       expect(abortedIds()).toEqual(['s-only']);
       // The streaming abort still runs before the removal call.
       expect(orderOf('chat:abort', 's-only')).toBeLessThan(
         orderOf('workspace:removeFolder'),
       );
+    });
+
+    it('shows no confirm and aborts nothing when every streaming session is open in a staying workspace', async () => {
+      setup(rpcThatRemoves());
+      coordinator.getStreamingSessionIds = jest
+        .fn()
+        .mockReturnValue(['s-shared']);
+      serveSessionIds({ '/a': ['s-shared'], '/b': ['s-shared'] });
+      seedFolders(['/a', '/b'], 1);
+
+      await expect(service.removeFolder(1)).resolves.toBe(true);
+
+      expect(coordinator.confirm).not.toHaveBeenCalled();
+      expect(callsOf('chat:abort')).toHaveLength(0);
+      expect(service.workspaceFolders().map((f) => f.path)).toEqual(['/a']);
     });
 
     it('logs a failed chat:abort result with console.warn and still completes the removal', async () => {
