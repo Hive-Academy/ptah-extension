@@ -1717,6 +1717,47 @@ describe('AppStateManager', () => {
       expect(service.chatPromptRequest()?.taskId).toBe('TASK_2026_200');
     });
 
+    it('requestOpenSession publishes a validated request and clearSessionOpenRequest nulls it', () => {
+      const service = createService();
+      const sessionId = SessionId.create();
+      service.requestOpenSession({ sessionId, name: 'Fix login' });
+
+      const req = service.sessionOpenRequest();
+      expect(req).toEqual({ sessionId, name: 'Fix login' });
+
+      service.clearSessionOpenRequest(req as NonNullable<typeof req>);
+      expect(service.sessionOpenRequest()).toBeNull();
+    });
+
+    it('requestOpenSession omits name when not supplied and drops an invalid id', () => {
+      const service = createService();
+      const sessionId = SessionId.create();
+      service.requestOpenSession({ sessionId });
+      expect(service.sessionOpenRequest()).toEqual({ sessionId });
+
+      service.clearSessionOpenRequest(
+        service.sessionOpenRequest() as NonNullable<
+          ReturnType<typeof service.sessionOpenRequest>
+        >,
+      );
+      service.requestOpenSession({ sessionId: 'not a session id' });
+      expect(service.sessionOpenRequest()).toBeNull();
+    });
+
+    it('clearSessionOpenRequest keeps a newer request, even for the same session', () => {
+      const service = createService();
+      const sessionId = SessionId.create();
+      service.requestOpenSession({ sessionId });
+      const older = service.sessionOpenRequest();
+      service.requestOpenSession({ sessionId });
+      const newer = service.sessionOpenRequest();
+      expect(newer).not.toBe(older);
+
+      service.clearSessionOpenRequest(older as NonNullable<typeof older>);
+
+      expect(service.sessionOpenRequest()).toBe(newer);
+    });
+
     it('publishes monotonic composer-prefill requests with their target tab', () => {
       const service = createService();
 

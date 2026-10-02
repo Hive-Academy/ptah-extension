@@ -236,6 +236,19 @@ export interface CanvasTabRequest {
   name?: string;
 }
 
+/**
+ * Request to open an EXISTING session in the chat surface — e.g. "Open
+ * session" on a Tasks-board task. Kept in `core` so `tasks-ui` never imports
+ * `chat` (same signal-bridge inversion as {@link ChatPromptRequest}); the
+ * chat lib's `SessionOpenBridgeService` consumes it and routes it through
+ * the canvas (grid) or `switchSession` (single).
+ */
+export interface SessionOpenRequest {
+  readonly sessionId: SessionId;
+  /** Optional display name for the tile/tab. */
+  readonly name?: string;
+}
+
 export interface AppState {
   currentView: ViewType;
   isLoading: boolean;
@@ -445,6 +458,10 @@ export class AppStateManager implements MessageHandler {
     signal<HarnessWorkflowRequest | null>(null);
   /** Signal bridge: request to launch a chat session with a seed prompt (Tasks board → orchestrate) */
   private readonly _chatPromptRequest = signal<ChatPromptRequest | null>(null);
+  /** Signal bridge: request to open an existing session in chat (Tasks board → "Open session") */
+  private readonly _sessionOpenRequest = signal<SessionOpenRequest | null>(
+    null,
+  );
   /** Monotonic bridge for prefilling the composer of one chat surface. */
   private readonly _composerPrefillRequest = signal<ComposerPrefillRequest>({
     seq: 0,
@@ -664,6 +681,8 @@ export class AppStateManager implements MessageHandler {
   readonly harnessWorkflowRequest = this._harnessWorkflowRequest.asReadonly();
   /** Pending request to launch a chat session with a seed prompt (consumed by the chat-lib bridge) */
   readonly chatPromptRequest = this._chatPromptRequest.asReadonly();
+  /** Pending request to open an existing session in chat (consumed by the chat-lib bridge) */
+  readonly sessionOpenRequest = this._sessionOpenRequest.asReadonly();
   /** Latest request to prefill a targeted chat composer without sending. */
   readonly composerPrefillRequest = this._composerPrefillRequest.asReadonly();
   readonly pendingSettingsTab = this._pendingSettingsTab.asReadonly();
@@ -1300,6 +1319,31 @@ export class AppStateManager implements MessageHandler {
    */
   requestChatPrompt(request: ChatPromptRequest): void {
     this._chatPromptRequest.set(request);
+  }
+
+  /**
+   * Request that the chat lib opens an existing session (Tasks board "Open
+   * session"). Fire-and-forget. An id that is not a valid `SessionId` is
+   * dropped, as in {@link requestCanvasSession}. Each call publishes a new
+   * request object, so opening the same session twice in a row fires twice.
+   */
+  requestOpenSession(request: { sessionId: string; name?: string }): void {
+    const sessionId = SessionId.safeParse(request.sessionId);
+    if (!sessionId) return;
+    this._sessionOpenRequest.set({
+      sessionId,
+      ...(request.name ? { name: request.name } : {}),
+    });
+  }
+
+  /**
+   * Clear `request` only while it is still the pending one, so a newer
+   * request published in the meantime is not lost.
+   */
+  clearSessionOpenRequest(request: SessionOpenRequest): void {
+    if (this._sessionOpenRequest() === request) {
+      this._sessionOpenRequest.set(null);
+    }
   }
 
   /** Prefill the composer belonging to `tabId` without submitting the text. */

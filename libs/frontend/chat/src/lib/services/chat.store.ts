@@ -39,6 +39,7 @@ import {
 } from './chat-store/session-stats-aggregator.service';
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
 import { TaskPromptBridgeService } from './chat-store/task-prompt-bridge.service';
+import { SessionOpenBridgeService } from './chat-store/session-open-bridge.service';
 import { TurnEndHandlerService } from './chat-store/turn-end-handler.service';
 import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
 
@@ -86,6 +87,11 @@ export class ChatStore {
    * read by the facade.
    */
   private readonly taskPromptBridge = inject(TaskPromptBridgeService);
+  /**
+   * Eagerly constructed for the same reason: its `sessionOpenRequest` effect
+   * lets the Tasks board open an existing session without importing this lib.
+   */
+  private readonly sessionOpenBridge = inject(SessionOpenBridgeService);
 
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();
