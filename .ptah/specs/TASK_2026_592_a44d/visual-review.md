@@ -116,8 +116,21 @@ Findings from `apps/ptah-electron/src/main.ts:52-58`:
 - That isolates only the Electron profile. The Claude CLI children still read the user's global `~/.claude` credentials, and `~/.ptah` state is shared. A real message in the dev app would use the user's Claude login and write to those shared directories. `%APPDATA%\Ptah Dev` already exists and was not inspected.
 - The Electron main was not built in this worktree, and a license/auth gate in a fresh profile was not checked. I judged the risk to the user's live sessions and credentials higher than the value of the check, so I stopped.
 
-Manual steps for the user (use a throwaway profile and a separate workspace; do not touch the real Ptah.exe):
-1. Build and launch a dev instance with an isolated profile, for example from the worktree: `$env:PTAH_SHOWCASE_USER_DATA_DIR='C:\Temp\ptah-592-profile'` then start the Electron dev target with `--user-data-dir=C:\Temp\ptah-592-profile`. Note its PID (the new Electron main PID).
+Manual steps for the user (use a throwaway profile, a throwaway home and a separate workspace; do not touch the real Ptah.exe):
+
+> **Do not run step 3 or later until all three locations are isolated.** `--user-data-dir` isolates only the Electron profile. Ptah resolves `~/.ptah` with `os.homedir()`, which on Windows reads `USERPROFILE`; the Claude CLI resolves `~/.claude` the same way (and honours `CLAUDE_CONFIG_DIR`). Without the overrides below, the test would use the real Claude login and write to the real `~/.ptah`. (Correction after PR #628 review.)
+
+1. In a NEW PowerShell window (the overrides must apply only to the dev instance and its children), isolate the home, the Claude config and the Electron profile, sign in to Claude inside that home, then launch the dev instance from the worktree:
+   ```powershell
+   $iso = 'C:\Temp\ptah-592'
+   New-Item -ItemType Directory -Force "$iso\home", "$iso\profile" | Out-Null
+   $env:USERPROFILE = "$iso\home"; $env:HOME = "$iso\home"
+   $env:CLAUDE_CONFIG_DIR = "$iso\home\.claude"
+   $env:PTAH_SHOWCASE_USER_DATA_DIR = "$iso\profile"
+   claude /login   # sign in with a test account inside the isolated home
+   # then start the Electron dev target with --user-data-dir="$iso\profile"
+   ```
+   Confirm `C:\Users\<you>\.ptah` and `C:\Users\<you>\.claude` did not change (check their LastWriteTime before and after). Note the new Electron main PID.
 2. List the dev app's claude.exe children before any action:
    `Get-CimInstance Win32_Process -Filter "Name='claude.exe'" | Where-Object ParentProcessId -eq <DEV_PID> | Select ProcessId,ParentProcessId,CreationDate`
 3. In tab A send one tiny message ("hi") and wait for idle. Re-run the command from step 2 and note the PID. Close tab A (X button; an idle tab closes with no dialog). Within about 10 s re-run the command. Expected: that PID is gone.

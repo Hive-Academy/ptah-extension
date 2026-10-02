@@ -383,8 +383,11 @@ Edge cases:
   session's report to this task's lane. Ptah should keep lane session ids per task/session.
 - Open item, accepted by the orchestrator, NOT a pass: the claude.exe runtime check (visual-review.md
   Part B) could not be isolated from the user's running app (shared credentials and `~/.ptah`). It is
-  deferred to a manual check by the user, with the steps from visual-review.md:110-128 going into the
-  PR test plan.
+  deferred to a manual check by the user, with the steps from visual-review.md Part B going into the
+  PR test plan. The `chat:abort` tests prove only that the RPC is dispatched, not that claude.exe exits on
+  an idle close or survives a workspace switch. This acceptance criterion stays OPEN, and task.md stays
+  `in_review` (never `done`) until both lifecycle outcomes are verified in an isolated environment and
+  recorded here.
 - From the superseded-abort correction review (moderate; orchestrator decision: the revise cap was
   reached, not fixed here): if the tab is closed while `validateSessionExists` runs and the session file
   is missing, the fallback `startNewConversation` (`message-sender.service.ts:610-621`) can still create

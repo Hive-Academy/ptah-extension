@@ -48,9 +48,14 @@ durable list. A later reopen from the sidebar would have lost the "resume interr
 
 - The session-end subscriber (`subscribeToSessionEnd`) fires only from `SessionControl.endRecord`, which requires
   a live record. It never runs on the no-record path, so the overwrite in (b) came from `abortSession` alone.
-- When there was no live record, the abort changed no subagent state (`markAllInterrupted` did not run). Every
-  record the registry could hold was either written by an earlier abort or restored from that same durable list,
-  so skipping the write loses nothing.
+- When there was no live record, the abort changed no subagent state (`markAllInterrupted` did not run). Records
+  written by an earlier abort or restored from the durable list are not lost by skipping the write.
+- **Correction (review, PR #628):** this does not hold for every record. `retireInterruptedRecord`
+  (`session-control.service.ts:123-148`, turn-interrupt timeout of a stop-intent `chat:continue`) marks subagents
+  interrupted without a session-end notification, so those registry entries have no durable write. A later idle
+  abort now skips `saveResumeState`, and the resume offer for them can be lost after a restart. This is accepted
+  as a known limitation of this task (narrow path, no spec) and recorded as a follow-up in `batches.md`
+  ("`retireInterruptedRecord` path"); it is not persisted or tested here.
 - `isSessionActive` is `sessionLifecycle.find(id) !== undefined` (`sdk-agent-adapter.ts:1061-1063`). That is the
   same `registry.find` lookup that `SessionControl.endSession` uses (`session-control.service.ts:160-171`).
 - The readers were traced. `restoreResumableBySession` is the only consumer of the durable list. Both
