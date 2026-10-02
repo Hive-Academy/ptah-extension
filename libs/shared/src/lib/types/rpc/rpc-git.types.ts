@@ -163,6 +163,61 @@ export interface GitRepoOperation {
   conflictedPaths: string[];
 }
 
+/**
+ * Parameters for git:operationAbort. Names only the workspace folder: the
+ * backend re-detects which operation is in progress and never takes a kind
+ * from the client.
+ */
+export type GitOperationAbortParams = GitWorkspaceScopedParams;
+
+/** Parameters for git:operationContinue; same rule as {@link GitOperationAbortParams}. */
+export type GitOperationContinueParams = GitWorkspaceScopedParams;
+
+/** The operation ran to its end (continue) or was rolled back (abort). */
+export interface GitOperationCompleted {
+  status: 'completed';
+  /** The operation the backend detected and acted on. */
+  kind: GitRepoOperationKind;
+}
+
+/** No merge, rebase or cherry-pick is in progress; nothing was run. */
+export interface GitOperationNone {
+  status: 'no-operation';
+}
+
+/**
+ * The action did not complete. `kind` is absent when the repository state
+ * could not be read. `error` is a short sanitized line, never raw stderr.
+ */
+export interface GitOperationFailed {
+  status: 'failed';
+  kind?: GitRepoOperationKind;
+  code: GitMutationFailureCode;
+  error: string;
+}
+
+/** Result from git:operationAbort RPC method. */
+export type GitOperationAbortResult =
+  GitOperationCompleted | GitOperationNone | GitOperationFailed;
+
+/**
+ * Result from git:operationContinue RPC method.
+ * - `conflicts-remain` — refused without running git: these paths are still
+ *   unmerged.
+ * - `stopped` — git continued and stopped again (a later rebase or
+ *   cherry-pick step conflicted, or the user's todo list has a stop); the
+ *   operation is still in progress with `conflictedPaths`.
+ */
+export type GitOperationContinueResult =
+  | GitOperationCompleted
+  | GitOperationNone
+  | GitOperationFailed
+  | {
+      status: 'conflicts-remain' | 'stopped';
+      kind: GitRepoOperationKind;
+      conflictedPaths: string[];
+    };
+
 /** Parameters for git:worktrees RPC method */
 export type GitWorktreesParams = GitWorkspaceScopedParams;
 

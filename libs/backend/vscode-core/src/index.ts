@@ -99,6 +99,7 @@ export type {
   GitCommitOptions,
 } from './services/git-info.service';
 export type { StagedPatchRead } from './services/git/git-staged-patch.reader';
+export type { GitConflictStagesResult } from './services/git/git-operation-actions';
 export {
   execGit,
   configureGitProcessGate,

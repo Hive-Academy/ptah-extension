@@ -37,6 +37,8 @@ import {
   type GitShowFileResult,
   type GitPushResult,
   type GitPrStatusResult,
+  type GitOperationAbortResult,
+  type GitOperationContinueResult,
   type GitPullResult,
   type GitFetchResult,
   type GitStashMutationResult,
@@ -84,6 +86,10 @@ import { GitHubPrStatusReader } from './git/github-pr-status.reader';
 import { GitRemoteSync } from './git/git-remote-sync';
 import { AgentWorktreeAdmin } from './git/agent-worktree-admin';
 import { GitRepoOperationReader } from './git/git-repo-operation.reader';
+import {
+  GitOperationActions,
+  type GitConflictStagesResult,
+} from './git/git-operation-actions';
 import { classifyBlobBytes } from './git/git-blob-classifier';
 import { thrownOutcome, writeOutcome } from './git/git-mutation-outcome';
 import { assertSafeRef, assertSafeRevision } from './git/git-ref-guard';
@@ -514,6 +520,7 @@ export class GitInfoService {
   private readonly remoteSync: GitRemoteSync;
   private readonly worktreeAdmin: AgentWorktreeAdmin;
   private readonly operationReader: GitRepoOperationReader;
+  private readonly operationActions: GitOperationActions;
   private readonly changeSetNumstat: GitChangeSetNumstatReader;
   private readonly stagedPatch: GitStagedPatchReader;
   private readonly prStatusReader: GitHubPrStatusReader;
@@ -545,6 +552,12 @@ export class GitInfoService {
     this.remoteSync = new GitRemoteSync(deps);
     this.worktreeAdmin = new AgentWorktreeAdmin(deps);
     this.operationReader = new GitRepoOperationReader(deps);
+    this.operationActions = new GitOperationActions({
+      ...deps,
+      execBuffer: (args, cwd, options) =>
+        this.execGitBuffer(args, cwd, options),
+      operationReader: this.operationReader,
+    });
     this.changeSetNumstat = new GitChangeSetNumstatReader({
       exec: deps.exec,
       logger,
@@ -832,6 +845,10 @@ export class GitInfoService {
         this.readNumstat(workspacePath, false, priority),
         this.operationReader.readRepoOperation(workspacePath, files, priority),
       ]);
+      // The operation ended outside Ptah too: drop its merge-tool stage files.
+      if (!operation) {
+        await this.operationActions.releaseConflictStages(workspacePath);
+      }
       let untrackedRead = 0;
       // Status paths are repository-root relative, so an untracked file is
       // read from the top level, not from a workspace that is a subdirectory.
@@ -1235,6 +1252,38 @@ export class GitInfoService {
     branch: string,
   ): Promise<GitPrStatusResult> {
     return this.prStatusReader.read(workspaceRoot, branch);
+  }
+
+  /**
+   * Abort the merge, rebase or cherry-pick in progress, re-detected here —
+   * never named by the caller. See {@link GitOperationActions}.
+   */
+  abortOperation(workspacePath: string): Promise<GitOperationAbortResult> {
+    return this.operationActions.abort(workspacePath);
+  }
+
+  /**
+   * Continue the operation in progress without opening an editor; refused
+   * (`conflicts-remain`) while any path is unmerged.
+   */
+  continueOperation(
+    workspacePath: string,
+  ): Promise<GitOperationContinueResult> {
+    return this.operationActions.continue(workspacePath);
+  }
+
+  /**
+   * Write `relativePath`'s base/local/remote stages to temp files for an
+   * external merge tool; removed when the operation ends.
+   */
+  materializeConflictStages(
+    workspacePath: string,
+    relativePath: string,
+  ): Promise<GitConflictStagesResult> {
+    return this.operationActions.materializeConflictStages(
+      workspacePath,
+      relativePath,
+    );
   }
 
   /** Push, pull and fetch: see {@link GitRemoteSync} (pull is locked). */
