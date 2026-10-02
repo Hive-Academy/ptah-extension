@@ -73,6 +73,7 @@ import {
   SurfaceRouterService,
   VSCodeService,
 } from '@ptah-extension/core';
+import { MODEL_REFRESH_CONTROL } from '@ptah-extension/chat-state';
 import { ElectronShellComponent } from './electron-shell.component';
 
 describe('ElectronShellComponent review dock', () => {
@@ -119,6 +120,10 @@ describe('ElectronShellComponent review dock', () => {
       imports: [ElectronShellComponent],
       providers: [
         provideRouter([]),
+        {
+          provide: MODEL_REFRESH_CONTROL,
+          useValue: { refreshModels: jest.fn().mockResolvedValue(undefined) },
+        },
         { provide: ElectronLayoutService, useValue: layoutStub },
         { provide: AppStateManager, useValue: appStateStub },
         {
@@ -170,9 +175,9 @@ describe('ElectronShellComponent review dock', () => {
     await settle();
 
     expect(query('[data-testid="review-shell-stub"]')).toBeNull();
-    expect(
-      (fixture.nativeElement as HTMLElement).textContent,
-    ).toContain('Failed to load the git panel.');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'Failed to load the git panel.',
+    );
     expect(error).toHaveBeenCalledWith(
       expect.stringContaining('[ElectronShellComponent]'),
       'chunk load failed',

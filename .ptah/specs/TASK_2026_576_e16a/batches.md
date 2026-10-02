@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 67/69 (P5 closed)
+Total tasks: 87 | Batches: 69 | Complete: 69/69 (P5 closed; P2-P5 merged into main)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2615,14 +2615,14 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
   chunks, 0 broken relative chunk imports. R12: unit (`lazy-diff-view` 6/6) + packaging evidence (the drawer's
   diff-renderer chunks are in the VSIX); no live VS Code run covers the Skills drawer — manual check open.
 
-## Batch 68: Axe sweep on VS Code card and review surfaces — PENDING
+## Batch 68: Axe sweep on VS Code card and review surfaces — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): visual-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 67
 - Verification: axe report dark + light for shell, canvas, spot editor, composer, task view, banner, history, card
 
-### Task 68.1: Axe evidence — PENDING
+### Task 68.1: Axe evidence — COMPLETE
 
 - File: evidence under D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/screenshots/axe/
 - Plan reference: implementation-plan.md:1437, 1471
@@ -2630,15 +2630,23 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: no critical/serious.
 - Validation notes: none.
 - Implementation details: n/a
+- Outcome: executor senior-tester (`3d2319052`), fixes by frontend-developer (`8c0fc2c43`). 13 surfaces audited in dark
+  and light (evidence `screenshots/axe/`); 6 failed first: Pierre expand buttons unnamed, Pierre light contrast, read-only
+  CodeMirror not focusable, muted text on base-200/300, light ahead/behind arrows, light primary hover. Fixes: labels in
+  the post-render hook, `ptah-light` (github-light-high-contrast) theme, one tab stop in the spot editor, `--bcm`
+  re-derived for base-100/200/300 in every theme, full-strength arrows, darker light `primary-content`; the helper now
+  switches `ThemeService` and waits for transitions. After: all 0/0. VS Code card: Electron render passes; VS Code e2e
+  cannot render it. Known gaps: `pierre-dark` comment tokens 2.9-3.3, Pierre expand buttons not tab stops. The
+  commit-composer stream test race was in the spec (`ec72d7de6`), not the product.
 
-## Batch 69: Task-wide scoped verification — PENDING
+## Batch 69: Task-wide scoped verification — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 68
 - Verification: `npx nx run-many -t typecheck,test,lint -p <projects changed on the branch>` (list from `git diff --name-only main`), tailed
 
-### Task 69.1: Final run and allowlist diff — PENDING
+### Task 69.1: Final run and allowlist diff — COMPLETE
 
 - File: none authored; evidence in the report
 - Plan reference: implementation-plan.md:1586-1596
@@ -2646,6 +2654,13 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: `command:execute` allowlist unchanged (diff of `command-rpc.handlers.ts:29, 35-40`); manifest invariant green.
 - Validation notes: all risks above have a recorded resolution.
 - Implementation details: n/a
+- Outcome: executor senior-tester (`reviews/batch-69-verification.md`). 15 changed projects typecheck/test/lint green in
+  CI Jest mode (`NODE_OPTIONS=--no-experimental-require-module`), except the known machine-local
+  `harness-skill-selection` spec; test-only fix: `electron-shell.review-dock.spec.ts` lacked `MODEL_REFRESH_CONTROL`.
+  Degradation audit, eager guard, `validate-deps`, real-git (181 passed, 2 skipped) green. `command:execute` allowlist
+  diff empty against `origin/main` and `722d921ab`; manifest invariant green. Open (live checks only): R3 Windows
+  watcher e2e, R7 card-to-turn reopen e2e, R12 live VS Code Skills drawer, A5 which worktree-removal path fires, A10
+  real `gh` ≥2.20.
 
 ### Cutover phase-end review
 
