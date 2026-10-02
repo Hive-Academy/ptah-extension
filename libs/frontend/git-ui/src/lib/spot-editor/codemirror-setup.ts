@@ -41,7 +41,7 @@ export function detectLineSeparator(text: string): LineSeparator {
   let crlf = 0;
   let lf = 0;
   for (let index = text.indexOf('\n'); index !== -1; ) {
-    if (index > 0 && text.charCodeAt(index - 1) === 13) crlf++;
+    if (index > 0 && text.endsWith('\r', index)) crlf++;
     else lf++;
     index = text.indexOf('\n', index + 1);
   }

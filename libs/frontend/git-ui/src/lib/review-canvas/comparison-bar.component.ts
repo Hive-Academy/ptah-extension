@@ -5,6 +5,7 @@ import {
   DestroyRef,
   inject,
   input,
+  OnInit,
   model,
   output,
   signal,
@@ -216,7 +217,7 @@ const FOCUS_RING =
     </div>
   `,
 })
-export class ComparisonBarComponent {
+export class ComparisonBarComponent implements OnInit {
   private readonly vscode = inject(VSCodeService);
   private readonly navigation = inject(ReviewNavigationService);
   protected readonly review = inject(GitReviewService);
@@ -268,6 +269,9 @@ export class ComparisonBarComponent {
 
   constructor() {
     inject(DestroyRef).onDestroy(() => (this.destroyed = true));
+  }
+
+  ngOnInit(): void {
     void this.loadLayoutPreference();
   }
 

@@ -968,8 +968,11 @@ export class ReviewDiffService implements MessageHandler {
   private toWorkspaceRelative(absolutePath: string): string | null {
     const root = this.activeWorkspacePath();
     if (!root || !absolutePath) return null;
-    const rootLength = root.replace(/[\\/]+$/, '').length;
-    const normalizedPath = absolutePath.replace(/\\/g, '/');
+    let rootLength = root.length;
+    while (rootLength > 0 && '\\/'.includes(root.charAt(rootLength - 1))) {
+      rootLength--;
+    }
+    const normalizedPath = absolutePath.replaceAll('\\', '/');
     // The root part is compared as a root key (separator- and case-folded, so
     // a `d:\` push matches a `D:/` workspace); the relative part keeps its case.
     if (
