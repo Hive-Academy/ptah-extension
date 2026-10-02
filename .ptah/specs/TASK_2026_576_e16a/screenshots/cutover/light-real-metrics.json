@@ -1,0 +1,1179 @@
+{
+  "issues": [],
+  "metrics": [
+    {
+      "name": "changes-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "changes-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "branch-review-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "branch-review-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1204..1256]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "spot-editor-readonly-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "spot-editor-readonly-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "spot-editor-dirty-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "spot-editor-dirty-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "spot-editor-conflict-dialog-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1254,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": [
+        "git-confirm-dialog[0..1254]",
+        "div[435..819]",
+        "h3[459..795]",
+        "p[459..795]",
+        "div[459..795]",
+        "git-confirm-cancel[549..642]",
+        "git-confirm-secondary[650..710]",
+        "div[0..1254]"
+      ]
+    },
+    {
+      "name": "spot-editor-conflict-dialog-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1254,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]",
+        "git-confirm-dialog[0..1254]",
+        "div[435..819]",
+        "h3[459..795]",
+        "p[459..795]",
+        "div[459..795]",
+        "git-confirm-cancel[549..642]"
+      ]
+    },
+    {
+      "name": "commit-idle-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "commit-idle-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "commit-message-filled-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "commit-message-filled-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "commit-failure-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "commit-failure-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "commit-success-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "commit-success-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "history-commits-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "history-commits-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1199..1271]",
+        "span[1211..1259]"
+      ]
+    },
+    {
+      "name": "history-stashes-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "history-stashes-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1199..1271]",
+        "span[1211..1259]"
+      ]
+    },
+    {
+      "name": "changes-empty-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "changes-empty-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "task-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": [
+        "span[1559..1616]"
+      ]
+    },
+    {
+      "name": "task-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1199..1271]",
+        "span[1211..1259]",
+        "span[1807..1864]"
+      ]
+    },
+    {
+      "name": "task-add-form-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": [
+        "span[1559..1616]"
+      ]
+    },
+    {
+      "name": "task-add-form-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1199..1271]",
+        "span[1211..1259]",
+        "span[1807..1864]"
+      ]
+    },
+    {
+      "name": "conflict-banner-changes-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "conflict-banner-changes-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    },
+    {
+      "name": "conflict-commit-blocked-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "conflict-commit-blocked-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "git-push-button[1230..1282]",
+        "lucide-angular[1235..1247]",
+        "svg[1235..1247]",
+        "path[1238..1244]",
+        "native-tab[1200..1271]",
+        "span[1212..1259]"
+      ]
+    }
+  ],
+  "focus": [
+    {
+      "surface": "changes",
+      "stop": 0,
+      "tag": "button",
+      "label": "Changes, 7 changed files",
+      "focusVisible": false,
+      "outline": "none 3px oklch(0.23574 0.066 313.189)",
+      "boxShadow": "none",
+      "rect": [
+        673,
+        101,
+        110,
+        38
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 1,
+      "tag": "div",
+      "label": "native-tabpanel",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.58 0.132 75)",
+      "boxShadow": "none",
+      "rect": [
+        665,
+        139,
+        567,
+        596
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 2,
+      "tag": "button",
+      "label": "Comparison: Working tree",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        674,
+        149,
+        94,
+        24
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 3,
+      "tag": "input",
+      "label": "Filter changed files",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.23574 0.066 313.189 / 0.2)",
+      "boxShadow": "none",
+      "rect": [
+        777,
+        145,
+        192,
+        32
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 4,
+      "tag": "button",
+      "label": "layout-split",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        977,
+        149,
+        53,
+        24
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 5,
+      "tag": "button",
+      "label": "layout-unified",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1032,
+        149,
+        66,
+        24
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 6,
+      "tag": "div",
+      "label": "tree-row-file",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        665,
+        276,
+        255,
+        28
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 7,
+      "tag": "button",
+      "label": "Unstage README.md",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        819,
+        280,
+        24,
+        20
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 8,
+      "tag": "button",
+      "label": "Discard changes to README.md",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        845,
+        280,
+        24,
+        20
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 9,
+      "tag": "button",
+      "label": "Open in VS Code",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        871,
+        278,
+        20,
+        20
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 10,
+      "tag": "button",
+      "label": "Choose where to open",
+      "focusVisible": true,
+      "outline": "solid 2px rgba(0, 0, 0, 0)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        890,
+        278,
+        22,
+        24
+      ]
+    },
+    {
+      "surface": "changes",
+      "stop": 11,
+      "tag": "div",
+      "label": "Resize source control",
+      "focusVisible": true,
+      "outline": "auto 1px rgb(229, 151, 0)",
+      "boxShadow": "none",
+      "rect": [
+        921,
+        184,
+        4,
+        551
+      ]
+    },
+    {
+      "surface": "spot",
+      "stop": 0,
+      "tag": "button",
+      "label": "spot-editor-back",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        673,
+        143,
+        104,
+        24
+      ]
+    },
+    {
+      "surface": "spot",
+      "stop": 1,
+      "tag": "button",
+      "label": "spot-editor-save",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
+      "rect": [
+        1186,
+        143,
+        38,
+        24
+      ]
+    },
+    {
+      "surface": "spot",
+      "stop": 2,
+      "tag": "div",
+      "label": "Contents of src/calc.ts",
+      "focusVisible": true,
+      "outline": "none 3px oklch(0.23574 0.066 313.189)",
+      "boxShadow": "none",
+      "rect": [
+        693,
+        -1305,
+        529,
+        2040
+      ]
+    },
+    {
+      "surface": "spot",
+      "stop": 3,
+      "tag": "button",
+      "label": "Toggle Git panel",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        1232,
+        40,
+        32,
+        695
+      ]
+    },
+    {
+      "surface": "spot",
+      "stop": 4,
+      "tag": "button",
+      "label": "Chat",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.85 0.138 181.071)",
+      "boxShadow": "none",
+      "rect": [
+        395,
+        4,
+        79,
+        32
+      ]
+    },
+    {
+      "surface": "commit",
+      "stop": 0,
+      "tag": "textarea",
+      "label": "commit-message",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.23574 0.066 313.189 / 0.2)",
+      "boxShadow": "none",
+      "rect": [
+        677,
+        154,
+        543,
+        98
+      ]
+    },
+    {
+      "surface": "commit",
+      "stop": 1,
+      "tag": "button",
+      "label": "commit-submit",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
+      "rect": [
+        1155,
+        260,
+        65,
+        32
+      ]
+    },
+    {
+      "surface": "commit",
+      "stop": 2,
+      "tag": "button",
+      "label": "Toggle Git panel",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        1232,
+        40,
+        32,
+        695
+      ]
+    },
+    {
+      "surface": "commit",
+      "stop": 3,
+      "tag": "button",
+      "label": "Chat",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.85 0.138 181.071)",
+      "boxShadow": "none",
+      "rect": [
+        395,
+        4,
+        79,
+        32
+      ]
+    },
+    {
+      "surface": "commit",
+      "stop": 4,
+      "tag": "button",
+      "label": "Apps",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.23574 0.066 313.189)",
+      "boxShadow": "none",
+      "rect": [
+        474,
+        4,
+        81,
+        32
+      ]
+    },
+    {
+      "surface": "history",
+      "stop": 0,
+      "tag": "button",
+      "label": "native-tab",
+      "focusVisible": false,
+      "outline": "none 3px oklch(0.23574 0.066 313.189)",
+      "boxShadow": "none",
+      "rect": [
+        951,
+        72,
+        72,
+        38
+      ]
+    },
+    {
+      "surface": "history",
+      "stop": 1,
+      "tag": "div",
+      "label": "native-tabpanel",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.58 0.132 75)",
+      "boxShadow": "none",
+      "rect": [
+        665,
+        110,
+        567,
+        625
+      ]
+    },
+    {
+      "surface": "history",
+      "stop": 2,
+      "tag": "button",
+      "label": "history-stashes-toggle",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        677,
+        122,
+        93,
+        20
+      ]
+    },
+    {
+      "surface": "history",
+      "stop": 3,
+      "tag": "button",
+      "label": "history-stash-entry",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        681,
+        150,
+        429,
+        20
+      ]
+    },
+    {
+      "surface": "history",
+      "stop": 4,
+      "tag": "button",
+      "label": "Apply stash@{0}",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1114,
+        148,
+        41,
+        24
+      ]
+    },
+    {
+      "surface": "history",
+      "stop": 5,
+      "tag": "button",
+      "label": "Pop stash@{0}",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1159,
+        148,
+        31,
+        24
+      ]
+    },
+    {
+      "surface": "task",
+      "stop": 0,
+      "tag": "button",
+      "label": "Refresh task view",
+      "focusVisible": false,
+      "outline": "none 3px oklch(0.23574 0.066 313.189)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1198,
+        122,
+        22,
+        24
+      ]
+    },
+    {
+      "surface": "task",
+      "stop": 1,
+      "tag": "button",
+      "label": "Choose editor",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        677,
+        212,
+        77,
+        24
+      ]
+    },
+    {
+      "surface": "task",
+      "stop": 2,
+      "tag": "button",
+      "label": "Choose where to open",
+      "focusVisible": true,
+      "outline": "solid 2px rgba(0, 0, 0, 0)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        753,
+        212,
+        22,
+        24
+      ]
+    },
+    {
+      "surface": "task",
+      "stop": 3,
+      "tag": "button",
+      "label": "task-worktree-add-toggle",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1170,
+        314,
+        50,
+        24
+      ]
+    },
+    {
+      "surface": "task",
+      "stop": 4,
+      "tag": "button",
+      "label": "Switch to feature/review (main, active), C:/Users/",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        677,
+        342,
+        543,
+        24
+      ]
+    },
+    {
+      "surface": "task",
+      "stop": 5,
+      "tag": "button",
+      "label": "Switch to agent/visual-review-task, C:/Users/abdal",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        677,
+        368,
+        517,
+        24
+      ]
+    },
+    {
+      "surface": "task",
+      "stop": 6,
+      "tag": "button",
+      "label": "Remove worktree agent/visual-review-task",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1198,
+        368,
+        22,
+        24
+      ]
+    },
+    {
+      "surface": "task",
+      "stop": 7,
+      "tag": "button",
+      "label": "Toggle Git panel",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        1232,
+        40,
+        32,
+        695
+      ]
+    },
+    {
+      "surface": "conflict",
+      "stop": 0,
+      "tag": "button",
+      "label": "Open README.md in VS Code",
+      "focusVisible": false,
+      "outline": "none 3px oklch(0.23574 0.066 313.189)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1125,
+        116,
+        87,
+        24
+      ]
+    },
+    {
+      "surface": "conflict",
+      "stop": 1,
+      "tag": "button",
+      "label": "Open lib/helpers/util.ts in VS Code",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1125,
+        142,
+        87,
+        24
+      ]
+    },
+    {
+      "surface": "conflict",
+      "stop": 2,
+      "tag": "button",
+      "label": "conflict-banner-ask",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
+      "rect": [
+        717,
+        174,
+        120,
+        24
+      ]
+    },
+    {
+      "surface": "conflict",
+      "stop": 3,
+      "tag": "button",
+      "label": "conflict-banner-abort",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
+      "rect": [
+        843,
+        174,
+        42,
+        24
+      ]
+    },
+    {
+      "surface": "conflict",
+      "stop": 4,
+      "tag": "button",
+      "label": "Changes, 2 changed files",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.58 0.132 75)",
+      "boxShadow": "none",
+      "rect": [
+        673,
+        226,
+        110,
+        38
+      ]
+    },
+    {
+      "surface": "conflict",
+      "stop": 5,
+      "tag": "div",
+      "label": "native-tabpanel",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.58 0.132 75)",
+      "boxShadow": "none",
+      "rect": [
+        665,
+        264,
+        567,
+        471
+      ]
+    }
+  ]
+}
