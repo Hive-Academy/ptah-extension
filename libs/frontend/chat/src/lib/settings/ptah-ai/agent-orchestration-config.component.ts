@@ -8,8 +8,11 @@ import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.
 import { cliMatrixRows } from './cli-matrix-rows';
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-/** ▲/▼ in the order popover: 24×24 px targets (WCAG 2.5.8). */
-const MOVE = `btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 p-0 text-base-content disabled:border-transparent disabled:bg-transparent ${FOCUS}`;
+/**
+ * ▲/▼ in the order popover: 24×24 px targets (WCAG 2.5.8). `aria-disabled` looks like `disabled` but keeps focus (Batch
+ * 36: a native `disabled` on the focused button during a save dropped focus to the page, where Esc missed the popover).
+ */
+const MOVE = `btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 p-0 text-base-content disabled:border-transparent disabled:bg-transparent aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${FOCUS}`;
 /** Orchestration policy lives in the user settings (plan §3 rows 891-892), like the CLI matrix's writes. */
 const SAVE_SCOPE = 'global';
 const DETECT_FAILED = 'Could not re-detect CLI agents. Your saved settings have not changed.';
@@ -91,12 +94,14 @@ interface OrderChip {
                         <span class="min-w-0 flex-1 truncate font-bold" [class.text-base-content]="chip.enabled"
                           [class.text-base-content-muted]="!chip.enabled">{{ i + 1 }}. {{ chip.name }}</span>
                         @if (!chip.enabled) { <span class="text-[10px] text-base-content-muted">off</span> }
-                        <button type="button" [class]="moveClass" [disabled]="first || !canReorder()"
+                        <!-- Native disabled only at the ends; while a move cannot run (saving, not read) the buttons are
+                             aria-disabled and ignore clicks, so the focused one keeps focus and Esc closes the popover. -->
+                        <button type="button" [class]="moveClass" [disabled]="first" [attr.aria-disabled]="canReorder() ? null : 'true'"
                           [attr.aria-label]="'Move ' + chip.name + ' up'" [attr.data-testid]="'policy-order-up-' + chip.id"
                           (click)="moveAgentUp(i)">
                           <lucide-angular [img]="UpIcon" class="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
-                        <button type="button" [class]="moveClass" [disabled]="last || !canReorder()"
+                        <button type="button" [class]="moveClass" [disabled]="last" [attr.aria-disabled]="canReorder() ? null : 'true'"
                           [attr.aria-label]="'Move ' + chip.name + ' down'" [attr.data-testid]="'policy-order-down-' + chip.id"
                           (click)="moveAgentDown(i)">
                           <lucide-angular [img]="DownIcon" class="h-3.5 w-3.5" aria-hidden="true" />
@@ -224,7 +229,7 @@ export class AgentOrchestrationConfigComponent {
 
   /** Move an agent one place earlier in the preferred order. */
   moveAgentUp(index: number): void {
-    if (index <= 0) return;
+    if (index <= 0 || !this.canReorder()) return;
     const ids = this.chips().map((chip) => chip.id);
     [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]];
     void this.savePreferredOrder(ids, ids[index - 1], 'up');
@@ -233,7 +238,7 @@ export class AgentOrchestrationConfigComponent {
   /** Move an agent one place later in the preferred order. */
   moveAgentDown(index: number): void {
     const ids = this.chips().map((chip) => chip.id);
-    if (index >= ids.length - 1) return;
+    if (index >= ids.length - 1 || !this.canReorder()) return;
     [ids[index], ids[index + 1]] = [ids[index + 1], ids[index]];
     void this.savePreferredOrder(ids, ids[index + 1], 'down');
   }
@@ -276,8 +281,9 @@ export class AgentOrchestrationConfigComponent {
   }
 
   /**
-   * The moved row changed place and its buttons were disabled while saving: once re-rendered, focus returns to the
-   * button used, or to the row's other one when that end was reached.
+   * The moved row changed place (re-ordering the list can move its element, which drops focus) and may have reached an
+   * end, where the button used is now `disabled`: once re-rendered, focus returns to the button used, or to the row's
+   * other one. During the save itself the buttons are only `aria-disabled`, so focus never leaves the popover.
    */
   private refocus(id: string, direction: 'up' | 'down'): void {
     afterNextRender(() => {

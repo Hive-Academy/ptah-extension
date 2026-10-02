@@ -80,6 +80,25 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
     fixture.detectChanges();
     if (!popover()) throw new Error('Order popover did not open');
   }
+  /**
+   * The next write stays in flight (commit `saving`, as the real state reports it) until the returned function is
+   * called; it then applies the patch like the default stub.
+   */
+  function deferNextSave(): (saved: boolean) => void {
+    let finish: (saved: boolean) => void = () => undefined;
+    state.saveSettings.mockImplementationOnce((patch) => {
+      state.commit.set({ ...idle, status: 'saving' });
+      return new Promise<boolean>((resolve) => {
+        finish = (saved) => {
+          const data = state.orchestration().data;
+          if (data) state.orchestration.set(ready({ ...data, ...patch.orchestration } as ProvidersOrchestration));
+          state.commit.set({ ...idle, status: 'saved', saved: ['Orchestration policy'] });
+          resolve(saved);
+        };
+      });
+    });
+    return (saved) => finish(saved);
+  }
   function slide(to: number, event: 'input' | 'change') {
     const input = slider();
     if (!input) throw new Error('No slider');
@@ -278,14 +297,54 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       fixture.detectChanges();
       expect(chips()).toEqual(['codex', 'antigravity', 'copilot', 'opencode']);
       await openOrder();
-      expect(button('policy-order-down-codex')?.disabled).toBe(true);
+      const down = button('policy-order-down-codex');
+      expect(down?.getAttribute('aria-disabled')).toBe('true');
+      down?.click();
+      await flush();
+      expect(state.saveSettings).not.toHaveBeenCalled();
     });
 
-    it('cannot reorder while a save runs (D3)', async () => {
+    it('cannot reorder while a save runs (D3): the buttons are aria-disabled and ignore clicks, not natively disabled', async () => {
       await openOrder();
-      state.commit.set({ ...idle, status: 'saving' });
-      fixture.detectChanges();
-      expect(button('policy-order-down-codex')?.disabled).toBe(true);
+      expect(button('policy-order-down-codex')?.hasAttribute('aria-disabled')).toBe(false);
+      const finish = deferNextSave();
+      button('policy-order-down-codex')?.click();
+      await flush();
+      expect(state.saveSettings).toHaveBeenCalledTimes(1);
+      const down = button('policy-order-down-antigravity');
+      expect(down?.getAttribute('aria-disabled')).toBe('true');
+      // Native `disabled` only marks the ends; a disabled focused button would drop focus to the page (Batch 36).
+      expect(down?.disabled).toBe(false);
+      down?.click();
+      await flush();
+      expect(state.saveSettings).toHaveBeenCalledTimes(1);
+      finish(true);
+      await flush();
+      expect(button('policy-order-down-antigravity')?.hasAttribute('aria-disabled')).toBe(false);
+    });
+
+    it('keeps focus on the button used while the save runs, and Esc then closes and returns focus to the trigger', async () => {
+      const trigger = button('policy-order-edit');
+      trigger?.focus();
+      await openOrder();
+      const finish = deferNextSave();
+      const down = button('policy-order-down-codex');
+      down?.focus();
+      down?.click();
+      await flush();
+      // Saving: the button is aria-disabled, still focusable, and keeps focus.
+      expect(down?.getAttribute('aria-disabled')).toBe('true');
+      expect(document.activeElement).toBe(down);
+      popover()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush();
+      expect(popover()).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+      // The save finishing later neither reopens the popover nor takes focus from the trigger.
+      finish(true);
+      await flush();
+      TestBed.tick();
+      expect(popover()).toBeNull();
+      expect(document.activeElement).toBe(trigger);
     });
 
     it('says so when no agent is installed', () => {
