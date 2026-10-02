@@ -1924,6 +1924,20 @@ executors at once.
 
 # P5 — Workflow surfaces (built unmounted until cutover)
 
+### P5 waves (branch `feat/task-2026-576-p5`, worktree `.claude-worktrees/task-576-p5`, PR stacked on P4)
+
+| Wave | Batches | Notes |
+|---|---|---|
+| W1 | 45 | started while the P4 review round 2 ran; P4 merged forward when closed |
+| W2 | 46 | |
+| W3 | 47 | |
+| W4 | 48 ∥ 49 | |
+| W5 | 50 ∥ 51 | |
+| W6 | 52 | |
+| W7 | 53 ∥ 57 | |
+| W8 | 54 ∥ 55 | |
+| W9 | 56 | then the P5 phase-end review |
+
 ## Batch 45: Commit streaming backend — PENDING
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
