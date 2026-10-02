@@ -1,9 +1,13 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   buildTaskGraph,
+  type SessionPrLinkSummary,
   type TaskGraph,
+  type TaskLinkedSession,
   type TaskSpecSummary,
 } from '@ptah-extension/shared';
+import { TaskSessionLinksService } from '../../services/task-session-links.service';
 import { LABEL_CHIP_CLASSES, labelChipClass } from '../../task-presentation';
 import {
   TaskCardComponent,
@@ -796,5 +800,286 @@ describe('TaskCardComponent', () => {
         host.querySelector('[data-testid^="task-card-outcome"]'),
       ).toBeNull();
     });
+  });
+});
+
+describe('TaskCardComponent — linked sessions (TASK_2026_580)', () => {
+  let links: ReturnType<typeof signal<Map<string, TaskLinkedSession[]>>>;
+  let release: jest.Mock;
+  let retain: jest.Mock;
+
+  function linked(
+    overrides: Partial<TaskLinkedSession> = {},
+  ): TaskLinkedSession {
+    return {
+      sessionId: 'sess-1',
+      name: 'Board start',
+      role: 'primary',
+      source: 'board-start',
+      livePhase: 'generating',
+      prLinks: [],
+      ...overrides,
+    };
+  }
+
+  function pr(
+    overrides: Partial<SessionPrLinkSummary> = {},
+  ): SessionPrLinkSummary {
+    return {
+      url: 'https://github.com/acme/app/pull/42',
+      number: 42,
+      repo: 'acme/app',
+      state: 'open',
+      source: 'agent',
+      createdAt: 1,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    links = signal(new Map<string, TaskLinkedSession[]>());
+    release = jest.fn();
+    retain = jest.fn(() => release);
+    TestBed.configureTestingModule({
+      imports: [TaskCardComponent],
+      providers: [
+        {
+          provide: TaskSessionLinksService,
+          useValue: {
+            retain,
+            linksFor: (taskId: string) => links().get(taskId) ?? [],
+          },
+        },
+      ],
+    });
+  });
+
+  function render(focused = true) {
+    const fixture = TestBed.createComponent(TaskCardComponent);
+    fixture.componentRef.setInput('task', makeTask());
+    fixture.componentRef.setInput('focused', focused);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  const q = (host: HTMLElement, id: string) =>
+    host.querySelector(`[data-testid="${id}"]`);
+
+  /** The written phase line as read: its parts joined by one space. */
+  const phaseText = (host: HTMLElement) =>
+    Array.from(
+      host.querySelectorAll('[data-testid="task-card-session-phase"] > span'),
+    )
+      .map((part) => part.textContent?.trim())
+      .join(' ');
+
+  it('renders no sessions row when the task has no linked session (or the host is unavailable)', () => {
+    const fixture = render();
+    expect(q(fixture.nativeElement, 'task-card-sessions')).toBeNull();
+  });
+
+  it('retains the links service while mounted and releases it on destroy', () => {
+    const fixture = render();
+    expect(retain).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the count, one dot per session and the first phase in words', () => {
+    links.set(
+      new Map([
+        [
+          'TASK_2026_200',
+          [
+            linked(),
+            linked({
+              sessionId: 'sess-2',
+              name: 'Review',
+              role: 'related',
+              livePhase: 'idle',
+            }),
+            linked({
+              sessionId: 'sess-3',
+              name: '',
+              role: 'related',
+              livePhase: null,
+            }),
+          ],
+        ],
+      ]),
+    );
+    const fixture = render();
+    const host: HTMLElement = fixture.nativeElement;
+
+    expect(q(host, 'task-card-session-count')?.textContent?.trim()).toBe(
+      '3 sessions',
+    );
+    expect(phaseText(host)).toBe('1 running · 1 idle · 1 not open');
+    expect(q(host, 'task-card-session-overflow')).toBeNull();
+    const dots = Array.from(
+      host.querySelectorAll('[data-testid="task-card-session-dot"]'),
+    ).map((dot) => dot.getAttribute('data-phase'));
+    expect(dots).toEqual(['generating', 'idle', 'none']);
+
+    const note = host.querySelector(
+      '[data-testid="task-card-sessions"] [role="note"]',
+    );
+    expect(note?.getAttribute('aria-label')).toBe(
+      '3 linked sessions: Board start, running; Review, idle; Untitled session, not open',
+    );
+  });
+
+  it('updates live when the shared map changes, with no per-card fetch', () => {
+    const fixture = render();
+    links.set(new Map([['TASK_2026_200', [linked({ livePhase: 'failed' })]]]));
+    fixture.detectChanges();
+    const host: HTMLElement = fixture.nativeElement;
+    expect(q(host, 'task-card-session-count')?.textContent?.trim()).toBe(
+      '1 session',
+    );
+    expect(q(host, 'task-card-session-phase')?.textContent?.trim()).toBe(
+      'failed',
+    );
+  });
+
+  it('links the first http(s) PR in session order, without opening the card', () => {
+    links.set(
+      new Map([
+        [
+          'TASK_2026_200',
+          [
+            linked({
+              prLinks: [pr({ url: 'javascript:alert(1)', number: 1 })],
+            }),
+            linked({ sessionId: 'sess-2', prLinks: [pr()] }),
+          ],
+        ],
+      ]),
+    );
+    const fixture = render();
+    const selected = jest.fn();
+    fixture.componentInstance.selectTask.subscribe(selected);
+    const host: HTMLElement = fixture.nativeElement;
+    const link = q(host, 'task-card-session-pr') as HTMLAnchorElement;
+
+    expect(link.getAttribute('href')).toBe(
+      'https://github.com/acme/app/pull/42',
+    );
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.textContent?.trim()).toBe('#42');
+    expect(link.getAttribute('aria-label')).toBe(
+      'Open pull request #42 in acme/app, open in the browser',
+    );
+    expect(link.getAttribute('tabindex')).toBe('0');
+
+    link.addEventListener('click', (event) => event.preventDefault());
+    link.click();
+    expect(selected).not.toHaveBeenCalled();
+  });
+
+  it('labels a PR without a parsed number as "PR"', () => {
+    links.set(
+      new Map([
+        [
+          'TASK_2026_200',
+          [
+            linked({
+              prLinks: [
+                pr({
+                  url: 'https://example.com/x',
+                  number: null,
+                  repo: null,
+                  state: null,
+                }),
+              ],
+            }),
+          ],
+        ],
+      ]),
+    );
+    const link = q(render().nativeElement, 'task-card-session-pr');
+    expect(link?.textContent?.trim()).toBe('PR');
+    expect(link?.getAttribute('aria-label')).toBe(
+      'Open pull request PR in the browser',
+    );
+  });
+
+  it('renders no PR link when no session has one', () => {
+    links.set(new Map([['TASK_2026_200', [linked()]]]));
+    const host: HTMLElement = render().nativeElement;
+    expect(q(host, 'task-card-sessions')).not.toBeNull();
+    expect(q(host, 'task-card-session-pr')).toBeNull();
+  });
+
+  it('keeps the PR link out of the tab order on a non-roving card', () => {
+    links.set(new Map([['TASK_2026_200', [linked({ prLinks: [pr()] })]]]));
+    const link = q(render(false).nativeElement, 'task-card-session-pr');
+    expect(link?.getAttribute('tabindex')).toBe('-1');
+  });
+  it('marks sessions past the dot cap with an accessible "+N"', () => {
+    const phases = [
+      'idle',
+      'generating',
+      'awaiting-background',
+      'idle',
+      'failed',
+      'idle',
+      'sleeping',
+    ] as const;
+    links.set(
+      new Map([
+        [
+          'TASK_2026_200',
+          phases.map((livePhase, index) =>
+            linked({
+              sessionId: `sess-${index}`,
+              livePhase,
+              prLinks: [pr({ number: 1234 })],
+            }),
+          ),
+        ],
+      ]),
+    );
+    const host: HTMLElement = render().nativeElement;
+
+    expect(
+      host.querySelectorAll('[data-testid="task-card-session-dot"]'),
+    ).toHaveLength(5);
+    const overflow = q(host, 'task-card-session-overflow');
+    expect(overflow?.textContent?.trim()).toBe('+2');
+    expect(overflow?.getAttribute('aria-label')).toBe(
+      '2 more sessions not shown as dots',
+    );
+    expect(q(host, 'task-card-session-count')?.textContent?.trim()).toBe(
+      '7 sessions',
+    );
+    // Every phase is written out, failures first; nothing is truncated away.
+    expect(phaseText(host)).toBe(
+      '1 failed · 1 running · 1 background work · 1 sleeping · 3 idle',
+    );
+    expect(q(host, 'task-card-session-phase')?.className).not.toContain(
+      'truncate',
+    );
+  });
+
+  it('gives every dot a high-contrast ring and a hollow fill for "not open"', () => {
+    links.set(
+      new Map([
+        [
+          'TASK_2026_200',
+          [linked(), linked({ sessionId: 'sess-2', livePhase: null })],
+        ],
+      ]),
+    );
+    const dots = Array.from(
+      render().nativeElement.querySelectorAll(
+        '[data-testid="task-card-session-dot"]',
+      ),
+    ) as HTMLElement[];
+    for (const dot of dots) {
+      expect(dot.classList).toContain('border-base-content/70');
+    }
+    expect(dots[1].classList).toContain('bg-transparent');
   });
 });

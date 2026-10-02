@@ -44,3 +44,13 @@ BUGFIX (webview Thoth page + skill-synthesis activity backend).
 - Tile refresh: a spec that switches tabs and then workspaces asserts that the shell tiles reload, and that the
   Skills tile counts only the current workspace.
 - UI change: visual-reviewer before/after screenshots, dark and light.
+
+## User Decisions (2026-10-01)
+
+- CLI lanes (Gate 0.1): antigravity + Glm for cross-side reviews. Codex not used (usage limit). Max 2 lanes in flight.
+- Parity removals (parity-inventory.md `## Proposed Removals`):
+  - Item 1, the `ptah-skill-diagnostics-accordion` component as a unit: APPROVED. Every capability inside it moves per B2-B14.
+  - Item 2, "Candidates by status" panel: NOT approved. Keep it; move it to the surviving status card (`ptah-skill-pipeline-status`).
+  - Item 3, "View logs" button: keep it, relabelled "Refresh", on the surviving status card.
+  - Item 4, refresh on mount: NOT approved for removal. The component that takes over the moved 30-second poll also refreshes on mount.
+- Coordinator agreement (cross-session, TASK_2026_580/584): `libs/shared/src/lib/types/rpc.types.ts` is a hot file. If Batch 5 needs a `workspaceRoot` param, add it as an optional field on the existing params type in the domain file under `libs/shared/src/lib/types/rpc/` (skills/curator rpc types). Leave `rpc.types.ts` untouched. A new method entry there is a last resort: one additive line, and the coordinator is told first.

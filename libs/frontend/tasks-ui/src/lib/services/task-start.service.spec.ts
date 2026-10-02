@@ -100,6 +100,9 @@ describe('TaskStartService', () => {
     expect(lastPromptRequest?.prompt).toBe('/orchestrate TASK_2026_200');
     expect(lastPromptRequest?.prompt).not.toContain(ISOLATION_HINT);
     expect(lastPromptRequest?.sessionName).toBe('TASK_2026_200');
+    // AC8 board-start chain, step 1: the request names the task so the chat
+    // consumer can link the session it creates.
+    expect(lastPromptRequest?.taskId).toBe('TASK_2026_200');
 
     lastPromptRequest?.resolve?.({ success: true });
     await pending;
@@ -122,6 +125,7 @@ describe('TaskStartService', () => {
     expect(lastPromptRequest?.prompt).toContain('/orchestrate TASK_2026_201');
     expect(lastPromptRequest?.prompt).toContain(ISOLATION_HINT);
     expect(lastPromptRequest?.prompt).toContain('worktree');
+    expect(lastPromptRequest?.taskId).toBe('TASK_2026_201');
 
     lastPromptRequest?.resolve?.({ success: true });
     await pending;
@@ -145,6 +149,7 @@ describe('TaskStartService', () => {
         'Execute phase for task TASK_2026_206 using role @frontend-developer. ' +
         'Refer to .ptah/specs/TASK_2026_206/ for requirements and context.',
     );
+    expect(lastPromptRequest?.taskId).toBe('TASK_2026_206');
     lastPromptRequest?.resolve?.({ success: true });
     await pending;
   });
@@ -165,6 +170,7 @@ describe('TaskStartService', () => {
         'Assign task TASK_2026_207 execution to background CLI lane codex ' +
         'per agent-lanes guidelines. Deliverables belong in .ptah/specs/TASK_2026_207/.',
     );
+    expect(lastPromptRequest?.taskId).toBe('TASK_2026_207');
     lastPromptRequest?.resolve?.({ success: true });
     await pending;
   });
@@ -178,6 +184,7 @@ describe('TaskStartService', () => {
     await flush();
 
     expect(lastPromptRequest?.prompt).toBe('/orchestrate TASK_2026_208');
+    expect(lastPromptRequest?.taskId).toBe('TASK_2026_208');
     lastPromptRequest?.resolve?.({ success: true });
     await pending;
   });

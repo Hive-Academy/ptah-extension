@@ -8,6 +8,7 @@ import type {
 
 import { SkillSuggestionsViewComponent } from './skill-suggestions-view.component';
 import { SkillSynthesisStateService } from '../../services/skill-synthesis-state.service';
+import { SkillDiagnosticsStateService } from '../../services/skill-diagnostics-state.service';
 
 function vscodeServiceStub(isElectron: boolean): Partial<VSCodeService> {
   return {
@@ -41,7 +42,7 @@ interface StateStub {
   >;
   readonly suggestionDetailLoading: ReturnType<typeof signal<boolean>>;
   readonly refreshSuggestions: jest.Mock<Promise<void>, []>;
-  readonly accept: jest.Mock<Promise<void>, [string]>;
+  readonly accept: jest.Mock<Promise<boolean>, [string]>;
   readonly dismiss: jest.Mock<Promise<void>, [string, string | undefined]>;
   readonly loadSuggestionDetail: jest.Mock<Promise<void>, [string | null]>;
   readonly clearSuggestionDetail: jest.Mock<void, []>;
@@ -59,7 +60,7 @@ function makeStateStub(initial: SkillSuggestionSummary[] = []): StateStub {
     suggestionDetail: signal<SkillSuggestionDetail | null>(null),
     suggestionDetailLoading: signal<boolean>(false),
     refreshSuggestions: jest.fn(async () => undefined),
-    accept: jest.fn(async () => undefined),
+    accept: jest.fn(async () => true),
     dismiss: jest.fn(async () => undefined),
     loadSuggestionDetail: jest.fn(async () => undefined),
     clearSuggestionDetail: jest.fn(() => undefined),
@@ -67,12 +68,20 @@ function makeStateStub(initial: SkillSuggestionSummary[] = []): StateStub {
   };
 }
 
+interface DiagnosticsStub {
+  readonly refresh: jest.Mock<Promise<void>, []>;
+}
+
 function setup(opts: { isElectron?: boolean; state?: StateStub }) {
   const state = opts.state ?? makeStateStub();
+  const diagnostics: DiagnosticsStub = {
+    refresh: jest.fn(async () => undefined),
+  };
   TestBed.configureTestingModule({
     imports: [SkillSuggestionsViewComponent],
     providers: [
       { provide: SkillSynthesisStateService, useValue: state },
+      { provide: SkillDiagnosticsStateService, useValue: diagnostics },
       {
         provide: VSCodeService,
         useValue: vscodeServiceStub(opts.isElectron ?? true),
@@ -81,7 +90,7 @@ function setup(opts: { isElectron?: boolean; state?: StateStub }) {
   });
   const fixture = TestBed.createComponent(SkillSuggestionsViewComponent);
   fixture.detectChanges();
-  return { fixture, state };
+  return { fixture, state, diagnostics };
 }
 
 describe('SkillSuggestionsViewComponent', () => {
@@ -137,6 +146,81 @@ describe('SkillSuggestionsViewComponent', () => {
     ).click();
     await fixture.whenStable();
     expect(state.accept).toHaveBeenCalledWith('sg-1');
+  });
+
+  it('refreshes the pipeline counts after a successful accept', async () => {
+    const state = makeStateStub([suggestion()]);
+    const { fixture, diagnostics } = setup({ isElectron: true, state });
+    const comp = fixture.componentInstance as unknown as {
+      onAccept(s: SkillSuggestionSummary): Promise<void>;
+    };
+
+    await comp.onAccept(suggestion());
+
+    expect(diagnostics.refresh).toHaveBeenCalledTimes(1);
+    // The diagnostics read must see the accepted skill, so it follows the accept.
+    expect(diagnostics.refresh.mock.invocationCallOrder[0]).toBeGreaterThan(
+      state.accept.mock.invocationCallOrder[0],
+    );
+    expect(fixture.componentInstance.toast()).toEqual({
+      message: 'Accepted "scaffold-nest-module".',
+      kind: 'success',
+    });
+  });
+
+  it('accepts from the review modal: success toast, modal closed, counts refreshed', async () => {
+    const state = makeStateStub([suggestion()]);
+    const { fixture, diagnostics } = setup({ isElectron: true, state });
+    const view = fixture.componentInstance;
+    const comp = view as unknown as {
+      onAcceptFromModal(id: string, name: string): Promise<void>;
+    };
+    view.reviewId.set('sg-1');
+
+    await comp.onAcceptFromModal('sg-1', 'scaffold-nest-module');
+
+    expect(state.accept).toHaveBeenCalledWith('sg-1');
+    expect(diagnostics.refresh).toHaveBeenCalledTimes(1);
+    expect(view.toast()?.kind).toBe('success');
+    expect(view.reviewId()).toBeNull();
+  });
+
+  it('a failed accept shows no success toast and does not refresh the counts', async () => {
+    const state = makeStateStub([suggestion()]);
+    state.accept.mockResolvedValue(false);
+    state.error.set('accept-failed');
+    const { fixture, diagnostics } = setup({ isElectron: true, state });
+    const view = fixture.componentInstance;
+    const comp = view as unknown as {
+      onAccept(s: SkillSuggestionSummary): Promise<void>;
+    };
+
+    await comp.onAccept(suggestion());
+
+    expect(state.accept).toHaveBeenCalledWith('sg-1');
+    expect(diagnostics.refresh).not.toHaveBeenCalled();
+    // Same error-toast pattern as a failed save: the state error, not "Accepted".
+    expect(view.toast()).toEqual({ message: 'accept-failed', kind: 'error' });
+  });
+
+  it('a failed accept from the review modal leaves the modal open for a retry', async () => {
+    const state = makeStateStub([suggestion()]);
+    state.accept.mockResolvedValue(false);
+    state.error.set('accept-failed');
+    const { fixture, diagnostics } = setup({ isElectron: true, state });
+    const view = fixture.componentInstance;
+    const comp = view as unknown as {
+      onAcceptFromModal(id: string, name: string): Promise<void>;
+    };
+    view.reviewId.set('sg-1');
+
+    await comp.onAcceptFromModal('sg-1', 'scaffold-nest-module');
+
+    expect(diagnostics.refresh).not.toHaveBeenCalled();
+    expect(view.toast()?.kind).toBe('error');
+    expect(view.reviewId()).toBe('sg-1');
+    expect(state.clearSuggestionDetail).not.toHaveBeenCalled();
+    expect(view.busyId()).toBeNull();
   });
 
   it('dismisses through the modal forwarding an optional reason', async () => {

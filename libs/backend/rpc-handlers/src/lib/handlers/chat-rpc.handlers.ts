@@ -4,7 +4,9 @@
  * Registers the `chat:*` / `agent:backgroundList` RPC methods and delegates
  * each call to one of the extracted chat sub-services (except
  * `chat:pending-questions`, which is a direct read of the SDK permission
- * handler's live registry and has no session-service counterpart):
+ * handler's live registry and has no session-service counterpart, and
+ * `chat:agent-sessions`, a direct read of the optional session spawner's live
+ * child sessions):
  *
  *   - `ChatSdkContextService`     — MCP-running probe + prompt/plugin resolution.
  *   - `ChatPtahCliService`        — Ptah CLI dispatch + the two private session maps.
@@ -42,6 +44,10 @@ import {
   SDK_TOKENS,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
+import {
+  CLI_AGENT_RUNTIME_TOKENS,
+  type ISessionSpawner,
+} from '@ptah-extension/cli-agent-runtime';
 import type {
   ChatStartParams,
   ChatStartResult,
@@ -53,6 +59,8 @@ import type {
   ChatPendingQuestionsResult,
   ChatRunningAgentsParams,
   ChatRunningAgentsResult,
+  ChatAgentSessionsParams,
+  ChatAgentSessionsResult,
   ChatResumeParams,
   ChatResumeResult,
   ChatHistoryPageParams,
@@ -99,6 +107,7 @@ export class ChatRpcHandlers {
     'chat:abort',
     'chat:pending-questions',
     'chat:running-agents',
+    'chat:agent-sessions',
     'agent:backgroundList',
   ] as const satisfies readonly RpcMethodName[];
 
@@ -119,6 +128,12 @@ export class ChatRpcHandlers {
     private readonly attachmentGuard: ISessionAttachmentGuard,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
     private readonly permissionHandler: SdkPermissionHandler,
+    /**
+     * Optional: a host that never registers the spawner has no child sessions,
+     * so `chat:agent-sessions` answers an empty list there (TASK_2026_584).
+     */
+    @inject(CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER, { isOptional: true })
+    private readonly sessionSpawner: ISessionSpawner | null = null,
   ) {}
 
   /**
@@ -307,6 +322,33 @@ export class ChatRpcHandlers {
       'registerChatRunningAgents',
       (params) => this.session.getRunningAgents(params),
     );
+    this.wire<ChatAgentSessionsParams, ChatAgentSessionsResult>(
+      'chat:agent-sessions',
+      'registerChatAgentSessions',
+      async (params) => {
+        // Late tab adoption (TASK_2026_584): a (re)loaded webview asks which
+        // child sessions are still live, optionally for one workspace root.
+        // Absent params mean "every live child"; anything present that is
+        // not an object is a malformed request, never an unfiltered read.
+        if (
+          params !== undefined &&
+          (typeof params !== 'object' || params === null)
+        ) {
+          throw new RpcUserError('params must be an object', 'INVALID_PARAMS');
+        }
+        const workspaceRoot = params?.workspaceRoot;
+        if (workspaceRoot !== undefined && typeof workspaceRoot !== 'string') {
+          throw new RpcUserError(
+            'workspaceRoot must be a string',
+            'INVALID_PARAMS',
+          );
+        }
+        if (!this.sessionSpawner) return { sessions: [] };
+        return {
+          sessions: [...this.sessionSpawner.listUiDescriptors(workspaceRoot)],
+        };
+      },
+    );
     this.wire<
       { sessionId?: string },
       {
@@ -331,6 +373,7 @@ export class ChatRpcHandlers {
         'chat:abort',
         'chat:pending-questions',
         'chat:running-agents',
+        'chat:agent-sessions',
         'agent:backgroundList',
         'agent:backgroundStop',
       ],

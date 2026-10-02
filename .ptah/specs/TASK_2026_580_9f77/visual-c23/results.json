@@ -1,0 +1,2890 @@
+{
+  "anubis-360": {
+    "errs": [],
+    "none": {
+      "present": true,
+      "secRect": [13, 832, 359, 38],
+      "title": "Sessions (0)",
+      "titleStyle": "12px/400/5.31",
+      "parentOverflowX": false,
+      "xOverflowAncestors": ["MAIN"],
+      "docOverflowX": false,
+      "rows": [],
+      "emptyStyle": {
+        "text": "No sessions linked to this task",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.31,
+        "cls": "text-[11px] text-base-content-muted italic"
+      },
+      "filesTitleStyle": "12px/400/5.31",
+      "filesTop": 882,
+      "filesEmptyStyle": {
+        "text": "No files in this task folder yet",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.31,
+        "cls": "text-[11px] text-base-content-muted italic"
+      }
+    },
+    "three": {
+      "present": true,
+      "secRect": [13, 848, 359, 204],
+      "title": "Sessions (3)",
+      "titleStyle": "12px/400/5.31",
+      "parentOverflowX": false,
+      "xOverflowAncestors": ["MAIN"],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 7.68,
+          "ringOverFill": 10.87,
+          "fillVsBg": 5.04,
+          "name": "Implement service",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#42 · open",
+              "href": "https://github.com/hive/ptah/pull/42",
+              "w": 80,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr-unlinked",
+              "text": "#43 (not linked)",
+              "href": null,
+              "w": 105,
+              "h": 16,
+              "contrast": 5.31,
+              "deco": "none"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement service",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.04,
+          "fillVsBg": 5.62,
+          "name": "Review pass",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · idle",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Review pass",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 7.68,
+          "fillVsBg": null,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Related · linked by you · not open",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "PR",
+              "href": "https://example.com/merge/abc",
+              "w": 33,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.31",
+      "filesTop": 1064,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "many": {
+      "present": true,
+      "secRect": [13, 696, 359, 510],
+      "title": "Sessions (8)",
+      "titleStyle": "12px/400/5.31",
+      "parentOverflowX": false,
+      "xOverflowAncestors": ["MAIN"],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 7.68,
+          "ringOverFill": 10.87,
+          "fillVsBg": 5.04,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#1234 · open",
+              "href": "https://github.com/hive/ptah/pull/1234",
+              "w": 95,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "awaiting-background",
+          "dotW": 10,
+          "dotAria": "Live phase: background work",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.43,
+          "fillVsBg": 6.61,
+          "name": "Second session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · background work",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Second session",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "failed",
+          "dotW": 10,
+          "dotAria": "Live phase: failed",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 9.53,
+          "fillVsBg": 3.84,
+          "name": "Third session with a longer na",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by you · failed",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#5 · open",
+              "href": "https://github.com/hive/ptah/pull/5",
+              "w": 72,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#6 · open",
+              "href": "https://github.com/hive/ptah/pull/6",
+              "w": 72,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#7 · open",
+              "href": "https://github.com/hive/ptah/pull/7",
+              "w": 72,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Third session with a longer name than fits",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "sleeping",
+          "dotW": 10,
+          "dotAria": "Live phase: sleeping",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 12.67,
+          "fillVsBg": 8.81,
+          "name": "Fourth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · sleeping",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fourth",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.04,
+          "fillVsBg": 5.62,
+          "name": "Fifth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fifth",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 7.68,
+          "fillVsBg": null,
+          "name": "Sixth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · not open",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Sixth",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.04,
+          "fillVsBg": 5.62,
+          "name": "Seventh",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Seventh",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 7.68,
+          "ringOverFill": 10.87,
+          "fillVsBg": 5.04,
+          "name": "Eighth session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Eighth session",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.31",
+      "filesTop": 1218,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "tabSeq": [
+      {
+        "id": "task-detail-session-pr",
+        "text": "Open pull request #42 in hive/ptah, open",
+        "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
+        "fv": false,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Implement service",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Review pass",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-pr",
+        "text": "Open pull request PR in the browser",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Implement the reactive link",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "BUTTON",
+        "text": "task.md",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": false
+      }
+    ],
+    "bridge": {
+      "view": "chat",
+      "layout": "grid",
+      "url": "/",
+      "tasksViewVisible": false,
+      "detailVisible": false,
+      "rpcs": [
+        "session:load:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "session:cli-sessions:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "setup-status:get-status:{}",
+        "session:status:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "setup-status:get-status:{}",
+        "session:status:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}"
+      ],
+      "msgs": [],
+      "url0": "/"
+    }
+  },
+  "anubis-800": {
+    "errs": [],
+    "none": {
+      "present": true,
+      "secRect": [429, 740, 359, 38],
+      "title": "Sessions (0)",
+      "titleStyle": "12px/400/5.31",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [],
+      "emptyStyle": {
+        "text": "No sessions linked to this task",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.31,
+        "cls": "text-[11px] text-base-content-muted italic"
+      },
+      "filesTitleStyle": "12px/400/5.31",
+      "filesTop": 790,
+      "filesEmptyStyle": {
+        "text": "No files in this task folder yet",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.31,
+        "cls": "text-[11px] text-base-content-muted italic"
+      }
+    },
+    "three": {
+      "present": true,
+      "secRect": [429, 756, 359, 204],
+      "title": "Sessions (3)",
+      "titleStyle": "12px/400/5.31",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 7.68,
+          "ringOverFill": 10.87,
+          "fillVsBg": 5.04,
+          "name": "Implement service",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#42 · open",
+              "href": "https://github.com/hive/ptah/pull/42",
+              "w": 80,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr-unlinked",
+              "text": "#43 (not linked)",
+              "href": null,
+              "w": 105,
+              "h": 16,
+              "contrast": 5.31,
+              "deco": "none"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement service",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.04,
+          "fillVsBg": 5.62,
+          "name": "Review pass",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · idle",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Review pass",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 7.68,
+          "fillVsBg": null,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Related · linked by you · not open",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "PR",
+              "href": "https://example.com/merge/abc",
+              "w": 33,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.31",
+      "filesTop": 972,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "many": {
+      "present": true,
+      "secRect": [429, 696, 359, 510],
+      "title": "Sessions (8)",
+      "titleStyle": "12px/400/5.31",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 7.68,
+          "ringOverFill": 10.87,
+          "fillVsBg": 5.04,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#1234 · open",
+              "href": "https://github.com/hive/ptah/pull/1234",
+              "w": 95,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "awaiting-background",
+          "dotW": 10,
+          "dotAria": "Live phase: background work",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.43,
+          "fillVsBg": 6.61,
+          "name": "Second session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · background work",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Second session",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "failed",
+          "dotW": 10,
+          "dotAria": "Live phase: failed",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 9.53,
+          "fillVsBg": 3.84,
+          "name": "Third session with a longer na",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by you · failed",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#5 · open",
+              "href": "https://github.com/hive/ptah/pull/5",
+              "w": 72,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#6 · open",
+              "href": "https://github.com/hive/ptah/pull/6",
+              "w": 72,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#7 · open",
+              "href": "https://github.com/hive/ptah/pull/7",
+              "w": 72,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Third session with a longer name than fits",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "sleeping",
+          "dotW": 10,
+          "dotAria": "Live phase: sleeping",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 12.67,
+          "fillVsBg": 8.81,
+          "name": "Fourth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · sleeping",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fourth",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.04,
+          "fillVsBg": 5.62,
+          "name": "Fifth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fifth",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 7.68,
+          "fillVsBg": null,
+          "name": "Sixth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · not open",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Sixth",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.04,
+          "fillVsBg": 5.62,
+          "name": "Seventh",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Seventh",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 7.68,
+          "ringOverFill": 10.87,
+          "fillVsBg": 5.04,
+          "name": "Eighth session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Eighth session",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.31",
+      "filesTop": 1218,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    }
+  },
+  "anubis-1400": {
+    "errs": [],
+    "none": {
+      "present": true,
+      "secRect": [1029, 704, 359, 38],
+      "title": "Sessions (0)",
+      "titleStyle": "12px/400/5.31",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [],
+      "emptyStyle": {
+        "text": "No sessions linked to this task",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.31,
+        "cls": "text-[11px] text-base-content-muted italic"
+      },
+      "filesTitleStyle": "12px/400/5.31",
+      "filesTop": 754,
+      "filesEmptyStyle": {
+        "text": "No files in this task folder yet",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.31,
+        "cls": "text-[11px] text-base-content-muted italic"
+      }
+    },
+    "three": {
+      "present": true,
+      "secRect": [1029, 720, 359, 204],
+      "title": "Sessions (3)",
+      "titleStyle": "12px/400/5.31",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 7.68,
+          "ringOverFill": 10.87,
+          "fillVsBg": 5.04,
+          "name": "Implement service",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#42 · open",
+              "href": "https://github.com/hive/ptah/pull/42",
+              "w": 80,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr-unlinked",
+              "text": "#43 (not linked)",
+              "href": null,
+              "w": 105,
+              "h": 16,
+              "contrast": 5.31,
+              "deco": "none"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement service",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.04,
+          "fillVsBg": 5.62,
+          "name": "Review pass",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · idle",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Review pass",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 7.68,
+          "fillVsBg": null,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Related · linked by you · not open",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "PR",
+              "href": "https://example.com/merge/abc",
+              "w": 33,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.31",
+      "filesTop": 936,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "many": {
+      "present": true,
+      "secRect": [1029, 696, 359, 510],
+      "title": "Sessions (8)",
+      "titleStyle": "12px/400/5.31",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 7.68,
+          "ringOverFill": 10.87,
+          "fillVsBg": 5.04,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#1234 · open",
+              "href": "https://github.com/hive/ptah/pull/1234",
+              "w": 95,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "awaiting-background",
+          "dotW": 10,
+          "dotAria": "Live phase: background work",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.43,
+          "fillVsBg": 6.61,
+          "name": "Second session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · background work",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Second session",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "failed",
+          "dotW": 10,
+          "dotAria": "Live phase: failed",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 9.53,
+          "fillVsBg": 3.84,
+          "name": "Third session with a longer na",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by you · failed",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#5 · open",
+              "href": "https://github.com/hive/ptah/pull/5",
+              "w": 72,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#6 · open",
+              "href": "https://github.com/hive/ptah/pull/6",
+              "w": 72,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#7 · open",
+              "href": "https://github.com/hive/ptah/pull/7",
+              "w": 72,
+              "h": 24,
+              "contrast": 14.86,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Third session with a longer name than fits",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "sleeping",
+          "dotW": 10,
+          "dotAria": "Live phase: sleeping",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 12.67,
+          "fillVsBg": 8.81,
+          "name": "Fourth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · sleeping",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fourth",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.04,
+          "fillVsBg": 5.62,
+          "name": "Fifth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fifth",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 7.68,
+          "fillVsBg": null,
+          "name": "Sixth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · not open",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Sixth",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 7.68,
+          "ringOverFill": 11.04,
+          "fillVsBg": 5.62,
+          "name": "Seventh",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Seventh",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 7.68,
+          "ringOverFill": 10.87,
+          "fillVsBg": 5.04,
+          "name": "Eighth session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.31,
+          "nameContrast": 14.86,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.31
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Eighth session",
+            "inside": true,
+            "contrast": 14.86
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.31",
+      "filesTop": 1218,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "tabSeq": [
+      {
+        "id": "task-detail-session-pr",
+        "text": "Open pull request #42 in hive/ptah, open",
+        "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
+        "fv": false,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Implement service",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Review pass",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-pr",
+        "text": "Open pull request PR in the browser",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Implement the reactive link",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "BUTTON",
+        "text": "task.md",
+        "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+        "fv": true,
+        "inSessions": false
+      }
+    ],
+    "bridge": {
+      "view": "chat",
+      "layout": "grid",
+      "url": "/",
+      "tasksViewVisible": false,
+      "detailVisible": false,
+      "rpcs": [
+        "session:load:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "session:cli-sessions:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "setup-status:get-status:{}",
+        "session:status:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "setup-status:get-status:{}",
+        "session:status:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}"
+      ],
+      "msgs": [],
+      "url0": "/"
+    }
+  },
+  "anubis-light-360": {
+    "errs": [],
+    "none": {
+      "present": true,
+      "secRect": [13, 832, 359, 38],
+      "title": "Sessions (0)",
+      "titleStyle": "12px/400/5.01",
+      "parentOverflowX": false,
+      "xOverflowAncestors": ["MAIN"],
+      "docOverflowX": false,
+      "rows": [],
+      "emptyStyle": {
+        "text": "No sessions linked to this task",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.01,
+        "cls": "text-[11px] text-base-content-muted italic"
+      },
+      "filesTitleStyle": "12px/400/5.01",
+      "filesTop": 882,
+      "filesEmptyStyle": {
+        "text": "No files in this task folder yet",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.01,
+        "cls": "text-[11px] text-base-content-muted italic"
+      }
+    },
+    "three": {
+      "present": true,
+      "secRect": [13, 848, 359, 204],
+      "title": "Sessions (3)",
+      "titleStyle": "12px/400/5.01",
+      "parentOverflowX": false,
+      "xOverflowAncestors": ["MAIN"],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 6.21,
+          "ringOverFill": 10.01,
+          "fillVsBg": 2.59,
+          "name": "Implement service",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#42 · open",
+              "href": "https://github.com/hive/ptah/pull/42",
+              "w": 80,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr-unlinked",
+              "text": "#43 (not linked)",
+              "href": null,
+              "w": 105,
+              "h": 16,
+              "contrast": 5.01,
+              "deco": "none"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement service",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.86,
+          "fillVsBg": 2.37,
+          "name": "Review pass",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · idle",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Review pass",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 6.21,
+          "fillVsBg": null,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Related · linked by you · not open",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "PR",
+              "href": "https://example.com/merge/abc",
+              "w": 33,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.01",
+      "filesTop": 1064,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "many": {
+      "present": true,
+      "secRect": [13, 696, 359, 510],
+      "title": "Sessions (8)",
+      "titleStyle": "12px/400/5.01",
+      "parentOverflowX": false,
+      "xOverflowAncestors": ["MAIN"],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 6.21,
+          "ringOverFill": 10.01,
+          "fillVsBg": 2.59,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#1234 · open",
+              "href": "https://github.com/hive/ptah/pull/1234",
+              "w": 95,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "awaiting-background",
+          "dotW": 10,
+          "dotAria": "Live phase: background work",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.5,
+          "fillVsBg": 2.46,
+          "name": "Second session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · background work",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Second session",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "failed",
+          "dotW": 10,
+          "dotAria": "Live phase: failed",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 11.08,
+          "fillVsBg": 3.57,
+          "name": "Third session with a longer na",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by you · failed",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#5 · open",
+              "href": "https://github.com/hive/ptah/pull/5",
+              "w": 72,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#6 · open",
+              "href": "https://github.com/hive/ptah/pull/6",
+              "w": 72,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#7 · open",
+              "href": "https://github.com/hive/ptah/pull/7",
+              "w": 72,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Third session with a longer name than fits",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "sleeping",
+          "dotW": 10,
+          "dotAria": "Live phase: sleeping",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 11.32,
+          "fillVsBg": 4.11,
+          "name": "Fourth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · sleeping",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fourth",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.86,
+          "fillVsBg": 2.37,
+          "name": "Fifth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fifth",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 6.21,
+          "fillVsBg": null,
+          "name": "Sixth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · not open",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Sixth",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.86,
+          "fillVsBg": 2.37,
+          "name": "Seventh",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Seventh",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        },
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 6.21,
+          "ringOverFill": 10.01,
+          "fillVsBg": 2.59,
+          "name": "Eighth session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Eighth session",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 372
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.01",
+      "filesTop": 1218,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "tabSeq": [
+      {
+        "id": "task-detail-session-pr",
+        "text": "Open pull request #42 in hive/ptah, open",
+        "outline": "none 3px oklch(0.23574 0.066 313.189)",
+        "fv": false,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Implement service",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Review pass",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-pr",
+        "text": "Open pull request PR in the browser",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Implement the reactive link",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "BUTTON",
+        "text": "task.md",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": false
+      }
+    ],
+    "bridge": {
+      "view": "chat",
+      "layout": "grid",
+      "url": "/",
+      "tasksViewVisible": false,
+      "detailVisible": false,
+      "rpcs": [
+        "session:load:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "session:cli-sessions:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "setup-status:get-status:{}",
+        "session:status:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "setup-status:get-status:{}",
+        "session:status:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}"
+      ],
+      "msgs": [],
+      "url0": "/"
+    }
+  },
+  "anubis-light-800": {
+    "errs": [],
+    "none": {
+      "present": true,
+      "secRect": [429, 740, 359, 38],
+      "title": "Sessions (0)",
+      "titleStyle": "12px/400/5.01",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [],
+      "emptyStyle": {
+        "text": "No sessions linked to this task",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.01,
+        "cls": "text-[11px] text-base-content-muted italic"
+      },
+      "filesTitleStyle": "12px/400/5.01",
+      "filesTop": 790,
+      "filesEmptyStyle": {
+        "text": "No files in this task folder yet",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.01,
+        "cls": "text-[11px] text-base-content-muted italic"
+      }
+    },
+    "three": {
+      "present": true,
+      "secRect": [429, 756, 359, 204],
+      "title": "Sessions (3)",
+      "titleStyle": "12px/400/5.01",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 6.21,
+          "ringOverFill": 10.01,
+          "fillVsBg": 2.59,
+          "name": "Implement service",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#42 · open",
+              "href": "https://github.com/hive/ptah/pull/42",
+              "w": 80,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr-unlinked",
+              "text": "#43 (not linked)",
+              "href": null,
+              "w": 105,
+              "h": 16,
+              "contrast": 5.01,
+              "deco": "none"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement service",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.86,
+          "fillVsBg": 2.37,
+          "name": "Review pass",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · idle",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Review pass",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 6.21,
+          "fillVsBg": null,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Related · linked by you · not open",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "PR",
+              "href": "https://example.com/merge/abc",
+              "w": 33,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.01",
+      "filesTop": 972,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "many": {
+      "present": true,
+      "secRect": [429, 696, 359, 510],
+      "title": "Sessions (8)",
+      "titleStyle": "12px/400/5.01",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 6.21,
+          "ringOverFill": 10.01,
+          "fillVsBg": 2.59,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#1234 · open",
+              "href": "https://github.com/hive/ptah/pull/1234",
+              "w": 95,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "awaiting-background",
+          "dotW": 10,
+          "dotAria": "Live phase: background work",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.5,
+          "fillVsBg": 2.46,
+          "name": "Second session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · background work",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Second session",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "failed",
+          "dotW": 10,
+          "dotAria": "Live phase: failed",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 11.08,
+          "fillVsBg": 3.57,
+          "name": "Third session with a longer na",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by you · failed",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#5 · open",
+              "href": "https://github.com/hive/ptah/pull/5",
+              "w": 72,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#6 · open",
+              "href": "https://github.com/hive/ptah/pull/6",
+              "w": 72,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#7 · open",
+              "href": "https://github.com/hive/ptah/pull/7",
+              "w": 72,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Third session with a longer name than fits",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "sleeping",
+          "dotW": 10,
+          "dotAria": "Live phase: sleeping",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 11.32,
+          "fillVsBg": 4.11,
+          "name": "Fourth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · sleeping",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fourth",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.86,
+          "fillVsBg": 2.37,
+          "name": "Fifth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fifth",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 6.21,
+          "fillVsBg": null,
+          "name": "Sixth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · not open",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Sixth",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.86,
+          "fillVsBg": 2.37,
+          "name": "Seventh",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Seventh",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        },
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 6.21,
+          "ringOverFill": 10.01,
+          "fillVsBg": 2.59,
+          "name": "Eighth session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Eighth session",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 788
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.01",
+      "filesTop": 1218,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    }
+  },
+  "anubis-light-1400": {
+    "errs": [],
+    "none": {
+      "present": true,
+      "secRect": [1029, 704, 359, 38],
+      "title": "Sessions (0)",
+      "titleStyle": "12px/400/5.01",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [],
+      "emptyStyle": {
+        "text": "No sessions linked to this task",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.01,
+        "cls": "text-[11px] text-base-content-muted italic"
+      },
+      "filesTitleStyle": "12px/400/5.01",
+      "filesTop": 754,
+      "filesEmptyStyle": {
+        "text": "No files in this task folder yet",
+        "fs": "11px",
+        "fst": "italic",
+        "color": 5.01,
+        "cls": "text-[11px] text-base-content-muted italic"
+      }
+    },
+    "three": {
+      "present": true,
+      "secRect": [1029, 720, 359, 204],
+      "title": "Sessions (3)",
+      "titleStyle": "12px/400/5.01",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 6.21,
+          "ringOverFill": 10.01,
+          "fillVsBg": 2.59,
+          "name": "Implement service",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#42 · open",
+              "href": "https://github.com/hive/ptah/pull/42",
+              "w": 80,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr-unlinked",
+              "text": "#43 (not linked)",
+              "href": null,
+              "w": 105,
+              "h": 16,
+              "contrast": 5.01,
+              "deco": "none"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement service",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.86,
+          "fillVsBg": 2.37,
+          "name": "Review pass",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · idle",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Review pass",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 6.21,
+          "fillVsBg": null,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Related · linked by you · not open",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "PR",
+              "href": "https://example.com/merge/abc",
+              "w": 33,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.01",
+      "filesTop": 936,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "many": {
+      "present": true,
+      "secRect": [1029, 696, 359, 510],
+      "title": "Sessions (8)",
+      "titleStyle": "12px/400/5.01",
+      "parentOverflowX": false,
+      "xOverflowAncestors": [],
+      "docOverflowX": false,
+      "rows": [
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 6.21,
+          "ringOverFill": 10.01,
+          "fillVsBg": 2.59,
+          "name": "Implement the reactive linked ",
+          "nameTitle": true,
+          "nameTrunc": true,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#1234 · open",
+              "href": "https://github.com/hive/ptah/pull/1234",
+              "w": 95,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Implement the reactive linked sessions service and wire every consumer across tasks-ui and chat without breaking any workspace scoped caller",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "awaiting-background",
+          "dotW": 10,
+          "dotAria": "Live phase: background work",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.5,
+          "fillVsBg": 2.46,
+          "name": "Second session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by an agent · background work",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Second session",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "failed",
+          "dotW": 10,
+          "dotAria": "Live phase: failed",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 11.08,
+          "fillVsBg": 3.57,
+          "name": "Third session with a longer na",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Related · linked by you · failed",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [
+            {
+              "kind": "pr",
+              "text": "#5 · open",
+              "href": "https://github.com/hive/ptah/pull/5",
+              "w": 72,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#6 · open",
+              "href": "https://github.com/hive/ptah/pull/6",
+              "w": 72,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            },
+            {
+              "kind": "pr",
+              "text": "#7 · open",
+              "href": "https://github.com/hive/ptah/pull/7",
+              "w": 72,
+              "h": 24,
+              "contrast": 15.92,
+              "deco": "underline"
+            }
+          ],
+          "noPr": null,
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Third session with a longer name than fits",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "sleeping",
+          "dotW": 10,
+          "dotAria": "Live phase: sleeping",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 11.32,
+          "fillVsBg": 4.11,
+          "name": "Fourth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · sleeping",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fourth",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.86,
+          "fillVsBg": 2.37,
+          "name": "Fifth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Fifth",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "none",
+          "dotW": 10,
+          "dotAria": "Live phase: not open",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 6.21,
+          "fillVsBg": null,
+          "name": "Sixth",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · not open",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Sixth",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "idle",
+          "dotW": 10,
+          "dotAria": "Live phase: idle",
+          "dotAnim": "none",
+          "ringVsBg": 6.21,
+          "ringOverFill": 9.86,
+          "fillVsBg": 2.37,
+          "name": "Seventh",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · idle",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Seventh",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        },
+        {
+          "phase": "generating",
+          "dotW": 10,
+          "dotAria": "Live phase: running",
+          "dotAnim": "pulse",
+          "ringVsBg": 6.21,
+          "ringOverFill": 10.01,
+          "fillVsBg": 2.59,
+          "name": "Eighth session",
+          "nameTitle": true,
+          "nameTrunc": false,
+          "meta": "Primary · started from the board · running",
+          "metaContrast": 5.01,
+          "nameContrast": 15.92,
+          "prs": [],
+          "noPr": {
+            "text": "No pull request",
+            "contrast": 5.01
+          },
+          "btn": {
+            "w": 82,
+            "h": 24,
+            "aria": "Open session Eighth session",
+            "inside": true,
+            "contrast": 15.92
+          },
+          "rowOverflow": false,
+          "rowRight": 1388
+        }
+      ],
+      "filesTitleStyle": "12px/400/5.01",
+      "filesTop": 1218,
+      "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+    },
+    "tabSeq": [
+      {
+        "id": "task-detail-session-pr",
+        "text": "Open pull request #42 in hive/ptah, open",
+        "outline": "none 3px oklch(0.23574 0.066 313.189)",
+        "fv": false,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Implement service",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Review pass",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-pr",
+        "text": "Open pull request PR in the browser",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "task-detail-session-open",
+        "text": "Open session Implement the reactive link",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": true
+      },
+      {
+        "id": "BUTTON",
+        "text": "task.md",
+        "outline": "solid 2px oklch(0.58 0.132 75)",
+        "fv": true,
+        "inSessions": false
+      }
+    ],
+    "bridge": {
+      "view": "chat",
+      "layout": "grid",
+      "url": "/",
+      "tasksViewVisible": false,
+      "detailVisible": false,
+      "rpcs": [
+        "session:load:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "session:cli-sessions:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "setup-status:get-status:{}",
+        "session:status:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}",
+        "setup-status:get-status:{}",
+        "session:status:{\"sessionId\":\"00000000-0000-4000-8000-000000000002\"}"
+      ],
+      "msgs": [],
+      "url0": "/"
+    }
+  },
+  "unavailable": {
+    "present": true,
+    "secRect": [429, 756, 359, 38],
+    "title": "Sessions (0)",
+    "titleStyle": "12px/400/5.31",
+    "parentOverflowX": false,
+    "xOverflowAncestors": [],
+    "docOverflowX": false,
+    "rows": [],
+    "emptyStyle": {
+      "text": "No sessions linked to this task",
+      "fs": "11px",
+      "fst": "italic",
+      "color": 5.31,
+      "cls": "text-[11px] text-base-content-muted italic"
+    },
+    "filesTitleStyle": "12px/400/5.31",
+    "filesTop": 806,
+    "filesHtml": "<span class=\"text-xs text-base-content-muted\"> Files (3) </span><div class=\"flex flex-wrap gap-1\"><button type=\"button\" class=\"badge badge-xs badge-ghost font-mono hover:badge-primary cursor-pointer\" title=\"Open task.md\"> task.md </button><button type=\"button\" class=\"badge badge-xs badge-ghost font-"
+  },
+  "shift-anubis": {
+    "before": {
+      "secTop": 756,
+      "secH": 38,
+      "filesTop": 806,
+      "rows": 0,
+      "empty": true,
+      "sameNode": true
+    },
+    "after": {
+      "secTop": 756,
+      "secH": 204,
+      "filesTop": 972,
+      "rows": 3,
+      "empty": false,
+      "sameNode": true
+    },
+    "cls": 0.01381429325810185
+  },
+  "shift-anubis-light": {
+    "before": {
+      "secTop": 756,
+      "secH": 38,
+      "filesTop": 806,
+      "rows": 0,
+      "empty": true,
+      "sameNode": true
+    },
+    "after": {
+      "secTop": 756,
+      "secH": 204,
+      "filesTop": 972,
+      "rows": 3,
+      "empty": false,
+      "sameNode": true
+    },
+    "cls": 0.01381429325810185
+  }
+}

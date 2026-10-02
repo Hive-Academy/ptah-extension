@@ -6,41 +6,124 @@ import {
 } from '@angular/core';
 import type { SkillSynthesisEventWire } from '@ptah-extension/shared';
 
-interface FormattedEvent {
+/**
+ * One feed row: a run of consecutive events that share the grouping key
+ * (see {@link groupConsecutiveEvents}). Identified by its newest member.
+ */
+export interface SkillEventGroup {
+  /** Id of the newest event in the group; the row's stable identity. */
+  readonly id: string;
+  readonly kind: SkillSynthesisEventWire['kind'];
+  readonly sessionId: string | null;
+  readonly newestTimestamp: number;
+  readonly oldestTimestamp: number;
+  readonly count: number;
+  /** The newest event in the group; its outcome is the one displayed. */
+  readonly event: SkillSynthesisEventWire;
+}
+
+function sameGroup(
+  a: SkillSynthesisEventWire,
+  b: SkillSynthesisEventWire,
+): boolean {
+  if (a.kind !== b.kind) return false;
+  if ((a.sessionId ?? null) !== (b.sessionId ?? null)) return false;
+  // Distinct failures must stay visible as distinct rows.
+  return a.kind !== 'error' || (a.error ?? null) === (b.error ?? null);
+}
+
+/**
+ * Collapses consecutive events (input newest-first) with the same `kind` and
+ * `sessionId` - and, for `error` events, the same `error` text - into one
+ * group with a count. Returns at most `limit` groups, newest first.
+ */
+export function groupConsecutiveEvents(
+  events: readonly SkillSynthesisEventWire[],
+  limit: number,
+): SkillEventGroup[] {
+  const groups: SkillEventGroup[] = [];
+  for (const ev of events) {
+    const last = groups.at(-1);
+    if (last !== undefined && sameGroup(last.event, ev)) {
+      groups[groups.length - 1] = {
+        ...last,
+        count: last.count + 1,
+        oldestTimestamp: ev.timestamp,
+      };
+      continue;
+    }
+    if (groups.length >= limit) break;
+    groups.push({
+      id: ev.id,
+      kind: ev.kind,
+      sessionId: ev.sessionId ?? null,
+      newestTimestamp: ev.timestamp,
+      oldestTimestamp: ev.timestamp,
+      count: 1,
+      event: ev,
+    });
+  }
+  return groups;
+}
+
+interface FormattedRow {
+  readonly id: string;
   readonly kind: string;
-  readonly timestamp: string;
   readonly relative: string;
   readonly sessionId: string | null;
   readonly outcome: string;
+  readonly count: number;
 }
 
+/**
+ * Recent skill-synthesis activity.
+ *
+ * Input contract: `events` is NEWEST-FIRST (as `SkillDiagnosticsStateService`
+ * keeps it). Consecutive repeats are grouped into one row with a count, and
+ * `limit` counts rows, not raw events. Each row is tracked by the real id of
+ * its newest event.
+ */
 @Component({
   selector: 'ptah-skill-event-feed',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (formatted().length === 0) {
+    @if (rows().length === 0) {
       <div class="text-xs text-base-content-muted">No recent events.</div>
     } @else {
       <ul class="flex flex-col gap-1 text-xs" role="list">
-        @for (ev of formatted(); track ev.timestamp + '-' + ev.kind) {
-          <li class="flex items-center gap-2 border-b border-base-300 py-1">
-            <span class="badge badge-xs" [class]="badgeClass(ev.kind)">
-              {{ ev.kind }}
+        @for (row of rows(); track row.id) {
+          <li
+            class="flex items-center gap-2 border-b border-base-300 py-1"
+            [attr.data-event-id]="row.id"
+          >
+            <span class="badge badge-xs" [class]="badgeClass(row.kind)">
+              {{ row.kind }}
             </span>
+            @if (row.count > 1) {
+              <span
+                class="badge badge-xs badge-ghost font-mono"
+                data-test="event-count"
+              >
+                <span aria-hidden="true">x{{ row.count }}</span>
+                <span class="sr-only">{{ row.count }} events</span>
+              </span>
+            }
             <span class="font-mono text-[10px] text-base-content-muted">
-              {{ ev.relative }}
+              {{ row.relative }}
             </span>
-            @if (ev.sessionId) {
+            @if (row.sessionId) {
               <span
                 class="font-mono text-[10px] text-base-content-muted truncate"
               >
-                {{ ev.sessionId }}
+                {{ row.sessionId }}
               </span>
             }
-            <span class="text-base-content-muted truncate">{{
-              ev.outcome
-            }}</span>
+            <span
+              class="text-base-content-muted truncate"
+              [attr.title]="row.outcome"
+              >{{ row.outcome }}</span
+            >
           </li>
         }
       </ul>
@@ -51,16 +134,16 @@ export class SkillEventFeedComponent {
   public readonly events = input.required<readonly SkillSynthesisEventWire[]>();
   public readonly limit = input<number>(10);
 
-  protected readonly formatted = computed<readonly FormattedEvent[]>(() => {
-    const events = this.events();
-    const limit = this.limit();
+  protected readonly rows = computed<readonly FormattedRow[]>(() => {
+    const groups = groupConsecutiveEvents(this.events(), this.limit());
     const now = Date.now();
-    return events.slice(0, limit).map<FormattedEvent>((ev) => ({
-      kind: ev.kind,
-      timestamp: new Date(ev.timestamp).toISOString(),
-      relative: this.formatRelative(now - ev.timestamp),
-      sessionId: ev.sessionId ?? null,
-      outcome: this.outcomeFor(ev),
+    return groups.map<FormattedRow>((group) => ({
+      id: group.id,
+      kind: group.kind,
+      relative: this.formatRelative(now - group.newestTimestamp),
+      sessionId: group.sessionId,
+      outcome: this.outcomeFor(group.event),
+      count: group.count,
     }));
   });
 

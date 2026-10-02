@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Frame 02 - split</title>
+    <!-- Frame 02: Split (STORYBOARD.md v2). 3.582 s = 2 bars from the drop.
+         Match cut from Frame 01: the running row shrinks into the session node. A gold line shoots right and splits
+         into three lanes on beats 2-4; in bar 2 work ticks flow right along all three lanes at the same speed.
+         Rules: svg-path-draw, kinetic-beat-slam. Diagram geometry is shared with Frames 03-04 (do not move it).
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. -->
+  </head>
+  <body>
+    <template>
+      <style>
+        #f02-row { position: absolute; left: 120px; top: 470px; width: 1680px; height: 86.4px; transform-origin: 50% 50%; }
+        #f02-node { transform-origin: 240px 620px; }
+      </style>
+
+      <div id="f02" class="scene" data-composition-id="f02" data-width="1920" data-height="1080" data-frame-start="1.791" data-frame-duration="3.582" data-seam-in="cut" data-duck="0">
+        <div id="f02-vig" class="vig"></div>
+
+        <svg id="f02-dia" class="dia" viewBox="0 0 1920 1080" aria-hidden="true">
+          <path id="f02-trunk" class="lnOn" d="M300 620 H640" />
+          <path id="f02-l1" class="lnOn" d="M640 620 C720 620 720 460 820 460 H1760" />
+          <path id="f02-l2" class="lnOn" d="M640 620 H1760" />
+          <path id="f02-l3" class="lnOn" d="M640 620 C720 620 720 780 820 780 H1760" />
+          <g id="f02-ticks">
+            <path class="tick" d="M820 460 H1760" />
+            <path class="tick" d="M820 620 H1760" />
+            <path class="tick" d="M820 780 H1760" />
+          </g>
+          <g id="f02-tag1"><circle class="run" cx="848" cy="426" r="10" /><text class="lbl" x="870" y="438">Glm</text></g>
+          <g id="f02-tag2"><circle class="run" cx="848" cy="586" r="10" /><text class="lbl" x="870" y="598">Codex</text></g>
+          <g id="f02-tag3"><circle class="run" cx="848" cy="746" r="10" /><text class="lbl" x="870" y="758">Copilot</text></g>
+          <g id="f02-node">
+            <circle class="node-ring" cx="240" cy="620" r="60" />
+            <circle class="node-core" cx="240" cy="620" r="14" />
+            <text class="nlbl" x="240" y="726" text-anchor="middle">Your session</text>
+          </g>
+        </svg>
+
+        <!-- Frame 01's row, same variables and preroll, so the cut is invisible; it shrinks into the node. -->
+        <div id="f02-row">
+          <div id="f02-m1" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="0.5" data-track-index="1" data-variable-values='{"tool":"Bash","label":"Run the full test suite","liveText":"Executing Bash...","cues":"0,0.45,9","runFor":9,"preroll":2.591}' style="left: 0; top: 0; width: 1680px; height: 86.4px"></div>
+        </div>
+
+        <div id="f02-cap" class="cap"><span id="f02-c1">One prompt.</span> <span id="f02-c2" class="g">Three lanes.</span></div>
+
+        <audio id="sx-f02-drop" src="assets/sfx/impact-bass-1.mp3" data-start="0" data-duration="1.791" data-track-index="30" data-volume="0.75"></audio>
+        <audio id="sx-f02-w1" src="assets/sfx/whoosh-short.mp3" data-start="0.448" data-duration="0.575" data-track-index="31" data-volume="0.4"></audio>
+        <audio id="sx-f02-w2" src="assets/sfx/whoosh-short.mp3" data-start="0.896" data-duration="0.575" data-track-index="32" data-volume="0.4"></audio>
+        <audio id="sx-f02-w3" src="assets/sfx/whoosh-short.mp3" data-start="1.343" data-duration="0.575" data-track-index="33" data-volume="0.4"></audio>
+      </div>
+
+      <script>
+          var B = 0.448;
+          // Path draw: one dash the length of the path, offset from full length to 0.
+          function draw(id, at, dur) {
+            var p = document.getElementById(id);
+            var len = p.getTotalLength();
+            tl.fromTo(p, { strokeDasharray: len, strokeDashoffset: len }, { strokeDashoffset: 0, duration: dur, ease: "power2.out" }, at);
+          }
+          // Match cut: the row (scale 1.03, centre 960,513) shrinks into the node at (240,620).
+          tl.fromTo("#f02-row", { scale: 1.03, x: 0, y: 0, opacity: 1 }, { scale: 0.0714, x: -720, y: 107, opacity: 0, duration: 0.42, ease: "expo.in" }, T0);
+          tl.fromTo("#f02-node", { scale: 0.2, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "expo.out" }, T0 + 0.3);
+          // The prompt line shoots right, then the lanes split off on beats 2, 3, 4.
+          draw("f02-trunk", T0 + 0.3, 0.25);
+          draw("f02-l1", T0 + B, 0.35);
+          draw("f02-l2", T0 + 2 * B, 0.35);
+          draw("f02-l3", T0 + 3 * B, 0.35);
+          ["#f02-tag1", "#f02-tag2", "#f02-tag3"].forEach(function (id, i) {
+            tl.fromTo(id, { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.3, ease: "power3.out" }, T0 + (i + 1) * B + 0.2);
+          });
+          // Caption: "ONE PROMPT." on the drop, gold "THREE LANES." with the first lane.
+          tl.fromTo("#f02-c1", { scale: 1.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "expo.out" }, T0);
+          tl.fromTo("#f02-c2", { x: 120, opacity: 0 }, { x: 0, opacity: 1, duration: 0.35, ease: "expo.out" }, T0 + B);
+          // Bar 2: the lanes settle to their base colour and work ticks flow right (116 px/s in film time, shared with Frames 03-04).
+          tl.to(["#f02-l1", "#f02-l2", "#f02-l3"], { stroke: "#6b5a22", duration: 0.3, ease: "power1.out" }, T0 + 1.791);
+          var SPEED = 116.07, FLOW0 = 3.582;
+          tl.fromTo("#f02-ticks", { opacity: 0 }, { opacity: 1, duration: 0.25, ease: "power1.out" }, T0 + 1.791);
+          tl.fromTo("#f02-ticks path", { strokeDashoffset: -(1.791 + 1.791 - FLOW0) * SPEED }, { strokeDashoffset: -(1.791 + 3.582 - FLOW0) * SPEED, duration: 1.791, ease: "none" }, T0 + 1.791);
+      </script>
+    </template>
+  </body>
+</html>

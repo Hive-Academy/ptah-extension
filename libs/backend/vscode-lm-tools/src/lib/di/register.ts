@@ -20,6 +20,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IMcpServerStatus,
+  type IMcpSubagentRootRegistrar,
 } from '@ptah-extension/platform-core';
 import { PtahAPIBuilder } from '../code-execution/ptah-api-builder.service';
 import { CodeExecutionMCP } from '../code-execution/mcp-http/http-mcp-server.service';
@@ -108,6 +109,54 @@ export function registerVsCodeLmToolsServices(
   };
   container.register(PLATFORM_TOKENS.MCP_SERVER_STATUS, {
     useValue: mcpStatusShim,
+  });
+  // Resolved on every call, like the status shim above, so the consumer
+  // (cli-agent-runtime's spawner) never constructs the MCP server at its own
+  // construction time. The port promises never to reject: a missing or
+  // unresolvable server degrades to `registered: false`, and the detail stays
+  // in the log rather than in the reason an agent reads.
+  const resolveRootRegistrar = (): IMcpSubagentRootRegistrar | null =>
+    container.isRegistered(TOKENS.CODE_EXECUTION_MCP)
+      ? container.resolve<CodeExecutionMCP>(TOKENS.CODE_EXECUTION_MCP)
+      : null;
+  const describeError = (error: unknown): string =>
+    error instanceof Error ? error.message : String(error);
+  const mcpSubagentRootRegistrarShim: IMcpSubagentRootRegistrar = {
+    retainRoot: async (root) => {
+      try {
+        const registrar = resolveRootRegistrar();
+        if (registrar === null) {
+          return { registered: false, reason: 'registrar-unavailable' };
+        }
+        return await registrar.retainRoot(root);
+      } catch (error: unknown) {
+        // degradation-audit: optional-capability - the caller reads
+        // `registered: false` and reports the child's subagent tools as
+        // unavailable; the child session itself still starts.
+        logger.warn(
+          `[VS Code LM Tools] MCP subagent root retain failed: ${describeError(error)}`,
+        );
+        return { registered: false, reason: 'registrar-unavailable' };
+      }
+    },
+    releaseRoot: async (root) => {
+      try {
+        await resolveRootRegistrar()?.releaseRoot(root);
+      } catch (error: unknown) {
+        // degradation-audit: optional-capability - a release failure must
+        // never block a session stop; it is logged and the server's next
+        // reconcile or stop removes the entry.
+        logger.warn(
+          `[VS Code LM Tools] MCP subagent root release failed: ${describeError(error)}`,
+        );
+      }
+    },
+  };
+  container.register(PLATFORM_TOKENS.MCP_SUBAGENT_ROOT_REGISTRAR, {
+    useValue: mcpSubagentRootRegistrarShim,
+  });
+  logger.info('[VS Code LM Tools] MCP subagent root registrar registered', {
+    services: ['MCP_SUBAGENT_ROOT_REGISTRAR'],
   });
   container.registerSingleton(
     TOKENS.PERMISSION_PROMPT_SERVICE,

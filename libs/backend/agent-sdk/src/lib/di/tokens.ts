@@ -164,9 +164,7 @@ export const SDK_TOKENS = {
    * Tracks failed stdio/HTTP MCP servers and manages exponential back-off to prevent
    * repeated subprocess leaks on consecutive sessions (TASK_2026_479).
    */
-  SDK_MCP_SERVER_BACKOFF_SERVICE: Symbol.for(
-    'SdkMcpServerBackoffService',
-  ),
+  SDK_MCP_SERVER_BACKOFF_SERVICE: Symbol.for('SdkMcpServerBackoffService'),
   /**
    * The list of OTHER Claude Code sessions this user can reach, read from the
    * CLI's own `~/.claude/sessions` registry (TASK_2026_402, Task 10.2). Not
@@ -198,6 +196,15 @@ export const SDK_TOKENS = {
    * the policy fingerprint a session was built against (TASK_2026_560, N4).
    */
   SDK_HARNESS_POLICY_SYNC: Symbol.for('SdkHarnessPolicySync'),
+  /**
+   * `UnattendedSessionPolicyRegistry`: the tool-call policy of each session
+   * nobody is watching, keyed by its tab id (TASK_2026_584). Injected into
+   * `SdkPermissionHandler` as an optional dependency, so it is registered
+   * before the handler.
+   */
+  SDK_UNATTENDED_SESSION_POLICY_REGISTRY: Symbol.for(
+    'SdkUnattendedSessionPolicyRegistry',
+  ),
 } as const;
 
 /**

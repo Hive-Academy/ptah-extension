@@ -38,6 +38,7 @@ import { AppShellComponent } from './app-shell.component';
 import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { SessionDisplayUtils } from '../../services/session-display-utils.service';
+import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 
 interface AuthStub {
   loadAuthStatus: jest.Mock<Promise<void>, []>;
@@ -61,9 +62,21 @@ function createAuthStub(hasAnyAuth: boolean): AuthStub & {
   };
 }
 
+/**
+ * Records each resolution of the stubbed `ClosedTabSessionEnderService`, so a
+ * test can prove the shell instantiates it eagerly. The stub itself does
+ * nothing; the service's behaviour is covered by
+ * closed-tab-session-ender.service.spec.ts.
+ */
+const closedTabSessionEnderFactory = jest.fn(() => ({}));
+
 function configure(auth: AuthStub): void {
   TestBed.configureTestingModule({
     providers: [
+      {
+        provide: ClosedTabSessionEnderService,
+        useFactory: closedTabSessionEnderFactory,
+      },
       ...provideSurfaceRouterTesting(),
       AppStateManager,
       { provide: AuthStateService, useValue: auth },
@@ -139,6 +152,15 @@ describe('AppShellComponent startup auth redirect', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     jest.restoreAllMocks();
+  });
+
+  it('instantiates the closed-tab session ender eagerly on construction', () => {
+    closedTabSessionEnderFactory.mockClear();
+    configure(createAuthStub(true));
+
+    TestBed.createComponent(AppShellComponent);
+
+    expect(closedTabSessionEnderFactory).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT redirect to settings when the user has already navigated away', async () => {

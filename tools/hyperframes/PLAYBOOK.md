@@ -15,6 +15,8 @@ How we compose advanced Ptah videos with the `ptah-ui` kit. It adapts the common
 
 Never write a 2,000-line monolith (v1/v2 did; lint warns `composition_file_too_large`). One scene per file keeps each file under ~250 lines and lets a scene be fixed without touching the rest.
 
+A scene file is a **fragment**, not a sub-composition: kit mounts nested inside a sub-composition collapse onto one instance (HANDOFF, Traps). The fragment root is `<div id="fNN" class="scene" data-composition-id="fNN" data-width="1920" data-height="1080" data-frame-start="S" data-frame-duration="D">`; mount `data-start` values are frame-local; the `<script>` body runs as `(function (tl, T0) { ... })` on the main `HyperShader.init` timeline, so every position is `T0 + local`. `node assemble.mjs` copies the built kit components and writes `index.html` from `src/index.tpl` (see `projects/agent-lanes-v3`).
+
 ## 2. Timing rules
 
 - Pick the track first, run `npx hyperframes beats`, and put every cut on a bar and every entrance on a beat. Offset the music with `data-media-start` so the drop lands at 1-2 s, never after a quiet intro.

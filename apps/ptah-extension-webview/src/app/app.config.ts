@@ -1,8 +1,10 @@
 import {
   ApplicationConfig,
+  provideAppInitializer,
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
   ErrorHandler,
+  inject,
 } from '@angular/core';
 import { PlatformLocation } from '@angular/common';
 import {
@@ -34,6 +36,7 @@ import { appRoutes } from './app.routes';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   ChatMessageHandler,
+  AgentSessionAdoptionService,
   AgentMonitorMessageHandler,
   ChatStore,
   UpdateDialogService,
@@ -80,7 +83,10 @@ import { HarnessWorkflowMessageHandler } from '@ptah-extension/harness-builder/s
 // importing `HarnessHealthStore` from the wide barrel would pull the whole
 // marketplace hub back into the eager graph just to register one push handler.
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
-import { TasksStore } from '@ptah-extension/tasks-ui/services';
+import {
+  TaskSessionLinksService,
+  TasksStore,
+} from '@ptah-extension/tasks-ui/services';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui/services';
 import {
   MARKDOWN_FILE_LINK_HANDLER,
@@ -169,6 +175,12 @@ export const appConfig: ApplicationConfig = {
     },
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
+    // Late adoption of agent-started child tabs (TASK_2026_584). The
+    // `agentSession:opened` push above only reaches a webview that is running
+    // when the child starts; this asks `chat:agent-sessions` at bootstrap and
+    // on every workspace switch for the children this panel missed. `start()`
+    // installs one root effect and returns; the RPC itself is detached.
+    provideAppInitializer(() => inject(AgentSessionAdoptionService).start()),
     // The ONE `surface:updated` intake for every host (TASK_2026_494, plan
     // D3). Eager on purpose: a lazy consumer claims its routing id before
     // `chat:start`, so nothing can arrive unclaimed, and the zod-free inbox
@@ -203,6 +215,11 @@ export const appConfig: ApplicationConfig = {
     // that with a `RouteReuseStrategy`).
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: TaskSessionLinksService,
+      multi: true,
+    },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },

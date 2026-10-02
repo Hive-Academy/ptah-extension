@@ -153,6 +153,21 @@ export const MESSAGE_TYPES = {
    * already uses is the right one.
    */
   SESSION_MCP_STATUS: 'session:mcpStatus',
+  /**
+   * Backend → Frontend: organization data (priority, status, pin, archive,
+   * task links, PR links) changed for one or more sessions of a workspace.
+   * The payload carries ids only; the webview re-reads rows via `session:list`.
+   */
+  SESSION_ORGANIZATION_CHANGED: 'session:organizationChanged',
+  /**
+   * Backend → Frontend: a parent session started a child chat session with
+   * `ptah_session_start` and its tab should open (TASK_2026_584).
+   *
+   * Pushed BEFORE the child's session starts, so the tab exists when its first
+   * chunk arrives. Only the panel holding `parentTabId` adopts it; a webview
+   * that missed the push adopts live children through `chat:agent-sessions`.
+   */
+  AGENT_SESSION_OPENED: 'agentSession:opened',
   AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',

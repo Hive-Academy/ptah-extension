@@ -19,10 +19,14 @@ export interface WorkspaceTabSet {
 /**
  * Result of a cross-workspace tab lookup.
  * Includes the tab and the workspace it belongs to.
+ *
+ * `workspacePath` is `null` when the tab is in the active tab set and no
+ * workspace is active (the VS Code panel never activates one): that set
+ * belongs to no workspace partition.
  */
 export interface TabLookupResult {
   tab: TabState;
-  workspacePath: string;
+  workspacePath: string | null;
 }
 
 /**
@@ -34,6 +38,27 @@ export interface TabLookupResult {
 export interface WorkspaceRemovalEvent {
   readonly path: string;
   readonly seq: number;
+}
+
+/**
+ * Insert `tab` directly after the tab with id `afterTabId` and renumber
+ * `order` to match the array position. Appends when `afterTabId` is absent.
+ * Pure: returns a new array, never touches the input.
+ *
+ * Used for agent-started child tabs (TASK_2026_584), which open next to their
+ * parent in whichever partition holds it.
+ */
+export function insertTabAfter(
+  tabs: readonly TabState[],
+  tab: TabState,
+  afterTabId: string,
+): TabState[] {
+  const anchor = tabs.findIndex((t) => t.id === afterTabId);
+  const at = anchor === -1 ? tabs.length : anchor + 1;
+  const next = [...tabs.slice(0, at), tab, ...tabs.slice(at)];
+  return next.map((t, index) =>
+    t.order === index ? t : { ...t, order: index },
+  );
 }
 
 /**
@@ -291,21 +316,25 @@ export class TabWorkspacePartitionService {
    * Pure lookup — never mutates state.
    *
    * @param tabId - Tab ID to look up
-   * @param activeTabs - Current active workspace tabs (from signal) for the
-   *   active-workspace fast path (the map copy can lag behind the signal).
+   * @param activeTabs - Current active tab set (from signal). With an active
+   *   workspace it is that workspace's fast path (the map copy can lag behind
+   *   the signal); with none it is the only tab set, and a hit there reports
+   *   `workspacePath: null`.
    */
   findTabByIdAcrossWorkspaces(
     tabId: string,
     activeTabs?: TabState[],
   ): TabLookupResult | null {
     const activePath = this._activeWorkspacePath();
-    if (activePath) {
-      const tabs =
-        activeTabs ?? this._workspaceTabSets.get(activePath)?.tabs ?? [];
-      const activeTab = tabs.find((t) => t.id === tabId);
-      if (activeTab) {
-        return { tab: activeTab, workspacePath: activePath };
-      }
+    // With no active workspace (the VS Code panel never activates one) the
+    // caller's tab set is the only set and is in no partition, so it must be
+    // searched too — otherwise every tab there is invisible to by-id routing.
+    const tabs = activePath
+      ? (activeTabs ?? this._workspaceTabSets.get(activePath)?.tabs ?? [])
+      : (activeTabs ?? []);
+    const activeTab = tabs.find((t) => t.id === tabId);
+    if (activeTab) {
+      return { tab: activeTab, workspacePath: activePath };
     }
 
     for (const [wsPath, tabSet] of this._workspaceTabSets) {
@@ -360,6 +389,37 @@ export class TabWorkspacePartitionService {
     }
 
     return false;
+  }
+
+  /**
+   * Add a tab to a BACKGROUND workspace partition (TASK_2026_584).
+   *
+   * The background counterpart of appending to `TabManagerService._tabs`: an
+   * agent-started child tab whose parent lives in a workspace that is not
+   * active is added there, right after `afterTabId`, without touching any
+   * signal or the background partition's active tab. Persisted through the
+   * same debounced background save as `updateBackgroundTab`.
+   *
+   * Refuses (returns false) when `workspacePath` is the active workspace — the
+   * caller owns that tab set through its signal — when the partition is not
+   * loaded, or when a tab with the same id is already in it.
+   */
+  addTabToWorkspace(
+    workspacePath: string,
+    tab: TabState,
+    afterTabId: string,
+  ): boolean {
+    if (workspacePath === this._activeWorkspacePath()) return false;
+    const tabSet = this._workspaceTabSets.get(workspacePath);
+    if (!tabSet) return false;
+    if (tabSet.tabs.some((t) => t.id === tab.id)) return false;
+
+    tabSet.tabs = insertTabAfter(tabSet.tabs, tab, afterTabId);
+    if (tab.claudeSessionId) {
+      this._sessionToWorkspace.set(tab.claudeSessionId, workspacePath);
+    }
+    this._debouncedBackgroundSave(workspacePath, tabSet);
+    return true;
   }
 
   /**

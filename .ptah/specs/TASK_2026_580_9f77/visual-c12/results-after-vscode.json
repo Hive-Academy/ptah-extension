@@ -1,0 +1,166 @@
+{
+  "vscode-anubis-360": {
+    "errs": [],
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [],
+      "chipsOverflowRow": false,
+      "headers": [],
+      "rows": [],
+      "rowCount": 13,
+      "filterBar": false,
+      "localSearch": true,
+      "organizeBtns": 0,
+      "groupHeaders": 0,
+      "chipsCount": 0,
+      "dateFilterBtn": true,
+      "filterControlSizes": []
+    },
+    "rest": {
+      "opacity": "0",
+      "html": 2278,
+      "btnPr": "64px"
+    }
+  },
+  "vscode-anubis-800": {
+    "errs": [],
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [],
+      "chipsOverflowRow": false,
+      "headers": [],
+      "rows": [],
+      "rowCount": 13,
+      "filterBar": false,
+      "localSearch": true,
+      "organizeBtns": 0,
+      "groupHeaders": 0,
+      "chipsCount": 0,
+      "dateFilterBtn": true,
+      "filterControlSizes": []
+    },
+    "rest": {
+      "opacity": "0",
+      "html": 2278,
+      "btnPr": "64px"
+    },
+    "focusRename": {
+      "opacity": "0.0852344",
+      "activeIsRename": "Rename session"
+    }
+  },
+  "vscode-anubis-1400": {
+    "errs": [],
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [],
+      "chipsOverflowRow": false,
+      "headers": [],
+      "rows": [],
+      "rowCount": 13,
+      "filterBar": false,
+      "localSearch": true,
+      "organizeBtns": 0,
+      "groupHeaders": 0,
+      "chipsCount": 0,
+      "dateFilterBtn": true,
+      "filterControlSizes": []
+    },
+    "rest": {
+      "opacity": "0",
+      "html": 2278,
+      "btnPr": "64px"
+    }
+  },
+  "vscode-anubis-light-360": {
+    "errs": [],
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [],
+      "chipsOverflowRow": false,
+      "headers": [],
+      "rows": [],
+      "rowCount": 13,
+      "filterBar": false,
+      "localSearch": true,
+      "organizeBtns": 0,
+      "groupHeaders": 0,
+      "chipsCount": 0,
+      "dateFilterBtn": true,
+      "filterControlSizes": []
+    },
+    "rest": {
+      "opacity": "0",
+      "html": 2278,
+      "btnPr": "64px"
+    }
+  },
+  "vscode-anubis-light-800": {
+    "errs": [],
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [],
+      "chipsOverflowRow": false,
+      "headers": [],
+      "rows": [],
+      "rowCount": 13,
+      "filterBar": false,
+      "localSearch": true,
+      "organizeBtns": 0,
+      "groupHeaders": 0,
+      "chipsCount": 0,
+      "dateFilterBtn": true,
+      "filterControlSizes": []
+    },
+    "rest": {
+      "opacity": "0",
+      "html": 2278,
+      "btnPr": "64px"
+    },
+    "focusRename": {
+      "opacity": "0",
+      "activeIsRename": "Rename session"
+    }
+  },
+  "vscode-anubis-light-1400": {
+    "errs": [],
+    "default": {
+      "asideW": 224,
+      "asideOverflowX": false,
+      "docOverflowX": false,
+      "listOverflowX": false,
+      "chips": [],
+      "chipsOverflowRow": false,
+      "headers": [],
+      "rows": [],
+      "rowCount": 13,
+      "filterBar": false,
+      "localSearch": true,
+      "organizeBtns": 0,
+      "groupHeaders": 0,
+      "chipsCount": 0,
+      "dateFilterBtn": true,
+      "filterControlSizes": []
+    },
+    "rest": {
+      "opacity": "0",
+      "html": 2278,
+      "btnPr": "64px"
+    }
+  }
+}

@@ -14,7 +14,7 @@
  * The one write it makes is sweep (a)'s description rewrite, and it goes
  * through the EXISTING `SkillSuggestionStore.updatePending` path — see
  * `applyDescriptionRewrites` for the conditions on it. There is deliberately no
- * second suggestion-writing path here: `insertPending` is never called (pinned
+ * second suggestion-writing path here: `insert` is never called (pinned
  * by a source scan in the spec), so the digest can sharpen a proposal the user
  * has not yet decided on, and can do nothing at all to one they have.
  *
@@ -757,7 +757,7 @@ export class SkillGapCuratorService {
    *
    *  1. Every write goes through `SkillSuggestionStore.updatePending` — the
    *     path the Skills tab's own edit uses. There is no second writer here and
-   *     `insertPending` is never called, so the digest cannot file a proposal
+   *     `insert` is never called, so the digest cannot file a proposal
    *     the user never asked for. Pinned by a source scan in the spec, because
    *     the DB-count assertion only catches it on a seeded pass.
    *  2. Only a row that is still `pending` moves; the store itself refuses an

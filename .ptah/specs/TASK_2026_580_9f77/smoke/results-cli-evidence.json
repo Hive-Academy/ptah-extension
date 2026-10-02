@@ -1,0 +1,13 @@
+{
+  "sessionId": "d42d4e71-4425-44f4-8207-e0bff425bfb0",
+  "workspace": "C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-580-cli-ws-ARSrBK",
+  "list": {
+    "error": "Error: timeout id 2"
+  },
+  "availableAfterMs": 121269,
+  "error": "Error: timeout id 3",
+  "stderrTail": [
+    "{\"error\":\"sdk_init_failed\",\"message\":\"No Anthropic API key configured. Add an API key in Settings, or switch to Claude CLI.\",\"command\":\"engine.bootstrap\",\"bootstrap_mode\":\"full\"}",
+    ""
+  ]
+}

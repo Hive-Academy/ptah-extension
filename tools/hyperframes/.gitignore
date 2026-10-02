@@ -14,6 +14,7 @@
 !*.md
 !*.json
 !*.svg
+!*.tpl
 !.gitignore
 
 # Small UI reference frames the kit SPEC cites (kept deliberately, <1 MB total).
@@ -22,6 +23,7 @@
 # Derived or local-only, even when the extension is allowed.
 kits/*/components/
 kits/*/gallery/compositions/components/ptah-ui-*.html
+projects/*/compositions/components/ptah-ui-*.html
 **/snapshots/
 **/renders/
 **/.hyperframes/

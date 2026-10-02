@@ -187,6 +187,7 @@ function makeService(opts: {
     getDominantSkillSlugForSessions: jest.fn(() => null),
     listByStatus: jest.fn(() => [unembedded]),
     setEmbedding: jest.fn(),
+    rejectIfStatus: jest.fn(() => true),
   } as unknown as jest.Mocked<SkillCandidateStore>;
   const md = {
     candidatesRoot: jest.fn(() => '/tmp/cands'),
@@ -509,6 +510,76 @@ describe('SkillSynthesisService — gate stage handlers (B3.5.1)', () => {
           reason: 'judge-panel-agreed',
         }),
       );
+    });
+
+    /**
+     * TASK_2026_578 Task 6.2 — the panel's verdict changes state. The floor
+     * is `minJudgeScore` (6.0 by default here: the workspace double serves
+     * every key but `enabled` from its fallback).
+     */
+    describe('the below-judge-score gate', () => {
+      const verdictScoring = (score: number) => ({
+        ...scoredVerdict,
+        verdict: { ...scoredVerdict.verdict, score },
+      });
+
+      async function drainPanel(score: number, rejectResult = true) {
+        const queue = makeOneRowQueue(gateRow('judge-panel'));
+        const drain = makeDrainOver(queue);
+        const judgePanel = {
+          evaluate: jest.fn(async () => verdictScoring(score)),
+        };
+        const { svc, store } = makeService({
+          queue,
+          drain,
+          judgePanel: judgePanel as never,
+        });
+        (store.rejectIfStatus as jest.Mock).mockReturnValue(rejectResult);
+        await svc.start();
+        const summary = await drain.drain(weeklyOpts());
+        return { queue, store, summary };
+      }
+
+      it('rejects a candidate scored below the floor', async () => {
+        const { queue, store, summary } = await drainPanel(5.9);
+
+        expect(store.rejectIfStatus).toHaveBeenCalledWith(
+          'cand-1',
+          'candidate',
+          'below-judge-score',
+        );
+        expect(summary.done).toBe(1);
+        expect(queue.markDone).toHaveBeenCalledWith(
+          'row-1',
+          expect.objectContaining({
+            candidateId: 'cand-1',
+            reason: 'judge-panel-agreed:rejected',
+          }),
+        );
+      });
+
+      it('leaves a candidate scored exactly at the floor unchanged', async () => {
+        const { queue, store } = await drainPanel(6);
+
+        expect(store.rejectIfStatus).not.toHaveBeenCalled();
+        expect(queue.markDone).toHaveBeenCalledWith(
+          'row-1',
+          expect.objectContaining({ reason: 'judge-panel-agreed' }),
+        );
+      });
+
+      it('leaves a candidate promoted meanwhile unchanged (the CAS lost)', async () => {
+        const { queue, store, summary } = await drainPanel(2, false);
+
+        expect(store.rejectIfStatus).toHaveBeenCalledTimes(1);
+        expect(summary.done).toBe(1);
+        expect(queue.markDone).toHaveBeenCalledWith(
+          'row-1',
+          expect.objectContaining({
+            reason: 'judge-panel-agreed:not-candidate',
+          }),
+        );
+      });
     });
 
     it('a disabled verdict is skipped, not retried — a host with no LLM is not broken', async () => {

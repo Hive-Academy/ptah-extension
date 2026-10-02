@@ -26,46 +26,45 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
  * Single-linkage agglomerative clustering over embedding vectors.
  *
  * Returns a cluster-id per input index: indices sharing a value belong to the
- * same cluster. Two clusters merge when the MAX pairwise cosine similarity
- * between their members exceeds `threshold` (single-linkage). O(n^2) per merge
- * iteration — acceptable for the expected few-hundred-vector ceiling.
+ * same cluster. Two vectors are linked when their cosine similarity exceeds
+ * `threshold`; a cluster is a connected component of that graph, which is
+ * exactly the single-linkage partition at `> threshold` (a~b and b~c put a and
+ * c together even when a≁c).
+ *
+ * Union-find over every pair in one O(n²·d) sweep. The label of a component is
+ * the LOWEST input index among its members, so labels are stable for a given
+ * input order and callers (and specs) may compare them as values.
  */
 export function agglomerate(
   embeddings: Float32Array[],
   threshold: number,
 ): number[] {
-  const clusterOf: number[] = embeddings.map((_, i) => i);
-  if (embeddings.length <= 1) return clusterOf;
-  let merged = true;
-  while (merged) {
-    merged = false;
-    const clusterIds = [...new Set(clusterOf)];
-    outer: for (let ci = 0; ci < clusterIds.length; ci++) {
-      for (let cj = ci + 1; cj < clusterIds.length; cj++) {
-        const membersI = clusterOf
-          .map((c, idx) => (c === clusterIds[ci] ? idx : -1))
-          .filter((idx) => idx >= 0);
-        const membersJ = clusterOf
-          .map((c, idx) => (c === clusterIds[cj] ? idx : -1))
-          .filter((idx) => idx >= 0);
-        let maxSim = -Infinity;
-        for (const i of membersI) {
-          for (const j of membersJ) {
-            const sim = cosineSimilarity(embeddings[i], embeddings[j]);
-            if (sim > maxSim) maxSim = sim;
-          }
-        }
-        if (maxSim > threshold) {
-          const targetId = clusterIds[ci];
-          const sourceId = clusterIds[cj];
-          for (let k = 0; k < clusterOf.length; k++) {
-            if (clusterOf[k] === sourceId) clusterOf[k] = targetId;
-          }
-          merged = true;
-          break outer;
-        }
-      }
+  const parent: number[] = embeddings.map((_, i) => i);
+  const find = (i: number): number => {
+    let root = i;
+    while (parent[root] !== root) root = parent[root];
+    // Path compression: point every node on the walk straight at the root.
+    let node = i;
+    while (parent[node] !== root) {
+      const next = parent[node];
+      parent[node] = root;
+      node = next;
+    }
+    return root;
+  };
+
+  for (let i = 0; i < embeddings.length; i++) {
+    for (let j = i + 1; j < embeddings.length; j++) {
+      const rootI = find(i);
+      const rootJ = find(j);
+      if (rootI === rootJ) continue;
+      if (cosineSimilarity(embeddings[i], embeddings[j]) <= threshold) continue;
+      // The smaller index always becomes the root, so the root of a component
+      // is its lowest member index — the label contract above.
+      if (rootI < rootJ) parent[rootJ] = rootI;
+      else parent[rootI] = rootJ;
     }
   }
-  return clusterOf;
+
+  return embeddings.map((_, i) => find(i));
 }

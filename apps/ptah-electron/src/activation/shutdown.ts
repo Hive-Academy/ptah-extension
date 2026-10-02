@@ -226,6 +226,11 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
 
   nonFatal('SQLite close', () => refs.sqliteConnection?.close());
   nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
+  // Child sessions BEFORE the agents (TASK_2026_584): synchronous, so it holds
+  // its place on a path Electron does not wait for. It ends every live child
+  // (`host-shutdown`) and clears its timers, so nothing is pushed into a parent
+  // that is going away.
+  nonFatal('Session spawner dispose', () => refs.sessionSpawner?.dispose());
 
   // The guard is HERE rather than inside `reapAgents`, and that placement is
   // the whole reason the undeferred path still works. `await f()` suspends even
