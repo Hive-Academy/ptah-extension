@@ -93,9 +93,10 @@ const SAVE_SCOPE = 'global';
       </div>
 
       <div class="overflow-x-auto rounded-lg border border-base-300 bg-base-100">
-        <!-- table-xs density: the §1.2 fold budget is the pass line, not the prototype's 56 px rows (plan :1049-1052). -->
-        <table class="table table-xs w-full [&_td]:px-1 [&_th]:px-1" aria-labelledby="cli-matrix-heading" data-testid="cli-matrix"
-          [attr.aria-busy]="loading()">
+        <!-- table-xs density: the §1.2 fold budget is the pass line, not the prototype's 56 px rows (plan :1049-1052).
+             tabindex -1: the cli-agents deep link focuses the table (Batch 34); it is not a Tab stop. -->
+        <table class="table table-xs w-full scroll-mt-4 [&_td]:px-1 [&_th]:px-1" aria-labelledby="cli-matrix-heading" data-testid="cli-matrix"
+          tabindex="-1" [attr.aria-busy]="loading()">
           <thead>
             <tr class="text-[11px] uppercase tracking-wide text-base-content-muted">
               <th class="w-10">On</th><th>Agent / Instance</th><th class="cli-col-narrow-hidden">Status</th><th class="cli-col-narrow-hidden">Provider</th><th>Model</th><th>Effort</th>

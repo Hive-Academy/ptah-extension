@@ -676,7 +676,7 @@ describe('ProvidersSettingsComponent', () => {
     state.cliModels.set({ status: 'error', data: {}, error: 'Could not load this section. Retry.' });
     await render();
     expect(element.querySelector('ptah-provider-consumer-assignments')).toBeNull();
-    expect(element.querySelector('ptah-cli-config')).toBeNull();
+    expect(element.querySelector('ptah-cli-orchestration-matrix')).toBeNull();
     expect(element.querySelector('[data-focus="background-models"]')).toBeNull();
     expect(element.querySelector('[data-read-error="cli-models"]')).toBeNull();
   });

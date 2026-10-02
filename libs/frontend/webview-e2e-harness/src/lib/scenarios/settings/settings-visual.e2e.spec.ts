@@ -286,9 +286,19 @@ async function captureRolesOpen(page: Page, host: 'vscode' | 'electron', theme: 
   console.log(`B33 fold ${host}/${theme}: bottoms policy bar ${await bottomOf(page, '[data-testid="orchestration-policy-bar"]')}, `
     + `matrix header ${await bottomOf(page, '[data-testid="cli-matrix"] thead')}, first row ${await bottomOf(page, '[data-testid="cli-matrix"] tbody tr')}, `
     + `roles summary ${await bottomOf(page, '[data-testid="background-roles-summary"]')} (budget 660)`);
+  // Batch 34 revise 1: the disclosure chevron points right (›) closed and down (⌄) open: one 90° clockwise turn, on its
+  // wrapper only. lucide-angular copies its host class onto the <svg>, so a rotate on the icon applied twice (180°, ‹).
+  const chevron = summary.locator('[data-testid="background-roles-chevron"]');
+  const turn = () => chevron.evaluate((node) => {
+    const icons = Array.from(node.querySelectorAll('lucide-angular, svg')).map((icon) => getComputedStyle(icon).transform);
+    return { wrapper: getComputedStyle(node).transform, icons: icons.every((value) => value === 'none') ? 'none' : icons.join(' / ') };
+  });
+  expect(await turn(), 'closed chevron points right').toEqual({ wrapper: 'none', icons: 'none' });
   await summary.click();
   await expect(details).toHaveAttribute('open', '');
   await expect(page.locator('[data-testid="assignments-heading"]')).toBeVisible();
+  await expect.poll(turn, { message: 'open chevron points down: the wrapper turns 90° clockwise, the icon does not turn' })
+    .toEqual({ wrapper: 'matrix(0, 1, -1, 0, 0, 0)', icons: 'none' });
   await summary.evaluate((node) => node.scrollIntoView({ block: 'start' }));
   await waitForSettled(page);
   await page.screenshot({ path: capturePath('orchestration-roles-open', host, theme), animations: 'disabled' });

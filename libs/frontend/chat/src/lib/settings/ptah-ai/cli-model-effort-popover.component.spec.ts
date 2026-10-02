@@ -45,6 +45,7 @@ class StateStub {
     return true;
   });
   readonly refreshDelegatedModelOptions = jest.fn(async () => undefined);
+  readonly cliAgents = signal<ProvidersSettingsSection<readonly { id: string; modelCount: number }[]>>(ready([{ id: 'glm-1', modelCount: 12 }]));
 }
 
 @Component({
@@ -215,6 +216,22 @@ describe('CliModelEffortPopoverComponent', () => {
   });
 
   describe('Ptah instance model', () => {
+    it('#45: shows the instance model count once the CLI list has loaded', () => {
+      create(instance(), 'model');
+      expect(query('cli-matrix-model-count')?.textContent?.trim()).toBe('12 models available from Ollama Cloud.');
+      state.cliAgents.set(ready([{ id: 'glm-1', modelCount: 1 }]));
+      fixture.detectChanges();
+      expect(query('cli-matrix-model-count')?.textContent?.trim()).toBe('1 model available from Ollama Cloud.');
+      state.cliAgents.set(unloaded());
+      fixture.detectChanges();
+      expect(query('cli-matrix-model-count')).toBeNull();
+    });
+
+    it('#45: shows no model count on a system CLI popover', () => {
+      create(system(), 'model');
+      expect(query('cli-matrix-model-count')).toBeNull();
+    });
+
     it('uses the searchable picker fixed to the instance provider', () => {
       create(instance(), 'model');
       const picker = fixture.debugElement.query(By.directive(ProviderModelPickerComponent)).componentInstance as ProviderModelPickerComponent;

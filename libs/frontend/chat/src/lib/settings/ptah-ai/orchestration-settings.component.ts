@@ -1,11 +1,10 @@
 import {
-  ChangeDetectionStrategy, Component, ElementRef, OnInit, afterRenderEffect, computed, inject, input, output,
+  ChangeDetectionStrategy, Component, ElementRef, OnInit, afterRenderEffect, computed, inject, input, output, viewChild,
 } from '@angular/core';
 import { ChevronRight, LucideAngularModule } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
 import { CliOrchestrationMatrixComponent } from './cli-orchestration-matrix.component';
-import { PtahCliConfigComponent } from './ptah-cli-config.component';
 import {
   ProviderConsumerAssignmentsComponent, type BackgroundConsumerId,
 } from '../providers/provider-consumer-assignments.component';
@@ -25,8 +24,9 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
  * user can land on this tab first.
  *
  * Order: the policy bar (Batch 33), the CLI matrix (Batch 30), then the background roles in a `<details>` that is
- * closed by default (deviation 4: the §1.2 fold budget) and opened by the background-role deep links. The old Ptah CLI
- * instance manager stays below until Batch 34 retires it (D14).
+ * closed by default (deviation 4: the §1.2 fold budget) and opened by the background-role deep links. The `cli-agents`
+ * deep link focuses the matrix table (`[data-testid="cli-matrix"]`); Batch 34 retired the old Ptah CLI instance manager,
+ * whose capabilities live in the matrix, its add-instance and tier modals, and its popovers (D14).
  */
 @Component({
   selector: 'ptah-orchestration-settings',
@@ -34,7 +34,6 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     LucideAngularModule, AgentOrchestrationConfigComponent, CliOrchestrationMatrixComponent, ProviderConsumerAssignmentsComponent,
-    PtahCliConfigComponent,
   ],
   template: `
     <div class="space-y-2.5 font-sans text-sm text-base-content">
@@ -42,7 +41,7 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
 
       <!-- Deferred (own chunk; the eager bundle is at its budget) behind a same-footprint placeholder. -->
       @defer (on immediate) {
-        <ptah-cli-orchestration-matrix />
+        <ptah-cli-orchestration-matrix #cliMatrix />
       } @placeholder {
         <div class="min-h-[22rem] rounded-xl border border-base-300 bg-base-200/40" aria-busy="true" data-testid="cli-matrix-placeholder"></div>
       }
@@ -62,7 +61,11 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
       <details class="group rounded-xl border border-base-300 bg-base-200" data-testid="background-roles-details">
         <summary [class]="'flex cursor-pointer list-none items-center gap-2 scroll-mt-2 rounded-xl px-3 py-2 select-none [&::-webkit-details-marker]:hidden ' + focusRing"
           data-testid="background-roles-summary">
-          <lucide-angular [img]="ChevronIcon" class="block h-3.5 w-3.5 shrink-0 text-info transition-transform group-open:rotate-90" aria-hidden="true" />
+          <!-- Points right (›) closed, down (⌄) open. The turn sits on this wrapper: lucide-angular copies its host class onto
+               the inner <svg>, so a rotate class on the icon would apply twice (180°, pointing left). -->
+          <span class="inline-flex shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" data-testid="background-roles-chevron">
+            <lucide-angular [img]="ChevronIcon" class="block h-3.5 w-3.5 text-info" aria-hidden="true" />
+          </span>
           <span class="text-xs font-bold uppercase tracking-wider text-base-content">Background Model Roles</span>
           <span class="badge badge-outline badge-xs whitespace-nowrap border-info/30 bg-info/10 font-medium text-base-content">{{ roleCount }} roles</span>
           <span class="ml-auto hidden min-w-0 truncate text-[10px] text-base-content-muted sm:block">Memory curator, archaeologist, synthesis, judge, replay, judging</span>
@@ -73,8 +76,6 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
             (timeoutSaved)="state.refreshJudging()" />
         </section>
       </details>
-
-      <ptah-cli-config />
 
       @if (state.commit().status !== 'idle') {
         <div role="status" class="rounded-md bg-base-100 p-3 space-y-1 break-words" data-testid="providers-commit-feedback">
@@ -108,6 +109,11 @@ export class OrchestrationSettingsComponent implements OnInit {
     { id: 'cli-models', label: 'CLI instance models', state: this.state.cliModels(), retry: () => this.state.refreshCliModels() },
     { id: 'orchestration', label: 'delegated CLI models', state: this.state.orchestration(), retry: () => this.state.refreshOrchestration() },
   ]);
+  /**
+   * The deferred matrix's host, by template ref: a class query would make the matrix an eager dependency. It resolves
+   * once the deferred block renders, which re-runs the focus effect for a `cli-agents` deep link that arrived first.
+   */
+  private readonly cliMatrix = viewChild<string, ElementRef<HTMLElement>>('cliMatrix', { read: ElementRef });
   private focusedTarget: OrchestrationSettingsFocusTarget | null = null;
 
   constructor() {
@@ -115,17 +121,23 @@ export class OrchestrationSettingsComponent implements OnInit {
       const target = this.focusTarget();
       if (!target) { this.focusedTarget = null; return; }
       if (target === this.focusedTarget) return;
-      const host = this.element.nativeElement;
-      if (target !== 'cli-agents') {
-        // A background-role deep link opens the roles before focusing them (a closed <details> hides its content).
-        const details = host.querySelector<HTMLDetailsElement>('[data-testid="background-roles-details"]');
-        if (details) details.open = true;
-      }
-      const section = target === 'cli-agents' ? 'cli-agents' : 'background-models';
-      const node = host.querySelector<HTMLElement>(`[data-focus="${section}"]`);
+      const node = target === 'cli-agents' ? this.matrixTable() : this.openBackgroundRoles();
       if (node) { node.focus(); this.focusedTarget = target; }
     });
   }
 
   ngOnInit(): void { void this.state.open(); }
+
+  /** The matrix table; null until the deferred matrix has rendered. */
+  private matrixTable(): HTMLElement | null {
+    return this.cliMatrix()?.nativeElement.querySelector<HTMLElement>('[data-testid="cli-matrix"]') ?? null;
+  }
+
+  /** A background-role deep link opens the roles before focusing them (a closed <details> hides its content). */
+  private openBackgroundRoles(): HTMLElement | null {
+    const host = this.element.nativeElement;
+    const details = host.querySelector<HTMLDetailsElement>('[data-testid="background-roles-details"]');
+    if (details) details.open = true;
+    return host.querySelector<HTMLElement>('[data-focus="background-models"]');
+  }
 }

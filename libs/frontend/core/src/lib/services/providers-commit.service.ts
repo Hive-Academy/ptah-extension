@@ -233,7 +233,7 @@ export class ProvidersCommitService {
         write: async () => {
           switch (command.action) {
             case 'create':
-              // Existing PtahCliConfigComponent's host contract: OAuth instances carry this non-secret marker.
+              // The host contract for Copilot-backed instances: OAuth instances carry this non-secret marker.
               return (await this.require('ptahCli:create', { ...command.params,
                 apiKey: command.params.providerId === 'github-copilot' ? 'copilot-oauth' : command.params.apiKey,
               })).success;

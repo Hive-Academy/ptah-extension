@@ -55,7 +55,16 @@ import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
 import { SettingsComponent } from './settings.component';
 import { OrchestrationSettingsComponent } from './ptah-ai/orchestration-settings.component';
 
-/** The slice of the shared Providers state the shell and the interim Orchestration container read. */
+/** The deferred CLI matrix: only the table the `cli-agents` deep link focuses (Batch 34). */
+@Component({
+  selector: 'ptah-cli-orchestration-matrix',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<table data-testid="cli-matrix" tabindex="-1" aria-label="CLI matrix"><tbody><tr><td>Codex</td></tr></tbody></table>',
+})
+class CliMatrixStub {}
+
+/** The slice of the shared Providers state the shell and the Orchestration container read. */
 function providersStateFake() {
   const unloaded = { status: 'unloaded' as const, data: null, error: null };
   return {
@@ -186,7 +195,7 @@ describe('SettingsComponent deep-link', () => {
     expect(page.providersTarget()).toBeNull();
   });
 
-  it('routes cli-agents to Orchestration (the interim #providers-cli-heading lives there)', async () => {
+  it('routes cli-agents to Orchestration (the CLI matrix lives there)', async () => {
     const page = await landWith({ tab: 'providers', section: 'cli-agents' });
     expect(page.activeSettingsTab()).toBe('orchestration');
     expect(page.orchestrationTarget()).toBe('cli-agents');
@@ -245,7 +254,7 @@ describe('SettingsComponent deep-link', () => {
  * direct Orchestration landing opens the shared state without mounting the Providers page.
  */
 describe('SettingsComponent Orchestration landing', () => {
-  /** Lands on Settings with `request` and renders the real Orchestration container (its children unresolved). */
+  /** Lands on Settings with `request` and renders the real Orchestration container (children unresolved but the matrix stub). */
   async function land(request: PendingSettingsTab) {
     const state = providersStateFake();
     TestBed.configureTestingModule({
@@ -262,7 +271,7 @@ describe('SettingsComponent Orchestration landing', () => {
       set: { imports: [OrchestrationSettingsComponent], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     TestBed.overrideComponent(OrchestrationSettingsComponent, {
-      set: { imports: [], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
+      set: { imports: [CliMatrixStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     TestBed.inject(AppStateManager).requestSettingsTab(request);
     const fixture = TestBed.createComponent(SettingsComponent);
@@ -282,6 +291,15 @@ describe('SettingsComponent Orchestration landing', () => {
     const details = element.querySelector<HTMLDetailsElement>('[data-testid="background-roles-details"]');
     expect(details?.open).toBe(true);
     expect(document.activeElement).toBe(element.querySelector('[data-focus="background-models"]'));
+  });
+
+  // Batch 34 (plan Component 10, S6 row): cli-agents focuses the matrix table, not the retired CLI manager's heading.
+  it('focuses the CLI matrix table for the cli-agents deep link', async () => {
+    const element = await land({ tab: 'providers', section: 'cli-agents' });
+    const table = element.querySelector('[data-testid="cli-matrix"]');
+    expect(table).not.toBeNull();
+    expect(document.activeElement).toBe(table);
+    expect(element.querySelector('#providers-cli-heading')).toBeNull();
   });
 
   it.each([{ tab: 'orchestration' }, { tab: 'providers', section: 'cli-agents' }] as const)(

@@ -27,6 +27,23 @@ export async function throughVariantBoot(
   tab: (typeof SETTINGS_TAB_LABELS)[number],
   assertion: (variantPage: Page) => Promise<void>,
 ): Promise<void> {
+  const variantPage = await bootVariant(page, overrides, tab);
+  try {
+    await assertion(variantPage);
+  } finally {
+    await variantPage.close();
+  }
+}
+
+/**
+ * Opens the second page of `throughVariantBoot` on `tab` and returns it open; the caller closes it (or leaves it to the
+ * browser context's teardown). Batch 34: the delegated CLI cells share one such page instead of booting one each.
+ */
+export async function bootVariant(
+  page: Page,
+  overrides: Record<string, unknown>,
+  tab: (typeof SETTINGS_TAB_LABELS)[number],
+): Promise<Page> {
   const variantPage = await page.context().newPage();
   try {
     await installCspStub(variantPage);
@@ -43,9 +60,10 @@ export async function throughVariantBoot(
     await bridge.inject({ type: 'switchView', payload: { view: 'settings' } });
     await expect(variantPage.locator('[data-testid="settings-back"]')).toBeVisible({ timeout: 15000 });
     await variantPage.getByRole('button', { name: tab, exact: true }).click();
-    await assertion(variantPage);
-  } finally {
+    return variantPage;
+  } catch (error: unknown) {
     await variantPage.close();
+    throw error;
   }
 }
 
@@ -178,28 +196,6 @@ export async function openScopeBadge(page: Page, field: string): Promise<Locator
   await expect(popover).toBeVisible();
   await expect(popover.locator('[data-testid="scope-popover-title"]')).toHaveText(field);
   return popover;
-}
-
-/**
- * The Ptah CLI instance manager. Batch 18 (D14) moved it, unchanged, from Providers to the interim
- * Orchestration container, together with its read states and the commit feedback (#56).
- */
-export async function cliConfigSection(page: Page): Promise<Locator> {
-  await orchestrationTab(page);
-  const heading = page.locator('#providers-cli-heading');
-  await visibleEnabled(heading);
-  return heading;
-}
-
-/** Opens one delegated CLI's Edit on the CLI manager, then cancels it. */
-export async function throughDelegatedEdit(page: Page, choiceLabel: string): Promise<void> {
-  await cliConfigSection(page);
-  const editButton = page.getByRole('button', { name: `Edit ${choiceLabel}` });
-  await visibleEnabled(editButton);
-  await editButton.click();
-  const cancelButton = page.getByRole('button', { name: `Cancel ${choiceLabel} edit` });
-  await visibleEnabled(cancelButton);
-  await cancelButton.click();
 }
 
 /** Providers tab, then the routing map's Main Agent "Reassign": returns the open Main Agent popover (Batch 26). */

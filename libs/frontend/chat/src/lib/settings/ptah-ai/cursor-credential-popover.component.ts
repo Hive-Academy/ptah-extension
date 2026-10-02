@@ -14,7 +14,8 @@ const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-ba
  * - Masked key with show/hide (#49); Save → `state.saveCursorCredential(key)`; "Remove stored key" (two-step) →
  *   `saveCursorCredential('')`. Both read back `cursorApiKeyStored`, so a write is reported saved only when the store
  *   says so (D15); the outcome is this popover's own (`runDrawerWrite`), never an earlier save's.
- * - The key lives only in this component's signal, cleared after a save and on destroy (`ptah-cli-config:177`).
+ * - The key lives only in this component's signal, cleared after a save and on destroy (as in the Ptah CLI
+ *   instance manager retired in Batch 34).
  * The secret is per machine (secrets store), so there is no Save-to target and no Undo.
  */
 @Component({

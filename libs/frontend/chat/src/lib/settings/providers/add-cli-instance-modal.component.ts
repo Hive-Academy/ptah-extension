@@ -15,7 +15,7 @@ export interface CliInstanceEditTarget {
   readonly hasStoredKey: boolean;
 }
 
-/** Connections a Ptah CLI instance cannot use (`ptah-cli-config.component.ts:51, 173`). */
+/** Connections a Ptah CLI instance cannot use (the rule of the instance manager retired in Batch 34). */
 const EXCLUDED_PROVIDERS: ReadonlySet<string> = new Set(['anthropic', 'openai-codex']);
 const COPILOT = 'github-copilot';
 const MODALITY: Readonly<Record<string, string>> = {
@@ -176,7 +176,7 @@ export class AddCliInstanceModalComponent {
   protected readonly keyLabel = computed(() => this.editing()
     ? 'Replacement API key (leave empty to keep the stored one)'
     : this.keyMode() === 'optional' ? 'API key (optional)' : 'API key for this instance');
-  /** #48 hints (the old wording, `7ecdefa45^1:ptah-cli-config.component.ts:284-299`, where it existed). */
+  /** #48 hints (the old wording of the pre-#581 instance manager at `7ecdefa45^1`, where it existed). */
   protected readonly keyHint = computed(() => {
     const provider = this.provider();
     switch (this.keyMode()) {

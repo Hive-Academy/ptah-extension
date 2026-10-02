@@ -24,8 +24,8 @@ import { ROUTING_MAP_ENTRIES } from './settings-routing-map.entries';
 import { CLI_MATRIX_ENTRIES } from './settings-cli-matrix.entries';
 import {
   advancedTab, applyManualTierModel, card, chooseMainAgentModel, expectHostAppScope, closeCatalog, closeConnectionDrawer, expectCatalogOpen, openCatalog, confirmWrite, credentialsOf, expectCall, inDrawerTab,
-  cliConfigSection, closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
-  throughDelegatedEdit, throughVariantBoot, setupThroughDrawer, visibleEnabled, withAuthStatus,
+  closeMainAgentPopover, openCardDrawer, openMainAgentPopover, openScopeBadge, orchestrationTab, providersTab,
+  throughVariantBoot, setupThroughDrawer, visibleEnabled, withAuthStatus,
 } from './settings-drawer.reach';
 
 export type CapabilityStatus = 'present' | 'restored' | 'pending';
@@ -473,97 +473,17 @@ const mainAgentModel: readonly ReachabilityEntry[] = [
       await expect(page.locator('[data-testid="routing-main-model"]')).toHaveText('Default (chosen by Claude)');
     },
   },
-  {
-    id: '#39', capability: 'Refresh the model list (Retry on error)', status: 'present',
-    // The harness's RPC auto-responder always answers `success: true`
-    // (`marketplace.fixtures.ts` — `respond()` hardcodes it), so an
-    // `isSuccess() === false` branch (`providers-models-loader.service.ts:12-13`)
-    // cannot be forced through this fixture layer; that gap is recorded
-    // here rather than papered over with a heading check. What IS reachable
-    // today: each Ptah CLI instance's OWN model picker
-    // (`ptah-cli-config.component.ts:70-72`), a distinct catalogue fetch
-    // from the main-agent one #35 already pins.
-    reach: async (page) => {
-      await cliConfigSection(page);
-      const editButton = page.getByRole('button', { name: 'Edit Glm model' });
-      await openThenClose(editButton, page.locator('ptah-provider-model-picker'), page.getByRole('button', { name: 'Cancel Glm model edit' }));
-    },
-  },
 ];
 
 // ---------------------------------------------------------------------------
 // Table 3: CLI agents (#42-71, present/partial only)
 // ---------------------------------------------------------------------------
 
+// Batch 34 (D14): the old Ptah CLI instance manager is gone. #39, #42, #45, #46, #48, #50-#52, #55-#57 and the delegated
+// #59-#62 and #65-#69 moved with it to the CLI matrix and its modals and popovers: `settings-cli-matrix.entries.ts`.
 const cliAgents: readonly ReachabilityEntry[] = [
-  { id: '#42', capability: 'List Ptah CLI agents with name and provider badge', status: 'present',
-    reach: async (page) => { await cliConfigSection(page); await visibleEnabled(page.getByText('Glm · Ollama Cloud')); } },
-  { id: '#45', capability: 'Model count', status: 'present',
-    reach: async (page) => { await cliConfigSection(page); await visibleEnabled(page.getByText(/available models/)); } },
-  { id: '#46', capability: 'Add agent: name, provider, key', status: 'present',
-    reach: async (page) => {
-      await cliConfigSection(page);
-      const add = page.getByRole('button', { name: 'Add CLI agent' });
-      await openThenClose(add, page.locator('#providers-cli-name'), page.getByRole('button', { name: 'Cancel CLI setup' }));
-    } },
-  { id: '#48', capability: 'Keyless / optional-key hints', status: 'present',
-    reach: async (page) => {
-      await cliConfigSection(page);
-      const add = page.getByRole('button', { name: 'Add CLI agent' });
-      await openThenClose(add, page.locator('#providers-cli-key-help'), page.getByRole('button', { name: 'Cancel CLI setup' }));
-    } },
-  { id: '#50', capability: 'Edit name / replace key inline', status: 'present',
-    reach: async (page) => {
-      await cliConfigSection(page);
-      const edit = page.getByRole('button', { name: 'Edit name or key' });
-      await openThenClose(edit, page.getByLabel('Agent name'), page.getByRole('button', { name: 'Cancel instance edit' }));
-    } },
-  { id: '#51', capability: 'Enable/disable agent toggle', status: 'present',
-    reach: async (page) => { await cliConfigSection(page); await visibleEnabled(page.getByLabel('Enable Glm for delegated work')); } },
-  { id: '#52', capability: 'Test connection', status: 'present',
-    reach: async (page) => { await cliConfigSection(page); await visibleEnabled(page.getByRole('button', { name: 'Test connection' })); } },
-  { id: '#55', capability: 'Delete with confirmation', status: 'present',
-    reach: async (page) => {
-      await cliConfigSection(page);
-      const remove = page.getByRole('button', { name: 'Remove Glm' });
-      await openThenClose(remove, page.getByRole('button', { name: 'Confirm removal of Glm' }), page.getByRole('button', { name: 'Cancel removal' }));
-    } },
-  { id: '#56', capability: 'Success/error commit feedback', status: 'present',
-    // Toggles Glm's enable checkbox (a real `ptahCli:update` write), asserts
-    // the commit-feedback panel shows "Saved", the write RPC was recorded,
-    // and the read-back (`state.ptahCliAgents`) reflects it — then restores
-    // the toggle so later entries see the BRIEF baseline (Glm enabled).
-    reach: async (page) => {
-      await cliConfigSection(page);
-      const state = getFixtureState(page);
-      const before = state.calls.length;
-      const toggle = page.getByLabel('Enable Glm for delegated work');
-      await visibleEnabled(toggle);
-      await toggle.click();
-      const feedback = page.locator('[data-testid="providers-commit-feedback"]');
-      await expect(feedback).toBeVisible();
-      await expect(feedback).toContainText('Saved');
-      const written = state.calls.slice(before);
-      expect(written.some((c) => c.method === 'ptahCli:update')).toBe(true);
-      expect(state.ptahCliAgents.find((a) => a.id === 'glm-instance-1')?.enabled).toBe(false);
-      await toggle.click();
-      await expect(feedback).toContainText('Saved');
-      expect(state.ptahCliAgents.find((a) => a.id === 'glm-instance-1')?.enabled).toBe(true);
-    } },
-  { id: '#57', capability: 'Empty state with Add link', status: 'present',
-    reach: async (page) => { await cliConfigSection(page); await visibleEnabled(page.getByRole('button', { name: 'Add CLI agent' })); } },
   { id: '#58', capability: 'Deep link opens setup for a preselected provider', status: 'present',
     reach: (page) => throughCatalog(page, 'OpenRouter', async (p) => visibleEnabled(p.locator('[data-testid="wizard-title"]'))) },
-  { id: '#59', capability: 'Codex model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Codex model') },
-  { id: '#60', capability: 'Codex reasoning effort (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Codex reasoning effort') },
-  { id: '#61', capability: 'Copilot model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Copilot model') },
-  { id: '#62', capability: 'Copilot reasoning effort (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Copilot reasoning effort') },
-  // #63 and #64 moved to the CLI matrix in Batch 31: `settings-cli-matrix.entries.ts`.
-  { id: '#65', capability: 'Cursor model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Cursor model') },
-  { id: '#66', capability: 'Antigravity model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Antigravity model') },
-  { id: '#67', capability: 'opencode model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'OpenCode model') },
-  { id: '#68', capability: 'Pi model (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Pi model') },
-  { id: '#69', capability: 'Pi reasoning effort (delegated)', status: 'present', reach: (page) => throughDelegatedEdit(page, 'Pi reasoning effort') },
 ];
 
 // ---------------------------------------------------------------------------

@@ -33,10 +33,11 @@ export const ROUTING_MAP_ENTRIES: readonly ReachabilityEntry[] = [
       await expect(region).toBeFocused();
     } },
   { id: 'RM-3', capability: 'Routing map: CLI agents "Manage matrix" lands on Orchestration, CLI agents shown', status: 'restored',
+    // Batch 34: the deep link focuses the CLI matrix table (plan Component 10, S6 row), no longer the old manager's heading.
     reach: async (page) => {
       await activateNode(page, 'cli-agents');
-      const heading = page.locator('[data-focus="cli-agents"]');
-      await expect(heading).toBeVisible();
-      await expect(heading).toBeFocused();
+      const matrix = page.locator('[data-testid="cli-matrix"]');
+      await expect(matrix).toBeVisible();
+      await expect(matrix).toBeFocused();
     } },
 ];

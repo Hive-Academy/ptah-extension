@@ -10,7 +10,6 @@ export { WorkflowsConfigComponent } from './pro-features/workflows-config.compon
 export { OutputStyleConfigComponent } from './output-style/output-style-config.component';
 export { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 export { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
-export { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 export { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
 export { VoiceConfigComponent } from './ptah-ai/voice-config.component';
 export { LocalSttPanelComponent } from './ptah-ai/local-stt-panel.component';

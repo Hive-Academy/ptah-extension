@@ -1,16 +1,18 @@
 /**
  * Gate G entries for the CLI matrix on the Orchestration tab (Batch 30): the restored #43, #44, #54, #70 and #71, and
  * the regressed-UX fixes RUX-8 and RUX-11. Batch 31 re-pointed #63 (Copilot auto-approve) and #64 (Cursor key) here;
- * Batch 32 added #47 and #53 (the add-instance and tier modals) and moved #49 here with its CLI-form half. Kept apart from the table, which is over its `max-lines` budget (the
+ * Batch 32 added #47 and #53 (the add-instance and tier modals) and moved #49 here with its CLI-form half. Batch 34
+ * retired the old Ptah CLI instance manager and re-pointed its entries here (#39, #42, #45, #46, #48, #50-#52, #55-#57,
+ * and the delegated #59-#62, #65-#69). Kept apart from the table, which is over its `max-lines` budget (the
  * `settings-routing-map.entries.ts` precedent); `REACHABILITY_TABLE` spreads them in and `EXPECTED_CAPABILITY_COUNT`
  * counts them.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { ReachabilityEntry } from './settings-reachability.table';
 import {
-  closeConnectionDrawer, credentialsOf, expectCall, orchestrationTab, throughVariantBoot, visibleEnabled,
+  bootVariant, closeConnectionDrawer, credentialsOf, expectCall, orchestrationTab, throughVariantBoot, visibleEnabled,
 } from './settings-drawer.reach';
-import { AUTH_STATUS_FIXTURE, getFixtureState } from './settings.fixtures';
+import { AGENT_CONFIG_FIXTURE, AUTH_STATUS_FIXTURE, getFixtureState } from './settings.fixtures';
 
 /** Opens a matrix modal (`NativeModalComponent`, a native `<dialog>`) from `opener`; returns its dialog. */
 async function openMatrixModal(page: Page, opener: Locator, testid: string): Promise<Locator> {
@@ -60,7 +62,193 @@ async function throughMatrixPopover(page: Page, trigger: Locator, popover: strin
   }
 }
 
+/** Opens a matrix cell's popover from `trigger`, runs `body`, then closes it with its own Close button. */
+async function throughCellPopover(page: Page, trigger: Locator, body: (panel: Locator) => Promise<void>): Promise<void> {
+  await visibleEnabled(trigger);
+  await trigger.click();
+  const panel = page.locator('[data-testid="cli-matrix-popover"]');
+  await expect(panel).toBeVisible();
+  try {
+    await body(panel);
+  } finally {
+    // Not Esc: the model search opens its list on focus, and its first Esc closes only the list.
+    if (await panel.count()) await panel.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(panel).toHaveCount(0);
+  }
+}
+
+/** Glm's Model cell: the per-instance model popover (the old manager's "Edit Glm model" picker, #39 and #45). */
+async function throughInstanceModel(page: Page, body: (panel: Locator) => Promise<void>): Promise<void> {
+  const glm = await matrixRow(page, GLM_ID);
+  await throughCellPopover(page, glm.locator(`[data-testid="cli-matrix-model-${GLM_ID}"]`), body);
+}
+
+/** System CLIs whose cells are live in the shared fixture (installed and on). */
+const LIVE_IN_FIXTURE: ReadonlySet<string> = new Set(['codex', 'antigravity', 'opencode']);
+/**
+ * Every system CLI installed and none turned off. The shared fixture has Copilot off and Cursor and Pi not installed,
+ * and the matrix shows those rows' cells as plain text (#71), so their delegated settings are reached on this variant.
+ */
+const ALL_CLIS_LIVE = {
+  'agent:getConfig': {
+    ...AGENT_CONFIG_FIXTURE, disabledClis: [], detectedClis: AGENT_CONFIG_FIXTURE.detectedClis.map((cli) => ({ ...cli, installed: true })),
+  },
+};
+
+/**
+ * One ALL_CLIS_LIVE page per shared session page, booted on first use and reused by every delegated entry that needs it
+ * (one boot instead of five: each boot costs seconds of the 180 s budget). The browser context's teardown closes it.
+ */
+const liveVariants = new WeakMap<Page, Page>();
+async function liveVariant(page: Page): Promise<Page> {
+  const existing = liveVariants.get(page);
+  if (existing && !existing.isClosed()) return existing;
+  const variant = await bootVariant(page, ALL_CLIS_LIVE, 'Agent Orchestration');
+  liveVariants.set(page, variant);
+  return variant;
+}
+
+/** #59-#69: one delegated CLI's Model or Effort cell opens its popover with a live control (Batch 34). */
+async function throughDelegatedCell(page: Page, cli: string, field: 'model' | 'effort'): Promise<void> {
+  const target = LIVE_IN_FIXTURE.has(cli) ? page : await liveVariant(page);
+  const row = await matrixRow(target, cli);
+  await throughCellPopover(target, row.locator(`[data-testid="cli-matrix-${field}-${cli}"]`), async (panel) => {
+    await expect(panel).toHaveAttribute('data-row', cli);
+    await expect(panel).toHaveAttribute('data-field', field);
+    await visibleEnabled(field === 'model'
+      ? panel.locator('input[role="combobox"]')
+      : panel.locator('[data-testid="cli-matrix-effort-options"] [data-effort="default"]'));
+  });
+}
+
+/** Batch 34: the old manager's capabilities, re-pointed to the matrix, its modals and its popovers (D14). */
+const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
+  { id: '#39', capability: 'Refresh the model list (Retry on error)', status: 'present',
+    // The harness RPC auto-responder always answers `success: true`, so the Retry branch is pinned in unit specs. What is
+    // reachable: each Ptah CLI instance's own model picker (a distinct catalogue fetch from the main-agent one, #35).
+    reach: (page) => throughInstanceModel(page, async (panel) => {
+      await expect(panel.locator('ptah-provider-model-picker')).toBeVisible();
+    }) },
+  { id: '#42', capability: 'List Ptah CLI agents with name and provider badge', status: 'present',
+    reach: async (page) => {
+      const glm = await matrixRow(page, GLM_ID);
+      await expect(glm).toHaveAttribute('data-kind', 'instance');
+      await expect(glm.getByText('Ptah CLI', { exact: true })).toBeVisible();
+      // The Provider column in a wide box; under the name in a narrow one (Electron).
+      await expect(glm.getByText('Ollama Cloud', { exact: true }).filter({ visible: true })).toHaveCount(1);
+    } },
+  { id: '#45', capability: 'Model count', status: 'present',
+    reach: (page) => throughInstanceModel(page, async (panel) => {
+      await expect(panel.locator('[data-testid="cli-matrix-model-count"]')).toHaveText('12 models available from Ollama Cloud.');
+    }) },
+  { id: '#46', capability: 'Add agent: name, provider, key', status: 'present',
+    reach: async (page) => {
+      await orchestrationTab(page);
+      const add = page.locator('[data-testid="cli-matrix-add"]');
+      const dialog = await openMatrixModal(page, add, 'add-cli-instance-modal');
+      try {
+        await visibleEnabled(dialog.locator('[data-testid="add-cli-instance-name"]'));
+        await dialog.locator('[data-testid="add-cli-instance-provider"]').selectOption('moonshot');
+        await visibleEnabled(dialog.locator('[data-testid="add-cli-instance-key"]'));
+        await expect(dialog.locator('[data-testid="add-cli-instance-submit"]')).toHaveText('Create Instance');
+      } finally {
+        await closeMatrixModal(page, dialog, add);
+      }
+    } },
+  { id: '#48', capability: 'Keyless / optional-key hints', status: 'present',
+    reach: async (page) => {
+      await orchestrationTab(page);
+      const add = page.locator('[data-testid="cli-matrix-add"]');
+      const dialog = await openMatrixModal(page, add, 'add-cli-instance-modal');
+      try {
+        await dialog.locator('[data-testid="add-cli-instance-provider"]').selectOption('ollama-cloud');
+        await expect(dialog.locator('[data-testid="add-cli-instance-key-help"]')).toContainText('run ollama signin');
+      } finally {
+        await closeMatrixModal(page, dialog, add);
+      }
+    } },
+  { id: '#50', capability: 'Edit name / replace key inline', status: 'present',
+    // Batch 32: Edit opens the add modal in edit mode (name and a replacement key; the provider is fixed).
+    reach: async (page) => {
+      const glm = await matrixRow(page, GLM_ID);
+      const edit = glm.locator(`[data-testid="cli-matrix-edit-${GLM_ID}"]`);
+      const dialog = await openMatrixModal(page, edit, 'add-cli-instance-modal');
+      try {
+        await expect(dialog.locator('[data-testid="add-cli-instance-name"]')).toHaveValue('Glm');
+        await visibleEnabled(dialog.locator('[data-testid="add-cli-instance-key"]'));
+        await expect(dialog.locator('[data-testid="add-cli-instance-submit"]')).toHaveText('Save changes');
+      } finally {
+        await closeMatrixModal(page, dialog, edit);
+      }
+    } },
+  { id: '#51', capability: 'Enable/disable agent toggle', status: 'present',
+    reach: async (page) => {
+      const glm = await matrixRow(page, GLM_ID);
+      const toggle = glm.locator(`[data-testid="cli-matrix-toggle-${GLM_ID}"]`);
+      await visibleEnabled(toggle);
+      await expect(toggle).toBeChecked();
+    } },
+  { id: '#52', capability: 'Test connection', status: 'present',
+    // RUX-11 clicks it and checks the inline result.
+    reach: async (page) => {
+      const glm = await matrixRow(page, GLM_ID);
+      await visibleEnabled(glm.getByRole('button', { name: 'Test Glm', exact: true }));
+    } },
+  { id: '#55', capability: 'Delete with confirmation', status: 'present',
+    reach: async (page) => {
+      const glm = await matrixRow(page, GLM_ID);
+      const remove = glm.locator(`[data-testid="cli-matrix-delete-${GLM_ID}"]`);
+      await visibleEnabled(remove);
+      await remove.click();
+      await visibleEnabled(glm.getByRole('button', { name: 'Confirm delete Glm', exact: true }));
+      await glm.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await visibleEnabled(remove);
+    } },
+  { id: '#56', capability: 'Success/error commit feedback', status: 'present',
+    // Glm's on/off (a real `ptahCli:update` write): the toast says it saved, and the read-back moves the checkbox. The
+    // toggle is put back in `finally`, so later entries see Glm enabled even when an assertion fails.
+    reach: async (page) => {
+      const glm = await matrixRow(page, GLM_ID);
+      const state = getFixtureState(page);
+      const toggle = glm.locator(`[data-testid="cli-matrix-toggle-${GLM_ID}"]`);
+      const message = page.locator('[data-testid="settings-toast-message"]');
+      try {
+        await visibleEnabled(toggle);
+        const before = state.calls.length;
+        await toggle.click();
+        await expectCall(page, before, 'ptahCli:update', { id: GLM_ID, enabled: false });
+        await expect(message).toContainText('Saved Glm off');
+        await expect(toggle).not.toBeChecked();
+        expect(state.ptahCliAgents.find((agent) => agent.id === GLM_ID)?.enabled).toBe(false);
+      } finally {
+        if (state.ptahCliAgents.find((agent) => agent.id === GLM_ID)?.enabled === false) {
+          await visibleEnabled(toggle);
+          await toggle.click();
+          await expect(message).toContainText('Saved Glm on');
+          await expect(toggle).toBeChecked();
+        }
+      }
+    } },
+  { id: '#57', capability: 'Empty state with Add link', status: 'present',
+    // A second page with no Ptah CLI instance: the matrix's "No Ptah CLI instance yet." row carries its own Add.
+    reach: (page) => throughVariantBoot(page, { 'ptahCli:list': { agents: [] } }, 'Agent Orchestration', async (variant) => {
+      const empty = variant.locator('[data-testid="cli-matrix-no-instances"]');
+      await expect(empty).toContainText('No Ptah CLI instance yet.');
+      await visibleEnabled(empty.getByRole('button', { name: 'Add Ptah CLI Instance', exact: true }));
+    }) },
+  { id: '#59', capability: 'Codex model (delegated)', status: 'present', reach: (page) => throughDelegatedCell(page, 'codex', 'model') },
+  { id: '#60', capability: 'Codex reasoning effort (delegated)', status: 'present', reach: (page) => throughDelegatedCell(page, 'codex', 'effort') },
+  { id: '#61', capability: 'Copilot model (delegated)', status: 'present', reach: (page) => throughDelegatedCell(page, 'copilot', 'model') },
+  { id: '#62', capability: 'Copilot reasoning effort (delegated)', status: 'present', reach: (page) => throughDelegatedCell(page, 'copilot', 'effort') },
+  { id: '#65', capability: 'Cursor model (delegated)', status: 'present', reach: (page) => throughDelegatedCell(page, 'cursor', 'model') },
+  { id: '#66', capability: 'Antigravity model (delegated)', status: 'present', reach: (page) => throughDelegatedCell(page, 'antigravity', 'model') },
+  { id: '#67', capability: 'opencode model (delegated)', status: 'present', reach: (page) => throughDelegatedCell(page, 'opencode', 'model') },
+  { id: '#68', capability: 'Pi model (delegated)', status: 'present', reach: (page) => throughDelegatedCell(page, 'pi', 'model') },
+  { id: '#69', capability: 'Pi reasoning effort (delegated)', status: 'present', reach: (page) => throughDelegatedCell(page, 'pi', 'effort') },
+];
+
 export const CLI_MATRIX_ENTRIES: readonly ReachabilityEntry[] = [
+  ...INSTANCE_ENTRIES,
   { id: '#47', capability: 'Inline GitHub login when adding a Copilot-backed CLI agent', status: 'restored',
     // Batch 32: Add → GitHub Copilot → "Login with GitHub" (`auth:copilotLogin`, then `auth:getAuthStatus`); Create stays
     // disabled until the sign-in is confirmed. The shared fixture answers no Copilot login, so a variant page does.

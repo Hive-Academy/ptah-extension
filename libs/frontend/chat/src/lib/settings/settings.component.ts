@@ -190,7 +190,10 @@ export class SettingsComponent implements OnInit {
     this.requestedProviderId.set(providerId);
   }
 
-  /** Routing table: implementation-plan.md Component 10. */
+  /**
+   * Routing table: implementation-plan.md Component 10. `cli-agents` lands on Orchestration, which focuses the CLI
+   * matrix table (`[data-testid="cli-matrix"]`, the S6 row; Batch 34 retired the interim CLI manager heading).
+   */
   private applyPendingTab(): void {
     const pending = this.appState.consumePendingSettingsTab();
     if (!pending) return;

@@ -14,7 +14,7 @@ export type CliMatrixCellField = 'model' | 'effort';
 
 interface EffortOption { readonly value: string; readonly label: string }
 
-/** Moved from `ptah-cli-config.component.ts:13-21` (deleted in Batch 34). */
+/** Moved from the Ptah CLI instance manager (deleted in Batch 34; last at `45fbd7146`). */
 const EFFORT_LABELS: Readonly<Record<string, string>> = {
   '': 'Provider default', off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max',
 };
@@ -44,8 +44,9 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
  *   current list"), so opening the popover never changes it. opencode and Pi show the
  *   `provider/model` hint (#67).
  * - System CLI effort: the CLI's allowlist (Pi: off..max). An unsupported saved value is never offered and is
- *   named in an alert (the guard from `ptah-cli-config.component.ts:224-243`).
- * - Ptah instance model: `ProviderModelPickerComponent`, searchable, fixed to the instance's provider.
+ *   named in an alert (the guard from the Ptah CLI instance manager deleted in Batch 34).
+ * - Ptah instance model: `ProviderModelPickerComponent`, searchable, fixed to the instance's provider, with the
+ *   instance's model count (#45).
  * Every `write`/`undo` is one `state.saveSettings` call (Batch 17 constraint). The edit context is taken when the
  * popover opens (the matrix creates this component only while it is open).
  */
@@ -109,6 +110,11 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
         <ptah-provider-model-picker [fixedProvider]="cell.providerId" [searchable]="true" [model]="cell.selectedModel ?? ''"
           [label]="cell.name + ' model'" [disabled]="busy() || !context" (selectionChange)="saveInstanceModel(cell, $event.model)" />
         <p class="text-base-content-muted">Provider default uses the instance's tier mappings. Saved globally for this instance.</p>
+        @if (instanceModelCount() !== null) {
+          <p class="text-base-content-muted" data-testid="cli-matrix-model-count">
+            {{ instanceModelCount() }} {{ instanceModelCount() === 1 ? 'model' : 'models' }} available from {{ cell.provider }}.
+          </p>
+        }
       }
     </div>
   `,
@@ -144,6 +150,12 @@ export class CliModelEffortPopoverComponent implements OnInit {
   protected readonly instanceModel = computed(() => {
     const row = this.row();
     return row.kind === 'instance' && this.field() === 'model' ? row : null;
+  });
+
+  /** #45 (moved from the retired instance cards, Batch 34): the instance's model count, once the list has loaded. */
+  protected readonly instanceModelCount = computed(() => {
+    const row = this.instanceModel();
+    return row ? this.state.cliAgents().data?.find((agent) => agent.id === row.id)?.modelCount ?? null : null;
   });
 
   protected readonly catalogueStatus = computed(() => this.state.delegatedModelOptions().status);
