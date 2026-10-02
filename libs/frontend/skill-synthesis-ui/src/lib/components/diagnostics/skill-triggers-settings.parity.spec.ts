@@ -163,6 +163,9 @@ function snapshotFor(triggers: SkillTriggersDto): SkillDiagnosticsResult {
     totalRejected: 0,
     totalInvocations: 0,
     activeSkills: 0,
+    totalMerged: 0,
+    totalRetired: 0,
+    totalDormant: 0,
     eligibilityHistogram: {
       prefilterTooThin: 0,
       prefilterRejected: 0,

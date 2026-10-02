@@ -2,44 +2,24 @@ import 'reflect-metadata';
 import { SkillRegistryStore } from './skill-registry.store';
 import type { SkillRegistryEntry } from './skill-registry.store';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
+import {
+  resolveOpener,
+  type TestDatabase,
+} from './queue/queue-db.test-support';
 
 const sql0022SkillRegistry =
   MIGRATIONS.find((m) => m.version === 22)?.sql ?? '';
 const sql0023SkillRegistryPending =
   MIGRATIONS.find((m) => m.version === 23)?.sql ?? '';
 
-interface BetterSqliteDb {
-  exec(sql: string): void;
+// `better-sqlite3` if it loads in this runner, else the built-in `node:sqlite`.
+const opener = resolveOpener();
 
-  prepare(sql: string): {
-    run(...args: any[]): any;
-    get(...args: any[]): any;
-    all(...args: any[]): any[];
-  };
-  close(): void;
-}
+const maybe = opener ? describe : describe.skip;
 
-let nativeAvailable = false;
-try {
-  const DB = require('better-sqlite3') as new (path: string) => {
-    close(): void;
-  };
-  const probe = new DB(':memory:');
-  probe.close();
-  nativeAvailable = true;
-} catch {
-  nativeAvailable = false;
-}
-
-const maybe = nativeAvailable ? describe : describe.skip;
-
-const DatabaseCtor = nativeAvailable
-  ? (require('better-sqlite3') as new (path: string) => BetterSqliteDb)
-  : null;
-
-function createInMemoryDb(): BetterSqliteDb {
-  if (!DatabaseCtor) throw new Error('native not available');
-  const db = new DatabaseCtor(':memory:');
+function createInMemoryDb(): TestDatabase {
+  if (!opener) throw new Error('no SQLite binding available');
+  const db = opener(':memory:');
   db.exec(sql0022SkillRegistry);
   db.exec(sql0023SkillRegistryPending);
   return db;
@@ -52,7 +32,7 @@ const noopLogger = {
   error: jest.fn(),
 };
 
-function makeStore(db: BetterSqliteDb): SkillRegistryStore {
+function makeStore(db: TestDatabase): SkillRegistryStore {
   return new SkillRegistryStore(
     noopLogger as never,
     {
@@ -261,5 +241,69 @@ maybe('SkillRegistryStore', () => {
     } finally {
       db.close();
     }
+  });
+
+  describe('remove', () => {
+    it('deletes a synth row by default and reports it', () => {
+      const db = createInMemoryDb();
+      try {
+        const store = makeStore(db);
+        store.upsert(entry({ slug: 'synthed', cloneStatus: 'synth' }));
+        expect(store.remove('skill', 'synthed')).toBe(true);
+        expect(store.getBySlug('skill', 'synthed')).toBeNull();
+      } finally {
+        db.close();
+      }
+    });
+
+    it('leaves authored and diverged rows untouched', () => {
+      const db = createInMemoryDb();
+      try {
+        const store = makeStore(db);
+        store.upsert(entry({ slug: 'mine', cloneStatus: 'authored' }));
+        store.upsert(entry({ slug: 'edited', cloneStatus: 'synth' }));
+        store.setDiverged('skill', 'edited', true);
+
+        expect(store.remove('skill', 'mine')).toBe(false);
+        expect(store.remove('skill', 'edited')).toBe(false);
+
+        expect(store.getBySlug('skill', 'mine')?.cloneStatus).toBe('authored');
+        expect(store.getBySlug('skill', 'edited')?.cloneStatus).toBe(
+          'diverged',
+        );
+      } finally {
+        db.close();
+      }
+    });
+
+    it('matches on kind as well as slug', () => {
+      const db = createInMemoryDb();
+      try {
+        const store = makeStore(db);
+        store.upsert(entry({ kind: 'agent', slug: 'x', cloneStatus: 'synth' }));
+        store.upsert(entry({ kind: 'skill', slug: 'x', cloneStatus: 'synth' }));
+
+        expect(store.remove('skill', 'x')).toBe(true);
+
+        expect(store.getBySlug('skill', 'x')).toBeNull();
+        expect(store.getBySlug('agent', 'x')).not.toBeNull();
+      } finally {
+        db.close();
+      }
+    });
+
+    it('honours an explicit clone status and reports a missing row as false', () => {
+      const db = createInMemoryDb();
+      try {
+        const store = makeStore(db);
+        store.upsert(entry({ slug: 'cloned', cloneStatus: 'clone' }));
+
+        expect(store.remove('skill', 'cloned')).toBe(false);
+        expect(store.remove('skill', 'cloned', 'clone')).toBe(true);
+        expect(store.remove('skill', 'never-there')).toBe(false);
+      } finally {
+        db.close();
+      }
+    });
   });
 });

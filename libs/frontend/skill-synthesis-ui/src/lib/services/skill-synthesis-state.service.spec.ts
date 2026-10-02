@@ -29,7 +29,7 @@ function suggestion(
 function makeRpc(): jest.Mocked<
   Pick<
     SkillSynthesisRpcService,
-    'listSuggestions' | 'acceptSuggestion' | 'dismissSuggestion'
+    'listSuggestions' | 'acceptSuggestion' | 'dismissSuggestion' | 'stats'
   >
 > {
   return {
@@ -39,10 +39,17 @@ function makeRpc(): jest.Mocked<
       filePath: '/skills/sg-1/SKILL.md',
     })),
     dismissSuggestion: jest.fn(async () => true),
+    stats: jest.fn(async () => ({
+      totalCandidates: 4,
+      totalPromoted: 2,
+      totalRejected: 1,
+      totalInvocations: 7,
+      activeSkills: 2,
+    })),
   } as unknown as jest.Mocked<
     Pick<
       SkillSynthesisRpcService,
-      'listSuggestions' | 'acceptSuggestion' | 'dismissSuggestion'
+      'listSuggestions' | 'acceptSuggestion' | 'dismissSuggestion' | 'stats'
     >
   >;
 }
@@ -155,14 +162,77 @@ describe('SkillSynthesisStateService — suggestions', () => {
     expect(svc.suggestionsLoading()).toBe(false);
   });
 
-  it('accepts a suggestion and refreshes the list', async () => {
+  it('accepts a suggestion, then refreshes the list and the stats', async () => {
     const rpc = makeRpc();
     const { svc } = setup(rpc);
 
-    await svc.accept('sg-1');
+    await expect(svc.accept('sg-1')).resolves.toBe(true);
 
     expect(rpc.acceptSuggestion).toHaveBeenCalledWith('sg-1');
     expect(rpc.listSuggestions).toHaveBeenCalledTimes(1);
+    expect(rpc.stats).toHaveBeenCalledTimes(1);
+    // The stats read must see the accepted skill, so it follows the accept
+    // and the list refresh rather than racing them.
+    const acceptOrder = rpc.acceptSuggestion.mock.invocationCallOrder[0];
+    const listOrder = rpc.listSuggestions.mock.invocationCallOrder[0];
+    const statsOrder = rpc.stats.mock.invocationCallOrder[0];
+    expect(statsOrder).toBeGreaterThan(acceptOrder);
+    expect(statsOrder).toBeGreaterThan(listOrder);
+    expect(svc.stats()?.totalPromoted).toBe(2);
+    expect(svc.error()).toBeNull();
+  });
+
+  it('does not refresh the stats when the accept fails', async () => {
+    const rpc = makeRpc();
+    rpc.acceptSuggestion.mockRejectedValueOnce(new Error('accept-failed'));
+    const { svc } = setup(rpc);
+
+    await expect(svc.accept('sg-1')).resolves.toBe(false);
+
+    expect(rpc.stats).not.toHaveBeenCalled();
+    expect(svc.error()).toBe('accept-failed');
+    expect(svc.suggestionsLoading()).toBe(false);
+  });
+
+  it('returns false, reloads the list but not the stats, when the backend declines the accept', async () => {
+    const rpc = makeRpc();
+    rpc.acceptSuggestion.mockResolvedValueOnce({ accepted: false, filePath: '' });
+    // The suggestion is no longer pending; the reload shows its real state.
+    rpc.listSuggestions.mockResolvedValueOnce([
+      suggestion({ status: 'dismissed' }),
+    ]);
+    const { svc } = setup(rpc);
+
+    await expect(svc.accept('sg-1')).resolves.toBe(false);
+
+    expect(rpc.acceptSuggestion).toHaveBeenCalledWith('sg-1');
+    expect(rpc.listSuggestions).toHaveBeenCalledTimes(1);
+    expect(svc.suggestions()[0].status).toBe('dismissed');
+    expect(rpc.stats).not.toHaveBeenCalled();
+    // The refresh clears `error`, so this also pins that the decline message
+    // is set after the reload.
+    expect(svc.error()).toMatch(/not accepted/);
+    expect(svc.suggestionsLoading()).toBe(false);
+  });
+
+  it('keeps the accept when the follow-up stats read fails, and surfaces the stats error', async () => {
+    const rpc = makeRpc();
+    rpc.listSuggestions.mockResolvedValueOnce([
+      suggestion({ status: 'accepted' }),
+    ]);
+    rpc.stats.mockRejectedValueOnce(new Error('stats-unavailable'));
+    const { svc } = setup(rpc);
+
+    // loadStats() catches its own failure into `error` and does not rethrow,
+    // so the accept still reports success and the list refresh stands.
+    await expect(svc.accept('sg-1')).resolves.toBe(true);
+
+    expect(rpc.acceptSuggestion).toHaveBeenCalledWith('sg-1');
+    expect(rpc.listSuggestions).toHaveBeenCalledTimes(1);
+    expect(svc.suggestions()[0].status).toBe('accepted');
+    expect(svc.stats()).toBeNull();
+    expect(svc.error()).toBe('stats-unavailable');
+    expect(svc.suggestionsLoading()).toBe(false);
   });
 
   it('dismisses a suggestion with a reason and refreshes the list', async () => {

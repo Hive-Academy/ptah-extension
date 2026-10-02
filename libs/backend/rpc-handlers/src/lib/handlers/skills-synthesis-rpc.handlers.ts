@@ -493,7 +493,7 @@ export class SkillsSynthesisRpcHandlers {
         const skillId = (params?.skillId ?? '') as CandidateId;
         if (!skillId) return { invocations: [] };
         const limit = clampLimit(params?.limit, 200);
-        const rows = this.store.listInvocations(skillId, limit);
+        const rows = this.store.listInvocationEvents(skillId, limit);
         return { invocations: rows.map(toInvocation) };
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerInvocations');
@@ -514,7 +514,7 @@ export class SkillsSynthesisRpcHandlers {
           totalPromoted: s.promoted,
           totalRejected: s.rejected,
           totalInvocations: s.invocations,
-          activeSkills: s.promoted,
+          activeSkills: s.active,
         };
       } catch (error) {
         this.report(error, 'SkillsSynthesisRpcHandlers.registerStats');
@@ -706,7 +706,10 @@ export class SkillsSynthesisRpcHandlers {
           totalPromoted: stats.promoted,
           totalRejected: stats.rejected,
           totalInvocations: stats.invocations,
-          activeSkills: stats.promoted,
+          activeSkills: stats.active,
+          totalMerged: stats.merged,
+          totalRetired: stats.retired,
+          totalDormant: stats.dormant,
           eligibilityHistogram: {
             prefilterTooThin: snapshot.eligibilityHistogram.prefilterTooThin,
             prefilterRejected: snapshot.eligibilityHistogram.prefilterRejected,

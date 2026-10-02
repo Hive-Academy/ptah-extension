@@ -36,7 +36,11 @@ describe('SkillDiagnosticsStateService', () => {
     totalPromoted: 2,
     totalRejected: 1,
     totalInvocations: 9,
-    activeSkills: 3,
+    // Batch 11 (2c1c8840b) made activeSkills resident-only, so it cannot exceed totalPromoted.
+    activeSkills: 2,
+    totalMerged: 0,
+    totalRetired: 0,
+    totalDormant: 0,
     eligibilityHistogram: {
       prefilterTooThin: 1,
       prefilterRejected: 5,
@@ -110,6 +114,47 @@ describe('SkillDiagnosticsStateService', () => {
     expect(service.recentEvents()).toHaveLength(1);
     expect(service.loading()).toBe(false);
     expect(service.error()).toBeNull();
+  });
+
+  it('refresh() projects the merged, retired and dormant counts into byStatus', async () => {
+    diagnostics.mockResolvedValueOnce({
+      ...snapshot,
+      totalPromoted: 3,
+      activeSkills: 2,
+      totalMerged: 4,
+      totalRetired: 6,
+      totalDormant: 1,
+    });
+    await service.refresh();
+    expect(service.byStatus()).toEqual({
+      totalCandidates: 5,
+      totalPromoted: 3,
+      totalRejected: 1,
+      activeSkills: 2,
+      totalInvocations: 9,
+      totalMerged: 4,
+      totalRetired: 6,
+      totalDormant: 1,
+    });
+  });
+
+  it('refresh() defaults missing lifecycle counts to zero', async () => {
+    // A backend older than the lifecycle counters omits the three fields.
+    const olderSnapshot: Record<string, unknown> = { ...snapshot };
+    delete olderSnapshot['totalMerged'];
+    delete olderSnapshot['totalRetired'];
+    delete olderSnapshot['totalDormant'];
+    diagnostics.mockResolvedValueOnce(olderSnapshot);
+    await service.refresh();
+    expect(service.byStatus().totalMerged).toBe(0);
+    expect(service.byStatus().totalRetired).toBe(0);
+    expect(service.byStatus().totalDormant).toBe(0);
+  });
+
+  it('starts with zeroed lifecycle counts before the first snapshot', () => {
+    expect(service.byStatus().totalMerged).toBe(0);
+    expect(service.byStatus().totalRetired).toBe(0);
+    expect(service.byStatus().totalDormant).toBe(0);
   });
 
   it('refresh() surfaces RPC errors through the error signal', async () => {
@@ -240,7 +285,12 @@ describe('SkillDiagnosticsStateService', () => {
     it('normalises an oldest-first snapshot to newest-first', async () => {
       diagnostics.mockResolvedValueOnce({
         ...snapshot,
-        recentEvents: [ev('A', 100), ev('B', 200), ev('C2', 300), ev('C1', 300)],
+        recentEvents: [
+          ev('A', 100),
+          ev('B', 200),
+          ev('C2', 300),
+          ev('C1', 300),
+        ],
       });
       await service.refresh();
       // Same millisecond: the greater ULID is the later event.
@@ -272,9 +322,7 @@ describe('SkillDiagnosticsStateService', () => {
       service.pushLiveEvent(ineligible);
 
       expect(ids()).toEqual(['I1', 'A']);
-      expect(service.eligibilityHistogram().prefilterRejected).toBe(
-        before + 1,
-      );
+      expect(service.eligibilityHistogram().prefilterRejected).toBe(before + 1);
     });
 
     it('ignores a live event already delivered by the snapshot', async () => {

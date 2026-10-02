@@ -4,6 +4,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { SkillSynthesisDiagnosticsService } from './diagnostics.service';
 import type { SkillSynthesisService } from './skill-synthesis.service';
 import type { SkillCandidateStore } from './skill-candidate.store';
+import type { SkillCandidateStats } from './types';
 import type {
   EligibilityHistogram,
   SkillSynthesisEvent,
@@ -64,7 +65,16 @@ function makeSynthesis(opts: {
 }
 
 function makeStore(
-  stats = { candidates: 0, promoted: 0, rejected: 0, invocations: 0 },
+  stats: SkillCandidateStats = {
+    candidates: 0,
+    promoted: 0,
+    rejected: 0,
+    active: 0,
+    dormant: 0,
+    merged: 0,
+    retired: 0,
+    invocations: 0,
+  },
   shouldThrow = false,
 ): SkillCandidateStore {
   return {
@@ -102,6 +112,10 @@ describe('SkillSynthesisDiagnosticsService', () => {
         candidates: 3,
         promoted: 5,
         rejected: 1,
+        active: 4,
+        dormant: 1,
+        merged: 2,
+        retired: 6,
         invocations: 12,
       }),
       makeWorkspace(),
@@ -119,6 +133,10 @@ describe('SkillSynthesisDiagnosticsService', () => {
       promoted: 5,
       rejected: 1,
       invocations: 12,
+      active: 4,
+      dormant: 1,
+      merged: 2,
+      retired: 6,
     });
     expect(snap.recentEvents).toHaveLength(1);
     expect(snap.triggers).toMatchObject({
@@ -163,6 +181,10 @@ describe('SkillSynthesisDiagnosticsService', () => {
       promoted: 0,
       rejected: 0,
       invocations: 0,
+      active: 0,
+      dormant: 0,
+      merged: 0,
+      retired: 0,
     });
   });
 

@@ -360,8 +360,8 @@ export class SkillStageHandlersService {
    *
    * `replay` gets a HANDLER and no producer, deliberately. `ReplayValidator`
    * needs a graded `SkillCandidateRow` drafted from a CLUSTER, and the cluster
-   * path (`SkillCuratorService.runSuggestionPass`) does not produce candidate
-   * rows at all — it produces SUGGESTIONS, which the user accepts. Registering a
+   * path (the curator's umbrella-merge pass) does not produce candidate rows at
+   * all — it produces umbrella SUGGESTIONS, which the user accepts. Registering a
    * cluster draft as a candidate to give replay something to grade would send it
    * back through clustering, dedup and AUTO-PROMOTION, bypassing the accept step
    * entirely. That is a product change with its own batch. Wiring the producer
@@ -542,7 +542,12 @@ export class SkillStageHandlersService {
       case 'scored':
         return {
           outcome: 'done',
-          reason: result.reason,
+          reason: this.applyJudgePanelGate(
+            candidate,
+            result.verdict.score,
+            settings.minJudgeScore,
+            result.reason,
+          ),
           candidateId: candidate.id as unknown as string,
         };
       case 'disabled':
@@ -550,6 +555,43 @@ export class SkillStageHandlersService {
       default:
         return { outcome: 'unscored', reason: result.reason };
     }
+  }
+
+  /**
+   * The panel's verdict changes state: a scored candidate below
+   * `minJudgeScore` is rejected with `below-judge-score`, the same reason
+   * token the promotion gate writes, so one threshold drives both.
+   *
+   * The write is a compare-and-set on `status = 'candidate'`. Another host may
+   * have promoted (or rejected) the candidate between this stage's claim and
+   * now; that row is left alone and the reason says so. At or above the
+   * threshold nothing changes — the candidate stays umbrella or singleton
+   * material for the curator.
+   */
+  private applyJudgePanelGate(
+    candidate: SkillCandidateRow,
+    score: number | null,
+    minJudgeScore: number,
+    panelReason: string,
+  ): string {
+    if (score === null || score >= minJudgeScore) return panelReason;
+    const rejected = this.store.rejectIfStatus(
+      candidate.id,
+      'candidate',
+      'below-judge-score',
+    );
+    if (!rejected) {
+      this.logger.info(
+        '[skill-synthesis] judge panel scored below the floor but the candidate is no longer a candidate; left unchanged',
+        { candidateId: candidate.id, score, minJudgeScore },
+      );
+      return `${panelReason}:not-candidate`;
+    }
+    this.logger.info(
+      '[skill-synthesis] judge panel rejected candidate below the floor',
+      { candidateId: candidate.id, score, minJudgeScore },
+    );
+    return `${panelReason}:rejected`;
   }
 
   /**

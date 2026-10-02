@@ -97,6 +97,10 @@ function buildRig(): Rig {
       candidates: 0,
       promoted: 0,
       rejected: 0,
+      active: 0,
+      dormant: 0,
+      merged: 0,
+      retired: 0,
       invocations: 0,
     }),
   };

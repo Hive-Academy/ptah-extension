@@ -81,6 +81,9 @@ export interface SkillByStatusCounts {
   readonly totalRejected: number;
   readonly activeSkills: number;
   readonly totalInvocations: number;
+  readonly totalMerged: number;
+  readonly totalRetired: number;
+  readonly totalDormant: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -103,6 +106,9 @@ export class SkillDiagnosticsStateService {
     totalRejected: 0,
     activeSkills: 0,
     totalInvocations: 0,
+    totalMerged: 0,
+    totalRetired: 0,
+    totalDormant: 0,
   });
   private readonly _loading = signal<boolean>(false);
   private readonly _error = signal<string | null>(null);
@@ -255,6 +261,9 @@ export class SkillDiagnosticsStateService {
       totalRejected: snapshot.totalRejected ?? 0,
       activeSkills: snapshot.activeSkills ?? 0,
       totalInvocations: snapshot.totalInvocations ?? 0,
+      totalMerged: snapshot.totalMerged ?? 0,
+      totalRetired: snapshot.totalRetired ?? 0,
+      totalDormant: snapshot.totalDormant ?? 0,
     });
   }
 }

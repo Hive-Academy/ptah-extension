@@ -256,6 +256,9 @@ export interface SkillDiagnosticsResult {
   readonly eligibilityHistogram: EligibilityHistogramDto;
   readonly recentEvents: readonly SkillSynthesisEventWire[];
   readonly triggers: SkillTriggersDto;
+  readonly totalMerged: number;
+  readonly totalRetired: number;
+  readonly totalDormant: number;
 }
 
 export interface SkillAnalyzeNowParams {
