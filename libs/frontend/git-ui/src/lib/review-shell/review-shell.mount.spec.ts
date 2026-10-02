@@ -225,6 +225,78 @@ describe('ReviewShellComponent mounted with its real header and canvas', () => {
     );
   });
 
+  it('shows the real conflict banner above the tabs while an operation is in progress (Batch 54)', async () => {
+    expect(query('[data-testid="conflict-banner"]')).toBeNull();
+    const info = rpcData['git:info'] as Record<string, unknown>;
+    rpcData['git:info'] = {
+      ...info,
+      files: [
+        {
+          path: 'a.ts',
+          status: 'U',
+          staged: false,
+          conflict: { kind: 'content' },
+        },
+      ],
+      operation: { kind: 'merge', conflictedPaths: ['a.ts'] },
+    };
+    await TestBed.inject(GitStatusService).refresh();
+    await settle();
+
+    const banner = query('[data-testid="conflict-banner"]');
+    expect(banner?.getAttribute('role')).toBe('region');
+    expect(
+      banner &&
+        banner.compareDocumentPosition(
+          query('[role="tablist"]') as HTMLElement,
+        ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // Kiro has no merge view: the backend answers unsupported, the file opens.
+    rpcData['editor:openMerge'] = { status: 'unsupported' };
+    query<HTMLButtonElement>(
+      '[data-testid="conflict-banner-open-editor"]',
+    )?.click();
+    await settle();
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'editor:openMerge',
+      { target: 'kiro', path: 'a.ts', workspaceRoot: '/ws/a' },
+    );
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'editor:openFile',
+      { target: 'kiro', workspaceRoot: '/ws/a', path: 'a.ts' },
+    );
+
+    // Resolved: Continue appears, completes, and the refreshed status ends it.
+    rpcData['git:info'] = {
+      ...info,
+      operation: { kind: 'merge', conflictedPaths: [] },
+    };
+    await TestBed.inject(GitStatusService).refresh();
+    await settle();
+    rpcData['git:operationContinue'] = { status: 'completed', kind: 'merge' };
+    rpcData['git:info'] = info;
+    query<HTMLButtonElement>(
+      '[data-testid="conflict-banner-continue"]',
+    )?.click();
+    await settle();
+    await settle();
+
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:operationContinue',
+      { workspaceRoot: '/ws/a' },
+      expect.any(Number),
+    );
+    expect(query('[data-testid="conflict-banner"]')).toBeNull();
+    expect(
+      query('[data-testid="conflict-banner-ended"]')?.textContent?.trim(),
+    ).toBe('Merge completed.');
+    expect(query('[role="tabpanel"] ptah-review-canvas')).not.toBeNull();
+  });
+
   it('collapses the file tree from the header and persists the layout', async () => {
     expect(query('[data-testid="changed-file-tree"]')).not.toBeNull();
 

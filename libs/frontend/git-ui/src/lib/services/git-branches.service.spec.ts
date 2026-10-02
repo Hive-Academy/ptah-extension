@@ -499,6 +499,46 @@ describe('GitBranchesService (TASK_2026_111)', () => {
   });
 
   // ==========================================================================
+  // refreshRemotes (TASK_2026_576 Batch 54)
+  // ==========================================================================
+
+  describe('refreshRemotes()', () => {
+    const origin = {
+      name: 'origin',
+      fetchUrl: 'https://example.com/r.git',
+      pushUrl: 'https://example.com/r.git',
+    };
+
+    it('stores the remotes of a well-formed reply', async () => {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { remotes: [origin] },
+      });
+
+      await service.refreshRemotes();
+
+      expect(service.remotes()).toEqual([origin]);
+    });
+
+    it.each([
+      ['no remotes field', {}],
+      ['a non-array remotes field', { remotes: 'origin' }],
+      ['a null remotes field', { remotes: null }],
+    ])('reads a reply with %s as no remotes', async (_label, data) => {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { remotes: [origin] },
+      });
+      await service.refreshRemotes();
+      mockRpcCall.mockResolvedValueOnce({ success: true, data });
+
+      await service.refreshRemotes();
+
+      expect(service.remotes()).toEqual([]);
+    });
+  });
+
+  // ==========================================================================
   // readPrStatus (TASK_2026_576 Batch 50)
   // ==========================================================================
 

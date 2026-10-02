@@ -453,13 +453,19 @@ export class GitBranchesService implements MessageHandler {
     if (result) this._tags.set(result.tags);
   }
 
-  /** Lazy fetch of configured remotes — call when the popover opens. */
+  /**
+   * Lazy fetch of configured remotes — call when the popover opens. A reply
+   * without a `remotes` array reads as no remotes, so a malformed payload
+   * never reaches the template.
+   */
   async refreshRemotes(): Promise<void> {
     const result = await this.safeRpc<GitRemotesResult>(
       'git:remotes',
       this.scopeParams(),
     );
-    if (result) this._remotes.set(result.remotes);
+    if (!result) return;
+    const remotes: unknown = result.remotes;
+    this._remotes.set(Array.isArray(remotes) ? (remotes as RemoteInfo[]) : []);
   }
 
   /**

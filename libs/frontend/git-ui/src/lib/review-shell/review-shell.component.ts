@@ -12,6 +12,7 @@ import {
 } from '@angular/core';
 import { NativeTabGroupComponent, type NativeTab } from '@ptah-extension/ui';
 import { CommitComposerComponent } from '../commit/commit-composer.component';
+import { ConflictBannerComponent } from '../conflict/conflict-banner.component';
 import { GitDockHeaderComponent } from '../git-dock/git-dock-header.component';
 import { ReviewCanvasComponent } from '../review-canvas/review-canvas.component';
 import { EditorLauncherService } from '../services/editor-launcher.service';
@@ -65,6 +66,8 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
  * - **Stash routing.** While mounted it registers with
  *   `GitStashService.registerReviewCanvas()`, so a stash file opens here as a
  *   historical comparison; destroy releases the registration.
+ * - **Conflict banner.** Above the tabs, `ConflictBannerComponent` shows
+ *   while a merge, rebase or cherry-pick is in progress (design-spec §11).
  * - **States (RC3).** "Loading repository…" only before anything was read; a
  *   failed read with no earlier good one says the status is unavailable,
  *   never "not a Git repository"; a failed re-read after a good one keeps the
@@ -95,6 +98,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
   standalone: true,
   imports: [
     CommitComposerComponent,
+    ConflictBannerComponent,
     GitDockHeaderComponent,
     NativeTabGroupComponent,
     ReviewCanvasComponent,
@@ -107,8 +111,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
     <div class="flex h-full min-h-0 flex-col" data-testid="review-shell">
       <ptah-git-dock-header />
 
-      <!-- Cross-cutting notices sit above the tabs (design-spec §3.2); the
-           conflict banner (design-spec §11) joins this slot. -->
+      <!-- Cross-cutting notices sit above the tabs (design-spec §3.2). -->
       @if (staleLabel(); as label) {
         <div
           role="status"
@@ -119,6 +122,12 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
           changes.
         </div>
       }
+
+      <!-- The merge/rebase/cherry-pick banner (design-spec §11). Always
+           mounted: it renders its card only while an operation is in
+           progress, and keeps the screen-reader line announcing how one
+           ended after the card goes. -->
+      <ptah-conflict-banner />
 
       @if (bodyNotice(); as notice) {
         <div class="flex-1 p-4 text-sm text-base-content">

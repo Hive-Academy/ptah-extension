@@ -12,6 +12,7 @@ import type {
   GitInfoResult,
   GitBranchInfo,
   GitFileStatus,
+  GitRepoOperation,
   GitStatusUnavailableReason,
   GitStatusUpdatePayload,
 } from '@ptah-extension/shared';
@@ -32,6 +33,11 @@ interface GitWorkspaceSnapshot {
    * Null when they came from the latest result.
    */
   staleReason: GitStatusUnavailableReason | null;
+  /**
+   * The merge, rebase or cherry-pick in progress, or null when none is (or
+   * the latest result did not say).
+   */
+  operation: GitRepoOperation | null;
 }
 
 /**
@@ -64,6 +70,7 @@ const EMPTY_SNAPSHOT: GitWorkspaceSnapshot = {
   isGitRepo: false,
   statusUnavailable: null,
   staleReason: null,
+  operation: null,
 };
 
 function branchEqual(a: GitBranchInfo, b: GitBranchInfo): boolean {
@@ -91,6 +98,41 @@ function filesEqual(a: GitFileStatus[], b: GitFileStatus[]): boolean {
       return false;
   }
   return true;
+}
+
+function operationEqual(
+  a: GitRepoOperation | null,
+  b: GitRepoOperation | null,
+): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    a.kind === b.kind &&
+    a.conflictedPaths.length === b.conflictedPaths.length &&
+    a.conflictedPaths.every((path, i) => path === b.conflictedPaths[i])
+  );
+}
+
+const OPERATION_KINDS: ReadonlySet<string> = new Set([
+  'merge',
+  'rebase',
+  'cherry-pick',
+]);
+
+/**
+ * The operation a `git:info` result reports, checked at the boundary: a
+ * missing or malformed field reads as no operation, and only string paths
+ * are kept.
+ */
+function readOperation(value: unknown): GitRepoOperation | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { kind, conflictedPaths } = value as Record<string, unknown>;
+  if (typeof kind !== 'string' || !OPERATION_KINDS.has(kind)) return null;
+  const paths = Array.isArray(conflictedPaths)
+    ? conflictedPaths.filter(
+        (path): path is string => typeof path === 'string' && path !== '',
+      )
+    : [];
+  return { kind: kind as GitRepoOperation['kind'], conflictedPaths: paths };
 }
 
 /**
@@ -126,6 +168,7 @@ function nextSnapshot(
       isGitRepo: previous.isGitRepo,
       statusUnavailable,
       staleReason: statusUnavailable,
+      operation: previous.operation,
     };
   }
   return {
@@ -134,6 +177,7 @@ function nextSnapshot(
     isGitRepo: data.isGitRepo,
     statusUnavailable,
     staleReason: null,
+    operation: readOperation(data.operation),
   };
 }
 
@@ -197,6 +241,9 @@ export class GitStatusService implements MessageHandler {
   private readonly _staleReason = signal<GitStatusUnavailableReason | null>(
     null,
   );
+  private readonly _operation = signal<GitRepoOperation | null>(null, {
+    equal: operationEqual,
+  });
   private fetchGeneration = 0;
 
   /** Current branch info for the active workspace. */
@@ -234,6 +281,12 @@ export class GitStatusService implements MessageHandler {
 
   /** Whether the active workspace shows last-known data from an earlier read. */
   readonly isStale = computed(() => this._staleReason() !== null);
+
+  /**
+   * The merge, rebase or cherry-pick in progress in the active workspace,
+   * with its still-conflicted paths; null when none is.
+   */
+  readonly operation = this._operation.asReadonly();
 
   /** Number of changed files. */
   readonly changedFileCount = computed(() => this._files().length);
@@ -418,6 +471,7 @@ export class GitStatusService implements MessageHandler {
       isGitRepo: this._isGitRepo(),
       statusUnavailable: this._statusUnavailable(),
       staleReason: this._staleReason(),
+      operation: this._operation(),
     };
   }
 
@@ -428,6 +482,7 @@ export class GitStatusService implements MessageHandler {
     this._isGitRepo.set(snapshot.isGitRepo);
     this._statusUnavailable.set(snapshot.statusUnavailable);
     this._staleReason.set(snapshot.staleReason);
+    this._operation.set(snapshot.operation);
   }
 
   /**

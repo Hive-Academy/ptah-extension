@@ -90,6 +90,17 @@ class MockTaskWorktreeView {
   readonly shown = input(false);
 }
 
+@Component({
+  selector: 'ptah-conflict-banner',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div data-testid="mock-conflict-banner"></div>`,
+})
+class MockConflictBanner {}
+
+jest.mock('../conflict/conflict-banner.component', () => ({
+  ConflictBannerComponent: MockConflictBanner,
+}));
 jest.mock('../commit/commit-composer.component', () => ({
   CommitComposerComponent: MockCommitComposer,
 }));
@@ -350,6 +361,38 @@ describe('ReviewShellComponent', () => {
       'Git status is unavailable (git timed out) — showing the last known changes.',
     );
     expect(text(fixture)).not.toContain('not a Git repository');
+  });
+
+  // -- Conflict banner slot (Batch 54) ----------------------------------------
+
+  it('mounts the conflict banner in the notice slot, above the tabs', async () => {
+    const fixture = await render();
+    const banner = query(fixture, '[data-testid="mock-conflict-banner"]');
+    const tablist = query(fixture, '[role="tablist"]');
+
+    expect(banner).not.toBeNull();
+    expect(tablist).not.toBeNull();
+    expect(
+      banner && tablist
+        ? banner.compareDocumentPosition(tablist) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        : 0,
+    ).toBeTruthy();
+  });
+
+  it('keeps the conflict banner mounted across a status re-read', async () => {
+    const fixture = await render();
+    const before = fixture.debugElement.query(By.directive(MockConflictBanner));
+
+    gitStatus.isLoading.set(true);
+    await settle(fixture);
+    gitStatus.isLoading.set(false);
+    await settle(fixture);
+
+    expect(
+      fixture.debugElement.query(By.directive(MockConflictBanner))
+        ?.componentInstance,
+    ).toBe(before.componentInstance);
   });
 
   it('shows no stale notice for a fresh read', async () => {

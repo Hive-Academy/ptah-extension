@@ -160,6 +160,104 @@ describe('SourceControlService', () => {
     );
   });
 
+  describe('operation abort/continue (TASK_2026_576 Batch 54)', () => {
+    const FAILED = {
+      status: 'failed',
+      code: 'GIT_ERROR',
+      error: 'Git did not answer. Check the repository and try again.',
+    };
+
+    it.each([
+      ['abortOperation', 'git:operationAbort'],
+      ['continueOperation', 'git:operationContinue'],
+    ] as const)(
+      '%s sends %s scoped, with the mutation timeout, and passes the result through',
+      async (name, method) => {
+        mockRpcCall.mockResolvedValueOnce({
+          success: true,
+          data: { status: 'completed', kind: 'rebase' },
+        });
+
+        await expect(service[name]()).resolves.toEqual({
+          status: 'completed',
+          kind: 'rebase',
+        });
+        expect(mockRpcCall).toHaveBeenCalledWith(
+          expect.anything(),
+          method,
+          { workspaceRoot: '/test/workspace' },
+          EXPECTED_MUTATION_TIMEOUT,
+        );
+      },
+    );
+
+    it('passes stopped and conflicts-remain through for continue', async () => {
+      const stopped = {
+        status: 'stopped',
+        kind: 'rebase',
+        conflictedPaths: ['a.ts'],
+      };
+      mockRpcCall.mockResolvedValueOnce({ success: true, data: stopped });
+      await expect(service.continueOperation()).resolves.toEqual(stopped);
+
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { ...stopped, status: 'conflicts-remain' },
+      });
+      await expect(service.continueOperation()).resolves.toEqual({
+        ...stopped,
+        status: 'conflicts-remain',
+      });
+    });
+
+    it('keeps the sanitized error, code and kind of a failure', async () => {
+      const failed = {
+        status: 'failed',
+        kind: 'merge',
+        code: 'LOCKED',
+        error: 'Another git process is running.',
+      };
+      mockRpcCall.mockResolvedValueOnce({ success: true, data: failed });
+
+      await expect(service.abortOperation()).resolves.toEqual(failed);
+    });
+
+    it.each([
+      ['an RPC failure', { success: false, error: 'RPC timeout: x' }],
+      ['an unknown status', { success: true, data: { status: 'odd' } }],
+      ['a null payload', { success: true, data: null }],
+      [
+        'a completed reply without a kind',
+        { success: true, data: { status: 'completed' } },
+      ],
+      [
+        'a stopped reply without paths',
+        { success: true, data: { status: 'stopped', kind: 'rebase' } },
+      ],
+    ])('reads %s as failed', async (_label, response) => {
+      mockRpcCall.mockResolvedValueOnce(response);
+      await expect(service.continueOperation()).resolves.toEqual(FAILED);
+    });
+
+    it('reads a stopped reply to abort as failed', async () => {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { status: 'stopped', kind: 'rebase', conflictedPaths: [] },
+      });
+      await expect(service.abortOperation()).resolves.toEqual(FAILED);
+    });
+
+    it('reads a thrown transport error as failed', async () => {
+      mockRpcCall.mockRejectedValueOnce(new Error('offline'));
+      const spy = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+
+      await expect(service.abortOperation()).resolves.toEqual(FAILED);
+      spy.mockRestore();
+    });
+  });
+
   it('omits workspaceRoot when activeWorkspacePath is null', async () => {
     workspace.set(null);
 
