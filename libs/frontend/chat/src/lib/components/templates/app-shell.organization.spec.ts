@@ -43,6 +43,7 @@ import type {
 import { AppShellComponent } from './app-shell.component';
 import { groupSessionRows } from './session-row-groups';
 import { ChatStore } from '../../services/chat.store';
+import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 import type { SessionListQuery } from '../../services/chat-store/session-loader.service';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { SessionDisplayUtils } from '../../services/session-display-utils.service';
@@ -154,6 +155,9 @@ function configure(store: StoreStub): ComponentFixture<AppShellComponent> {
         },
       },
       { provide: AgentMonitorStore, useValue: {} },
+      // The shell creates this eagerly; its behaviour is covered by
+      // closed-tab-session-ender.service.spec.ts.
+      { provide: ClosedTabSessionEnderService, useValue: {} },
       {
         provide: TabManagerService,
         useValue: { activeTab: signal(null), findTabBySessionId: () => null },
