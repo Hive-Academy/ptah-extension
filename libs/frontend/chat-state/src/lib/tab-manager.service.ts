@@ -65,6 +65,14 @@ export type { LiveModelStatsPayload };
 export type TerminalTurnClassification = 'success' | 'error';
 
 /**
+ * `AbortSignal.reason` set when a controller is aborted only because a newer
+ * send for the same tab replaced it. The replaced turn's backend process must
+ * NOT be ended by the abort listener: the newer turn registers under the same
+ * tab id / session id, so a `chat:abort` would end the new turn instead.
+ */
+export const ABORT_REASON_SUPERSEDED = 'superseded-by-new-send';
+
+/**
  * How an agent-started child tab arrived (TASK_2026_584).
  * - `live`: the backend's `agentSession:opened` push, sent before the child's
  *   first chunk.
@@ -121,6 +129,12 @@ export interface ClosedTabEvent {
    * tab survives (re-emptied to a fresh conversation) instead of being removed.
    */
   readonly kind: 'close' | 'forceClose' | 'reset';
+  /**
+   * True when closing aborted an in-flight stream whose abort listener (in
+   * MessageSender) already sent `chat:abort` for this session. Only `closeTab`
+   * sets it; absent or false means no stream abort was dispatched by the close.
+   */
+  readonly streamAbortDispatched?: boolean;
 }
 
 /**
@@ -1054,25 +1068,30 @@ export class TabManagerService {
   }
 
   /**
-   * Close a tab (with optional confirmation for streaming/dirty tabs)
+   * Close a tab, ending its session. Asks for confirmation first when the tab
+   * is dirty, streaming, resuming, or has background work running
+   * (`awaiting-background` / `sleeping`).
    * Uses custom confirmation dialog since window.confirm doesn't work in VS Code webviews.
    * @param tabId - Tab ID to close
    */
   async closeTab(tabId: string): Promise<void> {
-    const tabs = this._tabs();
-    const tab = tabs.find((t) => t.id === tabId);
+    const initialTab = this._tabs().find((t) => t.id === tabId);
 
-    if (!tab) return;
+    if (!initialTab) return;
 
     // Check if tab needs confirmation
     const needsConfirmation =
-      tab.isDirty || tab.status === 'streaming' || tab.status === 'resuming';
+      initialTab.isDirty ||
+      initialTab.status === 'streaming' ||
+      initialTab.status === 'resuming' ||
+      initialTab.status === 'awaiting-background' ||
+      initialTab.status === 'sleeping';
 
     if (needsConfirmation) {
       const confirmed = await this.confirmationDialog.confirm({
         title: 'Close Tab?',
         message:
-          'This session has unsaved changes or is actively streaming. Are you sure you want to close it?',
+          'This session has unsaved changes, is streaming, or has background work running. Closing it ends the session. Close anyway?',
         confirmLabel: 'Close',
         cancelLabel: 'Keep Open',
         confirmStyle: 'error',
@@ -1083,12 +1102,20 @@ export class TabManagerService {
       }
     }
 
+    // Re-read after the (possibly long) confirm: a session id may have been
+    // bound, or the tab removed / parked by a workspace switch, while the
+    // dialog was open. A tab that is gone from the active list is not closed.
+    const tabs = this._tabs();
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+
     // Abort any in-flight streaming RPC BEFORE tab state cleanup so the
     // registered abort listener (in MessageSender) can still read
     // tab.claudeSessionId and dispatch chat:abort to the backend. Otherwise
     // the backend keeps generating tokens after the user closes the tab —
-    // burning LLM cost.
-    this.abortStreamingForTab(tabId);
+    // burning LLM cost. The result is carried on the close event so a
+    // session ender does not send a second chat:abort for the same session.
+    const streamAbortDispatched = this.abortStreamingForTab(tabId);
 
     // Emit a `close` event so the StreamRouter (which owns the routing
     // graph) performs per-session cleanup: cleanupSessionDeduplication +
@@ -1103,6 +1130,7 @@ export class TabManagerService {
       tabId,
       sessionId: tab.claudeSessionId ?? null,
       kind: 'close',
+      streamAbortDispatched,
     });
 
     const tabIndex = tabs.findIndex((t) => t.id === tabId);
@@ -2475,97 +2503,6 @@ export class TabManagerService {
     });
   }
 
-  /**
-   * Duplicate a tab
-   * @param tabId - Tab ID to duplicate
-   */
-  duplicateTab(tabId: string): void {
-    const tab = this._tabs().find((t) => t.id === tabId);
-    if (!tab) return;
-
-    const newTabId = this.generateTabId();
-    const duplicatedTab: TabState = {
-      ...tab,
-      id: newTabId,
-      name: `${tab.name} (Copy)`,
-      title: `${tab.title} (Copy)`,
-      titleOrigin: tab.titleOrigin,
-      order: this._tabs().length,
-      status: 'loaded', // Duplicated tab is loaded (not streaming)
-      isDirty: false,
-      lastActivityAt: Date.now(),
-    };
-
-    this._tabs.update((tabs) => [...tabs, duplicatedTab]);
-    this._activeTabId.set(newTabId);
-    this.saveTabState();
-  }
-
-  /**
-   * Close all tabs except the specified one
-   * Uses custom confirmation dialog since window.confirm doesn't work in VS Code webviews.
-   * @param tabId - Tab ID to keep
-   */
-  async closeOtherTabs(tabId: string): Promise<void> {
-    const tab = this._tabs().find((t) => t.id === tabId);
-    if (!tab) return;
-
-    const otherTabsCount = this._tabs().length - 1;
-    if (otherTabsCount === 0) return;
-
-    const confirmed = await this.confirmationDialog.confirm({
-      title: 'Close Other Tabs?',
-      message: `This will close ${otherTabsCount} other tab${
-        otherTabsCount > 1 ? 's' : ''
-      }.`,
-      confirmLabel: 'Close Others',
-      cancelLabel: 'Cancel',
-      confirmStyle: 'warning',
-    });
-
-    if (!confirmed) return;
-
-    this._tabs.set([tab]);
-    this._activeTabId.set(tabId);
-    this.saveTabState();
-  }
-
-  /**
-   * Close all tabs to the right of the specified tab
-   * Uses custom confirmation dialog since window.confirm doesn't work in VS Code webviews.
-   * @param tabId - Tab ID (tabs to the right will be closed)
-   */
-  async closeTabsToRight(tabId: string): Promise<void> {
-    const tabs = this._tabs();
-    const tabIndex = tabs.findIndex((t) => t.id === tabId);
-
-    if (tabIndex === -1 || tabIndex === tabs.length - 1) return;
-
-    const tabsToCloseCount = tabs.length - tabIndex - 1;
-
-    const confirmed = await this.confirmationDialog.confirm({
-      title: 'Close Tabs to Right?',
-      message: `This will close ${tabsToCloseCount} tab${
-        tabsToCloseCount > 1 ? 's' : ''
-      } to the right.`,
-      confirmLabel: 'Close',
-      cancelLabel: 'Cancel',
-      confirmStyle: 'warning',
-    });
-
-    if (!confirmed) return;
-
-    const remaining = tabs.slice(0, tabIndex + 1);
-    this._tabs.set(remaining);
-
-    // If active tab was closed, switch to the kept tab
-    if (!remaining.find((t) => t.id === this._activeTabId())) {
-      this._activeTabId.set(tabId);
-    }
-
-    this.saveTabState();
-  }
-
   // ============================================================================
   // PERSISTENCE (per-workspace localStorage)
   // ============================================================================
@@ -2821,7 +2758,7 @@ export class TabManagerService {
   createAbortController(tabId: string): AbortSignal {
     const existing = this.abortControllers.get(tabId);
     if (existing && !existing.signal.aborted) {
-      existing.abort();
+      existing.abort(ABORT_REASON_SUPERSEDED);
     }
     const controller = new AbortController();
     this.abortControllers.set(tabId, controller);
@@ -2848,14 +2785,19 @@ export class TabManagerService {
   /**
    * Abort the in-flight streaming RPC for a tab and drop the controller.
    * Safe to call when no stream is active (no-op).
+   *
+   * @returns true only when this call aborted a live controller, i.e. the
+   *   abort listener (in MessageSender) fired and sent `chat:abort`. False
+   *   when no controller is registered or it was already aborted — in the
+   *   latter case no new abort is dispatched here.
    */
-  abortStreamingForTab(tabId: string): void {
+  abortStreamingForTab(tabId: string): boolean {
     const controller = this.abortControllers.get(tabId);
-    if (!controller) return;
+    if (!controller) return false;
     this.abortControllers.delete(tabId);
-    if (!controller.signal.aborted) {
-      controller.abort();
-    }
+    if (controller.signal.aborted) return false;
+    controller.abort();
+    return true;
   }
 
   /**
