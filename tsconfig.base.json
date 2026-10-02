@@ -46,6 +46,9 @@
         "./libs/frontend/chat-streaming/src/index.ts"
       ],
       "@ptah-extension/chat-ui": ["./libs/frontend/chat-ui/src/index.ts"],
+      "@ptah-extension/chat-ui/change-set-card": [
+        "./libs/frontend/chat-ui/src/change-set-card.ts"
+      ],
       "@ptah-extension/cli-agent-runtime": [
         "./libs/backend/cli-agent-runtime/src/index.ts"
       ],
@@ -99,6 +102,12 @@
       ],
       "@ptah-extension/dashboard": ["./libs/frontend/dashboard/src/index.ts"],
       "@ptah-extension/git-ui": ["./libs/frontend/git-ui/src/index.ts"],
+      "@ptah-extension/git-ui/services": [
+        "./libs/frontend/git-ui/src/services.ts"
+      ],
+      "@ptah-extension/git-ui/diff-renderer": [
+        "./libs/frontend/git-ui/src/diff-renderer.ts"
+      ],
       "@ptah-extension/platform-cli": [
         "./libs/backend/platform-cli/src/index.ts"
       ],

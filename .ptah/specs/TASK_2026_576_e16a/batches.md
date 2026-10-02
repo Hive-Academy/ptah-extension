@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 19/69
+Total tasks: 87 | Batches: 69 | Complete: 32/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1090,14 +1090,37 @@ Outcome (orchestrator, 2026-10-01):
 
 # P3 — Foundation
 
-## Batch 20: Eager-bundle guard script and baseline measurements — PENDING
+## P3 branch and execution waves (orchestrator, 2026-10-01)
+
+Branch `feat/task-2026-576-p3` from P2 `ef6f18915`, worktree `.claude-worktrees/task-576-p3` (node_modules junction
+to the main checkout), draft PR stacked on `feat/task-2026-576-p2`. When PR #619 merges, merge `origin/main` into
+P3 and retarget its PR to `main` (no rebase, no force push).
+
+Same wave rule as P2: a wave holds more than one batch only when the batches are file-disjoint; where one batch's
+check scope compiles the other's library, the executor re-runs a failed check once before reporting. At most 3
+executors at once.
+
+| Wave | Batches  | Why                                                                                                                     |
+| ---- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 1    | 20 ∥ 25  | 20 measures the base bundle (webview build only, report-only); 25 adds shared types + vscode-core delegates (no bundle change). |
+| 2    | 21 ∥ 26  | 21 = git-ui entry + webview + `tsconfig.base.json` alias; 26 = rpc-handlers only. 21 must follow 20 (baseline).          |
+| 3    | 22 ∥ 27  | 22 = git-ui renderer + `package.json` (exact `@pierre/diffs`); 27 = rpc-handlers registration + host lists.              |
+| 4    | 23 ∥ 28  | 23 = git-ui diff-renderer entry (CLI lane); 28 = VS Code app commands.                                                    |
+| 5    | 24       | ui + webview `styles.css`; takes the P2 carried items (light focus ring, error icon/border cues, `.btn-ghost` override). |
+| 6    | 29       | chat-ui card; needs 24, 25.                                                                                              |
+| 7    | 30       | chat store/actions + webview app config; needs 27, 28, 29.                                                               |
+| 8    | 31       | transcript insertion + Electron e2e; needs 30.                                                                           |
+| 9    | 32       | VS Code e2e; needs 31.                                                                                                    |
+| end  | P3 phase-end review | per Review cadence; card visual review against `prototype/`.                                                  |
+
+## Batch 20: Eager-bundle guard script and baseline measurements — COMPLETE
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P2 complete. Must run before Batch 21 changes `app.config.ts` (baseline).
 - Verification: `npx nx run ptah-extension-webview:verify-eager-bundle` in report-only mode on the base build
 
-### Task 20.1: `assert-eager-bundle.mjs` (report-only + assert), Nx target, baseline rows — PENDING
+### Task 20.1: `assert-eager-bundle.mjs` (report-only + assert), Nx target, baseline rows — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/apps/ptah-extension-webview/scripts/assert-eager-bundle.mjs; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/project.json; CREATE D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/bundle-measurements.md
 - Plan reference: implementation-plan.md:693-697, 1473-1479
@@ -1105,15 +1128,22 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: follows static imports from `index.html` module scripts; fails on the listed selectors; prints gz of `main.js` and closure.
 - Validation notes: assertion mode is expected to FAIL on the base build (git-ui is eager); record that as the baseline, run with `--report-only`. TTI baseline: `startup-tti.spec.ts` twice, second boot recorded.
 - Implementation details: target `verify-eager-bundle` depends on `build`.
+- Outcome: executor devops-engineer; only the three listed files. The script follows static imports from the
+  `index.html` module scripts (not dynamic `import()`), prints raw/gzip sizes, fails on the plan's 8 markers;
+  `--report-only` and `--dist <dir>` flags; exit 2 when the build output is missing. Baseline (production build):
+  `main.js` 401,859 B gz (392.4 KB; research said 383.9 KB — Batch 21 compares against 401,859 B), eager closure
+  817,717 B gz over 12 files; assert mode fails on the base build (`ptah-git-`, `ptah-diff-view` in `main.js`) as
+  expected. TTI baseline (second boot, `startup-tti.spec.ts` via playwright, dev renderer) 14,557 ms; FCP 608 ms.
+  Verified by the orchestrator: `verify-eager-bundle -- --report-only` reproduces the numbers; webview lint green.
 
-## Batch 21: `@ptah-extension/git-ui/services` narrow entry — PENDING
+## Batch 21: `@ptah-extension/git-ui/services` narrow entry — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 20
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui ptah-extension-webview` then `verify-eager-bundle` (assert mode passes; `main.js` gz ≤ baseline)
 
-### Task 21.1: Entry file, path alias, app import switch, routing specs — PENDING
+### Task 21.1: Entry file, path alias, app import switch, routing specs — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/services.ts; MODIFY D:/projects/ptah-extension/tsconfig.base.json; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/git-status-message-routing.spec.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/git-dock-arming-identity.spec.ts; MODIFY D:/projects/ptah-extension/eslint.config.mjs (only if lint requires)
 - Plan reference: implementation-plan.md:684-714
@@ -1121,15 +1151,21 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: routing spec assertions unchanged; dynamic full-barrel imports at `workspace-coordinator.service.ts:122`, `electron-shell.component.ts:372`, `file-link-router.service.ts:121` untouched.
 - Validation notes: R11.
 - Implementation details: exports GitStatusService, GitBranchesService, WorktreeService, DiffTabsService.
+- Outcome: executor frontend-developer; listed files only (`eslint.config.mjs` not needed). The four services' own
+  imports reach no component file. `verify-eager-bundle` assert mode passes (no forbidden markers). `main.js`
+  362,218 B gz (−39,641 B vs the Batch 20 baseline); eager closure 778,076 B gz (−39,629 B). Deviation:
+  `git-dock-arming-identity.spec.ts` imports `GitDockComponent`/`GitReviewService` from the full barrel and the four
+  services from the narrow entry (same module files; identity assertions unchanged and green). Verified: git-ui 516
+  tests, webview 232 tests, typecheck and lint green (executor); orchestrator re-ran the checks before commit.
 
-## Batch 22: Pierre renderer host and hunk mapping (A1, A2 gate) — PENDING
+## Batch 22: Pierre renderer host and hunk mapping (A1, A2 gate) — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 21
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 22.1: Dependency, config and `PierreDiffHostComponent` — PENDING
+### Task 22.1: Dependency, config and `PierreDiffHostComponent` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/package.json (+ lockfile); CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/pierre-config.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/pierre-diff-host.component.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/pierre-diff-host.component.spec.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/pierre-hunk-mapping.real-git.spec.ts
 - Plan reference: implementation-plan.md:716-757
@@ -1137,8 +1173,28 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: `"@pierre/diffs": "1.5.1"` exact; `lineDiffType: 'word'`; imperative `FileDiff`, disposed on destroy/input change; exactly one toolbar host per hunk (hunk at line 1, adjacent hunks); CRLF bytes untouched.
 - Validation notes: A1 — read `DiffHunksRenderer.ts` and `getLineAnnotationName.ts` at tag `diffs-v1.5.1`, record in report. Mapping mismatch → `mappingError`, read-only.
 - Implementation details: separator slot else annotation slot fallback.
+- Outcome (22.1): executor frontend-developer; report `reviews/batch-22-report.md`. `"@pierre/diffs": "1.5.1"` exact;
+  lockfile +129 lines, additions only (the executor's `npm install` replaced the worktree node_modules junction,
+  hung on Electron's binary download and rolled back; the orchestrator restored the junction, ran
+  `--package-lock-only --ignore-scripts`, and placed the package with its dependencies nested under
+  `node_modules/@pierre/diffs/node_modules` in the shared main node_modules — additive only). Extra file
+  `renderer/pierre-hunk-mapping.ts` (mapping without a runtime Pierre import, so the real-git spec tests shipped
+  code). A1 (tag `diffs-v1.5.1`): a hunk gets a separator only when unchanged lines precede it (never at line 1),
+  and with `hunkSeparators: 'line-info'` the separator holds no slot (only deprecated `'custom'` does) — so every
+  toolbar lands in its `annotation-<side>-<line>` slot; the host decides from rendered slots, never from config.
+  One slot per hunk proven on real git output (hunk at line 1, hunks one line apart). Spec found and fixed a stale
+  hunk-list index on input change. Component unmounted. git-ui real-git spec runs in the normal git-ui `test`
+  target (CRLF cases local Windows only). Verified: git-ui 536 tests, typecheck, lint green; eager bundle unchanged
+  (362,218 B gz) and assert mode green.
+- Outcome (22.2, A2): no blocker. App build has no Pierre code yet (unmounted); the one `new Function` hit is zod's
+  feature test. An esbuild bundle of Pierre 1.5.1 + `pierre-config.ts` (411 chunks) has no `new Function` / `eval(`;
+  Shiki's WASM loader is present but unused (`'shiki-js'` pinned). Electron console check moves to the first batch
+  that mounts the host. **Open gate for P4, before Batch 44:** the VS Code webview `style-src` has no
+  `'unsafe-inline'`, and Pierre injects `<style>` elements and style attributes; the skills drawer (Batch 44)
+  renders `TextDiffViewComponent` in VS Code. Options to research and decide (independent lane): nonce
+  propagation, `useCSSClasses`/constructable stylesheets, or a CSP change. Electron allows inline styles.
 
-### Task 22.2: CSP check (A2) — PENDING
+### Task 22.2: CSP check (A2) — COMPLETE
 
 - Depends on: Task 22.1
 - File: none authored; evidence in the batch report
@@ -1148,14 +1204,14 @@ Outcome (orchestrator, 2026-10-01):
 - Validation notes: R2 — on failure stop and return; the `@codemirror/merge` fallback is an architecture change (BLOCKER to the orchestrator).
 - Implementation details: n/a
 
-## Batch 23: `diff-renderer` secondary entry and `TextDiffViewComponent` — PENDING
+## Batch 23: `diff-renderer` secondary entry and `TextDiffViewComponent` — COMPLETE
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 22
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui` + lazy-size row via the Batch 20 script
 
-### Task 23.1: Entry, alias, wrapper, lazy-size measurement — PENDING
+### Task 23.1: Entry, alias, wrapper, lazy-size measurement — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/text-diff-view.component.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/renderer/text-diff-view.component.spec.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/diff-renderer.ts; MODIFY D:/projects/ptah-extension/tsconfig.base.json; MODIFY D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/bundle-measurements.md
 - Plan reference: implementation-plan.md:741, 752-753, 1477
@@ -1163,8 +1219,16 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: first realistic diff ≤ 217 KB gz; Pierre not in the eager closure.
 - Validation notes: none.
 - Implementation details: `TextDiffViewComponent` uses `parseDiffFromFile(old, new)`, unified only.
+- Outcome: executor antigravity lane (frontend-developer role) after opencode Kimi failed twice ("Unknown error",
+  both models) and Glm hit its Ollama usage limit (HTTP 429) — lane-authored, so the phase-end review uses a subagent
+  reviewer. Report `reviews/batch-23-report.md`. Listed files only. Entry exports `PierreDiffHostComponent`,
+  `TextDiffViewComponent` and their types. Lazy-size (esbuild ESM bundle of `diff-renderer.ts`, Angular and
+  shared externalized — an approximation of the Angular build): first realistic diff (entry closure + the
+  TypeScript grammar chunk) 153,279 B gz ≈ 149.7 KB (bar ≤ 217 KB); eager bundle unchanged (362,218 B gz), assert
+  mode green. Orchestrator corrections before commit: error note `text-base-content/70` → `text-base-content-muted`
+  (the sanctioned muted token), `catch (err: unknown)`. Verified: git-ui 544 tests, typecheck, lint green.
 
-## Batch 24: `FileStatusBadgeComponent` with AA contrast — PENDING
+## Batch 24: `FileStatusBadgeComponent` with AA contrast — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, style scope; visual-reviewer (badge in anubis + anubis-light)
@@ -1172,7 +1236,7 @@ Outcome (orchestrator, 2026-10-01):
 - Concurrency-eligible with: Batches 20-23, 25-28
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/ui ptah-extension-webview`
 
-### Task 24.1: Neutral chip with hue accent (Gate 2 default a) — PENDING
+### Task 24.1: Neutral chip with hue accent (Gate 2 default a) — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/ui/src/lib/native/file-status-badge/file-status-badge.component.ts; CREATE .../file-status-badge/file-status-badge.component.spec.ts; CREATE .../file-status-badge/index.ts (all under D:/projects/ptah-extension/libs/frontend/ui/src/lib/native/); MODIFY D:/projects/ptah-extension/libs/frontend/ui/src/lib/native/index.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/styles.css; CREATE D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/status-badge-contrast.spec.ts
 - Plan reference: implementation-plan.md:768-794
@@ -1180,15 +1244,27 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: `base-content` on `base-300` ≥4.5:1 for every picker theme; `aria-label` full word; override classes scoped to anubis themes only.
 - Validation notes: design-spec §13a resolved by default (a).
 - Implementation details: inputs `status`, `conflictKind?`.
+- Outcome: executor frontend-developer. `ptah-file-status-badge`: `text-base-content` letter on `bg-base-300`
+  with a 2 px status-colour left border; full word (plus conflict kind) in `role="img"` `aria-label`/`title`;
+  letters match the existing rows (U, !, I). styles.css (anubis themes only): `.err-solid-text`, `.ok-solid-text`,
+  `.diff-add-text`, `.diff-del-text`; `--ptah-error-ink` drives `.text-error`/`.border-error` (≥5.5:1 on every
+  base layer); light focus ring uses `--ptah-gold-strong` (5.24:1 on base-300, also covers the 25
+  `focus-visible:outline-[oklch(var(--s))]` sites); `.btn-ghost` dark-text default moved to `@layer components`
+  with lower specificity so `text-*` wins. Closes the P2 carried contrast items. Contrast spec: base-content on
+  base-300 ≥4.5:1 in all 34 picker themes (min 5.98:1). Accepted deviations: the `.text-error`/`.border-error`
+  change is global within anubis; the model-selector `.btn-ghost` child rule got the same specificity fix; badge
+  not yet wired into rows (Component 29). Orchestrator fix: `pierre-diff-host.component.ts` `text-base-content/70`
+  → `text-base-content-muted` (caught by `no-alpha-base-content.spec.ts`). Verified by the orchestrator:
+  typecheck, test, lint green for ui, ptah-extension-webview, git-ui.
 
-## Batch 25: Change-set shared types and facade delegates — PENDING
+## Batch 25: Change-set shared types and facade delegates — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P2 complete
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core`
 
-### Task 25.1: `rpc-change-set.types.ts`, push message type, `readChangeSetNumstat`, `readHeadText` — PENDING
+### Task 25.1: `rpc-change-set.types.ts`, push message type, `readChangeSetNumstat`, `readHeadText` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-change-set.types.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/messages/message-constants.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/messages/payload-map.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/index.ts (only if rpc type files are exported individually); MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.spec.ts
 - Plan reference: implementation-plan.md:809-813, 821-822, 915
@@ -1196,15 +1272,27 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: no `RpcMethodRegistry` change here (V5); `readHeadText` capped at 2 MiB; unborn HEAD uses the empty-tree SHA.
 - Validation notes: V5.
 - Implementation details: `TurnChangeSet`, `TurnChangeSetFile`, `GIT_TURN_CHANGE_SET = 'git:turnChangeSet'`.
+- Outcome: executor backend-developer. Types (`TurnChangeSet` + `truncatedCount`, optional `baselineMissing`;
+  `TurnChangeSetFile`, `TurnChangeSetTotals`, `GitTurnChangeSetsParams/Result`, `GitTurnChangeSetPayload`), message
+  constant and payload map entry. `rpc.types.ts` gets one barrel `export *` line (rpc type files are exported there,
+  not in `index.ts`); `RpcMethodRegistry` unchanged (V5). New collaborator `git/git-change-set-numstat.reader.ts`
+  (extra file): `diff --numstat -z --find-renames --end-of-options <sha> -- :(top,literal)<path>` in ≤16 KiB argv runs
+  (Windows command-line cap), `ls-files --others` for paths missing from the diff (untracked counter, same limits),
+  0/0 otherwise; unsafe paths and failures → null counts; unborn HEAD → empty-tree SHA. `readHeadText` reuses
+  `readBlob` (2 MiB cap, too-large, classifier). Specs: 12 unit, new `git-info.service.change-set.real-git.spec.ts`
+  (5). Verified: shared 2257 tests, vscode-core 836/837 with one `MainLoopWatchdog` timing failure under parallel
+  load that passes alone (13/13, file untouched); real-git 139 passed / 2 skipped (12 suites, executor);
+  degradation-audit green. Noted, not new: `readUntrackedNumstat` resolves against the workspace path, so untracked
+  counts can be wrong when the workspace is a repo subfolder; SHA-256 repos fall back to null counts on unborn HEAD.
 
-## Batch 26: Turn change-set recorder and store — PENDING
+## Batch 26: Turn change-set recorder and store — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 18, 25
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/rpc-handlers`
 
-### Task 26.1: Baseline at prompt submit, diff at turn end, persist under its own key — PENDING
+### Task 26.1: Baseline at prompt submit, diff at turn end, persist under its own key — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/chat/change-set/turn-change-set-recorder.service.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/chat/change-set/turn-change-set.store.ts (+ .spec.ts)
 - Plan reference: implementation-plan.md:796-845
@@ -1212,15 +1300,29 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: ≤2,000 stat paths, ≤500 files, ≤100 sets/session; no timers; baseline Map entry deleted at turn end.
 - Validation notes: A6 — read `user-prompt-submit-hook-handler.ts`; fallback to `SessionMetadata.workingDirectory`. Empty set → no record, no push; unavailable status → nothing; numstat failure → null counts + `countsUnavailable`.
 - Implementation details: key `ptah.turnChangeSets:<sessionId>`.
+- Outcome: executor backend-developer; the four listed files. Recorder listens on
+  `UserPromptSubmitCallbackRegistry.register` (baseline stored before any await; ≤2,000 paths `fs.stat`-ed, 32 at a
+  time) and on `onTurnEnded` + `onTurnFailed` (Map entry deleted before any await). Change = status/origPath/numstat
+  signature, appear/disappear, or mtime/size. ≤500 files (rest → `truncatedCount`), `countsUnavailable` on a null
+  count of a non-binary file, `baselineMissing` when no baseline. Empty set, non-git dir or unavailable status →
+  nothing. Store `{ schemaVersion: 1, changeSets }`, newest 100 per session, serialised appends. No timers, no DI or
+  RPC registration. A6: `user-prompt-submit-hook-handler.ts:54-59` sends `workspaceRoot: cwd` (the SDK query cwd,
+  i.e. the worktree when the session runs in one); fallback `SessionMetadata.workingDirectory`. Accepted deviations:
+  failed turns are recorded too; a prompt submitted mid-turn keeps the first baseline (an aborted turn without
+  Stop/StopFailure keeps its entry until that session's next turn ends; ≤1 entry per session). Verified:
+  rpc-handlers typecheck + lint green; tests 3426 passed / 1 failed (the known `harness-skill-selection` "never
+  writes state.json", fails alone, unrelated) / 4 skipped; change-set specs 26/26 (event-driven waits after a
+  timing flake); degradation-audit green. For Batch 27: Electron worker storage does not exclude
+  `ptah.turnChangeSets:` from `cacheExcludeKeyPrefixes` (several MB per session could load at startup).
 
-## Batch 27: Change-set RPC and registration — PENDING
+## Batch 27: Change-set RPC and registration — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 26
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers ptah-electron ptah-extension-vscode @ptah-extension/cli-engine` (host surface specs; exception (a))
 
-### Task 27.1: `GitChangeSetRpcHandlers`, registry, manifest, recorder activation — PENDING
+### Task 27.1: `GitChangeSetRpcHandlers`, registry, manifest, recorder activation — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-change-set-rpc.handlers.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/host-profile/manifest.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/register-shared-rpc-handlers.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/index.ts
 - Plan reference: implementation-plan.md:816-817, 846-853
@@ -1228,15 +1330,27 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: manifest invariant spec green; `requires: []`.
 - Validation notes: V5, A14 — also check host handler name lists (`apps/ptah-electron/src/di/phase-4-handlers.ts:140-175`, `expected-resolvable.ts`) and add the class name only if those lists enumerate every lib-owned handler.
 - Implementation details: recorder registered singleton beside `SessionLifecycleNotifier` (`register-shared-rpc-handlers.ts:49, 58-61`).
+- Outcome: executor backend-developer. `git:turnChangeSets {sessionId}` → `{changeSets}` oldest first; params
+  zod-validated in the handler file (`sessionId` string 1–512, strict) → `RpcUserError('…','INVALID_PARAMS')`;
+  storage failure surfaces as an RPC error. Registry + `RPC_METHOD_ENTRIES` entries; manifest `gitChangeSet`,
+  `requires: []`. `TurnChangeSetStore`, `TurnChangeSetRecorder`, `GitChangeSetRpcHandlers` registered as
+  singletons; recorder resolved in `activateSessionLifecycleNotifier`. Electron `cacheExcludeKeyPrefixes` now
+  includes `TURN_CHANGE_SETS_KEY_PREFIX` (exported from rpc-handlers). VS Code container smoke stubs added for
+  the new dependencies. A14: host handler lists do not enumerate every lib-owned handler, so no entry added.
+  Verified by the orchestrator: change-set handler spec 11/11, container smoke 33/33, typecheck of shared,
+  rpc-handlers, ptah-electron, cli-engine green, degradation-audit green; rpc-handlers 3437 passed / 1 known
+  unrelated failure (`harness-skill-selection`); ptah-electron shell-csp timeouts under load pass alone.
+  Out of scope, stale: handler count "(19)" in `cli-engine/src/lib/container.ts:832-834` and the log list in
+  `apps/ptah-electron/src/di/phase-4-handlers.ts:154-159`.
 
-## Batch 28: VS Code `ptah.review.*` commands and HEAD content provider — PENDING
+## Batch 28: VS Code `ptah.review.*` commands and HEAD content provider — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 18, 25
 - Verification: `npx nx run-many -t typecheck,test,lint -p ptah-extension-vscode`
 
-### Task 28.1: Four commands, validation, fallbacks, provider, palette hiding — PENDING
+### Task 28.1: Four commands, validation, fallbacks, provider, palette hiding — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/apps/ptah-extension-vscode/src/commands/review-commands.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/apps/ptah-extension-vscode/src/commands/ptah-git-head-content-provider.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/src/core/ptah-extension.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/package.json
 - Plan reference: implementation-plan.md:902-945
@@ -1244,15 +1358,29 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: `command:execute` allowlist unchanged (by diff); outside paths throw `Error('Path is outside the workspace.')`; ≤500 files; no new VSIX assets.
 - Validation notes: V8 — register next to `licenseCommands.registerCommands(this.context)` at `ptah-extension.ts:78`. A3 — read `extHostApiCommands.ts` at `1.100.0`, record the signature.
 - Implementation details: `ptah-git-head:/<rel>?root=<folderIndex>`; `vscode.changes` → per-file `vscode.diff` fallback; `git.openMergeEditor` → `vscode.open` fallback.
+- Outcome: executor backend-developer; the six listed files. `openChanges [{workspaceRoot, files[1..500]}]`,
+  `openDiff`/`openMerge [{workspaceRoot, path, origPath?, status?}]`, `openScm`. Root must match an open `file:`
+  workspace folder after symlink resolution (case folded on win32 only); each path checked lexically
+  (`isPathWithinRoots`) and again after symlink resolution (nearest existing parent for deleted files); refusal
+  throws `Error('Path is outside the workspace.')`, no absolute path in messages. Provider serves `readHeadText`;
+  absent/binary/too-large/LFS → one explanatory line; error → empty content + warning. `vscode.changes` →
+  per-file `vscode.diff` (or `vscode.open` when one side is missing — `vscode.diff` needs two URIs).
+  A3 (`extHostApiCommands.ts` @ 1.100.0, :452-488): `vscode.changes(title, [label: Uri, left: Uri|undefined|null,
+  right: Uri|undefined|null][])`. Allowlist: `command-rpc.handlers.ts` diff empty; `ALLOWED_COMMAND_PREFIXES =
+  ['ptah.']` already admits `ptah.review.*`. Accepted deviation: commands and provider constructed in
+  `ptah-extension.ts` (container files not in the batch). Verified by the orchestrator: typecheck + lint green;
+  the two new suites 31/31; full vscode test run 134/134 once Batch 27 fixed its container smoke stubs.
+  Noted: `readHeadText` paths are repository-relative, so a workspace folder that is a repo subfolder resolves the
+  HEAD side at the wrong path (same root assumption as `GitInfoService`).
 
-## Batch 29: Change-set card component — PENDING
+## Batch 29: Change-set card component — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, style scope
 - Tasks: 1 | Depends on: Batches 24, 25
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui`
 
-### Task 29.1: `ChangeSetCardComponent` (presentational) — PENDING
+### Task 29.1: `ChangeSetCardComponent` (presentational) — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/chat-ui/src/lib/molecules/change-set/change-set-card.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/chat-ui/src/index.ts
 - Plan reference: implementation-plan.md:860-863, 886
@@ -1260,15 +1388,24 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: whole row is a button, no nested controls; keyboard reachable, visible focus; "counts unavailable" and "No longer changes HEAD" states.
 - Validation notes: none.
 - Implementation details: inputs `changeSet`, `host`, `reconciled`, `conflicted`; outputs `review`, `openFile`, `openScm`.
+- Outcome: executor frontend-developer. Presentational card (no services/RPC); exports `ChangeSetCardComponent`,
+  `ChangeSetCardHost`, helpers `formatFileCounts`/`changeSetAccent`. Each actionable row is one button with a
+  visible inset focus ring; status letters via `ptah-file-status-badge`; counts unavailable → chip + `?` per row
+  (never zeros); reconciled → plain "No longer changes HEAD" row; conflicted wins over reconciled and adds a
+  "Conflicted" chip; truncated → "N more files not listed"; baselineMissing → muted caveat line; "Open Source
+  Control" only on VS Code. Accepted deviations: no `opacity-60` on reconciled rows (AA), `reconciled`/`conflicted`
+  default to empty sets, types live at `types/rpc/rpc-change-set.types.ts`. Verified by the orchestrator: chat-ui
+  typecheck/test/lint green (no cache); webview contrast specs 70/70. Noted: the AA colour overrides exist only
+  for the anubis themes.
 
-## Batch 30: Change-set store, actions and push routing — PENDING
+## Batch 30: Change-set store, actions and push routing — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 27, 28, 29
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-extension-webview`
 
-### Task 30.1: `ChangeSetStore`, `ChangeSetActionsService`, `MESSAGE_HANDLERS` entry — PENDING
+### Task 30.1: `ChangeSetStore`, `ChangeSetActionsService`, `MESSAGE_HANDLERS` entry — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/change-set/change-set.store.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/change-set/change-set-actions.service.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/index.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts
 - Plan reference: implementation-plan.md:864-871, 887-888
@@ -1276,15 +1413,27 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: one deduped `git:info` per session view (5 s freshness, 1 s debounce); no per-card timers; reconcile failure never shows zeros.
 - Validation notes: Electron path calls `ReviewNavigationService` which does not exist until Batch 35 — until cutover the Electron action reveals the existing dock and opens the file through the existing `openInDock` path; the switch to `ReviewNavigationService` is Task 58.2.
 - Implementation details: VS Code path `command:execute` with `ptah.review.*` and `args: [{ workspaceRoot, files | path }]`.
+- Outcome: executor frontend-developer. `ChangeSetStore` (root signals store + `MESSAGE_HANDLERS`): loads
+  `git:turnChangeSets` per active session (joined in-flight), merges pushes by turn (≤100/session, ≤8 sessions
+  cached), reconciles with one `git:info` per session (1 s collapse, 5 s freshness; turnEnded and status-update
+  force a re-read; no overlap; ≤1 timer per session, cleared on destroy). Missing from status → reconciled; `U` →
+  conflicted. Any failure drops marks and never rewrites counts. API `changeSetsFor`, `marksFor`, `ensureLoaded`.
+  `ChangeSetActionsService`: VS Code `command:execute` `ptah.review.*` (merge editor when recorded or current
+  status is `U`); Electron reveals the dock in working-tree mode and opens files via the `openInDock` steps,
+  git-ui imported dynamically; failures reject with user-facing errors. Accepted deviations: matching
+  `git:status-update` used directly (no RPC); Electron review/SCM reveal without opening a file; `openInDock`
+  steps duplicated (router method is private) until Task 58.2. Verified by the orchestrator: chat + webview
+  typecheck/test/lint green; eager guard passes, `main.js` 364,855 B gz. Noted: jest worker-exit warning in the
+  new specs; repo-subfolder path assumption also affects marks.
 
-## Batch 31: Transcript insertion and Electron card e2e — PENDING
+## Batch 31: Transcript insertion and Electron card e2e — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope; visual-reviewer against `prototype/` (dark + light)
 - Tasks: 1 | Depends on: Batch 30
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-electron-e2e`
 
-### Task 31.1: `@defer (when ...)` card after the turn's last assistant message — PENDING
+### Task 31.1: `@defer (when ...)` card after the turn's last assistant message — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.html; MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.ts; CREATE D:/projects/ptah-extension/apps/ptah-electron-e2e/src/specs/git/change-set-card.spec.ts
 - Plan reference: implementation-plan.md:872, 889
@@ -1292,15 +1441,27 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: card chunk stays lazy; axe clean dark + light.
 - Validation notes: A7 — read `session-history-replayer.service.ts` (~191); fallback join "after the last assistant message before the next user message".
 - Implementation details: e2e — agent turn edits two files → card; reopen session → card rendered.
+- Outcome: executor frontend-developer. A7: replayed messages carry no turn id, so the join is by time on the
+  transcript order key (`streamingState.startTime ?? timestamp`): last assistant message within
+  [turnStartedAt, turnEndedAt] (binary search), fallback "last assistant message of the turn whose user message
+  is the last at/before turnStartedAt", else no card. `transcript-change-set-anchors.ts` (+spec 7) owns the join
+  and `transcriptOrderKey`; the transcript renders `@defer (when …)` cards per anchor, inline action errors with
+  `role="alert"`, `ensureLoaded` for visible non-active tiles. Accepted deviations: new secondary entry
+  `@ptah-extension/chat-ui/change-set-card` (+ tsconfig alias, card export removed from the chat-ui barrel)
+  because the barrel is eager; test harness stubs; orchestrator added `ptah-change-set-card` to the eager guard's
+  forbidden markers. e2e `change-set-card.spec.ts`: push → card in DOM order after the turn; reload + reopen →
+  card from `git:turnChangeSets`; passed alone (55 s). Axe not run (no axe in the Electron harness; visual review
+  covers dark/light). Verified by the orchestrator: chat, chat-ui, ptah-electron-e2e typecheck/test/lint green;
+  eager guard passes (card in a 9 KB lazy chunk).
 
-## Batch 32: VS Code e2e — card to native diff views — PENDING
+## Batch 32: VS Code e2e — card to native diff views — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 31
 - Verification: `npx nx run-many -t lint,typecheck -p ptah-extension-vscode-e2e` + the suite run command used by `apps/ptah-extension-vscode-e2e/runner.mjs`
 
-### Task 32.1: Req 5.1-5.4 scenario + VSIX listing has no new assets — PENDING
+### Task 32.1: Req 5.1-5.4 scenario + VSIX listing has no new assets — COMPLETE
 
 - Files: CREATE a suite file under D:/projects/ptah-extension/apps/ptah-extension-vscode-e2e/src/suite/ (name per suite convention)
 - Plan reference: implementation-plan.md:890, 939, 1462
@@ -1308,6 +1469,13 @@ Outcome (orchestrator, 2026-10-01):
 - Quality requirements: "Review all" opens a multi-diff; outside path refused.
 - Validation notes: none.
 - Implementation details: as plan.
+- Outcome: executor senior-tester. `src/suite/review-commands.cjs` (+1 line in `index.cjs` to load it), 7 cases:
+  commands registered; openChanges → multi-diff with `ptah-git-head:` left sides; openDiff → HEAD text left,
+  working tree right; outside relative/absolute/root paths refused with 'Path is outside the workspace.' and no
+  editor opened; openMerge resolves (merge editor or plain-file fallback — the built-in git extension is active,
+  so the fallback is not forced deterministically); openScm runs; dist tree has no codemirror/monaco/spot-editor/
+  review-canvas/review-shell assets (proxy for the VSIX listing, packaging cannot run in the host). Full runner
+  17/17 against the existing dist build. Verified by the orchestrator: lint green.
 
 ### P3 checkpoint
 
@@ -1315,7 +1483,24 @@ Outcome (orchestrator, 2026-10-01):
 
 ### P3 phase-end review
 
-- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P3 phase diff, the full e2e set, visual review of the change-set card against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
+- [x] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P3 phase diff, the full e2e set, visual review of the change-set card against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
+- Outcome (2026-10-02): logic — Glm part 1 (`reviews/p3-phase-review-glm.md`, REVISE 7/10: F1-F9) on the
+  subagent-authored batches; subagent review of lane-authored Batch 23 (`p3-phase-review-subagent-b23.md`, REVISE
+  7/10); fixes `50b48eecc` (git-ui) and `0f3953a6f` (backend + SonarCloud). Round 1 by antigravity (Glm hit its
+  weekly limit) — `p3-phase-review-antigravity-round1.md`: F1-F7, F9 FIXED, new B1-B5 on Batches 29-31 (REVISE
+  7/10); fixes `86b5ee6dd`. Round 2 `p3-phase-review-antigravity-round2.md`: B1-B5 FIXED, APPROVE 9/10. F8
+  (SHA-256 unborn HEAD) accepted as documented. Visual — `p3-visual-review.md` REVISE 6/10 (S1 focus ring, S2
+  narrow tile, S3 badge contrast + 3 moderate) → fixed in `86b5ee6dd` → `p3-visual-review-round1.md` APPROVE
+  8/10 (screenshots `screenshots/p3/`, `screenshots/p3/round1/`). Accepted minors: decorative light status-chip
+  accents and the light "mixed"/success accents < 3:1. e2e: Electron `change-set-card.spec.ts` passed alone; VS
+  Code runner 17/17; full e2e set runs in CI (local full Electron run conflicts with the running desktop app).
+  The full Electron e2e set has NOT run for P3 yet: stacked PRs do not trigger the e2e workflows, so it runs in CI
+  once the stack is retargeted to `main` — PENDING. SonarCloud: reliability regexes/sort fixed in `0f3953a6f`; S4036 PATH hotspot in the VS Code e2e suite fixed by
+  running git from the built-in git extension's absolute path. P2 review fixes merged in `70df63cbe`.
+  Carried to P4: real-git spec for the 2 MiB review-reader limit; diff-tabs spec gaps; Electron card review/SCM
+  actions only reveal the dock until Task 58.2; repo-subfolder assumption remains for apply/stage/blob reads;
+  rename+commit within one turn reports the old path as `M`; jest worker-exit warning in the change-set specs;
+  Pierre `<style>` vs VS Code CSP gate before Batch 44 (still open).
 
 ---
 

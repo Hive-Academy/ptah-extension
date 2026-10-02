@@ -1,6 +1,6 @@
 # Handoff — TASK_2026_576_e16a (git review UI + git reliability)
 
-Written 2026-10-01, end of session. Replaces the 2026-09-30 handoff. Status refreshed 2026-10-02 (P2 complete, P3 in progress).
+Written 2026-10-01, end of session. Replaces the 2026-09-30 handoff. Status refreshed 2026-10-02 (P2 complete, P3 complete, P4 next).
 
 ## 1. Where things stand
 
@@ -11,9 +11,9 @@ Written 2026-10-01, end of session. Replaces the 2026-09-30 handoff. Status refr
 | P2 worktree | `D:/projects/ptah-extension/.claude-worktrees/task-576-p2` (all task work happens here; main checkout stays on `main`) |
 | P2 batches done | All eleven: 9 `7800dde50`, 18 `e7b30b433`, 10 `4ff38bc5c`, 11 `2ae839735`, 12 `ca36b19de`, 15 `183aac6e6`, 13 `ddafac963`, 16 `4b458351a`, 19 `0c3189fbc`, 17 `e44c7cb95`, 14 `6a62feb31` |
 | P2 phase-end review | DONE 2026-10-01 (`reviews/p2-phase-review*.md`, `reviews/p2-visual-review.md`; closed in `ef6f18915`). P2 is complete; PR #619 now only takes review fixes. |
-| P3 | IN PROGRESS on `feat/task-2026-576-p3` (worktree `.claude-worktrees/task-576-p3`), **draft PR #625** stacked on `feat/task-2026-576-p2`. P3 batch status lives in that branch's `batches.md`. |
+| P3 | COMPLETE on `feat/task-2026-576-p3` (worktree `.claude-worktrees/task-576-p3`), PR #625 stacked on `feat/task-2026-576-p2`, phase-end review closed 2026-10-02 (see `batches.md` P3 phase-end Outcome). |
 | Then | P4 (33–44) → P5 (45–57) → Cutover (58–69), each a stacked branch + PR |
-| Progress | 19/69 batches complete on this branch (P1 + P2; batches.md header). P3 progress is recorded on the P3 branch. |
+| Progress | 32/69 batches complete (P1-P3; batches.md header). |
 
 Read first: `context.md` (Gate decisions — especially **Auto mode** and **Lanes widened**, 2026-10-01), `batches.md` (per-batch specs, Outcome notes, phase-end checkboxes).
 
@@ -28,9 +28,9 @@ Read first: `context.md` (Gate decisions — especially **Auto mode** and **Lane
 
 Batches 14 and 17 and the P2 phase-end review are done (see §1). What remains:
 
-1. **PR #619 review fixes** land on `feat/task-2026-576-p2` (explicit paths, push; no rebase, no force push). Merge the updated P2 branch into `feat/task-2026-576-p3` so PR #625 keeps a clean diff.
-2. **P3** (in progress, PR #625): finish Batches 20–32 per the P3 branch's `batches.md` waves, then the P3 phase-end review (includes visual review of the change-set card against `prototype/`).
-3. Repeat for P4, P5 and Cutover: branch + worktree from the previous phase, draft PR stacked on it.
+1. Any further PR #619 / #625 review fixes land on their own branch; merge each updated base forward (P2 → P3 → P4 …).
+2. **P4** (Batches 33–44): branch `feat/task-2026-576-p4` + worktree `.claude-worktrees/task-576-p4` from P3, draft PR stacked on `feat/task-2026-576-p3`. Decide the Pierre `<style>` vs VS Code CSP gate with an independent lane before Batch 44.
+3. Repeat for P5 and Cutover.
 
 ## 4. Items raised for the P2 phase-end review (that review is done; dispositions in `reviews/p2-phase-review*.md`)
 

@@ -77,6 +77,11 @@ import { GitRepoOperationReader } from './git/git-repo-operation.reader';
 import { classifyBlobBytes } from './git/git-blob-classifier';
 import { thrownOutcome, writeOutcome } from './git/git-mutation-outcome';
 import { assertSafeRef, assertSafeRevision } from './git/git-ref-guard';
+import {
+  EMPTY_TREE_SHA,
+  GitChangeSetNumstatReader,
+  type ChangeSetLineCounts,
+} from './git/git-change-set-numstat.reader';
 
 /** Working-tree status: NUL-terminated, verbatim paths, no C-quoting. */
 const STATUS_Z = ['status', '--porcelain=v2', '-z'] as const;
@@ -493,6 +498,7 @@ export class GitInfoService {
   private readonly remoteSync: GitRemoteSync;
   private readonly worktreeAdmin: AgentWorktreeAdmin;
   private readonly operationReader: GitRepoOperationReader;
+  private readonly changeSetNumstat: GitChangeSetNumstatReader;
 
   /**
    * @param spawner Optional `IProcessSpawner`. When a host supplies one, every
@@ -520,6 +526,16 @@ export class GitInfoService {
     this.remoteSync = new GitRemoteSync(deps);
     this.worktreeAdmin = new AgentWorktreeAdmin(deps);
     this.operationReader = new GitRepoOperationReader(deps);
+    this.changeSetNumstat = new GitChangeSetNumstatReader({
+      exec: deps.exec,
+      logger,
+      parseNumstat: (stdout) => this.parseNumstat(stdout),
+      resolveRepositoryRoot: (workspacePath) =>
+        this.resolveRepositoryRoot(workspacePath),
+      countUntracked: (repositoryRoot, relativePath) =>
+        this.readUntrackedNumstat(repositoryRoot, relativePath),
+      maxUntrackedFiles: MAX_UNTRACKED_NUMSTAT_FILES,
+    });
   }
 
   /**
@@ -789,15 +805,24 @@ export class GitInfoService {
         this.operationReader.readRepoOperation(workspacePath, files, priority),
       ]);
       let untrackedRead = 0;
+      // Status paths are repository-root relative, so an untracked file is
+      // read from the top level, not from a workspace that is a subdirectory.
+      // Resolved once, and only when an untracked file needs counting.
+      let repositoryRoot: string | undefined;
       for (const file of files) {
         const stat = (file.staged ? stagedStats : worktreeStats).get(file.path);
         if (stat) Object.assign(file, stat);
         else if (!file.staged && file.status === '??' && !file.isDirectory) {
+          if (untrackedRead++ >= MAX_UNTRACKED_NUMSTAT_FILES) {
+            Object.assign(file, { additions: null, deletions: null });
+            continue;
+          }
+          repositoryRoot ??=
+            (await this.resolveRepositoryRoot(workspacePath, priority)) ??
+            workspacePath;
           Object.assign(
             file,
-            untrackedRead++ < MAX_UNTRACKED_NUMSTAT_FILES
-              ? await this.readUntrackedNumstat(workspacePath, file.path)
-              : { additions: null, deletions: null },
+            await this.readUntrackedNumstat(repositoryRoot, file.path),
           );
         }
       }
@@ -1296,6 +1321,86 @@ export class GitInfoService {
       } as unknown as Error);
       return this.gitReadError(this.classifyExecError(error), relativePath);
     }
+  }
+
+  /**
+   * The repository's top-level directory for `workspacePath` (`git rev-parse
+   * --show-toplevel`), or null when `workspacePath` is not in a work tree or
+   * git could not answer. Status, numstat and change-set paths are relative
+   * to it — not to a workspace folder that is a repository subdirectory.
+   */
+  async resolveRepositoryRoot(
+    workspacePath: string,
+    priority?: ExecGitOptions['priority'],
+  ): Promise<string | null> {
+    try {
+      const { stdout, exitCode } = await this.execGit(
+        ['rev-parse', '--show-toplevel'],
+        workspacePath,
+        priority ? { priority } : undefined,
+      );
+      const topLevel = stdout.replace(/\r?\n$/, '');
+      return exitCode === 0 && path.isAbsolute(topLevel)
+        ? path.normalize(topLevel)
+        : null;
+    } catch (error: unknown) {
+      // degradation-audit: reported - logged here; every caller falls back to
+      // the workspace path, which is the top level whenever the workspace is.
+      this.logger.warn(
+        `[GitInfoService] could not resolve the repository top level for ${workspacePath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * The HEAD side of a file for a read-only diff view: `git show
+   * <HEAD sha>:<path>`, capped at `GIT_DIFF_MAX_SIDE_BYTES` like
+   * {@link readBlob} (past it the side is `too-large`). On an unborn branch
+   * HEAD is the empty tree, so every path is `absent`. Rejects an invalid
+   * path before spawning git, as {@link readBlob} does.
+   *
+   * `relativePath` is repository-root relative (`<sha>:<path>` is resolved
+   * from the top level), so `workspacePath` may be any directory inside the
+   * work tree, a repository subdirectory included.
+   */
+  async readHeadText(
+    workspacePath: string,
+    relativePath: string,
+  ): Promise<GitBlobRead> {
+    this.validatePathSegment(relativePath);
+    let head: string | null;
+    try {
+      head = await this.resolveHeadSha(workspacePath);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        '[GitInfoService] readHeadText could not resolve HEAD',
+        {
+          workspacePath,
+          relativePath,
+          error: message,
+        } as unknown as Error,
+      );
+      return this.gitReadError(this.classifyExecError(error), relativePath);
+    }
+    return this.readBlob(workspacePath, head ?? EMPTY_TREE_SHA, relativePath);
+  }
+
+  /**
+   * Line counts against HEAD (the empty tree on an unborn branch) for the
+   * paths one agent turn changed, untracked files included. Every requested
+   * path gets an entry; a count git could not produce is `null` with `binary`
+   * unset, which the change-set recorder reports as counts unavailable. Pass
+   * a rename's `origPath` too, or git sees only the added side.
+   */
+  readChangeSetNumstat(
+    workspacePath: string,
+    paths: readonly string[],
+  ): Promise<Map<string, ChangeSetLineCounts>> {
+    return this.changeSetNumstat.read(workspacePath, paths);
   }
 
   /**
@@ -3276,12 +3381,17 @@ export class GitInfoService {
     return result.exitCode === 0 ? this.parseNumstat(result.stdout) : new Map();
   }
 
+  /**
+   * Line counts of one untracked file read from disk. `repositoryRoot` is the
+   * top level `relativePath` is relative to (status and `ls-files --full-name`
+   * report root-relative paths); the file must stay inside it.
+   */
   private async readUntrackedNumstat(
-    workspacePath: string,
+    repositoryRoot: string,
     relativePath: string,
   ): Promise<Pick<GitFileStatus, 'additions' | 'deletions' | 'binary'>> {
-    const absolutePath = path.resolve(workspacePath, relativePath);
-    const relative = path.relative(workspacePath, absolutePath);
+    const absolutePath = path.resolve(repositoryRoot, relativePath);
+    const relative = path.relative(repositoryRoot, absolutePath);
     if (relative.startsWith('..') || path.isAbsolute(relative)) {
       return { additions: null, deletions: null };
     }

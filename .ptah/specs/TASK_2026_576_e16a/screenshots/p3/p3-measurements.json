@@ -1,0 +1,2880 @@
+{
+  "dark-populated": {
+    "headerLabel": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "totalsAdd": {
+      "ratio": 5.36,
+      "fg": [
+        22,
+        163,
+        74
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "totalsDel": {
+      "ratio": 6.38,
+      "fg": [
+        248,
+        113,
+        113
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 4.82,
+      "fg": [
+        248,
+        247,
+        244
+      ],
+      "bg": [
+        37,
+        99,
+        235
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.15,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "origPath": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 12.29,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        36,
+        36,
+        48
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "chevron": {
+      "ratio": 5.06
+    },
+    "cardAccent": {
+      "color": "oklch(0.704871 0.186721 47.6044)",
+      "ratioVsPage": 6.61,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 5.47,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 4.65,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.17,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "R",
+        "aria": "Renamed",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 7.29,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 5.47,
+        "letterRatio": 12.29
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 48,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 448,
+      "h": 165
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Show src/app.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/old.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/moved.ts in review"
+      },
+      {
+        "clipped": true,
+        "title": "Show libs/frontend/some-very-long-feature-library/src/lib/components/organisms/deeply-nested/another-level/ChangeSetCardWithAVeryLongName.component.spec.ts in review"
+      }
+    ]
+  },
+  "dark-populated-narrow320": {
+    "headerLabel": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "totalsAdd": {
+      "ratio": 5.36,
+      "fg": [
+        22,
+        163,
+        74
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "totalsDel": {
+      "ratio": 6.38,
+      "fg": [
+        248,
+        113,
+        113
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 4.82,
+      "fg": [
+        248,
+        247,
+        244
+      ],
+      "bg": [
+        37,
+        99,
+        235
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.15,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "origPath": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 12.29,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        36,
+        36,
+        48
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "chevron": {
+      "ratio": 5.06
+    },
+    "cardAccent": {
+      "color": "oklch(0.704871 0.186721 47.6044)",
+      "ratioVsPage": 6.61,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 5.47,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 4.65,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.17,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "R",
+        "aria": "Renamed",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 7.29,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 5.47,
+        "letterRatio": 12.29
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 48,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 304,
+      "h": 165
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Show src/app.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/old.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/moved.ts in review"
+      },
+      {
+        "clipped": true,
+        "title": "Show libs/frontend/some-very-long-feature-library/src/lib/components/organisms/deeply-nested/another-level/ChangeSetCardWithAVeryLongName.component.spec.ts in review"
+      }
+    ]
+  },
+  "dark-populated-focus": {
+    "tag": "BUTTON",
+    "testid": "change-set-row",
+    "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 0px inset, oklch(0.54615 0.215208 262.881) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "outline": "rgba(0, 0, 0, 0) solid 2px",
+    "focusVisible": true,
+    "bg": "rgba(0, 0, 0, 0)",
+    "ring": [
+      255,
+      255,
+      255,
+      1
+    ]
+  },
+  "dark-populated-clickError": {
+    "errCount": 0,
+    "text": null
+  },
+  "dark-unavailable": {
+    "headerLabel": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "countsUnavailableBadge": {
+      "ratio": 4.97,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        26,
+        26,
+        32
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 4.82,
+      "fg": [
+        248,
+        247,
+        244
+      ],
+      "bg": [
+        37,
+        99,
+        235
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.15,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 12.29,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        36,
+        36,
+        48
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "chevron": {
+      "ratio": 5.06
+    },
+    "cardAccent": {
+      "color": "oklch(0.925095 0.00705 88.6451 / 0.3)",
+      "ratioVsPage": 2.4,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 5.47,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 4.65,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.17,
+        "letterRatio": 12.29
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 48,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 448,
+      "h": 114
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Show src/app.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/old.ts in review"
+      }
+    ]
+  },
+  "dark-unavailable-narrow320": {
+    "headerLabel": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "countsUnavailableBadge": {
+      "ratio": 4.97,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        26,
+        26,
+        32
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 4.82,
+      "fg": [
+        248,
+        247,
+        244
+      ],
+      "bg": [
+        37,
+        99,
+        235
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.15,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 12.29,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        36,
+        36,
+        48
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "chevron": {
+      "ratio": 5.06
+    },
+    "cardAccent": {
+      "color": "oklch(0.925095 0.00705 88.6451 / 0.3)",
+      "ratioVsPage": 2.4,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 5.47,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 4.65,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.17,
+        "letterRatio": 12.29
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 48,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 304,
+      "h": 114
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Show src/app.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/old.ts in review"
+      }
+    ]
+  },
+  "dark-mixed": {
+    "headerLabel": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "totalsAdd": {
+      "ratio": 5.36,
+      "fg": [
+        22,
+        163,
+        74
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "totalsDel": {
+      "ratio": 6.38,
+      "fg": [
+        248,
+        113,
+        113
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 4.82,
+      "fg": [
+        248,
+        247,
+        244
+      ],
+      "bg": [
+        37,
+        99,
+        235
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.15,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "origPath": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 12.29,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        36,
+        36,
+        48
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "reconciledRowPath": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "reconciledBadge": {
+      "ratio": 4.97,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        26,
+        26,
+        32
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "conflictedBadge": {
+      "ratio": 4.83,
+      "fg": [
+        255,
+        255,
+        255
+      ],
+      "bg": [
+        220,
+        38,
+        38
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "truncated": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "baselineMissing": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "chevron": {
+      "ratio": 5.06
+    },
+    "cardAccent": {
+      "color": "oklch(0.704871 0.186721 47.6044)",
+      "ratioVsPage": 6.61,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "!",
+        "aria": "Conflicted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.17,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 4.65,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.17,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "R",
+        "aria": "Renamed",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 7.29,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 5.47,
+        "letterRatio": 12.29
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 48,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 448,
+      "h": 211
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Resolve src/app.ts"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/moved.ts in review"
+      },
+      {
+        "clipped": true,
+        "title": "Show libs/frontend/some-very-long-feature-library/src/lib/components/organisms/deeply-nested/another-level/ChangeSetCardWithAVeryLongName.component.spec.ts in review"
+      }
+    ]
+  },
+  "dark-mixed-narrow320": {
+    "headerLabel": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "totalsAdd": {
+      "ratio": 5.36,
+      "fg": [
+        22,
+        163,
+        74
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "totalsDel": {
+      "ratio": 6.38,
+      "fg": [
+        248,
+        113,
+        113
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 4.82,
+      "fg": [
+        248,
+        247,
+        244
+      ],
+      "bg": [
+        37,
+        99,
+        235
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.15,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "origPath": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 12.29,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        36,
+        36,
+        48
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "reconciledRowPath": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "reconciledBadge": {
+      "ratio": 4.97,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        26,
+        26,
+        32
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "conflictedBadge": {
+      "ratio": 4.83,
+      "fg": [
+        255,
+        255,
+        255
+      ],
+      "bg": [
+        220,
+        38,
+        38
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "truncated": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "baselineMissing": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "chevron": {
+      "ratio": 5.06
+    },
+    "cardAccent": {
+      "color": "oklch(0.704871 0.186721 47.6044)",
+      "ratioVsPage": 6.61,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "!",
+        "aria": "Conflicted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.17,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 4.65,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.17,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "R",
+        "aria": "Renamed",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 7.29,
+        "letterRatio": 12.29
+      },
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 5.47,
+        "letterRatio": 12.29
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 48,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 304,
+      "h": 211
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Resolve src/app.ts"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/moved.ts in review"
+      },
+      {
+        "clipped": true,
+        "title": "Show libs/frontend/some-very-long-feature-library/src/lib/components/organisms/deeply-nested/another-level/ChangeSetCardWithAVeryLongName.component.spec.ts in review"
+      }
+    ]
+  },
+  "dark-mixed-focus": {
+    "tag": "BUTTON",
+    "testid": "change-set-row",
+    "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 0px inset, oklch(0.54615 0.215208 262.881) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "outline": "rgba(0, 0, 0, 0) solid 2px",
+    "focusVisible": true,
+    "bg": "rgba(0, 0, 0, 0)",
+    "ring": [
+      255,
+      255,
+      255,
+      1
+    ]
+  },
+  "light-populated": {
+    "headerLabel": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "totalsAdd": {
+      "ratio": 5.37,
+      "fg": [
+        0,
+        111,
+        54
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "totalsDel": {
+      "ratio": 6.3,
+      "fg": [
+        175,
+        0,
+        25
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 5.2,
+      "fg": [
+        0,
+        93,
+        88
+      ],
+      "bg": [
+        68,
+        235,
+        211
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "origPath": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 13.18,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        230,
+        226,
+        223
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "chevron": {
+      "ratio": 4.55
+    },
+    "cardAccent": {
+      "color": "oklch(0.72 0.18 55)",
+      "ratioVsPage": 2.46,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.04,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 1.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "R",
+        "aria": "Renamed",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.41,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.04,
+        "letterRatio": 13.18
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 50,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 448,
+      "h": 165
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Show src/app.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/old.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/moved.ts in review"
+      },
+      {
+        "clipped": true,
+        "title": "Show libs/frontend/some-very-long-feature-library/src/lib/components/organisms/deeply-nested/another-level/ChangeSetCardWithAVeryLongName.component.spec.ts in review"
+      }
+    ]
+  },
+  "light-populated-narrow320": {
+    "headerLabel": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "totalsAdd": {
+      "ratio": 5.37,
+      "fg": [
+        0,
+        111,
+        54
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "totalsDel": {
+      "ratio": 6.3,
+      "fg": [
+        175,
+        0,
+        25
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 5.2,
+      "fg": [
+        0,
+        93,
+        88
+      ],
+      "bg": [
+        68,
+        235,
+        211
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "origPath": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 13.18,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        230,
+        226,
+        223
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "chevron": {
+      "ratio": 4.55
+    },
+    "cardAccent": {
+      "color": "oklch(0.72 0.18 55)",
+      "ratioVsPage": 2.46,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.04,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 1.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "R",
+        "aria": "Renamed",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.41,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.04,
+        "letterRatio": 13.18
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 50,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 304,
+      "h": 165
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Show src/app.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/old.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/moved.ts in review"
+      },
+      {
+        "clipped": true,
+        "title": "Show libs/frontend/some-very-long-feature-library/src/lib/components/organisms/deeply-nested/another-level/ChangeSetCardWithAVeryLongName.component.spec.ts in review"
+      }
+    ]
+  },
+  "light-populated-focus": {
+    "tag": "BUTTON",
+    "testid": "change-set-row",
+    "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 0px inset, oklch(0.85 0.138 181.071) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "outline": "rgba(0, 0, 0, 0) solid 2px",
+    "focusVisible": true,
+    "bg": "rgba(0, 0, 0, 0)",
+    "ring": [
+      255,
+      255,
+      255,
+      1
+    ]
+  },
+  "light-populated-clickError": {
+    "errCount": 0,
+    "text": null
+  },
+  "light-unavailable": {
+    "headerLabel": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "countsUnavailableBadge": {
+      "ratio": 4.48,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        234,
+        230
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 5.2,
+      "fg": [
+        0,
+        93,
+        88
+      ],
+      "bg": [
+        68,
+        235,
+        211
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 13.18,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        230,
+        226,
+        223
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "chevron": {
+      "ratio": 4.55
+    },
+    "cardAccent": {
+      "color": "oklch(0.23574 0.066 313.189 / 0.3)",
+      "ratioVsPage": 1.93,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.04,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 1.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.96,
+        "letterRatio": 13.18
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 50,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 448,
+      "h": 114
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Show src/app.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/old.ts in review"
+      }
+    ]
+  },
+  "light-unavailable-narrow320": {
+    "headerLabel": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "countsUnavailableBadge": {
+      "ratio": 4.48,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        234,
+        230
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 5.2,
+      "fg": [
+        0,
+        93,
+        88
+      ],
+      "bg": [
+        68,
+        235,
+        211
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 13.18,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        230,
+        226,
+        223
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "chevron": {
+      "ratio": 4.55
+    },
+    "cardAccent": {
+      "color": "oklch(0.23574 0.066 313.189 / 0.3)",
+      "ratioVsPage": 1.93,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.04,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 1.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.96,
+        "letterRatio": 13.18
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 50,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 304,
+      "h": 114
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Show src/app.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/old.ts in review"
+      }
+    ]
+  },
+  "light-mixed": {
+    "headerLabel": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "totalsAdd": {
+      "ratio": 5.37,
+      "fg": [
+        0,
+        111,
+        54
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "totalsDel": {
+      "ratio": 6.3,
+      "fg": [
+        175,
+        0,
+        25
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 5.2,
+      "fg": [
+        0,
+        93,
+        88
+      ],
+      "bg": [
+        68,
+        235,
+        211
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "origPath": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 13.18,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        230,
+        226,
+        223
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "reconciledRowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "reconciledBadge": {
+      "ratio": 4.48,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        234,
+        230
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "conflictedBadge": {
+      "ratio": 4.86,
+      "fg": [
+        19,
+        19,
+        23
+      ],
+      "bg": [
+        254,
+        28,
+        85
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "truncated": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "baselineMissing": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "chevron": {
+      "ratio": 4.55
+    },
+    "cardAccent": {
+      "color": "oklch(0.72 0.18 55)",
+      "ratioVsPage": 2.46,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "!",
+        "aria": "Conflicted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 1.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "R",
+        "aria": "Renamed",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.41,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.04,
+        "letterRatio": 13.18
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      },
+      {
+        "w": 446,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 50,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 448,
+      "h": 211
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Resolve src/app.ts"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/moved.ts in review"
+      },
+      {
+        "clipped": true,
+        "title": "Show libs/frontend/some-very-long-feature-library/src/lib/components/organisms/deeply-nested/another-level/ChangeSetCardWithAVeryLongName.component.spec.ts in review"
+      }
+    ]
+  },
+  "light-mixed-narrow320": {
+    "headerLabel": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "totalsAdd": {
+      "ratio": 5.37,
+      "fg": [
+        0,
+        111,
+        54
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "totalsDel": {
+      "ratio": 6.3,
+      "fg": [
+        175,
+        0,
+        25
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "reviewButton": {
+      "ratio": 5.2,
+      "fg": [
+        0,
+        93,
+        88
+      ],
+      "bg": [
+        68,
+        235,
+        211
+      ],
+      "size": "11px",
+      "weight": "600"
+    },
+    "rowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "rowCounts": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "origPath": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "badgeLetter": {
+      "ratio": 13.18,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        230,
+        226,
+        223
+      ],
+      "size": "10px",
+      "weight": "600"
+    },
+    "reconciledRowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px",
+      "weight": "400"
+    },
+    "reconciledBadge": {
+      "ratio": 4.48,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        234,
+        230
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "conflictedBadge": {
+      "ratio": 4.86,
+      "fg": [
+        19,
+        19,
+        23
+      ],
+      "bg": [
+        254,
+        28,
+        85
+      ],
+      "size": "9px",
+      "weight": "400"
+    },
+    "truncated": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "baselineMissing": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px",
+      "weight": "400"
+    },
+    "chevron": {
+      "ratio": 4.55
+    },
+    "cardAccent": {
+      "color": "oklch(0.72 0.18 55)",
+      "ratioVsPage": 2.46,
+      "width": "2px"
+    },
+    "badgeAccents": [
+      {
+        "letter": "!",
+        "aria": "Conflicted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "A",
+        "aria": "Added",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 1.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "D",
+        "aria": "Deleted",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.96,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "R",
+        "aria": "Renamed",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 3.41,
+        "letterRatio": 13.18
+      },
+      {
+        "letter": "M",
+        "aria": "Modified",
+        "w": 16,
+        "h": 16,
+        "accentRatio": 2.04,
+        "letterRatio": 13.18
+      }
+    ],
+    "rowSizes": [
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      },
+      {
+        "w": 302,
+        "h": 26
+      }
+    ],
+    "reviewSize": {
+      "w": 50,
+      "h": 24
+    },
+    "cardRect": {
+      "x": 531,
+      "w": 304,
+      "h": 211
+    },
+    "overflowX": {
+      "card": false,
+      "doc": false
+    },
+    "truncatedPaths": [
+      {
+        "clipped": false,
+        "title": "Resolve src/app.ts"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/new-file.ts in review"
+      },
+      {
+        "clipped": false,
+        "title": "Show src/moved.ts in review"
+      },
+      {
+        "clipped": true,
+        "title": "Show libs/frontend/some-very-long-feature-library/src/lib/components/organisms/deeply-nested/another-level/ChangeSetCardWithAVeryLongName.component.spec.ts in review"
+      }
+    ]
+  },
+  "light-mixed-focus": {
+    "tag": "BUTTON",
+    "testid": "change-set-row",
+    "boxShadow": "rgb(255, 255, 255) 0px 0px 0px 0px inset, oklch(0.85 0.138 181.071) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "outline": "rgba(0, 0, 0, 0) solid 2px",
+    "focusVisible": true,
+    "bg": "rgba(0, 0, 0, 0)",
+    "ring": [
+      255,
+      255,
+      255,
+      1
+    ]
+  },
+  "cls": {
+    "yBefore": 487,
+    "samples": [
+      {
+        "i": 0,
+        "y": 676,
+        "cardH": 165
+      },
+      {
+        "i": 1,
+        "y": 676,
+        "cardH": 165
+      },
+      {
+        "i": 2,
+        "y": 676,
+        "cardH": 165
+      },
+      {
+        "i": 3,
+        "y": 676,
+        "cardH": 165
+      },
+      {
+        "i": 4,
+        "y": 676,
+        "cardH": 165
+      },
+      {
+        "i": 5,
+        "y": 676,
+        "cardH": 165
+      }
+    ],
+    "entries": [
+      {
+        "v": 0.012021867649686107,
+        "t": 1594
+      },
+      {
+        "v": 0.0000017236624379481523,
+        "t": 1638
+      }
+    ]
+  },
+  "theme": "anubis"
+}

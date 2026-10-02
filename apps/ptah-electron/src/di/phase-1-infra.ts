@@ -39,6 +39,16 @@ import {
   SESSION_METADATA_MIGRATION,
   SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
 } from '@ptah-extension/agent-sdk';
+import { TURN_CHANGE_SETS_KEY_PREFIX } from '@ptah-extension/rpc-handlers';
+
+/**
+ * Keys the worker storage reads on demand instead of loading into its startup
+ * cache: per-session values that can each reach several MB.
+ */
+const WORKER_CACHE_EXCLUDE_KEY_PREFIXES: readonly string[] = [
+  ...SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
+  TURN_CHANGE_SETS_KEY_PREFIX,
+];
 
 function logMigrationReceipt(
   logger: Logger,
@@ -139,7 +149,7 @@ export function registerPhase1Infra(
           ? {
               workerPath: options.stateStorageWorkerPath,
               migrations: [SESSION_METADATA_MIGRATION],
-              cacheExcludeKeyPrefixes: SESSION_METADATA_WORKER_CACHE_EXCLUSIONS,
+              cacheExcludeKeyPrefixes: WORKER_CACHE_EXCLUDE_KEY_PREFIXES,
               onMigrationReceipt: (receipt) =>
                 logMigrationReceipt(logger, receipt),
             }

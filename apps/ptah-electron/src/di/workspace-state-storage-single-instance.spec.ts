@@ -279,6 +279,27 @@ describe('Electron DI — one workspace state storage worker per launch', () => 
       expect(mockWorkerPaths).toEqual([WORKER_PATH]);
     });
 
+    it('keeps per-session bulk keys, turn change sets included, out of the startup snapshot', async () => {
+      scriptReady([]);
+      const reply = mockWorkerReply;
+      const snapshotRequests: Record<string, unknown>[] = [];
+      mockWorkerReply = (request) => {
+        if (request['type'] === 'read-snapshot-page') {
+          snapshotRequests.push(request);
+        }
+        return reply?.(request);
+      };
+
+      await bootToReady('cache-exclusions');
+
+      expect(snapshotRequests.length).toBeGreaterThan(0);
+      for (const request of snapshotRequests) {
+        expect(request['excludeKeyPrefixes']).toEqual(
+          expect.arrayContaining(['ptah.agentOutput:', 'ptah.turnChangeSets:']),
+        );
+      }
+    });
+
     it('logs nothing when the ready handshake carries no receipt', async () => {
       scriptReady([]);
 

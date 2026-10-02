@@ -139,6 +139,26 @@
         "title": "Capture CPU Profile",
         "category": "Ptah",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "ptah.review.openChanges",
+        "title": "Review Agent Changes",
+        "category": "Ptah"
+      },
+      {
+        "command": "ptah.review.openDiff",
+        "title": "Open Agent Change Diff",
+        "category": "Ptah"
+      },
+      {
+        "command": "ptah.review.openMerge",
+        "title": "Open Agent Change in Merge Editor",
+        "category": "Ptah"
+      },
+      {
+        "command": "ptah.review.openScm",
+        "title": "Open Source Control for Agent Changes",
+        "category": "Ptah"
       }
     ],
     "menus": {
@@ -166,6 +186,22 @@
         },
         {
           "command": "ptah.captureCpuProfile"
+        },
+        {
+          "command": "ptah.review.openChanges",
+          "when": "false"
+        },
+        {
+          "command": "ptah.review.openDiff",
+          "when": "false"
+        },
+        {
+          "command": "ptah.review.openMerge",
+          "when": "false"
+        },
+        {
+          "command": "ptah.review.openScm",
+          "when": "false"
         }
       ],
       "editor/title": [

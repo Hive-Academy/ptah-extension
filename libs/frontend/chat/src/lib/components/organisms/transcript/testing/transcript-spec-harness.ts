@@ -5,6 +5,7 @@ import {
   Output,
   ChangeDetectionStrategy,
   signal,
+  type Signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
@@ -13,7 +14,10 @@ import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import type {
   ExecutionChatMessage,
   ExecutionNode,
+  TurnChangeSet,
 } from '@ptah-extension/shared';
+import { ChangeSetStore } from '../../../../services/change-set/change-set.store';
+import { ChangeSetActionsService } from '../../../../services/change-set/change-set-actions.service';
 import { ChatEmptyStateComponent } from '../../../molecules/setup-plugins/chat-empty-state.component';
 import { MessageBubbleComponent } from '../../message-bubble.component';
 import { SESSION_CONTEXT } from '../../../../tokens/session-context.token';
@@ -51,11 +55,18 @@ export interface TranscriptTestBedOptions {
   readonly buildTree: (...args: never[]) => unknown;
   readonly iconUri?: string;
   readonly sessionContext?: unknown;
+  /** Change sets the store stub returns for every session; none by default. */
+  readonly changeSets?: Signal<readonly TurnChangeSet[]>;
+  /** Stands in for `ChangeSetActionsService`; every action resolves by default. */
+  readonly changeSetActions?: Partial<
+    Record<keyof ChangeSetActionsService, jest.Mock>
+  >;
 }
 
 export function configureTranscriptTestBed(
   options: TranscriptTestBedOptions,
 ): void {
+  const changeSets = options.changeSets ?? signal<readonly TurnChangeSet[]>([]);
   TestBed.configureTestingModule({
     imports: [ChatTranscriptComponent],
     providers: [
@@ -64,7 +75,25 @@ export function configureTranscriptTestBed(
         provide: VSCodeService,
         useValue: {
           getPtahIconUri: () => options.iconUri ?? 'ptah.svg',
+          isElectron: true,
         } as unknown as VSCodeService,
+      },
+      {
+        provide: ChangeSetStore,
+        useValue: {
+          changeSetsFor: () => changeSets(),
+          marksFor: () => ({ reconciled: new Set(), conflicted: new Set() }),
+          ensureLoaded: jest.fn(() => Promise.resolve()),
+        } as unknown as ChangeSetStore,
+      },
+      {
+        provide: ChangeSetActionsService,
+        useValue: {
+          review: jest.fn(() => Promise.resolve()),
+          openFile: jest.fn(() => Promise.resolve()),
+          openScm: jest.fn(() => Promise.resolve()),
+          ...options.changeSetActions,
+        } as unknown as ChangeSetActionsService,
       },
       {
         provide: TabManagerService,

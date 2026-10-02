@@ -300,6 +300,7 @@ interface Harness {
   turnState: MockTurnState;
   mcpStatus: MockMcpStatus;
   sessionTitle: { retitle: jest.Mock };
+  turnChangeSets: { remove: jest.Mock<Promise<void>, [string]> };
 }
 
 /** The `SessionOrganizationService` surface `session:list` reads. */
@@ -333,6 +334,9 @@ function makeHarness(
   // The SDK-side half of a rename. `retitle` never rejects in production — it
   // logs and swallows — so the default mock resolves.
   const sessionTitle = { retitle: jest.fn().mockResolvedValue(true) };
+  const turnChangeSets = {
+    remove: jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined),
+  };
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -346,6 +350,7 @@ function makeHarness(
     turnState as never,
     mcpStatus as never,
     sessionTitle as never,
+    turnChangeSets as never,
     null,
     (opts.organization ?? null) as SessionOrganizationService | null,
     (opts.taskIndex ?? null) as TaskIndexService | null,
@@ -364,6 +369,7 @@ function makeHarness(
     turnState,
     mcpStatus,
     sessionTitle,
+    turnChangeSets,
   };
 }
 
@@ -1455,6 +1461,47 @@ describe('SessionRpcHandlers', () => {
       expect(h.metadataStore.delete).toHaveBeenCalledWith(VALID_SESSION_ID);
     });
 
+    it("removes the session's turn change sets alongside its metadata", async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'session:delete', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(result.success).toBe(true);
+      expect(h.turnChangeSets.remove).toHaveBeenCalledWith(VALID_SESSION_ID);
+    });
+
+    it('still succeeds and warns when removing the turn change sets fails', async () => {
+      const h = makeHarness();
+      h.metadataStore.get.mockResolvedValue(
+        makeMetadata({
+          sessionId: VALID_SESSION_ID,
+          workspaceId: WORKSPACE,
+        }) as never,
+      );
+      h.turnChangeSets.remove.mockRejectedValue(new Error('disk full'));
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(h, 'session:delete', {
+        sessionId: VALID_SESSION_ID,
+      });
+
+      expect(result.success).toBe(true);
+      expect(h.metadataStore.delete).toHaveBeenCalledWith(VALID_SESSION_ID);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        'RPC: session:delete - failed to remove turn change sets',
+        expect.objectContaining({ sessionId: VALID_SESSION_ID }),
+      );
+    });
+
     it('rejects delete with non-UUID sessionId (invalid-session-id code) — SEC-001 guard', async () => {
       const h = makeHarness();
       h.handlers.register();
@@ -1490,6 +1537,7 @@ describe('SessionRpcHandlers', () => {
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/unauthorized-workspace/);
       expect(h.metadataStore.delete).not.toHaveBeenCalled();
+      expect(h.turnChangeSets.remove).not.toHaveBeenCalled();
     });
 
     it('rejects delete when metadata is missing — SEC-001 session-not-found guard', async () => {

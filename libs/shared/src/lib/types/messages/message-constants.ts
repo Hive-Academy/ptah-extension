@@ -300,6 +300,11 @@ export const MESSAGE_TYPES = {
    * `causes` set and the `workspaceRoot` the status was computed for.
    */
   GIT_STATUS_UPDATE: 'git:status-update',
+  /**
+   * Backend → Frontend: an agent turn ended after changing files. Carries the
+   * recorded `TurnChangeSet`; a turn that changed nothing pushes nothing.
+   */
+  GIT_TURN_CHANGE_SET: 'git:turnChangeSet',
   /** Backend → Frontend: a specific workspace file's content changed on disk. */
   FILE_CONTENT_CHANGED: 'file:content-changed',
 } as const;

@@ -44,6 +44,7 @@ import {
   FileLinkRouterService,
   VoiceDownloadProgressService,
   VoiceProviderErrorService,
+  ChangeSetStore,
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
 import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
@@ -67,7 +68,7 @@ import {
   GitBranchesService,
   GitStatusService,
   WorktreeService,
-} from '@ptah-extension/git-ui';
+} from '@ptah-extension/git-ui/services';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
 import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
@@ -195,6 +196,11 @@ export const appConfig: ApplicationConfig = {
       useExisting: AgentMonitorMessageHandler,
       multi: true,
     },
+    // Turn change-set cards (TASK_2026_576): live `git:turnChangeSet` pushes,
+    // plus `session:turnEnded` and `git:status-update` as reconcile triggers.
+    // Eager because a push for the open session must merge before any card
+    // chunk loads; the store imports nothing from git-ui.
+    { provide: MESSAGE_HANDLERS, useExisting: ChangeSetStore, multi: true },
     { provide: SESSION_DATA_PROVIDER, useExisting: ChatStore },
     {
       provide: WORKSPACE_COORDINATOR,
