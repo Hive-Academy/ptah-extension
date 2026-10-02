@@ -671,7 +671,9 @@ export async function bootSettings(
   await page.addInitScript((t: string) => {
     localStorage.setItem('ptah-theme', t);
   }, theme);
-  await page.goto(fixtureUrl);
+  // Batch 53.6: the app build's `load` takes 2-3 s here, but on a machine at 100 % CPU it was seen past the 15 s
+  // navigation default. Boot is setup, not what these tests measure, so it gets 30 s; every assertion keeps its own.
+  await page.goto(fixtureUrl, { timeout: 30_000 });
   const readySelector = host === 'electron' ? 'ptah-electron-shell' : 'ptah-app-shell';
   await expect(page.locator(readySelector).first()).toBeVisible();
   await bridge.inject({ type: 'switchView', payload: { view: 'settings' } });

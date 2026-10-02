@@ -14,7 +14,7 @@
 import { test, expect } from '../../test-fixtures';
 import { bootSettings, getFixtureState, waitForSettled } from './settings.fixtures';
 import {
-  catalogDialog, chooseMainAgentModel, closeConnectionDrawer, confirmWrite, connectProviderButton, credentialsOf, expectCall,
+  card, catalogDialog, chooseMainAgentModel, closeConnectionDrawer, confirmWrite, connectProviderButton, credentialsOf, expectCall,
   expectCatalogOpen, mainAgentModelInput, openCardDrawer, openCatalog, openMainAgentPopover, providersTab, visibleEnabled,
   withAuthStatus,
 } from './settings-drawer.reach';
@@ -168,6 +168,47 @@ for (const host of HOSTS) {
       await expect(popover).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(popover).toHaveCount(0);
+    });
+  });
+
+  test.describe(`webview > settings > providers, the card's own check (Batch 53, ${host})`, () => {
+    test('a failed drawer check shows on the card; the card Retry checks only that connection, and a verified result clears it', async ({ page, fixtureServer }) => {
+      // The host rejects Moonshot's key on the first check and verifies it on the next one.
+      let calls = 0;
+      await bootSettings(page, fixtureServer.url, host, 'anubis', {
+        'auth:checkConnection': (params: unknown) => {
+          const state = getFixtureState(page);
+          state.calls.push({ method: 'auth:checkConnection', params });
+          calls += 1;
+          const check = calls === 1
+            ? { status: 'failed' as const, reason: 'credential-rejected' as const, latencyMs: null, checkedAt: new Date().toISOString() }
+            : { status: 'verified' as const, reason: null, latencyMs: 92, checkedAt: new Date().toISOString() };
+          state.connectionChecks.set('moonshot', check);
+          return check;
+        },
+      });
+      await waitForSettled(page);
+      await providersTab(page);
+      const moonshot = card(page, 'Moonshot');
+      await expect(moonshot).toHaveAttribute('data-state', 'connected');
+      // B38-1: the drawer's failed check is the card's state too ("Check failed" + Retry, no host text).
+      await openCardDrawer(page, 'Moonshot');
+      let before = getFixtureState(page).calls.length;
+      await page.locator('[data-testid="connection-check"]').click();
+      await expectCall(page, before, 'auth:checkConnection', { providerId: 'moonshot' });
+      await expect(page.locator('[data-testid="connection-status"]')).toHaveText('Check failed');
+      await closeConnectionDrawer(page);
+      await expect(moonshot).toHaveAttribute('data-state', 'check-failed');
+      await expect(moonshot.locator('[data-testid="status-copy"]')).toHaveText('Check failed');
+      await expect(moonshot).not.toContainText('rejected');
+      // B38-2: the card's Retry runs auth:checkConnection for Moonshot alone, not a page refresh.
+      before = getFixtureState(page).calls.length;
+      await moonshot.locator('[data-testid="btn-retry"]').click();
+      await expectCall(page, before, 'auth:checkConnection', { providerId: 'moonshot' });
+      await expect(moonshot).toHaveAttribute('data-state', 'connected');
+      expect(getFixtureState(page).calls.slice(before).filter((call) => call.method === 'auth:checkConnection')).toHaveLength(1);
+      // Focus stays on the card (its action left the face while it read "Checking…").
+      await expect(moonshot.locator('[role="button"]').first()).toBeFocused();
     });
   });
 }

@@ -116,11 +116,28 @@ async function assertProvidersFold(page: Page, host: 'vscode' | 'electron', them
   const columns = await columnsOf();
   await page.setViewportSize({ width: 800, height: 768 });
   const columnsAt800 = await columnsOf();
-  // Horizontal overflow at 800 px: neither the document nor the Providers scroll container is wider than its box.
+  // Horizontal overflow at 800 px (Batch 53.5, B38-5): the widest laid-out descendant of the Providers page must end
+  // inside both the page's scroll box and the viewport. Measured with fractional client rects, not integer
+  // `scrollWidth - clientWidth`: the 3-track grid lays out at 752.00x px, and `scrollWidth` rounds that up to 753 now
+  // and then (seen as an intermittent "1 px overflow" with nothing cut or scrolled; Batch 38 answer 5). A real overflow
+  // is at least a whole pixel, so the edges are compared with a 1 px tolerance. Subtrees inside an overflow-clipping
+  // box (truncated text, clipped strips) are skipped: they cannot widen the page.
   const overflowAt800 = await page.evaluate(() => {
-    const pageBox = document.querySelector('ptah-providers-settings > div');
-    return Math.max(document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      pageBox ? pageBox.scrollWidth - pageBox.clientWidth : 0);
+    const pageBox = document.querySelector<HTMLElement>('ptah-providers-settings > div');
+    if (!pageBox) return 0;
+    const boxRect = pageBox.getBoundingClientRect();
+    const limit = Math.min(boxRect.left + pageBox.clientLeft + pageBox.clientWidth, document.documentElement.clientWidth);
+    let widest = 0;
+    const walk = (node: Element): void => {
+      for (const child of Array.from(node.children)) {
+        const rect = child.getBoundingClientRect();
+        if (rect.width > 0) widest = Math.max(widest, rect.right);
+        const overflowX = getComputedStyle(child).overflowX;
+        if (overflowX !== 'hidden' && overflowX !== 'clip' && overflowX !== 'auto' && overflowX !== 'scroll') walk(child);
+      }
+    };
+    walk(pageBox);
+    return Math.round((widest - limit) * 100) / 100;
   });
   await page.setViewportSize({ width: 1024, height: 768 });
   console.log(`B28 fold ${host}/${theme}: scroll ${scroll.window}/${scroll.page}; bottoms tabs ${bottoms.tabs}, map ${bottoms.map}, `
@@ -129,9 +146,31 @@ async function assertProvidersFold(page: Page, host: 'vscode' | 'electron', them
   expect(scroll).toEqual({ window: 0, page: 0 });
   expect(columns).toBe(budget.columnsAt1024);
   expect(columnsAt800).toBeGreaterThanOrEqual(budget.minColumnsAt800);
-  expect(overflowAt800).toBeLessThanOrEqual(0);
+  expect(overflowAt800, 'widest descendant past the page box or viewport (px, 1 px rounding tolerance)').toBeLessThanOrEqual(1);
   for (const height of heights) expect(height).toBeLessThanOrEqual(80);
   for (const region of budget.regions) expect(bottoms[region], `${region} bottom`).toBeLessThanOrEqual(budget.maxBottom);
+}
+
+/**
+ * Batch 53.4 (B38-4): the Orchestration order strip shows only whole chips, never one cut mid-glyph; when not every
+ * chip fits, a "+N" chip counts the rest, and the Edit button still names the whole order.
+ */
+async function assertOrderStripWhole(page: Page, host: string, theme: string, total: number): Promise<void> {
+  const strip = page.locator('[data-testid="policy-order"]');
+  await expect(strip).toBeVisible();
+  const layout = await strip.evaluate((node) => {
+    const right = node.getBoundingClientRect().right;
+    const items = Array.from(node.querySelectorAll<HTMLElement>('[data-testid^="policy-order-chip-"], [data-testid="policy-order-more"]'));
+    return { chips: items.filter((item) => item.dataset['testid'] !== 'policy-order-more').length,
+      more: Number(node.querySelector('[data-testid="policy-order-more"]')?.textContent?.replace('+', '') ?? 0),
+      overflow: Math.max(0, ...items.map((item) => item.getBoundingClientRect().right - right)),
+      clipped: items.some((item) => item.scrollWidth > item.clientWidth + 1) };
+  });
+  console.log(`B53 order strip ${host}/${theme}: ${layout.chips} whole chips, +${layout.more}, overflow ${Math.round(layout.overflow * 10) / 10}`);
+  expect(layout.overflow).toBeLessThanOrEqual(0.5);
+  expect(layout.clipped).toBe(false);
+  expect(layout.chips + layout.more).toBe(total);
+  await expect(page.locator('[data-testid="policy-order-edit"]')).toHaveAttribute('aria-label', new RegExp(`${total}\\. .*Edit order$`));
 }
 
 /**
@@ -425,13 +464,30 @@ async function captureOrderPopover(page: Page, host: 'vscode' | 'electron', them
   await expect(trigger).toBeFocused();
 }
 
+/**
+ * Shared setup of the baseline smoke tests (Batch 53.6): boot Settings in `host`/`theme` at 1024x768 and open `tab`.
+ * The Orchestration matrix is a deferred chunk: wait for its rows, or a capture can catch an empty section or the On
+ * ticks mid-bounce (Batch 36c.i).
+ */
+async function openSettingsAt(page: Page, url: string, host: 'vscode' | 'electron', theme: 'anubis' | 'anubis-light',
+  tab: 'Providers' | 'Agent Orchestration'): Promise<void> {
+  await bootSettings(page, url, host, theme);
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await gotoSettingsTab(page, tab);
+  await waitForSettled(page);
+  if (tab === 'Agent Orchestration') await expect(page.locator('[data-testid="cli-matrix-toggle-codex"]')).toBeVisible();
+}
+
+/**
+ * The baseline smoke (Batch 16, extended by Batches 25-53), one test per region (Batch 53.6). As one test it took 25-35 s
+ * under load against the 30 s default (drawers 8-12 s, matrix popovers 5-7 s); each region test now boots its own page
+ * through `openSettingsAt` and stays well inside the default timeout. Assertions and capture names are unchanged; a
+ * fold failure now fails its own test instead of being deferred to the end of one long run.
+ */
 for (const host of ['vscode', 'electron'] as const) {
   for (const theme of ['anubis', 'anubis-light'] as const) {
-    test(`baseline smoke — both tabs (${host}, ${theme})`, async ({ page, fixtureServer }) => {
-      // A fold failure is reported at the end, after every capture was still taken (a red fold must not hide them).
-      let foldFailure: unknown = null;
-      await bootSettings(page, fixtureServer.url, host, theme);
-      await page.setViewportSize({ width: 1024, height: 768 });
+    test(`baseline smoke — tab captures (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      await openSettingsAt(page, fixtureServer.url, host, theme, 'Providers');
       for (const tab of TABS) {
         await gotoSettingsTab(page, tab.label);
         await waitForSettled(page);
@@ -440,17 +496,27 @@ for (const host of ['vscode', 'electron'] as const) {
         if (tab.name === 'orchestration') await expect(page.locator('[data-testid="cli-matrix-toggle-codex"]')).toBeVisible();
         await capture(page, tab.name, host, theme);
       }
+    });
+
+    test(`baseline smoke — Orchestration order strip, fold, roles and order popover (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      await openSettingsAt(page, fixtureServer.url, host, theme, 'Agent Orchestration');
       // Batch 36: the Orchestration fold gate (the tab is still open), then (Batch 33) the roles <details> open.
-      await test.step('orchestration fold', () => assertOrchestrationFold(page, host, theme))
-        .catch((error: unknown) => { foldFailure = error; });
+      await assertOrderStripWhole(page, host, theme, 5);
+      await test.step('orchestration fold', () => assertOrchestrationFold(page, host, theme));
       await captureRolesOpen(page, host, theme);
       await captureOrderPopover(page, host, theme);
+    });
+
+    test(`baseline smoke — Orchestration matrix popovers (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      await openSettingsAt(page, fixtureServer.url, host, theme, 'Agent Orchestration');
       // Batch 30: the CLI matrix's cell popovers (prototype interactions/orchestration-2/-3).
       await captureMatrixPopovers(page, host, theme);
-      await gotoSettingsTab(page, 'Providers');
-      await waitForSettled(page);
+    });
+
+    test(`baseline smoke — Providers fold and routing map (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      await openSettingsAt(page, fixtureServer.url, host, theme, 'Providers');
       // Batch 28: the fold gate, in both hosts (Q-extra-1: container-width columns, 80 px cards everywhere).
-      await test.step('fold', () => assertProvidersFold(page, host, theme)).catch((error: unknown) => { foldFailure ??= error; });
+      await test.step('fold', () => assertProvidersFold(page, host, theme));
       // Batch 25: the routing map's three work nodes (deferred chunk; wait for it, not its placeholder).
       const nodes = page.locator('[data-testid^="routing-node-"][data-testid$="agent"], [data-testid="routing-node-background-roles"], [data-testid="routing-node-cli-agents"]');
       await expect(page.locator('[data-testid="routing-map"]')).toBeVisible();
@@ -507,6 +573,10 @@ for (const host of ['vscode', 'electron'] as const) {
       // Gate V 28 defect 1: in light theme the popover trigger wrapper drew a square border around the scope badge.
       expect(await page.locator('[data-testid="routing-node-main-agent"] .popover-trigger').first()
         .evaluate((node) => getComputedStyle(node).borderTopWidth)).toBe('0px');
+    });
+
+    test(`baseline smoke — Providers Main Agent popover, model search and Save to (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      await openSettingsAt(page, fixtureServer.url, host, theme, 'Providers');
       // Batch 26: the Main Agent popover (Reassign), captured open, then closed with Esc.
       await page.locator('[data-testid="routing-node-main-agent"] [data-testid="routing-node-action"]').click();
       const mainPopover = page.locator('[data-testid="main-agent-popover"]');
@@ -538,6 +608,10 @@ for (const host of ['vscode', 'electron'] as const) {
       console.log(`B28b model list ${host}/${theme}: ${Math.round(listRect?.width ?? 0)}x${Math.round(listRect?.height ?? 0)} @ ${Math.round(listRect?.x ?? 0)},${Math.round(listRect?.y ?? 0)}`);
       expect(inView(listRect)).toBe(true);
       expect(inView(await mainPopover.boundingBox())).toBe(true);
+      // Batch 53.3 (B38-3): the list is at least as wide as its field (it was 214 px under a 280 px field).
+      const fieldWidth = await modelInput.evaluate((node) => (node.closest('.autocomplete-input') ?? node).getBoundingClientRect().width);
+      console.log(`B53 model list vs field ${host}/${theme}: list ${Math.round(listRect?.width ?? 0)}, field ${Math.round(fieldWidth)}`);
+      expect(listRect?.width ?? 0).toBeGreaterThanOrEqual(fieldWidth - 0.5);
       await assertPopoverOnTop(page, `[id="${listboxId}"]`, '[role="option"]');
       // Batch 51.3: the active row is drawn before the capture (the attribute and the row's highlight follow the next
       // render; 2 of 4 merge-run captures caught the list without it).
@@ -580,6 +654,10 @@ for (const host of ['vscode', 'electron'] as const) {
       await mainPopover.getByRole('button', { name: 'Cancel provider change' }).click();
       await page.keyboard.press('Escape');
       await expect(mainPopover).toHaveCount(0);
+    });
+
+    test(`baseline smoke — Providers scope popover and catalog (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      await openSettingsAt(page, fixtureServer.url, host, theme, 'Providers');
       // Batch 23 (D16): every scope badge names its field; the open popover is its own capture. Since Batch 52.6 the
       // Main Agent's field badges are in its layer badge's popover.
       await page.locator('[data-testid="main-scope-layer"]').first().click();
@@ -622,8 +700,12 @@ for (const host of ['vscode', 'electron'] as const) {
       // daisyUI keeps a closed `.modal` laid out at opacity 0: the `open` attribute is the real state.
       await expect(catalog).not.toHaveAttribute('open');
       await expect(connect).toBeFocused();
+    });
+
+    test(`baseline smoke — connection drawers, Overview and Credentials (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      await openSettingsAt(page, fixtureServer.url, host, theme, 'Providers');
       const drawer = page.locator('[data-testid="connection-detail-drawer"]');
-      for (const entry of DRAWERS) {
+      for (const entry of DRAWERS.slice(0, 4)) {
         // Batch 24: the card itself opens the drawer (a click on its name, clear of the inline action).
         await page.locator('[data-testid="provider-connection-card"]').filter({ hasText: entry.card })
           .locator('[data-testid="provider-name"]').click();
@@ -636,7 +718,28 @@ for (const host of ['vscode', 'electron'] as const) {
         await page.keyboard.press('Escape');
         await expect(drawer).toHaveCount(0);
       }
-      if (foldFailure) throw foldFailure;
+    });
+
+    test(`baseline smoke — connection drawers, Models & Tiers and Advanced (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      await openSettingsAt(page, fixtureServer.url, host, theme, 'Providers');
+      // In the single run these drawers followed sovereigneg's Overview drawer. Closing it returned focus to its card,
+      // and that focus scrolled the page (in Electron the card sits below the fold). Focusing the card here gives the same
+      // scroll, so the page behind the drawer, and so the captures, stay as they were.
+      await page.locator('[data-testid="provider-connection-card"]').filter({ hasText: 'sovereigneg' }).locator('[role="button"]').first().focus();
+      const drawer = page.locator('[data-testid="connection-detail-drawer"]');
+      for (const entry of DRAWERS.slice(4)) {
+        // Batch 24: the card itself opens the drawer (a click on its name, clear of the inline action).
+        await page.locator('[data-testid="provider-connection-card"]').filter({ hasText: entry.card })
+          .locator('[data-testid="provider-name"]').click();
+        await expect(drawer).toBeVisible();
+        if (entry.tab) await page.getByRole('tab', { name: entry.tab, exact: true }).click();
+        if (entry.ready) await expect(page.locator(entry.ready)).toBeVisible();
+        await waitForSettled(page);
+        await waitForDrawerOpened(page);
+        await capture(page, entry.name, host, theme);
+        await page.keyboard.press('Escape');
+        await expect(drawer).toHaveCount(0);
+      }
     });
   }
 }
@@ -689,6 +792,7 @@ for (const host of ['vscode', 'electron'] as const) {
       await gotoSettingsTab(page, 'Agent Orchestration');
       await waitForSettled(page);
       await expect(page.locator('[data-testid="cli-matrix-toggle-codex"]')).toBeVisible();
+      await assertOrderStripWhole(page, host, theme, 5);
       // 52.1: one normalised version beside each name, on the name's line.
       const expected: Readonly<Record<string, string>> = { codex: 'v0.155.1', copilot: 'v1.0.83', opencode: 'v2.0.12', antigravity: 'v1.2.14' };
       for (const [cli, label] of Object.entries(expected)) {
