@@ -1,0 +1,16 @@
+model Escape: opened=true closed=false focusReturned=false
+model backdrop: opened=true closed=true focusReturned=true
+effort Escape: opened=true closed=true focusReturned=true
+effort backdrop: opened=true closed=true focusReturned=true
+perm-copilot Escape: opened=true closed=true focusReturned=true
+perm-copilot backdrop: opened=true closed=true focusReturned=true
+cursor-creds Escape: opened=true closed=true focusReturned=true
+cursor-creds backdrop: opened=true closed=true focusReturned=true
+order Escape: opened=true closed=true focusReturned=true
+order backdrop: opened=true closed=true focusReturned=true
+tiers Escape: opened=true closed=true focusReturned=true
+tiers backdrop: opened=true closed=false focusReturned=false
+add Escape: opened=true closed=true focusReturned=true
+add backdrop: opened=true closed=false focusReturned=false
+role-judge Escape: opened=true closed=true focusReturned=true
+role-judge backdrop: opened=true closed=true focusReturned=true

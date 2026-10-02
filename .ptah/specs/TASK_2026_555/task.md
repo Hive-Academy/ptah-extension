@@ -130,3 +130,10 @@ Gate 1.7 (user) → architect → team-leader → batches with cross-side review
   text updated to match. (3) Agent behaviour descriptions clamp to one line with the full text in a tooltip and for
   screen readers (§2.2 'no row wraps' kept). (4) Raise the shared muted text token in anubis-light to meet 4.5:1; done
   in track A after the merge, all tabs re-captured at Batch 38.
+- Gate V 36 (2026-10-02, user): (1) Electron fold: the Uninstalled CLI group is collapsed by default; with one-line
+  instance actions, one tier-summary badge and a one-line status+provider in the narrow layout (orchestrator step to
+  meet the fold, disclosed; provider names truncate with a tooltip in Electron) the roles summary ends at 600 px and the
+  Electron fold check is enforced. (2) Cursor key without a host check: kept as 'Key stored, not verified.' — accepted
+  deviation; a real Cursor check is a follow-up. (3) Two-step Esc in searchable model fields stays; the tier fields no
+  longer open their list on focus. (4) Test stays on Ptah instances only; system CLIs keep their status from Re-detect
+  — accepted prototype deviation. Copy items 1-7 of the Gate V 36 list shown to the user without objection.
