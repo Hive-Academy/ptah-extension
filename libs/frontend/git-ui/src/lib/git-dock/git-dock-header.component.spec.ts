@@ -192,6 +192,13 @@ describe('GitDockHeaderComponent', () => {
     fixture.detectChanges();
     expect(query(fixture, 'git-pull-button').textContent).toContain('↓3');
     expect(query(fixture, 'git-push-button').textContent).toContain('↑2');
+    // The counts use the button's own ink: stock warning/info ink fails AA
+    // contrast on the light theme (Batch 59 axe color-contrast).
+    for (const id of ['git-behind-count', 'git-ahead-count']) {
+      const count = query(fixture, id);
+      expect(count.classList.contains('text-warning')).toBe(false);
+      expect(count.classList.contains('text-info')).toBe(false);
+    }
     expect(query(fixture, 'current-branch-button').textContent).not.toMatch(
       /[↑↓]/,
     );

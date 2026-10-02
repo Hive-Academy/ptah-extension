@@ -173,7 +173,11 @@ const SYNC_COPY: Record<SyncAction, { done: string; failed: string }> = {
       >
         <lucide-angular [img]="PullIcon" class="h-3 w-3" aria-hidden="true" />
         @if (gitStatus.branch().behind) {
-          <span class="text-warning">↓{{ gitStatus.branch().behind }}</span>
+          <!-- Button ink, not text-warning: stock warning ink fails AA on the
+               light theme, and the arrow plus aria-label carry the meaning. -->
+          <span class="tabular-nums" data-testid="git-behind-count"
+            >↓{{ gitStatus.branch().behind }}</span
+          >
         } @else {
           Pull
         }
@@ -193,7 +197,9 @@ const SYNC_COPY: Record<SyncAction, { done: string; failed: string }> = {
       >
         <lucide-angular [img]="PushIcon" class="h-3 w-3" aria-hidden="true" />
         @if (gitStatus.branch().ahead) {
-          <span class="text-info">↑{{ gitStatus.branch().ahead }}</span>
+          <span class="tabular-nums" data-testid="git-ahead-count"
+            >↑{{ gitStatus.branch().ahead }}</span
+          >
         } @else {
           Push
         }

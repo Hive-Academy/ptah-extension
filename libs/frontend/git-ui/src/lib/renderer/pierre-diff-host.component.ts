@@ -25,6 +25,7 @@ import type { WorkerPoolManager } from '@pierre/diffs/worker';
 import type { GitHunkRef } from '@ptah-extension/shared';
 import {
   createPierreDiffOptions,
+  labelPierreCodePanes,
   readDocumentThemeMode,
   registerPierreLanguages,
   type PierreDiffStyle,
@@ -236,6 +237,10 @@ export class PierreDiffHostComponent {
           ...createPierreDiffOptions(diffStyle, untracked(this.themeType)),
           onPostRender: (node, _instance, phase) => {
             if (phase === 'unmount') return;
+            labelPierreCodePanes(
+              node.shadowRoot,
+              fileDiff.name || source.fileName,
+            );
             if (!offerHunkHosts) {
               this.publish([], mappingError, []);
               return;

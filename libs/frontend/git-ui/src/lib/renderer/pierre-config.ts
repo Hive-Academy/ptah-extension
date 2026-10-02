@@ -125,6 +125,21 @@ export const PIERRE_HIGHLIGHT_OPTIONS = {
 } as const;
 
 /**
+ * Focus ring for the code panes {@link labelPierreCodePanes} makes focusable.
+ * Pierre's shadow root does not see the page's utility classes, so the ring is
+ * injected through its `unsafeCSS` option (wrapped in Pierre's `unsafe` cascade
+ * layer). Custom properties do cross the shadow boundary, so the ring uses the
+ * theme's base-content ink, as the `focus-visible:outline-base-content`
+ * controls elsewhere do.
+ */
+export const PIERRE_CODE_PANE_FOCUS_CSS = `
+  code[data-code]:focus-visible {
+    outline: 2px solid oklch(var(--bc, 60% 0 0));
+    outline-offset: -2px;
+  }
+`;
+
+/**
  * Options for one `FileDiff` instance: {@link PIERRE_HIGHLIGHT_OPTIONS} plus
  * `hunkSeparators: 'line-info'` with `expandUnchanged: false`, so collapsed
  * context is shown as a line count, never expanded by default.
@@ -139,5 +154,38 @@ export function createPierreDiffOptions(
     diffStyle,
     hunkSeparators: 'line-info',
     expandUnchanged: false,
+    unsafeCSS: PIERRE_CODE_PANE_FOCUS_CSS,
   };
+}
+
+/**
+ * Make Pierre's horizontally scrolling code panes keyboard-reachable (axe
+ * `scrollable-region-focusable`). Pierre 1.5.1 has no option for this: its
+ * `<code data-unified|data-deletions|data-additions>` panes are rendered
+ * without a tabindex or a name. Called from `onPostRender`, which fires after
+ * every mount and update, so panes Pierre creates or replaces are covered.
+ *
+ * `role="group"` is what allows the name: the implicit `code` role prohibits
+ * `aria-label`, and `region` would add a landmark per file.
+ */
+export function labelPierreCodePanes(
+  root: ParentNode | null | undefined,
+  fileName: string,
+): void {
+  if (!root) return;
+  const file = fileName || 'file';
+  for (const pane of Array.from(
+    root.querySelectorAll<HTMLElement>('code[data-code]'),
+  )) {
+    const label = pane.hasAttribute('data-deletions')
+      ? `Original lines of ${file}`
+      : pane.hasAttribute('data-additions')
+        ? `Changed lines of ${file}`
+        : `Diff of ${file}`;
+    if (pane.getAttribute('tabindex') !== '0') pane.setAttribute('tabindex', '0');
+    if (pane.getAttribute('role') !== 'group') pane.setAttribute('role', 'group');
+    if (pane.getAttribute('aria-label') !== label) {
+      pane.setAttribute('aria-label', label);
+    }
+  }
 }

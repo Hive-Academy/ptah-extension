@@ -18,6 +18,7 @@ import {
 } from '@pierre/diffs';
 import {
   createPierreDiffOptions,
+  labelPierreCodePanes,
   readDocumentThemeMode,
   registerPierreLanguages,
   type PierreThemeMode,
@@ -162,7 +163,13 @@ export class TextDiffViewComponent {
       this._unchanged.set(false);
 
       const instance = new FileDiff(
-        createPierreDiffOptions('unified', untracked(this.themeType)),
+        {
+          ...createPierreDiffOptions('unified', untracked(this.themeType)),
+          onPostRender: (node, _instance, phase) => {
+            if (phase === 'unmount') return;
+            labelPierreCodePanes(node.shadowRoot, fileDiff.name || name);
+          },
+        },
         undefined,
         true,
       );

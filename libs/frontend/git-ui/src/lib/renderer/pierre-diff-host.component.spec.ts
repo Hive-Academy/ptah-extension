@@ -78,6 +78,19 @@ class FakeFileDiff {
     const root =
       container.shadowRoot ?? container.attachShadow({ mode: 'open' });
     const pre = document.createElement('pre');
+    // Pierre 1.5.1 renders its scrolling panes as unlabelled
+    // `<code data-code data-deletions|data-additions>` (split) or
+    // `<code data-code data-unified>` (unified).
+    const columns =
+      this.options['diffStyle'] === 'unified'
+        ? ['unified']
+        : ['deletions', 'additions'];
+    for (const column of columns) {
+      const code = document.createElement('code');
+      code.setAttribute('data-code', '');
+      code.setAttribute(`data-${column}`, '');
+      pre.appendChild(code);
+    }
     props.fileDiff.hunks.forEach((hunk, index) => {
       if (hunk.collapsedBefore > 0) {
         const separator = document.createElement('div');
@@ -338,6 +351,46 @@ describe('PierreDiffHostComponent', () => {
     expect(instance.rendered?.fileContainer.tagName.toLowerCase()).toBe(
       'diffs-container',
     );
+  });
+
+  describe('scrollable code panes', () => {
+    function panes(): Element[] {
+      const container: HTMLElement =
+        fixture.nativeElement.querySelector('diffs-container');
+      return Array.from(
+        container.shadowRoot?.querySelectorAll('code[data-code]') ?? [],
+      );
+    }
+
+    it('gives each split pane a tab stop, a group role and a side-specific name', () => {
+      const [deletions, additions] = panes();
+      for (const pane of [deletions, additions]) {
+        expect(pane.getAttribute('tabindex')).toBe('0');
+        expect(pane.getAttribute('role')).toBe('group');
+      }
+      expect(deletions.getAttribute('aria-label')).toBe(
+        'Original lines of a.ts',
+      );
+      expect(additions.getAttribute('aria-label')).toBe(
+        'Changed lines of a.ts',
+      );
+    });
+
+    it('names the unified pane, and labels panes even when the file is read-only', async () => {
+      fixture.componentInstance.diffStyle.set('unified');
+      fixture.componentInstance.hunks.set([]);
+      await settle();
+      const [unified] = panes();
+      expect(panes()).toHaveLength(1);
+      expect(unified.getAttribute('tabindex')).toBe('0');
+      expect(unified.getAttribute('aria-label')).toBe('Diff of a.ts');
+    });
+
+    it('injects a focus-visible ring for the panes through unsafeCSS', () => {
+      expect(pierre.instances[0].options['unsafeCSS']).toContain(
+        'code[data-code]:focus-visible',
+      );
+    });
   });
 
   it('renders exactly one toolbar host per hunk for a hunk at line 1 and adjacent hunks', () => {

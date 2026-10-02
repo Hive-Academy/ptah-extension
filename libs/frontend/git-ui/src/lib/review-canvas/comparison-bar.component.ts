@@ -199,8 +199,10 @@ const FOCUS_RING =
       </div>
 
       @if (totals(); as t) {
+        <!-- Full base-content ink: --bcm is measured against base-100, and on
+             this row's base-200 the light theme falls just under 4.5:1. -->
         <span
-          class="ml-auto whitespace-nowrap text-base-content-muted"
+          class="ml-auto whitespace-nowrap text-base-content"
           data-testid="comparison-totals"
         >
           <span class="sr-only">{{ totalsLabel() }}</span>

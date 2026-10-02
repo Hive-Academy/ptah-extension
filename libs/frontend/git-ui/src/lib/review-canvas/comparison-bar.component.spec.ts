@@ -269,6 +269,10 @@ describe('ComparisonBarComponent', () => {
         '−',
       );
       expect(totals?.textContent).toContain('2 binary');
+      // Full ink on the base-200 bar: the muted tier is under 4.5:1 there on
+      // the light theme (Batch 59 axe color-contrast).
+      expect(totals?.classList.contains('text-base-content')).toBe(true);
+      expect(totals?.querySelector('.text-base-content-muted')).toBeNull();
       expect(totals?.querySelector('.sr-only')?.textContent?.trim()).toBe(
         '142 files changed, 1204 additions, 318 deletions, 2 binary',
       );
