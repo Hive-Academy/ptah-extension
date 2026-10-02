@@ -1,11 +1,16 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy, Component, ElementRef, Injector, OnDestroy, afterNextRender, computed, inject, output, signal,
+} from '@angular/core';
 import { Eye, EyeOff, LucideAngularModule, X } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import { runDrawerWrite, type DrawerWriteOutcome } from '../providers/connection-drawer/drawer-write';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ${FOCUS}`;
+/** Busy or not ready: `aria-disabled`, never native `disabled`, so the focused control keeps focus and Esc still closes the
+ * popover (Gate V 36 re-check 2, N3); the handlers refuse the click. */
+const INERT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
+const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ${INERT} ${FOCUS}`;
 
 /**
  * The Cursor row's Credentials popover (plan :744-749, #64, TASK_2026_551). Cursor runs through the bundled SDK and is
@@ -21,6 +26,8 @@ const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-ba
  * Gate V 36: a saved key reads "Key stored, not verified." (M4; Ptah has no Cursor check yet, an accepted deviation),
  * and every outcome is also announced through the page toast (M3): a saved key moves the Cursor row between the
  * Uninstalled and installed groups, which re-creates this popover and would drop its inline line.
+ * Re-check 2 (N3): while a write runs the key field is read-only and the buttons are `aria-disabled`, never natively
+ * disabled, so focus never drops to `body` and Esc still closes the popover; after a write focus lands on the key field.
  */
 @Component({
   selector: 'ptah-cursor-credential-popover',
@@ -62,7 +69,7 @@ const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-ba
         <div class="relative">
           <input id="cursor-credential-key" [type]="keyVisible() ? 'text' : 'password'" autocomplete="off" spellcheck="false"
             [class]="'input input-bordered input-sm w-full pr-9 font-mono text-xs ' + focusRing" [value]="key()"
-            (input)="onKeyInput($event)" [disabled]="busy()" placeholder="crsr_…" data-testid="cursor-credential-key" />
+            (input)="onKeyInput($event)" [readonly]="busy()" [attr.aria-busy]="busy() ? 'true' : null" placeholder="crsr_…" data-testid="cursor-credential-key" />
           <button type="button" [class]="'btn btn-ghost btn-xs absolute right-1 top-1 ' + focusRing" (click)="keyVisible.set(!keyVisible())"
             [attr.aria-label]="keyVisible() ? 'Hide API key' : 'Show API key'" [attr.aria-pressed]="keyVisible()"
             data-testid="cursor-credential-toggle-visibility">
@@ -72,10 +79,10 @@ const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-ba
       </div>
 
       <div class="flex flex-wrap items-center gap-1.5">
-        <button type="button" [class]="'btn btn-primary btn-xs min-h-7 ' + focusRing" [disabled]="busy() || !key().trim()" (click)="save()"
+        <button type="button" [class]="'btn btn-primary btn-xs min-h-7 ' + inert + ' ' + focusRing" [attr.aria-disabled]="busy() || !key().trim() ? 'true' : null" (click)="save()"
           data-testid="cursor-credential-save">{{ outcome()?.status === 'saving' && action() === 'save' ? 'Saving…' : 'Save key' }}</button>
         @if (stored() && !confirmRemove()) {
-          <button type="button" [class]="ACTION" [disabled]="busy()" (click)="confirmRemove.set(true)"
+          <button type="button" [class]="ACTION" [attr.aria-disabled]="busy() ? 'true' : null" (click)="askRemove()"
             data-testid="cursor-credential-remove">Remove stored key</button>
         }
       </div>
@@ -87,8 +94,9 @@ const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-ba
             {{ envSet() ? 'Cursor keeps using CURSOR_API_KEY from the environment.' : 'Cursor stops working until a key is set again.' }}
           </p>
           <div class="flex flex-wrap gap-1.5">
-            <button type="button" [class]="ACTION" [disabled]="busy()" (click)="remove()" data-testid="cursor-credential-remove-confirm-button">Remove key</button>
-            <button type="button" [class]="ACTION" [disabled]="busy()" (click)="confirmRemove.set(false)">Cancel</button>
+            <button type="button" [class]="ACTION" [attr.aria-disabled]="busy() ? 'true' : null" (click)="remove()" data-testid="cursor-credential-remove-confirm-button">Remove key</button>
+            <button type="button" [class]="ACTION" [attr.aria-disabled]="busy() ? 'true' : null" (click)="cancelRemove()"
+              data-testid="cursor-credential-remove-cancel">Cancel</button>
           </div>
         </div>
       }
@@ -104,8 +112,11 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
   protected readonly EyeOffIcon = EyeOff;
   protected readonly focusRing = FOCUS;
   protected readonly ACTION = ACTION;
+  protected readonly inert = INERT;
   private readonly state = inject(ProvidersSettingsStateService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
+  private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
 
   readonly closed = output<void>();
 
@@ -151,6 +162,26 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
       this.key.set('');
       this.keyVisible.set(false);
     }
+    // N3: focus stays in the popover on the key field (a retry after a failure; a new key after a save).
+    this.focusAfterRender('cursor-credential-key');
+  }
+
+  /** The confirm replaces "Remove stored key", so focus moves to its Cancel. */
+  protected askRemove(): void {
+    if (this.busy()) return;
+    this.confirmRemove.set(true);
+    this.focusAfterRender('cursor-credential-remove-cancel');
+  }
+
+  protected cancelRemove(): void {
+    if (this.busy()) return;
+    this.confirmRemove.set(false);
+    this.focusAfterRender('cursor-credential-remove');
+  }
+
+  private focusAfterRender(testid: string): void {
+    afterNextRender(() => this.element.nativeElement.querySelector<HTMLElement>(`[data-testid="${testid}"]`)?.focus(),
+      { injector: this.injector });
   }
 
   /** M3: the outcome also goes to the page toast, which outlives this popover (it may be re-created meanwhile). */
@@ -164,6 +195,11 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
     this.action.set('remove');
     await runDrawerWrite(this.state, (context) => this.state.saveCursorCredential('', context), (outcome) => this.outcome.set(outcome));
     this.announce();
-    if (this.outcome()?.status === 'saved') this.confirmRemove.set(false);
+    // A failed removal keeps the confirm, with focus on its "Remove key" (only aria-disabled during the write); a
+    // removed key closes the confirm, so focus moves to the key field.
+    if (this.outcome()?.status === 'saved') {
+      this.confirmRemove.set(false);
+      this.focusAfterRender('cursor-credential-key');
+    }
   }
 }

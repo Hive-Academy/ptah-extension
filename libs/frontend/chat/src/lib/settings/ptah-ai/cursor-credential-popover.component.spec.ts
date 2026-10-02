@@ -101,8 +101,9 @@ describe('CursorCredentialPopoverComponent', () => {
   });
 
   it('saves the key through saveCursorCredential, then clears and re-masks the field', async () => {
-    expect(q<HTMLButtonElement>('cursor-credential-save')?.disabled).toBe(true);
+    expect(q<HTMLButtonElement>('cursor-credential-save')?.getAttribute('aria-disabled')).toBe('true');
     typeKey(KEY);
+    expect(q<HTMLButtonElement>('cursor-credential-save')?.hasAttribute('aria-disabled')).toBe(false);
     q<HTMLButtonElement>('cursor-credential-toggle-visibility')?.click();
     q<HTMLButtonElement>('cursor-credential-save')?.click();
     await flush();
@@ -176,12 +177,85 @@ describe('CursorCredentialPopoverComponent', () => {
     expect(q('cursor-credential-outcome')?.textContent).toContain('Settings are still loading');
   });
 
-  it('disables its controls while any save runs (D3)', () => {
+  it('D3 / N3: while any save runs the controls are aria-disabled and the field read-only, never natively disabled', async () => {
     typeKey(KEY);
     state.commit.set({ ...idle, status: 'saving' });
     fixture.detectChanges();
-    expect(q<HTMLButtonElement>('cursor-credential-save')?.disabled).toBe(true);
-    expect(keyInput()?.disabled).toBe(true);
+    const save = q<HTMLButtonElement>('cursor-credential-save');
+    expect(save?.getAttribute('aria-disabled')).toBe('true');
+    expect(save?.disabled).toBe(false);
+    expect(keyInput()?.readOnly).toBe(true);
+    expect(keyInput()?.disabled).toBe(false);
+    save?.click();
+    await flush();
+    expect(state.saveCursorCredential).not.toHaveBeenCalled();
+  });
+
+  describe('N3 (Gate V 36 re-check 2): focus never drops to body', () => {
+    function render() { TestBed.tick(); fixture.detectChanges(); }
+
+    it('Save keeps focus while it runs; a failed save puts focus on the key field', async () => {
+      state.outcome = 'failed';
+      let release: () => void = () => undefined;
+      state.saveCursorCredential.mockImplementationOnce(async () => {
+        state.commit.set({ ...idle, status: 'saving' });
+        await new Promise<void>((resolve) => { release = resolve; });
+        state.commit.set({ ...idle, status: 'failed', unsaved: ['Cursor credential'] });
+        return true;
+      });
+      typeKey(KEY);
+      const save = q<HTMLButtonElement>('cursor-credential-save');
+      save?.focus();
+      save?.click();
+      fixture.detectChanges();
+      expect(save?.getAttribute('aria-disabled')).toBe('true');
+      expect(document.activeElement).toBe(save);
+      release();
+      await flush();
+      render();
+      expect(q('cursor-credential-outcome')?.textContent).toContain('The key was not saved.');
+      expect(document.activeElement).toBe(keyInput());
+    });
+
+    it('a saved key puts focus on the (cleared) key field', async () => {
+      typeKey(KEY);
+      q<HTMLButtonElement>('cursor-credential-save')?.click();
+      await flush();
+      render();
+      expect(document.activeElement).toBe(keyInput());
+    });
+
+    it('Remove moves focus to the confirm\'s Cancel; Cancel returns it to "Remove stored key"', () => {
+      state.orchestration.set(ready({ cursorApiKeyStored: true, cursorApiKeyEnvSet: false, cursorApiKeyConfigured: true }));
+      fixture.detectChanges();
+      q<HTMLButtonElement>('cursor-credential-remove')?.click();
+      render();
+      expect(document.activeElement).toBe(q('cursor-credential-remove-cancel'));
+      q<HTMLButtonElement>('cursor-credential-remove-cancel')?.click();
+      render();
+      expect(document.activeElement).toBe(q('cursor-credential-remove'));
+    });
+
+    it('a failed removal keeps the confirm and focus on "Remove key"; a removal that lands focuses the key field', async () => {
+      state.orchestration.set(ready({ cursorApiKeyStored: true, cursorApiKeyEnvSet: false, cursorApiKeyConfigured: true }));
+      fixture.detectChanges();
+      q<HTMLButtonElement>('cursor-credential-remove')?.click();
+      render();
+      state.outcome = 'failed';
+      const confirm = q<HTMLButtonElement>('cursor-credential-remove-confirm-button');
+      confirm?.focus();
+      confirm?.click();
+      await flush();
+      render();
+      expect(q('cursor-credential-remove-confirm')).not.toBeNull();
+      expect(document.activeElement).toBe(confirm);
+      state.outcome = 'saved';
+      confirm?.click();
+      await flush();
+      render();
+      expect(q('cursor-credential-remove-confirm')).toBeNull();
+      expect(document.activeElement).toBe(keyInput());
+    });
   });
 
   it('drops the typed key when it is destroyed', () => {
