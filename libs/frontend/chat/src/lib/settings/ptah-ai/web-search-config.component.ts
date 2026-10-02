@@ -63,8 +63,15 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
   },
 ] as const;
 
-const SAVE_CONFIG_FALLBACK =
-  'Could not save setting. You can also change it in VS Code Settings (Ctrl+,).';
+/** One fixed sentence per action (F1): no host or transport text reaches the alert, popover or toast. */
+const LOAD_CONFIG_FAILED = 'Could not load the web search settings.';
+const SAVE_PROVIDERS_FAILED = 'Could not save the web search providers.';
+const SAVE_MAX_RESULTS_FAILED = 'Could not save the web search max results.';
+/**
+ * Used for the whole probe and for each failed provider row: the backend's per-provider `error` is a
+ * raw `Error.message` (`web-search-rpc.handlers.ts:202-207`), not a fixed reason.
+ */
+const TEST_FAILED = 'The connection check failed.';
 
 function asProviderIds(values: readonly string[]): ProviderId[] {
   return values.filter((value): value is ProviderId =>
@@ -77,10 +84,6 @@ function providerLabel(provider: ProviderId): string {
     PROVIDER_OPTIONS.find((option) => option.value === provider)?.label ??
     provider
   );
-}
-
-function errorText(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 /**
@@ -177,7 +180,7 @@ function errorText(error: unknown, fallback: string): string {
                     <span class="badge badge-outline badge-sm h-auto gap-1 text-base-content">
                       <lucide-angular [img]="r.success ? CheckCircleIcon : XCircleIcon" class="w-3 h-3 shrink-0"
                         [class.text-success]="r.success" [class.text-error]="!r.success" aria-hidden="true" />
-                      {{ r.success ? 'Works' : (r.error ?? 'Failed') }}
+                      {{ r.success ? 'Works' : TEST_FAILED }}
                     </span>
                   } @else {
                     <span class="text-base-content-muted" aria-hidden="true">—</span>
@@ -288,6 +291,7 @@ export class WebSearchConfigComponent implements OnInit {
   private readonly feedback = inject(SettingsSaveFeedbackService);
 
   readonly GlobeIcon = Globe;
+  readonly TEST_FAILED = TEST_FAILED;
   readonly KeyIcon = Key;
   readonly CheckCircleIcon = CheckCircle;
   readonly XCircleIcon = XCircle;
@@ -358,15 +362,12 @@ export class WebSearchConfigComponent implements OnInit {
         this.configLoaded.set(true);
       } else {
         this.configLoaded.set(false);
-        this.errorMessage.set(
-          configResult.error ?? 'Failed to load web search configuration',
-        );
+        this.errorMessage.set(LOAD_CONFIG_FAILED);
       }
-    } catch (error: unknown) {
+    } catch {
+      // A thrown transport error gets the same fixed sentence.
       this.configLoaded.set(false);
-      this.errorMessage.set(
-        errorText(error, 'Failed to load web search configuration'),
-      );
+      this.errorMessage.set(LOAD_CONFIG_FAILED);
     }
 
     await this.loadApiKeyStatuses();
@@ -525,10 +526,11 @@ export class WebSearchConfigComponent implements OnInit {
           results: result.data.results,
         });
       } else {
-        this.errorMessage.set(result.error ?? 'Test failed');
+        this.errorMessage.set(TEST_FAILED);
       }
-    } catch (error: unknown) {
-      this.errorMessage.set(errorText(error, 'Test request failed'));
+    } catch {
+      // A thrown transport error gets the same fixed sentence.
+      this.errorMessage.set(TEST_FAILED);
     } finally {
       this.isTesting.set(false);
     }
@@ -557,7 +559,7 @@ export class WebSearchConfigComponent implements OnInit {
   ): Promise<WriteResult> {
     this.selectedProviders.set(next);
     this.testResult.set(null);
-    const result = await this.saveConfig({ providers: Array.from(next) });
+    const result = await this.saveConfig({ providers: Array.from(next) }, SAVE_PROVIDERS_FAILED);
     if (!result.ok) this.selectedProviders.set(fallback);
     return result;
   }
@@ -567,7 +569,7 @@ export class WebSearchConfigComponent implements OnInit {
     fallback: number,
   ): Promise<WriteResult> {
     this.maxResults.set(next);
-    const result = await this.saveConfig({ maxResults: next });
+    const result = await this.saveConfig({ maxResults: next }, SAVE_MAX_RESULTS_FAILED);
     if (!result.ok) this.maxResults.set(fallback);
     return result;
   }
@@ -576,49 +578,49 @@ export class WebSearchConfigComponent implements OnInit {
     provider: ProviderId,
     apiKey: string,
   ): Promise<WriteResult> {
-    const fallback = `Could not save the ${providerLabel(provider)} API key.`;
+    const failed: WriteResult = {
+      ok: false,
+      message: `Could not save the ${providerLabel(provider)} API key.`,
+    };
     try {
       const result = await this.rpcService.call('webSearch:setApiKey', {
         provider,
         apiKey,
       });
-      return result.isSuccess() && result.data.success
-        ? { ok: true }
-        : { ok: false, message: result.error ?? fallback };
-    } catch (error: unknown) {
-      return { ok: false, message: errorText(error, fallback) };
+      return result.isSuccess() && result.data.success ? { ok: true } : failed;
+    } catch {
+      return failed;
     }
   }
 
   private async removeKey(provider: ProviderId): Promise<WriteResult> {
-    const fallback = `Could not clear the ${providerLabel(provider)} API key.`;
+    const failed: WriteResult = {
+      ok: false,
+      message: `Could not clear the ${providerLabel(provider)} API key.`,
+    };
     try {
       const result = await this.rpcService.call('webSearch:deleteApiKey', {
         provider,
       });
-      return result.isSuccess() && result.data.success
-        ? { ok: true }
-        : { ok: false, message: result.error ?? fallback };
-    } catch (error: unknown) {
-      return { ok: false, message: errorText(error, fallback) };
+      return result.isSuccess() && result.data.success ? { ok: true } : failed;
+    } catch {
+      return failed;
     }
   }
 
-  /** `webSearch:setConfig`; a failure is also shown in the card's inline alert (V8). */
-  private async saveConfig(params: {
-    providers?: string[];
-    maxResults?: number;
-  }): Promise<WriteResult> {
+  /** `webSearch:setConfig`; a failure shows `failedMessage` in the card's inline alert (V8) and toast. */
+  private async saveConfig(
+    params: { providers?: string[]; maxResults?: number },
+    failedMessage: string,
+  ): Promise<WriteResult> {
     this.errorMessage.set(null);
-    let message: string;
     try {
       const result = await this.rpcService.call('webSearch:setConfig', params);
       if (result.isSuccess() && result.data.success) return { ok: true };
-      message = result.error ?? SAVE_CONFIG_FALLBACK;
-    } catch (error: unknown) {
-      message = errorText(error, SAVE_CONFIG_FALLBACK);
+    } catch {
+      // A thrown transport error is reported like a refused write.
     }
-    this.errorMessage.set(message);
-    return { ok: false, message };
+    this.errorMessage.set(failedMessage);
+    return { ok: false, message: failedMessage };
   }
 }

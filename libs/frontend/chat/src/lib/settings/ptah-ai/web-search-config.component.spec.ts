@@ -148,7 +148,7 @@ describe('WebSearchConfigComponent', () => {
 
     const alert = byTestId('settings-web-search-error');
     expect(alert.getAttribute('role')).toBe('alert');
-    expect(alert.textContent).toContain('Could not read config');
+    expect(alert.textContent?.trim()).toBe('Could not load the web search settings.');
     expect(alert.classList).toContain('text-base-content');
   });
 
@@ -182,8 +182,8 @@ describe('WebSearchConfigComponent', () => {
 
       expect(checkbox('serper').checked).toBe(false);
       expect(component.isSelected('serper')).toBe(false);
-      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Server rejected providers', canUndo: false });
-      expect(byTestId('settings-web-search-error').textContent).toContain('Server rejected providers');
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not save the web search providers.', canUndo: false });
+      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not save the web search providers.');
     });
 
     it('treats success:false from the host as a failed write', async () => {
@@ -268,9 +268,9 @@ describe('WebSearchConfigComponent', () => {
       await settle();
 
       expect(component.activeKeyProvider()).toBe('serper');
-      expect(byTestId('settings-web-search-key-error').textContent).toContain('Invalid key');
+      expect(byTestId('settings-web-search-key-error').textContent?.trim()).toBe('Could not save the Serper API key.');
       expect(byTestId('settings-web-search-key-status-serper').textContent).toContain('No key');
-      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Invalid key', canUndo: false });
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not save the Serper API key.', canUndo: false });
     });
   });
 
@@ -319,8 +319,8 @@ describe('WebSearchConfigComponent', () => {
       await settle();
 
       expect(byTestId('settings-web-search-key-status-tavily').textContent).toContain('Key set');
-      expect(byTestId('settings-web-search-error').textContent).toContain('Could not delete key');
-      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not delete key', canUndo: false });
+      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not clear the Tavily API key.');
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not clear the Tavily API key.', canUndo: false });
     });
   });
 
@@ -340,7 +340,8 @@ describe('WebSearchConfigComponent', () => {
       const tavily = byTestId('settings-web-search-status-tavily');
       const serper = byTestId('settings-web-search-status-serper');
       expect(tavily.textContent).toContain('Works');
-      expect(serper.textContent).toContain('Unauthorized');
+      expect(serper.textContent).toContain('The connection check failed.');
+      expect(serper.textContent).not.toContain('Unauthorized');
       expect(byTestId('settings-web-search-status-exa').textContent).toContain('Not tested');
       for (const cell of [tavily, serper]) {
         expect(cell.querySelector('.badge')?.classList).toContain('text-base-content');
@@ -370,7 +371,89 @@ describe('WebSearchConfigComponent', () => {
 
       expect(component.maxResults()).toBe(5);
       expect(slider.value).toBe('5');
-      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not save max results', canUndo: false });
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not save the web search max results.', canUndo: false });
+    });
+  });
+  /** Host-text guard (F1): an RPC failure, `{ success:false, error }` and a thrown Error never reach the UI. */
+  describe('fixed failure sentences (F1)', () => {
+    const HOST_FAILURES: ReadonlyArray<[string, Responder]> = [
+      ['an RPC failure', () => fail('host detail')],
+      ['a { success:false, error } answer', () => ok({ success: false, error: 'host detail' })],
+      ['a thrown Error', () => { throw new Error('host detail'); }],
+    ];
+    const visibleText = () => `${element.textContent ?? ''} ${feedback.toast()?.message ?? ''}`;
+
+    it.each(HOST_FAILURES)('config load fails with %s', async (_case, respond) => {
+      responses['webSearch:getConfig'] = respond;
+      await render();
+      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not load the web search settings.');
+      expect(visibleText()).not.toContain('host detail');
+    });
+
+    it.each(HOST_FAILURES)('provider save fails with %s', async (_case, respond) => {
+      responses['webSearch:setConfig'] = respond;
+      await render();
+      checkbox('serper').click();
+      await settle();
+      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not save the web search providers.');
+      expect(feedback.toast()?.message).toBe('Could not save the web search providers.');
+      expect(visibleText()).not.toContain('host detail');
+    });
+
+    it.each(HOST_FAILURES)('max results save fails with %s', async (_case, respond) => {
+      responses['webSearch:setConfig'] = respond;
+      await render();
+      await moveSlider(10);
+      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not save the web search max results.');
+      expect(feedback.toast()?.message).toBe('Could not save the web search max results.');
+      expect(visibleText()).not.toContain('host detail');
+    });
+
+    it.each(HOST_FAILURES)('key save fails with %s', async (_case, respond) => {
+      responses['webSearch:setApiKey'] = respond;
+      await render();
+      await typeKey('exa', 'some-key');
+      byTestId<HTMLButtonElement>('settings-web-search-key-save').click();
+      await settle();
+      expect(byTestId('settings-web-search-key-error').textContent?.trim()).toBe('Could not save the Exa API key.');
+      expect(feedback.toast()?.message).toBe('Could not save the Exa API key.');
+      expect(visibleText()).not.toContain('host detail');
+    });
+
+    it.each(HOST_FAILURES)('key clear fails with %s', async (_case, respond) => {
+      responses['webSearch:getApiKeyStatus'] = () => ok({ configured: true });
+      responses['webSearch:deleteApiKey'] = respond;
+      await render();
+      byTestId<HTMLButtonElement>('settings-web-search-clear-btn-tavily').click();
+      await settle();
+      byTestId<HTMLButtonElement>('settings-web-search-clear-confirm-tavily').click();
+      await settle();
+      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not clear the Tavily API key.');
+      expect(feedback.toast()?.message).toBe('Could not clear the Tavily API key.');
+      expect(visibleText()).not.toContain('host detail');
+    });
+
+    it.each([
+      ['an RPC failure', () => fail('host detail')],
+      ['a thrown Error', () => { throw new Error('host detail'); }],
+    ] as ReadonlyArray<[string, Responder]>)('connection check fails with %s', async (_case, respond) => {
+      responses['webSearch:test'] = respond;
+      await render();
+      byTestId<HTMLButtonElement>('settings-web-search-test').click();
+      await settle();
+      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('The connection check failed.');
+      expect(visibleText()).not.toContain('host detail');
+    });
+
+    it('a failed provider row shows the fixed sentence, not the backend error', async () => {
+      responses['webSearch:test'] = () => ok({
+        success: false, results: [{ provider: 'tavily', success: false, error: 'host detail' }],
+      });
+      await render();
+      byTestId<HTMLButtonElement>('settings-web-search-test').click();
+      await settle();
+      expect(byTestId('settings-web-search-status-tavily').textContent?.trim()).toBe('The connection check failed.');
+      expect(visibleText()).not.toContain('host detail');
     });
   });
 });
