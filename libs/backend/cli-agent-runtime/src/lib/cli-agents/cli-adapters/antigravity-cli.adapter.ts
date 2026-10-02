@@ -196,6 +196,38 @@ function createTurnDeferred(): TurnDeferred {
   return deferred;
 }
 
+/**
+ * Parse `agy models` stdout (TASK_2026_555 Batch 52.2). agy 1.2 prints a status line
+ * ("Fetching available models...") and then `id<TAB>display name` per model
+ * ("claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)"); the id is what `--model`
+ * takes. Older builds printed one label per line ("Gemini 3.1 Pro (High)"),
+ * which is both the id and the name. A tab-less line ending in "..." is a status
+ * line, never a model.
+ */
+export function parseAgyModels(stdout: string): CliModelInfo[] {
+  const models: CliModelInfo[] = [];
+  for (const line of stdout.split(/\r?\n/).map((entry) => entry.trim())) {
+    if (!line) continue;
+    const tab = line.indexOf('\t');
+    if (tab < 0) {
+      if (!line.endsWith('...')) models.push({ id: line, name: line });
+      continue;
+    }
+    const id = line.slice(0, tab).trim();
+    const name = line.slice(tab + 1).trim();
+    if (id) models.push({ id, name: name || id });
+  }
+  return models;
+}
+
+/**
+ * The value for `--model`. A model saved from the earlier parse is the whole
+ * `id<TAB>name` line; only its id is passed (Batch 52.2).
+ */
+export function agyModelId(value: string): string {
+  return value.split('\t')[0].trim();
+}
+
 function buildAntigravityArgs(
   options: CliCommandOptions,
   taskPrompt: string,
@@ -214,8 +246,9 @@ function buildAntigravityArgs(
     args.push('--dangerously-skip-permissions');
   }
   args.push('--print-timeout', PRINT_TIMEOUT);
-  if (options.model) {
-    args.push('--model', options.model);
+  const model = options.model ? agyModelId(options.model) : '';
+  if (model) {
+    args.push('--model', model);
   }
   if (
     options.reasoningEffort &&
@@ -383,10 +416,9 @@ export class AntigravityCliAdapter implements CliAdapter {
   }
 
   /**
-   * List available models by parsing `agy models` stdout (one label per line,
-   * e.g. "Gemini 3.1 Pro (High)"). The label IS the value passed to `--model`,
-   * so it serves as both id and display name. Falls back to an empty list when
-   * the probe fails — the caller treats a bare binary on PATH as "installed".
+   * List available models by parsing `agy models` stdout (`parseAgyModels`).
+   * Falls back to an empty list when the probe fails — the caller treats a
+   * bare binary on PATH as "installed".
    */
   async listModels(): Promise<CliModelInfo[]> {
     const binaryPath = (await resolveCliPath('agy')) ?? 'agy';
@@ -394,11 +426,7 @@ export class AntigravityCliAdapter implements CliAdapter {
     if (!raw) {
       return [];
     }
-    return stripAnsiCodes(raw)
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map((label) => ({ id: label, name: label }));
+    return parseAgyModels(stripAnsiCodes(raw));
   }
 
   /**

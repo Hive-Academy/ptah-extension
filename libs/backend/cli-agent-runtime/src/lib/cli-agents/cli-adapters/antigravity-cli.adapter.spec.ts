@@ -225,6 +225,21 @@ describe('AntigravityCliAdapter', () => {
       expect(argsArg).toEqual(['models']);
     });
 
+    it('agy 1.2 format: skips the status line and splits `id<TAB>name` (TASK_2026_555 Batch 52.2)', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/agy');
+      const models = adapter.listModels();
+      await Promise.resolve();
+      currentChild?.stdout.write(
+        'Fetching available models...\r\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\r\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\r\n',
+      );
+      currentChild?.emitClose(0);
+
+      expect(await models).toEqual([
+        { id: 'gemini-3.1-pro-high', name: 'Gemini 3.1 Pro (High)' },
+        { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)' },
+      ]);
+    });
+
     it('returns an empty list when the probe produces no output', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/agy');
       const models = adapter.listModels();
@@ -314,6 +329,19 @@ describe('AntigravityCliAdapter', () => {
       expect(argsArg[argsArg.indexOf('--model') + 1]).toBe(
         'Gemini 3.1 Pro (High)',
       );
+    });
+
+    it('passes only the id of a model saved as `id<TAB>name` by the earlier parse (Batch 52.2)', async () => {
+      const handle = await adapter.runSdk({
+        ...baseOptions,
+        model: 'claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)',
+      });
+      collect(handle);
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(argsArg[argsArg.indexOf('--model') + 1]).toBe('claude-sonnet-4-6');
     });
 
     it('adds --effort for a value agy accepts', async () => {
