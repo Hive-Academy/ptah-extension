@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 57/69
+Total tasks: 87 | Batches: 69 | Complete: 57/69 (P5 closed)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2322,7 +2322,22 @@ executors at once.
 
 ### P5 phase-end review
 
-- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P5 phase diff, the full e2e set (surfaces are unmounted; their visual review happens at Batches 58-61); findings fixed in follow-up commits before the next phase starts.
+- [x] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P5 phase diff, the full e2e set (surfaces are unmounted; their visual review happens at Batches 58-61); findings fixed in follow-up commits before the next phase starts.
+- Outcome (2026-10-02): no CLI lane was available (antigravity quota ~127 h, Glm weekly limit, opencode "Unknown
+  error"; codex/copilot excluded), so per the agent-lanes fallback two independent code-logic-reviewer subagents on
+  Sonnet (authors: Opus subagents + one antigravity lane) reviewed the P5 diff — weaker evidence than a cross-family
+  lane. Backend (`reviews/p5-phase-review-backend.md`, REVISE 7/10: SER-1 PR matched by number/fork, MOD-1..5,
+  MIN-1..5) → fixes `db258914e`; round 1 (`-backend-round1.md`) APPROVE 8/10 with MIN-6..9 → `d36797f6a`. Frontend
+  (`p5-phase-review-frontend.md`, APPROVE 7/10: MOD-1..4, MIN-1..5) → fixes `ff6dbe7af`; round 1 (`-frontend-round1.md`)
+  REVISE 7/10 (SER-1 false "committed" after a timeout, MOD-5, MIN-6) → `be92f6f46`; round 2
+  (`-frontend-round2.md`) APPROVE 8/10. Revise cap reached. SonarCloud issues on #629 fixed in the same rounds.
+  e2e: surfaces are unmounted; the full set runs in CI once the stack is retargeted to `main` (PENDING); visual
+  review moves to the cutover. Open (minor, accepted): frontend MIN-7 (multi-paragraph first line or a hook that
+  rewrites the subject leaves a landed commit "unconfirmed"), MIN-8 (first commit in an empty repo cannot be
+  confirmed after a timeout); backend MIN-1 (`toolAccess: 'none'` needs a real-SDK check — manual, cutover), MIN-2
+  secret-file filtering of the staged diff (product decision), MIN-7 (no push remote → `no-pr`). Cutover items:
+  register `GitOperationOutputService` + `FileContentChangesService` under `MESSAGE_HANDLERS` (with a spec), bind
+  `AGENT_FEEDBACK_SENDER`, drop the tab-switch unsaved prompt, disable tab primary actions during a conflict.
 
 ---
 
