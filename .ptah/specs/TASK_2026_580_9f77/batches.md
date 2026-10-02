@@ -38,37 +38,37 @@ section; the batch sections below hold each batch's full task text and review no
 
 ### Status and commits
 
-| Batch                                                                     | Status                     | Commit    |
-| ------------------------------------------------------------------------- | -------------------------- | --------- |
-| A1.1 shared contracts (vocabulary, list params, row fields)               | COMPLETE                   | beb938cd2 |
-| A1.2 shared contracts (push message, git notification, worktree callback) | COMPLETE                   | 56f37fb5b |
-| A2.1 migration 0050 + 12 version bumps                                    | COMPLETE                   | bb6b35beb |
-| A2.2 recorder port (platform-core)                                        | COMPLETE                   | 1671012e9 |
-| A2.3 session id rotation signal (agent-sdk)                               | COMPLETE                   | ec1364697 |
-| A3.1 new lib + SessionOrganizationStore                                   | COMPLETE                   | 2789094b7 |
-| A3.2 SessionOrganizationService + PR URL parser + tokens                  | COMPLETE                   | 7f6372a40 |
-| A3.3 capture service (delete cascade, rekey)                              | COMPLETE                   | b6ac36321 |
-| A3.4 DI register + start                                                  | COMPLETE                   | fae183675 |
-| A3.4b branch hook-clean (audit markers, commitlint scope, prettier)       | COMPLETE                   | efa997ca5 |
-| A4.1 `session:list` query + AC1 perf spec                                 | COMPLETE                   | eb67d86f3 |
-| A4.2 organization RPC handlers + manifest + registry entries              | COMPLETE                   | e2105f1cc |
-| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | COMPLETE                   | 883d1a422 |
-| A5.2 VS Code unavailable proof                                            | COMPLETE                   | 9c1f69870 |
-| B1 SDK worktree hook + fork lineage                                       | COMPLETE                   | 3961f4322 |
-| B2 PR capture subscriber (+ B2.3 hardening)                               | COMPLETE                   | a98c1dd2c |
-| B3.1 runtime capture (cli-agent-runtime)                                  | COMPLETE                   | 8f16da0ed |
-| B3.2 MCP worktree capture (git namespace)                                 | COMPLETE                   | b45af4490 |
-| B3.3 `PtahAPI.sessionOrganization` namespace                              | COMPLETE                   | 4bbeb40f9 |
-| B3.4 namespace hardening + builder tests                                  | COMPLETE                   | f39b2d2ce |
-| B3.5 `ptah_session_link_task` MCP tool                                    | COMPLETE                   | bd5c5d98f |
-| C0.1 board start carries `taskId`                                         | COMPLETE                   | a83ca9b6e |
-| C0.2 board-start link capture + push handling                             | COMPLETE                   | b968cb66a |
-| C1.1 chips, filter bar, editor                                            | COMPLETE                   | eb80449b4 |
-| C1.2 loader + app-shell sidebar (visual)                                  | COMPLETE                   | 790030342 |
-| C2.1 open-session bridge                                                  | READY (PENDING)            | —         |
-| C2.2 task links service + card (visual)                                   | COMPLETE                   | 976854b74 |
-| C2.3 task detail sessions list (visual)                                   | PENDING (after C2.1, C2.2) | —         |
-| T1 AC evidence, smoke S1-S8, test-report.md                               | PENDING (after all)        | —         |
+| Batch                                                                     | Status              | Commit    |
+| ------------------------------------------------------------------------- | ------------------- | --------- |
+| A1.1 shared contracts (vocabulary, list params, row fields)               | COMPLETE            | beb938cd2 |
+| A1.2 shared contracts (push message, git notification, worktree callback) | COMPLETE            | 56f37fb5b |
+| A2.1 migration 0050 + 12 version bumps                                    | COMPLETE            | bb6b35beb |
+| A2.2 recorder port (platform-core)                                        | COMPLETE            | 1671012e9 |
+| A2.3 session id rotation signal (agent-sdk)                               | COMPLETE            | ec1364697 |
+| A3.1 new lib + SessionOrganizationStore                                   | COMPLETE            | 2789094b7 |
+| A3.2 SessionOrganizationService + PR URL parser + tokens                  | COMPLETE            | 7f6372a40 |
+| A3.3 capture service (delete cascade, rekey)                              | COMPLETE            | b6ac36321 |
+| A3.4 DI register + start                                                  | COMPLETE            | fae183675 |
+| A3.4b branch hook-clean (audit markers, commitlint scope, prettier)       | COMPLETE            | efa997ca5 |
+| A4.1 `session:list` query + AC1 perf spec                                 | COMPLETE            | eb67d86f3 |
+| A4.2 organization RPC handlers + manifest + registry entries              | COMPLETE            | e2105f1cc |
+| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | COMPLETE            | 883d1a422 |
+| A5.2 VS Code unavailable proof                                            | COMPLETE            | 9c1f69870 |
+| B1 SDK worktree hook + fork lineage                                       | COMPLETE            | 3961f4322 |
+| B2 PR capture subscriber (+ B2.3 hardening)                               | COMPLETE            | a98c1dd2c |
+| B3.1 runtime capture (cli-agent-runtime)                                  | COMPLETE            | 8f16da0ed |
+| B3.2 MCP worktree capture (git namespace)                                 | COMPLETE            | b45af4490 |
+| B3.3 `PtahAPI.sessionOrganization` namespace                              | COMPLETE            | 4bbeb40f9 |
+| B3.4 namespace hardening + builder tests                                  | COMPLETE            | f39b2d2ce |
+| B3.5 `ptah_session_link_task` MCP tool                                    | COMPLETE            | bd5c5d98f |
+| C0.1 board start carries `taskId`                                         | COMPLETE            | a83ca9b6e |
+| C0.2 board-start link capture + push handling                             | COMPLETE            | b968cb66a |
+| C1.1 chips, filter bar, editor                                            | COMPLETE            | eb80449b4 |
+| C1.2 loader + app-shell sidebar (visual)                                  | COMPLETE            | 790030342 |
+| C2.1 open-session bridge                                                  | COMPLETE            | 418952d2a |
+| C2.2 task links service + card (visual)                                   | COMPLETE            | 976854b74 |
+| C2.3 task detail sessions list (visual)                                   | READY (PENDING)     | —         |
+| T1 AC evidence, smoke S1-S8, test-report.md                               | PENDING (after all) | —         |
 
 ### Branch checks at handoff (all must stay green)
 
@@ -80,19 +80,17 @@ section; the batch sections below hold each batch's full task text and review no
 
 ### Next READY batches (wave 6: four file-disjoint batches in four projects)
 
-Wave 6 is COMPLETE (A5.1, A5.2, C0.2, C2.2). C1.1 and C1.2 are COMPLETE.
+Wave 6 is COMPLETE (A5.1, A5.2, C0.2, C2.2). C1.1, C1.2 and C2.1 are COMPLETE.
 
-**Next READY: C2.1 — open-session bridge** (frontend-developer, sequential, 1 task;
-code-logic review only, no rendered change). Verification:
-`npx nx run-many -t typecheck,test,lint -p @ptah-extension/core @ptah-extension/chat`.
-Files (5, two projects): `core/.../app-state.service.ts` (+ its spec if the executor
-adds `requestOpenSession` cases there), new `chat-store/session-open-bridge.service.ts`
-and spec, `chat.store.ts` (inject beside `taskPromptBridge`, now `:88`), and
-`chat-store/index.ts`. The grid/single behaviour to mirror now lives at
-`app-shell.component.ts:619-626` (moved by C1.2); `requestCanvasSession` is at
-`app-state.service.ts:1168`.
+**Next READY: C2.3 — task detail sessions list + "Open session"** (frontend-developer,
+sequential, 1 task; code-logic review plus visual review in dark and light).
+Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/tasks-ui`.
+Files (2, one project): `tasks-ui/src/lib/components/detail/task-detail.component.ts`
+(inline template) and its `.spec.ts`. It reads `TaskSessionLinksService.linksFor`
+(C2.2; the map loads when the Tasks surface opens, and the detail lives inside
+`tasks-view.component.ts`) and calls `AppStateManager.requestOpenSession` (C2.1).
 
-After C2.1: C2.3 (after C2.1 and C2.2), then T1.
+After C2.3: T1.
 
 Wave 6 launch notes, kept for reference (A5.1, A5.2 and C0.2 are done):
 
@@ -1992,7 +1990,24 @@ dropped` line and returns.
   only.
 - Implementation details: see plan.
 
-## Batch C2.1: open-session bridge — PENDING
+## Batch C2.1: open-session bridge — COMPLETE (commit 418952d2a)
+
+- Code review: `code-logic-review-C2.1.md` APPROVED 10/10, no findings (antigravity
+  lane; written after a quota retry on the same session).
+- Result: `AppStateManager.requestOpenSession` + `sessionOpenRequest` signal + an
+  identity-guarded `clearSessionOpenRequest` (3 new spec cases); new
+  `SessionOpenBridgeService` (5-case spec) clears each request before routing it to
+  chat, then grid → `requestCanvasSession`, single → `switchSession`; `ChatStore`
+  injects it beside `taskPromptBridge`; exported from `chat-store/index.ts`.
+- Accepted deviation: the bridge calls `SessionLoaderService.switchSession`, not
+  `chatStore.switchSession`, because `ChatStore` injects the bridge eagerly and
+  injecting it back is an NG0200 DI cycle; `ChatStore.switchSession` is a pure
+  pass-through, so behaviour is identical. A rejection is logged with
+  `console.error` (frontend convention) so it is never unhandled.
+- No caller yet: C2.3 wires the task detail "Open session".
+- Verification at commit: `nx run-many -t typecheck,lint -p @ptah-extension/core
+@ptah-extension/chat` passes; the executor reported core 963 and chat 1734 tests
+  passing (not re-run).
 
 - Recommended executor: frontend-developer (sub-agent)
 - Fallback executor: a CLI lane
@@ -2003,7 +2018,7 @@ dropped` line and returns.
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/core @ptah-extension/chat`
 - Review: code-logic lane → `code-logic-review-C2.1.md`. No rendered change.
 
-### Task C2.1.1: `AppStateManager.requestOpenSession` + `SessionOpenBridgeService` — PENDING
+### Task C2.1.1: `AppStateManager.requestOpenSession` + `SessionOpenBridgeService` — COMPLETE
 
 - File:
   - `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\frontend\core\src\lib\services\app-state.service.ts` (MODIFY)
