@@ -23,6 +23,8 @@ const FORBIDDEN_MARKERS = [
   // The card's own template text: the `ptah-change-set-card` tag itself stays
   // in the eager transcript that names it in a `@defer` block.
   'No longer changes HEAD',
+  // CodeMirror's own editor class: the spot editor must stay in a lazy chunk.
+  'cm-editor',
   'ptah-review-',
   'ptah-spot-editor',
   'ptah-commit-composer',

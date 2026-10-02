@@ -1494,6 +1494,8 @@ describe('DiffTabsService file views', () => {
       content: contentValue,
       sizeBytes: contentValue.length,
       encoding: 'utf-8',
+      sha256: 'a'.repeat(64),
+      bom: false,
     },
   });
 

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 41/69
+Total tasks: 87 | Batches: 69 | Complete: 42/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1793,14 +1793,14 @@ executors at once.
   cli-engine 208, rpc-handlers all pass except the known `harness-skill-selection` flake after load-timeout reruns,
   ptah-electron 1080 + `git-watcher.stress` passes alone.
 
-## Batch 42: Spot editor (CodeMirror 6) — PENDING
+## Batch 42: Spot editor (CodeMirror 6) — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 33, 41
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 42.1: `SpotEditorComponent` + `codemirror-setup.ts` — PENDING
+### Task 42.1: `SpotEditorComponent` + `codemirror-setup.ts` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/package.json (+ lockfile; CodeMirror packages, exact versions); CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/spot-editor/codemirror-setup.ts; CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/spot-editor/spot-editor.component.ts (+ .spec.ts)
 - Plan reference: implementation-plan.md:1092-1131
@@ -1808,6 +1808,21 @@ executors at once.
 - Quality requirements: editor chunk lazy; chat links read-only by default; Markdown preview disabled >512 KB; UTF-16 read-only.
 - Validation notes: A12 CRLF round-trip spec; conflict dialog Reload default / Overwrite.
 - Implementation details: languages via `LanguageDescription.matchFilename`.
+- Outcome: executor frontend-developer; dependencies added by the orchestrator in `222cc2a5c` (state 6.7.6, view
+  6.43.13, commands 6.11.1, language 6.12.4, language-data 6.5.2; lockfile-only + scratch copy, junction intact).
+  `codemirror-setup.ts` is the only `@codemirror/*` importer (separator detection, `matchFilename` languages,
+  theme with AA-mapped dark highlight colours, editable toggle, Mod-S, dirty baseline); `SpotEditorComponent`
+  (25 tests on real CodeMirror in jsdom) loads it via dynamic import. Read-only by default (`startEditable` for the
+  canvas Edit action), Markdown preview disabled > 512 KB, UTF-16 read-only, A12 CRLF/LF/mixed round-trip specs,
+  conflict dialog Reload default / Overwrite (`overwrite: true`), discard-and-open, Back-to-review discard,
+  outside-workspace prompt, `notifyDiskChange(paths, truncated)`. Capability decision: no webview capability read
+  path exists, so a `Method not found` save result switches the editor to read-only for its lifetime (edits kept);
+  other failures stay editable. Accepted deviations: `diff-tab.types.ts` + `file-view-reader.service.ts` carry
+  `encoding`/`sha256`/`bom`; three Batch 39 spec mocks updated. Open for 43: wire `notifyDiskChange`, register the
+  stash canvas (Batch 37), re-run the eager guard once the editor is mounted (orchestrator added `cm-editor` as a
+  forbidden marker). Noted: Escape on the conflict dialog = Reload (drops edits); a file request arriving while a
+  dialog is open is dropped. Verified: git-ui typecheck/lint green, 762 tests; eager guard passes (`main.js`
+  370,305 B gz, 0 CodeMirror markers — editor not yet reachable).
 
 ## Batch 43: Review shell (Changes tab + header) — PENDING
 

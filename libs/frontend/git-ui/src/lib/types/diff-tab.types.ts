@@ -131,6 +131,14 @@ export interface FileViewTabState {
   relativePath: string | null;
   content: string;
   sizeBytes: number | null;
+  /**
+   * From the last successful read: the decoding used, the sha256 of the raw
+   * bytes (sent back as `expectedSha256` on save) and whether a BOM was
+   * stripped. Absent until a read succeeds.
+   */
+  encoding?: 'utf-8' | 'utf-16le' | 'utf-16be';
+  sha256?: string;
+  bom?: boolean;
   isMarkdown: boolean;
   reveal: { line: number; column: number } | null;
   status: FileViewTabStatus;

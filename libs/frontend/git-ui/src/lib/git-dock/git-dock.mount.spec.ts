@@ -125,6 +125,8 @@ describe('GitDockComponent mounted controls', () => {
         content: '# Mounted preview',
         sizeBytes: 17,
         encoding: 'utf-8',
+        sha256: 'b'.repeat(64),
+        bom: false,
       },
     };
     mockRpcCall.mockImplementation((_vscode: unknown, method: string) => {
