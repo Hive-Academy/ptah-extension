@@ -33,12 +33,13 @@ interface WorkspaceAwareService {
  * SessionLoaderService (session cache), FilePickerService (`@` picker file
  * cache), AgentDiscoveryFacade / CommandDiscoveryFacade (`/` picker agent and
  * command caches), GitStatusService / GitBranchesService (git state),
- * AppStateManager (which view/layout surface is on screen) and
- * ConfirmationDialogService.
+ * ReviewDiffService (the review canvas's per-workspace diff cache),
+ * GitReviewService (branch review), AppStateManager (which view/layout
+ * surface is on screen) and ConfirmationDialogService.
  *
- * Git services (GitStatusService, GitBranchesService, GitReviewService) are resolved
- * dynamically via Injector to avoid a static import of
- * `@ptah-extension/git-ui` at this layer. Everything else —
+ * Git services (GitStatusService, GitBranchesService, ReviewDiffService,
+ * GitReviewService) are resolved dynamically via Injector to avoid a static
+ * import of `@ptah-extension/git-ui` at this layer. Everything else —
  * TabManagerService, SessionLoaderService, FilePickerService and the two
  * discovery facades — is injected directly and reset synchronously.
  *
@@ -119,10 +120,18 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       return this.gitServices;
     }
 
-    const gitModule = await import('@ptah-extension/git-ui');
+    // The push-message services (status, branches, the review canvas's diff
+    // cache) come from the services-only entry; `GitReviewService` (branch
+    // review) is exported only by the main barrel. Both are dynamic imports so
+    // this layer keeps no static edge to git-ui.
+    const [gitServicesModule, gitModule] = await Promise.all([
+      import('@ptah-extension/git-ui/services'),
+      import('@ptah-extension/git-ui'),
+    ]);
     this.gitServices = [
-      this.injector.get(gitModule.GitStatusService),
-      this.injector.get(gitModule.GitBranchesService),
+      this.injector.get(gitServicesModule.GitStatusService),
+      this.injector.get(gitServicesModule.GitBranchesService),
+      this.injector.get(gitServicesModule.ReviewDiffService),
       this.injector.get(gitModule.GitReviewService),
     ];
     return this.gitServices;

@@ -22,9 +22,10 @@
  *   - The captured switchGeneration is re-checked after the awaited git
  *     resolution, so a superseded switch cannot apply last (TASK_2026_195).
  *   - A workspace switch reaches the REAL `GitStatusService` /
- *     `GitBranchesService` singletons resolved through `@ptah-extension/git-ui`
- *     (regression guard for the `Promise.all` bug above — TASK_2026_385
- *     Batch 4.1).
+ *     `GitBranchesService` / `ReviewDiffService` singletons resolved through
+ *     `@ptah-extension/git-ui/services` and `GitReviewService` through
+ *     `@ptah-extension/git-ui` (regression guard for the `Promise.all` bug
+ *     above — TASK_2026_385 Batch 4.1; review canvas — TASK_2026_576).
  */
 
 import { signal } from '@angular/core';
@@ -870,11 +871,15 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
   let gitReview: InstanceType<
     typeof import('@ptah-extension/git-ui').GitReviewService
   >;
+  let reviewDiff: InstanceType<
+    typeof import('@ptah-extension/git-ui/services').ReviewDiffService
+  >;
 
   beforeEach(async () => {
     mockGitRpcCall.mockReset();
     mockGitRpcCall.mockResolvedValue({ success: true, data: {} });
     const gitUi = await import('@ptah-extension/git-ui');
+    const gitUiServices = await import('@ptah-extension/git-ui/services');
 
     TestBed.configureTestingModule({
       providers: [
@@ -936,34 +941,40 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     gitStatus = TestBed.inject(gitUi.GitStatusService);
     gitBranches = TestBed.inject(gitUi.GitBranchesService);
     gitReview = TestBed.inject(gitUi.GitReviewService);
+    reviewDiff = TestBed.inject(gitUiServices.ReviewDiffService);
   });
 
   afterEach(() => {
+    reviewDiff.dispose();
     gitStatus.stopListening();
     TestBed.resetTestingModule();
   });
 
-  it('notifies the REAL GitStatusService, GitBranchesService, and GitReviewService singletons of a workspace switch', async () => {
+  it('notifies the REAL GitStatusService, GitBranchesService, ReviewDiffService and GitReviewService singletons of a workspace switch', async () => {
     const gitStatusSwitch = jest.spyOn(gitStatus, 'switchWorkspace');
     const gitBranchesSwitch = jest.spyOn(gitBranches, 'switchWorkspace');
+    const reviewDiffSwitch = jest.spyOn(reviewDiff, 'switchWorkspace');
     const gitReviewSwitch = jest.spyOn(gitReview, 'switchWorkspace');
 
     await service.switchWorkspace('/ws/regression');
 
     expect(gitStatusSwitch).toHaveBeenCalledWith('/ws/regression');
     expect(gitBranchesSwitch).toHaveBeenCalledWith('/ws/regression');
+    expect(reviewDiffSwitch).toHaveBeenCalledWith('/ws/regression');
     expect(gitReviewSwitch).toHaveBeenCalledWith('/ws/regression');
   });
 
   it('notifies the REAL git services of a workspace removal', async () => {
     const gitStatusRemove = jest.spyOn(gitStatus, 'removeWorkspaceState');
     const gitBranchesRemove = jest.spyOn(gitBranches, 'removeWorkspaceState');
+    const reviewDiffRemove = jest.spyOn(reviewDiff, 'removeWorkspaceState');
     const gitReviewRemove = jest.spyOn(gitReview, 'removeWorkspaceState');
 
     await service.removeWorkspaceState('/ws/regression');
 
     expect(gitStatusRemove).toHaveBeenCalledWith('/ws/regression');
     expect(gitBranchesRemove).toHaveBeenCalledWith('/ws/regression');
+    expect(reviewDiffRemove).toHaveBeenCalledWith('/ws/regression');
     expect(gitReviewRemove).toHaveBeenCalledWith('/ws/regression');
   });
 });
