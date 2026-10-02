@@ -178,11 +178,13 @@ function buildDefaultModelLabel(
               >Provider</span
             >
             <select
-              class="select select-bordered select-sm"
+              class="select select-bordered select-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
               data-testid="provider-model-picker-provider"
               [value]="selectedProvider()"
-              [disabled]="disabled()"
+              [attr.aria-disabled]="disabled() ? 'true' : null"
               [attr.aria-label]="providerAriaLabel()"
+              (mousedown)="blockWhileDisabled($event)"
+              (keydown)="blockWhileDisabled($event)"
               (change)="onProviderChange($event)"
             >
               <option value="" [selected]="selectedProvider() === ''">
@@ -220,11 +222,14 @@ function buildDefaultModelLabel(
               >Model</span
             >
             <select
-              class="select select-bordered select-sm"
+              class="select select-bordered select-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
               data-testid="provider-model-picker-model"
               [value]="selectedModelId()"
-              [disabled]="modelsLoading() || disabled()"
+              [disabled]="modelsLoading()"
+              [attr.aria-disabled]="disabled() ? 'true' : null"
               [attr.aria-label]="modelAriaLabel()"
+              (mousedown)="blockWhileDisabled($event)"
+              (keydown)="blockWhileDisabled($event)"
               (change)="onModelChange($event)"
             >
               <option value="" [selected]="selectedModelId() === ''">
@@ -588,8 +593,24 @@ export class ProviderModelPickerComponent {
     });
   }
 
+  /**
+   * A disabled picker (a save runs) keeps its selects focusable, `aria-disabled` rather than native `disabled`, so the
+   * select the user just changed keeps focus and Esc still reaches the popover or drawer (TASK_2026_555 Batch 54.1).
+   * Opening it and changing it with keys are refused; Tab and Esc still work.
+   */
+  protected blockWhileDisabled(event: Event): void {
+    if (!this.disabled()) return;
+    if (event instanceof KeyboardEvent && (event.key === 'Tab' || event.key === 'Escape')) return;
+    event.preventDefault();
+  }
+
   protected onProviderChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
+    const select = event.target as HTMLSelectElement;
+    if (this.disabled()) {
+      select.value = this.selectedProvider();
+      return;
+    }
+    const value = select.value;
     this._provider.set(value);
     // A model id from the previous provider is meaningless here.
     this._model.set('');
@@ -598,7 +619,12 @@ export class ProviderModelPickerComponent {
   }
 
   protected onModelChange(event: Event): void {
-    this.selectModel((event.target as HTMLSelectElement).value);
+    const select = event.target as HTMLSelectElement;
+    if (this.disabled()) {
+      select.value = this.selectedModelId();
+      return;
+    }
+    this.selectModel(select.value);
   }
 
   /** Shared by the `<select>` and the searchable field. */

@@ -89,12 +89,13 @@ let nextPopupId = 0;
           role="combobox"
           aria-autocomplete="list"
           autocomplete="off"
-          class="input input-bordered input-sm w-full pl-7"
+          class="input input-bordered input-sm w-full pl-7 aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
           data-testid="provider-model-picker-search"
           [attr.id]="inputId()"
           [value]="displayValue()"
           [placeholder]="placeholder() ?? selectedLabel()"
-          [disabled]="disabled()"
+          [readOnly]="disabled()"
+          [attr.aria-disabled]="disabled() ? 'true' : null"
           [attr.aria-label]="ariaLabel()"
           [attr.aria-expanded]="open()"
           [attr.aria-controls]="listboxId"
@@ -153,7 +154,10 @@ export class ProviderModelSearchFieldComponent {
   /** Currently selected model id (`''` = the sentinel). */
   readonly selectedId = input<string>('');
 
-  /** Disables the input (catalogue loading or whole-control disabled). */
+  /**
+   * Disables the field (catalogue loading or whole-control disabled). It stays focusable: `aria-disabled` and read-only,
+   * never native `disabled`, so a save started from this field never drops focus to the page (Batch 54.1).
+   */
   readonly disabled = input<boolean>(false);
 
   /** Accessible name of the combobox. */
@@ -287,6 +291,7 @@ export class ProviderModelSearchFieldComponent {
   }
 
   protected onInput(event: Event): void {
+    if (this.disabled()) return;
     this._query.set((event.target as HTMLInputElement).value);
     this._open.set(true);
   }
@@ -295,6 +300,9 @@ export class ProviderModelSearchFieldComponent {
     event: KeyboardEvent,
     autocomplete: NativeAutocompleteComponent<ProviderModelSearchOption>,
   ): void {
+    // Disabled (a save runs, or the list is loading): the field keeps focus, so Esc still reaches an enclosing popover
+    // or drawer, but nothing opens or changes (TASK_2026_555 Batch 54.1).
+    if (this.disabled()) return;
     if (!this._open()) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();

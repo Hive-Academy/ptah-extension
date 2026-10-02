@@ -767,16 +767,35 @@ describe('ProviderModelPickerComponent', () => {
   });
 
   describe('disabled state', () => {
-    it('disables both selects and hides the manual-entry disclosure', async () => {
+    it('disables both selects (aria-disabled, still focusable; Batch 54.1) and hides the manual-entry disclosure', async () => {
       const fixture = await create({ disabled: true });
 
-      expect(select(fixture, 'provider-model-picker-provider').disabled).toBe(
-        true,
-      );
-      expect(select(fixture, 'provider-model-picker-model').disabled).toBe(
-        true,
-      );
+      for (const id of ['provider-model-picker-provider', 'provider-model-picker-model']) {
+        expect(select(fixture, id).getAttribute('aria-disabled')).toBe('true');
+        expect(select(fixture, id).disabled).toBe(false);
+      }
       expect(el(fixture, 'provider-model-picker-manual-entry')).toBeNull();
+    });
+
+    it('a disabled select refuses a change and keeps its value; opening and keys are cancelled, Tab and Esc are not', async () => {
+      const changes: unknown[] = [];
+      const fixture = await create({ provider: ANTHROPIC_PROVIDERS[0].id, disabled: true });
+      fixture.componentInstance.selectionChange.subscribe((value) => changes.push(value));
+      const provider = select(fixture, 'provider-model-picker-provider');
+      const mousedown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      provider.dispatchEvent(mousedown);
+      expect(mousedown.defaultPrevented).toBe(true);
+      const arrow = new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
+      provider.dispatchEvent(arrow);
+      expect(arrow.defaultPrevented).toBe(true);
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      provider.dispatchEvent(escape);
+      expect(escape.defaultPrevented).toBe(false);
+      provider.value = '';
+      provider.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      expect(provider.value).toBe(ANTHROPIC_PROVIDERS[0].id);
+      expect(changes).toEqual([]);
     });
 
     it('keeps both selects enabled by default', async () => {
@@ -831,8 +850,8 @@ describe('ProviderModelPickerComponent', () => {
         '[data-testid="provider-model-picker-retry"]',
       ) as HTMLButtonElement;
       expect(retryDisabled.disabled).toBe(true);
-      expect(select(fixture, 'provider-model-picker-model').disabled).toBe(
-        true,
+      expect(select(fixture, 'provider-model-picker-model').getAttribute('aria-disabled')).toBe(
+        'true',
       );
     });
   });
@@ -1136,7 +1155,8 @@ describe('ProviderModelPickerComponent', () => {
         searchable: true,
         disabled: true,
       });
-      expect(search(fixture).disabled).toBe(true);
+      expect(search(fixture).getAttribute('aria-disabled')).toBe('true');
+      expect(search(fixture).readOnly).toBe(true);
     });
 
     it('disables the search field while the catalogue is loading', async () => {
@@ -1149,7 +1169,7 @@ describe('ProviderModelPickerComponent', () => {
       const fixture = TestBed.createComponent(ProviderModelPickerComponent);
       fixture.componentRef.setInput('searchable', true);
       fixture.detectChanges();
-      expect(search(fixture).disabled).toBe(true);
+      expect(search(fixture).getAttribute('aria-disabled')).toBe('true');
 
       release(result([]));
       await fixture.whenStable();

@@ -217,9 +217,11 @@ describe('ProviderModelSearchFieldComponent', () => {
     expect(emitted).toEqual([]);
   });
 
-  it('stays closed while disabled', () => {
+  it('stays closed while disabled, and stays focusable (aria-disabled, read-only; Batch 54.1)', () => {
     create({ disabled: true });
-    expect(input().disabled).toBe(true);
+    expect(input().disabled).toBe(false);
+    expect(input().readOnly).toBe(true);
+    expect(input().getAttribute('aria-disabled')).toBe('true');
     focus();
     key('ArrowDown');
     expect(root().querySelector('[role="listbox"]')).toBeNull();
