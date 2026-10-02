@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_592_a44d
-status: in_progress
+status: in_review
 type: BUGFIX
 title: Closing a chat tab ends its Claude session process
 description: >-
