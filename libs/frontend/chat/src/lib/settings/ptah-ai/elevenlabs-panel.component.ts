@@ -131,7 +131,7 @@ function testFailureMessage(category: string | undefined): string {
                 <button
                   #clearBtn
                   type="button"
-                  class="btn btn-outline btn-xs border-error text-base-content"
+                  class="btn btn-outline btn-xs text-base-content"
                   [disabled]="saving()"
                   [attr.aria-expanded]="confirmingClear()"
                   (click)="openClearConfirm()"
@@ -198,15 +198,15 @@ function testFailureMessage(category: string | undefined): string {
                   [disabled]="saving()"
                   [placeholder]="
                     config().apiKeyConfigured
-                      ? 'Enter a new key to replace the stored one'
-                      : 'Paste your ElevenLabs API key'
+                      ? 'New API key'
+                      : 'Paste API key'
                   "
                   (input)="onKeyInput($event)"
                   data-testid="elevenlabs-key-input"
                 />
                 <button
                   type="button"
-                  class="btn btn-ghost btn-xs absolute right-0 top-0"
+                  class="btn btn-ghost btn-xs btn-square absolute right-0 top-0 min-w-6 min-h-6"
                   [attr.aria-label]="
                     keyVisible() ? 'Hide API key' : 'Show API key'
                   "
@@ -250,7 +250,7 @@ function testFailureMessage(category: string | undefined): string {
             </div>
             <p
               id="elevenlabs-key-help"
-              class="mt-1 text-[10px] text-base-content-muted"
+              class="mt-1 text-xs text-base-content-muted"
               data-testid="elevenlabs-key-hint"
             >
               @if (keyDraft().trim().length > 0 && !draftVerified()) {
@@ -291,14 +291,14 @@ function testFailureMessage(category: string | undefined): string {
             <td class="align-top">
               @if (!config().apiKeyConfigured) {
                 <p
-                  class="text-[10px] text-base-content-muted"
+                  class="text-xs text-base-content-muted"
                   data-testid="elevenlabs-voices-locked"
                 >
                   Save an API key to load your voices.
                 </p>
               } @else if (isLoadingVoices()) {
                 <div
-                  class="text-[10px] text-base-content-muted"
+                  class="text-xs text-base-content-muted"
                   data-testid="elevenlabs-voices-loading"
                 >
                   Loading voices…
@@ -306,7 +306,7 @@ function testFailureMessage(category: string | undefined): string {
               } @else if (voicesError(); as vErr) {
                 <div class="flex items-center gap-2">
                   <span
-                    class="flex items-center gap-1 text-[10px] text-base-content"
+                    class="flex items-center gap-1 text-xs text-base-content"
                     data-testid="elevenlabs-voices-error"
                   >
                     <lucide-angular

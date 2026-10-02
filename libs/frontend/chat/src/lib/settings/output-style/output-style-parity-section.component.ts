@@ -6,13 +6,20 @@
  *  - Scope / tier select (.claude/settings.json, .claude/settings.local.json, ~/.claude/settings.json)
  *  - S-confirm inline alertdialog before writing outside Ptah
  *  - Success status and warning notifications
+ *
+ * The `<details>` opens itself whenever it has a confirm or a warning to show,
+ * and collapsing it while a confirm is pending cancels that confirm: a pending
+ * radio choice is never left on screen without a visible prompt.
  */
 
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  effect,
   input,
   output,
+  viewChild,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -52,8 +59,10 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <details
+      #details
       class="mt-3 rounded border border-base-300 p-2 text-xs text-base-content"
       data-testid="output-style-parity-details"
+      (toggle)="onDetailsToggle()"
     >
       <summary class="cursor-pointer font-medium select-none text-xs text-base-content">
         Command-line parity
@@ -71,7 +80,7 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
           <span class="text-xs text-base-content">
             Also apply this style when I run <code>claude</code> in this project
           </span>
-          <span class="block text-[11px] text-base-content-muted mt-0.5 leading-relaxed">
+          <span class="block text-xs text-base-content-muted mt-0.5 leading-relaxed">
             Ptah applies your choice on its own. Tick this to additionally write
             <code class="text-base-content-muted">{{ parityDisplayPath() }}</code>
             so the command-line tool picks up the same style. Ptah keeps every
@@ -83,7 +92,7 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
       @if (parityEnabled()) {
         <div class="mt-2 pl-6">
           <label
-            class="block text-[11px] text-base-content-muted mb-1"
+            class="block text-xs text-base-content-muted mb-1"
             for="output-style-parity-tier"
           >
             Where to write it
@@ -104,7 +113,7 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
               </option>
             }
           </select>
-          <p class="text-[10px] text-base-content-muted mt-1 leading-relaxed">
+          <p class="text-xs text-base-content-muted mt-1 leading-relaxed">
             The file is written the next time you pick a style. Nothing is
             written while this box is unticked.
           </p>
@@ -114,10 +123,11 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
       <!-- S-confirm for Parity File Write (A24) -->
       @if (pendingParitySelection() !== undefined) {
         <div
-          class="mt-2 flex items-center gap-2 rounded border border-warning/40 bg-warning/10 p-2 text-xs text-base-content"
+          class="mt-2 flex items-center gap-2 rounded border border-base-300 p-2 text-xs text-base-content"
           role="group"
           aria-label="Confirm command-line settings write"
           data-testid="parity-confirm"
+          (keydown.escape)="cancel($event)"
         >
           <lucide-angular
             [img]="AlertTriangleIcon"
@@ -131,7 +141,7 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
           </span>
           <button
             type="button"
-            class="btn btn-warning btn-xs"
+            class="btn btn-outline btn-xs border-error text-base-content"
             [disabled]="saving()"
             (click)="confirmed.emit()"
             data-testid="parity-confirm-button"
@@ -139,9 +149,10 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
             Confirm
           </button>
           <button
+            #parityCancel
             type="button"
             class="btn btn-ghost btn-xs text-base-content"
-            (click)="cancelled.emit()"
+            (click)="cancel()"
             data-testid="parity-cancel-button"
           >
             Cancel
@@ -151,7 +162,7 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
 
       @if (parityWrittenPath(); as written) {
         <p
-          class="text-[11px] text-base-content mt-2 pl-6 leading-relaxed flex items-center gap-1.5"
+          class="text-xs text-base-content mt-2 pl-6 leading-relaxed flex items-center gap-1.5"
           role="status"
           data-testid="output-style-parity-written"
         >
@@ -172,8 +183,8 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
             aria-hidden="true"
           />
           <div class="flex-1">
-            <p class="text-[11px] leading-relaxed">{{ warning }}</p>
-            <p class="text-[10px] text-base-content-muted mt-0.5">
+            <p class="text-xs text-base-content leading-relaxed">{{ warning }}</p>
+            <p class="text-xs text-base-content-muted mt-0.5">
               Your chosen style is still active in Ptah — only the extra copy
               for the command line was skipped.
             </p>
@@ -208,6 +219,33 @@ export class OutputStyleParitySectionComponent {
   readonly AlertTriangleIcon = AlertTriangle;
   readonly CheckIcon = Check;
   readonly parityTiers = PARITY_TIERS;
+
+  private readonly details = viewChild<ElementRef<HTMLDetailsElement>>('details');
+  private readonly parityCancel = viewChild<ElementRef<HTMLButtonElement>>('parityCancel');
+
+  constructor() {
+    // Serious 2: a pending confirm or a parity warning opens the section, and the confirm takes focus on Cancel.
+    effect(() => {
+      const pending = this.pendingParitySelection() !== undefined;
+      const details = this.details()?.nativeElement;
+      if (details && (pending || this.parityWarning() !== null)) details.open = true;
+      if (pending) this.parityCancel()?.nativeElement.focus();
+    });
+  }
+
+  /** Collapsing the section while a confirm is pending cancels it, so no unsaved radio stays checked. */
+  onDetailsToggle(): void {
+    const details = this.details()?.nativeElement;
+    if (details && !details.open && this.pendingParitySelection() !== undefined) {
+      this.cancelled.emit();
+    }
+  }
+
+  /** Cancel and Esc dismiss the confirm here; Esc stops so an enclosing overlay does not also close. */
+  cancel(event?: Event): void {
+    event?.stopPropagation();
+    this.cancelled.emit();
+  }
 
   onToggle(event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;

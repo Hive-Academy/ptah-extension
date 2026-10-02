@@ -157,7 +157,10 @@ export class VscodeLmConfigComponent implements OnInit {
   /** Local saving state */
   readonly savingModel = signal(false);
 
-  /** Local selected model override to ensure revert on failure (D15) */
+  /**
+   * The model being written, shown while the write is in flight; cleared once it settles so the select
+   * follows the provider's saved default again, including changes made elsewhere (Minor 10).
+   */
   readonly selectedModel = signal<string | null>(null);
 
   /** Find the vscode-lm provider from the provider list */
@@ -178,9 +181,11 @@ export class VscodeLmConfigComponent implements OnInit {
     await this.llmState.loadVsCodeModels();
   }
 
-  onVsCodeModelSelectEvent(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    void this.onVsCodeModelSelect(value);
+  async onVsCodeModelSelectEvent(event: Event): Promise<void> {
+    const select = event.target as HTMLSelectElement;
+    await this.onVsCodeModelSelect(select.value);
+    // OnPush keeps a `[value]` binding that did not change: put the element back on the saved model.
+    select.value = this.currentModelId();
   }
 
   async onVsCodeModelSelect(modelId: string): Promise<void> {
@@ -206,28 +211,29 @@ export class VscodeLmConfigComponent implements OnInit {
               this.modelChanged.emit();
               return { ok: true };
             }
-            this.selectedModel.set(previousModel);
             return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
           } catch {
-            this.selectedModel.set(previousModel);
             return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
           }
         },
-        undo: async () => {
-          try {
-            const success = await this.llmState.setDefaultModel('vscode-lm', previousModel);
-            if (success) {
-              this.selectedModel.set(previousModel);
-              this.modelChanged.emit();
-              return { ok: true };
+        // With no previous model there is nothing to restore: writing '' would store an empty model id.
+        undo: previousModel
+          ? async () => {
+              try {
+                const success = await this.llmState.setDefaultModel('vscode-lm', previousModel);
+                if (success) {
+                  this.modelChanged.emit();
+                  return { ok: true };
+                }
+                return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
+              } catch {
+                return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
+              }
             }
-            return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
-          } catch {
-            return { ok: false, message: COULD_NOT_SAVE_LM_MODEL };
-          }
-        },
+          : null,
       });
     } finally {
+      this.selectedModel.set(null);
       this.savingModel.set(false);
     }
   }

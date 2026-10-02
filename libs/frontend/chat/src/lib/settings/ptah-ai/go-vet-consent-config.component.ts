@@ -98,7 +98,7 @@ const SUCCESS_MESSAGE_MS = 3000;
             </h2>
           </div>
 
-          <p class="text-[10px] text-base-content-muted mb-2">
+          <p class="text-sm text-base-content-muted mb-2">
             When on, Ptah's diagnostics tools run your installed Go toolchain
             (<code>go vet</code>) on the Go packages they are asked to check. It
             reads the module source and module cache and writes the build cache.
@@ -201,7 +201,7 @@ const SUCCESS_MESSAGE_MS = 3000;
           <div id="go-vet-consent-status" aria-live="polite" class="mt-1">
             @if (loading()) {
               <p
-                class="text-[10px] text-base-content-muted"
+                class="text-xs text-base-content-muted"
                 data-testid="go-vet-consent-loading"
               >
                 Checking the go vet setting…
@@ -264,7 +264,7 @@ const SUCCESS_MESSAGE_MS = 3000;
               role="group"
               aria-labelledby="go-vet-confirm-title"
               aria-describedby="go-vet-confirm-root"
-              (keydown.escape)="cancelEnable()"
+              (keydown.escape)="cancelEnable($event)"
               data-testid="go-vet-consent-confirm"
             >
               <p
@@ -280,7 +280,7 @@ const SUCCESS_MESSAGE_MS = 3000;
               </p>
               <p
                 id="go-vet-confirm-root"
-                class="text-[10px] font-mono break-all text-base-content"
+                class="text-xs font-mono break-all text-base-content"
                 data-testid="go-vet-consent-confirm-root"
               >
                 {{ root }}
@@ -464,8 +464,10 @@ export class GoVetConsentConfigComponent {
     void this.submit(true, root, token);
   }
 
-  cancelEnable(): void {
+  /** Cancel and Esc close the confirm; Esc stops here only when it closed it (P8). */
+  cancelEnable(event?: Event): void {
     if (this.confirmingRoot() === null) return;
+    event?.stopPropagation();
     this.confirmingRoot.set(null);
     this.confirmingToken = undefined;
     this.focusToggle();

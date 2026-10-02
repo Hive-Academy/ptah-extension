@@ -152,7 +152,7 @@ describe('OutputStyleStore', () => {
       expect(store.decision()?.path).toBe('inject');
       expect(store.usingFallbackInjection()).toBe(true);
       expect(store.loading()).toBe(false);
-      expect(store.error()).toBeNull();
+      expect(store.failedOperation()).toBeNull();
     });
 
     it('surfaces a transport failure and clears the loading flag', async () => {
@@ -163,7 +163,7 @@ describe('OutputStyleStore', () => {
 
       await store.refresh();
 
-      expect(store.error()).toBe('RPC timeout: outputStyle:list');
+      expect(store.failedOperation()).toBe('list');
       expect(store.loading()).toBe(false);
     });
 
@@ -217,7 +217,7 @@ describe('OutputStyleStore', () => {
         path: 'flag',
         styleName: 'Simplified Technical English',
       });
-      expect(store.error()).toBeNull();
+      expect(store.failedOperation()).toBeNull();
     });
 
     it('sends null for the default sentinel and clears the selection', async () => {
@@ -256,9 +256,7 @@ describe('OutputStyleStore', () => {
       expect(applied).toBe(false);
       expect(store.active()).toEqual(previous);
       expect(store.activeName()).toBe('Simplified Technical English');
-      expect(store.error()).toBe(
-        '.claude/settings.json is not valid JSON, so it was left untouched.',
-      );
+      expect(store.failedOperation()).toBe('activate');
       expect(store.saving()).toBe(false);
     });
 
@@ -272,7 +270,7 @@ describe('OutputStyleStore', () => {
 
       expect(applied).toBe(false);
       expect(store.activeName()).toBeNull();
-      expect(store.error()).toBe('RPC timeout: outputStyle:activate');
+      expect(store.failedOperation()).toBe('activate');
     });
   });
 
@@ -358,7 +356,7 @@ describe('OutputStyleStore', () => {
         styleName: 'Simplified Technical English',
       });
       // The failure is a warning, not the error banner that means "not applied".
-      expect(store.error()).toBeNull();
+      expect(store.failedOperation()).toBeNull();
       expect(store.parityWarning()).toBe(
         '.claude/settings.json is not a valid settings file. Ptah did not change it — fix the file by hand, or choose a different one.',
       );
@@ -537,10 +535,48 @@ describe('OutputStyleStore', () => {
         code: 'FILE_EXISTS',
         message: 'A style file with that name already exists in this tier.',
       });
-      expect(store.error()).toBe(
-        'A style file with that name already exists in this tier.',
-      );
+      expect(store.failedOperation()).toBe('save');
       expect(store.saving()).toBe(false);
+    });
+
+    it('turns a transport failure into WRITE_FAILED with a fixed sentence, never the host text', async () => {
+      responses['outputStyle:save'] = { isSuccess: () => false, error: 'host detail: EACCES' };
+
+      const error = await store.save(saveParams);
+
+      expect(error).toEqual({ code: 'WRITE_FAILED', message: 'Could not save the output style.' });
+      expect(store.failedOperation()).toBe('save');
+    });
+  });
+
+  describe('failure tagging (Moderate 4)', () => {
+    it('tags a failed load as open, and a failed copy as copy rather than save', async () => {
+      responses['outputStyle:get'] = { isSuccess: () => false, error: 'host detail' };
+      await store.load('Terse', 'user');
+      expect(store.failedOperation()).toBe('open');
+
+      const error = await store.copyToProjectTier('Terse');
+      expect(store.failedOperation()).toBe('copy');
+      expect(error?.message).toBe('Could not copy the output style to the project.');
+
+      responses['outputStyle:get'] = ok({ style: { ...USER_STYLE, body: '' } });
+      responses['outputStyle:save'] = { isSuccess: () => false, error: 'could not be written' };
+      await store.copyToProjectTier('Terse');
+      expect(store.failedOperation()).toBe('copy');
+    });
+
+    it('dismissError(only) clears just the listed operations', async () => {
+      store.failedOperation.set('list');
+      store.dismissError(['save', 'open']);
+      expect(store.failedOperation()).toBe('list');
+
+      store.failedOperation.set('save');
+      store.dismissError(['save', 'open']);
+      expect(store.failedOperation()).toBeNull();
+
+      store.failedOperation.set('delete');
+      store.dismissError();
+      expect(store.failedOperation()).toBeNull();
     });
   });
 
@@ -577,7 +613,7 @@ describe('OutputStyleStore', () => {
       const removed = await store.remove('Learning', 'user');
 
       expect(removed).toBe(false);
-      expect(store.error()).toBe('Built-in styles cannot be deleted.');
+      expect(store.failedOperation()).toBe('delete');
       expect(call).not.toHaveBeenCalledWith('outputStyle:list', {});
     });
   });

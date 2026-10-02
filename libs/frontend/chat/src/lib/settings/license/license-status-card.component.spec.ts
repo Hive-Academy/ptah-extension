@@ -5,6 +5,8 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
@@ -194,6 +196,80 @@ describe('LicenseStatusCardComponent', () => {
     expect(rpc.call).not.toHaveBeenCalled();
   });
 
+  it('opens the log-out confirm with Cancel focused; Esc closes it, returns focus to Log Out and stops there (FM-2)', async () => {
+    await render(premiumStatus);
+    document.body.appendChild(element);
+    const outer = jest.fn();
+    document.body.addEventListener('keydown', outer);
+    try {
+      const logout = element.querySelector<HTMLButtonElement>('[data-testid="logout-button"]');
+      logout?.click();
+      fixture.detectChanges();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(element.querySelector('[data-testid="logout-cancel-button"]'));
+
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(element.querySelector('[data-testid="logout-confirm"]')).toBeNull();
+      expect(document.activeElement).toBe(logout);
+      expect(outer).not.toHaveBeenCalled();
+      expect(rpc.call).not.toHaveBeenCalled();
+    } finally {
+      document.body.removeEventListener('keydown', outer);
+      element.remove();
+    }
+  });
+
+  it('returns focus to Log Out when Cancel is clicked (FM-2)', async () => {
+    await render(premiumStatus);
+    document.body.appendChild(element);
+    try {
+      const logout = element.querySelector<HTMLButtonElement>('[data-testid="logout-button"]');
+      logout?.click();
+      fixture.detectChanges();
+      element.querySelector<HTMLButtonElement>('[data-testid="logout-cancel-button"]')?.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(document.activeElement).toBe(logout);
+    } finally {
+      element.remove();
+    }
+  });
+
+  it('lets Esc through without closing while the log-out write is in flight (FM-2)', async () => {
+    rpc.call.mockReturnValue(new Promise(() => undefined));
+    await render(premiumStatus);
+    document.body.appendChild(element);
+    const outer = jest.fn();
+    document.body.addEventListener('keydown', outer);
+    try {
+      element.querySelector<HTMLButtonElement>('[data-testid="logout-button"]')?.click();
+      fixture.detectChanges();
+      element.querySelector<HTMLButtonElement>('[data-testid="logout-confirm-button"]')?.click();
+      fixture.detectChanges();
+      element
+        .querySelector('[data-testid="logout-confirm"]')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      expect(element.querySelector('[data-testid="logout-confirm"]')).not.toBeNull();
+      expect(outer).toHaveBeenCalledTimes(1);
+    } finally {
+      document.body.removeEventListener('keydown', outer);
+      element.remove();
+    }
+  });
+
+  it('renders the member initials in base-content text, colour only on the avatar fill (D1)', async () => {
+    await render(premiumStatus);
+    const avatar = Array.from(element.querySelectorAll('[aria-label="User profile"] div')).find(
+      (div) => div.textContent?.trim() === 'AB',
+    );
+    expect(avatar?.classList.contains('text-base-content')).toBe(true);
+    expect(avatar?.classList.contains('text-primary')).toBe(false);
+  });
+
   it('calls license:clearKey on confirmed log out and closes the confirm on success', async () => {
     rpc.call.mockResolvedValue(rpcSuccess({ success: true }));
     await render(premiumStatus);
@@ -296,5 +372,10 @@ describe('LicenseStatusCardComponent', () => {
     expect(inputEl.getAttribute('type')).toBe('text');
     expect(element.querySelector('[data-testid="membership-key-visibility"]')?.getAttribute('aria-label'))
       .toBe('Hide membership key');
+  });
+
+  it('uses no text size below 12 px anywhere in the component source (Batch 50b)', () => {
+    const source = readFileSync(join(__dirname, 'license-status-card.component.ts'), 'utf8');
+    expect(source.match(/text-\[(?:\d|1[01])(?:\.\d+)?px\]/g)).toBeNull();
   });
 });

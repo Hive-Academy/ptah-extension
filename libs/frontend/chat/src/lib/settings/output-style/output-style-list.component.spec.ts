@@ -20,6 +20,7 @@ import {
   OutputStyleListComponent,
   type OutputStyleSelectionRequest,
 } from './output-style-list.component';
+import type { OutputStyleFailedOperation } from './output-style.store';
 
 const BUILT_IN_DEFAULT: OutputStyleEntry = {
   name: 'default',
@@ -58,7 +59,7 @@ const NO_SELECTION: ActiveOutputStyleState = {
       [styles]="styles()"
       [invalid]="invalid()"
       [active]="active()"
-      [error]="error()"
+      [failedOperation]="failedOperation()"
       [parityWrittenPath]="parityWrittenPath()"
       [parityWarning]="parityWarning()"
       (activate)="emitted.push($event)"
@@ -72,7 +73,7 @@ class HostComponent {
   ]);
   readonly invalid = signal<readonly InvalidOutputStyle[]>([]);
   readonly active = signal<ActiveOutputStyleState>(NO_SELECTION);
-  readonly error = signal<string | null>(null);
+  readonly failedOperation = signal<OutputStyleFailedOperation | null>(null);
   readonly parityWrittenPath = signal<string | null>(null);
   readonly parityWarning = signal<string | null>(null);
   readonly emitted: OutputStyleSelectionRequest[] = [];
@@ -300,6 +301,11 @@ describe('OutputStyleListComponent — CLI parity control', () => {
 
     expect(text()).toContain('Ptah did not change it.');
     expect(text()).toContain('still active in Ptah');
+    // 12 px minimum: no 10-11 px helper text left anywhere in the list, its banners or the parity section.
+    expect(fixture.nativeElement.querySelector('[class*="text-[10px]"], [class*="text-[11px]"]')).toBeNull();
+    const body = fixture.nativeElement.querySelector('[data-testid="output-style-parity-warning"] p') as HTMLElement;
+    expect(body.classList).toContain('text-xs');
+    expect(body.classList).toContain('text-base-content');
     // A warning, not the error banner — that one is `role="alert"`.
     expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
   });
@@ -320,14 +326,143 @@ describe('OutputStyleListComponent — CLI parity control', () => {
     expect(text()).not.toMatch(/[A-Za-z]:[\\/]/);
   });
 
-  it('maps raw error strings to a fixed user-facing sentence in role="alert" (D15)', () => {
-    host.error.set('Raw host exception: EACCES permission denied');
+  it.each<[OutputStyleFailedOperation, string]>([
+    ['list', 'Could not read the output styles.'],
+    ['activate', 'Could not change the active output style.'],
+    ['save', 'Could not save the output style.'],
+    ['delete', 'Could not delete the output style.'],
+    ['open', 'Could not open that output style.'],
+    ['copy', 'Could not copy the output style to the project.'],
+  ])('names the failed %s operation with its fixed sentence in role="alert" (Moderate 4, D15)', (operation, sentence) => {
+    host.failedOperation.set(operation);
     fixture.detectChanges();
 
     const alert = fixture.nativeElement.querySelector('[role="alert"]');
-    expect(alert).not.toBeNull();
-    expect(alert.textContent).toContain('Could not change the active output style.');
-    expect(alert.textContent).not.toContain('EACCES');
+    expect(alert?.textContent).toContain(sentence);
+  });
+
+  describe('same-selection guard (Moderate 6)', () => {
+    it('clicking the already-active radio emits nothing', () => {
+      clickStyleRow(0);
+      expect(host.emitted).toEqual([]);
+      expect(radios()[0].checked).toBe(true);
+    });
+
+    it('with parity ticked, the active radio asks once for the file write, then does nothing', () => {
+      parityCheckbox().click();
+      fixture.detectChanges();
+
+      clickStyleRow(0);
+      expect(fixture.nativeElement.querySelector('[data-testid="parity-confirm"]')).not.toBeNull();
+      (fixture.nativeElement.querySelector('[data-testid="parity-confirm-button"]') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(host.emitted).toEqual([{ name: null, parity: { enabled: true, tier: 'project' } }]);
+
+      clickStyleRow(0);
+      expect(host.emitted).toHaveLength(1);
+      expect(fixture.nativeElement.querySelector('[data-testid="parity-confirm"]')).toBeNull();
+    });
+  });
+
+  describe('parity section visibility and dismissal (Serious 2, Moderate 7)', () => {
+    const details = (): HTMLDetailsElement =>
+      fixture.nativeElement.querySelector('[data-testid="output-style-parity-details"]');
+
+    beforeEach(() => document.body.appendChild(fixture.nativeElement));
+    afterEach(() => fixture.nativeElement.remove());
+
+    it('opens the collapsed section when a confirm is pending, with Cancel focused', () => {
+      parityCheckbox().click();
+      fixture.detectChanges();
+      details().open = false;
+
+      clickStyleRow(1);
+
+      expect(details().open).toBe(true);
+      expect(document.activeElement?.getAttribute('data-testid')).toBe('parity-cancel-button');
+    });
+
+    it('collapsing the section with a pending confirm cancels it and puts the radios back', () => {
+      parityCheckbox().click();
+      fixture.detectChanges();
+      clickStyleRow(1);
+      expect(radios()[1].checked).toBe(true);
+
+      details().open = false;
+      details().dispatchEvent(new Event('toggle'));
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('[data-testid="parity-confirm"]')).toBeNull();
+      expect(radios().map((radio) => radio.checked)).toEqual([true, false]);
+      expect(host.emitted).toEqual([]);
+    });
+
+    it('Esc on the confirm cancels it, stops there and focuses the saved radio', () => {
+      const outer = jest.fn();
+      document.body.addEventListener('keydown', outer);
+      try {
+        parityCheckbox().click();
+        fixture.detectChanges();
+        clickStyleRow(1);
+
+        document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.querySelector('[data-testid="parity-confirm"]')).toBeNull();
+        expect(outer).not.toHaveBeenCalled();
+        expect(document.activeElement).toBe(radios()[0]);
+        expect(host.emitted).toEqual([]);
+      } finally {
+        document.body.removeEventListener('keydown', outer);
+      }
+    });
+
+    it('opens the collapsed section when a parity warning arrives', () => {
+      details().open = false;
+      host.parityWarning.set('.claude/settings.json is not a valid settings file.');
+      fixture.detectChanges();
+
+      expect(details().open).toBe(true);
+    });
+
+    it('uses the outline confirm button, not a solid warning fill (m3)', () => {
+      parityCheckbox().click();
+      fixture.detectChanges();
+      clickStyleRow(1);
+      const button = fixture.nativeElement.querySelector('[data-testid="parity-confirm-button"]') as HTMLElement;
+      expect(button.classList).toContain('btn-outline');
+      expect(button.classList).not.toContain('btn-warning');
+    });
+  });
+
+  describe('delete confirm shape (D5) and built-in note (M4)', () => {
+    it('renders the delete confirm in its own full-width row with an outline button', () => {
+      (fixture.nativeElement.querySelectorAll('[data-testid="output-style-delete-button"]')[1] as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      const confirm = fixture.nativeElement.querySelector('[data-testid="output-style-delete-confirm"]') as HTMLElement;
+      const cell = confirm.closest('td') as HTMLTableCellElement;
+      expect(cell.getAttribute('colspan')).toBe('5');
+      expect(cell.closest('tr')?.getAttribute('data-testid')).toBeNull();
+      expect(confirm.className).not.toMatch(/bg-error|border-error/);
+      const button = fixture.nativeElement.querySelector('[data-testid="output-style-confirm-delete"]') as HTMLElement;
+      expect(button.classList).toContain('btn-outline');
+      expect(button.classList).not.toContain('btn-error');
+    });
+
+    it('states the built-in note once, as the badge tooltip and one footnote, not per row', () => {
+      host.styles.set([BUILT_IN_DEFAULT, { ...BUILT_IN_DEFAULT, name: 'Explanatory' }, USER_STYLE]);
+      fixture.detectChanges();
+
+      const note = 'Built into the agent — Ptah can select it but not change it.';
+      expect((text().match(/Ptah can select it but not change it/g) ?? []).length).toBe(0);
+      expect(fixture.nativeElement.querySelectorAll('[data-testid="output-style-builtin-note"]')).toHaveLength(1);
+      const badges = Array.from<HTMLElement>(fixture.nativeElement.querySelectorAll('.badge')).filter(
+        (badge) => badge.textContent?.trim() === 'Built-in',
+      );
+      expect(badges).toHaveLength(2);
+      expect(badges.every((badge) => badge.getAttribute('title') === note)).toBe(true);
+    });
   });
 });
 

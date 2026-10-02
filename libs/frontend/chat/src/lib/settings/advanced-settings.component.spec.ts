@@ -147,7 +147,8 @@ describe('AdvancedSettingsComponent', () => {
       await fixture.whenStable();
 
       expect(element.querySelector('[data-testid="import-confirm"]')).toBeNull();
-      expect(document.activeElement).toBe(importButton);
+      // The confirm replaced the trigger while open (M5), so Import is a fresh element now.
+      expect(document.activeElement).toBe(element.querySelector('[aria-label="Import settings"]'));
       expect(outer).not.toHaveBeenCalled();
       expect(rpc.call).not.toHaveBeenCalled();
     } finally {
@@ -156,8 +157,43 @@ describe('AdvancedSettingsComponent', () => {
     }
   });
 
+  it('M5: renders the import confirm in the header action row, not above the membership badges', async () => {
+    await render(false);
+    element.querySelector<HTMLButtonElement>('[aria-label="Import settings"]')?.click();
+    fixture.detectChanges();
+
+    const confirm = element.querySelector('[data-testid="import-confirm"]');
+    expect(confirm?.closest('[membership-actions]')).not.toBeNull();
+    expect(element.querySelector('[membership-notices]')).toBeNull();
+    // The full warning stays available to assistive technology.
+    const detail = element.querySelector(`#${confirm?.getAttribute('aria-describedby')}`);
+    expect(detail?.textContent).toContain('Import replaces your current settings, API keys and preferences');
+  });
+
+  it('returns focus to Import once the confirmed import finishes', async () => {
+    rpc.call.mockResolvedValue(rpcSuccess({ cancelled: true }));
+    await render(true);
+    document.body.appendChild(element);
+    try {
+      await confirmImport();
+      expect(document.activeElement).toBe(element.querySelector('[aria-label="Import settings"]'));
+    } finally {
+      element.remove();
+    }
+  });
+
+  it('Minor 11: an empty or malformed file reports that it is not a Ptah settings export', async () => {
+    rpc.call.mockResolvedValue(rpcSuccess({ cancelled: false, result: { imported: [], skipped: [], errors: ['parse: host detail'] } }));
+    await render(true);
+    await confirmImport();
+    const outcome = element.querySelector('[data-testid="import-outcome"]');
+    expect(outcome?.getAttribute('role')).toBe('alert');
+    expect(outcome?.textContent?.trim()).toBe('The file is not a Ptah settings export.');
+    expect(outcome?.textContent).not.toContain('host detail');
+  });
+
   it('surfaces an Electron import result with errors as an inline alert without leaking host error text', async () => {
-    rpc.call.mockResolvedValue(rpcSuccess({ cancelled: false, result: { imported: [], skipped: [], errors: ['secrets:boom: host detail'] } }));
+    rpc.call.mockResolvedValue(rpcSuccess({ cancelled: false, result: { imported: ['config:a'], skipped: [], errors: ['secrets:boom: host detail'] } }));
     await render(true);
     await confirmImport();
     expect(rpc.call).toHaveBeenCalledWith('settings:import', {});

@@ -4,6 +4,11 @@ import {
   ChangeDetectionStrategy,
   computed,
   signal,
+  effect,
+  viewChild,
+  ElementRef,
+  Injector,
+  afterNextRender,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
@@ -148,7 +153,7 @@ const LOGOUT_FAILED = 'Could not log out.';
                   </div>
                   <label
                     for="membership-key-input"
-                    class="block text-[11px] font-semibold text-base-content-muted mb-1"
+                    class="block text-xs font-semibold text-base-content-muted mb-1"
                   >
                     Membership key
                   </label>
@@ -185,7 +190,7 @@ const LOGOUT_FAILED = 'Could not log out.';
                   </div>
                   <p
                     id="membership-key-help"
-                    class="text-[11px] text-base-content-muted mt-1"
+                    class="text-xs text-base-content-muted mt-1"
                   >
                     Starts with "ptah_lic_" followed by 64 hex characters.
                   </p>
@@ -354,7 +359,7 @@ const LOGOUT_FAILED = 'Could not log out.';
             aria-label="User profile"
           >
             <div
-              class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold shrink-0"
+              class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/20 text-base-content text-xs font-bold shrink-0"
               aria-hidden="true"
             >
               {{ userInitials() }}
@@ -370,6 +375,7 @@ const LOGOUT_FAILED = 'Could not log out.';
               </div>
             </div>
             <button
+              #logoutButton
               type="button"
               class="btn btn-ghost btn-xs gap-1 shrink-0 text-base-content"
               (click)="requestLogout()"
@@ -390,6 +396,7 @@ const LOGOUT_FAILED = 'Could not log out.';
               aria-label="Confirm log out"
               class="rounded border border-base-300 p-2 mb-2"
               data-testid="logout-confirm"
+              (keydown.escape)="cancelLogout($event)"
             >
               <p class="text-xs text-base-content mb-2">
                 Remove your membership key and log out? You can enter a new key
@@ -425,10 +432,12 @@ const LOGOUT_FAILED = 'Could not log out.';
                   <span>Log Out</span>
                 </button>
                 <button
+                  #logoutCancel
                   type="button"
                   class="btn btn-ghost btn-xs text-base-content"
                   [disabled]="isLoggingOut()"
                   (click)="cancelLogout()"
+                  data-testid="logout-cancel-button"
                 >
                   Cancel
                 </button>
@@ -450,6 +459,16 @@ const LOGOUT_FAILED = 'Could not log out.';
 export class LicenseStatusCardComponent {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly chatStore = inject(ChatStore);
+  private readonly injector = inject(Injector);
+  private readonly logoutButton =
+    viewChild<ElementRef<HTMLButtonElement>>('logoutButton');
+  private readonly logoutCancel =
+    viewChild<ElementRef<HTMLButtonElement>>('logoutCancel');
+
+  constructor() {
+    // P8: the opened Log out confirm takes focus on Cancel, so Esc reaches it.
+    effect(() => this.logoutCancel()?.nativeElement.focus());
+  }
 
   readonly SparklesIcon = Sparkles;
   readonly ShieldIcon = Shield;
@@ -614,9 +633,19 @@ export class LicenseStatusCardComponent {
     this.confirmingLogout.set(true);
   }
 
-  cancelLogout(): void {
+  /**
+   * Cancel and Esc close the confirm and return focus to the Log Out button
+   * (P8). Esc stops here only when it closed the confirm, so an enclosing
+   * overlay does not also close; while the write is in flight it is ignored.
+   */
+  cancelLogout(event?: Event): void {
+    if (!this.confirmingLogout() || this.isLoggingOut()) return;
+    event?.stopPropagation();
     this.confirmingLogout.set(false);
     this.logoutError.set('');
+    afterNextRender(() => this.logoutButton()?.nativeElement.focus(), {
+      injector: this.injector,
+    });
   }
 
   /**

@@ -9,20 +9,29 @@
  *  - Preview rendered via {@link MarkdownBlockComponent} (DOMPurify chokepoint, no innerHTML)
  *  - Footer: Primary "Save style" and ghost "Cancel"
  *  - Error handling: Never surfaces raw host error text; uses fixed sentence (D15)
+ *
+ * Three inline dialogs sit at the top of the body, one at a time: the `FILE_EXISTS`
+ * replace prompt, the `STALE_FILE` prompt (Reload or Overwrite against the file's
+ * current stamp) and the discard prompt for a dirty draft. Each takes focus on its
+ * safe choice and handles Esc itself, so Esc dismisses the prompt, not the drawer.
  */
 
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
+  effect,
   inject,
   input,
   linkedSignal,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 import {
   LucideAngularModule,
+  AlertCircle,
   AlertTriangle,
   Palette,
 } from 'lucide-angular';
@@ -64,6 +73,15 @@ const TIER_CHOICES: readonly TierChoice[] = [
 
 const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
 
+/**
+ * A `STALE_FILE` result: the file changed on disk after it was opened. `fresh` is
+ * the file as it is now (its body and stamp), or `null` when it could not be read.
+ */
+interface StaleConflict {
+  readonly fresh: OutputStyleDetail | null;
+  readonly confirmingReload: boolean;
+}
+
 @Component({
   selector: 'ptah-output-style-editor',
   standalone: true,
@@ -79,7 +97,7 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
       [isOpen]="isOpen()"
       widthClass="w-full max-w-lg"
       ariaLabel="Output style editor"
-      (closed)="onCancel()"
+      (closed)="requestClose()"
     >
       @if (isOpen()) {
         <div drawer-header class="flex items-center gap-2" data-testid="output-style-drawer">
@@ -143,31 +161,69 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
           </div>
         }
 
-        @if (conflict(); as pending) {
-          <div
-            class="rounded border border-warning/40 bg-warning/10 p-2 mb-2 text-xs text-base-content"
-            role="alertdialog"
-            aria-label="Confirm replacing an existing file"
-            data-testid="output-style-conflict-dialog"
-          >
-            <p class="text-xs text-base-content">{{ pending.message }}</p>
+        @if (confirmingDiscard()) {
+          <div class="rounded border border-base-300 p-2 text-xs text-base-content" role="alertdialog"
+            aria-label="Discard unsaved changes" data-testid="output-style-discard-confirm"
+            (keydown.escape)="keepEditing($event)">
+            <p>Discard your changes to this style? Nothing has been saved.</p>
             <div class="flex gap-1 mt-1">
-              <button
-                type="button"
-                class="btn btn-warning btn-xs"
-                [disabled]="saving()"
-                (click)="confirmOverwrite()"
-              >
-                Replace it
-              </button>
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs text-base-content"
-                (click)="conflict.set(null)"
-              >
-                Keep both — I'll rename
-              </button>
+              <button type="button" class="btn btn-outline btn-xs border-error text-base-content" (click)="discard()"
+                data-testid="output-style-discard-button">Discard changes</button>
+              <button #safeChoice type="button" class="btn btn-ghost btn-xs text-base-content"
+                (click)="keepEditing()">Keep editing</button>
             </div>
+          </div>
+        } @else if (conflict(); as pending) {
+          <div class="rounded border border-base-300 p-2 text-xs text-base-content" role="alertdialog"
+            aria-label="Confirm replacing an existing file" data-testid="output-style-conflict-dialog"
+            (keydown.escape)="dismissConflict($event)">
+            <p>{{ pending.message }}</p>
+            <div class="flex gap-1 mt-1">
+              <button type="button" class="btn btn-outline btn-xs border-error text-base-content" [disabled]="saving()"
+                (click)="confirmOverwrite()">Replace it</button>
+              <button #safeChoice type="button" class="btn btn-ghost btn-xs text-base-content"
+                (click)="dismissConflict()">Keep both — I'll rename</button>
+            </div>
+          </div>
+        } @else if (stale(); as changed) {
+          <div class="rounded border border-base-300 p-2 text-xs text-base-content" role="alertdialog"
+            aria-label="The style file changed on disk" data-testid="output-style-stale-dialog"
+            (keydown.escape)="dismissConflict($event)">
+            @if (changed.fresh === null) {
+              <p>
+                This style changed on disk after you opened it, and Ptah could not
+                read the current file. Nothing was written.
+              </p>
+              <div class="flex gap-1 mt-1">
+                <button #safeChoice type="button" class="btn btn-ghost btn-xs text-base-content"
+                  (click)="dismissConflict()">Close</button>
+              </div>
+            } @else if (changed.confirmingReload) {
+              <p>Discard your edits and load the current file?</p>
+              <div class="flex gap-1 mt-1">
+                <button type="button" class="btn btn-outline btn-xs border-error text-base-content"
+                  (click)="reloadFile(changed.fresh)" data-testid="output-style-stale-discard-reload">
+                  Discard and reload
+                </button>
+                <button #safeChoice type="button" class="btn btn-ghost btn-xs text-base-content"
+                  (click)="stale.set({ fresh: changed.fresh, confirmingReload: false })">Back</button>
+              </div>
+            } @else {
+              <p>
+                This style changed on disk after you opened it. Nothing was written.
+                Reload shows the current file instead of your edits; Overwrite
+                replaces the current file with your edits.
+              </p>
+              <div class="flex gap-1 mt-1">
+                <button type="button" class="btn btn-outline btn-xs border-error text-base-content" [disabled]="saving()"
+                  (click)="overwriteStale(changed.fresh)" data-testid="output-style-stale-overwrite">Overwrite</button>
+                <button type="button" class="btn btn-outline btn-xs text-base-content"
+                  (click)="stale.set({ fresh: changed.fresh, confirmingReload: true })"
+                  data-testid="output-style-stale-reload">Reload</button>
+                <button #safeChoice type="button" class="btn btn-ghost btn-xs text-base-content"
+                  (click)="dismissConflict()">Cancel</button>
+              </div>
+            }
           </div>
         }
 
@@ -175,7 +231,7 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
           <!-- Name -->
           <div>
             <label
-              class="block text-[11px] font-medium mb-1 text-base-content"
+              class="block text-xs font-medium mb-1 text-base-content"
               for="output-style-name"
             >
               Name
@@ -198,14 +254,17 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
               "
             />
             @if (showNameError()) {
-              <p id="output-style-name-error" class="text-xs text-error mt-1">
-                Give the style a name. This is the value the agent is selected by,
-                so it cannot be blank.
+              <p id="output-style-name-error" class="flex items-start gap-1 text-xs text-base-content mt-1">
+                <lucide-angular [img]="AlertCircleIcon" class="w-3.5 h-3.5 mt-px shrink-0 text-error" aria-hidden="true" />
+                <span>
+                  Give the style a name. This is the value the agent is selected by,
+                  so it cannot be blank.
+                </span>
               </p>
             } @else {
               <p
                 id="output-style-name-hint"
-                class="text-[10px] text-base-content-muted mt-1"
+                class="text-xs text-base-content-muted mt-1"
               >
                 The name is what a session binds to. The filename is derived from it
                 and is only storage.
@@ -216,7 +275,7 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
           <!-- Description -->
           <div>
             <label
-              class="block text-[11px] font-medium mb-1 text-base-content"
+              class="block text-xs font-medium mb-1 text-base-content"
               for="output-style-description"
             >
               Description
@@ -232,18 +291,22 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
               (input)="onDescriptionInput($event)"
               (blur)="descriptionTouched.set(true)"
               [attr.aria-invalid]="showDescriptionError()"
+              [attr.aria-describedby]="showDescriptionError() ? 'output-style-description-error' : null"
             />
             @if (showDescriptionError()) {
-              <p class="text-xs text-error mt-1">
-                Add one line describing what this style does, so it is recognisable
-                in the list.
+              <p id="output-style-description-error" class="flex items-start gap-1 text-xs text-base-content mt-1">
+                <lucide-angular [img]="AlertCircleIcon" class="w-3.5 h-3.5 mt-px shrink-0 text-error" aria-hidden="true" />
+                <span>
+                  Add one line describing what this style does, so it is recognisable
+                  in the list.
+                </span>
               </p>
             }
           </div>
 
           <!-- Tier -->
           <fieldset [disabled]="tierLocked()">
-            <legend class="text-[11px] font-medium mb-1 text-base-content">
+            <legend class="text-xs font-medium mb-1 text-base-content">
               Where to save it
             </legend>
             <div class="space-y-1">
@@ -264,7 +327,7 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
                       choice.label
                     }}</span>
                     <span
-                      class="block text-[10px] text-base-content-muted leading-relaxed"
+                      class="block text-xs text-base-content-muted leading-relaxed"
                     >
                       {{ choice.explanation }}
                     </span>
@@ -273,7 +336,7 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
               }
             </div>
             @if (tierLocked()) {
-              <p class="text-[10px] text-base-content-muted mt-1">
+              <p class="text-xs text-base-content-muted mt-1">
                 An existing style stays where it already lives. Delete it and create
                 it again to move it.
               </p>
@@ -299,7 +362,7 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
             @if (keepCodingInstructions()) {
               <p
                 data-test="keep-instructions-on-hint"
-                class="text-[10px] text-base-content-muted mt-1 px-2 leading-relaxed"
+                class="text-xs text-base-content-muted mt-1 px-2 leading-relaxed"
               >
                 The style is added to the agent's normal coding behaviour. It
                 influences how the agent writes and explains; the engineering
@@ -308,14 +371,17 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
             } @else {
               <p
                 data-test="keep-instructions-off-warning"
-                class="text-[10px] text-warning mt-1 px-2 leading-relaxed"
+                class="flex items-start gap-1 text-xs text-base-content mt-1 px-2 leading-relaxed"
               >
-                Turning this off removes the SDK's built-in coding instructions.
-                Ptah's own engineering behaviour is still appended to every session,
-                so the effect here is smaller than in the
-                <code>claude</code> CLI — but the agent loses guidance it normally
-                has. Recommended only for styles that redefine the agent's whole
-                role, not for adjusting tone.
+                <lucide-angular [img]="AlertTriangleIcon" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-warning" aria-hidden="true" />
+                <span>
+                  Turning this off removes the SDK's built-in coding instructions.
+                  Ptah's own engineering behaviour is still appended to every session,
+                  so the effect here is smaller than in the
+                  <code>claude</code> CLI — but the agent loses guidance it normally
+                  has. Recommended only for styles that redefine the agent's whole
+                  role, not for adjusting tone.
+                </span>
               </p>
             }
           </div>
@@ -323,7 +389,7 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
           <!-- Body / Instructions with NativeTabGroupComponent (Gap G6) -->
           <div>
             <div class="flex items-center justify-between mb-1">
-              <label class="text-[11px] font-medium text-base-content" for="output-style-body">
+              <label class="text-xs font-medium text-base-content" for="output-style-body">
                 Instructions
               </label>
               <ptah-native-tab-group
@@ -342,7 +408,7 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
                 @if (body().trim().length > 0) {
                   <ptah-markdown-block [content]="body()" />
                 } @else {
-                  <p class="text-[11px] text-base-content-muted">
+                  <p class="text-xs text-base-content-muted">
                     Nothing to preview yet.
                   </p>
                 }
@@ -357,20 +423,20 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
                 (input)="onBodyInput($event)"
               ></textarea>
             }
-            <p class="text-[10px] text-base-content-muted mt-1 leading-relaxed">
+            <p class="text-xs text-base-content-muted mt-1 leading-relaxed">
               Markdown. This text influences how the agent writes — it does not
               override Ptah's own instructions, which are always applied as well.
             </p>
           </div>
 
           @if (showRebindNote()) {
-            <p class="text-[10px] text-base-content-muted leading-relaxed">
+            <p class="text-xs text-base-content-muted leading-relaxed">
               This style is currently selected. Renaming it updates the selection in
               the same save, so the binding does not break.
             </p>
           }
 
-          <p class="text-[10px] text-base-content-muted">
+          <p class="text-xs text-base-content-muted">
             Saving does not switch to this style. Select it in the list when you
             want to use it.
           </p>
@@ -397,7 +463,7 @@ const OUTPUT_STYLE_SAVE_FAILED = 'Could not save the output style.';
           <button
             type="button"
             class="btn btn-ghost btn-sm text-base-content"
-            (click)="onCancel()"
+            (click)="requestClose()"
             data-testid="output-style-cancel-button"
           >
             Cancel
@@ -426,9 +492,11 @@ export class OutputStyleEditorComponent {
   /** The active selection's name, so an edit can warn about the Req 4.4 rebind. */
   readonly activeName = input<string | null>(null);
 
-  readonly saved = output<void>();
+  /** Emits the saved style's name, so the parent can return focus to its row. */
+  readonly saved = output<string>();
   readonly cancelled = output<void>();
 
+  readonly AlertCircleIcon = AlertCircle;
   readonly AlertTriangleIcon = AlertTriangle;
   readonly PaletteIcon = Palette;
   readonly tierChoices = TIER_CHOICES;
@@ -440,13 +508,29 @@ export class OutputStyleEditorComponent {
     { id: 'preview', label: 'Preview' },
   ];
 
+  /** The file re-read after "Discard and reload" on a stale conflict; reset by a new draft. */
+  readonly reloaded = linkedSignal<OutputStyleDetail | null, OutputStyleDetail | null>({
+    source: this.draft,
+    computation: () => null,
+  });
+
+  /** The style the form starts from: the reloaded file when there is one, else the draft. */
+  readonly source = computed(() => this.reloaded() ?? this.draft());
+
+  /**
+   * The stamp an "Overwrite" after a stale conflict must send: the file's current one,
+   * so the host's stale check passes. Reset whenever the form source changes.
+   */
+  private readonly overwriteStamp = linkedSignal<OutputStyleDetail | null, OutputStyleDetail | null>({
+    source: this.source,
+    computation: () => null,
+  });
+
   /**
    * Seeded from the draft, or from the broken file's basename in repair mode so
    * the derived filename lands back on the same file and replaces it.
    */
-  readonly name = linkedSignal<string>(
-    () => this.draft()?.name ?? this.repairSeedName(),
-  );
+  readonly name = linkedSignal<string>(() => this.initialName());
 
   /**
    * For a style with no frontmatter `description`, discovery supplies a derived
@@ -455,7 +539,7 @@ export class OutputStyleEditorComponent {
    * behaviour for a form.
    */
   readonly description = linkedSignal<string>(
-    () => this.draft()?.description ?? '',
+    () => this.source()?.description ?? '',
   );
 
   readonly tier = linkedSignal<WritableOutputStyleTier>(() =>
@@ -464,10 +548,10 @@ export class OutputStyleEditorComponent {
 
   /** Req 6.4 — ON by default, because the destructive value is the one omission gives. */
   readonly keepCodingInstructions = linkedSignal<boolean>(
-    () => this.draft()?.keepCodingInstructions ?? true,
+    () => this.source()?.keepCodingInstructions ?? true,
   );
 
-  readonly body = linkedSignal<string>(() => this.draft()?.body ?? '');
+  readonly body = linkedSignal<string>(() => this.source()?.body ?? '');
 
   /** Preview signal supported for both direct programmatic toggle and NativeTabGroup. */
   readonly showPreview = signal(false);
@@ -477,10 +561,26 @@ export class OutputStyleEditorComponent {
   readonly descriptionTouched = signal(false);
   readonly submitAttempted = signal(false);
   readonly formError = signal<string | null>(null);
-  /** A `FILE_EXISTS` or `STALE_FILE` result awaiting an explicit overwrite. */
+  /** A `FILE_EXISTS` result awaiting an explicit replace. */
   readonly conflict = signal<OutputStyleOperationError | null>(null);
+  /** A `STALE_FILE` result awaiting Reload or Overwrite. */
+  readonly stale = signal<StaleConflict | null>(null);
+  /** Esc, backdrop or Cancel on a dirty form asks before the draft is dropped. */
+  readonly confirmingDiscard = signal(false);
 
   readonly isEditing = computed(() => this.draft() !== null);
+
+  /** Any field differs from what the form started with. */
+  readonly dirty = computed(() => {
+    const start = this.source();
+    return (
+      this.name() !== this.initialName() ||
+      this.description() !== (start?.description ?? '') ||
+      this.tier() !== this.initialTier() ||
+      this.keepCodingInstructions() !== (start?.keepCodingInstructions ?? true) ||
+      this.body() !== (start?.body ?? '')
+    );
+  });
 
   readonly heading = computed(() => {
     if (this.repair() !== null) return 'Rewrite style file';
@@ -520,12 +620,48 @@ export class OutputStyleEditorComponent {
     );
   });
 
+  private readonly safeChoice = viewChild<ElementRef<HTMLButtonElement>>('safeChoice');
+
+  constructor() {
+    // Moderate 7: whichever inline dialog is open takes focus on its safe choice.
+    effect(() => this.safeChoice()?.nativeElement.focus());
+  }
+
   onTabChange(tabId: string | null): void {
     this.showPreview.set(tabId === 'preview');
   }
 
-  onCancel(): void {
+  /** Esc, backdrop, the close button and Cancel all land here; a dirty draft is not dropped silently. */
+  requestClose(): void {
+    if (this.confirmingDiscard()) {
+      // A second Esc or backdrop click while the prompt is open keeps the draft and the prompt.
+      this.safeChoice()?.nativeElement.focus();
+      return;
+    }
+    if (this.dirty()) {
+      this.conflict.set(null);
+      this.stale.set(null);
+      this.confirmingDiscard.set(true);
+      return;
+    }
     this.cancelled.emit();
+  }
+
+  discard(): void {
+    this.confirmingDiscard.set(false);
+    this.cancelled.emit();
+  }
+
+  keepEditing(event?: Event): void {
+    event?.stopPropagation();
+    this.confirmingDiscard.set(false);
+  }
+
+  /** Closes the replace or stale prompt and keeps the draft; Esc stops here. */
+  dismissConflict(event?: Event): void {
+    event?.stopPropagation();
+    this.conflict.set(null);
+    this.stale.set(null);
   }
 
   onNameInput(event: Event): void {
@@ -558,31 +694,59 @@ export class OutputStyleEditorComponent {
     await this.persist(this.repair() !== null);
   }
 
-  /** The user answered the `FILE_EXISTS` / `STALE_FILE` prompt with "replace". */
+  /** The user answered the `FILE_EXISTS` prompt with "Replace it". */
   async confirmOverwrite(): Promise<void> {
     this.conflict.set(null);
     await this.persist(true);
   }
 
+  /** Serious 1: "Overwrite" after a stale conflict sends the file's current stamp, so it can succeed. */
+  async overwriteStale(fresh: OutputStyleDetail): Promise<void> {
+    this.stale.set(null);
+    this.overwriteStamp.set(fresh);
+    await this.persist(true);
+  }
+
+  /** "Discard and reload": the form shows the file as it is now, with its current stamp. */
+  reloadFile(fresh: OutputStyleDetail): void {
+    this.stale.set(null);
+    this.reloaded.set(fresh);
+  }
+
   private async persist(overwrite: boolean): Promise<void> {
-    const error = await this.store.save(this.buildParams(overwrite));
+    const params = this.buildParams(overwrite);
+    const error = await this.store.save(params);
 
     if (error === null) {
       this.conflict.set(null);
-      this.saved.emit();
+      this.saved.emit(params.name);
       return;
     }
 
-    if (error.code === 'FILE_EXISTS' || error.code === 'STALE_FILE') {
+    if (error.code === 'FILE_EXISTS') {
       this.conflict.set(error);
+      return;
+    }
+
+    if (error.code === 'STALE_FILE') {
+      await this.readCurrentFile();
       return;
     }
 
     this.formError.set(OUTPUT_STYLE_SAVE_FAILED);
   }
 
+  /** Re-reads the edited file so the stale prompt can offer Reload and an Overwrite that passes. */
+  private async readCurrentFile(): Promise<void> {
+    const original = this.source();
+    const fresh =
+      original === null ? null : await this.store.load(original.name, original.tier);
+    this.stale.set({ fresh, confirmingReload: false });
+  }
+
   private buildParams(overwrite: boolean): OutputStyleSaveParams {
-    const draft = this.draft();
+    const original = this.source();
+    const stamp = this.overwriteStamp() ?? original;
 
     return {
       tier: this.tier(),
@@ -590,13 +754,17 @@ export class OutputStyleEditorComponent {
       description: this.description().trim(),
       keepCodingInstructions: this.keepCodingInstructions(),
       body: this.body(),
-      ...(draft !== null ? { originalName: draft.name } : {}),
-      ...(draft?.mtime !== undefined ? { expectedMtime: draft.mtime } : {}),
-      ...(draft?.byteLength !== undefined
-        ? { expectedByteLength: draft.byteLength }
+      ...(original !== null ? { originalName: original.name } : {}),
+      ...(stamp?.mtime !== undefined ? { expectedMtime: stamp.mtime } : {}),
+      ...(stamp?.byteLength !== undefined
+        ? { expectedByteLength: stamp.byteLength }
         : {}),
       ...(overwrite ? { overwrite: true } : {}),
     };
+  }
+
+  private initialName(): string {
+    return this.source()?.name ?? this.repairSeedName();
   }
 
   private repairSeedName(): string {
@@ -608,7 +776,7 @@ export class OutputStyleEditorComponent {
   }
 
   private initialTier(): WritableOutputStyleTier {
-    const draftTier = this.draft()?.tier;
+    const draftTier = this.source()?.tier;
     if (draftTier === 'user' || draftTier === 'project') return draftTier;
 
     const repairTier = this.repair()?.tier;

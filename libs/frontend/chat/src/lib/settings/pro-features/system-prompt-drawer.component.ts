@@ -1,7 +1,9 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  OnInit,
+  ElementRef,
+  Injector,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -9,9 +11,11 @@ import {
   output,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import {
   AlertCircle,
+  Check,
   Clock,
   Download,
   LucideAngularModule,
@@ -27,6 +31,10 @@ const PROMPT_STATUS_LOAD_FAILED = 'Could not load the system prompt status.';
 const PROMPT_REGENERATE_FAILED = 'Could not regenerate the system prompt.';
 const PROMPT_DOWNLOAD_FAILED = 'Could not download the system prompt.';
 const PROMPT_PREVIEW_LOAD_FAILED = 'Could not load the prompt preview.';
+const PROMPT_DOWNLOAD_SAVED = 'Saved to the chosen file.';
+
+/** The client's regenerate budget; the host is not told to stop when it runs out. */
+const REGENERATE_TIMEOUT_MS = 120_000;
 
 /**
  * When the user dismisses the file save dialog without picking a path, the backend returns
@@ -43,7 +51,11 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
  * - A15: Regenerate prompt (S-confirm: inline confirm first; inline progress up to 120 s; failure alert)
  * - A16: Download prompt as markdown file (D15: {success:false} or failed RPC shows alert, never silent)
  * - A17: View/Hide prompt preview rendered through {@link MarkdownBlockComponent} (safe DOMPurify chokepoint)
- * - A18: Empty-state guidance when no prompt has been generated yet
+ * - A18: Empty-state guidance when no prompt has been generated yet — only after a successful status read
+ *
+ * A regenerate that gets no answer (transport failure or the 120 s client timeout) may still be running on
+ * the host, which has no stop signal. The drawer then re-reads the status and keeps Regenerate off until a
+ * newer prompt appears or a later "Check again" is at least another 120 s on, so two runs never overlap.
  *
  * P6 drawer pattern: single body, no tabs. Header with Sparkles icon; footer with Regenerate (outline),
  * Download (ghost) and Close (ghost). Parent owns visibility; {@link NativeDrawerComponent} handles
@@ -87,8 +99,48 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
             data-testid="system-prompt-drawer-error"
           >
             <lucide-angular [img]="AlertCircleIcon" class="w-3.5 h-3.5 text-error shrink-0" aria-hidden="true" />
-            <span>{{ err }}</span>
+            <span class="flex-1">{{ err }}</span>
+            @if (statusLoadFailed() && !isLoading()) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs text-base-content"
+                (click)="loadStatus()"
+                data-testid="system-prompt-status-retry"
+              >
+                Retry
+              </button>
+            }
           </div>
+        }
+
+        @if (regenerateStartedAt() !== null) {
+          <div
+            role="status"
+            class="flex items-center gap-1.5 rounded border border-base-300 p-2 text-xs text-base-content"
+            data-testid="regenerate-may-be-running"
+          >
+            <lucide-angular [img]="ClockIcon" class="w-3.5 h-3.5 text-warning shrink-0" aria-hidden="true" />
+            <span class="flex-1">
+              The regeneration did not answer in time and may still be running. Regenerate stays off until
+              a newer prompt appears.
+            </span>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs text-base-content"
+              [disabled]="isLoading()"
+              (click)="checkRegenerate()"
+              data-testid="regenerate-check-again"
+            >
+              Check again
+            </button>
+          </div>
+        }
+
+        @if (downloadNote(); as note) {
+          <p role="status" class="flex items-center gap-1.5 text-xs text-base-content" data-testid="system-prompt-download-saved">
+            <lucide-angular [img]="CheckIcon" class="w-3.5 h-3.5 text-success shrink-0" aria-hidden="true" />
+            {{ note }}
+          </p>
         }
 
         @if (isLoading()) {
@@ -118,6 +170,7 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
               aria-label="Confirm regenerate system prompt"
               class="rounded border border-base-300 p-3 bg-base-200/60 space-y-2"
               data-testid="regenerate-confirm"
+              (keydown.escape)="cancelRegenerate($event)"
             >
               <p class="text-xs text-base-content">
                 Regenerate replaces your current project system prompt with fresh guidance tailored to your project. This may take up to 2 minutes.
@@ -136,6 +189,7 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
                   <span>Regenerate prompt</span>
                 </button>
                 <button
+                  #regenerateCancel
                   type="button"
                   class="btn btn-ghost btn-xs text-base-content"
                   [disabled]="isRegenerating()"
@@ -151,7 +205,7 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
           <!-- Generation Progress (Gap G5) -->
           @if (isRegenerating()) {
             <div class="space-y-1" role="status" data-testid="regenerate-progress">
-              <div class="flex items-center justify-between text-[10px] text-base-content-muted">
+              <div class="flex items-center justify-between text-xs text-base-content-muted">
                 <span>Generating fresh guidance…</span>
                 <span>Up to 120 s</span>
               </div>
@@ -188,8 +242,8 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
               }
             }
           </div>
-        } @else {
-          <!-- Empty state guidance (A18) -->
+        } @else if (status() !== null && !statusLoadFailed()) {
+          <!-- Empty state guidance (A18): only a successful read can say there is no prompt -->
           <div class="py-8 text-center space-y-2" data-testid="system-prompt-empty-state">
             <lucide-angular [img]="SparklesIcon" class="w-8 h-8 text-secondary/40 mx-auto" aria-hidden="true" />
             <p class="text-xs text-base-content-muted max-w-xs mx-auto">
@@ -203,9 +257,10 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
         <div drawer-footer class="flex items-center justify-between gap-2 border-t border-base-300 px-4 py-3">
           <div class="flex items-center gap-2">
             <button
+              #regenerateButton
               type="button"
               class="btn btn-outline btn-xs gap-1 text-base-content"
-              [disabled]="isRegenerating() || isDownloading() || !hasGeneratedPrompt()"
+              [disabled]="isRegenerating() || isDownloading() || !hasGeneratedPrompt() || regenerateStartedAt() !== null"
               (click)="requestRegenerate()"
               aria-label="Regenerate Enhanced Prompt"
               data-testid="system-prompt-regenerate-button"
@@ -249,11 +304,15 @@ const DOWNLOAD_CANCELLED_BY_USER = 'Save cancelled by user';
     </ptah-native-drawer>
   `,
 })
-export class SystemPromptDrawerComponent implements OnInit {
+export class SystemPromptDrawerComponent {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly injector = inject(Injector);
+  private readonly regenerateCancel = viewChild<ElementRef<HTMLButtonElement>>('regenerateCancel');
+  private readonly regenerateButton = viewChild<ElementRef<HTMLButtonElement>>('regenerateButton');
 
   readonly SparklesIcon = Sparkles;
   readonly ClockIcon = Clock;
+  readonly CheckIcon = Check;
   readonly RotateCwIcon = RotateCw;
   readonly DownloadIcon = Download;
   readonly AlertCircleIcon = AlertCircle;
@@ -265,10 +324,21 @@ export class SystemPromptDrawerComponent implements OnInit {
   readonly status = signal<EnhancedPromptsGetStatusResponse | null>(null);
   readonly isLoading = signal(false);
   readonly error = signal<string | null>(null);
+  /** The last status read failed; the alert offers Retry and the empty state is not shown. */
+  readonly statusLoadFailed = signal(false);
 
   readonly isRegenerating = signal(false);
   readonly confirmingRegenerate = signal(false);
   readonly isDownloading = signal(false);
+  readonly downloadNote = signal<string | null>(null);
+
+  /**
+   * When a regenerate went unanswered, the time it started; `null` otherwise. While set, the host may still be
+   * generating, so Regenerate stays disabled.
+   */
+  readonly regenerateStartedAt = signal<number | null>(null);
+  /** `generatedAt` before the unanswered regenerate, to recognise the prompt it produces. */
+  private regenerateBaseline: string | null = null;
 
   readonly promptPreviewContent = signal<string | null>(null);
   readonly promptPreviewExpanded = signal(false);
@@ -281,7 +351,8 @@ export class SystemPromptDrawerComponent implements OnInit {
   readonly generatedAt = computed(() => {
     const ts = this.status()?.generatedAt;
     if (!ts) return null;
-    return new Date(ts).toLocaleString();
+    const date = new Date(ts);
+    return Number.isNaN(date.getTime()) ? null : date.toLocaleString();
   });
 
   readonly detectedStackSummary = computed(() => {
@@ -296,104 +367,146 @@ export class SystemPromptDrawerComponent implements OnInit {
 
   readonly subtitle = computed(() => {
     if (this.isLoading()) return 'Loading system prompt…';
+    if (this.statusLoadFailed() && this.status() === null) return 'Status not loaded';
     if (!this.hasGeneratedPrompt()) return 'No prompt generated yet';
     return 'Project-tailored system prompt for AI sessions';
   });
 
   constructor() {
+    // Runs once for a drawer created open, and again on every reopen: the only status load (Minor 13).
     effect(() => {
       if (this.isOpen()) {
         untracked(() => {
           this.error.set(null);
+          this.downloadNote.set(null);
           this.confirmingRegenerate.set(false);
           void this.loadStatus();
         });
       }
     });
+    // P8: the opened regenerate confirm takes focus on Cancel, so Esc reaches it.
+    effect(() => this.regenerateCancel()?.nativeElement.focus());
   }
 
-  async ngOnInit(): Promise<void> {
-    if (this.isOpen()) {
-      await this.loadStatus();
-    }
-  }
-
-  async loadStatus(): Promise<void> {
+  /** Reads the status; an RPC failure, a throw or a host-reported `error` all show the fixed load error. */
+  async loadStatus(): Promise<boolean> {
     this.isLoading.set(true);
     this.error.set(null);
     try {
       const result = await this.rpcService.call('enhancedPrompts:getStatus', {
         workspacePath: '.',
       });
-      if (result.isSuccess()) {
+      if (result.isSuccess() && !result.data.error) {
         this.status.set(result.data);
-      } else {
-        this.error.set(PROMPT_STATUS_LOAD_FAILED);
+        this.statusLoadFailed.set(false);
+        return true;
       }
     } catch {
-      this.error.set(PROMPT_STATUS_LOAD_FAILED);
+      // Falls through to the fixed load error below.
     } finally {
       this.isLoading.set(false);
     }
+    this.statusLoadFailed.set(true);
+    this.error.set(PROMPT_STATUS_LOAD_FAILED);
+    return false;
   }
 
   requestRegenerate(): void {
+    if (this.regenerateStartedAt() !== null) return;
+    this.downloadNote.set(null);
     this.confirmingRegenerate.set(true);
   }
 
-  cancelRegenerate(): void {
+  /** Cancel and Esc close the confirm and return focus to Regenerate; Esc stops here, so the drawer stays open. */
+  cancelRegenerate(event?: Event): void {
+    event?.stopPropagation();
     this.confirmingRegenerate.set(false);
+    afterNextRender(() => this.regenerateButton()?.nativeElement.focus(), { injector: this.injector });
   }
 
   /**
    * Regenerates the enhanced prompt (A15, S-confirm).
-   * Host reports a failed generation as `{success:false, error}` inside a successful RPC.
-   * On failure, surfaces the fixed error sentence in drawer alert and does not re-read status (F1).
+   * Host reports a failed generation as `{success:false, error}` inside a successful RPC: the host has stopped,
+   * so only the fixed sentence is shown and the status is not re-read (F1). No answer at all (transport failure,
+   * the 120 s client timeout, a throw) does not stop the host: the status is re-read and Regenerate is blocked.
    */
   async confirmRegenerate(): Promise<void> {
+    if (this.regenerateStartedAt() !== null) return;
     this.confirmingRegenerate.set(false);
     this.isRegenerating.set(true);
     this.error.set(null);
+    const baseline = this.status()?.generatedAt ?? null;
+    const startedAt = Date.now();
+    let answered = false;
     try {
       const result = await this.rpcService.call(
         'enhancedPrompts:regenerate',
         { workspacePath: '.', force: true },
-        { timeout: 120000 },
+        { timeout: REGENERATE_TIMEOUT_MS },
       );
-      if (!result.isSuccess() || !result.data.success) {
+      if (result.isSuccess()) {
+        answered = true;
+        if (result.data.success) {
+          this.promptPreviewContent.set(null);
+          this.promptPreviewExpanded.set(false);
+          await this.loadStatus();
+          this.changed.emit();
+          return;
+        }
         this.error.set(PROMPT_REGENERATE_FAILED);
-      } else {
-        this.promptPreviewContent.set(null);
-        this.promptPreviewExpanded.set(false);
-        await this.loadStatus();
-        this.changed.emit();
       }
     } catch {
-      this.error.set(PROMPT_REGENERATE_FAILED);
+      answered = false;
     } finally {
       this.isRegenerating.set(false);
+    }
+    if (!answered) {
+      this.regenerateBaseline = baseline;
+      this.regenerateStartedAt.set(startedAt);
+      await this.checkRegenerate();
+    }
+  }
+
+  /**
+   * Re-reads the status after an unanswered regenerate. The block lifts when a newer prompt is on disk, or when
+   * the check comes at least another full timeout after the regenerate started, by which time the host is done.
+   */
+  async checkRegenerate(): Promise<void> {
+    const startedAt = this.regenerateStartedAt();
+    if (startedAt === null) return;
+    if (!(await this.loadStatus())) return;
+    const current = this.status()?.generatedAt ?? null;
+    if (current !== null && current !== this.regenerateBaseline) {
+      this.regenerateStartedAt.set(null);
+      this.promptPreviewContent.set(null);
+      this.promptPreviewExpanded.set(false);
+      this.changed.emit();
+    } else if (Date.now() - startedAt >= 2 * REGENERATE_TIMEOUT_MS) {
+      this.regenerateStartedAt.set(null);
+      this.error.set(PROMPT_REGENERATE_FAILED);
     }
   }
 
   /**
    * Downloads the enhanced prompt as a markdown file (A16).
-   * D15: A `{success:false}` or failed RPC surfaces an alert, never silent.
+   * D15: A `{success:false}` or failed RPC surfaces an alert, never silent; only the host's own success shows
+   * the saved line (Minor 15).
    * F2: User cancellation in the host save dialog (`DOWNLOAD_CANCELLED_BY_USER`) surfaces no alert.
    */
   async downloadEnhancedPrompt(): Promise<void> {
     if (this.isDownloading()) return;
     this.isDownloading.set(true);
     this.error.set(null);
+    this.downloadNote.set(null);
     try {
       const result = await this.rpcService.call('enhancedPrompts:download', {
         workspacePath: '.',
       });
       if (!result.isSuccess()) {
         this.error.set(PROMPT_DOWNLOAD_FAILED);
-      } else if (!result.data.success) {
-        if (result.data.error === DOWNLOAD_CANCELLED_BY_USER) {
-          return;
-        }
+      } else if (result.data.success) {
+        this.downloadNote.set(PROMPT_DOWNLOAD_SAVED);
+      } else if (result.data.error !== DOWNLOAD_CANCELLED_BY_USER) {
         this.error.set(PROMPT_DOWNLOAD_FAILED);
       }
     } catch {

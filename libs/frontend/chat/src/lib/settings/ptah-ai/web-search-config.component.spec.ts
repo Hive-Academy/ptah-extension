@@ -5,6 +5,8 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   ClaudeRpcService,
@@ -167,10 +169,43 @@ describe('WebSearchConfigComponent', () => {
     const line = byTestId('settings-web-search-signup-serper').parentElement as HTMLElement;
     expect(line.classList).toContain('whitespace-nowrap');
     expect(line.textContent?.replace(/\s+/g, ' ').trim()).toBe('Free tier: 2,500 searches/month. Get API key');
+    // D3: the free-tier line is 12 px (text-xs, 16 px line) so the row stays at about 42 px, within 48.
+    expect(line.classList).toContain('text-xs');
+    expect(line.classList).not.toContain('text-[10px]');
     // Update key and Clear share one non-wrapping row; the confirm opens below it.
     const actions = byTestId('settings-web-search-clear-btn-serper').parentElement as HTMLElement;
     expect(actions.classList).toContain('flex-nowrap');
     expect(actions.contains(byTestId('settings-web-search-key-btn-serper'))).toBe(true);
+  });
+
+  it('underlines the Get API key links persistently, not only on hover (D3, WCAG 1.4.1)', async () => {
+    await render();
+    for (const id of ['tavily', 'serper', 'exa']) {
+      const link = byTestId<HTMLAnchorElement>(`settings-web-search-signup-${id}`);
+      expect(link.classList).toContain('underline');
+      expect(link.classList).toContain('text-base-content');
+      expect(link.classList).not.toContain('link-hover');
+    }
+  });
+
+  it('sets the selection note and the "per search" label at 12 px like the free-tier line (Gate V 50)', async () => {
+    await render();
+    const note = Array.from(element.querySelectorAll('p')).find(
+      (p) => p.textContent?.trim() === 'At least one provider must stay selected.',
+    );
+    const perSearch = Array.from(element.querySelectorAll('span')).find((span) => span.textContent?.trim() === 'per search');
+    expect(note?.classList).toContain('text-xs');
+    expect(perSearch?.classList).toContain('text-xs');
+    expect(note?.classList).not.toContain('text-[10px]');
+    expect(perSearch?.classList).not.toContain('text-[10px]');
+  });
+
+  it('gives the Max results slider the shared focus-visible outline (M2, WCAG 2.4.7)', async () => {
+    await render();
+    const slider = byTestId<HTMLInputElement>('settings-web-search-max-results');
+    for (const cls of ['focus-visible:outline', 'focus-visible:outline-2', 'focus-visible:outline-offset-2', 'focus-visible:outline-base-content']) {
+      expect(slider.classList).toContain(cls);
+    }
   });
 
   describe('provider selection (V1)', () => {
@@ -297,12 +332,17 @@ describe('WebSearchConfigComponent', () => {
     it('asks first, focuses Cancel, and Cancel writes nothing', async () => {
       await render();
       const clear = byTestId<HTMLButtonElement>('settings-web-search-clear-btn-tavily');
-      expect(clear.className).toContain('border-error');
-      expect(clear.className).toContain('text-base-content');
+      // Gate V 50 decision: the resting Clear is neutral; red only on the confirm button (P8).
+      expect(clear.classList).not.toContain('border-error');
+      expect(clear.classList).toContain('btn-outline');
+      expect(clear.classList).toContain('btn-xs');
+      expect(clear.classList).toContain('text-base-content');
+      expect(clear.getAttribute('aria-label')).toBe('Clear API key for Tavily');
       clear.click();
       await settle();
 
       expect(byTestId('settings-web-search-clear-group-tavily').getAttribute('role')).toBe('group');
+      expect(byTestId('settings-web-search-clear-confirm-tavily').classList).toContain('border-error');
       expect(document.activeElement).toBe(byTestId('settings-web-search-clear-cancel-tavily'));
       byTestId<HTMLButtonElement>('settings-web-search-clear-cancel-tavily').click();
       await settle();
@@ -348,8 +388,48 @@ describe('WebSearchConfigComponent', () => {
       await settle();
 
       expect(byTestId('settings-web-search-key-status-tavily').textContent).toContain('Key set');
-      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not clear the Tavily API key.');
+      expect(byTestId('settings-web-search-clear-error-tavily').textContent?.trim()).toBe('Could not clear the Tavily API key.');
       expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Could not clear the Tavily API key.', canUndo: false });
+    });
+
+    it('shows a failed clear inside the open confirm group as an alert, and a retry or Cancel drops it (FM-5)', async () => {
+      responses['webSearch:deleteApiKey'] = () => fail('Could not delete key');
+      await render();
+      byTestId<HTMLButtonElement>('settings-web-search-clear-btn-tavily').click();
+      await settle();
+      byTestId<HTMLButtonElement>('settings-web-search-clear-confirm-tavily').click();
+      await settle();
+
+      const group = byTestId('settings-web-search-clear-group-tavily');
+      const error = byTestId('settings-web-search-clear-error-tavily');
+      expect(group.contains(error)).toBe(true);
+      expect(error.getAttribute('role')).toBe('alert');
+      expect(error.classList).toContain('text-base-content');
+      expect(queryTestId('settings-web-search-error')).toBeNull();
+
+      byTestId<HTMLButtonElement>('settings-web-search-clear-cancel-tavily').click();
+      await settle();
+      byTestId<HTMLButtonElement>('settings-web-search-clear-btn-tavily').click();
+      await settle();
+      expect(queryTestId('settings-web-search-clear-error-tavily')).toBeNull();
+    });
+
+    it('stops the Esc keydown at the confirm, so an enclosing overlay does not also close', async () => {
+      await render();
+      const outer = jest.fn();
+      document.body.addEventListener('keydown', outer);
+      try {
+        byTestId<HTMLButtonElement>('settings-web-search-clear-btn-tavily').click();
+        await settle();
+        byTestId('settings-web-search-clear-group-tavily').dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+        );
+        await settle();
+        expect(queryTestId('settings-web-search-clear-group-tavily')).toBeNull();
+        expect(outer).not.toHaveBeenCalled();
+      } finally {
+        document.body.removeEventListener('keydown', outer);
+      }
     });
   });
 
@@ -457,7 +537,7 @@ describe('WebSearchConfigComponent', () => {
       await settle();
       byTestId<HTMLButtonElement>('settings-web-search-clear-confirm-tavily').click();
       await settle();
-      expect(byTestId('settings-web-search-error').textContent?.trim()).toBe('Could not clear the Tavily API key.');
+      expect(byTestId('settings-web-search-clear-error-tavily').textContent?.trim()).toBe('Could not clear the Tavily API key.');
       expect(feedback.toast()?.message).toBe('Could not clear the Tavily API key.');
       expect(visibleText()).not.toContain('host detail');
     });
@@ -484,5 +564,10 @@ describe('WebSearchConfigComponent', () => {
       expect(byTestId('settings-web-search-status-tavily').textContent?.trim()).toBe('The connection check failed.');
       expect(visibleText()).not.toContain('host detail');
     });
+  });
+
+  it('uses no text size below 12 px anywhere in the component source (Batch 50b)', () => {
+    const source = readFileSync(join(__dirname, 'web-search-config.component.ts'), 'utf8');
+    expect(source.match(/text-\[(?:\d|1[01])(?:\.\d+)?px\]/g)).toBeNull();
   });
 });

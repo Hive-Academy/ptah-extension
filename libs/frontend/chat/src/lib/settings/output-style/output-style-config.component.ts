@@ -12,7 +12,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  Injector,
   OnInit,
+  afterNextRender,
   inject,
   signal,
   viewChild,
@@ -32,6 +35,9 @@ import {
 import { OutputStyleEditorComponent } from './output-style-editor.component';
 
 const OUTPUT_STYLE_ACTIVATE_FAILED = 'Could not change the active output style.';
+/** Serious 2: the selection saved, the requested command-line file did not — the toast says so, not "Saved". */
+const OUTPUT_STYLE_PARITY_FAILED =
+  'Your style is active in Ptah, but the settings file for the command line could not be updated.';
 
 @Component({
   selector: 'ptah-output-style-config',
@@ -64,10 +70,11 @@ const OUTPUT_STYLE_ACTIVATE_FAILED = 'Could not change the active output style.'
           </h2>
         </div>
         <div class="flex items-center gap-2">
-          <span class="text-[11px] text-base-content-muted">
+          <span class="text-xs text-base-content-muted">
             {{ store.styles().length }} available
           </span>
           <button
+            #newStyleButton
             type="button"
             class="btn btn-primary btn-xs gap-1"
             (click)="onCreate()"
@@ -94,7 +101,7 @@ const OUTPUT_STYLE_ACTIVATE_FAILED = 'Could not change the active output style.'
         [active]="store.active()"
         [loading]="store.loading()"
         [saving]="store.saving()"
-        [error]="store.error()"
+        [failedOperation]="store.failedOperation()"
         [hasCollision]="store.hasCollision()"
         [collidingNames]="store.collidingNames()"
         [usingFallback]="store.usingFallbackInjection()"
@@ -117,7 +124,7 @@ const OUTPUT_STYLE_ACTIVATE_FAILED = 'Could not change the active output style.'
             [draft]="draft()"
             [repair]="repair()"
             [activeName]="store.activeName()"
-            (saved)="onSaved()"
+            (saved)="onSaved($event)"
             (cancelled)="showList()"
           />
         }
@@ -130,6 +137,9 @@ export class OutputStyleConfigComponent implements OnInit {
   private readonly feedback = inject(SettingsSaveFeedbackService);
 
   private readonly list = viewChild(OutputStyleListComponent);
+  private readonly newStyleButton = viewChild<ElementRef<HTMLButtonElement>>('newStyleButton');
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
 
   readonly PaletteIcon = Palette;
   readonly PlusIcon = Plus;
@@ -155,9 +165,10 @@ export class OutputStyleConfigComponent implements OnInit {
       write: async () => {
         try {
           const success = await this.store.activate(request.name, request.parity);
-          return success
-            ? { ok: true }
-            : { ok: false, message: OUTPUT_STYLE_ACTIVATE_FAILED };
+          if (!success) return { ok: false, message: OUTPUT_STYLE_ACTIVATE_FAILED };
+          return isParity && this.store.parityWarning() !== null
+            ? { ok: false, message: OUTPUT_STYLE_PARITY_FAILED }
+            : { ok: true };
         } catch {
           return { ok: false, message: OUTPUT_STYLE_ACTIVATE_FAILED };
         }
@@ -210,13 +221,30 @@ export class OutputStyleConfigComponent implements OnInit {
     await this.store.copyToProjectTier(name);
   }
 
-  onSaved(): void {
+  /**
+   * The save refreshed the list, so the Edit button that opened the drawer is gone: focus moves to the saved
+   * style's Edit button, or to "New style" when that row has none (Moderate 7).
+   */
+  onSaved(name: string): void {
     this.showList();
+    afterNextRender(() => (this.editButtonFor(name) ?? this.newStyleButton()?.nativeElement)?.focus(), {
+      injector: this.injector,
+    });
   }
 
+  /** Back from the editor: a failure that belonged to the editor session no longer applies (Moderate 4). */
   showList(): void {
     this.draft.set(null);
     this.repair.set(null);
     this.view.set('list');
+    this.store.dismissError(['save', 'open']);
+  }
+
+  private editButtonFor(name: string): HTMLButtonElement | undefined {
+    const rows = this.host.nativeElement.querySelectorAll<HTMLElement>('tr[data-testid^="output-style-row-"]');
+    return Array.from(rows)
+      .filter((row) => row.getAttribute('data-testid') === `output-style-row-${name}`)
+      .map((row) => row.querySelector<HTMLButtonElement>('[data-testid="output-style-edit-button"]'))
+      .find((button): button is HTMLButtonElement => button !== null && !button.disabled);
   }
 }

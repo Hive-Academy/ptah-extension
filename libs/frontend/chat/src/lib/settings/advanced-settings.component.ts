@@ -56,95 +56,94 @@ interface ImportOutcome {
   template: `
     <div class="space-y-4">
       <ptah-license-status-card>
+        <!--
+          M5: the import confirm takes the place of Export / Import inside the header's action row, so the
+          membership badges under the header do not move and the card height stays the same.
+        -->
         <div
           membership-actions
           class="flex flex-wrap items-center gap-1.5"
         >
-          <button
-            type="button"
-            class="btn btn-outline btn-xs gap-1 text-base-content"
-            [disabled]="isExporting()"
-            (click)="exportSettings()"
-            aria-label="Export settings"
-          >
-            @if (isExporting()) {
-              <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
-            } @else {
-              <lucide-angular [img]="UploadIcon" class="w-3 h-3" aria-hidden="true" />
-            }
-            <span>Export</span>
-          </button>
-          <button
-            #importButton
-            type="button"
-            class="btn btn-outline btn-xs gap-1 text-base-content"
-            [disabled]="isImporting() || confirmingImport()"
-            (click)="requestImport()"
-            aria-label="Import settings"
-          >
-            @if (isImporting()) {
-              <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
-            } @else {
-              <lucide-angular [img]="DownloadIcon" class="w-3 h-3" aria-hidden="true" />
-            }
-            <span>Import</span>
-          </button>
+          @if (confirmingImport()) {
+            <div
+              role="group"
+              aria-label="Confirm import settings"
+              aria-describedby="import-confirm-detail"
+              class="flex items-center gap-1.5 rounded border border-base-300 px-2 py-0.5"
+              data-testid="import-confirm"
+              (keydown.escape)="cancelImport($event)"
+            >
+              <span class="text-xs text-base-content whitespace-nowrap">Replace your settings from a file?</span>
+              <span id="import-confirm-detail" class="sr-only">
+                Import replaces your current settings, API keys and preferences with the contents of a settings
+                export file you choose next.
+              </span>
+              <button
+                type="button"
+                class="btn btn-outline btn-xs border-error text-base-content"
+                [disabled]="isImporting()"
+                (click)="importSettings()"
+                data-testid="import-confirm-button"
+              >
+                Import settings
+              </button>
+              <button
+                #importCancel
+                type="button"
+                class="btn btn-ghost btn-xs text-base-content"
+                [disabled]="isImporting()"
+                (click)="cancelImport()"
+              >
+                Cancel
+              </button>
+            </div>
+          } @else {
+            <button
+              type="button"
+              class="btn btn-outline btn-xs gap-1 text-base-content"
+              [disabled]="isExporting()"
+              (click)="exportSettings()"
+              aria-label="Export settings"
+            >
+              @if (isExporting()) {
+                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              } @else {
+                <lucide-angular [img]="UploadIcon" class="w-3 h-3" aria-hidden="true" />
+              }
+              <span>Export</span>
+            </button>
+            <button
+              #importButton
+              type="button"
+              class="btn btn-outline btn-xs gap-1 text-base-content"
+              [disabled]="isImporting()"
+              (click)="requestImport()"
+              aria-label="Import settings"
+            >
+              @if (isImporting()) {
+                <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+              } @else {
+                <lucide-angular [img]="DownloadIcon" class="w-3 h-3" aria-hidden="true" />
+              }
+              <span>Import</span>
+            </button>
+          }
         </div>
-        @if (confirmingImport() || importOutcome()) {
-          <div membership-notices class="mt-1 space-y-2">
-            @if (confirmingImport()) {
-              <div
-                role="group"
-                aria-label="Confirm import settings"
-                class="rounded border border-base-300 p-2"
-                data-testid="import-confirm"
-                (keydown.escape)="cancelImport($event)"
-              >
-                <p class="text-xs text-base-content mb-2">
-                  Import replaces your current settings, API keys and
-                  preferences with the contents of a settings export file you
-                  choose next.
-                </p>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    class="btn btn-outline btn-xs border-error text-base-content"
-                    [disabled]="isImporting()"
-                    (click)="importSettings()"
-                    data-testid="import-confirm-button"
-                  >
-                    @if (isImporting()) {
-                      <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
-                    }
-                    <span>Import settings</span>
-                  </button>
-                  <button
-                    #importCancel
-                    type="button"
-                    class="btn btn-ghost btn-xs text-base-content"
-                    [disabled]="isImporting()"
-                    (click)="cancelImport()"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            }
-            @if (importOutcome(); as outcome) {
-              <p
-                [attr.role]="outcome.tone"
-                class="flex items-center gap-1.5 text-xs text-base-content"
-                data-testid="import-outcome"
-              >
-                <span
-                  class="h-2 w-2 shrink-0 rounded-full"
-                  [class.bg-error]="outcome.tone === 'alert'"
-                  [class.bg-success]="outcome.tone === 'status'"
-                  aria-hidden="true"
-                ></span>
-                {{ outcome.message }}
-              </p>
-            }
+        @if (importOutcome(); as outcome) {
+          <div membership-notices class="mt-1">
+            <p
+              [attr.role]="outcome.tone"
+              class="flex items-center gap-1.5 text-xs text-base-content"
+              data-testid="import-outcome"
+            >
+              <span
+                class="h-2 w-2 shrink-0 rounded-full"
+                [class.bg-error]="outcome.tone === 'alert'"
+                [class.bg-success]="outcome.tone === 'status'"
+                aria-hidden="true"
+              ></span>
+              {{ outcome.message }}
+            </p>
           </div>
         }
       </ptah-license-status-card>
@@ -233,7 +232,14 @@ export class AdvancedSettingsComponent {
           // A closed file dialog changed nothing; there is nothing to report.
           if (result.data.cancelled) return;
           const errors = result.data.result?.errors ?? [];
-          if (errors.length > 0) {
+          const imported = result.data.result?.imported ?? [];
+          if (errors.length > 0 && imported.length === 0) {
+            // An empty or malformed file: nothing was imported, so "some" would claim a partial success.
+            this.importOutcome.set({
+              tone: 'alert',
+              message: 'The file is not a Ptah settings export.',
+            });
+          } else if (errors.length > 0) {
             this.importOutcome.set({
               tone: 'alert',
               message: 'Some settings could not be imported.',
@@ -271,6 +277,8 @@ export class AdvancedSettingsComponent {
       });
     } finally {
       this.isImporting.set(false);
+      // The confirm that held focus is gone: focus returns to Import.
+      afterNextRender(() => this.importButton()?.nativeElement.focus(), { injector: this.injector });
     }
   }
 }

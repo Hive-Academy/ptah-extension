@@ -10,6 +10,9 @@
  * - Tool namespaces (A31): S-sel with Undo restoring the previous disabled array.
  * - Allow localhost (A32): Enabling requires inline confirmation (S-confirm, P8); disabling is immediate with Undo (S-sel).
  * - Host error text is never surfaced to visible text or toasts (D15).
+ *
+ * Every control stays disabled until `agent:getConfig` has answered. A failed read shows a fixed error with
+ * Retry instead of the defaults, because a write built on defaults would overwrite the stored namespace list.
  */
 
 import {
@@ -37,6 +40,7 @@ import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.
 export const COULD_NOT_SAVE_PORT = 'Could not save the MCP port.';
 export const COULD_NOT_UPDATE_NAMESPACES = 'Could not update MCP tool namespaces.';
 export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost setting.';
+export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser settings.';
 
 @Component({
   selector: 'ptah-mcp-port-config',
@@ -56,6 +60,21 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
         Configure Ptah's local MCP server port and tool namespaces for AI agents.
       </p>
 
+      @if (loadState() === 'failed') {
+        <div
+          role="alert"
+          class="flex items-center gap-1.5 mb-3 rounded border border-error/40 p-2 text-xs text-base-content"
+          data-testid="mcp-config-load-error"
+        >
+          <lucide-angular [img]="AlertCircleIcon" class="w-3.5 h-3.5 text-error shrink-0" aria-hidden="true" />
+          <span class="flex-1">{{ loadErrorMessage }}</span>
+          <button type="button" class="btn btn-ghost btn-xs text-base-content" (click)="loadConfig()"
+            data-testid="mcp-config-load-retry">
+            Retry
+          </button>
+        </div>
+      }
+
       <!-- Port policy bar (P3, row A30) -->
       <div class="flex flex-wrap items-center gap-2 rounded border border-base-300 py-2 px-3 text-xs mb-3">
         <label for="mcp-port-input" class="font-bold text-base-content whitespace-nowrap">
@@ -70,7 +89,7 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
           [min]="1024"
           [max]="65535"
           placeholder="51820"
-          [disabled]="saving()"
+          [disabled]="saving() || !loaded()"
           aria-label="MCP server port"
           data-testid="mcp-port-input"
         />
@@ -78,19 +97,19 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
           type="button"
           class="btn btn-primary btn-xs gap-1"
           (click)="savePort()"
-          [disabled]="saving() || !isDirty() || validationError() !== null"
+          [disabled]="saving() || !loaded() || !isDirty() || validationError() !== null"
           aria-label="Save MCP port"
           data-testid="mcp-port-save-btn"
         >
           Save
         </button>
-        <span class="text-[10px] text-base-content-muted whitespace-nowrap">
+        <span class="text-xs text-base-content-muted whitespace-nowrap">
           Default 51820 · Range 1024–65535 · Changes apply after the MCP server restarts.
         </span>
       </div>
 
-      <!-- Validation error (panel-level validation or fixed error sentence) -->
-      @if (validationError(); as err) {
+      <!-- Validation error, or the fixed save failure (which does not block a retry) -->
+      @if (validationError() ?? saveError(); as err) {
         <div
           role="alert"
           class="flex items-center gap-1 mb-3 text-xs text-base-content"
@@ -121,7 +140,7 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
                     class="checkbox checkbox-xs checkbox-primary"
                     [checked]="isNamespaceEnabled(ns.id)"
                     (change)="toggleNamespace(ns.id)"
-                    [disabled]="saving()"
+                    [disabled]="saving() || !loaded()"
                     [attr.aria-label]="'Toggle ' + ns.label + ' namespace'"
                     [attr.data-testid]="'settings-toggle-mcp-namespace-' + ns.id"
                   />
@@ -149,7 +168,7 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
                   class="checkbox checkbox-xs checkbox-primary"
                   [checked]="browserAllowLocalhost()"
                   (change)="onAllowLocalhostToggle($event)"
-                  [disabled]="saving() || confirmingAllowLocalhost()"
+                  [disabled]="saving() || !loaded() || confirmingAllowLocalhost()"
                   aria-label="Allow localhost access for browser tools"
                   data-testid="settings-toggle-browser-allow-localhost"
                 />
@@ -178,7 +197,7 @@ export const COULD_NOT_UPDATE_LOCALHOST = 'Could not update browser localhost se
                     <div class="flex gap-2">
                       <button
                         type="button"
-                        class="btn btn-outline btn-xs border-warning text-base-content"
+                        class="btn btn-outline btn-xs border-error text-base-content"
                         [disabled]="saving()"
                         (click)="confirmEnableLocalhost()"
                         data-testid="allow-localhost-confirm-btn"
@@ -224,10 +243,17 @@ export class McpPortConfigComponent implements OnInit {
   /** Save triggers disabled while any save is in flight (D3). */
   readonly saving = this.feedback.saving;
 
+  /** `agent:getConfig` state; nothing is writable until it is `loaded` (Serious 3). */
+  readonly loadState = signal<'loading' | 'loaded' | 'failed'>('loading');
+  readonly loaded = computed(() => this.loadState() === 'loaded');
+  readonly loadErrorMessage = COULD_NOT_LOAD_MCP_CONFIG;
+
   readonly portValue = signal<number>(51820);
   readonly savedPort = signal<number>(51820);
   readonly isDirty = computed(() => this.portValue() !== this.savedPort());
   readonly validationError = signal<string | null>(null);
+  /** A failed port write. Separate from validation, so Save stays enabled for a retry (Moderate 5). */
+  readonly saveError = signal<string | null>(null);
 
   /** Namespace toggle state */
   readonly disabledNamespaces = signal<string[]>([]);
@@ -275,7 +301,9 @@ export class McpPortConfigComponent implements OnInit {
     await this.loadConfig();
   }
 
-  private async loadConfig(): Promise<void> {
+  /** Reads the stored config. A failure leaves every control disabled behind a fixed error with Retry. */
+  async loadConfig(): Promise<void> {
+    this.loadState.set('loading');
     try {
       const result = await this.rpcService.call('agent:getConfig', undefined);
       if (result.isSuccess() && result.data) {
@@ -283,21 +311,24 @@ export class McpPortConfigComponent implements OnInit {
           this.portValue.set(result.data.mcpPort);
           this.savedPort.set(result.data.mcpPort);
         }
-        if (result.data.disabledMcpNamespaces) {
-          this.disabledNamespaces.set(result.data.disabledMcpNamespaces);
-          this.savedDisabledNamespaces.set(result.data.disabledMcpNamespaces);
-        }
+        const disabled = result.data.disabledMcpNamespaces ?? [];
+        this.disabledNamespaces.set(disabled);
+        this.savedDisabledNamespaces.set(disabled);
         const allowLocalhost = result.data.browserAllowLocalhost ?? false;
         this.browserAllowLocalhost.set(allowLocalhost);
         this.savedBrowserAllowLocalhost.set(allowLocalhost);
+        this.loadState.set('loaded');
+        return;
       }
     } catch {
-      // Configuration read failures leave defaults intact
+      // Falls through to the failed state below.
     }
+    this.loadState.set('failed');
   }
 
   onPortInput(value: number): void {
     this.portValue.set(value);
+    this.saveError.set(null);
 
     if (!Number.isFinite(value) || !Number.isInteger(value)) {
       this.validationError.set('Port must be a valid integer');
@@ -309,6 +340,7 @@ export class McpPortConfigComponent implements OnInit {
   }
 
   async savePort(): Promise<void> {
+    if (!this.loaded()) return;
     const port = this.portValue();
     if (!Number.isFinite(port) || !Number.isInteger(port)) {
       this.validationError.set('Port must be a valid integer');
@@ -320,6 +352,7 @@ export class McpPortConfigComponent implements OnInit {
     }
 
     this.validationError.set(null);
+    this.saveError.set(null);
     const previousPort = this.savedPort();
 
     await this.feedback.saveGeneric({
@@ -333,10 +366,10 @@ export class McpPortConfigComponent implements OnInit {
             this.savedPort.set(port);
             return { ok: true };
           }
-          this.validationError.set(COULD_NOT_SAVE_PORT);
+          this.saveError.set(COULD_NOT_SAVE_PORT);
           return { ok: false, message: COULD_NOT_SAVE_PORT };
         } catch {
-          this.validationError.set(COULD_NOT_SAVE_PORT);
+          this.saveError.set(COULD_NOT_SAVE_PORT);
           return { ok: false, message: COULD_NOT_SAVE_PORT };
         }
       },
@@ -363,7 +396,7 @@ export class McpPortConfigComponent implements OnInit {
   }
 
   async toggleNamespace(id: string): Promise<void> {
-    if (this.saving()) return;
+    if (this.saving() || !this.loaded()) return;
     const previous = [...this.disabledNamespaces()];
     const updated = previous.includes(id)
       ? previous.filter((n) => n !== id)
@@ -411,7 +444,7 @@ export class McpPortConfigComponent implements OnInit {
   }
 
   onAllowLocalhostToggle(event?: Event): void {
-    if (this.saving()) {
+    if (this.saving() || !this.loaded()) {
       if (event?.target) {
         (event.target as HTMLInputElement).checked = this.browserAllowLocalhost();
       }

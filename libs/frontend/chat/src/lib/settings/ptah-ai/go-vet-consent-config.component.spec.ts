@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { ClaudeRpcService, WorkspaceScopeService } from '@ptah-extension/core';
 import type { RpcResult } from '@ptah-extension/core';
@@ -543,6 +545,27 @@ describe('GoVetConsentConfigComponent', () => {
     expect(document.activeElement).toBe(toggle(fixture));
   });
 
+  it('stops the Esc keydown at the confirm, so an enclosing container does not also close (FM-4)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, { [GET]: [() => rpcSuccess(getResult())] });
+    const { fixture } = mount(rpc);
+    await settle(fixture);
+    const outer = jest.fn();
+    document.body.addEventListener('keydown', outer);
+    try {
+      flip(fixture, true);
+      await settle(fixture);
+      q(fixture, 'go-vet-consent-confirm')?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      await settle(fixture);
+      expect(q(fixture, 'go-vet-consent-confirm')).toBeNull();
+      expect(outer).not.toHaveBeenCalled();
+    } finally {
+      document.body.removeEventListener('keydown', outer);
+    }
+  });
+
   it.each([
     ['a thrown Error', () => Promise.reject(new Error('secret host detail'))],
     [
@@ -603,5 +626,21 @@ describe('GoVetConsentConfigComponent', () => {
 
     fixture.destroy();
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('sets the card description at 14 px like the sibling cards (visual m1)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, { [GET]: [() => rpcSuccess(getResult())] });
+    const { fixture } = mount(rpc);
+    await settle(fixture);
+    const description = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('p')).find((p) =>
+      p.textContent?.includes("When on, Ptah's diagnostics tools run your installed Go toolchain"),
+    );
+    expect(description?.classList).toContain('text-sm');
+  });
+
+  it('uses no text size below 12 px anywhere in the component source (Batch 50b)', () => {
+    const source = readFileSync(join(__dirname, 'go-vet-consent-config.component.ts'), 'utf8');
+    expect(source.match(/text-\[(?:\d|1[01])(?:\.\d+)?px\]/g)).toBeNull();
   });
 });

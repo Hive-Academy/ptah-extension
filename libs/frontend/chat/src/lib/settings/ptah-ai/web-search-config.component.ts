@@ -128,7 +128,7 @@ function providerLabel(provider: ProviderId): string {
 
       <p class="text-xs text-base-content-muted mb-3">
         Enable web search for AI agents via the
-        <code class="text-[10px] bg-base-300 px-1 rounded text-base-content">ptah_web_search</code>
+        <code class="text-xs bg-base-300 px-1 rounded text-base-content">ptah_web_search</code>
         MCP tool. Select one or more providers to run in parallel.
       </p>
 
@@ -165,10 +165,10 @@ function providerLabel(provider: ProviderId): string {
                   <div class="font-bold text-base-content">
                     {{ opt.label }}<span class="sr-only">: {{ opt.summary }}</span>
                   </div>
-                  <p class="whitespace-nowrap text-[10px] text-base-content-muted">
+                  <p class="whitespace-nowrap text-xs text-base-content-muted">
                     {{ opt.freeTier }}
                     <a [href]="opt.signupUrl" target="_blank" rel="noopener noreferrer"
-                      class="link link-hover text-base-content"
+                      class="link underline text-base-content"
                       [attr.data-testid]="'settings-web-search-signup-' + opt.value">Get API key</a>
                   </p>
                 </td>
@@ -219,10 +219,10 @@ function providerLabel(provider: ProviderId): string {
                             <lucide-angular [img]="keyVisible() ? EyeOffIcon : EyeIcon" class="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         </div>
-                        <p class="text-[10px] text-base-content-muted">
+                        <p class="text-xs text-base-content-muted">
                           Stored encrypted on this machine. Use Test connection after saving to check it.
                           <a [href]="opt.signupUrl" target="_blank" rel="noopener noreferrer"
-                            class="link link-hover text-base-content">Get a key</a>
+                            class="link underline text-base-content">Get a key</a>
                         </p>
                         @if (keyError(); as message) {
                           <p role="alert" class="flex items-center gap-1.5 text-xs text-base-content"
@@ -247,8 +247,8 @@ function providerLabel(provider: ProviderId): string {
                       </div>
                     </ptah-native-popover>
                     @if (apiKeyConfigured()[opt.value]) {
-                      <button type="button" class="btn btn-outline btn-xs border-error text-base-content"
-                        [disabled]="saving()" (click)="confirmingClear.set(opt.value)"
+                      <button type="button" class="btn btn-outline btn-xs text-base-content"
+                        [disabled]="saving()" (click)="requestClear(opt.value)"
                         [attr.aria-label]="'Clear API key for ' + opt.label"
                         [attr.aria-expanded]="confirmingClear() === opt.value"
                         [attr.data-testid]="'settings-web-search-clear-btn-' + opt.value">Clear</button>
@@ -258,10 +258,17 @@ function providerLabel(provider: ProviderId): string {
                     <div role="group" [attr.aria-label]="'Confirm clear ' + opt.label + ' API key'"
                       class="mt-1.5 space-y-2 rounded border border-base-300 p-3 text-left"
                       [attr.data-testid]="'settings-web-search-clear-group-' + opt.value"
-                      (keydown.escape)="cancelClear(opt.value)">
+                      (keydown.escape)="cancelClear(opt.value, $event)">
                       <p class="text-xs text-base-content">
                         Clear the stored {{ opt.label }} key from this machine? Searches through {{ opt.label }} stop until a key is added.
                       </p>
+                      @if (clearError(); as message) {
+                        <p role="alert" class="flex items-center gap-1.5 text-xs text-base-content"
+                          [attr.data-testid]="'settings-web-search-clear-error-' + opt.value">
+                          <lucide-angular [img]="AlertCircleIcon" class="w-3.5 h-3.5 text-error shrink-0" aria-hidden="true" />
+                          {{ message }}
+                        </p>
+                      }
                       <div class="flex gap-2">
                         <button type="button" class="btn btn-outline btn-sm border-error text-base-content"
                           [disabled]="saving()" (click)="deleteApiKey(opt.value)"
@@ -278,15 +285,16 @@ function providerLabel(provider: ProviderId): string {
         </table>
       </div>
 
-      <p class="text-[10px] text-base-content-muted mt-2">At least one provider must stay selected.</p>
+      <p class="text-xs text-base-content-muted mt-2">At least one provider must stay selected.</p>
 
       <div class="mt-2 flex items-center gap-3 rounded border border-base-300 py-2 px-3 text-xs">
         <label for="web-search-max-results" class="font-bold text-base-content whitespace-nowrap">Max results</label>
         <input id="web-search-max-results" type="range" min="1" max="20" [value]="maxResults()"
           [disabled]="saving()" (change)="onMaxResultsChange($event)"
-          class="range range-xs range-primary flex-1" data-testid="settings-web-search-max-results" />
+          class="range range-xs range-primary flex-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+          data-testid="settings-web-search-max-results" />
         <span class="badge badge-outline badge-sm font-mono text-base-content" aria-hidden="true">{{ maxResults() }}</span>
-        <span class="text-[10px] text-base-content-muted whitespace-nowrap">per search</span>
+        <span class="text-xs text-base-content-muted whitespace-nowrap">per search</span>
       </div>
     </section>
   `,
@@ -321,6 +329,8 @@ export class WebSearchConfigComponent implements OnInit {
   readonly keyVisible = signal(false);
   readonly keyError = signal<string | null>(null);
   readonly confirmingClear = signal<ProviderId | null>(null);
+  /** A failed Clear's fixed sentence, shown inside the open inline confirm (F1). */
+  readonly clearError = signal<string | null>(null);
   readonly maxResults = signal(5);
   readonly isTesting = signal(false);
   readonly isSavingKey = signal(false);
@@ -489,9 +499,21 @@ export class WebSearchConfigComponent implements OnInit {
     }
   }
 
-  /** Cancel and Esc close the confirm and return focus to the row's Clear button (P8). */
-  cancelClear(provider: ProviderId): void {
+  /** Opens the row's inline Clear confirm; a failure from an earlier attempt is dropped. */
+  requestClear(provider: ProviderId): void {
+    this.clearError.set(null);
+    this.confirmingClear.set(provider);
+  }
+
+  /**
+   * Cancel and Esc close the confirm and return focus to the row's Clear button (P8). Esc stops here
+   * only when it closed the confirm, so an enclosing overlay does not also close.
+   */
+  cancelClear(provider: ProviderId, event?: Event): void {
+    if (this.confirmingClear() !== provider) return;
+    event?.stopPropagation();
     this.confirmingClear.set(null);
+    this.clearError.set(null);
     this.host.nativeElement
       .querySelector<HTMLButtonElement>(`[data-testid="settings-web-search-clear-btn-${provider}"]`)
       ?.focus();
@@ -500,6 +522,7 @@ export class WebSearchConfigComponent implements OnInit {
   /** Clears a provider's key after the inline confirm (S-confirm, no Undo). */
   async deleteApiKey(provider: ProviderId): Promise<void> {
     this.errorMessage.set(null);
+    this.clearError.set(null);
 
     await this.feedback.saveGeneric({
       label: `removal of the ${providerLabel(provider)} API key`,
@@ -510,7 +533,8 @@ export class WebSearchConfigComponent implements OnInit {
           this.apiKeyConfigured.update((prev) => ({ ...prev, [provider]: false }));
           this.testResult.set(null);
         } else {
-          this.errorMessage.set(result.message);
+          // FM-5: the confirm stays open, so the failure is shown inside it.
+          this.clearError.set(result.message);
         }
         return result;
       },

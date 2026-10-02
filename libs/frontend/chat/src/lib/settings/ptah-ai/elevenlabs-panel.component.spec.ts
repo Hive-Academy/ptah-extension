@@ -1,4 +1,6 @@
 import { signal } from '@angular/core';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   ClaudeRpcService,
@@ -335,6 +337,27 @@ describe('ElevenLabsPanelComponent', () => {
       expect(byTestId<HTMLInputElement>('elevenlabs-key-input').type).toBe('text');
       expect(toggle.getAttribute('aria-pressed')).toBe('true');
     });
+
+    it('gives the show/hide button a 24x24 px minimum target (D4, WCAG 2.5.8)', () => {
+      routeRpc({});
+      mount('stt', elConfig());
+
+      const toggle = byTestId<HTMLButtonElement>('elevenlabs-key-visibility');
+      expect(toggle.classList).toContain('btn-square');
+      expect(toggle.classList).toContain('min-w-6');
+      expect(toggle.classList).toContain('min-h-6');
+    });
+
+    it.each([
+      [true, 'New API key'],
+      [false, 'Paste API key'],
+    ])('uses a short placeholder that fits beside the actions (M3; key stored: %s)', async (configured, placeholder) => {
+      routeRpc({ 'voice:listVoices': VOICES });
+      mount('tts', elConfig({ apiKeyConfigured: configured }));
+      await settle();
+
+      expect(byTestId<HTMLInputElement>('elevenlabs-key-input').placeholder).toBe(placeholder);
+    });
   });
 
   describe('clear key (V21, S-confirm)', () => {
@@ -344,10 +367,14 @@ describe('ElevenLabsPanelComponent', () => {
       await settle();
 
       const clear = byTestId<HTMLButtonElement>('elevenlabs-key-clear');
-      expect(clear.classList).toContain('border-error');
+      // Gate V 50 decision: the resting Clear is neutral; red only on the confirm button (P8).
+      expect(clear.classList).not.toContain('border-error');
+      expect(clear.classList).toContain('btn-outline');
+      expect(clear.classList).toContain('btn-xs');
       expect(clear.classList).toContain('text-base-content');
       clear.click();
       fixture.detectChanges();
+      expect(byTestId('elevenlabs-clear-confirm').classList).toContain('border-error');
 
       const group = byTestId('elevenlabs-clear-group');
       expect(group.getAttribute('role')).toBe('group');
@@ -617,5 +644,10 @@ describe('ElevenLabsPanelComponent', () => {
     expect(element.querySelector('[data-testid="elevenlabs-voice-select"]')).toBeNull();
     expect(element.textContent).not.toContain('Download');
     expect(calls('voice:listVoices')).toEqual([]);
+  });
+
+  it('uses no text size below 12 px anywhere in the component source (Batch 50b)', () => {
+    const source = readFileSync(join(__dirname, 'elevenlabs-panel.component.ts'), 'utf8');
+    expect(source.match(/text-\[(?:\d|1[01])(?:\.\d+)?px\]/g)).toBeNull();
   });
 });

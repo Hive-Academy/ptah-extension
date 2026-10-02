@@ -224,6 +224,67 @@ describe('AgentBehaviourSectionComponent', () => {
       expect(alert?.textContent).toContain('Could not load the system prompt status.');
       expect(alert?.textContent).not.toContain('host detail');
     });
+
+    it('lane Serious 1: a status with error inside a successful RPC is a load failure with Retry, not the wizard note', async () => {
+      handlers['enhancedPrompts:getStatus'] = () =>
+        rpcSuccess({ enabled: false, hasGeneratedPrompt: false, generatedAt: null, error: 'host detail: EPERM' });
+      await render();
+
+      const alert = element.querySelector('[data-testid="agent-behaviour-load-error"]');
+      expect(alert?.textContent).toContain('Could not load the system prompt status.');
+      expect(alert?.textContent).not.toContain('EPERM');
+      const note = element.querySelector('#agent-behaviour-prompt-note')?.textContent ?? '';
+      expect(note).not.toContain('Run the Setup Wizard');
+      expect(note).toContain('not loaded');
+
+      handlers['enhancedPrompts:getStatus'] = () => rpcSuccess({ enabled: true, hasGeneratedPrompt: true });
+      element.querySelector<HTMLButtonElement>('[data-testid="agent-behaviour-load-retry"]')?.click();
+      await settle();
+
+      expect(element.querySelector('[data-testid="agent-behaviour-load-error"]')).toBeNull();
+      expect(checkbox('Toggle Enhanced System Prompt').checked).toBe(true);
+    });
+
+    it('Moderate 8 / FM-3: a saved mode whose re-read fails keeps the written value and shows the load error', async () => {
+      await render();
+      handlers['enhancedPrompts:getStatus'] = () => rpcError('host detail: read failed');
+      await click('Toggle Enhanced System Prompt');
+
+      expect(feedback.toast()).toEqual({ tone: 'status', message: 'Saved system prompt mode.', canUndo: true });
+      expect(checkbox('Toggle Enhanced System Prompt').checked).toBe(true);
+      expect(element.querySelector('[data-testid="agent-behaviour-prompt-status"]')?.textContent).toContain('Ptah Enhanced');
+      expect(element.querySelector('[data-testid="agent-behaviour-load-error"]')?.textContent).toContain(
+        'Could not load the system prompt status.',
+      );
+    });
+
+    it('D2: "Active for all sessions" uses the muted token without extra opacity', async () => {
+      handlers['enhancedPrompts:getStatus'] = () => rpcSuccess({ enabled: true, hasGeneratedPrompt: true });
+      await render();
+      const line = Array.from(element.querySelectorAll('[data-testid="agent-behaviour-prompt-status"] div')).find(
+        (node) => node.textContent?.trim() === 'Active for all sessions',
+      );
+      expect(line?.classList).toContain('text-base-content-muted');
+      expect(line?.className).not.toMatch(/opacity-/);
+    });
+  });
+
+  describe('M1: one-line row descriptions', () => {
+    it('clamps every description to one line, with the full text as its title and for screen readers', async () => {
+      await render();
+      const notes = ['prompt', 'effort', 'workflows', 'ultracode'].map(
+        (row) => element.querySelector(`#agent-behaviour-${row}-note`) as HTMLElement,
+      );
+      for (const note of notes) {
+        expect(note.classList).toContain('truncate');
+        expect(note.classList).toContain('text-xs');
+        expect(note.getAttribute('title')).toBe(note.textContent?.trim());
+        expect(note.closest('td')?.classList).toContain('max-w-0');
+      }
+      expect(notes[3].textContent).toContain('Turning Ultracode off restores your previous reasoning effort.');
+      expect(checkbox('Toggle Ultracode mode').getAttribute('aria-describedby')).toBe('agent-behaviour-ultracode-note');
+      expect(checkbox('Toggle dynamic workflows').getAttribute('aria-describedby')).toBe('agent-behaviour-workflows-note');
+    });
   });
 
   describe('Chat reasoning effort (A26, read-back)', () => {
@@ -334,6 +395,12 @@ describe('AgentBehaviourSectionComponent', () => {
       const alert = element.querySelector('[data-testid="agent-behaviour-load-error"]');
       expect(alert?.textContent).toContain('Could not load the dynamic workflows setting.');
       expect(alert?.textContent).not.toContain('host detail');
+
+      handlers['agent:getConfig'] = () => rpcSuccess({ workflowsDisabled: false });
+      alert?.querySelector<HTMLButtonElement>('[data-testid="agent-behaviour-load-retry"]')?.click();
+      await settle();
+      expect(checkbox('Toggle dynamic workflows').disabled).toBe(false);
+      expect(element.querySelector('[data-testid="agent-behaviour-load-error"]')).toBeNull();
     });
 
     it('keeps the toggle disabled and reports the failure when the setting load throws', async () => {

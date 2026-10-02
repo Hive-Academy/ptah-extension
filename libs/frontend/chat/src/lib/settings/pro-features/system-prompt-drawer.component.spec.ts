@@ -408,4 +408,141 @@ describe('SystemPromptDrawerComponent', () => {
       expect(downloadBtn?.querySelector('lucide-angular')).not.toBeNull();
     });
   });
+
+  describe('Gate V 50 fixes', () => {
+    const drawer = (): SystemPromptDrawerComponent =>
+      fixture.debugElement.children[0]?.componentInstance as SystemPromptDrawerComponent;
+    const by = (testId: string): HTMLElement | null => element.querySelector(`[data-testid="${testId}"]`);
+
+    async function settle(): Promise<void> {
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    }
+
+    it('reads the status once when the drawer is created open (Minor 13)', async () => {
+      await render();
+      expect(call.mock.calls.filter(([method]) => method === 'enhancedPrompts:getStatus')).toHaveLength(1);
+    });
+
+    it('a host-reported status error is a load failure with Retry, never the wizard empty state (Moderate 9)', async () => {
+      await render({ enabled: false, hasGeneratedPrompt: false, error: 'host detail: EPERM' } as EnhancedPromptsGetStatusResponse);
+
+      expect(by('system-prompt-drawer-error')?.textContent).toContain('Could not load the system prompt status.');
+      expect(by('system-prompt-drawer-error')?.textContent).not.toContain('EPERM');
+      expect(by('system-prompt-empty-state')).toBeNull();
+
+      call.mockImplementation(async () => rpcSuccess(defaultStatus));
+      by('system-prompt-status-retry')?.click();
+      await settle();
+
+      expect(by('system-prompt-drawer-error')).toBeNull();
+      expect(by('system-prompt-generated-at')).not.toBeNull();
+    });
+
+    it('a failed transport read also hides the empty state', async () => {
+      await render(defaultStatus, 'timeout');
+      expect(by('system-prompt-empty-state')).toBeNull();
+      expect(by('system-prompt-status-retry')).not.toBeNull();
+    });
+
+    it('omits an unparseable timestamp instead of showing "Invalid Date" (Minor 13)', async () => {
+      await render({ ...defaultStatus, generatedAt: 'not-a-date' });
+      expect(by('system-prompt-generated-at')).toBeNull();
+      expect(element.textContent).not.toContain('Invalid Date');
+    });
+
+    it('shows a saved line only after the host reports a successful download (Minor 15)', async () => {
+      await render();
+      by('system-prompt-download-button')?.click();
+      await settle();
+      expect(by('system-prompt-download-saved')?.textContent).toContain('Saved to the chosen file.');
+      expect(by('system-prompt-download-saved')?.getAttribute('role')).toBe('status');
+    });
+
+    describe('regenerate confirm focus and Esc (Moderate 7)', () => {
+      it('takes focus on Cancel; Esc closes only the confirm and returns focus to Regenerate', async () => {
+        await render();
+        document.body.appendChild(element);
+        try {
+          by('system-prompt-regenerate-button')?.click();
+          fixture.detectChanges();
+          expect(document.activeElement).toBe(by('regenerate-cancel-button'));
+
+          document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await settle();
+
+          expect(by('regenerate-confirm')).toBeNull();
+          expect(host.closedCalled).toBe(false);
+          expect(document.activeElement).toBe(by('system-prompt-regenerate-button'));
+        } finally {
+          element.remove();
+        }
+      });
+    });
+
+    describe('unanswered regenerate (Moderate 9, lane Serious 1)', () => {
+      const newer: EnhancedPromptsGetStatusResponse = { ...defaultStatus, generatedAt: '2026-10-02T09:00:00.000Z' };
+
+      async function regenerateWithoutAnswer(): Promise<void> {
+        call.mockImplementation(async (method: string) => {
+          if (method === 'enhancedPrompts:getStatus') return rpcSuccess(defaultStatus);
+          if (method === 'enhancedPrompts:regenerate') return rpcError('RPC timeout: enhancedPrompts:regenerate');
+          return rpcSuccess(undefined);
+        });
+        by('system-prompt-regenerate-button')?.click();
+        fixture.detectChanges();
+        call.mockClear();
+        by('regenerate-confirm-button')?.click();
+        await settle();
+      }
+
+      afterEach(() => jest.restoreAllMocks());
+
+      it('re-reads the status, shows a fixed note and blocks a second regenerate', async () => {
+        await render();
+        await regenerateWithoutAnswer();
+
+        expect(call).toHaveBeenCalledWith('enhancedPrompts:getStatus', { workspacePath: '.' });
+        expect(by('regenerate-may-be-running')?.textContent).toContain('may still be running');
+        expect((by('system-prompt-regenerate-button') as HTMLButtonElement).disabled).toBe(true);
+
+        call.mockClear();
+        drawer().requestRegenerate();
+        await drawer().confirmRegenerate();
+        expect(call).not.toHaveBeenCalledWith('enhancedPrompts:regenerate', expect.anything(), expect.anything());
+      });
+
+      it('Check again lifts the block once a newer prompt is on disk, and reports the change', async () => {
+        await render();
+        await regenerateWithoutAnswer();
+
+        call.mockImplementation(async () => rpcSuccess(newer));
+        by('regenerate-check-again')?.click();
+        await settle();
+
+        expect(by('regenerate-may-be-running')).toBeNull();
+        expect((by('system-prompt-regenerate-button') as HTMLButtonElement).disabled).toBe(false);
+        expect(host.changedCalled).toBe(true);
+      });
+
+      it('keeps the block while the host may run, and lifts it with the failure once that time has passed', async () => {
+        await render();
+        const start = Date.now();
+        jest.spyOn(Date, 'now').mockReturnValue(start);
+        await regenerateWithoutAnswer();
+
+        jest.spyOn(Date, 'now').mockReturnValue(start + 60_000);
+        await drawer().checkRegenerate();
+        fixture.detectChanges();
+        expect(by('regenerate-may-be-running')).not.toBeNull();
+
+        jest.spyOn(Date, 'now').mockReturnValue(start + 240_000);
+        await drawer().checkRegenerate();
+        fixture.detectChanges();
+        expect(by('regenerate-may-be-running')).toBeNull();
+        expect(by('system-prompt-drawer-error')?.textContent).toContain('Could not regenerate the system prompt.');
+      });
+    });
+  });
 });

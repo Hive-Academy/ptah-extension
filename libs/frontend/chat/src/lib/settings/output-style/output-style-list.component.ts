@@ -57,6 +57,7 @@ import {
   PARITY_TIERS,
   type ParityTierOption,
 } from './output-style-parity-section.component';
+import type { OutputStyleFailedOperation } from './output-style.store';
 
 export { PARITY_TIERS, type ParityTierOption };
 
@@ -95,9 +96,17 @@ function isActiveStyle(style: OutputStyleEntry, selected: string | null): boolea
   return selected === null ? style.name === 'default' : selected === style.name && style.shadowed !== true;
 }
 
-const OUTPUT_STYLE_ACTIVATE_FAILED = 'Could not change the active output style.';
-const OUTPUT_STYLE_DELETE_FAILED = 'Could not delete the output style.';
-const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project.';
+/** Moderate 4: the banner names the operation the store recorded, never one guessed from host text. */
+const FAILURE_MESSAGES: Readonly<Record<OutputStyleFailedOperation, string>> = {
+  list: 'Could not read the output styles.',
+  activate: 'Could not change the active output style.',
+  save: 'Could not save the output style.',
+  delete: 'Could not delete the output style.',
+  open: 'Could not open that output style.',
+  copy: 'Could not copy the output style to the project.',
+};
+
+const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not change it.';
 
 @Component({
   selector: 'ptah-output-style-list',
@@ -106,7 +115,7 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Write / Operation Error Alert -->
-    @if (error()) {
+    @if (fixedErrorMessage(); as message) {
       <div
         class="flex items-start gap-2 rounded border border-error/40 bg-error/10 p-2 mb-3 text-xs text-base-content"
         role="alert"
@@ -117,7 +126,7 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
           class="w-3.5 h-3.5 mt-0.5 shrink-0 text-error"
           aria-hidden="true"
         />
-        <span class="flex-1">{{ fixedErrorMessage() }}</span>
+        <span class="flex-1">{{ message }}</span>
         <button
           type="button"
           class="btn btn-ghost btn-xs text-base-content"
@@ -281,6 +290,7 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
                       class="badge badge-outline badge-xs text-base-content"
                       [class.border-primary]="style.tier === 'project'"
                       [class.border-secondary]="style.tier === 'user'"
+                      [attr.title]="style.tier === 'builtin' ? builtInNote : null"
                     >
                       {{ tierLabel(style.tier) }}
                     </span>
@@ -297,52 +307,18 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
                   </div>
                 </td>
 
-                <!-- Description Column + Notes + Delete Confirmation -->
+                <!-- Description Column + Notes (the built-in note is the badge title and one footnote, M4) -->
                 <td class="align-middle text-xs text-base-content-muted">
                   <div>{{ style.description }}</div>
                   @if (shadowNote(style); as note) {
-                    <p class="text-[10px] text-base-content-muted mt-0.5" [id]="shadowNoteId(i)">
+                    <p class="text-xs text-base-content-muted mt-0.5" [id]="shadowNoteId(i)">
                       {{ note }}
                     </p>
                   }
-                  @if (immutableNote(style); as note) {
-                    <p class="text-[10px] text-base-content-muted mt-0.5">
+                  @if (pluginNote(style); as note) {
+                    <p class="text-xs text-base-content-muted mt-0.5">
                       {{ note }}
                     </p>
-                  }
-                  @if (isPendingDelete(style)) {
-                    <div
-                      class="flex items-center gap-2 mt-1.5 rounded border border-error/40 bg-error/10 px-2 py-1.5 text-base-content"
-                      role="alertdialog"
-                      [attr.aria-label]="'Confirm deleting ' + style.name"
-                      data-testid="output-style-delete-confirm"
-                      (keydown.escape)="cancelDelete(deleteBtn, $event)"
-                    >
-                      <span class="text-[11px] flex-1">
-                        Delete
-                        <code class="text-base-content-muted">{{
-                          style.fileName ?? style.name
-                        }}</code
-                        >? This removes the file from disk.
-                      </span>
-                      <button
-                        type="button"
-                        class="btn btn-error btn-xs"
-                        [disabled]="saving()"
-                        (click)="confirmDelete(style)"
-                        data-testid="output-style-confirm-delete"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        #deleteCancel
-                        type="button"
-                        class="btn btn-ghost btn-xs text-base-content"
-                        (click)="cancelDelete(deleteBtn)"
-                      >
-                        Cancel
-                      </button>
-                    </div>
                   }
                 </td>
 
@@ -383,15 +359,57 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
                   </div>
                 </td>
               </tr>
+              <!-- D5 / P8: the delete confirm spans the table under its row -->
+              @if (isPendingDelete(style)) {
+                <tr>
+                  <td colspan="5">
+                    <div
+                      class="flex flex-wrap items-center gap-2 rounded border border-base-300 p-2 text-xs text-base-content"
+                      role="alertdialog"
+                      [attr.aria-label]="'Confirm deleting ' + style.name"
+                      data-testid="output-style-delete-confirm"
+                      (keydown.escape)="cancelDelete(deleteBtn, $event)"
+                    >
+                      <span class="flex-1">
+                        Delete
+                        <code class="text-base-content-muted">{{ style.fileName ?? style.name }}</code>?
+                        This removes the file from disk.
+                      </span>
+                      <button
+                        type="button"
+                        class="btn btn-outline btn-xs border-error text-base-content"
+                        [disabled]="saving()"
+                        (click)="confirmDelete(style)"
+                        data-testid="output-style-confirm-delete"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        #deleteCancel
+                        type="button"
+                        class="btn btn-ghost btn-xs text-base-content"
+                        (click)="cancelDelete(deleteBtn)"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>
       </div>
+      @if (hasBuiltIn()) {
+        <p class="text-xs text-base-content-muted mt-1" data-testid="output-style-builtin-note">
+          Built-in styles are part of the agent — Ptah can select them but not change them.
+        </p>
+      }
 
       <!-- Invalid Files List (A23) -->
       @if (invalid().length > 0) {
         <div class="mt-3" data-testid="output-style-invalid-section">
-          <h3 class="text-[11px] font-medium uppercase tracking-wide mb-1 text-base-content">
+          <h3 class="text-xs font-medium uppercase tracking-wide mb-1 text-base-content">
             Files Ptah could not read
           </h3>
           <ul class="rounded border border-warning/40 divide-y divide-base-300/50">
@@ -408,13 +426,13 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
                     {{ tierLabel(entry.tier) }}
                   </span>
                 </div>
-                <p class="text-[11px] text-base-content-muted mt-1 leading-relaxed">
+                <p class="text-xs text-base-content-muted mt-1 leading-relaxed">
                   {{ entry.error.message }}
                 </p>
-                <code class="text-[10px] text-base-content-muted break-all">
+                <code class="text-xs text-base-content-muted break-all">
                   {{ entry.relativePath }}
                 </code>
-                <p class="text-[10px] text-base-content-muted mt-0.5">
+                <p class="text-xs text-base-content-muted mt-0.5">
                   It is listed here rather than hidden, and it cannot be selected until it parses.
                 </p>
                 @if (entry.openable) {
@@ -451,7 +469,7 @@ const OUTPUT_STYLE_COPY_FAILED = 'Could not copy the output style to the project
     />
 
     <!-- Footer Note (Req 2.5) -->
-    <p class="text-[10px] text-base-content-muted mt-2 leading-relaxed">
+    <p class="text-xs text-base-content-muted mt-2 leading-relaxed">
       A style applies from your next session onwards — a conversation that is
       already running keeps the style it started with. Styles influence tone and
       structure; Ptah's own engineering instructions still apply on top.
@@ -464,7 +482,7 @@ export class OutputStyleListComponent {
   readonly active = input<ActiveOutputStyleState | null>(null);
   readonly loading = input(false);
   readonly saving = input(false);
-  readonly error = input<string | null>(null);
+  readonly failedOperation = input<OutputStyleFailedOperation | null>(null);
   readonly hasCollision = input(false);
   readonly collidingNames = input<readonly string[]>([]);
   readonly usingFallback = input(false);
@@ -489,6 +507,7 @@ export class OutputStyleListComponent {
   readonly PencilIcon = Pencil;
   readonly RotateCcwIcon = RotateCcw;
   readonly Trash2Icon = Trash2;
+  readonly builtInNote = BUILT_IN_NOTE;
 
   /** View state: which row is showing its delete confirmation. */
   readonly pendingDelete = signal<string | null>(null);
@@ -502,6 +521,9 @@ export class OutputStyleListComponent {
   /** Style name pending confirmation before parity write (A24, S-confirm). */
   readonly pendingParitySelection = signal<string | null | undefined>(undefined);
 
+  /** The parity tier last requested with a selection; re-picking the active style only re-asks when this differs. */
+  private readonly parityRequestedTier = signal<SettingsTier | null>(null);
+
   /** The exact file the current tier would write, named before any write. */
   readonly parityDisplayPath = computed<string>(
     () =>
@@ -514,15 +536,13 @@ export class OutputStyleListComponent {
   );
   readonly activeMissing = computed(() => this.active()?.missing === true);
 
-  /** Fixed error message mapper to ensure host error text is never exposed (D15). */
+  /** The fixed sentence for the failed operation; host error text is never shown (D15). */
   readonly fixedErrorMessage = computed<string | null>(() => {
-    const raw = this.error();
-    if (!raw) return null;
-    const lower = raw.toLowerCase();
-    if (lower.includes('delete')) return OUTPUT_STYLE_DELETE_FAILED;
-    if (lower.includes('copy')) return OUTPUT_STYLE_COPY_FAILED;
-    return OUTPUT_STYLE_ACTIVATE_FAILED;
+    const operation = this.failedOperation();
+    return operation === null ? null : FAILURE_MESSAGES[operation];
   });
+
+  readonly hasBuiltIn = computed(() => this.styles().some((style) => style.tier === 'builtin'));
 
   private readonly instanceId = `output-style-${listInstanceCounter++}`;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -542,6 +562,11 @@ export class OutputStyleListComponent {
 
   onSelectStyle(style: OutputStyleEntry): void {
     if (this.saving() || this.isShadowed(style)) return;
+    // Moderate 6: the active radio rewrites nothing, unless parity for the current tier was never written.
+    if (this.isActive(style) && !this.parityWriteOutstanding()) {
+      this.pendingParitySelection.set(undefined);
+      return;
+    }
     const name = this.selectionValue(style);
     if (this.parityEnabled()) {
       this.pendingParitySelection.set(name);
@@ -567,9 +592,13 @@ export class OutputStyleListComponent {
     }
   }
 
+  /** Cancel, Esc or collapsing the section: the radios go back to the saved style, which takes focus. */
   cancelParitySelection(): void {
     this.pendingParitySelection.set(undefined);
     this.syncActiveRadios();
+    this.host.nativeElement
+      .querySelector<HTMLInputElement>('input[name="active-output-style"]:checked')
+      ?.focus();
   }
 
   /**
@@ -585,15 +614,17 @@ export class OutputStyleListComponent {
   }
 
   emitSelection(name: string | null): void {
-    this.activate.emit(
-      this.parityEnabled()
-        ? { name, parity: { enabled: true, tier: this.parityTier() } }
-        : { name },
-    );
+    if (!this.parityEnabled()) {
+      this.activate.emit({ name });
+      return;
+    }
+    this.parityRequestedTier.set(this.parityTier());
+    this.activate.emit({ name, parity: { enabled: true, tier: this.parityTier() } });
   }
 
   onParityToggled(checked: boolean): void {
     this.parityEnabled.set(checked);
+    this.parityRequestedTier.set(null);
     this.pendingParitySelection.set(undefined);
     this.syncActiveRadios();
   }
@@ -638,20 +669,24 @@ export class OutputStyleListComponent {
     return `Selecting this name activates ${winnerLabel}, which outranks this file, so this row cannot be chosen on its own. Rename this file to make it selectable.`;
   }
 
-  immutableNote(style: OutputStyleEntry): string | null {
-    if (style.editable) return null;
-
+  /** Plugin rows keep their own note, since it names the plugin; the built-in note is shown once (M4). */
+  pluginNote(style: OutputStyleEntry): string | null {
     const reason = style.immutableReason ?? '';
-    if (reason.startsWith('plugin:')) {
-      return `Provided by the plugin ${reason.slice('plugin:'.length)} — Ptah can read it but not change it.`;
-    }
-    return 'Built into the agent — Ptah can select it but not change it.';
+    if (style.editable || !reason.startsWith('plugin:')) return null;
+    return `Provided by the plugin ${reason.slice('plugin:'.length)} — Ptah can read it but not change it.`;
   }
 
   actionTitle(style: OutputStyleEntry, verb: string): string {
-    return style.editable
-      ? `${verb} ${style.name}`
-      : (this.immutableNote(style) ?? `${verb} is unavailable`);
+    if (style.editable) return `${verb} ${style.name}`;
+    return this.pluginNote(style) ?? BUILT_IN_NOTE;
+  }
+
+  /** Parity is on and its file for the current tier was not written by the last selection (or that write failed). */
+  private parityWriteOutstanding(): boolean {
+    return (
+      this.parityEnabled() &&
+      (this.parityRequestedTier() !== this.parityTier() || this.parityWarning() !== null)
+    );
   }
 
   isPendingDelete(style: OutputStyleEntry): boolean {

@@ -60,7 +60,13 @@ describe('VscodeLmConfigComponent', () => {
       vsCodeModels: vsCodeModelsSignal,
       loadProviderStatus: jest.fn().mockResolvedValue(undefined),
       loadVsCodeModels: jest.fn().mockResolvedValue(undefined),
-      setDefaultModel: jest.fn().mockResolvedValue(true),
+      // Mirrors LlmProviderStateService: a successful write re-reads the provider status.
+      setDefaultModel: jest.fn(async (_provider: string, model: string) => {
+        providersSignal.update((list) =>
+          list.map((item) => (item.provider === 'vscode-lm' ? { ...item, defaultModel: model } : item)),
+        );
+        return true;
+      }),
       setDefaultProvider: jest.fn().mockResolvedValue(true),
     };
   });
@@ -271,6 +277,44 @@ describe('VscodeLmConfigComponent', () => {
       expect(feedback.toast()?.tone).toBe('alert');
       expect(feedback.toast()?.message).toBe(COULD_NOT_SAVE_LM_MODEL);
       expect(feedback.toast()?.message).not.toContain('host detail');
+    });
+
+    it('Minor 10: clears the local selection after the write, so a later change made elsewhere shows', async () => {
+      await render();
+
+      await component.onVsCodeModelSelect('claude-3-5-sonnet');
+      await settle();
+      expect(component.selectedModel()).toBeNull();
+
+      providersSignal.update((list) => list.map((item) => ({ ...item, defaultModel: 'gpt-4o' })));
+      fixture.detectChanges();
+      expect(component.currentModelId()).toBe('gpt-4o');
+    });
+
+    it('Minor 10: puts the select element back on the saved model after a failed write', async () => {
+      mockLlmState.setDefaultModel.mockResolvedValue(false);
+      await render();
+
+      const select = byTestId<HTMLSelectElement>('vscode-lm-model-select');
+      select.value = 'claude-3-5-sonnet';
+      select.dispatchEvent(new Event('change'));
+      await settle();
+
+      expect(mockLlmState.setDefaultModel).toHaveBeenCalledWith('vscode-lm', 'claude-3-5-sonnet');
+
+      expect(select.value).toBe('gpt-4o');
+      expect(component.selectedModel()).toBeNull();
+    });
+
+    it('Minor 10: with no previous model there is no Undo, so an empty model id is never written', async () => {
+      providersSignal.set([{ ...sampleVscodeProvider, defaultModel: undefined }]);
+      await render();
+
+      await component.onVsCodeModelSelect('claude-3-5-sonnet');
+      await settle();
+
+      expect(feedback.toast()).toEqual({ tone: 'status', message: 'Saved VS Code language model.', canUndo: false });
+      expect(mockLlmState.setDefaultModel).not.toHaveBeenCalledWith('vscode-lm', '');
     });
   });
 });

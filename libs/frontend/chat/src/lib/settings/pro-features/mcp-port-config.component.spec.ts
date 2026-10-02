@@ -12,6 +12,7 @@ import {
   COULD_NOT_SAVE_PORT,
   COULD_NOT_UPDATE_NAMESPACES,
   COULD_NOT_UPDATE_LOCALHOST,
+  COULD_NOT_LOAD_MCP_CONFIG,
 } from './mcp-port-config.component';
 
 type Responder = () => RpcResult<unknown> | Promise<RpcResult<unknown>>;
@@ -111,13 +112,64 @@ describe('McpPortConfigComponent', () => {
       expect(component.browserAllowLocalhost()).toBe(true);
     });
 
-    it('gracefully handles load failure leaving default configuration intact', async () => {
+    it.each<[string, Responder]>([
+      ['an RPC failure', () => fail('host detail: load failed')],
+      ['a throw', () => { throw new Error('host detail: socket'); }],
+    ])('Serious 3: %s shows a fixed load error with Retry and disables every control', async (_, respond) => {
+      responses['agent:getConfig'] = respond;
+      await render();
+
+      const alert = byTestId('mcp-config-load-error');
+      expect(alert.getAttribute('role')).toBe('alert');
+      expect(alert.textContent).toContain(COULD_NOT_LOAD_MCP_CONFIG);
+      expect(alert.textContent).not.toContain('host detail');
+      expect(byTestId<HTMLInputElement>('mcp-port-input').disabled).toBe(true);
+      expect(byTestId<HTMLButtonElement>('mcp-port-save-btn').disabled).toBe(true);
+      expect(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git').disabled).toBe(true);
+      expect(byTestId<HTMLInputElement>('settings-toggle-browser-allow-localhost').disabled).toBe(true);
+    });
+
+    it('Serious 3: never writes defaults over the stored list while the config is not loaded', async () => {
       responses['agent:getConfig'] = () => fail('load failed');
       await render();
 
-      expect(component.portValue()).toBe(51820);
-      expect(component.disabledNamespaces()).toEqual([]);
-      expect(component.browserAllowLocalhost()).toBe(false);
+      await component.toggleNamespace('git');
+      component.onAllowLocalhostToggle();
+      component.onPortInput(52000);
+      await component.savePort();
+      await settle();
+
+      expect(call).not.toHaveBeenCalledWith('agent:setConfig', expect.anything());
+      expect(queryTestId('allow-localhost-confirm')).toBeNull();
+    });
+
+    it('Serious 3: Retry reloads the stored config and enables the controls', async () => {
+      responses['agent:getConfig'] = () => fail('load failed');
+      await render();
+
+      responses['agent:getConfig'] = () =>
+        ok({ mcpPort: 52000, disabledMcpNamespaces: ['browser'], browserAllowLocalhost: false });
+      byTestId<HTMLButtonElement>('mcp-config-load-retry').click();
+      await settle();
+
+      expect(queryTestId('mcp-config-load-error')).toBeNull();
+      expect(component.isNamespaceEnabled('browser')).toBe(false);
+      expect(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git').disabled).toBe(false);
+
+      await component.toggleNamespace('git');
+      await settle();
+      expect(call).toHaveBeenCalledWith('agent:setConfig', { disabledMcpNamespaces: ['browser', 'git'] });
+    });
+
+    it('keeps the controls disabled until the read answers', async () => {
+      let answer: (value: RpcResult<unknown>) => void = () => undefined;
+      responses['agent:getConfig'] = () => new Promise<RpcResult<unknown>>((resolve) => (answer = resolve));
+      await render();
+
+      expect(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git').disabled).toBe(true);
+      answer(ok({ mcpPort: 51820, disabledMcpNamespaces: [], browserAllowLocalhost: false }));
+      await settle();
+      expect(byTestId<HTMLInputElement>('settings-toggle-mcp-namespace-git').disabled).toBe(false);
     });
   });
 
@@ -194,7 +246,8 @@ describe('McpPortConfigComponent', () => {
       await component.savePort();
       await settle();
 
-      expect(component.validationError()).toBe(COULD_NOT_SAVE_PORT);
+      expect(component.saveError()).toBe(COULD_NOT_SAVE_PORT);
+      expect(byTestId('mcp-port-validation-error').textContent).toContain(COULD_NOT_SAVE_PORT);
       expect(feedback.toast()?.tone).toBe('alert');
       expect(feedback.toast()?.message).toBe(COULD_NOT_SAVE_PORT);
       expect(feedback.toast()?.message).not.toContain('host detail');
@@ -206,7 +259,7 @@ describe('McpPortConfigComponent', () => {
       await component.savePort();
       await settle();
 
-      expect(component.validationError()).toBe(COULD_NOT_SAVE_PORT);
+      expect(component.saveError()).toBe(COULD_NOT_SAVE_PORT);
       expect(feedback.toast()?.message).toBe(COULD_NOT_SAVE_PORT);
       expect(feedback.toast()?.message).not.toContain('host detail');
 
@@ -215,7 +268,7 @@ describe('McpPortConfigComponent', () => {
       await component.savePort();
       await settle();
 
-      expect(component.validationError()).toBe(COULD_NOT_SAVE_PORT);
+      expect(component.saveError()).toBe(COULD_NOT_SAVE_PORT);
       expect(feedback.toast()?.message).toBe(COULD_NOT_SAVE_PORT);
 
       // Test thrown error
@@ -225,9 +278,32 @@ describe('McpPortConfigComponent', () => {
       await component.savePort();
       await settle();
 
-      expect(component.validationError()).toBe(COULD_NOT_SAVE_PORT);
+      expect(component.saveError()).toBe(COULD_NOT_SAVE_PORT);
       expect(feedback.toast()?.message).toBe(COULD_NOT_SAVE_PORT);
       expect(feedback.toast()?.message).not.toContain('host detail');
+    });
+
+    it('Moderate 5: a failed save leaves Save enabled, so the same port can be retried at once', async () => {
+      responses['agent:setConfig'] = () => fail('transient');
+      await render();
+
+      component.onPortInput(8080);
+      fixture.detectChanges();
+      await component.savePort();
+      await settle();
+
+      const saveBtn = byTestId<HTMLButtonElement>('mcp-port-save-btn');
+      expect(component.validationError()).toBeNull();
+      expect(saveBtn.disabled).toBe(false);
+
+      responses['agent:setConfig'] = () => ok({ success: true });
+      feedback.dismiss();
+      saveBtn.click();
+      await settle();
+
+      expect(component.savedPort()).toBe(8080);
+      expect(component.saveError()).toBeNull();
+      expect(queryTestId('mcp-port-validation-error')).toBeNull();
     });
   });
 
@@ -375,6 +451,16 @@ describe('McpPortConfigComponent', () => {
         document.body.removeEventListener('keydown', outer);
         element.remove();
       }
+    });
+
+    it('m3: the Allow localhost confirm button uses the same red outline as the other confirms', async () => {
+      await render();
+      byTestId<HTMLInputElement>('settings-toggle-browser-allow-localhost').click();
+      fixture.detectChanges();
+
+      const button = byTestId<HTMLButtonElement>('allow-localhost-confirm-btn');
+      expect(button.classList).toContain('border-error');
+      expect(button.classList).not.toContain('border-warning');
     });
 
     it('disabling saves immediately with Undo (S-sel)', async () => {

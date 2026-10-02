@@ -91,6 +91,7 @@ const EXISTING_STYLE: OutputStyleDetail = {
 
 describe('OutputStyleEditorComponent', () => {
   let save: jest.Mock;
+  let load: jest.Mock;
   let fixture: ComponentFixture<OutputStyleEditorComponent>;
   let component: OutputStyleEditorComponent;
 
@@ -108,13 +109,14 @@ describe('OutputStyleEditorComponent', () => {
 
   beforeEach(() => {
     save = jest.fn().mockResolvedValue(null);
+    load = jest.fn().mockResolvedValue(null);
 
     TestBed.configureTestingModule({
       imports: [OutputStyleEditorComponent],
       providers: [
         {
           provide: OutputStyleStore,
-          useValue: { saving: signal(false), save },
+          useValue: { saving: signal(false), save, load },
         },
       ],
     });
@@ -357,6 +359,196 @@ describe('OutputStyleEditorComponent', () => {
       await component.confirmOverwrite();
 
       expect(save.mock.calls[1][0].overwrite).toBe(true);
+    });
+
+    it('emits the saved name so the parent can return focus to that row', async () => {
+      const saved = jest.fn();
+      component.saved.subscribe(saved);
+
+      await component.submit();
+
+      expect(saved).toHaveBeenCalledWith('Simplified Technical English');
+    });
+  });
+
+  describe('stale file conflict (Serious 1)', () => {
+    const FRESH: OutputStyleDetail = {
+      ...EXISTING_STYLE,
+      body: '# Style\n\nChanged by a teammate.',
+      mtime: 1_700_000_999_000,
+      byteLength: 57,
+    };
+
+    const dialog = (): HTMLElement | null =>
+      fixture.nativeElement.querySelector('[data-testid="output-style-stale-dialog"]');
+    const button = (testId: string): HTMLButtonElement =>
+      fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
+
+    beforeEach(async () => {
+      fixture.componentRef.setInput('draft', EXISTING_STYLE);
+      fixture.detectChanges();
+      component.body.set('# Style\n\nMy edit.');
+      save.mockResolvedValueOnce({
+        code: 'STALE_FILE',
+        message: '"simplified-technical-english.md" changed on disk after it was opened. Nothing was written — reload the style and apply your edit again.',
+      });
+    });
+
+    it('re-reads the file and offers Reload or Overwrite, with copy that matches the buttons', async () => {
+      load.mockResolvedValueOnce(FRESH);
+
+      await component.submit();
+      fixture.detectChanges();
+
+      expect(load).toHaveBeenCalledWith('Simplified Technical English', 'user');
+      const copy = dialog()?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(copy).toContain('Reload shows the current file');
+      expect(copy).toContain('Overwrite replaces the current file');
+      expect(copy).not.toContain('Replace it');
+      expect(copy).not.toContain('Keep both');
+      expect(copy).not.toContain('reload the style and apply your edit again');
+    });
+
+    it('Overwrite sends the file\'s current stamp with overwrite, so the host stale check passes', async () => {
+      load.mockResolvedValueOnce(FRESH);
+      await component.submit();
+      fixture.detectChanges();
+
+      save.mockResolvedValueOnce(null);
+      button('output-style-stale-overwrite').click();
+      await fixture.whenStable();
+
+      expect(save.mock.calls[1][0]).toEqual(
+        expect.objectContaining({
+          body: '# Style\n\nMy edit.',
+          expectedMtime: 1_700_000_999_000,
+          expectedByteLength: 57,
+          overwrite: true,
+        }),
+      );
+    });
+
+    it('Reload asks before discarding, then shows the current file and saves against its stamp', async () => {
+      load.mockResolvedValueOnce(FRESH);
+      await component.submit();
+      fixture.detectChanges();
+
+      button('output-style-stale-reload').click();
+      fixture.detectChanges();
+      expect(component.body()).toBe('# Style\n\nMy edit.');
+      expect(dialog()?.textContent).toContain('Discard your edits and load the current file?');
+
+      button('output-style-stale-discard-reload').click();
+      fixture.detectChanges();
+      expect(dialog()).toBeNull();
+      expect(component.body()).toBe('# Style\n\nChanged by a teammate.');
+
+      await component.submit();
+      expect(save.mock.calls[1][0]).toEqual(
+        expect.objectContaining({ expectedMtime: 1_700_000_999_000, expectedByteLength: 57 }),
+      );
+      expect(save.mock.calls[1][0].overwrite).toBeUndefined();
+    });
+
+    it('offers no Overwrite when the current file cannot be read', async () => {
+      load.mockResolvedValueOnce(null);
+
+      await component.submit();
+      fixture.detectChanges();
+
+      expect(dialog()?.textContent).toContain('Ptah could not read the current file');
+      expect(fixture.nativeElement.querySelector('[data-testid="output-style-stale-overwrite"]')).toBeNull();
+    });
+  });
+
+  describe('inline dialogs: focus and local Esc (Moderate 7)', () => {
+    beforeEach(() => document.body.appendChild(fixture.nativeElement));
+    afterEach(() => fixture.nativeElement.remove());
+
+    it('the replace prompt takes focus on its safe choice and Esc closes only the prompt', async () => {
+      const cancelled = jest.fn();
+      component.cancelled.subscribe(cancelled);
+      fixture.componentRef.setInput('draft', EXISTING_STYLE);
+      fixture.detectChanges();
+      save.mockResolvedValueOnce({ code: 'FILE_EXISTS', message: '"x.md" already exists in this tier.' });
+
+      await component.submit();
+      fixture.detectChanges();
+      expect(document.activeElement?.textContent?.trim()).toBe("Keep both — I'll rename");
+
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+
+      expect(component.conflict()).toBeNull();
+      expect(cancelled).not.toHaveBeenCalled();
+      expect(fixture.nativeElement.querySelector('[data-testid="output-style-drawer"]')).not.toBeNull();
+    });
+  });
+
+  describe('dirty draft guard (Moderate 7)', () => {
+    beforeEach(() => document.body.appendChild(fixture.nativeElement));
+    afterEach(() => fixture.nativeElement.remove());
+
+    it('closes at once when nothing was changed', () => {
+      const cancelled = jest.fn();
+      component.cancelled.subscribe(cancelled);
+
+      component.requestClose();
+
+      expect(cancelled).toHaveBeenCalledTimes(1);
+    });
+
+    it('Esc on a dirty form asks first; Keep editing keeps the draft, Discard closes', () => {
+      const cancelled = jest.fn();
+      component.cancelled.subscribe(cancelled);
+      setInputValue('#output-style-name', 'Half-written');
+
+      const panel = fixture.nativeElement.querySelector('[data-testid="native-drawer-panel"]') as HTMLElement;
+      panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+
+      expect(cancelled).not.toHaveBeenCalled();
+      const confirm = fixture.nativeElement.querySelector('[data-testid="output-style-discard-confirm"]');
+      expect(confirm).not.toBeNull();
+      expect(document.activeElement?.textContent?.trim()).toBe('Keep editing');
+
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-testid="output-style-discard-confirm"]')).toBeNull();
+      expect(cancelled).not.toHaveBeenCalled();
+      expect(component.name()).toBe('Half-written');
+
+      (fixture.nativeElement.querySelector('[data-testid="native-drawer-backdrop"]') as HTMLElement).click();
+      fixture.detectChanges();
+      (fixture.nativeElement.querySelector('[data-testid="output-style-discard-button"]') as HTMLButtonElement).click();
+
+      expect(cancelled).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('deviation 6 text colour (D1)', () => {
+    it('validation messages are base-content text at 12 px, with the colour on the icon', async () => {
+      await component.submit();
+      fixture.detectChanges();
+
+      for (const id of ['#output-style-name-error', '#output-style-description-error']) {
+        const message = fixture.nativeElement.querySelector(id) as HTMLElement;
+        expect(message.classList).toContain('text-base-content');
+        expect(message.classList).toContain('text-xs');
+        expect(message.classList).not.toContain('text-error');
+        expect(message.querySelector('lucide-angular')?.classList).toContain('text-error');
+      }
+    });
+
+    it('the coding-instructions OFF warning is 12 px base-content text with a warning icon', () => {
+      component.keepCodingInstructions.set(false);
+      fixture.detectChanges();
+
+      const warning = fixture.nativeElement.querySelector('[data-test="keep-instructions-off-warning"]') as HTMLElement;
+      expect(warning.classList).toContain('text-base-content');
+      expect(warning.classList).toContain('text-xs');
+      expect(warning.className).not.toMatch(/text-warning|text-\[10px\]/);
+      expect(warning.querySelector('lucide-angular')?.classList).toContain('text-warning');
     });
   });
 
