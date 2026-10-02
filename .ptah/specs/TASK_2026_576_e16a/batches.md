@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 29/69
+Total tasks: 87 | Batches: 69 | Complete: 30/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1395,14 +1395,14 @@ executors at once.
   typecheck/test/lint green (no cache); webview contrast specs 70/70. Noted: the AA colour overrides exist only
   for the anubis themes.
 
-## Batch 30: Change-set store, actions and push routing — PENDING
+## Batch 30: Change-set store, actions and push routing — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 27, 28, 29
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-extension-webview`
 
-### Task 30.1: `ChangeSetStore`, `ChangeSetActionsService`, `MESSAGE_HANDLERS` entry — PENDING
+### Task 30.1: `ChangeSetStore`, `ChangeSetActionsService`, `MESSAGE_HANDLERS` entry — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/change-set/change-set.store.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/change-set/change-set-actions.service.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/index.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts
 - Plan reference: implementation-plan.md:864-871, 887-888
@@ -1410,6 +1410,18 @@ executors at once.
 - Quality requirements: one deduped `git:info` per session view (5 s freshness, 1 s debounce); no per-card timers; reconcile failure never shows zeros.
 - Validation notes: Electron path calls `ReviewNavigationService` which does not exist until Batch 35 — until cutover the Electron action reveals the existing dock and opens the file through the existing `openInDock` path; the switch to `ReviewNavigationService` is Task 58.2.
 - Implementation details: VS Code path `command:execute` with `ptah.review.*` and `args: [{ workspaceRoot, files | path }]`.
+- Outcome: executor frontend-developer. `ChangeSetStore` (root signals store + `MESSAGE_HANDLERS`): loads
+  `git:turnChangeSets` per active session (joined in-flight), merges pushes by turn (≤100/session, ≤8 sessions
+  cached), reconciles with one `git:info` per session (1 s collapse, 5 s freshness; turnEnded and status-update
+  force a re-read; no overlap; ≤1 timer per session, cleared on destroy). Missing from status → reconciled; `U` →
+  conflicted. Any failure drops marks and never rewrites counts. API `changeSetsFor`, `marksFor`, `ensureLoaded`.
+  `ChangeSetActionsService`: VS Code `command:execute` `ptah.review.*` (merge editor when recorded or current
+  status is `U`); Electron reveals the dock in working-tree mode and opens files via the `openInDock` steps,
+  git-ui imported dynamically; failures reject with user-facing errors. Accepted deviations: matching
+  `git:status-update` used directly (no RPC); Electron review/SCM reveal without opening a file; `openInDock`
+  steps duplicated (router method is private) until Task 58.2. Verified by the orchestrator: chat + webview
+  typecheck/test/lint green; eager guard passes, `main.js` 364,855 B gz. Noted: jest worker-exit warning in the
+  new specs; repo-subfolder path assumption also affects marks.
 
 ## Batch 31: Transcript insertion and Electron card e2e — PENDING
 

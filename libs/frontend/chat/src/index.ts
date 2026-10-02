@@ -17,3 +17,9 @@ export * from './lib/directives';
 
 export { UpdateDialogService } from './lib/update-dialog/update-dialog.service';
 export { UpdateDialogComponent } from './lib/update-dialog/update-dialog.component';
+
+export {
+  ChangeSetStore,
+  type ChangeSetMarks,
+} from './lib/services/change-set/change-set.store';
+export { ChangeSetActionsService } from './lib/services/change-set/change-set-actions.service';
