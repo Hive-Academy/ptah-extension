@@ -1836,3 +1836,66 @@ None found.
 - **MINOR m7:** orphan vec rows accumulate on every revive and supersede. They are bounded and harmless. A vacuum or DELETE of the old rowid in `resetRevivedContent` would clean it up.
 
 M4 (diverged adoption without a content tie-back) and m1-m4 from the earlier review are unchanged. M4 is accepted as a narrow residual risk.
+
+
+## PR #626 fix-up review
+
+Scope: the uncommitted delta in the worktree (13 files; `context.md` excluded). Read in full: `skill-promotion.service.ts` 300-720, `skill-curator.service.ts` 330-510 and 655-690, `skill-candidate.store.ts` promoteAtomically and resetRevivedContent, `skill-md-generator.ts` writeAtRoot, `adoptable-slug.ts`, the frontend state service and RPC service. Targeted jest run, all green: skill-curator.service.spec (43), adoptable-slug.spec, skill-promotion.service.spec, and skill-synthesis-ui skill-synthesis-state.service.spec.
+
+| Metric | Value |
+| --- | --- |
+| Score | 8/10 |
+| Verdict | APPROVED |
+| Blocking / Serious | 0 / 0 |
+| Moderate | 2 |
+| Minor | 3 |
+
+### Main risk: in-place singleton promotion
+
+1. CAS guard and rollback: correct. `commitResidentPromotion` (`skill-promotion.service.ts:623-650`) runs inside `inImmediateTransaction`, with no try/catch in the callback. `promoteAtomically` is re-entrant. With `fromStatus: 'candidate'` it checks `LEGAL_TRANSITIONS` (`skill-candidate.store.ts:118-122,456-461`), then the UPDATE is `WHERE id = @candidateId AND status = @fromStatus` and throws unless `changes === 1` (`:517-540`).
+   - The holder is read before the transaction (`:499-508`). If another writer promotes or rejects it in between, the promotion throws and rolls back with the demotion. The `catch` at `:464-479` removes the directory and rethrows; `acceptSuggestion` then answers `accepted: false` (`skill-curator.service.ts:391-403`).
+   - `commitAccept` still throws when `suggestionStore.accept` loses (`:419-427`), so R-f2 holds for the in-place path.
+   - The weakest-resident selection cannot pick the in-place row: it is a `candidate`, not a resident, so the `demotedResidentId === id` guard cannot fire.
+2. Unintended promotion: no.
+   - The path needs exactly one distinct member id (`Set`, so a member listed twice still counts as one, `:502-503`) and a `findByName(suggestion.name)` holder that is that id and a `candidate`.
+   - `name` is UNIQUE, so the holder is unambiguous.
+   - A pinned row is promoted and keeps its pin. That is the user's accept of a suggestion whose only member it is, and the old path would have left it pending beside a `-2` copy. The pin only exempts it from eviction.
+   - A row in another workspace keeps its `workspace_root`. This matches the existing `promoteCandidate` path (`:347`), so it is not a new inconsistency.
+   - `trajectoryHash` keeps the candidate's. `SUGGESTION_TRAJECTORY_PREFIX` has no reader besides the two creators (grep), so nothing depends on it.
+3. `mergeMembers` skip and counters: correct. `memberId === promotedId` yields `member = null` (`skill-curator.service.ts:449-452`), so no branch runs and all four counters stay 0. The `Set` dedup is also there. The new spec asserts `mergedCandidates: 0` and `mergedPromoted: []`, `candidates -1` and `promoted +1` (`skill-curator.service.spec.ts:796-831`).
+4. Rename path: correct, acceptance 4 holds. `isSlugTaken` exempts only `inPlace.name` (`:443-444`), so a stray directory still forces `-2`. `promoteAtomically` is always passed `name: args.slug` (`:640`), so `COALESCE(@name, name)` renames the row to `<name>-2`. `linkRegistryRow(args.slug, ...)` (`:648`) and `bodyPath` use the same slug, so row name = materialized slug = SKILL.md name. `-2` is checked against `findByName`, so a UNIQUE clash cannot happen; if one did, it throws and rolls back. No spec covers the stray-directory rename on the in-place path (M1).
+5. Content: the in-place row keeps the candidate's description, `source_session_ids`, embedding, judge, replay and trigger fields; `resetRevivedContent` is called only for `rejectedId` (`:645-647`). This differs from the revive path on purpose, since the row is not a stale rejected one.
+   - For a singleton surfaced from the row itself, description, name and body are copied from the row (`skill-umbrella-merge.service.ts:683-690`), so the content agrees.
+   - The suggestion embedding is not inserted, so no orphan vec row is created. `memberCentroid` of one member is that member's own vector anyway.
+   - Drift is possible only if the candidate is overwritten after surfacing (the session-grew overwrite in `skill-synthesis.service`). SKILL.md would then carry the suggestion snapshot while the row keeps the newer description (M2).
+
+### Other changes in the delta
+
+- `memberCentroid` `reduce<Float32Array[]>(..., [])` (`skill-curator.service.ts:669-672`): behavior-preserving. `vectors.length === 0` returns early, so `byDimension` is non-empty and `group[0]` is safe.
+- `writeAtRoot` (`skill-md-generator.ts:283-292`): the -2..-5 rule is identical. The old loop started at attempt 2 and threw when `attempt > MAX` before assigning `-attempt`. The new one starts at 1, increments first, then runs the same check and assignment. The first collision gives `-2`; the throw point is unchanged. The `\d` regex change is equivalent for ASCII input (lowercase-only slugs).
+- `materializedBaseSlug` and `trimDashes` (`adoptable-slug.ts:120-138`): output equals `sanitizeSlug` (`skill-md-generator.ts:421-427`). Lowercase, collapse non-`[a-z0-9-]` runs to `-`, trim edge dashes, then `slice(0,60)`; same order, including the trim before the cut. `trimDashes` is a linear equivalent of `^-+|-+$`. The spec pins it against the generator (`adoptable-slug.spec.ts:88-98`).
+- `stripFrontmatter` (`:174-187`): tolerates trailing whitespace and `\r` on the delimiter lines. It is more lenient than the old regex (which needed exactly `---`), and that is the intent. An unclosed fence returns the text unchanged, as before. `replaceAll('\r\n','\n')` is equivalent.
+- `insertEmbedding` (`skill-candidate.store.ts:1696-1698`): a real bug fix. A `Float32Array` view over a larger or offset buffer previously wrote the whole backing buffer.
+- `options.name?.trim() === ''`: equivalent, since `undefined === ''` is false.
+- `readJson` `unknown` and `|| null`: types only; `unknown | null` collapses to `unknown`, and the logic is unchanged.
+- Purge-state warning: text only, and now more accurate (a null marker means the purge runs, not that it skips).
+- `settings.md`: docs only.
+- Frontend `accept()` (`skill-synthesis-state.service.ts:449-457`): `res.accepted` matches `SkillSynthesisAcceptSuggestionResult { accepted; filePath }` (`rpc.types.ts:2901`). The backend returns `accepted: false` for a not-pending suggestion or a rolled-back promotion. Both callers branch on the boolean and show `this.error()` in a toast (`skill-suggestions-view.component.ts:456,511`). An RPC failure still throws and is caught, as before. A spec was added.
+
+### Five logic questions (delta only)
+
+1. Silent failure: none new. A declined accept is now surfaced instead of showing a success toast.
+2. User action: accepting an already-decided suggestion shows the new error message. Accepting a pinned singleton promotes it.
+3. Wrong answer: an in-place row after a candidate overwrite could have its description drift from SKILL.md (M2).
+4. Dependency failure: any store throw rolls back, the directory is removed, and the suggestion stays pending.
+5. Missing: no spec for the in-place rename path or the lost race.
+
+### Moderate and minor
+
+- M1 (Moderate): add specs for the in-place path with a stray `<name>/` directory (row renamed to `<name>-2`, registry and SKILL.md agree) and for the holder changing status between `inPlaceSingletonMember` and the transaction (full rollback). The one new spec covers only the happy path (`skill-curator.service.spec.ts:796`).
+- M2 (Moderate): the in-place row is not synced to the suggestion's description when it differs. Either pass `suggestion.description` into the in-place promotion, or document that singleton content equals the row at surfacing (`skill-promotion.service.ts:454,645`).
+- Minor: on `accepted: false` the frontend does not refresh the list, so a stale "no longer pending" card stays until the user refreshes (`skill-synthesis-state.service.ts:449`).
+- Minor: `inPlaceSingletonMember` reads the holder outside the transaction. It is safe because of the CAS, but a lost race costs a rollback and directory churn.
+- Minor: an umbrella reduced to one surviving member whose name equals that member's name also takes the in-place path, with umbrella content in SKILL.md but the member's row content. Very unlikely.
+
+Verdict: APPROVED, 8/10. The CAS and rollback evidence is complete, the rename keeps acceptance 4, and every other change is behavior-preserving or a strict bug fix. It stops short of 9 because the in-place path has only a happy-path spec and its content sync is implicit.
