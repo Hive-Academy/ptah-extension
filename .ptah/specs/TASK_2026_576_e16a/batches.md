@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 39/69
+Total tasks: 87 | Batches: 69 | Complete: 40/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1658,14 +1658,14 @@ executors at once.
   refusal shows; pass `entryKey`/`snapshotToken`/`hunkCount`; move focus when the bar disappears. Verified: git-ui
   typecheck/lint green, 676 tests; eager guard passes (`main.js` unchanged 370,048 B gz).
 
-## Batch 37: Changed-file tree, comparison bar, stash routing — PENDING
+## Batch 37: Changed-file tree, comparison bar, stash routing — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batches 24, 33, 35
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 37.1: `ChangedFileTreeComponent` and `ComparisonBarComponent` — PENDING
+### Task 37.1: `ChangedFileTreeComponent` and `ComparisonBarComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-canvas/changed-file-tree.component.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-canvas/comparison-bar.component.ts (+ .spec.ts)
 - Plan reference: implementation-plan.md:1000-1011
@@ -1674,7 +1674,7 @@ executors at once.
 - Validation notes: RC1 behaviours from Task 7.1 ported (await, error, refresh).
 - Implementation details: viewed marks key `gitReview.viewed.v1`.
 
-### Task 37.2: Stash file diff → `ReviewNavigationService.openStashFile` — PENDING
+### Task 37.2: Stash file diff → `ReviewNavigationService.openStashFile` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/git-stash.service.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/git-stash.service.spec.ts
 - Plan reference: implementation-plan.md:1080-1090
@@ -1682,6 +1682,18 @@ executors at once.
 - Quality requirements: routing switch happens only when the review shell is mounted — gate the new route behind the same availability check Task 58.1 flips, or defer this task's wiring to Task 58.1. Executor states which.
 - Validation notes: V3 (old dock still mounted).
 - Implementation details: as plan.
+- Outcome: executor frontend-developer. 37.1 `ChangedFileTreeComponent` (`review-canvas/`, 32 tests incl. axe):
+  status mode (Staged/Changes, stage/unstage per row and section, discard via `GitConfirmDialogComponent`, RC1
+  mutation handling ported, status re-read after each mutation); branch/historical read-only with the existing
+  Viewed mark; WAI-ARIA tree keyboard; `selectAdjacentFile(±1)` for 38; width/collapse persisted (160–480 px);
+  `stacked` input for < 520 px. `ComparisonBarComponent` (axe): popover picker (Working tree, Staged, Branch review
+  base/head, historical label), filter in/out, Split/Unified persisted as `diff.renderSideBySide`, totals with an
+  SR summary. 37.2: `GitStashService.registerReviewCanvas()` gates routing to `openStashFile` (parent → stash)
+  while a canvas is registered, else the old dock tab. Accepted deviations: gate instead of a 58.1 switch — Task
+  43.1 MUST register on mount and release on destroy; filter lives in the bar; Open-in only on the focused row;
+  collapse toggle stays in the dock header; mutation helpers duplicated from source-control-panel (deleted at
+  cutover). Noted: tree file 941 lines (max-lines warning); jest worker-exit warning. Verified: git-ui
+  typecheck/test/lint green; eager guard passes (`main.js` 370,049 B gz).
 
 ## Batch 38: File diff section and review canvas (A9 spike) — PENDING
 
