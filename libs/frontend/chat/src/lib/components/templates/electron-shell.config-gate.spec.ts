@@ -50,6 +50,7 @@ import {
 } from '@ptah-extension/core';
 import { GlobalConfigMenuComponent } from '../molecules/global-config-menu.component';
 import { ElectronShellComponent } from './electron-shell.component';
+import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 
 @Component({
   selector: 'ptah-configuration-route-test',
@@ -118,7 +119,10 @@ describe('ElectronShellComponent configuration gate', () => {
     expect(shell().querySelector('ptah-electron-welcome')).toBeNull();
   }
 
+  const closedTabSessionEnderFactory = jest.fn(() => ({}));
+
   beforeEach(async () => {
+    closedTabSessionEnderFactory.mockClear();
     layoutStub.hasWorkspaceFolders.set(false);
     appStateStub.currentView.set('chat');
     appStateStub.openConfigurationSurface.set(null);
@@ -131,6 +135,12 @@ describe('ElectronShellComponent configuration gate', () => {
     await TestBed.configureTestingModule({
       imports: [ElectronShellComponent],
       providers: [
+        // Eager root singleton stubbed with a recording factory; its behaviour
+        // is covered by closed-tab-session-ender.service.spec.ts.
+        {
+          provide: ClosedTabSessionEnderService,
+          useFactory: closedTabSessionEnderFactory,
+        },
         provideRouter([
           { path: 'settings', component: ConfigurationRouteTestComponent },
         ]),
@@ -158,6 +168,10 @@ describe('ElectronShellComponent configuration gate', () => {
   });
 
   afterEach(() => fixture.destroy());
+
+  it('instantiates the closed-tab session ender eagerly on construction', () => {
+    expect(closedTabSessionEnderFactory).toHaveBeenCalledTimes(1);
+  });
 
   it('shows only welcome content without a workspace or configuration surface', () => {
     expect(shell().querySelector('ptah-electron-welcome')).not.toBeNull();
