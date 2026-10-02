@@ -1,6 +1,6 @@
 # Batches - TASK_2026_584_5e7a
 
-Total tasks: 38 | Batches: 9 | Complete: 8/9
+Total tasks: 38 | Batches: 9 | Complete: 9/9 (B9 COMPLETE-WITH-EXCEPTION, user decision 2026-10-02)
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\task-584` (branch
 `feat/task-584-agent-sessions`, base `origin/main` a90c086d7). Every path below is
@@ -13,23 +13,33 @@ Draft PR: #622 (opened 2026-10-01 at the user's request; update its batch table 
 
 State per batch (statuses also on each batch header below):
 
-| Batch                                                       | Status             | Commit    | Review                                                                                           |
-| ----------------------------------------------------------- | ------------------ | --------- | ------------------------------------------------------------------------------------------------ |
-| B1 agent-sdk unattended policy + metadata cwd               | COMPLETE           | 7165e2379 | code-logic-review-b1.md APPROVED 9/10                                                            |
-| B2 MCP subagent root registrar                              | COMPLETE           | 38d3e511e | code-logic-review-b2.md APPROVED 9/10                                                            |
-| B3 link layer                                               | COMPLETE           | 8fa3c7312 | b3 REVISE 6/10 -> b3-r1 APPROVED 10/10                                                           |
-| B4 chat-path host, shared contracts, `chat:agent-sessions`  | COMPLETE (with B5) | 590ea1d2a | code-logic-review-b4.md APPROVED 8/10                                                            |
-| B5 provisioner, spawner, contract, settings                 | COMPLETE (with B4) | 590ea1d2a | code-logic-review-b5.md APPROVED 9/10                                                            |
-| B6 MCP surface, report fallback, shutdown, lazy host lookup | COMPLETE           | 9d4086361 | code-logic-review-b6.md APPROVED 10/10                                                           |
-| B7 frontend adoption, badge, banner                         | COMPLETE           | a16d700c2 | code b7 REVISE 8 -> r1 10 -> r2 9 -> r3 10 APPROVED; visual b7 REVISE 6 -> r1 8 -> r2 9 APPROVED |
-| B8 skills + docs                                            | COMPLETE           | f2a0d59ed | code-logic-review-b8.md APPROVED 10/10 (copy parity restored in 5216a3331)                       |
-| B9 real-host smoke S1-S11                                   | IN_PROGRESS        | —         | — (S1-S10 next run: user's Ptah Dev profile + manual VS Code checklist)                          |
+| Batch                                                       | Status                  | Commit                      | Review                                                                                                                       |
+| ----------------------------------------------------------- | ----------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| B1 agent-sdk unattended policy + metadata cwd               | COMPLETE                | 7165e2379                   | code-logic-review-b1.md APPROVED 9/10                                                                                        |
+| B2 MCP subagent root registrar                              | COMPLETE                | 38d3e511e                   | code-logic-review-b2.md APPROVED 9/10                                                                                        |
+| B3 link layer                                               | COMPLETE                | 8fa3c7312                   | b3 REVISE 6/10 -> b3-r1 APPROVED 10/10                                                                                       |
+| B4 chat-path host, shared contracts, `chat:agent-sessions`  | COMPLETE (with B5)      | 590ea1d2a                   | code-logic-review-b4.md APPROVED 8/10                                                                                        |
+| B5 provisioner, spawner, contract, settings                 | COMPLETE (with B4)      | 590ea1d2a                   | code-logic-review-b5.md APPROVED 9/10                                                                                        |
+| B6 MCP surface, report fallback, shutdown, lazy host lookup | COMPLETE                | 9d4086361                   | code-logic-review-b6.md APPROVED 10/10                                                                                       |
+| B7 frontend adoption, badge, banner                         | COMPLETE                | a16d700c2                   | code b7 REVISE 8 -> r1 10 -> r2 9 -> r3 10 APPROVED; visual b7 REVISE 6 -> r1 8 -> r2 9 APPROVED                             |
+| B8 skills + docs                                            | COMPLETE                | f2a0d59ed                   | code-logic-review-b8.md APPROVED 10/10 (copy parity restored in 5216a3331)                                                   |
+| B9 real-host smoke S1-S11                                   | COMPLETE-WITH-EXCEPTION | (docs in the Mode 3 commit) | User decision 2026-10-02 "Merge on unit evidence": S11 + Electron boot PASS; S1-S10 PENDING-USER (blocked by provider quota) |
 
-Next steps, in order:
+Post-batch commits on the branch (all before Mode 3):
 
-1. B9 S1-S10 re-run (user decision 2026-10-02): Electron S1-S10 on the user's "Ptah Dev" profile (real credentials; the user's instance must not hold the single-instance lock), and VS Code as a manual checklist the user runs. Include the F1 fix (eb33e22c7) in S1b and the F2 override (bc8f11b4a) in the `ptah_session_read` step.
-2. Decide O16 (settings manifest).
-3. Finish B9, then team-leader Mode 3.
+| Commit    | What                                                                          | Review / evidence                                                             |
+| --------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| eb33e22c7 | F1 fix (tab lookup with no active workspace)                                  | code-logic-review-f1.md APPROVED 10/10                                        |
+| bc8f11b4a | F2 + F3 (`ptah_session_read` budget override, report description)             | code-logic-review-f2.md APPROVED 10/10                                        |
+| b514dc3ac | Follow-ups F1-F3 closed in the task docs                                      | docs only                                                                     |
+| 920b75d27 | Merge of origin/main into the branch                                          | CI green on the merged head                                                   |
+| c98459b81 | Content manifest regenerated after the main merge                             | CI green at c98459b81                                                         |
+| da6a90937 | SonarCloud cleanup on PR #622                                                 | code-logic-review-sonar-pr622.md APPROVED 10/10; 3 findings won't-fix (below) |
+| c0c8d9365 | `.coderabbit.yaml`: exclude task specs and unit specs from CodeRabbit reviews | CI config only; all 11 PR checks pass at c0c8d9365                            |
+
+SonarCloud won't-fix: the orchestrator reports 3 findings declined. code-logic-review-sonar-pr622.md (section 2.7, reviewer upheld) documents 2 of them: S7503 (`async` without `await`) x2 on Promise-returning interface implementations, kept `async` so a synchronous precondition throw becomes a rejected Promise for callers using `.catch()`/`await`. The task folder holds no written reason for the third. SonarCloud at Mode 3 (2026-10-02): PR 622 has 0 issues in OPEN, CONFIRMED, ACCEPTED or FALSE_POSITIVE status, and the SonarCloud check passes.
+
+Next steps: none in this task. PR #622 merges on unit/E2E evidence; the open items left for the user are F6 and F7 under Follow-ups.
 
 Review routing: cross-side CLI lane, antigravity only (Glm hit its Ollama Cloud usage limit, 429; codex unavailable until 2026-10-03); one lane at a time when TASK_2026_580's team-leader also uses antigravity. Resume a lane's CLI session for a re-review.
 
@@ -48,14 +58,17 @@ Open items and rulings:
 - O7 B4 deviations accepted: child start keeps a precomputed `mcpServerRunning`; child start merges Smithery/OAuth MCP overrides.
 - O8 B5 deviations accepted: slash-command task goes first then the contract; `deniesAt: 'unbounded'` when no timeout; `read()` truncates by characters; "ended while working" from phase `generating`; existing target dir -> `worktree-failed`.
 - O9 B7 deviations accepted: closed-child memory; parser in the adoption service; `addTabToWorkspace(..., afterTabId)`; banner says "for a limited time" (payload has no deny window); workspace trigger is a root effect (also fires at bootstrap). A late tab that already holds streamed turns is not auto-loaded (accepted, see Batch 7).
-- O10 Assumptions still to prove in B9: A1 (push before first chunk), A3 (subagents read `<cwd>/.mcp.json`), A4 (`acceptEdits` only inside cwd), A5 (transcript by worktree cwd); A2 resolved in B7; A6 closed (no allowlist edit).
+- O10 CLOSED WITH EXCEPTION (user decision 2026-10-02, "Merge on unit evidence"): A1 (push before first chunk), A3 (subagents read `<cwd>/.mcp.json`), A4 (`acceptEdits` only inside cwd), A5 (transcript by worktree cwd) are NOT proven live; S1/S3/S6/S7 were blocked by the Codex 429 quota. Unit specs from B1-B7 and the CI E2E suites stand in for them; the live check is follow-up F7. A2 resolved in B7; A6 closed (no allowlist edit).
 - O11 TASK_2026_580 coordination (Batch 5 note): no SQLite in 584; whichever task merges second adds the one `recordAgentStartedSession` call.
-- O12 Completion gate (Mode 3): B7 rendered evidence (dark + light) — DONE (`visual-b7/`, `visual-b7/r1/`, `visual-b7/r2/`); write-path trace for metadata `workingDirectory` (B1) and persisted `TabState.agentOrigin` (B7) — still due at Mode 3.
+- O12 CLOSED (Mode 3, 2026-10-02): B7 rendered evidence (dark + light), DONE (`visual-b7/`, `visual-b7/r1/`, `visual-b7/r2/`). Write-path traces:
+  - Metadata `workingDirectory` (B1). Writer: `SdkAgentAdapter` passes `workingDirectory` to `metadataStore.create` only when it differs from `workspaceId` (`sdk-agent-adapter.ts:1148-1162`). `SessionMetadataStore.create` stores `blankToUndefined(workingDirectory) ?? workspaceId` on a NEW record only (`session-metadata-store.ts:1084`). `_saveInternal` keeps an existing value (`:461-462`). Readers: `chat:resume` (`chat-session.service.ts:961`) and the history read (`chat-history-read.service.ts:101`) both pass `metadata?.workingDirectory` to `resolveResumeWorkingDirectory`, so a child resumes and reads history from its worktree. Same key and format as before the task: the field and its readers already existed, and the default (`workspaceId`) is byte-identical for every non-child caller. No env vars or other side effects.
+  - `TabState.agentOrigin` (B7). Writer: `TabManagerService.adoptAgentSessionTab` (`tab-manager.service.ts:996`). It is persisted verbatim with the tab blob (`projectTabForPersist`) under the existing tab-state keys, and no new storage key is added. Reader: `sanitizeRestoredTab` -> `restoredAgentOrigin` (`tab-persistence.ts:214-268`), used by both tab loaders. It validates every field and drops a malformed record, so the tab restores as an ordinary tab. Runtime consumers: tab-bar badge (`tab-bar.component.ts:103`), banner (`chat-view.component.ts:750`), adoption idempotency (`agent-session-adoption.service.ts:31`). Intended behaviour.
+  - `ptah.agentSessions.*` settings (B5): read only via `IWorkspaceProvider.getConfiguration` (`session-child-settings.ts:98,118`); the task writes no setting.
 - O13 B6 deviations accepted (review APPROVED 10/10): (1) 3 extra Electron files `apps/ptah-electron/src/activation/boot-coordinator.ts`, `wire-runtime.ts`, and `apps/ptah-electron/src/main.quit-path.spec.ts` (shutdown wiring + quit-path spec); (2) `tool-result-budget.spec.ts` added for the five `'preformatted'` hints; (3) held-completion block placed BEFORE the transcript in `ptah_session_read` so a budget cut trims only the transcript tail; (4) held completions scoped to `ptah_session_*` results; (5) Task 6.6 uses a lazy `DI_CONTAINER` lookup instead of a new resolver registration (no `di/register.ts` change); (6) the spawner constructor takes the container.
 - O14 B7 out-of-list files accepted (code-logic-review-b7-r2): `session-loader.service.ts` (+ spec) — `requireTargetTab` checks the active tab set first (VS Code host with no workspace partition); `chat-ui` `tab-item.component.ts` — `<ng-content select="[tabItemLeading]">` slot for the badge. Visual r2 fixes (badge as icon-only 24x24 button, Floating UI cleanup when the tooltip's tab closes) re-checked by code-logic-review-b7-r3 APPROVED 10/10.
 
 - O15 B8 commit note: the pre-commit formatter rewrote the plugin skill copy (prettier) but not `.claude/` (prettier-ignored), so the committed copies diverged in formatting only; 5216a3331 applies the same prettier output to the `.claude/` copy; both copies byte-identical again. Specs reading them (`lane-rule-single-home`, `vendor-roster-drift`, `contract.guard`) pass.
-- O16 OPEN: no manifest declares the four `ptah.agentSessions.*` keys; they are code-only settings, not shown in the VS Code settings UI. The B8 docs page documents them. Whether to add a `contributes.configuration` entry is a USER DECISION (write-path trace due at Mode 3).
+- O16 CLOSED -> follow-up F6 (user decision 2026-10-02, "Record as follow-up"): no manifest declares the four `ptah.agentSessions.*` keys; they are code-only settings, not shown in the VS Code settings UI. The B8 docs page documents them. No code change in this task. Write-path trace: read-only (O12).
 
 Follow-ups (recorded at B6/B7 commit, 2026-10-01; updated at B8/B9 2026-10-01):
 
@@ -64,6 +77,10 @@ Follow-ups (recorded at B6/B7 commit, 2026-10-01; updated at B8/B9 2026-10-01):
 - F3 CLOSED (commit bc8f11b4a, with F2; `code-logic-review-f2.md` APPROVED 10/10): one sentence on child sessions added to the `ptah_agent_report` description. Pins updated: report description limit 799 -> 921; `tools/list` 130,357 -> 130,469 bytes.
 - F4 CLEARED (B9): the spawner is constructed eagerly in Electron (`wire-runtime.ts`); the Electron dev build boots clean with it registered and shuts down gracefully (`test-report.md`, `smoke-b9/`).
 - F5 The child tab title truncates at the 200px tab cap once the 24px badge is present (visual-review-b7-r2 observation; full title stays in the `title` attribute). Minor, no change planned.
+- F6 OPEN (future enhancement; from O16, user decision 2026-10-02): add `contributes.configuration` entries for `ptah.agentSessions.maxConcurrent`, `ptah.agentSessions.maxRuntimeMinutes`, `ptah.agentSessions.permissionDenyWindowMs` and `ptah.agentSessions.bashAllowlist` to the VS Code extension manifest, so they show in the settings UI with types, defaults and descriptions matching `session-child-settings.ts` and the B8 docs page.
+- F7 OPEN (PENDING-USER; from B9, user decision 2026-10-02): live smoke S1-S10 on Electron (the Codex quota blocked it; re-run after the quota resets or with a second credentialed provider, procedure `implementation-plan.md:1067-1104`) and the VS Code manual checklist `vscode-smoke-checklist.md`. These close A1, A3, A4 and A5 live, plus the F1 and F2 live checks.
+
+Known non-task test failures (Mode 3 record): rpc-handlers `harness-skill-selection-rpc.service.spec.ts` "never writes state.json" fails on main too; cli-agent-runtime `claude-approval.reader.spec.ts` real-git case is flaky under load and passes alone.
 
 ## Recorded execution defaults
 
@@ -734,11 +751,12 @@ Files:
 
 ### Task 8.2: Docs page with the four settings keys — COMPLETE
 
-## Batch 9: real-host smoke S1-S11 + test-report.md — IN_PROGRESS
+## Batch 9: real-host smoke S1-S11 + test-report.md — COMPLETE-WITH-EXCEPTION
 
-- Partial result (`test-report.md`, `smoke-b9/`): S11 PASS (57/59; 2 known failures: platform-core perf smoke under load, rpc-handlers harness-skill-selection known base failure). Electron dev build boot PASS (F4 cleared; idle graceful quit clean). S1-S10 BLOCKED on both hosts: no provider credentials in the isolated profile (`auth:getAuthStatus` all false); no VS Code GUI driver. A1/A3/A4/A5 NOT proven. F2 static evidence only. F1 upgraded to defect candidate (static).
+- Closure (user decision 2026-10-02, "Merge on unit evidence"): S11 PASS, Electron boot PASS (re-checked at b514dc3ac). Electron S1-S10 are PENDING-USER: an external Codex 429 quota blocked every model turn, so the parent never ran. This is not a code defect; the error showed in the chat tab and nothing crashed (`smoke-b9/s1-blocked-codex-429.png`). VS Code steps are PENDING-USER (`vscode-smoke-checklist.md`). The evidence standing in for them is the B1-B7 unit specs (each reviewed APPROVED) and PR #622 CI at c0c8d9365, where all 11 checks pass: `main`, CLI E2E, electron-e2e, webview-e2e, git-real-git on 3 OSes, SonarCloud, `check`, GitGuardian and CodeRabbit. The live run is follow-up F7. No separate code-logic-review-b9 was run: it would review evidence that does not exist yet, and the user waived it with this decision.
+- Screenshots: `smoke-b9/electron-boot.png` and `electron-idle.png` now differ (re-run replaced the idle capture), so the earlier duplicate is resolved and nothing is dropped.
+- Earlier partial result (`test-report.md`, `smoke-b9/`): S11 PASS (57/59; 2 known failures: platform-core perf smoke under load, rpc-handlers harness-skill-selection known base failure). Electron dev build boot PASS (F4 cleared; idle graceful quit clean). S1-S10 BLOCKED on both hosts: no provider credentials in the isolated profile (`auth:getAuthStatus` all false); no VS Code GUI driver. A1/A3/A4/A5 NOT proven. F2 static evidence only. F1 upgraded to defect candidate (static).
 - User decision (2026-10-02): the next run uses the user's "Ptah Dev" profile for Electron S1-S10, and a manual checklist for the VS Code host. F1 (eb33e22c7) and F2/F3 (bc8f11b4a) are fixed before that run. Not reviewed or committed as a batch; the partial report is committed as docs only.
-- Evidence gap: `smoke-b9/electron-boot.png` and `electron-idle.png` are byte-identical; the re-run must capture a distinct idle screenshot.
 
 - Recommended executor: senior-tester (sub-agent), real host (Electron dev build, then VS Code), NOT a mocked run
 - Fallback executor: none; a smoke step that cannot run is reported as blocked with the reason
@@ -747,7 +765,7 @@ Files:
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/agent-sdk,@ptah-extension/platform-core,@ptah-extension/cli-agent-runtime,@ptah-extension/rpc-handlers,@ptah-extension/vscode-lm-tools,@ptah-extension/shared,@ptah-extension/chat-state,@ptah-extension/chat,ptah-cli` (S11) plus the smoke evidence.
 - Review: CLI lane antigravity (fallback Glm) -> `code-logic-review-b9.md` (evidence supports each S-step verdict; assumptions A1-A5 closed or reported).
 
-### Task 9.1: Smoke S1-S11 — IN_PROGRESS
+### Task 9.1: Smoke S1-S11 — COMPLETE-WITH-EXCEPTION (S1-S10 PENDING-USER, blocked by provider quota; follow-up F7)
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-584\.ptah\specs\TASK_2026_584_5e7a\test-report.md`
 - Plan reference: implementation-plan.md:1067-1104

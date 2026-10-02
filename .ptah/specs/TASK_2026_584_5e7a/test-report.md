@@ -84,3 +84,73 @@ Reasons: (1) same credential blocker; (2) no way to drive the VS Code UI from th
 - Proven: S11 green (known exceptions); Electron boots clean with the eager spawner registered and shuts down gracefully (F4 satisfied at boot).
 - Not proven: S1-S10 on either host, S1 `chat-runtime-unavailable` on a real start, S1b/F1 live, A1, A3, A4, A5, F2 live measurement, B1/B7 store-to-read traces.
 - Risks: F1 probable defect (read of `tab-workspace-partition.service.ts:318-341`) unreproduced; code-logic-review-b9 cannot approve S-steps without live evidence; the smoke needs credentialed hosts and a human or automation for VS Code.
+
+---
+
+# Re-run 2026-10-02 (HEAD b514dc3ac, F1/F2/F4 closures present)
+
+## Result in one line
+
+S1-S10 BLOCKED on Electron by an external provider limit: every model turn in the "Ptah Dev" profile returned `API Error: Request rejected (429) - Codex API rate limit exceeded`. No child session could be started because the parent never ran. VS Code steps PENDING-USER (checklist written). S11 and Electron boot remain PASS from the earlier run (kept).
+
+## Pre-flight
+
+- Dev single-instance lock: no Ptah Dev process was running (no electron.exe before launch). An installed production `Ptah.exe` (userData `%APPDATA%\Roaming\Ptah`) was running; it is a different profile and was not touched.
+- Launch note: the dev profile path needs `NODE_ENV=development` (`apps/ptah-electron/src/main.ts:53-57`). Without it the first launch used the production profile, hit that single-instance lock and exited at once; no state was written. Relaunched with `NODE_ENV=development`.
+- Rebuilt at HEAD b514dc3ac: `nx run-many -t build-dev,copy-renderer-dev -p ptah-electron` exit 0 (6m39s).
+- Scratch repo `D:\b9scratch\repo` (main + `.ptah/specs/TASK_SMOKE_1..3/task.md`). Launch: `electron.exe dist/apps/ptah-electron/main.mjs D:\b9scratch\repo --remote-debugging-port=9333`.
+- Credentials: never copied, printed or logged. `auth:getAuthStatus` booleans only: Codex authenticated, authMethod thirdParty, provider openai-codex, no other provider.
+
+## Per-step results
+
+| Step                                                    | Result          | Evidence                                                                                                                                    |
+| ------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Electron boot (re-check at b514dc3ac)                   | PASS            | App booted with the dev profile; renderer loaded; `smoke-b9/electron-boot.png`                                                              |
+| Idle screenshot                                         | PASS (replaced) | `smoke-b9/electron-idle.png` is now a different image (new chat tab, composer visible); `cmp` against electron-boot.png reports they differ |
+| S1 (A1, no `chat-runtime-unavailable`)                  | BLOCKED         | parent turn rejected with 429 before any tool call; `smoke-b9/s1-blocked-codex-429.png`                                                     |
+| S1b, S2, S3, S4, S5, S6, S7, S8, S9, S10                | BLOCKED         | same cause: no model turn can run                                                                                                           |
+| A1, A3, A4, A5                                          | NOT PROVEN      | need S1, S3, S7, S6                                                                                                                         |
+| F2 fix (default `ptah_session_read` 32 KiB tail inline) | NOT PROVEN live | needs a child with transcript                                                                                                               |
+| F1 fix (late-adopted tab streams/finalizes/permission)  | NOT PROVEN live | needs a child; unit coverage only                                                                                                           |
+| VS Code host, every step                                | PENDING-USER    | `vscode-smoke-checklist.md`                                                                                                                 |
+
+## What was tried on the 429
+
+- Parent prompt sent (three `ptah_session_start` calls with branches smoke/one|two|three) at 00:33 (app clock): 429.
+- Retried at ~2:11, 2:14, 2:17-2:22 (app clock) with `gpt-5.6-sol`, then with `gpt-5.6-terra` (temporary per-tab model switch): 429 each time over roughly two hours. The limit is the user's Codex account quota, not a Ptah defect (no 429 handling error or crash in the log; the error is surfaced in the chat tab). Not a product defect; nothing to file with file:line.
+- No other provider is credentialed in the profile, so there was no alternative. Calling the MCP tool over HTTP with a fabricated caller id was again not done (skips the parent tab, which A1 tests).
+
+## Settings changed and restored
+
+- Model picker on the scratch tab: sol -> terra -> back to "Default (recommended)" (gpt-5.6-sol). `config.json` and `secrets.json` hashes unchanged (verified).
+- `global-state.json` changed during the run (workspace list and active session now included the scratch workspace); restored byte-for-byte from the pre-run copy (hash verified).
+- Removed scratch artefacts: `%APPDATA%\Ptah Dev\workspace-storage\<scratch repo id>`, `~\.claude\projects\D--b9scratch-repo`, and `D:\b9scratch`. No worktrees or branches were created (no start succeeded).
+- Left in place: a second `workspace-storage` entry for the path `...\task-584\dist\apps\ptah-electron\main.mjs`, created by a mis-ordered launch (workspace argument must precede flags, `bootstrap.ts:171-175`) by this or the earlier run; harmless junk, not removed because its origin is not certain.
+- The dev build rewrote `.gitignore` in this worktree (managed harness block, `.opencode/agent/`); not part of this task, not committed.
+
+## Cleanup and processes
+
+Electron stopped by CDP `Browser.close`; log shows `[SessionSpawner] disposed`; 0 electron.exe left. No code edited, nothing committed. Modified in the worktree by me: `test-report.md`, `vscode-smoke-checklist.md` (new), `smoke-b9/electron-boot.png`, `smoke-b9/electron-idle.png`, `smoke-b9/s1-blocked-codex-429.png` (new).
+
+## To unblock
+
+Wait for the Codex quota to reset (or credential a second provider in the Ptah Dev profile), then re-run S1-S10 from the prompt used here. The scripts are gone with the scratch dir; the procedure is `implementation-plan.md:1067-1104`.
+
+---
+
+# Closure 2026-10-02 (Mode 3, PR #622 head c0c8d9365)
+
+User decision: "Merge on unit evidence". Batch 9 is COMPLETE-WITH-EXCEPTION.
+
+| Item                        | Final status                                                           | Evidence standing in                                                                                                                                                                                                     |
+| --------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S11 unit/typecheck/lint     | PASS                                                                   | First run above (known non-task failures only)                                                                                                                                                                           |
+| Electron dev build boot, F4 | PASS                                                                   | `smoke-b9/electron-boot.png`, `smoke-b9/electron-idle.png` (now distinct images)                                                                                                                                         |
+| Electron S1-S10             | PENDING-USER (blocked by provider quota, Codex 429; not a code defect) | B1-B7 unit specs (each batch review APPROVED); PR #622 CI at c0c8d9365, all 11 checks pass (`main`, CLI E2E, electron-e2e, webview-e2e, git-real-git ubuntu/macos/windows, SonarCloud, `check`, GitGuardian, CodeRabbit) |
+| VS Code host, every step    | PENDING-USER                                                           | `vscode-smoke-checklist.md`                                                                                                                                                                                              |
+| A1, A3, A4, A5 live         | NOT PROVEN live; accepted on unit evidence                             | Unit specs per batches.md Plan validation                                                                                                                                                                                |
+| F1, F2 live                 | NOT PROVEN live; fixes reviewed APPROVED 10/10                         | `code-logic-review-f1.md`, `code-logic-review-f2.md`                                                                                                                                                                     |
+
+Known non-task test failures: rpc-handlers `harness-skill-selection-rpc.service.spec.ts` "never writes state.json" fails on main too; cli-agent-runtime `claude-approval.reader.spec.ts` real-git case is flaky under load and passes alone.
+
+The live S1-S10 run and the VS Code checklist are follow-up F7 in `batches.md`.
