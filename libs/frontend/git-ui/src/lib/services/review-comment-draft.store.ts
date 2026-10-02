@@ -113,9 +113,13 @@ export class ReviewCommentDraftStore {
     ReadonlyMap<string, readonly ReviewCommentDraft[]>
   >(new Map());
   private readonly _sending = signal<ReadonlySet<string>>(new Set());
+  /** Per owner key: the running send and the ids of the drafts it carries. */
   private readonly inFlight = new Map<
     string,
-    Promise<AgentFeedbackSendResult>
+    {
+      readonly run: Promise<AgentFeedbackSendResult>;
+      readonly draftIds: ReadonlySet<string>;
+    }
   >();
 
   /** The owner's drafts, oldest first. Reactive. */
@@ -169,13 +173,27 @@ export class ReviewCommentDraftStore {
 
   /**
    * Send every draft of this owner as one message to the owning session, or
-   * to the active session when there is none. A second call while one is in
-   * flight joins it instead of sending twice.
+   * to the active session when there is none.
+   *
+   * A second call while one is in flight joins it when that send already
+   * carries every current draft (a double click). When drafts were added after
+   * it started, the call waits for it and then sends what is left, so its
+   * result always speaks for the drafts that existed when it was made.
    */
   send(owner: ReviewDraftOwner): Promise<AgentFeedbackSendResult> {
     const key = reviewDraftOwnerKey(owner);
     const pending = this.inFlight.get(key);
-    if (pending) return pending;
+    if (pending) {
+      const covered = this.draftsFor(owner).every((draft) =>
+        pending.draftIds.has(draft.id),
+      );
+      if (covered) return pending.run;
+      return pending.run.then((first) =>
+        first.sent && this.draftsFor(owner).length > 0
+          ? this.send(owner)
+          : first,
+      );
+    }
 
     const drafts = this.draftsFor(owner);
     if (drafts.length === 0) {
@@ -187,7 +205,10 @@ export class ReviewCommentDraftStore {
     }
 
     const run = this.deliver(key, owner, drafts, sender);
-    this.inFlight.set(key, run);
+    this.inFlight.set(key, {
+      run,
+      draftIds: new Set(drafts.map((draft) => draft.id)),
+    });
     this._sending.update((keys) => new Set(keys).add(key));
     return run;
   }

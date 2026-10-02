@@ -247,6 +247,19 @@ export class MessageSenderService {
    * @param workspacePath - Workspace path
    * @returns Promise<{ exists: boolean; filePath?: string }>
    */
+  /**
+   * The workspace a tab belongs to when that is NOT the active workspace, else
+   * `null` (the active workspace keeps using the host's configured root).
+   */
+  private backgroundWorkspaceOf(tabId: string | null | undefined): string | null {
+    if (!tabId) return null;
+    const lookup = this.tabManager.findTabByIdAcrossWorkspaces(tabId);
+    if (!lookup?.workspacePath) return null;
+    return lookup.workspacePath === this.tabManager.activeWorkspacePath
+      ? null
+      : lookup.workspacePath;
+  }
+
   private async validateSessionExists(
     sessionId: SessionId,
     workspacePath: string,
@@ -574,7 +587,13 @@ export class MessageSenderService {
         );
         return { success: false, error: 'Services not available' };
       }
-      const cachedWorkspacePath = this.vscodeService.config().workspaceRoot;
+      // A tab parked in a background workspace (review feedback, a queue flush
+      // after its turn ends) owns a session that lives under THAT workspace;
+      // validating it against the active root misses the session file and
+      // detaches the tab into a fresh conversation in the wrong folder.
+      const cachedWorkspacePath =
+        this.backgroundWorkspaceOf(activeTabId) ??
+        this.vscodeService.config().workspaceRoot;
       let resolvedWorkspacePath = cachedWorkspacePath;
 
       if (!resolvedWorkspacePath) {

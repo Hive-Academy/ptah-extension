@@ -220,9 +220,28 @@ export class ReviewNavigationService {
     return { opened: true };
   }
 
-  /** Show one stash file against the stash's parent, read-only. */
-  openStashFile(request: ReviewStashFileRequest): void {
+  /**
+   * Show one stash file against the stash's parent, read-only.
+   *
+   * A stash listing carries no line counts and no binary flag, so the file's
+   * row is read through `git:reviewChanges` over the same two commits. When
+   * that read fails (or does not list the file) the row is built from the
+   * listing, with unknown counts. A navigation made while the read was in
+   * flight wins.
+   */
+  async openStashFile(request: ReviewStashFileRequest): Promise<void> {
     const { file } = request;
+    const workspaceRoot = this.gitStatus.activeWorkspacePath();
+    const seq = this._current().seq;
+    const listed = workspaceRoot
+      ? await this.readStashFileRow(workspaceRoot, request)
+      : null;
+    if (
+      this._current().seq !== seq ||
+      this.gitStatus.activeWorkspacePath() !== workspaceRoot
+    ) {
+      return;
+    }
     this.navigate(
       'changes',
       {
@@ -231,7 +250,7 @@ export class ReviewNavigationService {
         head: request.head,
         label: request.label,
         files: [
-          {
+          listed ?? {
             path: file.path,
             ...(file.oldPath ? { originalPath: file.oldPath } : {}),
             status: file.status,
@@ -259,6 +278,30 @@ export class ReviewNavigationService {
   /** A comparison was picked in the comparison bar. Clears the target. */
   selectComparison(kind: ReviewComparisonKind): void {
     this.navigate('changes', { kind }, { kind: 'none' });
+  }
+
+  /** The stash file's `git:reviewChanges` row, or `null` when it cannot be read. */
+  private async readStashFileRow(
+    workspaceRoot: string,
+    request: ReviewStashFileRequest,
+  ): Promise<GitReviewFile | null> {
+    try {
+      const response = await rpcCall<GitReviewChangesResult>(
+        this.vscode,
+        'git:reviewChanges',
+        {
+          workspaceRoot,
+          base: request.base.sha,
+          head: request.head.sha,
+        } satisfies GitReviewChangesParams,
+      );
+      const result = response.success ? response.data : undefined;
+      if (!result?.success) return null;
+      return result.files.find((row) => row.path === request.file.path) ?? null;
+    } catch (error: unknown) {
+      console.error('[ReviewNavigationService] git:reviewChanges threw', error);
+      return null;
+    }
   }
 
   private navigate(

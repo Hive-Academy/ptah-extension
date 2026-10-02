@@ -362,6 +362,25 @@ describe('ReviewDiffService.onGitStatusUpdate', () => {
     expect(mockRpcCall).not.toHaveBeenCalled();
   });
 
+  it('accepts a push for the active workspace spelled with backslashes and another drive-letter case', async () => {
+    const { service, active } = makeService();
+    active.path = 'D:/repo';
+    await mountFresh(service, { path: 'src/a.ts' });
+    await mountFresh(service, { path: 'src/b.ts' });
+    mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'src/a.ts' })));
+
+    // Scoped push: Windows-separated root AND file path.
+    service.onGitStatusUpdate(
+      'd:\\repo\\',
+      ['workspace'],
+      [fileStatus('src\\a.ts')],
+    );
+    jest.advanceTimersByTime(250);
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+    expect(mockRpcCall.mock.calls[0][2]).toMatchObject({ path: 'src/a.ts' });
+  });
+
   it('dispose() cancels a pending revalidation', async () => {
     const { service } = makeService();
     await mountFresh(service, { path: 'a.ts' });
@@ -719,6 +738,33 @@ describe('ReviewDiffService.onFileContentChanged', () => {
     expect(mockRpcCall).not.toHaveBeenCalled();
   });
 
+  it('matches a Windows push whose drive letter and separators differ from the workspace', async () => {
+    const { service, active } = makeService();
+    active.path = 'D:/repo';
+    await mountFresh(service, { path: 'src/a.ts' });
+    mockRpcCall.mockResolvedValue(ok(makeResult({ path: 'src/a.ts' })));
+
+    service.onFileContentChanged({
+      filePaths: ['d:\\repo\\src\\a.ts'],
+      truncated: false,
+    });
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(1);
+    expect(mockRpcCall.mock.calls[0][2]).toMatchObject({ path: 'src/a.ts' });
+  });
+
+  it('does not treat a sibling folder sharing the root as a prefix as inside the workspace', async () => {
+    const { service, active } = makeService();
+    active.path = 'D:/repo';
+    await mountFresh(service, { path: 'a.ts' });
+    service.onFileContentChanged({
+      filePaths: ['D:/repository/a.ts', 'D:/repo'],
+      truncated: false,
+    });
+    await drain();
+    expect(mockRpcCall).not.toHaveBeenCalled();
+  });
+
   it('declares exactly the two push types it acts on', () => {
     const { service } = makeService();
     expect([...service.handledMessageTypes]).toEqual([
@@ -933,6 +979,30 @@ describe('ReviewDiffService workspace lifecycle', () => {
     expect(service.entries().size).toBe(1);
     service.removeWorkspaceState('/ws');
     expect(service.entries().size).toBe(0);
+  });
+
+  it('a read that outlived a cache reset never overwrites the newer read for the same key', async () => {
+    const { service } = makeService();
+    let resolveOld!: (v: unknown) => void;
+    let resolveNew!: (v: unknown) => void;
+    mockRpcCall
+      .mockReturnValueOnce(new Promise((res) => (resolveOld = res)))
+      .mockReturnValueOnce(new Promise((res) => (resolveNew = res)));
+
+    service.mount({ comparison: WORKTREE, path: 'a.ts' });
+    await drain();
+    // Away and back while the first read is still in flight.
+    service.switchWorkspace('/ws2');
+    const key = service.mount({ comparison: WORKTREE, path: 'a.ts' });
+    await drain();
+    expect(mockRpcCall).toHaveBeenCalledTimes(2);
+
+    resolveNew(ok(makeResult({ modified: content('newer') })));
+    await drain();
+    resolveOld(ok(makeResult({ modified: content('older') })));
+    await drain();
+
+    expect(service.entry(key)?.diff?.modified).toBe('newer');
   });
 
   it('a mount after the active workspace moved starts from an empty cache', async () => {

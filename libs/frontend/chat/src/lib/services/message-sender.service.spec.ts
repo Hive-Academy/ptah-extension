@@ -82,6 +82,7 @@ describe('MessageSenderService', () => {
     setMessages: jest.Mock;
     consumeFirstMessagePreamble: jest.Mock;
     findTabByIdAcrossWorkspaces: jest.Mock;
+    activeWorkspacePath: string | null;
   };
   /** Tabs parked in a NON-active workspace — absent from `tabs()` by design. */
   let backgroundTabsSignal: ReturnType<typeof signal<TabState[]>>;
@@ -183,11 +184,14 @@ describe('MessageSenderService', () => {
       // Mirrors production: resolves the ACTIVE workspace and every background
       // partition, unlike `tabs()`.
       findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
-        const tab =
-          tabsSignal().find((t) => t.id === tabId) ??
-          backgroundTabsSignal().find((t) => t.id === tabId);
-        return tab ? { tab, workspacePath: 'D:/repo' } : null;
+        const active = tabsSignal().find((t) => t.id === tabId);
+        if (active) return { tab: active, workspacePath: 'D:/repo' };
+        const background = backgroundTabsSignal().find((t) => t.id === tabId);
+        return background
+          ? { tab: background, workspacePath: 'D:/other-repo' }
+          : null;
       }),
+      activeWorkspacePath: 'D:/repo',
     };
 
     sessionManager = {
@@ -567,6 +571,53 @@ describe('MessageSenderService', () => {
       expect(written.map((m) => m.id)).toContain('bg-msg');
       expect(written.map((m) => m.id)).not.toContain('active-msg');
       expect(written.at(-1)?.rawContent).toBe('hello background');
+    });
+
+    it("validates and continues a background tab's session against ITS workspace, not the active one", async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-ACTIVE' })]);
+      backgroundTabsSignal.set([
+        makeTab({ id: 'tab-bg', claudeSessionId: 'sess-BG' }),
+      ]);
+      rpcCall.mockImplementation(
+        (
+          method: string,
+          payload: { workspacePath?: string },
+        ): Promise<{ success: boolean; data?: unknown }> => {
+          if (method === 'session:validate') {
+            // The session file only exists under the background workspace.
+            return Promise.resolve({
+              success: true,
+              data: { exists: payload.workspacePath === 'D:/other-repo' },
+            });
+          }
+          return Promise.resolve({ success: true });
+        },
+      );
+
+      await service.send('review feedback', { tabId: 'tab-bg' });
+
+      const methods = rpcCall.mock.calls.map((c) => c[0]);
+      expect(methods).not.toContain('chat:start');
+      expect(tabManager.detachSessionAndMarkLoaded).not.toHaveBeenCalled();
+      const validateCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'session:validate',
+      );
+      expect(validateCall?.[1]).toEqual(
+        expect.objectContaining({
+          sessionId: 'sess-BG',
+          workspacePath: 'D:/other-repo',
+        }),
+      );
+      const continueCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:continue',
+      );
+      expect(continueCall?.[1]).toEqual(
+        expect.objectContaining({
+          sessionId: 'sess-BG',
+          tabId: 'tab-bg',
+          workspacePath: 'D:/other-repo',
+        }),
+      );
     });
   });
 

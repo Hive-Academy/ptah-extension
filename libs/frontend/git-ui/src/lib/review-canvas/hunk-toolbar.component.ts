@@ -3,7 +3,9 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   ElementRef,
+  EnvironmentInjector,
   inject,
   Injector,
   input,
@@ -57,6 +59,35 @@ const ACTION_CLASS: Readonly<Record<GitApplyHunksOperation, string>> = {
 };
 
 /**
+ * Focus the roving tab stop of the hunk row nearest `ordinal` (preferring the
+ * row now at that ordinal, then earlier ones), else the nearest focusable
+ * ancestor of `container`.
+ */
+function focusNearestHunkStop(container: HTMLElement, ordinal: number): void {
+  const rows = Array.from(
+    container.querySelectorAll<HTMLElement>(':scope > [data-hunk-index]'),
+  );
+  const byDistance = rows
+    .map((row) => ({ row, index: Number(row.dataset['hunkIndex']) }))
+    .filter(({ index }) => Number.isInteger(index))
+    .sort(
+      (a, b) =>
+        Math.abs(a.index - ordinal) - Math.abs(b.index - ordinal) ||
+        b.index - a.index,
+    );
+  for (const { row } of byDistance) {
+    const stop = row.querySelector<HTMLElement>(
+      '[role="toolbar"] [tabindex="0"]',
+    );
+    if (stop) {
+      stop.focus();
+      return;
+    }
+  }
+  container.parentElement?.closest<HTMLElement>('[tabindex]')?.focus();
+}
+
+/**
  * HunkToolbarComponent — the per-hunk header row of the review canvas
  * (implementation-plan Component 24, design-spec §6.1), projected into the
  * hunk's slot through `PierreDiffHostComponent`'s `hunkToolbar` template.
@@ -75,12 +106,20 @@ const ACTION_CLASS: Readonly<Record<GitApplyHunksOperation, string>> = {
  * - A refusal replaces the buttons with the sanitized reason chip until the
  *   forced re-read delivers a new token; a success leaves the buttons inert
  *   until then too, so one snapshot is never applied twice.
+ * - A success usually removes the hunk, and the re-read then destroys this
+ *   row with focus still on the pressed button. Focus moves to the nearest
+ *   remaining hunk's toolbar (or the nearest focusable ancestor) instead of
+ *   falling to `<body>`.
  */
 @Component({
   selector: 'ptah-hunk-toolbar',
   standalone: true,
   imports: [LucideAngularModule, GitConfirmDialogComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    '(focusin)': 'focusWithin = true',
+    '(focusout)': 'onFocusOut($event)',
+  },
   template: `
     <div
       class="flex flex-wrap items-center justify-between gap-1 bg-base-200/60 px-2 py-1 text-[11px] border-y border-base-content/5"
@@ -190,6 +229,26 @@ const ACTION_CLASS: Readonly<Record<GitApplyHunksOperation, string>> = {
 export class HunkToolbarComponent {
   private readonly reviewDiff = inject(ReviewDiffService);
   private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  /** Outlives this component, for the focus hand-off scheduled on destroy. */
+  private readonly environmentInjector = inject(EnvironmentInjector);
+
+  /**
+   * The element holding every hunk row of this file, captured when an apply
+   * succeeds — after the re-read removes this row it can no longer be reached
+   * from it.
+   */
+  private hunkRowsContainer: HTMLElement | null = null;
+
+  /**
+   * Whether focus is inside this row. Cleared only when focus moves to another
+   * element: a focused node removed with the row may not report a focusout.
+   */
+  protected focusWithin = false;
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.handOffFocus());
+  }
 
   /** The hunk this row heads (`PierreHunkToolbarContext.$implicit`). */
   readonly hunk = input.required<GitHunkRef>();
@@ -361,12 +420,45 @@ export class HunkToolbarComponent {
       ?.nativeElement.focus();
   }
 
+  protected onFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (next instanceof Node && !this.host.nativeElement.contains(next)) {
+      this.focusWithin = false;
+    }
+  }
+
   /** Read from the DOM so arrowing from a clicked button starts there. */
   private domFocusedControl(): ToolbarControl | null {
     const active = document.activeElement;
     if (!(active instanceof HTMLElement)) return null;
     const id = active.dataset['control'];
     return this.controlOrder().find((c) => c === id) ?? null;
+  }
+
+  /**
+   * Runs on destroy. When this row goes away because its own successful apply
+   * removed the hunk, and focus went with it, focus the nearest remaining
+   * hunk's tab stop — the same ordinal (the next hunk, renumbered) or the one
+   * before it — else the nearest focusable ancestor. Focus the user has
+   * already moved to a live element is left alone.
+   */
+  private handOffFocus(): void {
+    const container = this.hunkRowsContainer;
+    // The raw outcome: the re-read that destroys this row has already ended
+    // `currentOutcome`.
+    if (!container || !this.focusWithin || this.outcome()?.kind !== 'consumed') {
+      return;
+    }
+    const ordinal = this.hunk().index;
+    afterNextRender(
+      () => {
+        const active = document.activeElement;
+        if (!container.isConnected) return;
+        if (active && active !== document.body && active.isConnected) return;
+        focusNearestHunkStop(container, ordinal);
+      },
+      { injector: this.environmentInjector },
+    );
   }
 
   private async apply(
@@ -382,6 +474,11 @@ export class HunkToolbarComponent {
         snapshotToken: token,
       });
       const diff = this.entryDiff();
+      if (result.success) {
+        this.hunkRowsContainer =
+          this.host.nativeElement.closest('[data-hunk-index]')?.parentElement ??
+          null;
+      }
       this.outcome.set(
         result.success
           ? { diff, kind: 'consumed' }

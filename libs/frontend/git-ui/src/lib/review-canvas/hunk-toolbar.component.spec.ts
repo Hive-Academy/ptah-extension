@@ -362,3 +362,127 @@ describe('HunkToolbarComponent', () => {
     });
   });
 });
+
+/**
+ * Mirrors `PierreDiffHostComponent`'s hunk rows: one `[data-hunk-index]` row
+ * per hunk under one container, inside a focusable section.
+ */
+@Component({
+  standalone: true,
+  imports: [HunkToolbarComponent],
+  template: `
+    <section tabindex="-1" data-testid="section">
+      <div data-testid="rows">
+        @for (h of hunks(); track h.index) {
+          <div [attr.data-hunk-index]="h.index">
+            <ptah-hunk-toolbar
+              [hunk]="h"
+              [hunkCount]="hunks().length"
+              comparison="worktree"
+              [entryKey]="key"
+              [snapshotToken]="token()"
+            />
+          </div>
+        }
+      </div>
+    </section>
+    <button type="button" data-testid="elsewhere">elsewhere</button>
+  `,
+})
+class RowsHostComponent {
+  readonly hunks = signal([hunk(0), hunk(1)]);
+  readonly token = signal('tok-1');
+  readonly key = KEY;
+}
+
+describe('HunkToolbarComponent focus after its hunk is applied away', () => {
+  let fixture: ComponentFixture<RowsHostComponent>;
+  let entries: ReturnType<typeof signal<ReadonlyMap<string, ReviewDiffEntry>>>;
+  let applyHunks: jest.Mock<Promise<GitApplyHunksResult>, [HunkApplyRequest]>;
+
+  function setEntryDiff(diff: DiffTabState): void {
+    entries.set(
+      new Map([[KEY, { key: KEY, diff } as unknown as ReviewDiffEntry]]),
+    );
+  }
+
+  function row(index: number): HTMLElement {
+    return (fixture.nativeElement as HTMLElement).querySelector(
+      `[data-hunk-index="${index}"]`,
+    ) as HTMLElement;
+  }
+
+  function q(testId: string): HTMLElement {
+    return (fixture.nativeElement as HTMLElement).querySelector(
+      `[data-testid="${testId}"]`,
+    ) as HTMLElement;
+  }
+
+  async function settle(): Promise<void> {
+    await fixture.whenStable();
+    fixture.detectChanges();
+  }
+
+  /** Accept hunk `index` from its focused button, then land the re-read without it. */
+  async function acceptAndReread(
+    index: number,
+    remaining: readonly GitHunkRef[],
+  ): Promise<void> {
+    const accept = row(index).querySelector<HTMLButtonElement>(
+      '[data-testid="hunk-stage"]',
+    ) as HTMLButtonElement;
+    accept.focus();
+    accept.click();
+    await settle();
+    setEntryDiff(diffState('tok-2'));
+    fixture.componentInstance.token.set('tok-2');
+    fixture.componentInstance.hunks.set([...remaining]);
+    await settle();
+  }
+
+  beforeEach(() => {
+    entries = signal<ReadonlyMap<string, ReviewDiffEntry>>(new Map());
+    applyHunks = jest.fn().mockResolvedValue({ success: true });
+    TestBed.configureTestingModule({
+      imports: [RowsHostComponent],
+      providers: [
+        { provide: ReviewDiffService, useValue: { entries, applyHunks } },
+      ],
+    });
+    fixture = TestBed.createComponent(RowsHostComponent);
+    setEntryDiff(diffState('tok-1'));
+    fixture.detectChanges();
+  });
+
+  afterEach(() => fixture.destroy());
+
+  it('moves focus to the nearest remaining hunk instead of <body>', async () => {
+    await acceptAndReread(1, [hunk(0)]);
+    expect(row(1)).toBeNull();
+    const stop = row(0).querySelector('[role="toolbar"] [tabindex="0"]');
+    expect(stop).not.toBeNull();
+    expect(document.activeElement).toBe(stop);
+  });
+
+  it('falls back to the focusable section when no hunk remains', async () => {
+    await acceptAndReread(0, []);
+    expect(document.activeElement).toBe(q('section'));
+  });
+
+  it('leaves focus alone when the user already moved it elsewhere', async () => {
+    const accept = row(1).querySelector<HTMLButtonElement>(
+      '[data-testid="hunk-stage"]',
+    ) as HTMLButtonElement;
+    accept.focus();
+    accept.click();
+    await settle();
+    q('elsewhere').focus();
+
+    setEntryDiff(diffState('tok-2'));
+    fixture.componentInstance.token.set('tok-2');
+    fixture.componentInstance.hunks.set([hunk(0)]);
+    await settle();
+
+    expect(document.activeElement).toBe(q('elsewhere'));
+  });
+});

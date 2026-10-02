@@ -271,5 +271,45 @@ describe('ReviewCommentDraftStore', () => {
 
       expect(store.draftsFor(SESSION)).toEqual([]);
     });
+
+    it('a call made after a draft was added mid-send sends that draft once the first send lands', async () => {
+      const firstSend = deferred<AgentFeedbackSendResult>();
+      const send = jest
+        .fn()
+        .mockReturnValueOnce(firstSend.promise)
+        .mockResolvedValueOnce({ sent: true });
+      const store = setup({ send });
+      store.add(SESSION, draft());
+
+      const first = store.send(SESSION);
+      store.add(SESSION, draft({ path: 'late.ts' }));
+      const second = store.send(SESSION);
+      expect(second).not.toBe(first);
+
+      firstSend.resolve({ sent: true });
+      await expect(first).resolves.toEqual({ sent: true });
+      await expect(second).resolves.toEqual({ sent: true });
+
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(send.mock.calls[1][1]).toContain('late.ts');
+      expect(send.mock.calls[1][1]).not.toContain('src/app.ts');
+      expect(store.draftsFor(SESSION)).toEqual([]);
+    });
+
+    it('a call made after a draft was added mid-send reports the failure when the first send fails', async () => {
+      const firstSend = deferred<AgentFeedbackSendResult>();
+      const send = jest.fn().mockReturnValueOnce(firstSend.promise);
+      const store = setup({ send });
+      store.add(SESSION, draft());
+
+      store.send(SESSION);
+      store.add(SESSION, draft({ path: 'late.ts' }));
+      const second = store.send(SESSION);
+
+      firstSend.resolve({ sent: false, error: 'offline' });
+      await expect(second).resolves.toEqual({ sent: false, error: 'offline' });
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(store.draftsFor(SESSION)).toHaveLength(2);
+    });
   });
 });

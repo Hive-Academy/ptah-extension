@@ -1,7 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { VSCodeService, rpcCall } from '@ptah-extension/core';
 import type { MessageHandler, RpcCallResult } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, normalizeWorkspaceRoot } from '@ptah-extension/shared';
 import type {
   FileContentChangedPayload,
   GitApplyHunksParams,
@@ -204,10 +204,17 @@ export class ReviewDiffService implements MessageHandler {
   private readonly unmountedOrder = new Set<string>();
 
   /**
-   * Per-key request counter. Kept outside the entry because the first read
-   * starts before any `DiffTabState` exists to carry a `requestId`.
+   * Per-key id of the latest read. Kept outside the entry because the first
+   * read starts before any `DiffTabState` exists to carry a `requestId`.
    */
   private readonly requestIds = new Map<string, number>();
+
+  /**
+   * Source of every `requestId`. Service-wide and never reset, so a read that
+   * outlives a cache reset or an eviction can never match the id of a read
+   * issued for the same key afterwards.
+   */
+  private lastRequestId = 0;
 
   /**
    * Keys with a read in flight, mapped to the read's ticket. The ticket lets a
@@ -365,9 +372,11 @@ export class ReviewDiffService implements MessageHandler {
   ): void {
     this.syncWorkspace();
     const active = this.activeWorkspacePath();
-    const target = workspaceRoot ?? active ?? '';
+    // Compared as root keys: the push and the active path can spell one folder
+    // differently on Windows (separators, drive-letter case).
+    const target = normalizeWorkspaceRoot(workspaceRoot ?? active ?? '');
     // The cache only ever holds the ACTIVE workspace's diffs.
-    if (active !== null && target !== active) return;
+    if (active !== null && target !== normalizeWorkspaceRoot(active)) return;
 
     if (target !== this.previousStatusWorkspace) {
       this.previousStatusPaths.clear();
@@ -424,11 +433,12 @@ export class ReviewDiffService implements MessageHandler {
     const currentPaths = new Set<string>();
     if (hasFileSet) {
       for (const file of files) {
+        // Entry paths are normalized; the pushed ones must match them.
         if (typeof file?.path === 'string' && file.path !== '') {
-          currentPaths.add(file.path);
+          currentPaths.add(normalizeDiffPath(file.path));
         }
         if (typeof file?.origPath === 'string' && file.origPath !== '') {
-          currentPaths.add(file.origPath);
+          currentPaths.add(normalizeDiffPath(file.origPath));
         }
       }
     }
@@ -532,7 +542,7 @@ export class ReviewDiffService implements MessageHandler {
     const entry = this._entries().get(key);
     if (!entry) return;
 
-    const requestId = (this.requestIds.get(key) ?? 0) + 1;
+    const requestId = ++this.lastRequestId;
     this.requestIds.set(key, requestId);
     if (entry.diff) {
       this.patchEntry(key, {
@@ -925,10 +935,18 @@ export class ReviewDiffService implements MessageHandler {
   private toWorkspaceRelative(absolutePath: string): string | null {
     const root = this.activeWorkspacePath();
     if (!root || !absolutePath) return null;
-    const normalizedRoot = root.replace(/\\/g, '/').replace(/\/$/, '');
+    const rootLength = root.replace(/[\\/]+$/, '').length;
     const normalizedPath = absolutePath.replace(/\\/g, '/');
-    const prefix = normalizedRoot + '/';
-    if (!normalizedPath.startsWith(prefix)) return null;
-    return normalizedPath.slice(prefix.length);
+    // The root part is compared as a root key (separator- and case-folded, so
+    // a `d:\` push matches a `D:/` workspace); the relative part keeps its case.
+    if (
+      normalizedPath.charAt(rootLength) !== '/' ||
+      normalizeWorkspaceRoot(normalizedPath.slice(0, rootLength)) !==
+        normalizeWorkspaceRoot(root)
+    ) {
+      return null;
+    }
+    const relative = normalizedPath.slice(rootLength + 1);
+    return relative === '' ? null : relative;
   }
 }

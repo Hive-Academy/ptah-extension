@@ -125,9 +125,10 @@ describe('ReviewNavigationService', () => {
     expect(service.current()).toMatchObject({ seq: 1, tab: 'commit' });
   });
 
-  it('openStashFile shows one stash file read-only against its parent', () => {
+  it('openStashFile shows one stash file read-only against its parent', async () => {
     const { service } = makeService();
-    service.openStashFile({
+    mockRpcCall.mockResolvedValue({ success: false, error: 'down' });
+    await service.openStashFile({
       base: { name: 'abc^1', sha: PARENT },
       head: { name: 'abc', sha: SHA },
       label: 'WIP on main · abc1234',
@@ -154,6 +155,56 @@ describe('ReviewNavigationService', () => {
       },
       target: { kind: 'diff', path: 'new.ts', originalPath: 'old.ts' },
     });
+  });
+
+  it("openStashFile takes the file's counts and binary flag from git:reviewChanges over the stash commits", async () => {
+    const { service } = makeService();
+    const row = {
+      path: 'logo.png',
+      status: 'M' as const,
+      additions: null,
+      deletions: null,
+      binary: true,
+    };
+    mockRpcCall.mockResolvedValue({
+      success: true,
+      data: reviewChanges({ files: [row] }),
+    });
+
+    await service.openStashFile({
+      base: { name: 'abc^1', sha: PARENT },
+      head: { name: 'abc', sha: SHA },
+      label: 'WIP on main · abc1234',
+      file: { path: 'logo.png', status: 'M' },
+    });
+
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:reviewChanges',
+      { workspaceRoot: '/ws', base: PARENT, head: SHA },
+    );
+    expect(service.current().scope).toMatchObject({
+      kind: 'historical',
+      files: [row],
+    });
+  });
+
+  it('openStashFile yields to a navigation made while its read was in flight', async () => {
+    const { service } = makeService();
+    let resolve!: (value: unknown) => void;
+    mockRpcCall.mockReturnValue(new Promise((r) => (resolve = r)));
+
+    const pending = service.openStashFile({
+      base: { name: 'abc^1', sha: PARENT },
+      head: { name: 'abc', sha: SHA },
+      label: 'WIP on main · abc1234',
+      file: { path: 'a.ts', status: 'M' },
+    });
+    service.selectComparison('staged');
+    resolve({ success: true, data: reviewChanges() });
+    await pending;
+
+    expect(service.current().scope).toEqual({ kind: 'staged' });
   });
 
   describe('openHistorical', () => {
