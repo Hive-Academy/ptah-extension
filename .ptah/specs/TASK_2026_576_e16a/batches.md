@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 52/69
+Total tasks: 87 | Batches: 69 | Complete: 55/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2178,14 +2178,14 @@ executors at once.
   `npx nx test @ptah-extension/platform-electron --testPathPatterns=editor-merge.real` (2/2 on Windows). Verified:
   platform-core 1002, platform-electron 666 tests; typecheck/lint green incl. platform-vscode/cli.
 
-## Batch 53: Conflict and history RPCs — PENDING
+## Batch 53: Conflict and history RPCs — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 52
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/cli-engine ptah-extension-vscode` (exception (a))
 
-### Task 53.1: `git:operationAbort/Continue` and `editor:openMerge` — PENDING
+### Task 53.1: `git:operationAbort/Continue` and `editor:openMerge` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.handlers.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/editor-rpc.handlers.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts
 - Plan reference: implementation-plan.md:1298-1307, 1323-1324
@@ -2194,7 +2194,7 @@ executors at once.
 - Validation notes: V4 — if `editor:openMerge` sits under `editorLauncher` and CLI/TUI lack it, add it to `libs/backend/cli-engine/src/lib/rpc/rpc-surface.spec.ts` expected-absent (6th file).
 - Implementation details: as plan.
 
-### Task 53.2: Checked by A11 evidence from Batch 52 — PENDING
+### Task 53.2: Checked by A11 evidence from Batch 52 — COMPLETE
 
 - Depends on: Task 53.1
 - File: none authored; the report quotes Batch 52's A11 result and confirms the handler only offers merge for `mergeArgs` targets
@@ -2203,6 +2203,19 @@ executors at once.
 - Quality requirements: n/a
 - Validation notes: A11
 - Implementation details: n/a
+- Outcome (`8050c1089`, with Task 55.2): executor backend-developer. `git:operationAbort`/`git:operationContinue`
+  (strict `{workspaceRoot?}`, typed results passed through; unregistered root or throw → fixed-copy `GIT_ERROR`).
+  `editor:openMerge { target, path, workspaceRoot? }` (deviation: required `target` like the plan line 1305 and the
+  sibling `editor:*` methods, not `editorId?`): no `openMergeTool` or no `mergeArgs` → `unsupported` before any
+  detect/write/spawn; missing editor → `not-installed`; stages → `openMergeTool`; reasons `invalid-params |
+  invalid-path | not-installed | no-operation | not-conflicted | not-mergeable | failed`, fixed copy, no stage paths.
+  V4: CLI/TUI hosts have `editorLauncher`, so the method is served there and answers `unsupported`; expected-absent
+  list unchanged. 53.2: A11 confirmed — Batch 52 tests "A11: declares mergeArgs only for VS Code…", "A11: refuses
+  %s, which declares no mergeArgs, without spawning", "A11: refuses a target without mergeArgs and never runs its
+  executable"; handler tests "A11: answers unsupported for %s (no mergeArgs) without materializing stages" and
+  "A11: answers unsupported when the host launcher has no openMergeTool". Extra: a successful push invalidates the PR
+  status cache for that root (`GitHubPrStatusReader.invalidate`). Verified: shared 2257, rpc-handlers 3574 (+ known
+  env failure), vscode-core 883, real-git remote-stash 25, cli-engine 208, vscode 148, ptah-electron 1081 tests.
 
 ## Batch 54: Conflict banner UI + shell banner slot — PENDING
 
@@ -2220,14 +2233,14 @@ executors at once.
 - Validation notes: "Ask agent" via `AGENT_FEEDBACK_SENDER` (`'active'`).
 - Implementation details: as plan.
 
-## Batch 55: History reader and `git:log` — PENDING
+## Batch 55: History reader and `git:log` — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batch 53
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core @ptah-extension/rpc-handlers` (registry with handler, V5 — exception (a))
 
-### Task 55.1: `GitHistoryReader` + facade delegate — PENDING
+### Task 55.1: `GitHistoryReader` + facade delegate — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-history.reader.ts; CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-history.reader.real-git.spec.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts
 - Plan reference: implementation-plan.md:1341-1357
@@ -2240,7 +2253,7 @@ executors at once.
   authorName, authorDate (ISO %aI), parentCount, isRoot }`; real-git 13/13. Deviations: type name, ISO dates,
   extra `mode`/`branch`/`truncated` fields.
 
-### Task 55.2: `git:log` handler — PENDING
+### Task 55.2: `git:log` handler — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/git-workflow-rpc.handlers.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc.types.ts
 - Plan reference: implementation-plan.md:1341, 1356-1357
@@ -2248,6 +2261,8 @@ executors at once.
 - Quality requirements: n/a beyond plan.
 - Validation notes: V5.
 - Implementation details: as plan.
+- Outcome: 55.1 `ed5b9f5cc` (above); 55.2 in `8050c1089` — `git:log` strict workspace-scoped, passes `getLog` through;
+  throw → `unavailable/git-failed`; unregistered root → `not-a-repository`.
 
 ## Batch 56: History timeline UI + shell History tab — PENDING
 
@@ -2265,14 +2280,14 @@ executors at once.
 - Validation notes: none.
 - Implementation details: select → `ReviewNavigationService.openHistorical(sha)`.
 
-## Batch 57: CI — editor merge spec in the OS matrix — PENDING
+## Batch 57: CI — editor merge spec in the OS matrix — COMPLETE
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 52
 - Verification: workflow lint as in Batch 8
 
-### Task 57.1: Add `editor-merge.real.spec.ts` run to `git-real-git` — PENDING
+### Task 57.1: Add `editor-merge.real.spec.ts` run to `git-real-git` — COMPLETE
 
 - File: MODIFY D:/projects/ptah-extension/.github/workflows/ci.yml
 - Plan reference: implementation-plan.md:1313
@@ -2280,6 +2295,10 @@ executors at once.
 - Quality requirements: runs on all three OSes.
 - Validation notes: project name `@ptah-extension/platform-electron`.
 - Implementation details: `--testPathPattern=editor-merge.real`.
+- Outcome (`2b22c9787`): executor devops-engineer. Step "platform-electron editor-merge real spec" at the end of
+  `git-real-git` (ubuntu/windows/macos): `node_modules/.bin/nx test @ptah-extension/platform-electron
+  --testPathPatterns=editor-merge.real --passWithNoTests=false` (plural flag; singular is ignored by `@nx/jest`). YAML
+  parsed with `yaml`; actionlint not installed; spec passes on Windows; first Linux/macOS run happens in CI.
 
 ### P5 phase-end review
 
