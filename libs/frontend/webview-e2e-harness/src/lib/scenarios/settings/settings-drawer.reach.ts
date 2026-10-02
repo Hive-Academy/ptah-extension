@@ -190,6 +190,12 @@ export async function withAuthStatus(page: Page, change: Partial<ReturnType<type
 export async function openScopeBadge(page: Page, field: string): Promise<Locator> {
   await providersTab(page);
   const badge = page.locator(`[data-testid="scope-badge"][data-field="${field}"]`);
+  // Batch 52.6: a Main Agent field badge sits in its layer badge's popover ("Workspace override"); open that first.
+  const layer = page.locator(`[data-testid="main-scope-layer"][data-fields*="${field}"]`);
+  if (!(await badge.isVisible()) && (await layer.count()) > 0) {
+    await layer.first().click();
+    await expect(page.locator('[data-testid="main-scope-layer-popover"]')).toBeVisible();
+  }
   await visibleEnabled(badge);
   await badge.click();
   const popover = page.locator('[data-testid="scope-popover"]');

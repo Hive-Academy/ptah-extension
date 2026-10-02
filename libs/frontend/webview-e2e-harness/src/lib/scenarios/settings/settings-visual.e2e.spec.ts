@@ -14,6 +14,7 @@ import type { Page } from '@playwright/test';
 import { test, expect } from '../../test-fixtures';
 import { bootSettings, gotoSettingsTab, waitForSettled } from './settings.fixtures';
 import { capture } from './settings-capture';
+import { LIVE_VERSIONS, liveShapeOverrides } from './settings-live-shape.fixtures';
 
 test.use({ useAppBuild: true });
 
@@ -466,20 +467,30 @@ for (const host of ['vscode', 'electron'] as const) {
       expect(nodeColumns).toBe(host === 'vscode' ? 3 : 2);
       const gridWidth = await page.locator('[data-testid="routing-map-nodes"]').evaluate((grid) => grid.getBoundingClientRect().width);
       if (host === 'electron') expect(Math.abs(nodeBoxes[2].w - Math.round(gridWidth))).toBeLessThanOrEqual(1);
-      // Gate V 28 (prototype header): the status pill and badges sit on the title row; a title may wrap to at most two
-      // lines (16 px leading) rather than push the badges to a row of their own.
+      // Gate V 28 (prototype header): the status pill and badges sit beside the title. Since Batch 52.6 every title is
+      // one line (16 px leading); a layer badge that does not fit moves, whole, to the next line under it.
       for (const height of await page.locator('[data-testid="routing-map"] h3').evaluateAll((all) => all.map((h) => h.getBoundingClientRect().height))) {
-        expect(height).toBeLessThanOrEqual(34);
+        expect(height).toBeLessThanOrEqual(17);
       }
       const titleRow = await page.locator('[data-testid="routing-node-main-agent"]').evaluate((node) => ({
         title: node.querySelector('h3')?.getBoundingClientRect() ?? null,
-        badges: Array.from(node.querySelectorAll('[data-testid="routing-node-badges"] [data-testid="scope-badge"], [data-testid="routing-node-status"]'))
+        badges: Array.from(node.querySelectorAll('[data-testid="routing-node-status"], [data-testid="main-scope-layer"]'))
           .map((badge) => badge.getBoundingClientRect().top),
       }));
       console.log(`B28 main node header ${host}/${theme}: title ${Math.round(titleRow.title?.top ?? 0)}-${Math.round(titleRow.title?.bottom ?? 0)}, badge tops ${titleRow.badges.map(Math.round).join(',')}`);
-      // Every badge starts within the title's height: none drops to a row of its own under the header. In a 261 px
-      // VS Code node the pill and one badge stack beside the two-line title; wider nodes hold them on one line.
-      for (const top of titleRow.badges) expect(top).toBeLessThan(titleRow.title?.bottom ?? 0);
+      // The status pill sits on the title's line; layer badges are on it or on the one line under it.
+      expect(titleRow.badges[0]).toBeLessThan(titleRow.title?.bottom ?? 0);
+      for (const top of titleRow.badges) expect(top).toBeLessThan((titleRow.title?.bottom ?? 0) + 28);
+      // Batch 52.6: no layer badge runs past the node, and none is truncated (its text fits its box).
+      const headFit = await page.locator('[data-testid="routing-node-main-agent"]').evaluate((node) => ({
+        title: node.querySelector('h3')?.getBoundingClientRect().height ?? 0,
+        overflow: Math.max(0, ...Array.from(node.querySelectorAll('[data-testid="main-scope-layer"]'))
+          .map((badge) => badge.getBoundingClientRect().right - node.getBoundingClientRect().right)),
+        clipped: Array.from(node.querySelectorAll<HTMLElement>('[data-testid="main-scope-layer"]')).some((badge) => badge.scrollWidth > badge.clientWidth + 1),
+      }));
+      expect(headFit.title).toBeLessThanOrEqual(17);
+      expect(headFit.overflow).toBeLessThanOrEqual(0.5);
+      expect(headFit.clipped).toBe(false);
       // "PROVIDER:" / "MODEL:" start on the value's first line, and the value is shown whole (Batch 28b: it may wrap in
       // its own column, never truncate): nothing overflows its box and the text is the full route value.
       for (const row of ['routing-main-provider-row', 'routing-main-model-row']) {
@@ -513,6 +524,9 @@ for (const host of ['vscode', 'electron'] as const) {
       // Batch 28b: the compact model search with its list open and filtered. The list (position: fixed) is never
       // clipped by the popover's scroll box: it is inside the viewport and on top at every row.
       await modelInput.click();
+      // The list must be open before typing: a query that lands on the same render as the open keeps the open contract
+      // (no active row, `native-autocomplete` applyOpenActiveIndex), so the 51.3 wait below would never be met.
+      await expect(modelInput).toHaveAttribute('aria-expanded', 'true');
       await modelInput.fill('kimi');
       const listboxId = await modelInput.getAttribute('aria-controls');
       const listbox = page.locator(`[id="${listboxId}"]`);
@@ -566,7 +580,9 @@ for (const host of ['vscode', 'electron'] as const) {
       await mainPopover.getByRole('button', { name: 'Cancel provider change' }).click();
       await page.keyboard.press('Escape');
       await expect(mainPopover).toHaveCount(0);
-      // Batch 23 (D16): every scope badge names its field; the open popover is its own capture.
+      // Batch 23 (D16): every scope badge names its field; the open popover is its own capture. Since Batch 52.6 the
+      // Main Agent's field badges are in its layer badge's popover.
+      await page.locator('[data-testid="main-scope-layer"]').first().click();
       const badges = page.locator('[data-testid="scope-badge"]');
       // The scopes read lands after the tab renders; the fixture overrides the effort key.
       await expect(badges.first()).toBeVisible();
@@ -583,6 +599,8 @@ for (const host of ['vscode', 'electron'] as const) {
       await capture(page, 'scope-popover', host, theme);
       await page.keyboard.press('Escape');
       await expect(page.locator('[data-testid="scope-popover"]')).toHaveCount(0);
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[data-testid="main-scope-layer-popover"]')).toHaveCount(0);
       // Batch 27: the provider catalog modal (prototype `#modalPalette`), centred and fully on screen.
       const connect = page.getByRole('button', { name: 'Connect provider', exact: true });
       await connect.click();
@@ -619,6 +637,80 @@ for (const host of ['vscode', 'electron'] as const) {
         await expect(drawer).toHaveCount(0);
       }
       if (foldFailure) throw foldFailure;
+    });
+  }
+}
+
+/**
+ * Batch 52.4: live-shaped values (raw CLI version lines, an "id<TAB>name" Antigravity model, three Main Agent override
+ * layers; `settings-live-shape.fixtures.ts`). Asserts 52.1-52.3 in both hosts and themes, and captures both tabs as
+ * `live-providers` / `live-orchestration`.
+ */
+for (const host of ['vscode', 'electron'] as const) {
+  for (const theme of ['anubis', 'anubis-light'] as const) {
+    test(`live-shaped values — Batch 52 (${host}, ${theme})`, async ({ page, fixtureServer }) => {
+      await bootSettings(page, fixtureServer.url, host, theme, liveShapeOverrides(page));
+      await page.setViewportSize({ width: 1024, height: 768 });
+      await gotoSettingsTab(page, 'Providers');
+      await waitForSettled(page);
+      // 52.6: one badge per overridden layer (prototype), never truncated: the App layer named after the host, then
+      // "Workspace override". The title stays one line; a badge that does not fit moves under it.
+      const node = page.locator('[data-testid="routing-node-main-agent"]');
+      const layers = node.locator('[data-testid="main-scope-layer"]');
+      await expect(layers).toHaveText([host === 'electron' ? 'Desktop app override' : 'VS Code override', 'Workspace override']);
+      const head = await node.evaluate((element) => {
+        const title = element.querySelector('h3')?.getBoundingClientRect();
+        const badges = Array.from(element.querySelectorAll<HTMLElement>('[data-testid="main-scope-layer"]'));
+        const nodeBox = element.getBoundingClientRect();
+        return { titleHeight: title?.height ?? 0, titleBottom: title?.bottom ?? 0,
+          tops: badges.map((badge) => badge.getBoundingClientRect().top),
+          overflow: Math.max(...badges.map((badge) => badge.getBoundingClientRect().right)) - nodeBox.right,
+          clipped: badges.some((badge) => badge.scrollWidth > badge.clientWidth + 1), nodeHeight: nodeBox.height };
+      });
+      console.log(`B52 main node head ${host}/${theme}: title h ${Math.round(head.titleHeight)}, layer tops ${head.tops.map(Math.round).join(',')}, overflow ${Math.round(head.overflow)}, node h ${Math.round(head.nodeHeight)}`);
+      expect(head.titleHeight).toBeLessThanOrEqual(17);
+      // Whole badges wrap under the title: in the 261 px VS Code node each of the two takes its own line (two badge
+      // lines); in Electron the first fits beside the title. Never more than two lines under the title.
+      for (const top of head.tops) expect(top).toBeLessThan(head.titleBottom + 56);
+      expect(head.overflow).toBeLessThanOrEqual(0.5);
+      expect(head.clipped).toBe(false);
+      // The Gate V 28 fold still holds with the taller node (VS Code card 5, Electron map + Connections heading).
+      await assertProvidersFold(page, host, theme);
+      await capture(page, 'live-providers', host, theme);
+      // The workspace layer's popover lists its two fields by name (D16); Esc returns focus to the layer badge.
+      await layers.nth(1).click();
+      const popover = page.locator('[data-testid="main-scope-layer-popover"]');
+      await expect(popover.locator('[data-testid="scope-badge"]')).toHaveCount(2);
+      await expect(popover.locator('[data-testid="scope-badge"]').nth(0)).toHaveAttribute('data-field', 'Main agent authentication');
+      await page.keyboard.press('Escape');
+      await expect(popover).toHaveCount(0);
+      await expect(layers.nth(1)).toBeFocused();
+
+      await gotoSettingsTab(page, 'Agent Orchestration');
+      await waitForSettled(page);
+      await expect(page.locator('[data-testid="cli-matrix-toggle-codex"]')).toBeVisible();
+      // 52.1: one normalised version beside each name, on the name's line.
+      const expected: Readonly<Record<string, string>> = { codex: 'v0.155.1', copilot: 'v1.0.83', opencode: 'v2.0.12', antigravity: 'v1.2.14' };
+      for (const [cli, label] of Object.entries(expected)) {
+        const version = page.locator(`[data-testid="cli-matrix-row-${cli}"] [data-testid="cli-matrix-version"]`);
+        await expect(version).toHaveText(label);
+        await expect(version).toHaveAttribute('title', LIVE_VERSIONS[cli]);
+        const line = await version.evaluate((element) => {
+          const name = element.parentElement?.firstElementChild?.getBoundingClientRect();
+          const own = element.getBoundingClientRect();
+          return { nameTop: name?.top ?? 0, nameBottom: name?.bottom ?? 0, top: own.top, bottom: own.bottom };
+        });
+        expect(line.top).toBeLessThan(line.nameBottom);
+        expect(line.bottom).toBeGreaterThan(line.nameTop);
+      }
+      // 52.2: the Antigravity model cell shows the id once, on at most two lines, with the name in its title.
+      const model = page.locator('[data-testid="cli-matrix-model-antigravity"]');
+      await expect(model.locator('span').first()).toHaveText('claude-sonnet-4-6');
+      await expect(model).toHaveAttribute('title', 'claude-sonnet-4-6 (Claude Sonnet 4.6 (Thinking))');
+      const modelLines = await model.locator('span').first().evaluate((element) =>
+        Math.round(element.getBoundingClientRect().height / parseFloat(getComputedStyle(element).lineHeight)));
+      expect(modelLines).toBeLessThanOrEqual(2);
+      await capture(page, 'live-orchestration', host, theme);
     });
   }
 }

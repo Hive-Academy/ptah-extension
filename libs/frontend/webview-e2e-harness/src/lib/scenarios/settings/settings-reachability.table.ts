@@ -356,12 +356,19 @@ const providersAuth: readonly ReachabilityEntry[] = [
   },
   {
     id: '#17', capability: 'Scope badge (Workspace/App override, Inherited)', status: 'present',
-    // Since Batch 23 (D16): a badge naming the field, shown only for an override (the fixture's effort key).
+    // Since Batch 23 (D16): a badge naming the field, shown only for an override (the fixture's effort key). Since
+    // Batch 52.6 the Main Agent head shows one badge per layer ("Workspace override"), whose popover holds the field badge.
     reach: async (page) => {
       await providersTab(page);
+      const layer = page.locator('[data-testid="main-scope-layer"][data-layer="workspace"]');
+      await visibleEnabled(layer);
+      await expect(layer).toHaveText('Workspace override');
+      await layer.click();
       const badge = page.locator('[data-testid="scope-badge"][data-field="Reasoning effort"]');
       await visibleEnabled(badge);
       await expect(badge).toContainText('Effort · Workspace');
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[data-testid="main-scope-layer-popover"]')).toHaveCount(0);
     },
   },
   {
@@ -783,14 +790,19 @@ const regressedUx: readonly ReachabilityEntry[] = [
     reach: async (page) => {
       await providersTab(page);
       await expect(page.locator('[data-testid="setting-scope-row"]')).toHaveCount(0);
-      const badges = page.locator('[data-testid="main-scope-badges"] [data-testid="scope-badge"]');
-      await expect(badges).toHaveCount(1);
-      await expect(badges.first()).toHaveAttribute('data-field', 'Reasoning effort');
+      // Batch 52.6: one layer badge for the one overridden layer, listing the one overridden field.
+      const layers = page.locator('[data-testid="main-scope-badges"] [data-testid="main-scope-layer"]');
+      await expect(layers).toHaveCount(1);
+      await expect(layers.first()).toHaveAttribute('data-fields', 'Reasoning effort');
       const popover = await openScopeBadge(page, 'Reasoning effort');
+      await expect(page.locator('[data-testid="main-scope-layer-popover"] [data-testid="scope-badge"]')).toHaveCount(1);
       await expect(popover.locator('[data-layer="workspace"]')).toHaveAttribute('aria-current', 'true');
       await page.keyboard.press('Escape');
       await expect(popover).toHaveCount(0);
       await expect(page.locator('[data-testid="scope-badge"][data-field="Reasoning effort"]')).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[data-testid="main-scope-layer-popover"]')).toHaveCount(0);
+      await expect(layers.first()).toBeFocused();
     } },
   { id: 'RUX-2', capability: 'Tier model edited in place, saved on selection, with Undo (no wizard, no re-verify)', status: 'restored',
     // Batch 22: the selection is one real write; Undo is a SECOND real write restoring the previous value.
