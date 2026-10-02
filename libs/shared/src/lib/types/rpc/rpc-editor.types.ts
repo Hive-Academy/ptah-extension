@@ -95,3 +95,55 @@ export interface EditorOpenResult {
   success: boolean;
   error?: string;
 }
+
+/**
+ * Parameters for `editor:openMerge` (TASK_2026_576 Requirement 11): open the
+ * three-way merge view of one conflicted path in an external editor.
+ */
+export interface EditorOpenMergeParams {
+  /** The editor to launch; only a target with a merge view gets one (A11). */
+  target: EditorTargetId;
+  /** Repository-relative path of the conflicted file. */
+  path: string;
+  /**
+   * The registered workspace folder the conflict is in; the active folder
+   * when omitted. An unregistered folder is refused, never substituted.
+   */
+  workspaceRoot?: string;
+}
+
+/**
+ * Why `editor:openMerge` did not launch:
+ * - `invalid-params` — the payload failed validation.
+ * - `invalid-path` — not a repository-relative path inside the working tree.
+ * - `not-installed` — the target was not detected on this machine.
+ * - `no-operation` — no merge, rebase or cherry-pick is in progress.
+ * - `not-conflicted` — the path has no unmerged entry (already resolved).
+ * - `not-mergeable` — a delete/modify, symlink or submodule conflict: no
+ *   three-way merge exists; open the folder instead.
+ * - `failed` — git, the file system or the launch failed (details in the log).
+ */
+export type EditorOpenMergeFailureReason =
+  | 'invalid-params'
+  | 'invalid-path'
+  | 'not-installed'
+  | 'no-operation'
+  | 'not-conflicted'
+  | 'not-mergeable'
+  | 'failed';
+
+/**
+ * Result from `editor:openMerge`. Discriminated on `status`.
+ * - `ok` — the editor started with its merge view.
+ * - `unsupported` — the target has no merge view (or this host cannot launch
+ *   one); nothing was written or spawned. Open the file instead.
+ * - `failed` — `error` is fixed, user-facing copy; never a path or stderr.
+ */
+export type EditorOpenMergeResult =
+  | { status: 'ok' }
+  | { status: 'unsupported' }
+  | {
+      status: 'failed';
+      reason: EditorOpenMergeFailureReason;
+      error: string;
+    };

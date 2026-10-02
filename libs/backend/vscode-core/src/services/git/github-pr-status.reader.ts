@@ -167,8 +167,20 @@ export class GitHubPrStatusReader {
     return result;
   }
 
-  clearCache(): void {
-    this.cache.clear();
+  /**
+   * Drop cached results so the next read asks `gh` again: every branch of
+   * `workspaceRoot`, or the whole cache when it is omitted. A push changes
+   * the checks GitHub reports, so a cached `ok` would show pre-push checks.
+   */
+  invalidate(workspaceRoot?: string): void {
+    if (workspaceRoot === undefined) {
+      this.cache.clear();
+      return;
+    }
+    const prefix = `${repoKey(workspaceRoot)}::`;
+    for (const key of [...this.cache.keys()]) {
+      if (key.startsWith(prefix)) this.cache.delete(key);
+    }
   }
 
   private fetchStatus(

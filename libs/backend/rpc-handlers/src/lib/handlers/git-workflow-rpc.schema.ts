@@ -8,6 +8,9 @@ import { z } from 'zod';
 import type {
   GitCancelOperationParams,
   GitGenerateCommitMessageParams,
+  GitLogParams,
+  GitOperationAbortParams,
+  GitOperationContinueParams,
   GitPrStatusParams,
 } from '@ptah-extension/shared';
 
@@ -46,5 +49,29 @@ export const GitPrStatusParamsSchema = GitWorkspaceScopedParamsSchema;
 
 export function parseGitPrStatusParams(raw: unknown): GitPrStatusParams | null {
   const result = GitPrStatusParamsSchema.safeParse(raw ?? {});
+  return result.success ? result.data : null;
+}
+
+/**
+ * Abort, continue and log name nothing but the workspace folder; a missing
+ * payload is `{}`. A client-supplied `kind` (or a ref for the log) is an
+ * unknown key: the backend re-detects the operation and resolves the base.
+ */
+export function parseGitOperationAbortParams(
+  raw: unknown,
+): GitOperationAbortParams | null {
+  const result = GitWorkspaceScopedParamsSchema.safeParse(raw ?? {});
+  return result.success ? result.data : null;
+}
+
+export function parseGitOperationContinueParams(
+  raw: unknown,
+): GitOperationContinueParams | null {
+  const result = GitWorkspaceScopedParamsSchema.safeParse(raw ?? {});
+  return result.success ? result.data : null;
+}
+
+export function parseGitLogParams(raw: unknown): GitLogParams | null {
+  const result = GitWorkspaceScopedParamsSchema.safeParse(raw ?? {});
   return result.success ? result.data : null;
 }

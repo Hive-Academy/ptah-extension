@@ -15,6 +15,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { GitInfoService, parseStashNameStatus } from './git-info.service';
+import { GitHubPrStatusReader } from './git/github-pr-status.reader';
 import type { Logger } from '../logging';
 
 const GIT_ENV = { ...process.env, LC_ALL: 'C', LANG: 'C' };
@@ -156,6 +157,25 @@ describe('GitInfoService.push', () => {
     const result = await service.push(repo);
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/no "origin" remote/);
+  });
+
+  it('drops the cached PR status of the root after a successful push only', async () => {
+    const invalidate = jest.spyOn(GitHubPrStatusReader.prototype, 'invalidate');
+    try {
+      const repo = makeRepo();
+      const service = new GitInfoService(makeLogger());
+
+      // No remote: the push fails and the cache stays.
+      await service.push(repo);
+      expect(invalidate).not.toHaveBeenCalled();
+
+      git(repo, 'remote', 'add', 'origin', makeBare());
+      await expect(service.push(repo)).resolves.toEqual({ success: true });
+      expect(invalidate).toHaveBeenCalledTimes(1);
+      expect(invalidate).toHaveBeenCalledWith(repo);
+    } finally {
+      invalidate.mockRestore();
+    }
   });
 });
 

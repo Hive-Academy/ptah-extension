@@ -593,6 +593,50 @@ describe('GitHubPrStatusReader', () => {
       await reader.read('d:/projects/repo', 'feat/norm');
       expect(recordedRequests).toHaveLength(1);
     });
+
+    it('invalidate(root) drops every branch of that root and keeps other roots', async () => {
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify({ number: 5, title: 'T', state: 'OPEN' }),
+      };
+      const reader = new GitHubPrStatusReader({
+        spawner: fakeSpawner,
+        now: () => 5_000_000,
+      });
+
+      await reader.read('D:\\Repo', 'feat/a');
+      await reader.read('D:\\Repo', 'feat/b');
+      await reader.read('D:\\Repo2', 'feat/a');
+      expect(recordedRequests).toHaveLength(3);
+
+      // Same root in another spelling: the key is normalized the same way.
+      reader.invalidate('d:/repo/');
+
+      await reader.read('D:\\Repo', 'feat/a');
+      await reader.read('D:\\Repo', 'feat/b');
+      expect(recordedRequests).toHaveLength(5);
+      // `D:\Repo2` shares the prefix text but is another root: still cached.
+      await reader.read('D:\\Repo2', 'feat/a');
+      expect(recordedRequests).toHaveLength(5);
+    });
+
+    it('invalidate() without a root clears the whole cache', async () => {
+      nextProcessOptions = {
+        exitCode: 0,
+        stdout: JSON.stringify({ number: 6, title: 'T', state: 'OPEN' }),
+      };
+      const reader = new GitHubPrStatusReader({
+        spawner: fakeSpawner,
+        now: () => 6_000_000,
+      });
+
+      await reader.read('/one', 'feat/a');
+      await reader.read('/two', 'feat/a');
+      reader.invalidate();
+      await reader.read('/one', 'feat/a');
+      await reader.read('/two', 'feat/a');
+      expect(recordedRequests).toHaveLength(4);
+    });
   });
 
   describe('cross-spawn fallback', () => {

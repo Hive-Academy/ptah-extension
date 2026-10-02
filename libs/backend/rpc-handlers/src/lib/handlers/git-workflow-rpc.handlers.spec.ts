@@ -25,6 +25,9 @@ import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testi
 import type { CommitMessageGenerator } from '@ptah-extension/agent-sdk';
 import type {
   GitGenerateCommitMessageResult,
+  GitLogResult,
+  GitOperationContinueResult,
+  GitOperationFailed,
   GitPrStatusResult,
 } from '@ptah-extension/shared';
 import {
@@ -35,8 +38,35 @@ import {
 import { GitWorkflowRpcHandlers } from './git-workflow-rpc.handlers';
 
 type MockGitInfo = jest.Mocked<
-  Pick<GitInfoService, 'cancelOperation' | 'getBranches' | 'readPrStatus'>
+  Pick<
+    GitInfoService,
+    | 'cancelOperation'
+    | 'getBranches'
+    | 'readPrStatus'
+    | 'abortOperation'
+    | 'continueOperation'
+    | 'getLog'
+  >
 >;
+
+const LOG_OK: GitLogResult = {
+  status: 'ok',
+  mode: 'since-base',
+  base: 'origin/main',
+  branch: 'feat/x',
+  commits: [
+    {
+      sha: 'a'.repeat(40),
+      shortSha: 'aaaaaaa',
+      subject: 'feat: x',
+      authorName: 'Dev',
+      authorDate: '2026-10-01T10:00:00+00:00',
+      parentCount: 1,
+      isRoot: false,
+    },
+  ],
+  truncated: false,
+};
 
 const OPEN_PR: GitPrStatusResult = {
   status: 'ok',
@@ -64,6 +94,13 @@ function buildSuite(): Suite {
       .fn()
       .mockResolvedValue({ current: 'feat/x', local: [], remote: [] }),
     readPrStatus: jest.fn().mockResolvedValue(OPEN_PR),
+    abortOperation: jest
+      .fn()
+      .mockResolvedValue({ status: 'completed', kind: 'merge' }),
+    continueOperation: jest
+      .fn()
+      .mockResolvedValue({ status: 'completed', kind: 'rebase' }),
+    getLog: jest.fn().mockResolvedValue(LOG_OK),
   };
   const generator: MockGenerator = {
     generate: jest.fn().mockResolvedValue({
@@ -94,13 +131,16 @@ function getHandler(
 }
 
 describe('GitWorkflowRpcHandlers', () => {
-  it('owns and registers exactly the cancel, generate and PR status methods', () => {
+  it('owns and registers exactly the workflow methods', () => {
     const { rpc } = buildSuite();
 
     expect(GitWorkflowRpcHandlers.METHODS).toEqual([
       'git:cancelOperation',
       'git:generateCommitMessage',
       'git:prStatus',
+      'git:operationAbort',
+      'git:operationContinue',
+      'git:log',
     ]);
     const registered = (rpc.registerMethod as jest.Mock).mock.calls.map(
       ([name]) => name as string,
@@ -317,6 +357,166 @@ describe('GitWorkflowRpcHandlers', () => {
       });
       expect(gitInfo.getBranches).not.toHaveBeenCalled();
       expect(gitInfo.readPrStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe.each([
+    ['git:operationAbort', 'abortOperation'],
+    ['git:operationContinue', 'continueOperation'],
+  ] as const)('%s', (method, serviceMethod) => {
+    it('acts on the named registered folder and returns the result as is', async () => {
+      const { rpc, gitInfo } = buildSuite();
+      const failed: GitOperationFailed = {
+        status: 'failed',
+        kind: 'rebase',
+        code: 'HOOK_FAILED',
+        error: 'A hook rejected the step.',
+      };
+      gitInfo[serviceMethod].mockResolvedValueOnce(failed);
+
+      await expect(
+        getHandler(rpc, method)({ workspaceRoot: 'd:/repos/other/' }),
+      ).resolves.toEqual(failed);
+      expect(gitInfo[serviceMethod]).toHaveBeenCalledWith('d:/repos/other/');
+    });
+
+    it('uses the active workspace when no folder is named', async () => {
+      const { rpc, gitInfo } = buildSuite();
+
+      await getHandler(rpc, method)(undefined);
+
+      expect(gitInfo[serviceMethod]).toHaveBeenCalledWith('/workspace');
+    });
+
+    it('never acts on an unregistered folder', async () => {
+      const { rpc, gitInfo, logger } = buildSuite();
+
+      await expect(
+        getHandler(rpc, method)({ workspaceRoot: '/somewhere/else' }),
+      ).resolves.toEqual({
+        status: 'failed',
+        code: 'GIT_ERROR',
+        error: 'No registered workspace folder to act on.',
+      });
+      expect(gitInfo[serviceMethod]).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a client-supplied kind', { workspaceRoot: '/workspace', kind: 'merge' }],
+      ['an empty workspaceRoot', { workspaceRoot: '' }],
+      ['a non-string workspaceRoot', { workspaceRoot: 7 }],
+    ])('rejects %s without running git', async (_label, params) => {
+      const { rpc, gitInfo } = buildSuite();
+
+      const call = getHandler(rpc, method)(params);
+
+      await expect(call).rejects.toBeInstanceOf(RpcUserError);
+      await expect(call).rejects.toMatchObject({
+        errorCode: 'INVALID_PARAMS',
+      });
+      expect(gitInfo[serviceMethod]).not.toHaveBeenCalled();
+    });
+
+    it('turns a throw into fixed copy, keeping the raw message in the log', async () => {
+      const { rpc, gitInfo, logger } = buildSuite();
+      gitInfo[serviceMethod].mockRejectedValueOnce(
+        new Error('fatal: C:\\Users\\me\\secret\\.git/index.lock'),
+      );
+
+      const result = await getHandler(rpc, method)({});
+
+      expect(result).toEqual({
+        status: 'failed',
+        code: 'GIT_ERROR',
+        error: 'Git could not complete the action.',
+      });
+      expect(JSON.stringify(result)).not.toContain('secret');
+      expect(logger.error).toHaveBeenCalled();
+    });
+  });
+
+  describe('git:operationContinue results', () => {
+    it.each<GitOperationContinueResult>([
+      { status: 'no-operation' },
+      { status: 'conflicts-remain', kind: 'merge', conflictedPaths: ['a.ts'] },
+      { status: 'stopped', kind: 'rebase', conflictedPaths: ['b.ts'] },
+    ])('passes %o through unchanged', async (outcome) => {
+      const { rpc, gitInfo } = buildSuite();
+      gitInfo.continueOperation.mockResolvedValueOnce(outcome);
+
+      await expect(
+        getHandler(rpc, 'git:operationContinue')({}),
+      ).resolves.toEqual(outcome);
+    });
+  });
+
+  describe('git:log', () => {
+    it('returns the reader result for the named registered folder', async () => {
+      const { rpc, gitInfo } = buildSuite();
+
+      await expect(
+        getHandler(rpc, 'git:log')({ workspaceRoot: '/workspace' }),
+      ).resolves.toEqual(LOG_OK);
+      expect(gitInfo.getLog).toHaveBeenCalledWith('/workspace');
+    });
+
+    it('uses the active workspace when no folder is named', async () => {
+      const { rpc, gitInfo } = buildSuite();
+
+      await getHandler(rpc, 'git:log')(undefined);
+
+      expect(gitInfo.getLog).toHaveBeenCalledWith('/workspace');
+    });
+
+    it('returns an unavailable reason from the reader as is', async () => {
+      const { rpc, gitInfo } = buildSuite();
+      gitInfo.getLog.mockResolvedValueOnce({
+        status: 'unavailable',
+        reason: 'not-a-repository',
+      });
+
+      await expect(getHandler(rpc, 'git:log')({})).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'not-a-repository',
+      });
+    });
+
+    it('turns a reader throw into git-failed, keeping the detail in the log', async () => {
+      const { rpc, gitInfo, logger } = buildSuite();
+      gitInfo.getLog.mockRejectedValueOnce(new Error('secret internal detail'));
+
+      const result = await getHandler(rpc, 'git:log')({});
+
+      expect(result).toEqual({ status: 'unavailable', reason: 'git-failed' });
+      expect(JSON.stringify(result)).not.toContain('secret');
+      expect(logger.error).toHaveBeenCalled();
+    });
+
+    it('never reads an unregistered folder', async () => {
+      const { rpc, gitInfo, logger } = buildSuite();
+
+      await expect(
+        getHandler(rpc, 'git:log')({ workspaceRoot: '/somewhere/else' }),
+      ).resolves.toEqual({ status: 'unavailable', reason: 'not-a-repository' });
+      expect(gitInfo.getLog).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a client-supplied base', { workspaceRoot: '/workspace', base: 'main' }],
+      ['an empty workspaceRoot', { workspaceRoot: '' }],
+      ['a non-string workspaceRoot', { workspaceRoot: 7 }],
+    ])('rejects %s without reading anything', async (_label, params) => {
+      const { rpc, gitInfo } = buildSuite();
+
+      const call = getHandler(rpc, 'git:log')(params);
+
+      await expect(call).rejects.toBeInstanceOf(RpcUserError);
+      await expect(call).rejects.toMatchObject({
+        errorCode: 'INVALID_PARAMS',
+      });
+      expect(gitInfo.getLog).not.toHaveBeenCalled();
     });
   });
 });

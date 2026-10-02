@@ -1299,8 +1299,11 @@ export class GitInfoService {
   }
 
   /** Push, pull and fetch: see {@link GitRemoteSync} (pull is locked). */
-  push(workspacePath: string): Promise<GitPushResult> {
-    return this.remoteSync.push(workspacePath);
+  async push(workspacePath: string): Promise<GitPushResult> {
+    const result = await this.remoteSync.push(workspacePath);
+    // The pushed commits get new checks: a cached PR status is stale now.
+    if (result.success) this.prStatusReader.invalidate(workspacePath);
+    return result;
   }
 
   pull(workspacePath: string): Promise<GitPullResult> {
