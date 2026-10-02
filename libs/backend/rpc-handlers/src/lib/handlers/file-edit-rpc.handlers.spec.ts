@@ -155,6 +155,86 @@ describe('FileEditRpcHandlers — file:saveContent', () => {
     expect(result).toEqual({ success: true, sha256: sha256Of(expected) });
   });
 
+  describe('BOM round-trip contract', () => {
+    const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+
+    /**
+     * The text `file:viewContent` hands the editor: exactly one leading BOM is
+     * sliced off, and the rest is decoded with `ignoreBOM: true`, so any
+     * further U+FEFF survives as content.
+     */
+    function viewerContent(bytes: Buffer): string {
+      const body = bytes.subarray(0, 3).equals(bom) ? bytes.subarray(3) : bytes;
+      return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
+        body,
+      );
+    }
+
+    it('saves an unchanged BOM file byte-identical', async () => {
+      const original = Buffer.concat([bom, Buffer.from('a\r\nb\n', 'utf8')]);
+      const { absolute, sha256 } = await seed('bom-same.txt', original);
+
+      const result = await save({
+        path: absolute,
+        content: viewerContent(original),
+        expectedSha256: sha256,
+      });
+
+      expect(result).toEqual({ success: true, sha256 });
+      expect(sha256Of(await fs.readFile(absolute))).toBe(sha256);
+    });
+
+    it('keeps a second BOM that the viewer reported as content', async () => {
+      // A file that genuinely starts with two BOMs: the viewer shows the
+      // second as a leading U+FEFF, and saving it back must not drop it.
+      const original = Buffer.concat([bom, bom, Buffer.from('x', 'utf8')]);
+      const { absolute, sha256 } = await seed('bom-twice.txt', original);
+      const content = viewerContent(original);
+      expect(content).toBe('﻿x');
+
+      const result = await save({
+        path: absolute,
+        content,
+        expectedSha256: sha256,
+      });
+
+      expect(result).toEqual({ success: true, sha256 });
+      expect(await fs.readFile(absolute)).toEqual(original);
+    });
+
+    it('writes a leading U+FEFF typed into a BOM file after the file BOM', async () => {
+      const { absolute, sha256 } = await seed(
+        'bom-typed.txt',
+        Buffer.concat([bom, Buffer.from('x', 'utf8')]),
+      );
+
+      await save({ path: absolute, content: '﻿y', expectedSha256: sha256 });
+
+      const written = await fs.readFile(absolute);
+      expect(written).toEqual(
+        Buffer.concat([bom, bom, Buffer.from('y', 'utf8')]),
+      );
+      // The next read shows the editor exactly what it saved.
+      expect(viewerContent(written)).toBe('﻿y');
+    });
+
+    it('writes a leading U+FEFF into a no-BOM file as its UTF-8 bytes', async () => {
+      const { absolute, sha256 } = await seed('plain-feff.txt', 'x');
+
+      const result = await save({
+        path: absolute,
+        content: '﻿y',
+        expectedSha256: sha256,
+      });
+
+      // No BOM is added on top: the bytes are exactly utf8(content).
+      const expected = Buffer.from('﻿y', 'utf8');
+      expect(expected.subarray(0, 3)).toEqual(bom);
+      expect(await fs.readFile(absolute)).toEqual(expected);
+      expect(result).toEqual({ success: true, sha256: sha256Of(expected) });
+    });
+  });
+
   it('does not add a BOM to a file that had none', async () => {
     const { absolute, sha256 } = await seed('plain.txt', 'x');
     await save({ path: absolute, content: 'y', expectedSha256: sha256 });
