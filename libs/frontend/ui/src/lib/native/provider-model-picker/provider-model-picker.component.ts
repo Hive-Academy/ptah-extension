@@ -243,11 +243,12 @@ function buildDefaultModelLabel(
       @if (toolUseSummary(); as summary) {
         <p class="px-3 pb-2">
           <span
-            class="inline-flex items-center gap-1 rounded-full border border-info/20 bg-info/10 px-2 py-0.5 text-xs text-info"
+            class="inline-flex items-center gap-1 rounded-full border border-info/40 bg-info/10 px-2 py-0.5 text-xs text-base-content"
             data-testid="provider-model-picker-tooluse-summary"
           >
+            <!-- Colour on the icon and border only; the label stays base-content (deviation 6, AA). -->
             <svg
-              class="h-3 w-3"
+              class="h-3 w-3 text-info"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"

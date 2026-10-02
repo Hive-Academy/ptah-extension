@@ -104,6 +104,30 @@ describe('NativeModalComponent', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  // Gate V 36 V36-1: daisyUI .modal is display:grid + opacity:0, so a closed dialog's controls were Tab stops.
+  it('keeps a closed dialog inert, and an open one interactive', () => {
+    const dialog = dialogEl();
+    expect(dialog.inert).toBe(true);
+
+    open();
+    expect(dialog.inert).toBe(false);
+
+    host.isOpen.set(false);
+    fixture.detectChanges();
+    expect(dialog.inert).toBe(true);
+  });
+
+  it('lifts inert before showModal, so the opened dialog can take focus', () => {
+    const dialog = dialogEl();
+    let inertAtShow: boolean | undefined;
+    jest.spyOn(dialog, 'showModal').mockImplementation(function (this: HTMLDialogElement) {
+      inertAtShow = this.inert;
+      this.setAttribute('open', '');
+    });
+    open();
+    expect(inertAtShow).toBe(false);
+  });
+
   it('emits closed on cancel without closing the dialog itself', () => {
     open();
     const dialog = dialogEl();

@@ -93,6 +93,14 @@ const SIZE_CLASSES: Record<NativeModalSize, string> = {
       :host {
         display: contents;
       }
+      /*
+       * V36-1: daisyUI's .modal sets display:grid with opacity:0, which overrides the UA
+       * dialog:not([open]) { display: none }, so a closed dialog's controls stayed focusable.
+       * Not visibility: .modal transitions it, so showModal() would focus while still hidden.
+       */
+      dialog.modal:not([open]) {
+        display: none;
+      }
     `,
   ],
 })
@@ -127,9 +135,12 @@ export class NativeModalComponent implements OnDestroy {
       const dialog = this.dialog()?.nativeElement;
       if (!dialog) return;
       if (this.isOpen()) {
+        dialog.inert = false;
         dialog.showModal();
       } else {
         dialog.close();
+        // V36-1: a closed dialog is neither a Tab stop nor in the accessibility tree (see the style below).
+        dialog.inert = true;
       }
     });
 

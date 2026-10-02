@@ -101,7 +101,7 @@ let nextPopupId = 0;
           [attr.aria-activedescendant]="
             open() ? autocomplete.getActiveDescendantId() : null
           "
-          (focus)="openPanel()"
+          (focus)="openOnFocus() && openPanel()"
           (click)="openPanel()"
           (input)="onInput($event)"
           (keydown)="onKeyDown($event, autocomplete)"
@@ -173,6 +173,12 @@ export class ProviderModelSearchFieldComponent {
    * mono with its display name muted after it, the current one checked, in a list as wide as the field. Off by default.
    */
   readonly compact = input<boolean>(false);
+
+  /**
+   * Opens the list when the field takes focus (default). Off (the tier modal, Gate V 36 decision 2): click, typing or
+   * ArrowDown open it, so one Esc leaves an enclosing dialog from a focused field whose list is closed.
+   */
+  readonly openOnFocus = input<boolean>(true);
 
   /** Placeholder of the open, empty search; `null` (default) shows the current selection's label. */
   readonly placeholder = input<string | null>(null);

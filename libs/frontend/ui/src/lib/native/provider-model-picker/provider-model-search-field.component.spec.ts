@@ -104,6 +104,28 @@ describe('ProviderModelSearchFieldComponent', () => {
     ]);
   });
 
+  // Gate V 36 decision 2: the tier modal's fields open on click, typing or ArrowDown, not on focus.
+  it('with openOnFocus off, focus keeps the list closed and Esc is not swallowed', () => {
+    create({ openOnFocus: false });
+    focus();
+    expect(input().getAttribute('aria-expanded')).toBe('false');
+    expect(root().querySelector('[role="listbox"]')).toBeNull();
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+    const parent = jest.fn();
+    root().addEventListener('keydown', parent);
+    input().dispatchEvent(escape);
+    expect(parent).toHaveBeenCalledTimes(1);
+    key('ArrowDown');
+    expect(input().getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('with openOnFocus off, a click still opens the list', () => {
+    create({ openOnFocus: false });
+    input().dispatchEvent(new MouseEvent('click'));
+    fixture.detectChanges();
+    expect(input().getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('filters by name, case-insensitively', () => {
     create();
     type('SONNET');

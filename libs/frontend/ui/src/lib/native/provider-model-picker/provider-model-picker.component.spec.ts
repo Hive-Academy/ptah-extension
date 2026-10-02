@@ -928,6 +928,16 @@ describe('ProviderModelPickerComponent', () => {
       ).toBe('3 models · 2 support tool use');
     });
 
+    it('V36-4: the summary label is base-content; the info colour is only on the icon and border', async () => {
+      listModels.mockResolvedValue(result([model({ id: 'm-1', name: 'One', supportsToolUse: true })]));
+      const fixture = await create({ provider: first.id });
+      const pill = el(fixture, 'provider-model-picker-tooluse-summary') as HTMLElement;
+      expect(pill.classList).toContain('text-base-content');
+      expect(pill.classList).not.toContain('text-info');
+      expect(pill.classList).toContain('border-info/40');
+      expect(pill.querySelector('svg')?.classList).toContain('text-info');
+    });
+
     it('uses singular wording for one model', async () => {
       listModels.mockResolvedValue(
         result([model({ id: 'm-1', supportsToolUse: true })]),
