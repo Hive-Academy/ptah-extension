@@ -16,6 +16,7 @@ import {
   renderLaneCompletionContract,
   type AgentProcessManager,
   type AgentReportDelivery,
+  type AgentReportInput,
   type CliDetectionService,
   type SdkHandle,
 } from '@ptah-extension/cli-agent-runtime';
@@ -112,8 +113,9 @@ export interface AgentNamespaceDependencies {
   /** Resolves a tab ID to its real SDK session UUID. Used for MCP session threading. */
   resolveSessionId?: (tabIdOrSessionId: string) => string;
   /**
-   * Deliver a child agent's report to the session that spawned it
-   * (TASK_2026_402, Component 7). A structural FUNCTION rather than the
+   * Deliver a child agent's or child session's report to the session that
+   * started it (TASK_2026_402, Component 7; the `childSessionId` form is
+   * TASK_2026_584). A structural FUNCTION rather than the
    * `AgentReportRouter` class, so this lib keeps depending on
    * `cli-agent-runtime`'s barrel for types only. `AgentReportDelivery` is
    * imported by name deliberately: the refusal reason is a closed union, and
@@ -126,11 +128,9 @@ export interface AgentNamespaceDependencies {
    * error in that case — absent wiring must be a clear error, never a silent
    * no-op that reports a delivery nobody made.
    */
-  deliverAgentReport?: (input: {
-    agentId: string;
-    message: string;
-    summary?: string;
-  }) => Promise<AgentReportDelivery>;
+  deliverAgentReport?: (
+    input: AgentReportInput,
+  ) => Promise<AgentReportDelivery>;
   /**
    * Resolve a workspace role name to its definition. Throws `AgentRoleError`
    * for every resolution failure; a spawn never proceeds without the role it

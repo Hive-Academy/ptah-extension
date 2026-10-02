@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Frame 04 - pushed back (C)</title>
+    <!-- Prototype C, Frame 04: Pushed back. 3.582 s = 2 bars.
+         Glm's result arrives at the bottom of your session's transcript without being asked for: the column scrolls
+         up and the pushed turn lands (kit lane-completion-toast, a visualization of the <agent-lane-completed> turn,
+         eyebrow "PUSHED TO THE PARENT SESSION"). Bar 2: the verdict chip gets the focus ring.
+         Column: result card y 636-994 (u 1.556), column scrolls -254 so it ends inside the viewport.
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. -->
+  </head>
+  <body>
+    <template>
+      <style>
+        /* the transcript is taller here: the pushed card ends at y 994 */
+        #f04-in { height: 1000px; }
+      </style>
+
+      <div id="f04" class="scene" data-composition-id="f04" data-width="1920" data-height="1080" data-frame-start="10.746" data-frame-duration="3.582" data-seam-in="cut" data-duck="0">
+        <div id="f04-vig" class="vig"></div>
+
+        <div id="f04-col" class="col">
+          <div id="f04-in" class="col-in">
+            <div id="f04-m1" class="clip fm" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="3.582" data-track-index="1" data-variable-values='{"role":"user","text":"Review batch 5 in three lanes: Glm, Codex and Copilot.","preroll":8.655}' style="left: 0; top: 100px; width: 1400px; height: 240px"></div>
+            <div id="f04-m2" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="2" data-variable-values='{"tool":"mcp__ptah__ptah_agent_spawn","label":"Glm · review the code logic","cues":"0,0.35,0.9","runFor":0.55,"preroll":8.507}' style="left: 0; top: 364px; width: 1400px; height: 72px"></div>
+            <div id="f04-m3" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="3" data-variable-values='{"tool":"mcp__ptah__ptah_agent_spawn","label":"Codex · fix the review comments","cues":"0,0.35,0.9","runFor":0.55,"preroll":8.059}' style="left: 0; top: 452px; width: 1400px; height: 72px"></div>
+            <div id="f04-m4" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="3.582" data-track-index="4" data-variable-values='{"tool":"mcp__ptah__ptah_agent_spawn","label":"Copilot · run lint and tests","cues":"0,0.35,0.9","runFor":0.55,"preroll":7.612}' style="left: 0; top: 540px; width: 1400px; height: 72px"></div>
+            <div id="f04-m5" class="clip fm" data-composition-id="ptah-ui-lane-completion-toast" data-composition-src="compositions/components/ptah-ui-lane-completion-toast.html" data-start="0.896" data-duration="2.686" data-track-index="5" data-variable-values='{"agent":"Glm","cli":"glm","status":"completed","task":"Review batch 5 code logic","verdict":"delivered","deliverable":".../reviews/batch-5.md","focus":"chip-verdict","focusAt":0.895,"dimOthers":1}' style="left: 0; top: 636px; width: 1400px; height: 358px"></div>
+          </div>
+        </div>
+
+        <div id="f04-cap" class="cap"><span id="f04-c1">Results</span> <span id="f04-c2" class="g">come back</span> <span id="f04-c3">to you.</span></div>
+        <div id="f04-sub" class="sub">Pushed to your session. No polling.</div>
+
+        <audio id="sx-f04-hit" src="assets/sfx/impact-bass-1.mp3" data-start="0" data-duration="1.791" data-track-index="50" data-volume="0.55"></audio>
+        <audio id="sx-f04-in" src="assets/sfx/notification.mp3" data-start="0.896" data-duration="1.2" data-track-index="51" data-volume="0.5"></audio>
+        <audio id="sx-f04-chip" src="assets/sfx/sparkle.mp3" data-start="1.791" data-duration="0.9" data-track-index="52" data-volume="0.4"></audio>
+      </div>
+
+      <script>
+          var B = 0.448;
+          tl.fromTo("#f04-c1", { scale: 1.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "expo.out" }, T0);
+          tl.fromTo(["#f04-c2", "#f04-c3"], { x: 120, opacity: 0 }, { x: 0, opacity: 1, duration: 0.35, ease: "expo.out", stagger: 0.09 }, T0 + B);
+          tl.fromTo("#f04-sub", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: "power3.out" }, T0 + 2 * B);
+          // The pushed turn lands at the bottom: the transcript scrolls up to make room, as the app's chat does.
+          tl.fromTo("#f04-in", { y: 0 }, { y: -254, duration: 0.45, ease: "power3.out" }, T0 + 2 * B);
+      </script>
+    </template>
+  </body>
+</html>

@@ -27,7 +27,10 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import type { EmbedderWorkerClient } from '@ptah-extension/memory-curator';
 import type { DependencyGraphService } from '@ptah-extension/workspace-intelligence';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
+import {
+  CLI_AGENT_RUNTIME_TOKENS,
+  type ISessionSpawner,
+} from '@ptah-extension/cli-agent-runtime';
 
 import type { BootCoordinator } from './boot-coordinator';
 import { createHeavyServicesBooter } from './boot-heavy-services';
@@ -509,18 +512,15 @@ export async function wireRuntimePreWindow(
   });
 
   const postWindow = async (): Promise<void> => {
-    // Behind the window, ahead of the heavy boot — the same position relative
-    // to the Thoth scans it had when it sat in front of the window. Never
-    // throws. Session starters await their own registration regardless.
-    //
-    // Released early by a quit: the CLI probes are not abortable, and holding
-    // the post-window promise open for them cost every quit during start-up the
-    // whole `will-quit` drain budget. The gate still opens below either way —
-    // the booter's own abort path is what settles the persistence gate.
-    await settleOnAbort(
-      registerCodeExecutionMcpForSubagents({ container, logger: rpcLogger }),
-      coordinator.abortSignal,
-    );
+    // Started, NOT awaited, and beside the heavy boot rather than ahead of it.
+    // It waits on `CliDetectionService`, which probes every installed CLI in
+    // turn — 13 s measured on Windows `.CMD` shims — and awaiting it held the
+    // boot on `starting`, and the user on the boot screen, for all of it while
+    // the real boot took ~1.5 s. Nothing in the heavy boot reads the entries it
+    // writes: Thoth queries read the MCP port live, started above, and every
+    // session starter awaits its own `ensureRegisteredForSubagents()`, which the
+    // server's op queue serializes behind this one. Never rejects.
+    void registerCodeExecutionMcpForSubagents({ container, logger: rpcLogger });
     booter.openWindowGate();
     if (startupWorkspaceRoot) {
       await booter.startOrJoin(startupWorkspaceRoot);
@@ -532,39 +532,7 @@ export async function wireRuntimePreWindow(
 }
 
 /**
- * Resolve when `work` settles or `signal` aborts, whichever comes first.
- *
- * For a step that cannot itself be cancelled: the work carries on in the
- * background, but the caller stops waiting for it. Never rejects — a rejection
- * of `work` is observed here and resolves like a success, so callers pass work
- * that already reports its own failures.
- */
-export function settleOnAbort(
-  work: Promise<unknown>,
-  signal: AbortSignal,
-): Promise<void> {
-  return new Promise<void>((resolve) => {
-    if (signal.aborted) {
-      // Still observed, so a late rejection is never unhandled.
-      work.then(
-        () => undefined,
-        () => undefined,
-      );
-      resolve();
-      return;
-    }
-    const onAbort = (): void => resolve();
-    signal.addEventListener('abort', onAbort, { once: true });
-    const done = (): void => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    };
-    work.then(done, done);
-  });
-}
-
-/**
- * Eagerly construct the two disposal handles whose dependency graphs must NOT
+ * Eagerly construct the disposal handles whose dependency graphs must NOT
  * be built during teardown.
  *
  * Resolving either of these in `will-quit` forces a first-time lazy build
@@ -605,6 +573,29 @@ function captureShutdownHandles(
         : String(agentManagerError),
     );
     coordinator.refs.agentProcessManager = null;
+  }
+
+  // Child chat sessions (TASK_2026_584), captured for the same reason. Safe to
+  // construct this early: the spawner looks its chat host up at `start()`
+  // time, never at construction (Task 6.6).
+  try {
+    coordinator.refs.sessionSpawner = container.isRegistered(
+      CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
+    )
+      ? container.resolve<ISessionSpawner>(
+          CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
+        )
+      : null;
+  } catch (sessionSpawnerError: unknown) {
+    // degradation-audit: reported - logged at warn; a null ref means
+    // `will-quit` has no child sessions to end.
+    console.warn(
+      '[Ptah Electron] Session spawner eager resolve failed (non-fatal):',
+      sessionSpawnerError instanceof Error
+        ? sessionSpawnerError.message
+        : String(sessionSpawnerError),
+    );
+    coordinator.refs.sessionSpawner = null;
   }
 
   // The watch host is a child process: `will-quit` must kill it through the

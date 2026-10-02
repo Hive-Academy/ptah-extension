@@ -88,7 +88,8 @@ describe('migration 0038_gateway_message_turn_state — registry entry', () => {
     // 45 since TASK_2026_461 appended 0045_skill_backlog_cleanup.
     // 46 since TASK_2026_473 appended 0046_memory_merge_subject_index.
     // 48 and 49 since TASK_2026_563 appended 0048_memory_quarantine and 0049_memory_sediment_quarantine.
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(49);
+    // 51 since TASK_2026_578 appended 0051_skill_lifecycle.
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(51);
   });
 
   it('adds exactly the two columns TASK_2026_277 needs and nothing else', () => {

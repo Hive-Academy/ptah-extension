@@ -121,12 +121,27 @@ describe('budget tables', () => {
   it('overrides only the tools whose description documents a bound', () => {
     expect(Object.keys(TOOL_RESULT_BUDGET_OVERRIDES).sort()).toEqual([
       'ptah_browser_content',
+      'ptah_session_read',
       'ptah_surface_get_state',
     ]);
     expect(getToolResultBudget('ptah_browser_content')).toEqual({
       chars: 33 * 1024,
       tokens: (33 * 1024) / 4,
     });
+    // TASK_2026_584 F2: the default 32 KiB transcript tail plus the default
+    // budget for the header and the held-completion block.
+    expect(getToolResultBudget('ptah_session_read')).toEqual({
+      chars: 32 * 1024 + 8000,
+      tokens: (32 * 1024 + 8000) / 4,
+    });
+    for (const name of [
+      'ptah_session_start',
+      'ptah_session_send',
+      'ptah_session_status',
+      'ptah_session_stop',
+    ]) {
+      expect(getToolResultBudget(name)).toEqual(DEFAULT);
+    }
     expect(getToolResultBudget('ptah_surface_get_state')).toEqual({
       chars: SURFACE_LIMITS.maxStateReadBytes,
       tokens: SURFACE_LIMITS.maxStateReadBytes / 4,
@@ -155,6 +170,11 @@ describe('budget tables', () => {
       ptah_agent_report: 'preformatted',
       ptah_agent_stop: 'preformatted',
       ptah_agent_list: 'preformatted',
+      ptah_session_start: 'preformatted',
+      ptah_session_send: 'preformatted',
+      ptah_session_status: 'preformatted',
+      ptah_session_read: 'preformatted',
+      ptah_session_stop: 'preformatted',
       ptah_task_list: 'preformatted',
     });
   });

@@ -52,6 +52,7 @@ export {
   mintResetChallengeToken,
   IndexingRpcHandlers,
   TasksRpcHandlers,
+  SessionOrganizationRpcHandlers,
   asAuthCommandRunner,
   ElectronFileOpenRpcHandlers,
   EditorRpcHandlers,

@@ -13,6 +13,7 @@ import {
 } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { TaskPromptBridgeService } from './task-prompt-bridge.service';
+import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
 
 describe('TaskPromptBridgeService', () => {
   const request = signal<ChatPromptRequest | null>(null);
@@ -22,6 +23,7 @@ describe('TaskPromptBridgeService', () => {
   let requestCanvasTab: jest.Mock;
   let requestComposerPrefill: jest.Mock;
   let createTab: jest.Mock;
+  let expectLink: jest.Mock;
 
   const flush = async (): Promise<void> => {
     TestBed.flushEffects();
@@ -37,6 +39,7 @@ describe('TaskPromptBridgeService', () => {
     requestCanvasTab = jest.fn();
     requestComposerPrefill = jest.fn();
     createTab = jest.fn(() => 'tab-1');
+    expectLink = jest.fn();
 
     TestBed.configureTestingModule({
       providers: [
@@ -53,6 +56,10 @@ describe('TaskPromptBridgeService', () => {
           },
         },
         { provide: TabManagerService, useValue: { createTab } },
+        {
+          provide: BoardTaskLinkCaptureService,
+          useValue: { expect: expectLink },
+        },
       ],
     });
     TestBed.inject(TaskPromptBridgeService);
@@ -143,6 +150,30 @@ describe('TaskPromptBridgeService', () => {
       error: 'tab creation failed',
     });
     expect(clearChatPromptRequest).toHaveBeenCalled();
+  });
+
+  it('registers the created tab with the board-task link capture when the request carries a taskId (TASK_2026_580)', async () => {
+    createTab.mockReturnValueOnce('tab-board-start');
+    request.set({
+      prompt: '/orchestrate TASK_2026_580_9f77',
+      taskId: 'TASK_2026_580_9f77',
+    });
+
+    await flush();
+
+    expect(expectLink).toHaveBeenCalledTimes(1);
+    expect(expectLink).toHaveBeenCalledWith(
+      'tab-board-start',
+      'TASK_2026_580_9f77',
+    );
+  });
+
+  it('does not register a link capture when the request has no taskId', async () => {
+    request.set({ prompt: 'do the thing' });
+
+    await flush();
+
+    expect(expectLink).not.toHaveBeenCalled();
   });
 
   it('ignores a null request (no tab, no prefill)', async () => {
