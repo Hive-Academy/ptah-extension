@@ -97,5 +97,16 @@ builds and unit tests in the same period; CPU contention is the likely cause of 
 idle machine before treating the miss as a product regression; the spec stays red until then (thresholds are
 unchanged).
 
+### After d2d1928f5 (canvas scroll restore), same spec, thresholds unchanged
+
+Load note: the user's Ptah desktop app was running alongside; other agents were active on the machine.
+
+| Run | Sweep speed | idle fps | Sweep fps | Worst frame | Long tasks (>50 ms) | Max long task | Result |
+| --- | ----------- | -------- | --------- | ----------- | ------------------- | ------------- | ------ |
+| 6 | 3,000 px/s | 60.0 | 51.3 | 116.5 ms | 25 | 78 ms | PASS |
+| 7 | 3,000 px/s | 60.0 | 51.5 | 100.0 ms | 20 | 84 ms | PASS |
+
+Both runs meet >= 50 fps and no long task > 200 ms (full 271,000 px sweep, 200 files / 10,000 modified lines).
+
 Related single-file e2e numbers from the same batch: `perf-m1-diff-redisplay.spec.ts` (Changes -> Task -> Changes,
 500-line file): median 129.7 ms, max 191.7 ms over 10 round trips.
