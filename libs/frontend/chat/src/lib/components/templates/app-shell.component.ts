@@ -64,6 +64,7 @@ import {
 } from '@ptah-extension/core';
 import { NotificationCenterComponent } from '@ptah-extension/notification-center';
 import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
+import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 import type { TitleOrigin } from '@ptah-extension/chat-types';
 
@@ -149,6 +150,10 @@ export class AppShellComponent {
    * `AppStateManager.setCurrentView`, so there is one write path.
    */
   private readonly surfaceRouter = inject(SurfaceRouterService);
+  // Injected only to instantiate the root singleton eagerly: it ends the backend session of a closed tab.
+  private readonly _closedTabSessionEnder = inject(
+    ClosedTabSessionEnderService,
+  );
   readonly currentView = this.appState.currentView;
   readonly layoutMode = this.appState.layoutMode;
 

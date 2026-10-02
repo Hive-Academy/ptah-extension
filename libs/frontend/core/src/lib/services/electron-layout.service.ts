@@ -19,7 +19,10 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { MESSAGE_TYPES, lastPathSegment } from '@ptah-extension/shared';
-import type { WorkspaceChangedPayload } from '@ptah-extension/shared';
+import type {
+  SessionId,
+  WorkspaceChangedPayload,
+} from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 import { AppStateManager } from './app-state.service';
 import { ClaudeRpcService } from './claude-rpc.service';
@@ -328,6 +331,14 @@ export class ElectronLayoutService implements MessageHandler {
    * After removal, cleans up TabManagerService and git service state via the
    * WORKSPACE_COORDINATOR.
    *
+   * Removal destroys the workspace's tab state, so every remaining (idle)
+   * session of the workspace is ended too: once the backend accepted
+   * `workspace:removeFolder`, and before cleanup destroys the tabs, each of the
+   * workspace's session ids not already aborted as streaming and not open in
+   * another workspace's tabs gets a fire-and-forget `chat:abort`. Cancel or a
+   * backend rejection ends nothing extra. Switching workspaces never ends a
+   * session.
+   *
    * Handles edge case: removing the only workspace resets to "no workspace" state.
    * Returns false when index is invalid, user cancels, or backend rejects removal.
    */
@@ -336,20 +347,28 @@ export class ElectronLayoutService implements MessageHandler {
     if (index < 0 || index >= folders.length) return false;
 
     const removedFolder = folders[index];
+    let streamingSessionIds: readonly SessionId[] = [];
     if (this.coordinator) {
-      const streamingSessionIds = this.coordinator.getStreamingSessionIds(
+      streamingSessionIds = this.coordinator.getStreamingSessionIds(
         removedFolder.path,
       );
+      // A streaming session also open in a workspace that stays keeps
+      // running there; only sessions this workspace alone shows are ended, and
+      // only those are counted in (and trigger) the confirm.
+      const openElsewhere = this.sessionIdsOpenIn(
+        folders.filter((_, i) => i !== index),
+      );
+      const toAbort = streamingSessionIds.filter(
+        (sessionId) => !openElsewhere.has(sessionId),
+      );
 
-      if (streamingSessionIds.length > 0) {
+      if (toAbort.length > 0) {
         const confirmed = await this.coordinator.confirm({
           title: 'Close Workspace?',
-          message: `This workspace has ${
-            streamingSessionIds.length
-          } active streaming session${
-            streamingSessionIds.length > 1 ? 's' : ''
+          message: `This workspace has ${toAbort.length} active streaming session${
+            toAbort.length > 1 ? 's' : ''
           }. Closing it will abort ${
-            streamingSessionIds.length > 1 ? 'them' : 'it'
+            toAbort.length > 1 ? 'them' : 'it'
           }. Continue?`,
           confirmLabel: 'Close Workspace',
           cancelLabel: 'Cancel',
@@ -360,14 +379,7 @@ export class ElectronLayoutService implements MessageHandler {
           return false;
         }
         await Promise.allSettled(
-          streamingSessionIds.map((sessionId) =>
-            this.rpcService.call('chat:abort', { sessionId }).catch((error) => {
-              console.error(
-                `[ElectronLayout] Failed to abort session ${sessionId}:`,
-                error,
-              );
-            }),
-          ),
+          toAbort.map((sessionId) => this.dispatchSessionAbort(sessionId)),
         );
       }
     }
@@ -389,6 +401,13 @@ export class ElectronLayoutService implements MessageHandler {
       );
       return false;
     }
+    // Read the removed workspace's sessions now: after the backend accepted
+    // the removal and before cleanupWorkspaceState destroys its tabs.
+    this.abortIdleSessionsOfRemovedFolder(
+      removedFolder.path,
+      streamingSessionIds,
+      folders.filter((_, i) => i !== index),
+    );
     this._workspaceFolders.update((f) => f.filter((_, i) => i !== index));
 
     const newLength = this._workspaceFolders().length;
@@ -586,6 +605,80 @@ export class ElectronLayoutService implements MessageHandler {
       }
     }
     this.vscodeService.updateWorkspaceRoot('');
+  }
+
+  /**
+   * End the sessions of a removed workspace that the streaming abort did not
+   * cover. A session also shown by a tab of a workspace that stays open is
+   * kept (`openSessionTab` de-duplicates within the active workspace only, so
+   * the same session can be open in two workspaces). Fire-and-forget: a
+   * failure is logged and never blocks the removal.
+   */
+  private abortIdleSessionsOfRemovedFolder(
+    removedPath: string,
+    alreadyAborted: readonly SessionId[],
+    remainingFolders: readonly WorkspaceFolder[],
+  ): void {
+    const coordinator = this.coordinator;
+    if (!coordinator) return;
+    try {
+      const workspaceSessionIds = coordinator.getSessionIds(removedPath);
+      if (workspaceSessionIds.length === 0) return;
+      const skip = this.sessionIdsOpenIn(remainingFolders);
+      for (const id of alreadyAborted) skip.add(id);
+      for (const sessionId of workspaceSessionIds) {
+        if (skip.has(sessionId)) continue;
+        skip.add(sessionId);
+        void this.dispatchSessionAbort(sessionId);
+      }
+    } catch (error) {
+      // Never let session ending block the local removal that follows.
+      console.error(
+        '[ElectronLayout] Failed to end sessions of removed workspace:',
+        error,
+      );
+    }
+  }
+
+  /**
+   * Session ids shown by the tabs of the given (staying) folders: the shared
+   * rule both removal abort paths use to keep a session open elsewhere.
+   * Only in-memory partitions count; a workspace never visited in this app
+   * run has none, and it cannot own a live process either (one exists only
+   * for a session sent to or resumed in this run, which requires a visit).
+   */
+  private sessionIdsOpenIn(
+    folders: readonly WorkspaceFolder[],
+  ): Set<SessionId> {
+    const ids = new Set<SessionId>();
+    if (!this.coordinator) return ids;
+    for (const folder of folders) {
+      for (const id of this.coordinator.getSessionIds(folder.path)) {
+        ids.add(id);
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * Send `chat:abort` for one session. Never rejects: a failed result is
+   * logged with `console.warn`, a rejected call with `console.error`.
+   */
+  private async dispatchSessionAbort(sessionId: SessionId): Promise<void> {
+    try {
+      const result = await this.rpcService.call('chat:abort', { sessionId });
+      if (!result.isSuccess()) {
+        console.warn(
+          `[ElectronLayout] Backend did not abort session ${sessionId}:`,
+          result,
+        );
+      }
+    } catch (error) {
+      console.error(
+        `[ElectronLayout] Failed to abort session ${sessionId}:`,
+        error,
+      );
+    }
   }
 
   /**

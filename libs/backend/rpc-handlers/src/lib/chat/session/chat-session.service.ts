@@ -1126,6 +1126,10 @@ export class ChatSessionService {
         return customAbortResult;
       }
 
+      // Read before the interrupt removes the record. Same lookup as
+      // `SessionControl.endSession`, so false means the interrupt below is a
+      // no-op ('already-ended').
+      const hadLiveRecord = this.sdkAdapter.isSessionActive(sessionId);
       await this.sdkAdapter.interruptSession(sessionId);
 
       const resumableSubagents = this.subagentRegistry.getResumableBySession(
@@ -1142,9 +1146,15 @@ export class ChatSessionService {
         });
       }
 
-      await this.sessionMetadataStore.saveResumeState(sessionId, {
-        resumableSdkSubagents: resumableSubagents,
-      });
+      // `saveResumeState` REPLACES the durable list. Without a live record
+      // nothing changed this call, and the registry may simply never have
+      // restored that list (a tab restored after a restart and closed
+      // unopened), so writing its snapshot would wipe resumable agents.
+      if (hadLiveRecord) {
+        await this.sessionMetadataStore.saveResumeState(sessionId, {
+          resumableSdkSubagents: resumableSubagents,
+        });
+      }
 
       return {
         success: true,
