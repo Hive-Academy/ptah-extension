@@ -6,6 +6,7 @@ import { DiffTabsService } from './diff-tabs.service';
 import { GitBranchesService } from './git-branches.service';
 import { GitStashService } from './git-stash.service';
 import { GitStatusService } from './git-status.service';
+import { ReviewNavigationService } from './review-navigation.service';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -60,6 +61,7 @@ describe('GitStashService', () => {
   };
   const gitBranches = { refreshForCauses: jest.fn(async () => undefined) };
   const diffTabs = { openHistoricalDiff: jest.fn() };
+  const reviewNavigation = { openStashFile: jest.fn() };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -71,6 +73,7 @@ describe('GitStashService', () => {
         { provide: GitStatusService, useValue: gitStatus },
         { provide: GitBranchesService, useValue: gitBranches },
         { provide: DiffTabsService, useValue: diffTabs },
+        { provide: ReviewNavigationService, useValue: reviewNavigation },
       ],
     });
     service = TestBed.inject(GitStashService);
@@ -291,6 +294,131 @@ describe('GitStashService', () => {
     expect(
       mockRpcCall.mock.calls.filter(([, m]) => m === 'git:reviewChanges'),
     ).toHaveLength(1);
+    // No review canvas is mounted, so nothing routes to it.
+    expect(reviewNavigation.openStashFile).not.toHaveBeenCalled();
+  });
+
+  describe('while a review canvas is mounted', () => {
+    function routeStashRead(): void {
+      routeRpc({
+        'git:stashList': () => ({ count: 2, entries: ENTRIES }),
+        'git:stashShow': () => ({ success: true, files: [] }),
+        'git:reviewChanges': () => ({
+          success: true,
+          base: { name: 'stash@{0}^1', sha: 'base' },
+          head: { name: 'stash@{0}', sha: 'head' },
+          mergeBaseSha: 'base',
+          files: [],
+          totals: { additions: 0, deletions: 0, binaryFiles: 0 },
+        }),
+      });
+    }
+
+    it('opens the stash file in the canvas with the resolved pair, without reading it', async () => {
+      routeStashRead();
+      const release = service.registerReviewCanvas();
+      await service.loadList();
+      await service.select(ENTRIES[0]);
+      const file = {
+        path: 'src/new.ts',
+        status: 'R' as const,
+        oldPath: 'src/old.ts',
+      };
+      await service.openFileDiff(file);
+
+      expect(reviewNavigation.openStashFile).toHaveBeenCalledWith({
+        base: { name: `${ENTRIES[0].hash}^1`, sha: 'base' },
+        head: { name: ENTRIES[0].hash, sha: 'head' },
+        label: 'WIP on main: tidy · 0123456',
+        file,
+      });
+      expect(diffTabs.openHistoricalDiff).not.toHaveBeenCalled();
+      expect(
+        mockRpcCall.mock.calls.filter(([, m]) => m === 'git:reviewFile'),
+      ).toHaveLength(0);
+      release();
+    });
+
+    it('returns to the dock diff tab once every canvas released, and a double release is a no-op', async () => {
+      routeStashRead();
+      const first = service.registerReviewCanvas();
+      const second = service.registerReviewCanvas();
+      first();
+      first();
+      await service.loadList();
+      await service.select(ENTRIES[0]);
+      await service.openFileDiff({ path: 'src/a.ts', status: 'M' });
+      expect(reviewNavigation.openStashFile).toHaveBeenCalledTimes(1);
+
+      second();
+      mockRpcCall.mockImplementation(async (_v: unknown, method: string) =>
+        method === 'git:reviewFile'
+          ? {
+              success: true,
+              data: {
+                success: true,
+                path: 'src/a.ts',
+                originalPath: 'src/a.ts',
+                baseSha: 'base',
+                headSha: 'head',
+                original: { outcome: 'content', content: 'old' },
+                modified: { outcome: 'content', content: 'new' },
+              },
+            }
+          : { success: false, error: `unexpected ${method}` },
+      );
+      await service.openFileDiff({ path: 'src/a.ts', status: 'M' });
+      expect(reviewNavigation.openStashFile).toHaveBeenCalledTimes(1);
+      expect(diffTabs.openHistoricalDiff).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not route when the selection changed during ref resolution', async () => {
+      routeStashRead();
+      const release = service.registerReviewCanvas();
+      await service.loadList();
+      await service.select(ENTRIES[0]);
+      let finishRefs: (value: unknown) => void = () => undefined;
+      mockRpcCall.mockImplementationOnce(
+        () => new Promise((resolve) => (finishRefs = resolve)),
+      );
+      const pending = service.openFileDiff({ path: 'src/a.ts', status: 'M' });
+      await service.select(ENTRIES[1]);
+      finishRefs({
+        success: true,
+        data: {
+          success: true,
+          base: { sha: 'base' },
+          head: { sha: 'head' },
+          files: [],
+          totals: { additions: 0, deletions: 0, binaryFiles: 0 },
+        },
+      });
+      await pending;
+
+      expect(reviewNavigation.openStashFile).not.toHaveBeenCalled();
+      release();
+    });
+
+    it('surfaces a ref-resolution failure and does not route', async () => {
+      routeRpc({
+        'git:stashList': () => ({ count: 2, entries: ENTRIES }),
+        'git:stashShow': () => ({ success: true, files: [] }),
+        'git:reviewChanges': () => ({
+          success: false,
+          files: [],
+          totals: { additions: 0, deletions: 0, binaryFiles: 0 },
+          error: 'bad revision',
+        }),
+      });
+      const release = service.registerReviewCanvas();
+      await service.loadList();
+      await service.select(ENTRIES[0]);
+      await service.openFileDiff({ path: 'src/a.ts', status: 'M' });
+
+      expect(reviewNavigation.openStashFile).not.toHaveBeenCalled();
+      expect(service.error()).toBe('bad revision');
+      release();
+    });
   });
 
   it('does not open a diff when the stash selection changes during ref resolution', async () => {

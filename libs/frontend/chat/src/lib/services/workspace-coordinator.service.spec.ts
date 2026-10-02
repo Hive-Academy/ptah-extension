@@ -57,6 +57,11 @@ import { SessionLivenessReconcilerService } from './chat-store/session-liveness-
 import { FilePickerService } from './file-picker.service';
 import type { TabState } from '@ptah-extension/chat-types';
 
+// The git-ui barrel reaches the Pierre diff renderer, which ships ESM only;
+// nothing here renders a diff.
+jest.mock('@pierre/diffs', () => ({}));
+jest.mock('@pierre/diffs/worker', () => ({}));
+
 /**
  * `rpcCall` mocked at the module boundary so the regression describe block
  * below can resolve the REAL `GitStatusService` / `GitBranchesService`

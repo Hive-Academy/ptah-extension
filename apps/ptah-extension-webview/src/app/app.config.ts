@@ -29,6 +29,7 @@ import {
   WORKSPACE_COORDINATOR,
   ORCHESTRA_CANVAS_COMPONENT,
   FILE_LINK_OPENER,
+  AGENT_FEEDBACK_SENDER,
   SURFACE_ACTIVE,
   surfaceActiveFor,
 } from '@ptah-extension/core';
@@ -45,6 +46,7 @@ import {
   VoiceDownloadProgressService,
   VoiceProviderErrorService,
   ChangeSetStore,
+  ChatAgentFeedbackSender,
   provideModelRefreshControl,
 } from '@ptah-extension/chat';
 import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
@@ -67,6 +69,7 @@ import {
   DiffTabsService,
   GitBranchesService,
   GitStatusService,
+  ReviewDiffService,
   WorktreeService,
 } from '@ptah-extension/git-ui/services';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
@@ -212,6 +215,9 @@ export const appConfig: ApplicationConfig = {
     // hold its own git-ui module cache.
     { provide: FILE_LINK_OPENER, useExisting: FileLinkRouterService },
     { provide: MARKDOWN_FILE_LINK_HANDLER, useExisting: FileLinkRouterService },
+    // Review feedback (TASK_2026_576): git-ui sends drafted comments to a chat
+    // session through this core port without importing chat.
+    { provide: AGENT_FEEDBACK_SENDER, useExisting: ChatAgentFeedbackSender },
     // EAGER on purpose (TASK_2026_187). Deferring the canvas cost 50-70 ms of
     // Electron startup TTI, because ElectronShellComponent forces grid mode in
     // its constructor — the canvas IS the launch surface there, so there is no
@@ -232,6 +238,9 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: GitBranchesService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: WorktreeService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: DiffTabsService, multi: true },
+    // Beside DiffTabsService, not instead of it, until Task 64.1 deletes the
+    // old dock (TASK_2026_576 V6).
+    { provide: MESSAGE_HANDLERS, useExisting: ReviewDiffService, multi: true },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: ElectronLayoutService,

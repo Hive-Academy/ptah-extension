@@ -157,7 +157,7 @@ function buildMinimalContainer(): DependencyContainer {
   c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: {},
   });
-  // `EditorRpcHandlers` and `FileViewRpcHandlers` both inject
+  // `EditorRpcHandlers`, `FileViewRpcHandlers` and `FileEditRpcHandlers` inject
   // `FileLinkRootPolicy`, which needs GitInfoService to widen the authorized
   // root set to a registered folder's worktrees (TASK_2026_413 Batch 8a). The
   // real Electron container binds this in `phase-4-handlers.ts`.

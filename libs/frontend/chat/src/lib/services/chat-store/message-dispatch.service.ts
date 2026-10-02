@@ -1,12 +1,20 @@
 import { Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
-import { createExecutionChatMessage, MessageId } from '@ptah-extension/shared';
+import {
+  createExecutionChatMessage,
+  MessageId,
+  type PermissionRequest,
+} from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { MessageSenderService } from '../message-sender.service';
+import {
+  MessageSenderService,
+  type SendOutcome,
+} from '../message-sender.service';
 import type {
   SendMessageOptions,
   SessionStatus,
   StreamingState,
+  TabState,
 } from '@ptah-extension/chat-types';
 import { ConversationService } from './conversation.service';
 import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
@@ -96,8 +104,8 @@ export function isTabBusyGenerating(input: {
  *
  * Responsibilities:
  * - sendOrQueueMessage: routes content to MessageSender or ConversationService.queueOrAppendMessage
- *   based on streaming state of the target tab; auto-denies in-flight permissions with the
- *   user's content as `deny_with_message` reason
+ *   based on streaming state of the target tab; auto-denies that tab's in-flight permissions
+ *   with the user's content as `deny_with_message` reason
  * - Blocks SDK-native slash commands (`/compact`, `/context`, `/cost`, `/review`) for
  *   non-Anthropic providers — those commands require Claude-specific model behaviour
  * - sendQueuedMessage: post-streaming queue flush via
@@ -133,14 +141,21 @@ export class MessageDispatchService {
   /**
    * Smart send or queue routing
    * Delegates to MessageSenderService for streaming check, ConversationService for queue.
+   *
+   * Resolves with the outcome. A queued message counts as accepted (it is
+   * delivered when the running turn ends); a blocked slash command or a
+   * rejected send resolves `success: false`, after the in-transcript notice.
    */
   async sendOrQueueMessage(
     content: string,
     options?: SendMessageOptions,
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
     if (this.isBlockedSlashCommand(content)) {
       this.showBlockedCommandWarning(content, options?.tabId);
-      return;
+      return {
+        success: false,
+        error: 'This command is not available for the current provider.',
+      };
     }
     const targetTabId = options?.tabId;
     // `tabs()` is the ACTIVE-WORKSPACE signal. An explicit `tabId` can name a
@@ -166,23 +181,27 @@ export class MessageDispatchService {
     });
 
     if (isStreaming) {
-      const activePermissions = this.permissionHandler.permissionRequests();
-      if (activePermissions.length > 0) {
-        for (const perm of activePermissions) {
-          this.permissionHandler.handlePermissionResponse({
-            id: perm.id,
-            decision: 'deny_with_message',
-            reason: content,
-          });
+      // The message steers ITS tab's turn, so only that tab's pending prompts
+      // are answered with it. The queue is global: denying every request would
+      // reject another session's prompt with this tab's text as the reason.
+      for (const perm of this.permissionHandler.permissionRequests()) {
+        if (!this.isPermissionForTab(perm, resolvedTabId, dispatchTab)) {
+          continue;
         }
+        this.permissionHandler.handlePermissionResponse({
+          id: perm.id,
+          decision: 'deny_with_message',
+          reason: content,
+        });
       }
       this.conversation.queueOrAppendMessage(content, options);
-    } else {
-      const outcome = await this.messageSender.send(content, options);
-      if (outcome && !outcome.success && resolvedTabId) {
-        this.showSendFailure(resolvedTabId, outcome.error);
-      }
+      return { success: true };
     }
+    const outcome = await this.messageSender.send(content, options);
+    if (outcome && !outcome.success && resolvedTabId) {
+      this.showSendFailure(resolvedTabId, outcome.error);
+    }
+    return outcome;
   }
 
   /**
@@ -233,6 +252,28 @@ export class MessageDispatchService {
       this.restoreFailedQueue(tabId, content, queuedOptions);
       this.showSendFailure(tabId, error instanceof Error ? error.message : undefined);
     }
+  }
+
+  /**
+   * Whether a pending prompt belongs to the tab a message is dispatched to.
+   * Routing precedence: the prompt's own `tabId` (authoritative), then the
+   * router's resolved target tabs, then its `sessionId` (which can carry the tab
+   * id, as in `PermissionHandlerService.cleanupSession`). A prompt with no
+   * routing at all is shown globally, so it is treated as the active tab's.
+   */
+  private isPermissionForTab(
+    perm: PermissionRequest,
+    tabId: string | null,
+    tab: TabState | null,
+  ): boolean {
+    if (!tabId) return false;
+    if (perm.tabId) return perm.tabId === tabId;
+    const targets = this.permissionHandler.targetTabsFor(perm.id);
+    if (targets.length > 0) return targets.includes(tabId);
+    if (perm.sessionId) {
+      return perm.sessionId === tabId || perm.sessionId === tab?.claudeSessionId;
+    }
+    return tabId === this.tabManager.activeTabId();
   }
 
   private restoreFailedQueue(tabId: string, content: string, options?: SendMessageOptions): void {

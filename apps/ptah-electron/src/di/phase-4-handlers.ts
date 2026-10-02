@@ -61,6 +61,7 @@ import {
   ElectronFileOpenRpcHandlers,
   EditorRpcHandlers,
   FileViewRpcHandlers,
+  FileEditRpcHandlers,
   UpdateRpcHandlers,
   registerHarnessServices,
   registerChatServices,
@@ -135,6 +136,7 @@ export function registerPhase4Handlers(
   container.registerSingleton(ElectronFileOpenRpcHandlers);
   container.registerSingleton(EditorRpcHandlers);
   container.registerSingleton(FileViewRpcHandlers);
+  container.registerSingleton(FileEditRpcHandlers);
 
   logger.info('[Electron DI] Shared RPC handler classes registered', {
     handlers: [

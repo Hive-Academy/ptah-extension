@@ -14,6 +14,7 @@ import type { EditorTab } from '../types/diff-tab.types';
 import { DiffTabsService } from './diff-tabs.service';
 import { GitBranchesService } from './git-branches.service';
 import { GitStatusService } from './git-status.service';
+import { ReviewNavigationService } from './review-navigation.service';
 import {
   describeGitReadError,
   firstReadError,
@@ -76,6 +77,11 @@ function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+/** How a stash entry is named in a diff tab or the comparison bar. */
+function stashLabel(entry: StashEntry): string {
+  return `${entry.message} · ${entry.hash.slice(0, 7)}`;
+}
+
 /**
  * GitStashService — state for the dock's stash viewer: the entry list, the
  * selected entry's changed files, and apply / pop / drop.
@@ -96,6 +102,16 @@ export class GitStashService {
   private readonly gitStatus = inject(GitStatusService);
   private readonly gitBranches = inject(GitBranchesService);
   private readonly diffTabs = inject(DiffTabsService);
+  private readonly reviewNavigation = inject(ReviewNavigationService);
+
+  /**
+   * Review canvases currently mounted. While at least one is, a stash file
+   * opens in the canvas (`ReviewNavigationService.openStashFile`); otherwise
+   * it opens as a diff tab in the existing dock. The review shell registers on
+   * mount, so the route switches when the shell replaces the dock (cutover,
+   * Task 58.1) and never points at an unmounted surface before it.
+   */
+  private reviewCanvasMounts = 0;
 
   private readonly _states = signal<ReadonlyMap<string, StashWorkspaceState>>(
     new Map(),
@@ -363,7 +379,26 @@ export class GitStashService {
     return outcome;
   }
 
-  /** Open one file of the selected stash as a diff tab: parent vs stash. */
+  /**
+   * Route stash file diffs to the review canvas until the returned function is
+   * called. The review shell calls this when it mounts and releases on
+   * destroy. Releasing twice is a no-op.
+   */
+  registerReviewCanvas(): () => void {
+    this.reviewCanvasMounts++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.reviewCanvasMounts--;
+    };
+  }
+
+  /**
+   * Open one file of the selected stash read-only, parent vs stash: in the
+   * review canvas when one is mounted (the canvas reads the diff itself),
+   * otherwise as a diff tab of the existing dock.
+   */
   async openFileDiff(file: GitStashFileEntry): Promise<void> {
     const workspace = this.gitStatus.activeWorkspacePath();
     if (!workspace) return;
@@ -383,6 +418,15 @@ export class GitStashService {
       if (token !== this.fileDiffToken) return;
       if (!this.isSelectionCurrent(workspace, entry, generation)) return;
       if (!refs) return;
+      if (this.reviewCanvasMounts > 0) {
+        this.reviewNavigation.openStashFile({
+          base: { name: `${entry.hash}^1`, sha: refs.baseSha },
+          head: { name: entry.hash, sha: refs.headSha },
+          label: stashLabel(entry),
+          file,
+        });
+        return;
+      }
       const response = await rpcCall<GitReviewFileResult>(
         this.vscode,
         'git:reviewFile',
@@ -455,8 +499,7 @@ export class GitStashService {
   }
 
   private toTab(entry: StashEntry, data: GitReviewFileResult): EditorTab {
-    const shortHash = entry.hash.slice(0, 7);
-    const label = `${entry.message} · ${shortHash}`;
+    const label = stashLabel(entry);
     const fileName =
       data.path.replace(/\\/g, '/').split('/').pop() || data.path;
     const failure = firstReadError(data.original, data.modified);

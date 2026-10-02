@@ -81,6 +81,7 @@ export { SessionOrganizationRpcHandlers } from './session-organization-rpc.handl
 export { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';
 export { EditorRpcHandlers } from './editor-rpc.handlers';
 export { FileViewRpcHandlers } from './file-view-rpc.handlers';
+export { FileEditRpcHandlers } from './file-edit-rpc.handlers';
 export {
   FileLinkRootPolicy,
   CREDENTIAL_DENY_LIST,

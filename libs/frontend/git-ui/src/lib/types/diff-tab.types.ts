@@ -40,6 +40,14 @@ export type { DiffSideRef };
  */
 export type DiffTabStatus = 'fresh' | 'refreshing' | 'stale' | 'error';
 
+/** A diff side whose content the backend read but did not ship. */
+export interface DiffUnrenderable {
+  side: 'original' | 'modified';
+  reason: 'too-large' | 'lfs-pointer';
+  /** Bytes: the blob for `too-large`, the real LFS object for `lfs-pointer`. */
+  size: number;
+}
+
 /**
  * Everything that identifies and describes an open diff tab.
  *
@@ -101,6 +109,13 @@ export interface DiffTabState {
   hunks: GitHunkRef[];
   /** True when either side is binary — suppresses textual diff rendering. */
   isBinary: boolean;
+  /**
+   * Set when a side's content was deliberately not shipped (`too-large`,
+   * `lfs-pointer`), so its text is empty without being empty. Only the review
+   * canvas sets it; a consumer that sees it must label the file instead of
+   * rendering the empty text as a diff (Requirement 6.10).
+   */
+  unrenderable?: DiffUnrenderable;
   status: DiffTabStatus;
   /** Sanitized, user-facing copy from the frontend string table (A3 AC4). */
   errorMessage?: string;
@@ -131,6 +146,14 @@ export interface FileViewTabState {
   relativePath: string | null;
   content: string;
   sizeBytes: number | null;
+  /**
+   * From the last successful read: the decoding used, the sha256 of the raw
+   * bytes (sent back as `expectedSha256` on save) and whether a BOM was
+   * stripped. Absent until a read succeeds.
+   */
+  encoding?: 'utf-8' | 'utf-16le' | 'utf-16be';
+  sha256?: string;
+  bom?: boolean;
   isMarkdown: boolean;
   reveal: { line: number; column: number } | null;
   status: FileViewTabStatus;

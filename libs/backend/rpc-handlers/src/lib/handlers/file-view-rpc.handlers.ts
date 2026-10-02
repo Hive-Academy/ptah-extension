@@ -22,6 +22,7 @@
  * never a path and never content.
  */
 
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { inject, injectable } from 'tsyringe';
@@ -138,6 +139,10 @@ export class FileViewRpcHandlers {
       content: decoded.content,
       sizeBytes: bytes.byteLength,
       encoding: decoded.encoding,
+      // Hash the raw bytes, BOM included: the save path compares against the
+      // bytes it finds on disk, not against the decoded text.
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      bom: decoded.bom,
     };
   }
 
@@ -206,6 +211,7 @@ type DecodeResult =
       ok: true;
       content: string;
       encoding: 'utf-8' | 'utf-16le' | 'utf-16be';
+      bom: boolean;
     }
   | { ok: false; reason: 'binary' | 'unsupported-encoding' };
 
@@ -222,13 +228,13 @@ function decodeText(bytes: Buffer): DecodeResult {
     bytes[1] === 0xbb &&
     bytes[2] === 0xbf
   ) {
-    return decodeWith(bytes.subarray(3), 'utf-8');
+    return decodeWith(bytes.subarray(3), 'utf-8', true);
   }
   if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
-    return decodeWith(bytes.subarray(2), 'utf-16le');
+    return decodeWith(bytes.subarray(2), 'utf-16le', true);
   }
   if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
-    return decodeWith(bytes.subarray(2), 'utf-16be');
+    return decodeWith(bytes.subarray(2), 'utf-16be', true);
   }
 
   const sniffLength = Math.min(bytes.length, BINARY_SNIFF_BYTES);
@@ -236,16 +242,23 @@ function decodeText(bytes: Buffer): DecodeResult {
     if (bytes[i] === 0x00) return { ok: false, reason: 'binary' };
   }
 
-  return decodeWith(bytes, 'utf-8');
+  return decodeWith(bytes, 'utf-8', false);
 }
 
 function decodeWith(
   bytes: Buffer,
   encoding: 'utf-8' | 'utf-16le' | 'utf-16be',
+  bom: boolean,
 ): DecodeResult {
   try {
-    const content = new TextDecoder(encoding, { fatal: true }).decode(bytes);
-    return { ok: true, content, encoding };
+    // `ignoreBOM: true` keeps the decoder from stripping a SECOND BOM: the
+    // leading one has already been sliced off above, and anything left is
+    // content the save path must round-trip byte-for-byte.
+    const content = new TextDecoder(encoding, {
+      fatal: true,
+      ignoreBOM: true,
+    }).decode(bytes);
+    return { ok: true, content, encoding, bom };
   } catch {
     // degradation-audit: optional-capability - previewing this file is the
     // optional outcome; a fatal decode failure becomes a typed reason so the

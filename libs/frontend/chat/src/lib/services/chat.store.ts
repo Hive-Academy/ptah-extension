@@ -33,6 +33,7 @@ import { SessionHistoryReplayer } from './chat-store/session-history-replayer.se
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
+import type { SendOutcome } from './message-sender.service';
 import {
   SessionStatsAggregatorService,
   type SessionStatsEvent,
@@ -243,7 +244,7 @@ export class ChatStore {
   async sendOrQueueMessage(
     content: string,
     options?: SendMessageOptions,
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
     return this.messageDispatch.sendOrQueueMessage(content, options);
   }
 

@@ -58,6 +58,16 @@ export const RPC_CAPABILITIES = [
    * legitimately want the viewer without granting raw access.
    */
   'fileViewer',
+  /**
+   * Host can save edited text back over an existing workspace file for the
+   * in-app spot editor (`file:saveContent`).
+   *
+   * Separate from `fileViewer` because writing is a wider grant than reading:
+   * a host may show contained content without letting the renderer change it.
+   * It is the same containment as the viewer, plus a sha256 conflict check and
+   * an atomic temp-file rename; it never creates a file.
+   */
+  'fileEditor',
   /** Host has a command palette / command executor. */
   'commandExecution',
   /** Host ships a self-updating application shell. */

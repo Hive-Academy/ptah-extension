@@ -162,3 +162,50 @@ describe('WebviewHtmlGenerator fallback document', () => {
     expect(html).not.toContain('<app-root>');
   });
 });
+
+describe('WebviewHtmlGenerator content security policy', () => {
+  function directive(html: string, name: string): string[] {
+    const policy = /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(
+      html,
+    )?.[1];
+    const entry = (policy ?? '')
+      .split(';')
+      .map((part) => part.trim().split(/\s+/))
+      .find(([key]) => key === name);
+    return entry ? entry.slice(1) : [];
+  }
+
+  function generate(): string {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation();
+    try {
+      return createGenerator().generateAngularWebviewContent(createWebview(), {
+        initialView: 'chat',
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+  }
+
+  it('allows inline styles without a style nonce, as @pierre/diffs needs', () => {
+    // A nonce in style-src makes Chromium ignore 'unsafe-inline' (CSP 3), which
+    // blocks Pierre's un-nonced <style> and style="" token attributes.
+    expect(directive(generate(), 'style-src')).toEqual([
+      'vscode-webview:',
+      "'unsafe-inline'",
+      'https://fonts.googleapis.com',
+    ]);
+  });
+
+  it('allows Blob URL workers only, as the @pierre/diffs worker pool needs', () => {
+    // The webview fetches worker-portable.js and starts each worker from a
+    // Blob URL; without worker-src, workers fall back to default-src 'none'.
+    expect(directive(generate(), 'worker-src')).toEqual(['blob:']);
+  });
+
+  it('keeps script-src nonce-only, with no unsafe-inline or unsafe-eval', () => {
+    const scriptSrc = directive(generate(), 'script-src');
+
+    expect(scriptSrc).toHaveLength(1);
+    expect(scriptSrc[0]).toMatch(/^'nonce-[A-Za-z0-9+/=]+'$/);
+  });
+});

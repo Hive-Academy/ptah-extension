@@ -57,6 +57,7 @@ export {
   ElectronFileOpenRpcHandlers,
   EditorRpcHandlers,
   FileViewRpcHandlers,
+  FileEditRpcHandlers,
   FileLinkRootPolicy,
   CREDENTIAL_DENY_LIST,
   isCredentialPath,

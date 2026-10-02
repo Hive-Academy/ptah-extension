@@ -37,6 +37,7 @@ export function createElectronRpcHostProfile(
       filePickerImages: true,
       fileSystemAccess: true,
       fileViewer: true,
+      fileEditor: true,
       commandExecution: true,
       appUpdater: true,
       // Serves the `go vet` consent RPC; `phase-2-libraries.ts` attaches the

@@ -9,6 +9,7 @@ import {
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type { GitHunkRef } from '@ptah-extension/shared';
 import type { PierreDiffHostComponent } from './pierre-diff-host.component';
+import type { PierreWorkerPoolState } from './pierre-worker-pool';
 
 /**
  * `@pierre/diffs` is ESM-only and is not transformed by this project's Jest
@@ -156,6 +157,18 @@ jest.mock('@pierre/diffs', () => ({
   },
 }));
 
+// The real pool is covered by pierre-worker-pool.spec.ts; here the service is
+// replaced and only the module needs to load.
+jest.mock('@pierre/diffs/worker', () => ({
+  getOrCreateWorkerPoolSingleton: jest.fn(),
+  terminateWorkerPoolSingleton: jest.fn(),
+}));
+
+const workerPool = {
+  state: signal<PierreWorkerPoolState>({ status: 'unavailable' }),
+  start: jest.fn(),
+};
+
 function ref(
   index: number,
   originalStart: number,
@@ -240,6 +253,7 @@ async function createHostComponent(): Promise<Type<HostShape>> {
 
 describe('PierreDiffHostComponent', () => {
   let fixture: ComponentFixture<HostShape>;
+  let HostComponent: Type<HostShape>;
 
   async function settle(): Promise<void> {
     fixture.detectChanges();
@@ -271,9 +285,13 @@ describe('PierreDiffHostComponent', () => {
     pierre.parseThrows = false;
     pierre.constructorThrows = false;
     pierre.renderThrows = false;
-    const HostComponent = await createHostComponent();
+    workerPool.state.set({ status: 'unavailable' });
+    workerPool.start.mockClear();
+    HostComponent = await createHostComponent();
+    const { PierreWorkerPoolService } = await import('./pierre-worker-pool');
     await TestBed.configureTestingModule({
       imports: [HostComponent],
+      providers: [{ provide: PierreWorkerPoolService, useValue: workerPool }],
     }).compileComponents();
     fixture = TestBed.createComponent(HostComponent);
     await settle();
@@ -512,5 +530,38 @@ describe('PierreDiffHostComponent', () => {
     const [instance] = pierre.instances;
     fixture.destroy();
     expect(instance.cleanedUp).toBe(true);
+  });
+
+  describe('worker pool', () => {
+    it('starts the shared pool once per host', () => {
+      expect(workerPool.start).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to the main thread (no pool) when the pool is unavailable', () => {
+      expect(pierre.instances).toHaveLength(1);
+      expect(pierre.instances[0].workerManager).toBeUndefined();
+    });
+
+    it('mounts nothing while the pool loads, then renders with the pool', async () => {
+      fixture.destroy();
+      pierre.instances = [];
+      workerPool.state.set({ status: 'loading' });
+      fixture = TestBed.createComponent(HostComponent);
+      await settle();
+      expect(pierre.instances).toHaveLength(0);
+
+      const pool = { isWorkingPool: () => true };
+      workerPool.state.set({
+        status: 'ready',
+        pool: pool as unknown as Extract<
+          PierreWorkerPoolState,
+          { status: 'ready' }
+        >['pool'],
+      });
+      await settle();
+      expect(pierre.instances).toHaveLength(1);
+      expect(pierre.instances[0].workerManager).toBe(pool);
+      expect(hostElements()).toHaveLength(LINE_ONE_AND_ADJACENT.length);
+    });
   });
 });

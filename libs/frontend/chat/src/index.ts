@@ -23,3 +23,4 @@ export {
   type ChangeSetMarks,
 } from './lib/services/change-set/change-set.store';
 export { ChangeSetActionsService } from './lib/services/change-set/change-set-actions.service';
+export { ChatAgentFeedbackSender } from './lib/services/agent-feedback/chat-agent-feedback-sender.service';
