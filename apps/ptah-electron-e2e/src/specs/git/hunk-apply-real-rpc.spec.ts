@@ -1,6 +1,6 @@
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
-import { sourceControlFileButton } from '../../support/source-control';
+import type { UiDriver } from '../../support/ui-driver';
 
 /**
  * `git:applyHunks` end-to-end in Electron — TASK_2026_218.
@@ -13,10 +13,15 @@ import { sourceControlFileButton } from '../../support/source-control';
  * and asserts on `git diff --cached` read straight from disk — never on a
  * value the harness itself supplied.
  *
- * The hunk is staged through the roving-tabindex toolbar using the keyboard,
- * which is the affordance Batch 8B actually shipped. The floating hunk-action
- * widget (TASK_2026_221) does not exist yet, and the glyph-margin markers
- * (TASK_2026_222) are checked separately in this same harness.
+ * The hunk is staged through the roving-tabindex toolbar using the keyboard.
+ *
+ * TASK_2026_576 Batch 59 retargeted this spec to the review canvas. The
+ * continuous canvas lists every changed file as a section, so there is no
+ * "open the file's diff" click any more: the file's section and its per-hunk
+ * toolbars (`ptah-hunk-toolbar`, projected into Pierre's shadow DOM by
+ * `ptah-pierre-diff-host`) are on screen as soon as the Git rail opens. The
+ * toolbar's Accept is `git:applyHunks` operation `stage`, so what is asserted
+ * on disk is unchanged.
  */
 
 /**
@@ -65,6 +70,20 @@ async function waitForStagedDiff(
   }
 }
 
+/**
+ * Wait until the review canvas shows the three-hunk file with one toolbar per
+ * hunk. The section mounts Pierre lazily (`@defer`), so the toolbar hosts are
+ * the observable proof that the real diff arrived and mapped to git's hunks.
+ */
+async function openThreeHunkCanvas(ui: UiDriver): Promise<void> {
+  const section = ui.reviewFileSection(THREE_HUNK_FILE);
+  await expect(section).toBeVisible({ timeout: 30_000 });
+  await expect(section.locator('[data-testid="pierre-hunk-host"]')).toHaveCount(
+    3,
+    { timeout: 30_000 },
+  );
+}
+
 test.describe('git:applyHunks end-to-end in Electron (TASK_2026_218)', () => {
   // A real boot into an empty home runs every SQLite migration from zero before
   // the window is created, which does not fit the config-wide 60s budget.
@@ -81,41 +100,21 @@ test.describe('git:applyHunks end-to-end in Electron (TASK_2026_218)', () => {
     expect(repo.stagedDiff()).toBe('');
     expect(repo.worktreeDiff().match(/^@@ /gm)?.length).toBe(3);
 
-    // The dock has no tab rail (TASK_2026_385 Batch 3.3): goto('git') opens it
-    // directly on the source-control panel, so the old "click the Git tab"
-    // step that followed goto('editor') is gone.
     await ui.goto('git');
-
-    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
-    await expect(changedRow).toBeVisible({ timeout: 20_000 });
-    await changedRow.click();
-
-    await expect(page.locator('ptah-diff-view .view-lines').last()).toBeVisible(
-      { timeout: 20_000 },
-    );
+    await openThreeHunkCanvas(ui);
 
     // The real backend produced the diff, so the toolbar's own count is the
     // first evidence the RPC round trip carried real data.
-    const toolbar = page.locator('[data-testid="hunk-toolbar"]');
-    await expect(toolbar).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator('[data-testid="hunk-position"]')).toHaveText(
-      '3 hunks',
-    );
+    await expect(
+      ui.hunkHost(0).locator('[data-testid="hunk-position"]'),
+    ).toHaveText('Hunk 1 of 3');
 
-    // Select hunk 1 and stage it, both by keyboard.
-    await page.locator('[data-testid="hunk-next"]').focus();
-    await page.keyboard.press('Enter');
-    await expect(page.locator('[data-testid="hunk-position"]')).toHaveText(
-      'Hunk 1 of 3',
-    );
-
-    await page.locator('[data-testid="hunk-stage"]').focus();
+    // Accept hunk 1 by keyboard: focus its toolbar's Accept and press Enter.
+    await ui.hunkAction(0, 'stage').focus();
     await page.keyboard.press('Enter');
 
-    // No error surfaced in the UI...
-    await expect(page.locator('[data-testid="hunk-apply-error"]')).toHaveCount(
-      0,
-    );
+    // No refusal surfaced in the UI...
+    await expect(page.locator('[data-testid="hunk-refused"]')).toHaveCount(0);
 
     // ...and the index actually moved.
     const staged = await waitForStagedDiff(
@@ -153,24 +152,15 @@ test.describe('git:applyHunks end-to-end in Electron (TASK_2026_218)', () => {
     const page = ui.page;
     expect(repo.stagedDiff()).toBe('');
 
-    // The dock has no tab rail (TASK_2026_385 Batch 3.3): goto('git') opens it
-    // directly on the source-control panel, so the old "click the Git tab"
-    // step that followed goto('editor') is gone.
     await ui.goto('git');
+    await openThreeHunkCanvas(ui);
 
-    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
-    await expect(changedRow).toBeVisible({ timeout: 20_000 });
-    await changedRow.click();
-
-    await expect(page.locator('ptah-diff-view .view-lines').last()).toBeVisible(
-      { timeout: 20_000 },
-    );
-
-    await page.locator('[data-testid="hunk-next"]').focus();
+    // Reach the toolbar and use its navigation (Next), but not Accept.
+    await ui.hunkAction(0, 'next').focus();
     await page.keyboard.press('Enter');
-    await expect(page.locator('[data-testid="hunk-position"]')).toHaveText(
-      'Hunk 1 of 3',
-    );
+    await expect(
+      ui.hunkHost(1).locator('[data-testid="hunk-position"]'),
+    ).toHaveText('Hunk 2 of 3');
 
     // No stage press. Hold for longer than the positive test needed to observe
     // its apply, so "empty" means empty rather than "not yet".

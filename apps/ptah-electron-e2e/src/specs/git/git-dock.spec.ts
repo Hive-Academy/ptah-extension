@@ -1,5 +1,6 @@
 import { test, expect } from '../../support/fixtures';
 import { gitDiffFileMock } from '../../support/git-diff-mock';
+import { expectNoBlockingViolationsInBothThemes } from '../../support/axe';
 
 /**
  * Git dock (TASK_2026_385 Batch 3.3).
@@ -14,6 +15,16 @@ import { gitDiffFileMock } from '../../support/git-diff-mock';
  * once `GitDockComponent` has armed `GitStatusService.startListening()` —
  * proving the dock is not silently deaf the way it would be before Batch 3.1
  * (see `git-dock.component.ts`'s constructor doc).
+ *
+ * TASK_2026_576 Batch 59 retargets the file to the review shell
+ * (`ptah-review-shell`, mounted by the Electron shell in place of
+ * `ptah-git-dock`). The header (`ptah-git-dock-header`, Fetch/Pull/Push) is
+ * unchanged. The dock's file list and diff tabs are replaced by the review
+ * canvas: a `ptah-changed-file-tree` rail plus one continuous
+ * `ptah-file-diff-section` per changed file, so "open, switch and close
+ * diff tabs" has no literal successor and is proven as "each changed file
+ * has its own independent section and selecting a row activates it". The
+ * last case runs axe over the shell in both themes.
  */
 test.describe('Git dock', () => {
   test('background worktree creation refreshes the list without switching workspace', async ({
@@ -47,9 +58,12 @@ test.describe('Git dock', () => {
       },
     });
     await ui.goto('git');
-    await ui.page
-      .getByRole('button', { name: 'Toggle worktrees section' })
-      .click();
+    // Worktrees moved from a collapsible dock section to the Task tab.
+    await ui.reviewTab('Task').click();
+    const switchRow = ui.page.getByRole('button', {
+      name: `Switch to agent/task, ${worktreePath}`,
+      exact: true,
+    });
 
     const switchCallsBefore = (await ui.getObservedCalls('workspace:switch'))
       .length;
@@ -66,9 +80,7 @@ test.describe('Git dock', () => {
       },
     });
 
-    await expect(
-      ui.page.getByRole('button', { name: `Switch to ${worktreePath}` }),
-    ).toBeVisible();
+    await expect(switchRow).toBeVisible();
     expect(await ui.getObservedCalls('workspace:switch')).toHaveLength(
       switchCallsBefore,
     );
@@ -185,7 +197,7 @@ test.describe('Git dock', () => {
     await ui.goto('git');
     const page = ui.page;
 
-    await expect(page.locator('ptah-git-dock')).toBeVisible();
+    await expect(ui.reviewShell()).toBeVisible();
 
     await ui.pushEvent({
       type: 'git:status-update',
@@ -210,45 +222,35 @@ test.describe('Git dock', () => {
       'feature/cx-120',
     );
 
-    // File count updates — the dock lists one row per changed file.
-    const changedFiles = page.getByRole('list', {
-      name: 'Changed files',
-      exact: true,
-    });
-    const changedSrc = changedFiles.getByRole('button', {
-      name: 'Toggle src folder',
-      exact: true,
-    });
-    await expect(changedSrc).toHaveAttribute('aria-expanded', 'false');
-    await changedSrc.click();
-    await expect(changedSrc).toHaveAttribute('aria-expanded', 'true');
-    await expect(
-      changedFiles.getByRole('button', { name: 'Open diff for a.ts' }),
-    ).toBeVisible();
-    await expect(
-      changedFiles.getByRole('button', { name: 'Open diff for c.ts' }),
-    ).toBeVisible();
-    expect(await ui.getObservedCalls('git:diffFile')).toEqual([]);
-    await expect(page.locator('ptah-diff-view')).toHaveCount(0);
-    await expect(
-      page.locator('[data-testid="diff-error-overlay"]'),
-    ).toHaveCount(0);
+    // File count updates: the Changes tab's accessible name carries it.
+    await expect(ui.reviewTab(/^Changes, 3 changed files/)).toBeVisible();
 
-    await changedSrc.click();
-    await expect(changedSrc).toHaveAttribute('aria-expanded', 'false');
-    await expect(
-      changedFiles.getByRole('button', { name: 'Open diff for a.ts' }),
-    ).toHaveCount(0);
+    // The tree lists one row per changed file, staged and unstaged apart.
+    const tree = page.getByRole('tree', { name: 'Changed files' });
+    await expect(tree.locator('[data-testid="tree-row-file"]')).toHaveCount(3);
+    await expect(tree.locator('[data-testid="tree-row-section"]')).toHaveCount(
+      2,
+    );
 
-    await changedSrc.click();
-    const stagedSrc = page
-      .getByRole('list', { name: 'Staged files', exact: true })
-      .getByRole('button', { name: 'Toggle src folder', exact: true });
-    await stagedSrc.click();
-    await expect(page.locator('ptah-source-control-file')).toHaveCount(3);
+    // A folder is collapsible: collapsing hides its files, expanding brings
+    // them back.
+    const srcFolder = tree
+      .locator('[data-testid="tree-row-folder"]', { hasText: 'src' })
+      .first();
+    await expect(srcFolder).toHaveAttribute('aria-expanded', 'true');
+    await srcFolder.click();
+    await expect(srcFolder).toHaveAttribute('aria-expanded', 'false');
+    await expect(tree.locator('[data-testid="tree-row-file"]')).not.toHaveCount(
+      3,
+    );
+    await srcFolder.click();
+    await expect(srcFolder).toHaveAttribute('aria-expanded', 'true');
+    await expect(tree.locator('[data-testid="tree-row-file"]')).toHaveCount(3);
   });
 
-  test('opens, switches, and closes independent diff tabs', async ({ ui }) => {
+  test('every changed file gets its own independent diff section', async ({
+    ui,
+  }) => {
     await ui.goto('git');
     const page = ui.page;
 
@@ -269,16 +271,11 @@ test.describe('Git dock', () => {
       },
     });
 
-    const changedFiles = page.getByRole('list', {
-      name: 'Changed files',
-      exact: true,
-    });
-
-    // One path-keyed mock, registered before any tab opens: an already-open
-    // tab can re-request its diff (e.g. on a refresh) and must get its own
-    // payload, never whatever static reply was installed most recently. The
-    // resolver runs in the main process, so the table is embedded rather
-    // than closed over.
+    // One path-keyed mock, registered before any section reads: a section can
+    // re-request its diff (e.g. on a refresh) and must get its own payload,
+    // never whatever static reply was installed most recently. The resolver
+    // runs in the main process, so the table is embedded rather than closed
+    // over.
     const diffByPath = {
       'alpha.ts': gitDiffFileMock({
         path: 'alpha.ts',
@@ -298,52 +295,78 @@ test.describe('Git dock', () => {
     await ui.mockRpc({
       'git:diffFile': `(params) => (${JSON.stringify(diffByPath)})[params.path]`,
     });
-    await changedFiles
-      .getByRole('button', { name: 'Open diff for alpha.ts', exact: true })
-      .click();
 
-    const alphaTab = page.getByRole('tab', {
-      name: 'alpha.ts (working tree)',
-      exact: true,
+    const alpha = ui.reviewFileSection('alpha.ts');
+    const beta = ui.reviewFileSection('beta.ts');
+    await expect(alpha).toBeVisible();
+    await expect(beta).toBeVisible();
+    await expect(alpha.getByText('alpha modified')).toBeVisible();
+    await expect(beta.getByText('beta modified')).toBeVisible();
+    // Each section shows only its own file.
+    await expect(alpha.getByText('beta modified')).toHaveCount(0);
+    await expect(beta.getByText('alpha modified')).toHaveCount(0);
+
+    // Selecting a tree row activates that file (and only that file).
+    const tree = page.getByRole('tree', { name: 'Changed files' });
+    const alphaRow = tree.locator('[data-testid="tree-row-file"]', {
+      hasText: 'alpha.ts',
     });
-    await expect(alphaTab).toBeVisible();
-    await expect(
-      page.locator('ptah-diff-view .view-lines').last(),
-    ).toContainText('alpha modified');
-
-    await changedFiles
-      .getByRole('button', { name: 'Open diff for beta.ts', exact: true })
-      .click();
-
-    const betaTab = page.getByRole('tab', {
-      name: 'beta.ts (working tree)',
-      exact: true,
+    const betaRow = tree.locator('[data-testid="tree-row-file"]', {
+      hasText: 'beta.ts',
     });
-    const diffTablist = page.getByRole('tablist', { name: 'Open diffs' });
-    await expect(diffTablist).toBeVisible();
-    await expect(diffTablist.getByRole('tab')).toHaveCount(2);
-    await expect(betaTab).toHaveAttribute('aria-selected', 'true');
-    await expect(
-      page.locator('ptah-diff-view .view-lines').last(),
-    ).toContainText('beta modified');
+    await betaRow.click();
+    await expect(betaRow).toHaveAttribute('aria-selected', 'true');
+    await expect(alphaRow).toHaveAttribute('aria-selected', 'false');
+    await alphaRow.click();
+    await expect(alphaRow).toHaveAttribute('aria-selected', 'true');
+    await expect(betaRow).toHaveAttribute('aria-selected', 'false');
+    await expect(alpha.getByText('alpha modified')).toBeVisible();
+  });
 
-    await alphaTab.click();
-    await expect(alphaTab).toHaveAttribute('aria-selected', 'true');
-    await expect(
-      page.locator('ptah-diff-view .view-lines').last(),
-    ).toContainText('alpha modified');
+  test('the review shell has no critical or serious a11y violations in dark and light', async ({
+    ui,
+  }, testInfo) => {
+    await ui.mockRpc({
+      'git:diffFile': `(params) => (${JSON.stringify({
+        'alpha.ts': gitDiffFileMock({
+          path: 'alpha.ts',
+          comparison: 'worktree',
+          original: "export const value = 'alpha original';\n",
+          modified: "export const value = 'alpha modified';\n",
+          snapshotToken: 'alpha-snapshot',
+        }),
+      })})[params.path]`,
+    });
+    await ui.goto('git');
 
-    await page
-      .getByRole('button', {
-        name: 'Close diff for alpha.ts (working tree)',
-        exact: true,
-      })
-      .click();
-    await expect(alphaTab).toHaveCount(0);
-    await expect(diffTablist.getByRole('tab')).toHaveCount(1);
-    await expect(betaTab).toHaveAttribute('aria-selected', 'true');
+    await ui.pushEvent({
+      type: 'git:status-update',
+      payload: {
+        branch: {
+          branch: 'main',
+          upstream: 'origin/main',
+          ahead: 1,
+          behind: 1,
+        },
+        files: [
+          { path: 'alpha.ts', status: 'M', staged: false, isDirectory: false },
+        ],
+        isGitRepo: true,
+      },
+    });
+
+    // Audit the populated surface, not the loading placeholder: the tabs, the
+    // tree and a rendered diff must all be on screen first.
+    await expect(ui.reviewTab(/^Changes, 1 changed file/)).toBeVisible();
     await expect(
-      page.locator('ptah-diff-view .view-lines').last(),
-    ).toContainText('beta modified');
+      ui.reviewFileSection('alpha.ts').getByText('alpha modified'),
+    ).toBeVisible();
+
+    await expectNoBlockingViolationsInBothThemes(
+      ui.page,
+      'review-shell',
+      testInfo,
+      'ptah-review-shell',
+    );
   });
 });
