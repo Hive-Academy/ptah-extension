@@ -35,6 +35,7 @@ export async function runDrawerWrite(
   try {
     started = await write(context);
   } catch {
+    // degradation-audit: reported - publishes the fixed DRAWER_WRITE_BROKEN alert to the drawer.
     // State commands settle their own failures into `commit()`; a throw means the command itself broke.
     publish({ status: 'blocked', message: DRAWER_WRITE_BROKEN });
     return;

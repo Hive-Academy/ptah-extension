@@ -387,7 +387,9 @@ export class ProvidersCommitService {
     try {
       written = await operation.write();
     } catch (error: unknown) {
-      // RPC errors may contain credentials. Neither their message nor object enters UI state.
+      // degradation-audit: reported - 'unconfirmed' makes the caller revert the
+      // control and show a fixed alert (D15). RPC errors may contain credentials,
+      // so neither their message nor the object enters UI state.
       void error;
       return 'unconfirmed';
     }
@@ -401,6 +403,8 @@ export class ProvidersCommitService {
       if (!this.contextMatches(context, hooks)) return 'unconfirmed';
       return matches ? 'saved' : 'unsaved';
     } catch (error: unknown) {
+      // degradation-audit: reported - a failed read-back is 'unconfirmed': the
+      // caller reverts and shows a fixed alert instead of "Saved" (D15).
       void error;
       return 'unconfirmed';
     }

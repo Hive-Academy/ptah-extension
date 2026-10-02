@@ -92,6 +92,7 @@ export class SettingsSaveFeedbackService {
     try {
       accepted = await request.write();
     } catch {
+      // degradation-audit: reported - shows a fixed alert toast and returns 'failed'.
       // State commands settle their own failures into `commit()`; a throw here means the command
       // itself broke, so nothing about the write can be confirmed.
       this.show(
@@ -147,6 +148,7 @@ export class SettingsSaveFeedbackService {
       this.genericSaving.set(true);
       result = await request.write();
     } catch {
+      // degradation-audit: reported - shows a fixed alert toast and returns 'failed'.
       // The writer itself broke; nothing about the write can be confirmed.
       this.show(
         { tone: 'alert', message: `Could not confirm whether ${request.label} was saved.`, canUndo: false },

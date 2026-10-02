@@ -538,7 +538,9 @@ export class PtahFileSettingsManager {
     try {
       entries = fs.readdirSync(this.dirPath);
     } catch {
-      // Directory absent (first run) or unreadable: nothing to sweep.
+      // degradation-audit: optional-capability - the stale temp-file sweep is
+      // best-effort cleanup; an absent (first run) or unreadable directory
+      // leaves nothing to sweep, and the next read or write reports its own error.
       return;
     }
     const cutoff = Date.now() - STALE_TEMP_FILE_AGE_MS;
@@ -591,6 +593,8 @@ export class PtahFileSettingsManager {
         error instanceof Error ? error.message : String(error),
       );
       // Best-effort: a unique temp name would otherwise stay behind as an orphan.
+      // degradation-audit: reported - the write failure itself is logged above
+      // and rethrown as SettingsPersistError below; only the temp cleanup is optional.
       await fsPromises.rm(tmpPath, { force: true }).catch(() => undefined);
       throw new SettingsPersistError(fsErrorCode(error));
     }
