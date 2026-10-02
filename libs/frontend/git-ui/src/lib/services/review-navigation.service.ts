@@ -90,6 +90,13 @@ export interface ReviewStashFileRequest {
   file: GitStashFileEntry;
 }
 
+/**
+ * Asked before a navigation replaces the spot editor. `true` lets it land;
+ * `false` (Keep editing) cancels it. A synchronous answer lands the
+ * navigation synchronously.
+ */
+export type ReviewLeaveGuard = () => boolean | Promise<boolean>;
+
 /** A full or abbreviated commit id; anything else never reaches git. */
 const COMMIT_SHA = /^[0-9a-f]{4,64}$/i;
 
@@ -113,6 +120,15 @@ const INITIAL: ReviewNavigation = {
  * It holds view state only. It never reveals the dock (callers outside the
  * dock do that first) and never reads diffs (`ReviewDiffService` does, for the
  * file sections the canvas mounts).
+ *
+ * **Unsaved edits.** Every navigation that would replace the spot editor (a
+ * change set, a commit, a stash file, a comparison or another tab) first asks
+ * the registered {@link ReviewLeaveGuard}, so no caller has to know an editor
+ * exists. Only {@link backToReview} skips it: the editor asked before it
+ * emitted. A file-to-file navigation is not guarded here because the editor
+ * stays mounted and asks about its own replacement. While an answer is
+ * pending, the latest guarded navigation wins and any other navigation
+ * supersedes it.
  */
 @Injectable({ providedIn: 'root' })
 export class ReviewNavigationService {
@@ -120,9 +136,23 @@ export class ReviewNavigationService {
   private readonly gitStatus = inject(GitStatusService);
 
   private readonly _current = signal<ReviewNavigation>(INITIAL);
+  private leaveGuard: ReviewLeaveGuard | null = null;
+  /** Bumped per guarded navigation, so only the latest one can land. */
+  private leaveTicket = 0;
 
   /** The latest navigation. */
   readonly current = this._current.asReadonly();
+
+  /**
+   * Register the question asked before the spot editor is replaced (the
+   * review shell, while mounted). Returns the release.
+   */
+  registerLeaveGuard(guard: ReviewLeaveGuard): () => void {
+    this.leaveGuard = guard;
+    return () => {
+      if (this.leaveGuard === guard) this.leaveGuard = null;
+    };
+  }
 
   /** Show the Changes tab, comparing the working tree, narrowed to one turn. */
   openChangeSet(request: {
@@ -130,7 +160,7 @@ export class ReviewNavigationService {
     files: readonly ReviewChangeSetFile[];
     ownerSessionId?: string;
   }): void {
-    this.navigate(
+    void this.navigate(
       'changes',
       { kind: 'worktree' },
       {
@@ -154,16 +184,19 @@ export class ReviewNavigationService {
     line?: number,
     options?: { readonly editable?: boolean },
   ): void {
-    this.navigate('changes', this._current().scope, {
+    void this.navigate('changes', this._current().scope, {
       kind: 'file',
       request: line === undefined ? { path } : { path, line },
       ...(options?.editable ? { editable: true as const } : {}),
     });
   }
 
-  /** Leave the spot editor for the canvas, keeping the comparison. */
+  /**
+   * Leave the spot editor for the canvas, keeping the comparison. Not
+   * guarded: only the editor's own Back emits this, after it asked.
+   */
   backToReview(): void {
-    this.navigate('changes', this._current().scope, { kind: 'none' });
+    this.commit('changes', this._current().scope, { kind: 'none' });
   }
 
   /**
@@ -213,7 +246,7 @@ export class ReviewNavigationService {
         error: result?.error ?? transportError ?? HISTORICAL_READ_MESSAGE,
       };
     }
-    this.navigate(
+    const landed = await this.navigate(
       'changes',
       {
         kind: 'historical',
@@ -224,7 +257,8 @@ export class ReviewNavigationService {
       },
       { kind: 'none' },
     );
-    return { opened: true };
+    // Not landing is Keep editing (or a newer navigation): nothing failed.
+    return landed ? { opened: true } : { opened: false, error: null };
   }
 
   /**
@@ -249,7 +283,7 @@ export class ReviewNavigationService {
     ) {
       return;
     }
-    this.navigate(
+    await this.navigate(
       'changes',
       {
         kind: 'historical',
@@ -279,12 +313,12 @@ export class ReviewNavigationService {
   selectTab(tab: ReviewTab): void {
     const current = this._current();
     if (current.tab === tab) return;
-    this._current.set({ ...current, seq: current.seq + 1, tab });
+    void this.navigate(tab, current.scope, current.target);
   }
 
   /** A comparison was picked in the comparison bar. Clears the target. */
   selectComparison(kind: ReviewComparisonKind): void {
-    this.navigate('changes', { kind }, { kind: 'none' });
+    void this.navigate('changes', { kind }, { kind: 'none' });
   }
 
   /** The stash file's `git:reviewChanges` row, or `null` when it cannot be read. */
@@ -311,7 +345,55 @@ export class ReviewNavigationService {
     }
   }
 
+  /**
+   * Land a navigation, asking the leave guard first when it would replace the
+   * spot editor. Resolves `true` when it landed. With no question to ask (or a
+   * synchronous answer) it lands before returning.
+   */
   private navigate(
+    tab: ReviewTab,
+    scope: ReviewScope,
+    target: ReviewTarget,
+  ): Promise<boolean> {
+    const current = this._current();
+    const guard = this.leaveGuard;
+    const replacesEditor =
+      current.target.kind === 'file' &&
+      (target.kind !== 'file' || tab !== current.tab);
+    if (!guard || !replacesEditor) {
+      this.commit(tab, scope, target);
+      return Promise.resolve(true);
+    }
+
+    const ticket = ++this.leaveTicket;
+    const land = (leave: boolean): boolean => {
+      if (
+        !leave ||
+        ticket !== this.leaveTicket ||
+        this._current().seq !== current.seq
+      ) {
+        return false;
+      }
+      this.commit(tab, scope, target);
+      return true;
+    };
+    // A guard that fails keeps the editor: losing edits is the worse outcome.
+    const refuse = (error: unknown): boolean => {
+      console.error('[ReviewNavigationService] leave guard failed', error);
+      return false;
+    };
+    let answer: boolean | Promise<boolean>;
+    try {
+      answer = guard();
+    } catch (error: unknown) {
+      return Promise.resolve(refuse(error));
+    }
+    return typeof answer === 'boolean'
+      ? Promise.resolve(land(answer))
+      : answer.then(land, refuse);
+  }
+
+  private commit(
     tab: ReviewTab,
     scope: ReviewScope,
     target: ReviewTarget,

@@ -40,7 +40,7 @@ jest.mock('@ptah-extension/core', () => ({
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { insertNewline } from '@codemirror/commands';
+import { insertNewline, undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import type {
   FileSaveContentResult,
@@ -214,11 +214,41 @@ describe('SpotEditorComponent', () => {
 
   function dialogButton(
     fixture: ComponentFixture<unknown>,
-    which: 'confirm' | 'cancel',
+    which: 'confirm' | 'cancel' | 'secondary',
   ): HTMLButtonElement {
     const button = byTestId<HTMLButtonElement>(fixture, `git-confirm-${which}`);
     if (!button) throw new Error('dialog is not open');
     return button;
+  }
+
+  function dialogTitle(fixture: ComponentFixture<unknown>): string | null {
+    return (
+      el(fixture)
+        .querySelector('[data-testid="git-confirm-dialog"] h3')
+        ?.textContent?.trim() ?? null
+    );
+  }
+
+  function pressEscape(fixture: ComponentFixture<unknown>): void {
+    dialogButton(fixture, 'cancel').dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
+  function readPaths(): unknown[] {
+    return mockRpcCall.mock.calls
+      .filter((call) => call[1] === 'file:viewContent')
+      .map((call) => (call[2] as { path: unknown }).path);
+  }
+
+  function saveDisabled(fixture: ComponentFixture<unknown>): boolean {
+    return (
+      byTestId<HTMLButtonElement>(fixture, 'spot-editor-save')?.disabled ?? true
+    );
   }
 
   describe('lazy loading', () => {
@@ -430,15 +460,18 @@ describe('SpotEditorComponent', () => {
       },
     };
 
-    it('asks Reload (focused) or Overwrite; Overwrite resends with overwrite:true', async () => {
+    it('asks Overwrite, Reload or Keep editing (focused); Overwrite resends with overwrite:true', async () => {
       routeRpc([viewResult()], [conflict]);
       const fixture = await render(undefined, true);
       type(fixture, 'x');
       await clickSave(fixture);
 
-      const reload = dialogButton(fixture, 'cancel');
-      expect(reload.textContent).toContain('Reload');
-      expect(document.activeElement).toBe(reload);
+      const keep = dialogButton(fixture, 'cancel');
+      expect(keep.textContent).toContain('Keep editing');
+      expect(document.activeElement).toBe(keep);
+      expect(dialogButton(fixture, 'secondary').textContent).toContain(
+        'Reload',
+      );
       expect(dialogButton(fixture, 'confirm').textContent).toContain(
         'Overwrite',
       );
@@ -453,7 +486,7 @@ describe('SpotEditorComponent', () => {
       });
     });
 
-    it('Reload re-reads the file and drops the local edits', async () => {
+    it('the explicit Reload re-reads the file and drops the local edits', async () => {
       routeRpc(
         [viewResult(), viewResult({ content: 'from disk\n', sha256: SHA_B })],
         [conflict],
@@ -462,8 +495,9 @@ describe('SpotEditorComponent', () => {
       type(fixture, 'x');
       await clickSave(fixture);
 
-      dialogButton(fixture, 'cancel').click();
+      dialogButton(fixture, 'secondary').click();
       await settle(fixture);
+      expect(byTestId(fixture, 'spot-editor-stale')).toBeNull();
       expect(editorView(fixture).state.sliceDoc()).toBe('from disk\n');
       expect(
         byTestId<HTMLButtonElement>(fixture, 'spot-editor-save')?.disabled,
@@ -472,6 +506,285 @@ describe('SpotEditorComponent', () => {
       type(fixture, 'y');
       await clickSave(fixture);
       expect(saveCalls().at(-1)?.['expectedSha256']).toBe(SHA_B);
+    });
+  });
+
+  describe('disk conflict — dismissal keeps the edits (SER-B1)', () => {
+    const conflict = {
+      success: true,
+      data: {
+        success: false as const,
+        reason: 'conflict' as const,
+        error: 'The file changed on disk.',
+      },
+    };
+
+    it('Escape closes the question and keeps the buffer, undo history and dirty state', async () => {
+      routeRpc([viewResult()], [conflict]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      await clickSave(fixture);
+
+      pressEscape(fixture);
+      await settle(fixture);
+
+      expect(byTestId(fixture, 'git-confirm-dialog')).toBeNull();
+      expect(readPaths()).toHaveLength(1);
+      const view = editorView(fixture);
+      expect(view.state.sliceDoc()).toBe('const a = 1;\nx');
+      expect(saveDisabled(fixture)).toBe(false);
+      // The conflict stays visible, with the banner's explicit Reload.
+      expect(byTestId(fixture, 'spot-editor-stale')).not.toBeNull();
+      expect(undo(view)).toBe(true);
+      expect(view.state.sliceDoc()).toBe('const a = 1;\n');
+    });
+
+    it('Keep editing keeps the edits; the next Save asks again', async () => {
+      routeRpc([viewResult()], [conflict, conflict]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      await clickSave(fixture);
+
+      dialogButton(fixture, 'cancel').click();
+      await settle(fixture);
+      expect(editorView(fixture).state.sliceDoc()).toBe('const a = 1;\nx');
+      expect(readPaths()).toHaveLength(1);
+
+      await clickSave(fixture);
+      expect(saveCalls()).toHaveLength(2);
+      expect(dialogTitle(fixture)).toBe(
+        'This file changed on disk since you opened it.',
+      );
+    });
+
+    it('the UA close request is the same Keep editing', async () => {
+      routeRpc([viewResult()], [conflict]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      await clickSave(fixture);
+
+      byTestId(fixture, 'git-confirm-dialog')?.dispatchEvent(
+        new Event('cancel', { cancelable: true }),
+      );
+      await settle(fixture);
+      expect(readPaths()).toHaveLength(1);
+      expect(editorView(fixture).state.sliceDoc()).toBe('const a = 1;\nx');
+    });
+  });
+
+  describe('stale banner Reload (MOD-B1)', () => {
+    it('reloads directly when there are no local edits', async () => {
+      routeRpc([viewResult(), viewResult({ content: 'new\n', sha256: SHA_B })]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      fixture.componentInstance.notifyDiskChange(['/ws/src/a.ts'], false);
+      await settle(fixture);
+      // Undo the only edit: the buffer is clean but the banner remains.
+      undo(editorView(fixture));
+      await settle(fixture);
+      expect(saveDisabled(fixture)).toBe(true);
+
+      byTestId<HTMLButtonElement>(fixture, 'spot-editor-stale-reload')?.click();
+      await settle(fixture);
+      expect(byTestId(fixture, 'git-confirm-dialog')).toBeNull();
+      expect(editorView(fixture).state.sliceDoc()).toBe('new\n');
+    });
+
+    it('asks first with local edits; Keep editing keeps them', async () => {
+      routeRpc([viewResult(), viewResult({ content: 'new\n', sha256: SHA_B })]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      fixture.componentInstance.notifyDiskChange(['/ws/src/a.ts'], false);
+      await settle(fixture);
+
+      byTestId<HTMLButtonElement>(fixture, 'spot-editor-stale-reload')?.click();
+      await settle(fixture);
+      expect(dialogTitle(fixture)).toBe('Reload from disk?');
+      expect(document.activeElement).toBe(dialogButton(fixture, 'cancel'));
+      expect(dialogButton(fixture, 'cancel').textContent).toContain(
+        'Keep editing',
+      );
+      expect(readPaths()).toHaveLength(1);
+
+      pressEscape(fixture);
+      await settle(fixture);
+      expect(readPaths()).toHaveLength(1);
+      expect(editorView(fixture).state.sliceDoc()).toBe('const a = 1;\nx');
+      expect(byTestId(fixture, 'spot-editor-stale')).not.toBeNull();
+    });
+
+    it('Discard and reload drops the edits for the version on disk', async () => {
+      routeRpc([viewResult(), viewResult({ content: 'new\n', sha256: SHA_B })]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      fixture.componentInstance.notifyDiskChange(['/ws/src/a.ts'], false);
+      await settle(fixture);
+
+      byTestId<HTMLButtonElement>(fixture, 'spot-editor-stale-reload')?.click();
+      await settle(fixture);
+      expect(dialogButton(fixture, 'confirm').textContent).toContain(
+        'Discard and reload',
+      );
+      dialogButton(fixture, 'confirm').click();
+      await settle(fixture);
+      expect(editorView(fixture).state.sliceDoc()).toBe('new\n');
+      expect(byTestId(fixture, 'spot-editor-stale')).toBeNull();
+      expect(saveDisabled(fixture)).toBe(true);
+    });
+  });
+
+  describe('open requests during a question (MOD-B3)', () => {
+    const conflict = {
+      success: true,
+      data: {
+        success: false as const,
+        reason: 'conflict' as const,
+        error: 'The file changed on disk.',
+      },
+    };
+    const fileB = viewResult({
+      absolutePath: '/ws/b.ts',
+      relativePath: 'b.ts',
+      content: 'b\n',
+    });
+
+    it('waits behind the open question and opens the latest request once it is answered', async () => {
+      routeRpc(
+        [viewResult(), viewResult({ content: 'disk\n', sha256: SHA_B }), fileB],
+        [conflict],
+      );
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      await clickSave(fixture);
+
+      fixture.componentRef.setInput('request', { path: '/ws/c.ts' });
+      await settle(fixture);
+      fixture.componentRef.setInput('request', { path: '/ws/b.ts' });
+      await settle(fixture);
+      // Still the conflict question, and nothing was read for c or b yet.
+      expect(dialogTitle(fixture)).toBe(
+        'This file changed on disk since you opened it.',
+      );
+      expect(readPaths()).toEqual(['/ws/src/a.ts']);
+
+      dialogButton(fixture, 'secondary').click();
+      await settle(fixture);
+      // Reload left no edits, so the waiting request (the latest) opens.
+      expect(readPaths()).toEqual(['/ws/src/a.ts', '/ws/src/a.ts', '/ws/b.ts']);
+      expect(editorView(fixture).state.sliceDoc()).toBe('b\n');
+      expect(byTestId(fixture, 'git-confirm-dialog')).toBeNull();
+    });
+
+    it('after Keep editing, the waiting request asks the replace question', async () => {
+      routeRpc([viewResult(), fileB], [conflict]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      await clickSave(fixture);
+
+      fixture.componentRef.setInput('request', { path: '/ws/b.ts' });
+      await settle(fixture);
+      dialogButton(fixture, 'cancel').click();
+      await settle(fixture);
+
+      expect(dialogTitle(fixture)).toBe('Discard unsaved changes?');
+      expect(dialogButton(fixture, 'confirm').textContent).toContain(
+        'Discard and open',
+      );
+      dialogButton(fixture, 'confirm').click();
+      await settle(fixture);
+      expect(editorView(fixture).state.sliceDoc()).toBe('b\n');
+    });
+  });
+
+  describe('confirmLeave (SER-B2)', () => {
+    it('answers true at once with nothing unsaved', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      expect(fixture.componentInstance.confirmLeave()).toBe(true);
+      expect(byTestId(fixture, 'git-confirm-dialog')).toBeNull();
+    });
+
+    it('asks Discard and leave or Keep editing; Keep editing answers false and keeps the edits', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+
+      const answer = fixture.componentInstance.confirmLeave();
+      await settle(fixture);
+      expect(dialogTitle(fixture)).toBe('Discard unsaved changes?');
+      expect(dialogButton(fixture, 'confirm').textContent).toContain(
+        'Discard and leave',
+      );
+      expect(document.activeElement).toBe(dialogButton(fixture, 'cancel'));
+
+      pressEscape(fixture);
+      await settle(fixture);
+      await expect(answer).resolves.toBe(false);
+      expect(editorView(fixture).state.sliceDoc()).toBe('const a = 1;\nx');
+    });
+
+    it('Discard and leave answers true', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+
+      const answer = fixture.componentInstance.confirmLeave();
+      await settle(fixture);
+      dialogButton(fixture, 'confirm').click();
+      await expect(answer).resolves.toBe(true);
+    });
+
+    it('a second call takes the place of the first, which answers false', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+
+      const first = fixture.componentInstance.confirmLeave();
+      await settle(fixture);
+      const second = fixture.componentInstance.confirmLeave();
+      await expect(first).resolves.toBe(false);
+      dialogButton(fixture, 'confirm').click();
+      await expect(second).resolves.toBe(true);
+    });
+
+    it('waits behind another open question, then asks', async () => {
+      routeRpc(
+        [viewResult()],
+        [
+          {
+            success: true,
+            data: {
+              success: false,
+              reason: 'conflict',
+              error: 'The file changed on disk.',
+            },
+          },
+        ],
+      );
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      await clickSave(fixture);
+
+      const answer = fixture.componentInstance.confirmLeave();
+      await settle(fixture);
+      expect(dialogTitle(fixture)).toBe(
+        'This file changed on disk since you opened it.',
+      );
+      dialogButton(fixture, 'cancel').click();
+      await settle(fixture);
+      expect(dialogTitle(fixture)).toBe('Discard unsaved changes?');
+      dialogButton(fixture, 'cancel').click();
+      await expect(answer).resolves.toBe(false);
+    });
+
+    it('answers false when the editor is destroyed while asking', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      const answer = fixture.componentInstance.confirmLeave();
+      await settle(fixture);
+      fixture.destroy();
+      await expect(answer).resolves.toBe(false);
     });
   });
 

@@ -6,6 +6,8 @@
  * itself was scanned) onto the extracted primitive, for both tones, and adds
  * the behavioural half axe cannot see: Cancel-first focus, the Tab trap, both
  * Escape routes, focus restore, no backdrop dismiss and unmount-while-open.
+ * The optional secondary answer (a disk conflict's Reload) is scanned and
+ * driven the same way, and is proven never to be what Escape chooses.
  *
  * jsdom has no layout, compositing or hit-testing, so rendering-dependent axe
  * rules are switched off below rather than left on to produce noise. Whether
@@ -112,8 +114,10 @@ function describeViolations(results: axe.AxeResults): string {
         description="The stashed changes will be deleted and cannot be recovered."
         confirmLabel="Drop stash"
         [tone]="tone()"
+        [secondaryLabel]="secondary()"
         (confirmed)="confirmed = confirmed + 1"
         (cancelled)="cancelled = cancelled + 1"
+        (secondaryConfirmed)="secondaryChosen = secondaryChosen + 1"
       />
     }
   `,
@@ -121,9 +125,11 @@ function describeViolations(results: axe.AxeResults): string {
 class HostComponent {
   readonly mounted = signal(true);
   readonly tone = signal<GitConfirmDialogTone>('danger');
+  readonly secondary = signal<string | null>(null);
   readonly dialog = viewChild(GitConfirmDialogComponent);
   confirmed = 0;
   cancelled = 0;
+  secondaryChosen = 0;
 }
 
 function query(
@@ -153,7 +159,10 @@ function key(target: HTMLElement, keyName: string, shiftKey = false): void {
   );
 }
 
-async function openDialog(tone: GitConfirmDialogTone = 'danger'): Promise<{
+async function openDialog(
+  tone: GitConfirmDialogTone = 'danger',
+  secondary: string | null = null,
+): Promise<{
   fixture: ComponentFixture<HostComponent>;
   dialog: HTMLElement;
   invoker: HTMLElement;
@@ -166,6 +175,7 @@ async function openDialog(tone: GitConfirmDialogTone = 'danger'): Promise<{
   // Attached so `focus()` and `isConnected` behave as they do in a page.
   document.body.appendChild(fixture.nativeElement);
   fixture.componentInstance.tone.set(tone);
+  fixture.componentInstance.secondary.set(secondary);
   fixture.detectChanges();
 
   const invoker = required(fixture, 'invoker');
@@ -218,6 +228,16 @@ describe('GitConfirmDialogComponent — axe', () => {
           expect(ran.has(rule)).toBe(true);
         }
         // `incomplete` is a rule silently not being enforced.
+        expect(results.incomplete.map((r) => r.id)).toEqual([]);
+      });
+
+      it('with a secondary answer, the open dialog has no axe violations', async () => {
+        const { dialog } = await openDialog(tone, 'Reload');
+
+        const results = await scan(dialog);
+
+        expect(describeViolations(results)).toBe('');
+        expect(results.violations).toHaveLength(0);
         expect(results.incomplete.map((r) => r.id)).toEqual([]);
       });
 
@@ -380,5 +400,79 @@ describe('GitConfirmDialogComponent — dialog contract', () => {
     expect(document.activeElement).toBe(invoker);
     expect(fixture.componentInstance.cancelled).toBe(0);
     expect(fixture.componentInstance.confirmed).toBe(0);
+  });
+
+  it('renders no secondary button unless a label is given', async () => {
+    const { fixture } = await openDialog();
+
+    expect(query(fixture, 'git-confirm-secondary')).toBeNull();
+  });
+});
+
+describe('GitConfirmDialogComponent — secondary answer', () => {
+  it('sits between Cancel and Confirm, neutral, with focus still on Cancel', async () => {
+    const { fixture, dialog } = await openDialog('danger', 'Reload');
+    const buttons = Array.from(dialog.querySelectorAll('button')).map((b) =>
+      b.getAttribute('data-testid'),
+    );
+
+    expect(buttons).toEqual([
+      'git-confirm-cancel',
+      'git-confirm-secondary',
+      'git-confirm-confirm',
+    ]);
+    const secondary = required(fixture, 'git-confirm-secondary');
+    expect(secondary.textContent?.trim()).toBe('Reload');
+    expect(secondary.className).toBe('btn btn-sm');
+    expect(document.activeElement).toBe(
+      required(fixture, 'git-confirm-cancel'),
+    );
+  });
+
+  it('emits secondaryConfirmed once, closes, and restores focus', async () => {
+    const { fixture, invoker } = await openDialog('danger', 'Reload');
+
+    required(fixture, 'git-confirm-secondary').click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.secondaryChosen).toBe(1);
+    expect(fixture.componentInstance.confirmed).toBe(0);
+    expect(fixture.componentInstance.cancelled).toBe(0);
+    expect(query(fixture, 'git-confirm-dialog')).toBeNull();
+    expect(document.activeElement).toBe(invoker);
+  });
+
+  it('Escape and the UA cancel request dismiss; neither chooses the secondary answer', async () => {
+    const first = await openDialog('danger', 'Reload');
+    key(required(first.fixture, 'git-confirm-cancel'), 'Escape');
+    first.fixture.detectChanges();
+    expect(first.fixture.componentInstance.cancelled).toBe(1);
+    expect(first.fixture.componentInstance.secondaryChosen).toBe(0);
+
+    first.fixture.componentInstance.dialog()?.open(first.invoker);
+    first.fixture.detectChanges();
+    const dialog = required(first.fixture, 'git-confirm-dialog');
+    dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+    first.fixture.detectChanges();
+    expect(first.fixture.componentInstance.cancelled).toBe(2);
+    expect(first.fixture.componentInstance.secondaryChosen).toBe(0);
+  });
+
+  it('Tab and Shift+Tab cycle through all three buttons and wrap', async () => {
+    const { fixture } = await openDialog('danger', 'Reload');
+    const cancel = required(fixture, 'git-confirm-cancel');
+    const secondary = required(fixture, 'git-confirm-secondary');
+    const confirm = required(fixture, 'git-confirm-confirm');
+
+    key(cancel, 'Tab');
+    expect(document.activeElement).toBe(secondary);
+    key(secondary, 'Tab');
+    expect(document.activeElement).toBe(confirm);
+    key(confirm, 'Tab');
+    expect(document.activeElement).toBe(cancel);
+    key(cancel, 'Tab', true);
+    expect(document.activeElement).toBe(confirm);
+    key(confirm, 'Tab', true);
+    expect(document.activeElement).toBe(secondary);
   });
 });

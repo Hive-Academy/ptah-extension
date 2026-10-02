@@ -69,6 +69,7 @@ class MockSpotEditor {
   readonly backToReview = output<void>();
   readonly openExternal = output<OpenInRequest>();
   readonly notifyDiskChange = jest.fn();
+  readonly confirmLeave = jest.fn<boolean | Promise<boolean>, []>(() => true);
 }
 
 jest.mock('../git-dock/git-dock-header.component', () => ({
@@ -495,6 +496,68 @@ describe('ReviewShellComponent', () => {
     const fixture = await render();
 
     expect(spotEditor(fixture)?.editorTargets()).toBe(targets);
+  });
+
+  // -- Unsaved edits (SER-B2) ------------------------------------------------
+
+  it('asks the spot editor before a navigation replaces it; Keep editing keeps it mounted', async () => {
+    navigation.openFile('/ws/a/src/a.ts', undefined, { editable: true });
+    const fixture = await render();
+    const editor = spotEditor(fixture);
+    editor?.confirmLeave.mockReturnValue(Promise.resolve(false));
+
+    navigation.openChangeSet({
+      workspaceRoot: '/ws/a',
+      files: [{ path: 'src/a.ts' }],
+    });
+    await settle(fixture);
+
+    expect(editor?.confirmLeave).toHaveBeenCalledTimes(1);
+    expect(navigation.current().target.kind).toBe('file');
+    expect(spotEditor(fixture)).toBe(editor);
+    expect(canvas(fixture)).toBeNull();
+  });
+
+  it('Discard lets the navigation replace the spot editor', async () => {
+    navigation.openFile('/ws/a/src/a.ts', undefined, { editable: true });
+    const fixture = await render();
+    const editor = spotEditor(fixture);
+    editor?.confirmLeave.mockReturnValue(Promise.resolve(true));
+
+    navigation.selectComparison('staged');
+    // The answer lands the navigation; the canvas `@defer` then resolves.
+    await settle(fixture);
+    await settle(fixture);
+
+    expect(editor?.confirmLeave).toHaveBeenCalledTimes(1);
+    expect(navigation.current().scope).toEqual({ kind: 'staged' });
+    expect(spotEditor(fixture)).toBeNull();
+    expect(canvas(fixture)).not.toBeNull();
+  });
+
+  it('Back to review is not asked twice: the editor already asked', async () => {
+    navigation.openFile('/ws/a/src/a.ts');
+    const fixture = await render();
+    const editor = spotEditor(fixture);
+
+    editor?.backToReview.emit();
+    await settle(fixture);
+
+    expect(editor?.confirmLeave).not.toHaveBeenCalled();
+    expect(canvas(fixture)).not.toBeNull();
+  });
+
+  it('releases the leave guard on destroy', async () => {
+    navigation.openFile('/ws/a/src/a.ts');
+    const fixture = await render();
+    const editor = spotEditor(fixture);
+    editor?.confirmLeave.mockReturnValue(false);
+    fixture.destroy();
+
+    navigation.selectComparison('staged');
+
+    expect(editor?.confirmLeave).not.toHaveBeenCalled();
+    expect(navigation.current().scope).toEqual({ kind: 'staged' });
   });
 
   // -- Disk changes (Batch 42) -----------------------------------------------
