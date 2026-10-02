@@ -51,7 +51,7 @@ describe('ProvidersCommitService', () => {
   beforeEach(() => {
     events = [];
     ready = true;
-    call = jest.fn(async () => success({ success: true }));
+    call = jest.fn<Promise<RpcResult<unknown>>, [RpcMethodName, unknown, unknown?]>(async () => success({ success: true }));
     TestBed.configureTestingModule({
       providers: [WorkspaceScopeService, { provide: ClaudeRpcService, useValue: { call } }],
     });
@@ -123,12 +123,12 @@ describe('ProvidersCommitService', () => {
   describe('D15 outcomes', () => {
     it.each([
       ['acknowledged, no read-back', acknowledged, undefined, 'saved'],
-      ['acknowledged, read-back matches', acknowledged, async () => true, 'saved'],
-      ['acknowledged, read-back mismatches', acknowledged, async () => false, 'unsaved'],
-      ['acknowledged, read-back throws', acknowledged, async () => { throw new Error('x'); }, 'unconfirmed'],
-      ['rejected, read-back would match', rejected, async () => true, 'unsaved'],
-      ['thrown, read-back would match', throwing, async () => true, 'unconfirmed'],
-      ['conflict, read-back would match', conflicting, async () => true, 'unsaved'],
+      ['acknowledged, read-back matches', acknowledged, async (): Promise<boolean> => true, 'saved'],
+      ['acknowledged, read-back mismatches', acknowledged, async (): Promise<boolean> => false, 'unsaved'],
+      ['acknowledged, read-back throws', acknowledged, async (): Promise<boolean> => { throw new Error('x'); }, 'unconfirmed'],
+      ['rejected, read-back would match', rejected, async (): Promise<boolean> => true, 'unsaved'],
+      ['thrown, read-back would match', throwing, async (): Promise<boolean> => true, 'unconfirmed'],
+      ['conflict, read-back would match', conflicting, async (): Promise<boolean> => true, 'unsaved'],
     ] as const)('%s → %s', async (_label, write, readBack, bucket) => {
       const readBackSpy = readBack ? jest.fn(readBack) : undefined;
       await service.run([op('field', write, undefined, readBackSpy)], context, hooks);

@@ -32,7 +32,7 @@ function probe(probeId: string, outcome: AuthVerifyDraftConnectionResult['outcom
 }
 const openrouter: ProvidersConnection = {
   id: 'openrouter', name: 'OpenRouter', hasKey: false, configured: false, custom: false,
-  defaultsResolvable: true, authMode: 'apiKey',
+  defaultsResolvable: true, authMode: 'apiKey', accountLabel: null, tokenStale: false,
 };
 
 describe('ProvidersConnectionSetupService', () => {
