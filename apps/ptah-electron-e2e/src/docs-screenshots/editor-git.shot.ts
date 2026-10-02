@@ -7,7 +7,7 @@ import { shoot } from './_harness/shooter';
  *
  * Captured against a throwaway sample repo, never a real project: the app
  * rewrites `.codex/agents/*.toml` in whatever workspace it opens, and the
- * Source Control panel's row actions stage files for real.
+ * review shell's changed-file tree row actions stage files for real.
  */
 test.use({ workspace: SAMPLE_REPO });
 
@@ -51,7 +51,7 @@ async function collapseRails(page: Page): Promise<void> {
 }
 
 test.describe('docs screenshots — editor & git', () => {
-  test('git status, source control and diff', async ({ ui, page }) => {
+  test('git status, commit composer and diff', async ({ ui, page }) => {
     test.setTimeout(300_000);
     await ui.goto('git');
 
@@ -60,35 +60,35 @@ test.describe('docs screenshots — editor & git', () => {
     await expect(dockHeader).toBeVisible();
     await shoot(page, 'git-dock-header', { crop: dockHeader });
 
-    // ── Source control, with a commit message typed in ────────────────────────
-    const sourceControl = page.locator('ptah-source-control-panel');
-    await expect(sourceControl).toBeVisible();
+    // ── Commit tab, with a commit message typed in ────────────────────────────
+    await ui.reviewTab(/^Commit/).click();
+    const composer = page.locator('[data-testid="commit-composer"]');
+    await expect(composer).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(1_500);
 
-    const message = sourceControl.locator('textarea').first();
+    const message = composer.locator('textarea').first();
     if (await message.isVisible().catch(() => false)) {
       await message.fill('Apply the annual billing discount');
       await page.waitForTimeout(300);
     }
-    await shoot(page, 'commit-composer', { crop: sourceControl });
+    await shoot(page, 'commit-composer', { crop: composer });
 
     // ── Diff ─────────────────────────────────────────────────────────────────
     // Click the file NAME, not the row: the row carries stage/discard actions
     // and a stray hit on one of those mutates the repository.
-    const fileRow = page.locator('ptah-source-control-file', {
-      hasText: 'pricing.ts',
-    });
+    await ui.reviewTab(/^Changes/).click();
+    const fileRow = page
+      .getByRole('tree', { name: 'Changed files' })
+      .locator('[data-testid="tree-row-file"]', { hasText: 'pricing.ts' });
     await expect(fileRow.first()).toBeVisible();
-    await fileRow.first().getByText('pricing.ts').first().click();
+    await fileRow.first().getByText('pricing.ts', { exact: true }).click();
 
-    await expect(page.locator('ptah-diff-view')).toBeVisible();
+    await expect(ui.reviewFileSection('src/pricing.ts')).toBeVisible();
     // A side-by-side diff squeezed into a third of the window truncates every
     // line it is meant to show.
     await collapseRails(page);
     await widenEditorPanel(page);
     await page.waitForTimeout(3_000);
-    await shoot(page, 'diff-side-by-side', {
-      crop: page.locator('ptah-git-dock'),
-    });
+    await shoot(page, 'diff-side-by-side', { crop: ui.reviewShell() });
   });
 });

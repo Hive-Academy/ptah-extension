@@ -444,7 +444,7 @@ function splitLines(text: string): string[] {
               [newText]="d.modifiedRef.kind === 'absent' ? null : d.modified"
               [fileName]="d.path"
               [hunks]="d.hunks"
-              [diffStyle]="diffStyle()"
+              [diffStyle]="effectiveDiffStyle()"
               [hunkToolbar]="hunkToolbar"
             />
           } @placeholder {
@@ -617,6 +617,18 @@ export class FileDiffSectionComponent {
       if (diff.modifiedRef.kind === 'absent') chips.push('deleted');
     }
     return chips;
+  });
+
+  /**
+   * In branch review an added or deleted file has one empty side, so it is
+   * always unified; every other file follows the canvas setting (parity row
+   * 135, the old branch-review row's inline override).
+   */
+  protected readonly effectiveDiffStyle = computed<PierreDiffStyle>(() => {
+    const { comparison, status } = this.file();
+    return comparison === 'branch' && (status === 'A' || status === 'D')
+      ? 'unified'
+      : this.diffStyle();
   });
 
   protected readonly totals = computed(() => {

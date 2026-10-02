@@ -266,6 +266,15 @@ describe('FileDiffSectionComponent', () => {
       expect(reviewDiff.unmount).not.toHaveBeenCalled();
     });
 
+    it("keeps the file header pinned to the top of the list while the file's diff scrolls (parity §9 row 182)", async () => {
+      await create({ near: true });
+      setDiff(makeDiff());
+      await settle();
+      const header = byTestId('file-section-header');
+      expect(header?.classList.contains('sticky')).toBe(true);
+      expect(header?.classList.contains('top-0')).toBe(true);
+    });
+
     it('passes a null side for an added file and marks it new', async () => {
       await create({ near: true });
       setDiff(makeDiff({ originalRef: { kind: 'absent' }, original: '' }));
@@ -277,6 +286,46 @@ describe('FileDiffSectionComponent', () => {
         ),
       ).toContain('new');
     });
+  });
+
+  describe('layout in branch review (parity row 135)', () => {
+    async function renderedStyle(
+      overrides: Partial<ReviewCanvasFile>,
+    ): Promise<string | undefined> {
+      await create({
+        near: true,
+        diffStyle: 'split',
+        file: makeFile(overrides),
+      });
+      setDiff(makeDiff());
+      await settle();
+      return pierre()?.diffStyle();
+    }
+
+    it('forces an added file to unified', async () => {
+      expect(await renderedStyle({ comparison: 'branch', status: 'A' })).toBe(
+        'unified',
+      );
+    });
+
+    it('forces a deleted file to unified', async () => {
+      expect(await renderedStyle({ comparison: 'branch', status: 'D' })).toBe(
+        'unified',
+      );
+    });
+
+    it('lets a modified file follow the canvas style', async () => {
+      expect(await renderedStyle({ comparison: 'branch', status: 'M' })).toBe(
+        'split',
+      );
+    });
+
+    it.each(['worktree', 'staged'] as const)(
+      'leaves an added file in a %s comparison on the canvas style',
+      async (comparison) => {
+        expect(await renderedStyle({ comparison, status: 'A' })).toBe('split');
+      },
+    );
   });
 
   describe('labelled rows', () => {
