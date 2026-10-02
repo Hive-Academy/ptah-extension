@@ -157,3 +157,65 @@ New for the user:
 - Score: 6/10 (works with real gaps). What separates it from 7-8: a reproducible keyboard-access bug and AA misses in
   both themes. What separates it from 4-5: structure, density, fold (VS Code), overlay behaviour and axe
   `nested-interactive` are clean.
+
+
+## Re-check 1 (2026-10-02, visual-reviewer subagent — same-side, disclosed)
+
+Scope: head `8fb6dfe25` (batch 36b, `21e29b3e7..8fb6dfe25`) in worktree `task-555-settings-redesign`, webview dist current. The
+working tree also holds uncommitted edits by another party (matrix `onCreated` / `closeCredentials`, add modal, main-agent
+popover, roles table, visual spec); I could not tell whether the dist includes them, and none touches the findings below.
+Evidence: committed `current-orchestration-*` captures read as images, plus a throwaway Playwright probe (deleted after the
+run) over 4 combinations (vscode / electron x anubis / anubis-light, 1024x768). New evidence is under
+`screenshots/gate-v36r1/` (`probe*-<host>-<theme>.json`, `uninstalled-open-*`, `more-open-*`, `roles-open-*`,
+`role-popover-*`). I did not run the committed specs, so no `current-*.png` was rewritten (`git status` shows none).
+
+### Fold (measured, both themes identical)
+
+| Host | Policy bar | Matrix header | First row | Roles summary | Budget 660 |
+| --- | --- | --- | --- | --- | --- |
+| VS Code | 125 | 206 | 247 | 550 | pass |
+| Electron | 165 | 266 | 309 | 600 | pass (matches decision: 600 px) |
+
+Matrix overflow 0 px in all four. Row actions Tiers / Test / More sit on one line (y equal), 24 px high.
+
+### V36 findings
+
+| ID | Result | Evidence |
+| --- | --- | --- |
+| V36-1 closed dialogs in Tab order | **fixed** for the Settings dialogs | Add and tier dialogs compute `display: none` and `inert` closed, in all 4 combos; 40-stop Tab walk from Add reaches no Settings-dialog control. Residual, outside the tab and already recorded as a follow-up: two app-shell `<dialog>` (`PTAH-CONFIRMATION-DIALOG`, `PTAH-SUBAGENT-TRANSCRIPT-OVERLAY`) stay `display: grid`, not inert, each with a hidden "close" Tab stop (2 stops in the VS Code walk). Carried open, not this task's files. |
+| V36-2 helper text < 12 px | **fixed** | Text scan of the tab: nothing non-badge under 12 px. Remaining under 12: `btn-xs` labels and `table-xs` headings at 11 px (accepted in the original review) and 9 px badges (excluded). |
+| V36-3 muted contrast | **deferred** (muted-token batch, Gate V 50 decision 4) | axe in dark: 0 violations (the Uninstalled header is now `text-base-content`; the 4.39:1 dark case is gone from the scan). Light: only 4.45:1 `#81636e` on `#efeae6` on "Order:", the matrix subtitle and the roles copy. Recorded, not failed. |
+| V36-4 picker pill coloured text | **fixed** | `current-orchestration-role-popover-*-light` and `role-popover-electron-anubis-light.png`: pill text is base content (`oklch(0.236...)`), info colour only on the icon and border; axe clean for the popover. |
+| V36-5 model Esc twice | **accepted (decision 3)** | Model popover: Esc 1 leaves the popover open, Esc 2 closes it and focus returns to `cli-matrix-model-codex` (both hosts). Tier modal: no list opens on focus (0 expanded comboboxes), first Esc closes the modal, focus returns to the Tiers button. |
+| V36-6 empty Scope column | **fixed** | Roles table headers: ROLE / PROVIDER & MODEL / TIER only (all 4 combos). |
+| V36-7 three-line actions | **fixed, with a new defect (N1)** | One-line actions confirmed. The More menu that replaced Edit / Delete renders wrongly, see N1. |
+| V36-8 heading order | **fixed** | The order popover title is now `<p id="policy-order-title">` (`agent-orchestration-config.component.ts:87`); no `heading-order` in axe with roles open. |
+| V36-9 placeholder clipped | **fixed** | "Search models": scrollWidth 246 = clientWidth 246, both hosts. |
+| V36-10 empty Actions column | **accepted (decision 4)** | Test stays on Ptah instances only. |
+| Item 4 Electron fold | **fixed** | 600 px, enforced. Uninstalled group: Enter, Space and click toggle `aria-expanded`, focus stays on the 24 px button, 2 rows appear expanded and 0 collapsed, the Cursor Credentials popover returns focus to its trigger on Esc (`uninstalled-open-*.png`). |
+
+### New defects
+
+**N1 (Serious). The "More actions" menu is laid out sideways and spills out of its panel, all 4 combinations.**
+- File: `libs/frontend/chat/src/lib/settings/ptah-ai/cli-orchestration-matrix.component.ts:295-299` (`div role="group"
+  class="w-40 p-1 text-left"` holding the two `MENU_ITEM` buttons with no column layout).
+- Evidence: `more-open-vscode-anubis-light.png`, `more-open-electron-anubis.png`; probe3: panel 162 px wide (x 748-910),
+  content 307 px; "Edit name or key" 751-907 and "Delete" 903-1059 on the same row, overlapping by 4 px. In VS Code Delete runs
+  35 px past the 1024 px viewport; in Electron it ends at 1091 (67 px past), outside the panel background in both.
+- Impact: the destructive Delete item sits outside the menu, partly off screen, overlapping Edit. It is still focusable and
+  clickable, but the menu reads as broken, and the V36-7 fix is not visually complete.
+- Fix: stack the items (`flex flex-col` on the group, items `w-full justify-start`), or widen to content. The harness
+  paths pass because they click by test id and never assert the panel's box.
+
+N2 (Minor, new from the fold round, accepted trade-off). In Electron the provider name truncates ("OpenAI …", "GitHu…")
+and the full name is a native `title` only (`tabindex -1`), so keyboard and touch users cannot see it; the text is complete
+in the DOM for screen readers. This is the disclosed orchestrator step, recorded as a note.
+
+Not defects: the Electron order chips fade after the third chip (user list, Batch 33 (b)); the 9 px tier and status badges.
+
+### Verdict
+
+**FAIL**, score **7/10** (was 6/10). Nine of ten original findings are fixed, accepted by decision, or deferred as agreed,
+and the fold is met in both hosts and themes. One new Serious (N1) is a one-line layout fix; with it fixed this is
+PASS WITH NOTES (carried notes: V36-3 light muted contrast deferred, two app-shell dialogs as hidden Tab stops, N2).
+Open items: N1; the app-shell dialog Tab stops (follow-up).
