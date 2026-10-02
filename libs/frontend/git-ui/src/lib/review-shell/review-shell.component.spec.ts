@@ -80,8 +80,21 @@ class MockSpotEditor {
 })
 class MockCommitComposer {}
 
+@Component({
+  selector: 'ptah-task-worktree-view',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div data-testid="mock-task-view"></div>`,
+})
+class MockTaskWorktreeView {
+  readonly shown = input(false);
+}
+
 jest.mock('../commit/commit-composer.component', () => ({
   CommitComposerComponent: MockCommitComposer,
+}));
+jest.mock('../task/task-worktree-view.component', () => ({
+  TaskWorktreeViewComponent: MockTaskWorktreeView,
 }));
 jest.mock('../git-dock/git-dock-header.component', () => ({
   GitDockHeaderComponent: MockGitDockHeader,
@@ -363,7 +376,7 @@ describe('ReviewShellComponent', () => {
 
   // -- Tabs -----------------------------------------------------------------
 
-  it('renders the Changes and Commit tabs with their counts as an accessible tablist', async () => {
+  it('renders the Changes, Commit and Task tabs with their counts as an accessible tablist', async () => {
     const fixture = await render();
     const tablist = query(fixture, '[role="tablist"]');
     const tabs = [
@@ -372,7 +385,9 @@ describe('ReviewShellComponent', () => {
     const panel = query(fixture, '[role="tabpanel"]');
 
     expect(tablist?.getAttribute('aria-label')).toBe('Review');
-    expect(tabs).toHaveLength(2);
+    expect(tabs).toHaveLength(3);
+    expect(tabs[2].textContent?.trim()).toBe('Task');
+    expect(tabs[2].getAttribute('aria-selected')).toBe('false');
     expect(tabs[0].textContent?.replace(/\s+/g, '')).toBe('Changes3');
     expect(tabs[0].getAttribute('aria-label')).toBe('Changes, 3 changed files');
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
@@ -475,6 +490,67 @@ describe('ReviewShellComponent', () => {
     ).toContain('flex');
   });
 
+  // -- Task tab (Batch 50) ----------------------------------------------------
+
+  function taskView(
+    fixture: ComponentFixture<unknown>,
+  ): MockTaskWorktreeView | null {
+    return (
+      (fixture.debugElement.query(By.directive(MockTaskWorktreeView))
+        ?.componentInstance as MockTaskWorktreeView | undefined) ?? null
+    );
+  }
+
+  it('does not load the task view until the Task tab shows', async () => {
+    const fixture = await render();
+
+    expect(taskView(fixture)).toBeNull();
+    expect(
+      query(fixture, '[data-testid="review-shell-task-body"]')?.classList,
+    ).toContain('hidden');
+  });
+
+  it('shows the task view in the tab panel, told it is shown, when Task is picked', async () => {
+    const fixture = await render();
+
+    (query(fixture, '[data-tab-id="task"]') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    const panel = query(fixture, '[role="tabpanel"]');
+    const body = query(fixture, '[data-testid="review-shell-task-body"]');
+    expect(navigation.current().tab).toBe('task');
+    expect(taskView(fixture)?.shown()).toBe(true);
+    expect(panel?.contains(query(fixture, 'ptah-task-worktree-view'))).toBe(
+      true,
+    );
+    expect(panel?.getAttribute('aria-labelledby')).toBe(
+      query(fixture, '[data-tab-id="task"]')?.id,
+    );
+    expect(body?.classList).toContain('flex');
+    expect(body?.classList).not.toContain('hidden');
+  });
+
+  it('keeps the task view mounted but tells it it is hidden on another tab', async () => {
+    const fixture = await render();
+    navigation.selectTab('task');
+    await settle(fixture);
+    const mounted = taskView(fixture);
+
+    navigation.selectTab('changes');
+    await settle(fixture);
+
+    expect(taskView(fixture)).toBe(mounted);
+    expect(mounted?.shown()).toBe(false);
+    expect(
+      query(fixture, '[data-testid="review-shell-task-body"]')?.classList,
+    ).toContain('hidden');
+
+    navigation.selectTab('task');
+    await settle(fixture);
+    expect(taskView(fixture)).toBe(mounted);
+    expect(mounted?.shown()).toBe(true);
+  });
+
   it('shows the Changes tab when navigation names a tab the shell does not have yet', async () => {
     navigation.selectTab('history');
 
@@ -499,6 +575,7 @@ describe('ReviewShellComponent', () => {
     expect(tabs[0]?.hasAttribute('aria-label')).toBe(false);
     expect(tabs[1]?.textContent?.trim()).toBe('Commit');
     expect(tabs[1]?.hasAttribute('aria-label')).toBe(false);
+    expect(tabs[2]?.textContent?.trim()).toBe('Task');
   });
 
   // -- Spot editor mode (design-spec §3.3) -----------------------------------

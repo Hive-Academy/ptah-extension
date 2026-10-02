@@ -474,6 +474,90 @@ describe('GitBranchesService (TASK_2026_111)', () => {
     });
   });
 
+  describe('pushCompletions', () => {
+    it('counts successful pushes only', async () => {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { success: true },
+      });
+      await service.push();
+      expect(service.pushCompletions()).toBe(1);
+
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { success: false, error: 'rejected' },
+      });
+      await service.push();
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { success: true },
+      });
+      await service.fetch();
+
+      expect(service.pushCompletions()).toBe(1);
+    });
+  });
+
+  // ==========================================================================
+  // readPrStatus (TASK_2026_576 Batch 50)
+  // ==========================================================================
+
+  describe('readPrStatus()', () => {
+    it('calls git:prStatus for the given workspace and passes the result through', async () => {
+      const ok = {
+        status: 'ok',
+        pr: { number: 7, title: 'T', state: 'OPEN', isDraft: false },
+        checks: { passing: 1, failing: 0, pending: 0, total: 1 },
+      };
+      mockRpcCall.mockResolvedValueOnce({ success: true, data: ok });
+
+      await expect(service.readPrStatus('/ws/b')).resolves.toEqual(ok);
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        'git:prStatus',
+        { workspaceRoot: '/ws/b' },
+        30_000,
+      );
+    });
+
+    it('passes an unavailable reason through', async () => {
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: { status: 'unavailable', reason: 'gh-missing' },
+      });
+
+      await expect(service.readPrStatus('/ws/b')).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'gh-missing',
+      });
+    });
+
+    it.each([
+      ['an RPC failure', { success: false, error: 'boom' }],
+      ['a malformed reply', { success: true, data: { pr: 1 } }],
+    ])('reads %s as unavailable: failed', async (_label, response) => {
+      mockRpcCall.mockResolvedValueOnce(response);
+
+      await expect(service.readPrStatus('/ws/b')).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'failed',
+      });
+    });
+
+    it('reads a thrown transport error as unavailable: failed', async () => {
+      mockRpcCall.mockRejectedValueOnce(new Error('offline'));
+      const spy = jest.spyOn(console, 'error').mockImplementation(() => {
+        /* silence expected log */
+      });
+
+      await expect(service.readPrStatus('/ws/b')).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'failed',
+      });
+      spy.mockRestore();
+    });
+  });
+
   // ==========================================================================
   // startListening / MessageHandler dispatch
   // ==========================================================================

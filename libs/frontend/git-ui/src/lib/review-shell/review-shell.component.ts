@@ -25,15 +25,16 @@ import {
 } from '../services/review-navigation.service';
 import { statusUnavailableLabel } from '../source-control/source-control-panel.component';
 import { SpotEditorComponent } from '../spot-editor/spot-editor.component';
+import { TaskWorktreeViewComponent } from '../task/task-worktree-view.component';
 
 /** Below this shell width the file tree stacks above the diff (design-spec §6.1a). */
 const STACK_BELOW_PX = 520;
 
 /**
- * The tabs this shell has so far. Task and History join with Batches 50 and
- * 56; the shell is not mounted before then (V3).
+ * The tabs this shell has so far. History joins with Batch 56; the shell is
+ * not mounted before then (V3).
  */
-const SHELL_TABS: readonly ReviewTab[] = ['changes', 'commit'];
+const SHELL_TABS: readonly ReviewTab[] = ['changes', 'commit', 'task'];
 
 function fileCountLabel(count: number): string {
   return count === 1 ? 'file' : 'files';
@@ -74,8 +75,12 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
  *   are `@defer` blocks, so the canvas (and Pierre behind it) and CodeMirror
  *   stay in lazy chunks. The spot editor also opens outside a repository.
  * - **Commit tab.** The commit composer, in a `@defer` block that loads the
- *   first time the tab shows. Both bodies stay mounted once rendered and are
- *   hidden while the other tab shows.
+ *   first time the tab shows.
+ * - **Task tab.** The task/worktree view (branch, PR/CI, worktrees), in a
+ *   `@defer` block that loads the first time the tab shows. It is told
+ *   whether it shows, so its PR refresh timer runs only then.
+ * - Every body stays mounted once rendered and is hidden while another tab
+ *   shows.
  * - **Width.** One `ResizeObserver` on the host decides `stacked` (< 520 px)
  *   for the canvas; it is disconnected on destroy.
  * - **Disk changes.** `file:content-changed` batches reach the open spot
@@ -94,6 +99,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
     NativeTabGroupComponent,
     ReviewCanvasComponent,
     SpotEditorComponent,
+    TaskWorktreeViewComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full w-full' },
@@ -239,6 +245,36 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
               </p>
             }
           </div>
+
+          <!-- Loaded the first time the Task tab shows, then kept mounted
+               (hidden); [shown] stops its PR refresh timer while hidden. -->
+          <div
+            class="min-h-0 flex-1 flex-col overflow-y-auto"
+            data-testid="review-shell-task-body"
+            [class.flex]="shownTab() === 'task'"
+            [class.hidden]="shownTab() !== 'task'"
+          >
+            @defer (when shownTab() === 'task') {
+              <ptah-task-worktree-view [shown]="shownTab() === 'task'" />
+            } @placeholder {
+              <p
+                class="p-4 text-xs text-base-content-muted"
+                role="status"
+                data-testid="review-shell-task-loading"
+              >
+                Loading the task view…
+              </p>
+            } @error {
+              <p
+                class="p-4 text-xs text-base-content"
+                role="alert"
+                data-testid="review-shell-task-error"
+              >
+                The task view could not be loaded. Reload the window to try
+                again.
+              </p>
+            }
+          </div>
         </ptah-native-tab-group>
       }
     </div>
@@ -298,6 +334,7 @@ export class ReviewShellComponent {
               ariaLabel: `Commit, ${staged} staged ${fileCountLabel(staged)}`,
             }),
       },
+      { id: 'task', label: 'Task' },
     ];
   });
 

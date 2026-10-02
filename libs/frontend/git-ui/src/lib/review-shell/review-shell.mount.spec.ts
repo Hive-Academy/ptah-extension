@@ -254,6 +254,50 @@ describe('ReviewShellComponent mounted with its real header and canvas', () => {
     );
   });
 
+  it('loads the real task view on the Task tab and reads PR status for the workspace', async () => {
+    rpcData['git:prStatus'] = { status: 'unavailable', reason: 'gh-missing' };
+    rpcData['git:remotes'] = { remotes: [] };
+    rpcData['git:worktrees'] = {
+      worktrees: [
+        {
+          path: '/ws/a',
+          branch: 'main',
+          head: 'abc',
+          isMain: true,
+          isBare: false,
+        },
+      ],
+    };
+
+    query<HTMLButtonElement>('[data-tab-id="task"]')?.click();
+    await settle();
+    await settle();
+
+    expect(query('[role="tabpanel"] ptah-task-worktree-view')).not.toBeNull();
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:prStatus',
+      { workspaceRoot: '/ws/a' },
+      30_000,
+    );
+    expect(
+      query('[data-testid="task-pr-unavailable"]')?.textContent?.trim(),
+    ).toBe('GitHub CLI not available — PR status hidden.');
+
+    const results = await axe.run(
+      query('[data-testid="review-shell-task-body"]') as Parameters<
+        typeof axe.run
+      >[0],
+      {
+        rules: {
+          'color-contrast': { enabled: false },
+          'target-size': { enabled: false },
+        },
+      },
+    );
+    expect(results.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
   it('has no axe violations', async () => {
     const results = await axe.run(
       fixture.nativeElement as Parameters<typeof axe.run>[0],
