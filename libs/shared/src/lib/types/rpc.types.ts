@@ -338,6 +338,8 @@ import type {
   GitCancelOperationResult,
   GitGenerateCommitMessageParams,
   GitGenerateCommitMessageResult,
+  GitPrStatusParams,
+  GitPrStatusResult,
   GitShowFileParams,
   GitShowFileResult,
   GitDiffFileParams,
@@ -1582,6 +1584,7 @@ export interface RpcMethodRegistry {
     params: GitGenerateCommitMessageParams;
     result: GitGenerateCommitMessageResult;
   };
+  'git:prStatus': { params: GitPrStatusParams; result: GitPrStatusResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
   'git:diffFile': { params: GitDiffFileParams; result: GitDiffFileResult };
   'git:applyHunks': {
@@ -3787,6 +3790,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:commit': true,
   'git:cancelOperation': true,
   'git:generateCommitMessage': true,
+  'git:prStatus': true,
   'git:showFile': true,
   'git:diffFile': true,
   'git:applyHunks': true,

@@ -3,6 +3,7 @@
  * RPC surface beside `git:commit`:
  * - git:cancelOperation       - Stop a running operation (a commit) by its id
  * - git:generateCommitMessage - Write a commit message for the staged changes
+ * - git:prStatus              - GitHub PR and checks for the current branch
  *
  * `git:commit` itself, with its `operationId` and the throttled
  * `git:operationOutput` stream, stays in {@link GitRpcHandlers}.
@@ -31,6 +32,8 @@ import type {
   GitCancelOperationResult,
   GitGenerateCommitMessageParams,
   GitGenerateCommitMessageResult,
+  GitPrStatusParams,
+  GitPrStatusResult,
   RpcMethodName,
 } from '@ptah-extension/shared';
 
@@ -38,6 +41,7 @@ import { isRegisteredWorkspaceFolder } from './git-workspace-root';
 import {
   parseGitCancelOperationParams,
   parseGitGenerateCommitMessageParams,
+  parseGitPrStatusParams,
 } from './git-workflow-rpc.schema';
 
 const LOG_TAG = '[GitWorkflowRpc]';
@@ -48,6 +52,7 @@ export class GitWorkflowRpcHandlers {
   static readonly METHODS = [
     'git:cancelOperation',
     'git:generateCommitMessage',
+    'git:prStatus',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -64,6 +69,7 @@ export class GitWorkflowRpcHandlers {
   register(): void {
     this.registerCancelOperation();
     this.registerGenerateCommitMessage();
+    this.registerPrStatus();
   }
 
   /**
@@ -104,7 +110,10 @@ export class GitWorkflowRpcHandlers {
           'INVALID_PARAMS',
         );
       }
-      const root = this.resolveRoot(params.workspaceRoot);
+      const root = this.resolveRoot(
+        'git:generateCommitMessage',
+        params.workspaceRoot,
+      );
       // No repository to read a staged diff from: `unreachable` is the
       // reason the shared type documents for an unreadable staged diff.
       if (!root) return { status: 'unavailable', reason: 'unreachable' };
@@ -124,16 +133,60 @@ export class GitWorkflowRpcHandlers {
   }
 
   /**
+   * git:prStatus - the GitHub PR of the current branch of the named
+   * (registered) workspace folder, or the active one. The branch is read
+   * here, never taken from the client. Every miss is a quiet `unavailable`
+   * reason; the panel stays usable without `gh`.
+   */
+  private registerPrStatus(): void {
+    this.rpcHandler.registerMethod<GitPrStatusParams, GitPrStatusResult>(
+      'git:prStatus',
+      async (rawParams) => {
+        const params = parseGitPrStatusParams(rawParams);
+        if (!params) {
+          throw new RpcUserError(
+            'Invalid git:prStatus params (workspaceRoot)',
+            'INVALID_PARAMS',
+          );
+        }
+        const root = this.resolveRoot('git:prStatus', params.workspaceRoot);
+        if (!root) return { status: 'unavailable', reason: 'failed' };
+
+        try {
+          const { current } = await this.gitInfo.getBranches(root, false);
+          // Empty on a detached HEAD (and when the branch list could not be
+          // read): there is no branch a pull request could belong to.
+          if (!current) {
+            return { status: 'unavailable', reason: 'no-pr' };
+          }
+          return await this.gitInfo.readPrStatus(root, current);
+        } catch (error: unknown) {
+          // The reader reports every failure as a reason and is not expected
+          // to throw; if it does, the detail stays in the log.
+          this.logger.error(
+            `${LOG_TAG} PR status read threw`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return { status: 'unavailable', reason: 'failed' };
+        }
+      },
+    );
+  }
+
+  /**
    * Same rule as `GitRpcHandlers`: a named folder must be registered, and an
    * unregistered one never falls back to the active folder.
    */
-  private resolveRoot(requested: string | undefined): string | undefined {
+  private resolveRoot(
+    method: RpcMethodName,
+    requested: string | undefined,
+  ): string | undefined {
     if (!requested) return this.workspace.getWorkspaceRoot();
     if (isRegisteredWorkspaceFolder(this.workspace, requested)) {
       return requested;
     }
     this.logger.warn(
-      `${LOG_TAG} git:generateCommitMessage called with unregistered workspaceRoot`,
+      `${LOG_TAG} ${method} called with unregistered workspaceRoot`,
       { workspaceRoot: requested },
     );
     return undefined;

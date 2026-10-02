@@ -12,11 +12,7 @@
  * - `content` — every other unmerged entry.
  */
 export type GitConflictKind =
-  | 'content'
-  | 'delete-modify'
-  | 'add-add'
-  | 'symlink'
-  | 'submodule';
+  'content' | 'delete-modify' | 'add-add' | 'symlink' | 'submodule';
 
 /** Single file's git status */
 export interface GitFileStatus {
@@ -876,3 +872,57 @@ export interface GitLastCommitResult {
   /** Commit Unix timestamp in milliseconds */
   time: number;
 }
+
+/** Reason GitHub PR status is unavailable */
+export type GitPrUnavailableReason =
+  | 'gh-missing'
+  | 'not-authenticated'
+  | 'no-pr'
+  | 'not-github'
+  | 'timeout'
+  | 'failed';
+
+/** Summary of CI / status check rollup counts for a GitHub PR */
+export interface GitPrChecksSummary {
+  passing: number;
+  failing: number;
+  pending: number;
+  total: number;
+}
+
+/** Details of a GitHub Pull Request */
+export interface GitPrInfo {
+  number: number;
+  title: string;
+  state: 'OPEN' | 'CLOSED' | 'MERGED' | string;
+  isDraft: boolean;
+  reviewDecision?:
+    'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | string | null;
+  /** HTTPS URL to the pull request on GitHub; omitted if not an https: URL */
+  url?: string;
+  headRefName?: string;
+}
+
+/**
+ * Result from git:prStatus RPC method.
+ * Discriminated on `status`:
+ * - `ok`: PR was found and parsed successfully
+ * - `unavailable`: PR status could not be read with a quiet reason code
+ */
+export type GitPrStatusResult =
+  | {
+      status: 'ok';
+      pr: GitPrInfo;
+      checks: GitPrChecksSummary;
+    }
+  | {
+      status: 'unavailable';
+      reason: GitPrUnavailableReason;
+    };
+
+/**
+ * Parameters for git:prStatus RPC method. Names only the workspace folder:
+ * the backend resolves the current branch itself and never takes one from
+ * the client.
+ */
+export type GitPrStatusParams = GitWorkspaceScopedParams;

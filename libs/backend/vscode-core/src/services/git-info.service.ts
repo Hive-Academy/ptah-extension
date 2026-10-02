@@ -36,6 +36,7 @@ import {
   type GitCommitResult,
   type GitShowFileResult,
   type GitPushResult,
+  type GitPrStatusResult,
   type GitPullResult,
   type GitFetchResult,
   type GitStashMutationResult,
@@ -79,6 +80,7 @@ import {
   GitStagedPatchReader,
   type StagedPatchRead,
 } from './git/git-staged-patch.reader';
+import { GitHubPrStatusReader } from './git/github-pr-status.reader';
 import { GitRemoteSync } from './git/git-remote-sync';
 import { AgentWorktreeAdmin } from './git/agent-worktree-admin';
 import { GitRepoOperationReader } from './git/git-repo-operation.reader';
@@ -514,6 +516,7 @@ export class GitInfoService {
   private readonly operationReader: GitRepoOperationReader;
   private readonly changeSetNumstat: GitChangeSetNumstatReader;
   private readonly stagedPatch: GitStagedPatchReader;
+  private readonly prStatusReader: GitHubPrStatusReader;
   private readonly operations = new GitOperationRegistry();
 
   /**
@@ -556,6 +559,10 @@ export class GitInfoService {
       exec: deps.exec,
       logger,
       diffFlags: DIFF_FLAGS,
+    });
+    this.prStatusReader = new GitHubPrStatusReader({
+      spawner,
+      logger,
     });
   }
 
@@ -1218,6 +1225,16 @@ export class GitInfoService {
    */
   readStagedPatch(workspacePath: string): Promise<StagedPatchRead> {
     return this.stagedPatch.read(workspacePath);
+  }
+
+  /**
+   * GitHub PR status for the given branch: see {@link GitHubPrStatusReader}.
+   */
+  readPrStatus(
+    workspaceRoot: string,
+    branch: string,
+  ): Promise<GitPrStatusResult> {
+    return this.prStatusReader.read(workspaceRoot, branch);
   }
 
   /** Push, pull and fetch: see {@link GitRemoteSync} (pull is locked). */
