@@ -671,10 +671,15 @@ export class DiffTabsService implements MessageHandler {
    * behind for a later, unrelated pass to trip over, and cannot park the tab
    * at `refreshing`: the catch maps to the same outcome the `null` transport
    * path produces, and the finally still services the trailing pass.
+   *
+   * The pass is bound to the workspace active when it started. A trailing
+   * pass queued before a workspace switch is dropped: it would read this
+   * tab's path against the new workspace's root. The tab stays 'stale'.
    */
   private async runDiffTabRefresh(key: string): Promise<void> {
+    const originWorkspace = this.activeWorkspacePath();
     try {
-      await this.readDiffTabOnce(key);
+      await this.readDiffTabOnce(key, originWorkspace);
     } catch (err: unknown) {
       // Same user-visible stance as a `{success:false}` answer: previous
       // content retained, status moved off 'refreshing' to 'stale'.
@@ -686,20 +691,28 @@ export class DiffTabsService implements MessageHandler {
         errorDetail: undefined,
       }));
     } finally {
-      if (this.rerunRequestedDiffRefreshes.delete(key)) {
+      if (
+        this.rerunRequestedDiffRefreshes.delete(key) &&
+        this.activeWorkspacePath() === originWorkspace
+      ) {
         await this.runDiffTabRefresh(key);
       }
     }
   }
 
-  /** The single in-flight read behind {@link refreshDiffTab}. */
-  private async readDiffTabOnce(key: string): Promise<void> {
+  /**
+   * The single in-flight read behind {@link refreshDiffTab}, for the tab as
+   * it belongs to `originWorkspace`.
+   */
+  private async readDiffTabOnce(
+    key: string,
+    originWorkspace: string | null,
+  ): Promise<void> {
     const tab = this._diffTabs().find((t) => t.filePath === key);
     if (!tab?.diff) return;
     // Historical diffs read immutable commits and have no git:diffFile form.
     if (tab.diff.provenance?.kind === 'historical') return;
 
-    const originWorkspace = this.activeWorkspacePath();
     const requestId = tab.diff.requestId + 1;
     const { comparison, path, originalPath } = tab.diff;
 

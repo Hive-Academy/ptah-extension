@@ -70,6 +70,44 @@ describe('BranchPickerDropdownComponent', () => {
     expect(checkedOut).toEqual(['feature']);
   });
 
+  it('runs one checkout at a time: rows and Create are disabled until it settles', async () => {
+    let settle: (result: GitCheckoutResult) => void = () => undefined;
+    const checkout = jest.fn(
+      () =>
+        new Promise<GitCheckoutResult>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    const { fixture, checkedOut } = await setup({
+      local: [localBranch('feature'), localBranch('other')],
+      checkout,
+    });
+    const rows = (): HTMLButtonElement[] => [
+      ...fixture.nativeElement.querySelectorAll('.max-h-72 > button'),
+    ];
+    const createButton = (): HTMLButtonElement =>
+      fixture.nativeElement.querySelector('.border-t > button');
+    fixture.componentInstance['newBranch'].set('topic');
+
+    rows()[0].click();
+    fixture.detectChanges();
+
+    expect(rows().every((row) => row.disabled)).toBe(true);
+    expect(createButton().disabled).toBe(true);
+    // Even an entry point reached while disabled starts nothing.
+    fixture.componentInstance['switchTo']('other');
+    fixture.componentInstance['create']();
+    expect(checkout).toHaveBeenCalledTimes(1);
+
+    settle({ success: false, error: 'boom' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(rows().every((row) => !row.disabled)).toBe(true);
+    expect(createButton().disabled).toBe(false);
+    expect(checkedOut).toEqual([]);
+  });
+
   it('offers Stash & switch as the primary action on a dirty refusal and lists the paths', async () => {
     const checkout = jest
       .fn()
