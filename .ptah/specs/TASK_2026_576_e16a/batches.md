@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 42/69
+Total tasks: 87 | Batches: 69 | Complete: 43/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1695,14 +1695,14 @@ executors at once.
   cutover). Noted: tree file 941 lines (max-lines warning); jest worker-exit warning. Verified: git-ui
   typecheck/test/lint green; eager guard passes (`main.js` 370,049 B gz).
 
-## Batch 38: File diff section and review canvas (A9 spike) — PENDING
+## Batch 38: File diff section and review canvas (A9 spike) — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 36, 37
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 38.1: `FileDiffSectionComponent`, `ReviewCanvasComponent` — PENDING
+### Task 38.1: `FileDiffSectionComponent`, `ReviewCanvasComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-canvas/file-diff-section.component.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-canvas/review-canvas.component.ts (+ .spec.ts)
 - Plan reference: implementation-plan.md:1012-1016, 1038-1045
@@ -1710,6 +1710,23 @@ executors at once.
 - Quality requirements: one `IntersectionObserver`, released on destroy; labelled rows never mount Pierre; per-file scroll preserved.
 - Validation notes: A9 — spike on the 200-file / 10,000-line fixture; on failure switch to Pierre `CodeView` with overlays (pre-approved in the plan) and record.
 - Implementation details: as plan.
+- Outcome: executor frontend-developer. `FileDiffSectionComponent` (20 tests): sticky header (badge, path, rename
+  source, hunk/new/deleted chips, +/−, Comment, Open-in), reads + creates Pierre only near the viewport (`@defer`),
+  labelled rows for binary/submodule/conflicted (never read), Retry on error, stale note, per-hunk
+  `HunkToolbarComponent` with entryKey/snapshotToken/hunkCount, body dims to 85% while a refusal chip shows.
+  `ReviewCanvasComponent` (20 tests incl. axe): comparison bar + tree + list + drafts footer, one
+  IntersectionObserver (rootMargin one viewport each way), measured placeholders, scroll-to-file, Alt+ArrowUp/Down,
+  per-comparison scroll restore, focus to the list when the drafts bar disappears. Accepted deviations: keyboard
+  "Comment" composer instead of Pierre gutter clicks; `stacked` comes from the shell; working-tree lists staged and
+  unstaged entries. A9 spike (headless Chromium harness, 1280×800): structure holds (≤2 Pierre instances mounted,
+  closes the P3 ResizeObserver item); 200 files split main-thread Shiki 46 fps / 22 long tasks > 200 ms, with the
+  Pierre worker pool 54 fps / 0; unified + pool 58 fps; 10,000-line single file fails every variant (worst
+  `FileDiff`+pool 2,006 ms task; `VirtualizedFileDiff`+pool 542 ms; main-thread virtualized ~20 s first render).
+  `CodeView` would not help (same tokenizer). GATE before the canvas mounts (Batch 58): worker pool wiring (webview
+  worker entry + CSP `worker-src`) and a large-file path (virtualized or changed-line cap). Defect for the fix
+  round: `review-diff.service.ts` `toDiffState`/`toHistoricalState` turn `too-large`/`lfs-pointer` reads into empty
+  `fresh` text (Req 6.2/6.10). For 43: pass `stacked`, call `GitStashService.registerReviewCanvas()`. Verified:
+  git-ui typecheck/test/lint green, 802 tests; eager guard passes (`main.js` 370,305 B gz).
 
 ## Batch 39: `file:viewContent` sha256/bom and save contract types — COMPLETE
 
