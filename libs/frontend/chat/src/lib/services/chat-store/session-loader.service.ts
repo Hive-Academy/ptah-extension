@@ -88,8 +88,8 @@ export const DEFAULT_SESSION_LIST_QUERY: SessionListQuery = {
  */
 export function sessionListQueryKey(query: SessionListQuery): string {
   return JSON.stringify([
-    [...(query.status ?? [])].sort(),
-    [...(query.priority ?? [])].sort(),
+    [...(query.status ?? [])].sort(compareCodeUnits),
+    [...(query.priority ?? [])].sort(compareCodeUnits),
     query.taskId ?? '',
     query.pinned ?? null,
     query.hasPr ?? null,
@@ -97,6 +97,12 @@ export function sessionListQueryKey(query: SessionListQuery): string {
     query.sort ?? 'lastActive',
     query.groupBy ?? 'none',
   ]);
+}
+
+/** UTF-16 code-unit order — the same order `Array.prototype.sort()` uses by default. */
+function compareCodeUnits(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }
 
 interface SwitchSessionOptions {

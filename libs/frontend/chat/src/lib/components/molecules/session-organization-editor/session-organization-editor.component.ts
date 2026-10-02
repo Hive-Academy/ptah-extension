@@ -63,7 +63,7 @@ import {
 import {
   SESSION_PRIORITY_LABELS,
   SESSION_STATUS_LABELS,
-} from '../../atoms/session-organization-chips/session-organization-chips.component';
+} from '../../atoms/session-organization-chips/session-organization-labels';
 
 /** Longest PR URL the host accepts (`SessionAddPrLinkParams`). */
 const MAX_PR_URL_LENGTH = 2048;

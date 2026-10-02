@@ -42,28 +42,13 @@ import type {
   SessionTurnPhase,
   SessionWorkflowStatus,
 } from '@ptah-extension/shared';
+import {
+  SESSION_PRIORITY_LABELS,
+  SESSION_STATUS_LABELS,
+} from './session-organization-labels';
 
 /** The live states a row can show. Idle shows nothing. */
 export type SessionRowLivePhase = 'running' | 'background' | 'failed';
-
-export const SESSION_PRIORITY_LABELS: Readonly<
-  Record<SessionPriority, string>
-> = {
-  urgent: 'Urgent',
-  high: 'High',
-  normal: 'Normal',
-  low: 'Low',
-};
-
-export const SESSION_STATUS_LABELS: Readonly<
-  Record<SessionWorkflowStatus, string>
-> = {
-  active: 'Active',
-  waiting: 'Waiting',
-  in_review: 'In review',
-  done: 'Done',
-  archived: 'Archived',
-};
 
 const LIVE_PHASE_LABELS: Readonly<Record<SessionRowLivePhase, string>> = {
   running: 'Running',

@@ -55,6 +55,7 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { SessionDisplayUtils } from '../../services/session-display-utils.service';
+import { SubagentTranscriptViewerService } from '../../services/subagent-transcript-viewer.service';
 import {
   AppStateManager,
   SurfaceActiveDirective,
@@ -153,7 +154,10 @@ export class AppShellComponent {
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly authState = inject(AuthStateService);
-  private readonly confirmDialog = inject(ConfirmationDialogService);
+  /** Read by the template to create the deferred dialog on first open. */
+  protected readonly confirmDialog = inject(ConfirmationDialogService);
+  /** Read by the template to create the deferred overlay on first open. */
+  protected readonly transcriptViewer = inject(SubagentTranscriptViewerService);
   private readonly sessionDisplayUtils = inject(SessionDisplayUtils);
   /**
    * Read ONLY for `pendingSurface()` in the post-auth guard below. Every

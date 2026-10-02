@@ -10,7 +10,7 @@ import type {
   ChatSessionSummary,
   SessionListGroup,
 } from '@ptah-extension/shared';
-import { SESSION_STATUS_LABELS } from '../atoms/session-organization-chips/session-organization-chips.component';
+import { SESSION_STATUS_LABELS } from '../atoms/session-organization-chips/session-organization-labels';
 
 /** One sidebar row; `depth` is its nesting under a parent row (0 = top). */
 export interface SessionRow {

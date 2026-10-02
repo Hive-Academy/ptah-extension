@@ -1,18 +1,28 @@
-<!-- Global confirmation dialog (replaces window.confirm) -->
-<ptah-confirmation-dialog />
+<!-- Global confirmation dialog (replaces window.confirm). Kept out of the
+     initial bundle: prefetched when idle, created on the first confirm. -->
+@defer (when confirmDialog.isOpen(); prefetch on idle) {
+  <ptah-confirmation-dialog />
+}
 
 <!-- Global on-demand subagent transcript viewer (single host; driven by the
      root SubagentTranscriptViewerService, opened from the inline agent bubble
-     and the background-agent tray) -->
-<ptah-subagent-transcript-overlay />
+     and the background-agent tray). Deferred like the dialog above. -->
+@defer (when transcriptViewer.open(); prefetch on idle) {
+  <ptah-subagent-transcript-overlay />
+}
 
 <!-- Session organization editor (TASK_2026_580), opened from a sidebar row's
-     "Organize" action. Organization hosts only; closed while `null`. -->
+     "Organize" action. Organization hosts only; closed while `null`.
+     Deferred out of the initial bundle: its chunk is prefetched when the
+     browser is idle and the editor is first created on the first open, which
+     runs the same focus-in bookkeeping as any later open. -->
 @if (organizationAvailable()) {
-  <ptah-session-organization-editor
-    [session]="organizingSession()"
-    (closed)="closeOrganizer()"
-  />
+  @defer (when organizingSession() !== null; prefetch on idle) {
+    <ptah-session-organization-editor
+      [session]="organizingSession()"
+      (closed)="closeOrganizer()"
+    />
+  }
 }
 
 <!--
@@ -87,10 +97,12 @@
       @if (organizationAvailable()) {
         <!-- Organization host: search text, filters, sort and grouping go to
              the server (TASK_2026_580). The date range below stays local. -->
-        <ptah-session-filter-bar
-          [query]="listQuery()"
-          (queryChange)="onListQueryChange($event)"
-        />
+        @defer (on immediate) {
+          <ptah-session-filter-bar
+            [query]="listQuery()"
+            (queryChange)="onListQueryChange($event)"
+          />
+        }
       } @else {
         <!-- Search input (local name filter over the loaded pages) -->
         <label
@@ -188,7 +200,6 @@
       <ng-template #sessionRow let-session let-depth="depth">
         <li
           class="group relative"
-          role="listitem"
           [class.ml-3]="depth === 1"
           [class.ml-6]="depth === 2"
           [class.ml-9]="depth >= 3"
@@ -322,14 +333,16 @@
                      keep the actions off both. -->
 
               <div class="pl-3 pr-24 has-[li]:-mt-1.5 has-[li]:pb-2">
-                <ptah-session-organization-chips [session]="session" />
+                @defer (on immediate) {
+                  <ptah-session-organization-chips [session]="session" />
+                }
               </div>
             }
           }
         </li>
       </ng-template>
 
-      <ul class="flex flex-col gap-0.5 p-0" role="list">
+      <ul class="flex flex-col gap-0.5 p-0">
         @for (group of sessionGroups(); track group.key) {
           @if (group.label === null) {
             @for (row of group.rows; track row.session.id) {
@@ -344,7 +357,6 @@
           } @else {
             <li
               class="flex flex-col gap-0.5"
-              role="listitem"
               data-testid="session-group"
             >
               <h3
@@ -358,7 +370,6 @@
               </h3>
               <ul
                 class="flex flex-col gap-0.5 p-0"
-                role="list"
                 [attr.aria-labelledby]="'session-group-' + group.key"
               >
                 @for (row of group.rows; track row.session.id) {

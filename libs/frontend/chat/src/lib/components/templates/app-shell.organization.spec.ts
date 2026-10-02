@@ -61,7 +61,7 @@ function sidebarTemplate(): string {
   const start = html.indexOf('<aside');
   const end = html.indexOf('</aside>') + '</aside>'.length;
   const editor = html.match(
-    /@if \(organizationAvailable\(\)\) \{\s*<ptah-session-organization-editor[\s\S]*?\/>\s*\}/,
+    /@if \(organizationAvailable\(\)\) \{\s*@defer \([^)]*\)[^{]*\{\s*<ptah-session-organization-editor[\s\S]*?\/>\s*\}\s*\}/,
   );
   expect(start).toBeGreaterThan(-1);
   expect(end).toBeGreaterThan(start);
@@ -227,6 +227,17 @@ function rowNames(fixture: ComponentFixture<AppShellComponent>): string[] {
   );
 }
 
+/**
+ * The filter bar, chips and editor sit in `@defer` blocks (kept out of the
+ * initial bundle); let those blocks load and render before asserting.
+ */
+async function settle(
+  fixture: ComponentFixture<AppShellComponent>,
+): Promise<void> {
+  await fixture.whenStable();
+  fixture.detectChanges();
+}
+
 function type(input: HTMLInputElement, value: string): void {
   input.value = value;
   input.dispatchEvent(new Event('input'));
@@ -301,16 +312,18 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
   });
 
   describe('organization available', () => {
-    function available(
+    async function available(
       sessions: ChatSessionSummary[],
-    ): ComponentFixture<AppShellComponent> {
+    ): Promise<ComponentFixture<AppShellComponent>> {
       store.organizationAvailable.set(true);
       store.sessions.set(sessions);
-      return configure(store);
+      const fixture = configure(store);
+      await settle(fixture);
+      return fixture;
     }
 
-    it('replaces the search box with the filter bar and keeps the date filter', () => {
-      const fixture = available([
+    it('replaces the search box with the filter bar and keeps the date filter', async () => {
+      const fixture = await available([
         session('a', 'Alpha', { organization: organization() }),
       ]);
 
@@ -321,12 +334,14 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       ).not.toBe(null);
     });
 
-    it('sends the search text to the server, not to the local filter', () => {
-      jest.useFakeTimers();
-      const fixture = available([
+    it('sends the search text to the server, not to the local filter', async () => {
+      const fixture = await available([
         session('a', 'Alpha', { organization: organization() }),
         session('b', 'Beta', { organization: organization() }),
       ]);
+      // After the deferred blocks settled: the filter bar's debounce is the
+      // only timer this test drives.
+      jest.useFakeTimers();
 
       type(
         query<HTMLInputElement>(
@@ -345,8 +360,8 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       expect(rowNames(fixture)).toEqual(['Alpha', 'Beta']);
     });
 
-    it('keeps the date filter on the loaded rows', () => {
-      const fixture = available([
+    it('keeps the date filter on the loaded rows', async () => {
+      const fixture = await available([
         session('old', 'Old', {
           lastActivityAt: NOW - 30 * DAY,
           organization: organization(),
@@ -364,8 +379,8 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       expect(store.setListQuery).not.toHaveBeenCalled();
     });
 
-    it('renders chips and the Organize action per row', () => {
-      const fixture = available([
+    it('renders chips and the Organize action per row', async () => {
+      const fixture = await available([
         session('a', 'Alpha', {
           organization: organization({ priority: 'urgent' }),
         }),
@@ -399,13 +414,13 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       expect(meta?.classList).toContain('pr-20');
     });
 
-    it('offers no Organize action for a row without an organization record', () => {
-      const fixture = available([session('fork', 'Fresh fork')]);
+    it('offers no Organize action for a row without an organization record', async () => {
+      const fixture = await available([session('fork', 'Fresh fork')]);
       expect(query(fixture, '[data-testid="session-organize"]')).toBe(null);
     });
 
-    it('opens the editor for the row and closes it on `closed`', () => {
-      const fixture = available([
+    it('opens the editor for the row and closes it on `closed`', async () => {
+      const fixture = await available([
         session('a', 'Alpha', { organization: organization() }),
       ]);
 
@@ -414,6 +429,7 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
         '[data-testid="session-organize"]',
       )?.click();
       fixture.detectChanges();
+      await settle(fixture);
       const dialog = query(
         fixture,
         '[data-testid="session-organization-editor"]',
@@ -431,11 +447,12 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       ).toBe(null);
     });
 
-    it('keeps the editor open with the last copy when its row leaves the list', () => {
+    it('keeps the editor open with the last copy when its row leaves the list', async () => {
       const alpha = session('a', 'Alpha', { organization: organization() });
-      const fixture = available([alpha]);
+      const fixture = await available([alpha]);
       fixture.componentInstance.openOrganizer(new Event('click'), alpha);
       fixture.detectChanges();
+      await settle(fixture);
 
       store.sessions.set([]);
       fixture.detectChanges();
@@ -446,9 +463,9 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       ).not.toBe(null);
     });
 
-    it('draws a header per status group', () => {
+    it('draws a header per status group', async () => {
       store.listQuery.set({ sort: 'lastActive', groupBy: 'status' });
-      const fixture = available([
+      const fixture = await available([
         session('a', 'Alpha', {
           organization: organization({ status: 'waiting' }),
         }),
@@ -469,9 +486,9 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       expect(list?.querySelectorAll('li.group')).toHaveLength(2);
     });
 
-    it('nests children under their parent when grouping by parent', () => {
+    it('nests children under their parent when grouping by parent', async () => {
       store.listQuery.set({ sort: 'lastActive', groupBy: 'parent' });
-      const fixture = available([
+      const fixture = await available([
         session('p', 'Parent', { organization: organization() }),
         session('c', 'Child', {
           organization: organization({ parentSessionId: 'p' }),
@@ -489,13 +506,13 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       expect(query(fixture, '[data-testid="session-group"]')).toBe(null);
     });
 
-    it('says "No matching sessions" when server filters empty the list, and clears filters only', () => {
+    it('says "No matching sessions" when server filters empty the list, and clears filters only', async () => {
       store.listQuery.set({
         status: ['done'],
         sort: 'priority',
         groupBy: 'status',
       });
-      const fixture = available([]);
+      const fixture = await available([]);
 
       expect(fixture.nativeElement.textContent).toContain(
         'No matching sessions',
