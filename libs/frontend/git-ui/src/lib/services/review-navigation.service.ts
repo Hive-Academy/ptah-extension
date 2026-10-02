@@ -46,7 +46,8 @@ export interface ReviewChangeSetFile {
  * - `diff`       — scroll the canvas to one file's diff
  * - `change-set` — narrow the canvas to an agent turn's files; drafts written
  *                  there go to `ownerSessionId`
- * - `file`       — the spot editor mode (design-spec §3.3)
+ * - `file`       — the spot editor mode (design-spec §3.3); `editable` is set
+ *                  only by the canvas "Edit" action, chat links open read-only
  */
 export type ReviewTarget =
   | { kind: 'none' }
@@ -57,7 +58,7 @@ export type ReviewTarget =
       files: readonly ReviewChangeSetFile[];
       ownerSessionId?: string;
     }
-  | { kind: 'file'; request: FileViewOpenRequest };
+  | { kind: 'file'; request: FileViewOpenRequest; editable?: true };
 
 /**
  * One navigation. `seq` increases on every call so a surface can tell a
@@ -145,12 +146,18 @@ export class ReviewNavigationService {
 
   /**
    * Open one file in the spot editor at an optional line. The comparison is
-   * kept so "Back to review" returns to it.
+   * kept so "Back to review" returns to it. The editor opens read-only unless
+   * `editable` is set (the canvas "Edit" action, design-spec §7).
    */
-  openFile(path: string, line?: number): void {
+  openFile(
+    path: string,
+    line?: number,
+    options?: { readonly editable?: boolean },
+  ): void {
     this.navigate('changes', this._current().scope, {
       kind: 'file',
       request: line === undefined ? { path } : { path, line },
+      ...(options?.editable ? { editable: true as const } : {}),
     });
   }
 

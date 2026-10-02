@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 43/69
+Total tasks: 87 | Batches: 69 | Complete: 44/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1841,14 +1841,14 @@ executors at once.
   dialog is open is dropped. Verified: git-ui typecheck/lint green, 762 tests; eager guard passes (`main.js`
   370,305 B gz, 0 CodeMirror markers — editor not yet reachable).
 
-## Batch 43: Review shell (Changes tab + header) — PENDING
+## Batch 43: Review shell (Changes tab + header) — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batches 38, 42
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui`
 
-### Task 43.1: `ReviewShellComponent` — PENDING
+### Task 43.1: `ReviewShellComponent` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/review-shell/review-shell.component.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/index.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/project.json (only if an implicit dependency must be declared)
 - Plan reference: implementation-plan.md:967-994
@@ -1856,6 +1856,22 @@ executors at once.
 - Quality requirements: one `ResizeObserver`; each tab body lazy; RC3 stale state ported; spec ports `git-dock.component.spec.ts` + `git-dock.mount.spec.ts` cases.
 - Validation notes: V3 — Commit, Task and History tabs are added by Batches 48, 50, 56; the shell is not mounted until Batch 58, so no tab ships empty to users.
 - Implementation details: header re-hosts `GitDockHeaderComponent`; banner slot above tabs.
+- Outcome: executor frontend-developer. `ReviewShellComponent` (unmounted; 26 unit + 4 mount tests incl. axe):
+  re-hosted `GitDockHeaderComponent`, notice slot, `NativeTabGroupComponent` strip, Changes body = canvas or the
+  spot editor in `@defer`. Wiring: `GitStashService.registerReviewCanvas()` on construct / release on destroy
+  (Batch 37); one ResizeObserver → `stacked` < 520 px (Batch 38); `file` targets swap in `<ptah-spot-editor>` with
+  `startEditable`, Back to review restores focus, `file:content-changed` → `notifyDiskChange` (Batch 42). States:
+  loading only before the first read, failed first read ≠ "not a Git repository", stale notice keeps the canvas,
+  re-read never unmounts (B7). Main barrel now exports `ReviewShellComponent`, `ReviewNavigationService`,
+  `ReviewTab` (closes the Batch 35 item). Accepted deviations: no Retry for a failed `@defer` chunk (Angular cannot
+  retry) — "Reload the window" text; new root `FileContentChangesService` (MessageHandler) because components cannot
+  receive pushes; only the Changes tab (48/50/56 add the rest); tree hidden in editor mode; `openFile(path, line?,
+  {editable})` added but no canvas Edit button yet; shell-owned `aria-controls` wrapper. Cutover (58) must: load
+  `ReviewShellComponent` in `electron-shell.component.ts` ~372, register `FileContentChangesService` under
+  `MESSAGE_HANDLERS`, point `FileLinkRouterService.openInDock` at `ReviewNavigationService.openFile`, retarget the
+  git-dock specs/e2e, move `statusUnavailableLabel` out of source-control-panel, keep the Changes body mounted when
+  other tabs show (unsaved edits). Verified: git-ui typecheck/lint green, 849 tests; eager guard passes (`main.js`
+  368,674 B gz; `cm-editor` in its own lazy chunk).
 
 ## Batch 44: Skills drawer on `TextDiffViewComponent` — COMPLETE
 

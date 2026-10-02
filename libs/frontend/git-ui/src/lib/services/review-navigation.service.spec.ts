@@ -105,6 +105,18 @@ describe('ReviewNavigationService', () => {
     expect(service.current().target).toEqual({ kind: 'none' });
   });
 
+  it('openFile marks the target editable only when asked (the canvas Edit action)', () => {
+    const { service } = makeService();
+    service.openFile('/ws/a.ts', undefined, { editable: true });
+    expect(service.current().target).toEqual({
+      kind: 'file',
+      request: { path: '/ws/a.ts' },
+      editable: true,
+    });
+    service.openFile('/ws/a.ts', 3, { editable: false });
+    expect(service.current().target).not.toHaveProperty('editable');
+  });
+
   it('a repeated request for the same target still bumps seq', () => {
     const { service } = makeService();
     service.openFile('/ws/a.ts');

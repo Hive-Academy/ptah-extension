@@ -1,9 +1,8 @@
 /**
  * @ptah-extension/git-ui — the webview's entire git surface behind one public API.
  *
- * Owns git status, branches, worktrees, source control and the Monaco diff
- * view. Depends on `@ptah-extension/core` and `@ptah-extension/shared` only —
- * never on `chat`, `ui` or `editor`.
+ * Owns git status, branches, worktrees, source control, the Monaco diff view
+ * and the review shell that replaces it. Never depends on `chat` or `editor`.
  *
  * `MonacoLoaderService` and `git-read-error-messages` are deliberately NOT
  * exported: they are implementation detail of `DiffViewComponent` and
@@ -21,8 +20,13 @@ export { SourceControlService } from './lib/services/source-control.service';
 export { DiffTabsService } from './lib/services/diff-tabs.service';
 export { EditorLauncherService } from './lib/services/editor-launcher.service';
 export { GitReviewService } from './lib/services/git-review.service';
+export {
+  ReviewNavigationService,
+  type ReviewTab,
+} from './lib/services/review-navigation.service';
 
 // Components
+export { ReviewShellComponent } from './lib/review-shell/review-shell.component';
 export { DiffViewComponent } from './lib/diff-view/diff-view.component';
 export { SourceControlPanelComponent } from './lib/source-control/source-control-panel.component';
 export { SourceControlFileComponent } from './lib/source-control/source-control-file.component';
