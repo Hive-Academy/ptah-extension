@@ -494,6 +494,26 @@ describe('ConflictBannerComponent', () => {
       await click('conflict-banner-continue');
     }
 
+    it('re-enables the actions and shows an error when the call rejects', async () => {
+      const consoleError = jest
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      await setup();
+      operation.set({ kind: 'rebase', conflictedPaths: [] });
+      sourceControl.continueOperation.mockRejectedValueOnce(new Error('boom'));
+      await settle();
+      await click('conflict-banner-continue');
+
+      expect(text(query('conflict-banner-error'))).toBe(
+        'The action could not be completed. Try again.',
+      );
+      expect(
+        (query('conflict-banner-continue') as HTMLButtonElement).disabled,
+      ).toBe(false);
+      expect(refresh).toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
+
     it('announces completion and refreshes', async () => {
       await continueWith({ status: 'completed', kind: 'rebase' });
 

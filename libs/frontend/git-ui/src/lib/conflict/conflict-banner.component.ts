@@ -12,6 +12,7 @@ import { AGENT_FEEDBACK_SENDER } from '@ptah-extension/core';
 import type {
   EditorTarget,
   GitConflictKind,
+  GitOperationAbortResult,
   GitOperationContinueResult,
   GitRepoOperation,
   GitRepoOperationKind,
@@ -46,6 +47,7 @@ const NOT_MERGEABLE_LABEL: Partial<Record<GitConflictKind, string>> = {
 const SENDER_UNAVAILABLE =
   'Sending to the agent is not available here. Open a chat session and try again.';
 const SEND_FAILED = 'The message could not be sent to the agent.';
+const ACTION_FAILED = 'The action could not be completed. Try again.';
 
 type BannerAction = 'ask' | 'abort' | 'continue' | 'open';
 
@@ -445,25 +447,41 @@ export class ConflictBannerComponent {
   ): Promise<void> {
     const root = this.workspaceRoot();
     if (!root || !this.begin('open', `Opening ${row.path}…`)) return;
+    try {
+      await this.openRow(row, target, root);
+    } catch (error: unknown) {
+      // The launcher promises to resolve; a throw must not leave every
+      // banner action disabled.
+      console.error('[ConflictBannerComponent] open threw', error);
+      await this.finish(root, '', ACTION_FAILED);
+      return;
+    }
+    // The launch outcome is the header's editor-launch status line.
+    await this.finish(root, '');
+  }
+
+  private async openRow(
+    row: ConflictRow,
+    target: EditorTarget,
+    root: string,
+  ): Promise<void> {
     if (row.open === 'folder') {
       await this.launchers.openWorkspace(
         target.id,
         conflictFolderOf(root, row.path),
       );
-    } else {
-      const result = await this.launchers.openMerge(target.id, root, row.path);
-      if (result.status === 'unsupported') {
-        await this.launchers.openFile(target.id, root, row.path);
-      } else if (
-        result.status === 'failed' &&
-        result.reason === 'not-mergeable' &&
-        this.workspaceRoot() === root
-      ) {
-        this.notMergeable.update((paths) => new Set(paths).add(row.path));
-      }
+      return;
     }
-    // The launch outcome is the header's editor-launch status line.
-    await this.finish(root, '');
+    const result = await this.launchers.openMerge(target.id, root, row.path);
+    if (result.status === 'unsupported') {
+      await this.launchers.openFile(target.id, root, row.path);
+    } else if (
+      result.status === 'failed' &&
+      result.reason === 'not-mergeable' &&
+      this.workspaceRoot() === root
+    ) {
+      this.notMergeable.update((paths) => new Set(paths).add(row.path));
+    }
   }
 
   protected async onAskAgent(): Promise<void> {
@@ -504,7 +522,14 @@ export class ConflictBannerComponent {
     const root = this.workspaceRoot();
     const name = this.kindName();
     if (!this.begin('abort', `Aborting the ${name}…`)) return;
-    const result = await this.sourceControl.abortOperation();
+    let result: GitOperationAbortResult;
+    try {
+      result = await this.sourceControl.abortOperation();
+    } catch (error: unknown) {
+      console.error('[ConflictBannerComponent] abort threw', error);
+      await this.finish(root, '', ACTION_FAILED);
+      return;
+    }
     if (result.status === 'failed') {
       await this.finish(root, '', result.error);
       return;
@@ -522,7 +547,14 @@ export class ConflictBannerComponent {
     const root = this.workspaceRoot();
     const name = this.kindName();
     if (!this.begin('continue', `Continuing the ${name}…`)) return;
-    const result = await this.sourceControl.continueOperation();
+    let result: GitOperationContinueResult;
+    try {
+      result = await this.sourceControl.continueOperation();
+    } catch (error: unknown) {
+      console.error('[ConflictBannerComponent] continue threw', error);
+      await this.finish(root, '', ACTION_FAILED);
+      return;
+    }
     await this.applyContinueResult(result, root);
   }
 
