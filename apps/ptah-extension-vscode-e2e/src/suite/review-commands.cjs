@@ -24,9 +24,24 @@ const FILE_B = 'review-b.txt';
 const HEAD_A = 'alpha at HEAD\n';
 const HEAD_B = 'bravo at HEAD\n';
 
-function git(cwd, args) {
+/**
+ * Absolute path of the git binary the built-in git extension resolved, so the
+ * suite never runs `git` through a PATH lookup.
+ */
+async function resolveGitPath() {
+  const gitExtension = vscode.extensions.getExtension('vscode.git');
+  assert.ok(gitExtension, 'the built-in git extension must be present');
+  const exports = gitExtension.isActive
+    ? gitExtension.exports
+    : await gitExtension.activate();
+  const gitPath = exports.getAPI(1).git.path;
+  assert.ok(path.isAbsolute(gitPath), `git path is not absolute: ${gitPath}`);
+  return gitPath;
+}
+
+function git(gitPath, cwd, args) {
   return execFileSync(
-    'git',
+    gitPath,
     [
       '-c',
       'user.name=Ptah E2E',
@@ -46,14 +61,15 @@ function git(cwd, args) {
  * Turns the runner's temp workspace folder into a repository with two files
  * committed at HEAD and then modified in the working tree.
  */
-function prepareRepository(workspaceRoot) {
+async function prepareRepository(workspaceRoot) {
+  const gitPath = await resolveGitPath();
   if (!fs.existsSync(path.join(workspaceRoot, '.git'))) {
-    git(workspaceRoot, ['init', '-q']);
+    git(gitPath, workspaceRoot, ['init', '-q']);
   }
   fs.writeFileSync(path.join(workspaceRoot, FILE_A), HEAD_A);
   fs.writeFileSync(path.join(workspaceRoot, FILE_B), HEAD_B);
-  git(workspaceRoot, ['add', '-A']);
-  git(workspaceRoot, ['commit', '-q', '-m', 'ptah e2e baseline']);
+  git(gitPath, workspaceRoot, ['add', '-A']);
+  git(gitPath, workspaceRoot, ['commit', '-q', '-m', 'ptah e2e baseline']);
   fs.writeFileSync(path.join(workspaceRoot, FILE_A), 'alpha changed\n');
   fs.writeFileSync(path.join(workspaceRoot, FILE_B), 'bravo changed\n');
 }
@@ -115,7 +131,7 @@ function register(test, { waitForActivation }) {
     assert.ok(folder, 'the runner must open a workspace folder');
     if (workspaceRoot === undefined) {
       workspaceRoot = folder.uri.fsPath;
-      prepareRepository(workspaceRoot);
+      await prepareRepository(workspaceRoot);
     }
     await closeAllEditors();
     return ext;

@@ -1,0 +1,110 @@
+{
+  "dark-focus-review": {
+    "testid": "change-set-review",
+    "focusVisible": true,
+    "outline": "oklch(0.766528 0.138677 91.0594) solid 2px",
+    "outlineOffset": "2px",
+    "ratioVsRowBg": 2.46,
+    "ratioVsCardBg": 8.39,
+    "rowBg": [
+      37,
+      99,
+      235
+    ]
+  },
+  "dark-focus-row1": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "oklch(0.766528 0.138677 91.0594) solid 2px",
+    "outlineOffset": "-2px",
+    "ratioVsRowBg": 7.85,
+    "ratioVsCardBg": 8.39,
+    "rowBg": [
+      30,
+      30,
+      39
+    ]
+  },
+  "dark-focus-row2": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "oklch(0.766528 0.138677 91.0594) solid 2px",
+    "outlineOffset": "-2px",
+    "ratioVsRowBg": 7.85,
+    "ratioVsCardBg": 8.39,
+    "rowBg": [
+      30,
+      30,
+      39
+    ]
+  },
+  "dark-error": {
+    "ratio": 6.7,
+    "fg": [
+      248,
+      113,
+      113,
+      1
+    ],
+    "bg": [
+      19,
+      19,
+      23
+    ],
+    "color": "rgb(248, 113, 113)"
+  },
+  "light-focus-review": {
+    "testid": "change-set-review",
+    "focusVisible": true,
+    "outline": "rgb(245, 217, 125) solid 2px",
+    "outlineOffset": "2px",
+    "ratioVsRowBg": 1.07,
+    "ratioVsCardBg": 1.18,
+    "rowBg": [
+      68,
+      235,
+      211
+    ]
+  },
+  "light-focus-row1": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "rgb(245, 217, 125) solid 2px",
+    "outlineOffset": "-2px",
+    "ratioVsRowBg": 1.13,
+    "ratioVsCardBg": 1.18,
+    "rowBg": [
+      234,
+      230,
+      228
+    ]
+  },
+  "light-focus-row2": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "rgb(245, 217, 125) solid 2px",
+    "outlineOffset": "-2px",
+    "ratioVsRowBg": 1.13,
+    "ratioVsCardBg": 1.18,
+    "rowBg": [
+      234,
+      230,
+      228
+    ]
+  },
+  "light-error": {
+    "ratio": 6.94,
+    "fg": [
+      175,
+      0,
+      25,
+      1
+    ],
+    "bg": [
+      250,
+      247,
+      245
+    ],
+    "color": "oklch(0.45 0.22 20)"
+  }
+}

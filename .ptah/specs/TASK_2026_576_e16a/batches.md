@@ -1483,7 +1483,23 @@ executors at once.
 
 ### P3 phase-end review
 
-- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P3 phase diff, the full e2e set, visual review of the change-set card against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
+- [x] Phase-end review checkpoint (Review cadence): one cross-side review lane on the P3 phase diff, the full e2e set, visual review of the change-set card against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
+- Outcome (2026-10-02): logic — Glm part 1 (`reviews/p3-phase-review-glm.md`, REVISE 7/10: F1-F9) on the
+  subagent-authored batches; subagent review of lane-authored Batch 23 (`p3-phase-review-subagent-b23.md`, REVISE
+  7/10); fixes `50b48eecc` (git-ui) and `0f3953a6f` (backend + SonarCloud). Round 1 by antigravity (Glm hit its
+  weekly limit) — `p3-phase-review-antigravity-round1.md`: F1-F7, F9 FIXED, new B1-B5 on Batches 29-31 (REVISE
+  7/10); fixes `86b5ee6dd`. Round 2 `p3-phase-review-antigravity-round2.md`: B1-B5 FIXED, APPROVE 9/10. F8
+  (SHA-256 unborn HEAD) accepted as documented. Visual — `p3-visual-review.md` REVISE 6/10 (S1 focus ring, S2
+  narrow tile, S3 badge contrast + 3 moderate) → fixed in `86b5ee6dd` → `p3-visual-review-round1.md` APPROVE
+  8/10 (screenshots `screenshots/p3/`, `screenshots/p3/round1/`). Accepted minors: decorative light status-chip
+  accents and the light "mixed"/success accents < 3:1. e2e: Electron `change-set-card.spec.ts` passed alone; VS
+  Code runner 17/17; full e2e set runs in CI (local full Electron run conflicts with the running desktop app).
+  SonarCloud: reliability regexes/sort fixed in `0f3953a6f`; S4036 PATH hotspot in the VS Code e2e suite fixed by
+  running git from the built-in git extension's absolute path. P2 review fixes merged in `70df63cbe`.
+  Carried to P4: real-git spec for the 2 MiB review-reader limit; diff-tabs spec gaps; Electron card review/SCM
+  actions only reveal the dock until Task 58.2; repo-subfolder assumption remains for apply/stage/blob reads;
+  rename+commit within one turn reports the old path as `M`; jest worker-exit warning in the change-set specs;
+  Pierre `<style>` vs VS Code CSP gate before Batch 44 (still open).
 
 ---
 
