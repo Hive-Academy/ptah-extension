@@ -198,7 +198,9 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
       }
     }
     @if (wizardOpen()) {
-      <!-- One wizard instance per setup session: a deep link applied right after a close must start fresh. -->
+      <!-- One wizard instance per setup session: a deep link applied right after a close must start fresh.
+           Deferred out of the initial bundle (prefetched when idle); every open creates a new instance either way. -->
+      @defer (when wizardOpen(); prefetch on idle) {
       @for (session of [wizardSession()]; track session) {
       <ptah-provider-setup-wizard [open]="true" [deepLinkProviderId]="wizardProviderId()" [existingCredentialPresent]="wizardCredentialStored()"
         [verifyDraftConnection]="verifyDraftConnection" [cancelDraftVerification]="cancelDraftVerification"
@@ -207,6 +209,7 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
         [initialSetup]="state.connectionSetup().status === 'ready' ? state.connectionSetup().data : null" [contextChanged]="wizardContextChanged()" [commitDetail]="wizardCommitDetail()"
         (providerChanged)="selectWizardProvider($event)" (reviewContextRequested)="reviewWizardContext()" [commitState]="wizardCommitState()"
         (commitRequested)="commitWizard($event)" (closed)="closeWizard()" (externalActionRequested)="externalAction($event.providerId, $event.action)" />
+      }
       }
     }
   `,

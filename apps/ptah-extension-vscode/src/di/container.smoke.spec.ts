@@ -24,6 +24,7 @@ import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer, InjectionToken } from 'tsyringe';
 
 import {
+  GitInfoService,
   TOKENS,
   registerVsCodeCorePlatformAgnostic,
   type Logger,
@@ -32,6 +33,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import { OUTPUT_STYLE_TOKENS } from '@ptah-extension/output-styles';
 import {
   AuthRpcHandlers,
   SetupRpcHandlers,
@@ -46,6 +48,7 @@ import {
   EXPECTED_ABSENT_HANDLERS,
 } from './expected-absent';
 import { createVscodeRpcHostProfile } from '../rpc-host-profile';
+import { registerPhase3Handlers } from './phase-3-handlers';
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
@@ -299,6 +302,57 @@ describe('VS Code DI — background-work governor (TASK_2026_437)', () => {
     expect(governor.isClear()).toBe(true);
     expect(typeof governor.whenClear).toBe('function');
     expect(c.resolve(TOKENS.BACKGROUND_WORK_GOVERNOR)).toBe(governor);
+  });
+});
+
+/**
+ * `TOKENS.GIT_INFO_SERVICE` (TASK_2026_576 RC13) is bound by
+ * `registerPhase3Handlers`. Cache invalidation from the worktree hook, the task
+ * sweep and the file-link policy only reaches the next `git:*` RPC when every
+ * resolver shares one instance.
+ */
+describe('VS Code DI — GitInfoService (TASK_2026_576 RC13)', () => {
+  it('resolves GIT_INFO_SERVICE as one instance per container', () => {
+    const c = rootContainer.createChildContainer();
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as unknown as Logger;
+    c.register(TOKENS.LOGGER, { useValue: logger });
+    // `registerChatServices` asserts phase 2 registered output-styles first.
+    c.register(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { useValue: {} });
+    // `registerPhase3Handlers` ends by constructing `SessionLifecycleNotifier`,
+    // which subscribes to the SDK adapter bus and broadcasts to the webview.
+    const unsubscribe = (): void => undefined;
+    c.register(SDK_TOKENS.SDK_ADAPTER_EVENTS, {
+      useValue: {
+        onCompactionComplete: jest.fn(() => unsubscribe),
+        onTurnEnded: jest.fn(() => unsubscribe),
+        onTurnFailed: jest.fn(() => unsubscribe),
+        onSubagentEnded: jest.fn(() => unsubscribe),
+      },
+    });
+    c.register(TOKENS.WEBVIEW_MANAGER, {
+      useValue: { broadcastMessage: jest.fn() },
+    });
+    // ...and `TurnChangeSetRecorder` (TASK_2026_576 Component 19), which also
+    // subscribes to prompt submits and reads session metadata and workspace
+    // state. It is constructed only; none of these are called.
+    c.register(SDK_TOKENS.SDK_USER_PROMPT_SUBMIT_CALLBACK_REGISTRY, {
+      useValue: { register: jest.fn(() => unsubscribe) },
+    });
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: {} });
+    c.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
+      useValue: { get: jest.fn(), update: jest.fn() },
+    });
+
+    registerPhase3Handlers(c, logger);
+
+    const first = c.resolve<GitInfoService>(TOKENS.GIT_INFO_SERVICE);
+    expect(first).toBeInstanceOf(GitInfoService);
+    expect(c.resolve(TOKENS.GIT_INFO_SERVICE)).toBe(first);
   });
 });
 

@@ -20,6 +20,7 @@ import {
   Trash2,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
 import {
   BrandMarkComponent,
   CatalogCardComponent,
@@ -664,7 +665,9 @@ export class OAuthSurfaceComponent implements OnInit {
       if (name.length > 0) params.name = name;
       if (clientId.length > 0) params.clientId = clientId;
       if (clientSecret.length > 0) params.clientSecret = clientSecret;
-      const result = await this.rpc.call('mcpDirectory:connectOAuth', params);
+      const result = await this.rpc.call('mcpDirectory:connectOAuth', params, {
+        timeout: MARKETPLACE_RPC_TIMEOUTS.OAUTH_CONNECT_MS,
+      });
       if (this.destroyed) return;
       if (result.isSuccess() && result.data.success) {
         const serverKey = result.data.serverKey;
@@ -710,11 +713,15 @@ export class OAuthSurfaceComponent implements OnInit {
     this.addToSet(this.reconnectingKeys, record.serverKey);
     this.connectError.set(null);
     try {
-      const result = await this.rpc.call('mcpDirectory:connectOAuth', {
-        serverUrl: record.serverUrl,
-        serverKey: record.serverKey,
-        name: record.name,
-      });
+      const result = await this.rpc.call(
+        'mcpDirectory:connectOAuth',
+        {
+          serverUrl: record.serverUrl,
+          serverKey: record.serverKey,
+          name: record.name,
+        },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.OAUTH_CONNECT_MS },
+      );
       if (this.destroyed) return;
       if (result.isSuccess() && result.data.success) {
         await this.loadConnected();

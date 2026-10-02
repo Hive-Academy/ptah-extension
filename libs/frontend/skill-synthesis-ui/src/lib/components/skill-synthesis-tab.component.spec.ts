@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, computed } from '@angular/core';
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -18,6 +18,7 @@ import type {
   SkillSynthesisQueueItem,
   SkillSynthesisStageSpend,
   SkillDigestItem,
+  SkillDiagnosticsResult,
 } from '@ptah-extension/shared';
 
 import {
@@ -28,6 +29,7 @@ import {
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
 import type { RefreshDigestOptions } from '../services/skill-synthesis-state.service';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
+import { SkillDiagnosticsRpcService } from '../services/skill-diagnostics-rpc.service';
 import { SkillClonesStateService } from '../services/skill-clones-state.service';
 import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
 
@@ -995,5 +997,276 @@ describe('SkillSynthesisTabComponent — diverged-clones deep link', () => {
     expect(activeSubView(fixture.nativeElement as HTMLElement)).toBe(
       'Recommended',
     );
+  });
+});
+
+/**
+ * Tab-level acceptance on the PRODUCTION feed path: tab -> real
+ * `SkillDiagnosticsStateService` -> real activity feed -> real event feed.
+ * Only the transport (`SkillDiagnosticsRpcService`) and the shell services
+ * are stubbed, so ordering, de-duplication, grouping and row identity are the
+ * shipped code's, not a stub's.
+ */
+describe('SkillSynthesisTabComponent — diagnostics on the production path', () => {
+  const NOW = Date.now();
+
+  function wireEvent(
+    id: string,
+    kind: SkillSynthesisEventWire['kind'],
+    timestamp: number,
+    sessionId: string,
+  ): SkillSynthesisEventWire {
+    return { id, kind, timestamp, sessionId };
+  }
+
+  function snapshot(
+    recentEvents: readonly SkillSynthesisEventWire[],
+    overrides: Partial<SkillDiagnosticsResult> = {},
+  ): SkillDiagnosticsResult {
+    return {
+      lastAnalyzeRunAt: null,
+      lastCuratorPassAt: null,
+      totalCandidates: 0,
+      totalPromoted: 0,
+      totalRejected: 0,
+      totalInvocations: 0,
+      activeSkills: 0,
+      totalMerged: 0,
+      totalRetired: 0,
+      totalDormant: 0,
+      eligibilityHistogram: {
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
+        accepted: 0,
+      },
+      recentEvents,
+      triggers: { sessionEnd: true, idleMs: 600_000, bootScan: true },
+      ...overrides,
+    };
+  }
+
+  interface Mounted {
+    readonly fixture: ComponentFixture<SkillSynthesisTabComponent>;
+    readonly root: HTMLElement;
+    readonly dss: SkillDiagnosticsStateService;
+    /** Lets pending RPC promises settle, then re-renders. */
+    readonly settle: () => Promise<void>;
+  }
+
+  function mount(result: SkillDiagnosticsResult): Mounted {
+    const rpc = {
+      diagnostics: jest.fn(async () => result),
+      analyzeNow: jest.fn(async () => undefined),
+      setTriggers: jest.fn(async () => ({ triggers: result.triggers })),
+      getTriggers: jest.fn(async () => ({ triggers: result.triggers })),
+    };
+    const appState = {
+      workspaceInfo: signal({ path: '/w', name: 'w', type: 'workspace' }),
+      consumeSkillsDivergedRequest: () => false,
+      requestSettingsTab: jest.fn(),
+      setCurrentView: jest.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: makeStub() },
+        { provide: SkillDiagnosticsRpcService, useValue: rpc },
+        { provide: AppStateManager, useValue: appState },
+        { provide: TabManagerService, useValue: tabManagerStub },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+      ],
+    });
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    const settle = async (): Promise<void> => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      fixture.detectChanges();
+    };
+    return {
+      fixture,
+      root: fixture.nativeElement as HTMLElement,
+      dss: TestBed.inject(SkillDiagnosticsStateService),
+      settle,
+    };
+  }
+
+  function openSubView(
+    fixture: ComponentFixture<SkillSynthesisTabComponent>,
+    label: string,
+  ): void {
+    const nav = (fixture.nativeElement as HTMLElement).querySelector(
+      '[aria-label="Skills views"]',
+    );
+    const tab = Array.from(
+      nav?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [],
+    ).find((t) => t.textContent?.trim() === label);
+    tab?.click();
+    fixture.detectChanges();
+  }
+
+  function feedRowIds(root: HTMLElement): string[] {
+    return Array.from(
+      root.querySelectorAll<HTMLElement>(
+        '[data-test="panel-events"] li[data-event-id]',
+      ),
+    ).map((li) => li.dataset['eventId'] ?? '');
+  }
+
+  it('renders the newest event first: oldest-first snapshot plus a live push', async () => {
+    // Twelve distinct sessions, OLDEST first, as the base backend sent them.
+    // More rows than the feed's limit (10), so showing the oldest window or
+    // appending the live push at the tail both fail.
+    const seeded = Array.from({ length: 12 }, (_, i) =>
+      wireEvent(
+        `evt-${String(i + 1).padStart(2, '0')}`,
+        'analyze-run',
+        NOW - (12 - i) * 60_000,
+        `s-${i + 1}`,
+      ),
+    );
+    const { fixture, root, dss, settle } = mount(snapshot(seeded));
+    openSubView(fixture, 'Activity');
+    await settle();
+
+    expect(feedRowIds(root).slice(0, 2)).toEqual(['evt-12', 'evt-11']);
+
+    dss.pushLiveEvent(wireEvent('evt-live', 'ineligible', NOW, 's-live'));
+    fixture.detectChanges();
+
+    const ids = feedRowIds(root);
+    expect(ids[0]).toBe('evt-live');
+    expect(ids[1]).toBe('evt-12');
+    expect(ids).not.toContain('evt-01');
+  });
+
+  it('groups five repeated analyze-run events for one session into one row', async () => {
+    const repeats = Array.from({ length: 5 }, (_, i) =>
+      wireEvent(`run-${i + 1}`, 'analyze-run', NOW - (5 - i) * 1_000, 's-1'),
+    );
+    const { fixture, root, settle } = mount(snapshot(repeats));
+    openSubView(fixture, 'Activity');
+    await settle();
+
+    const rows = root.querySelectorAll('[data-test="panel-events"] li');
+    expect(rows.length).toBe(1);
+    expect(rows[0].getAttribute('data-event-id')).toBe('run-5');
+    expect(
+      rows[0].querySelector('[data-test="event-count"]')?.textContent,
+    ).toContain('5 events');
+  });
+
+  it('renders two same-millisecond events as two rows keyed by their real ids', async () => {
+    const at = NOW - 5_000;
+    const { fixture, root, settle } = mount(
+      snapshot([
+        wireEvent('01JSAMEMS0000000000000000A', 'ineligible', at, 's-a'),
+        wireEvent('01JSAMEMS0000000000000000B', 'ineligible', at, 's-b'),
+      ]),
+    );
+    openSubView(fixture, 'Activity');
+    await settle();
+
+    // Same ms: the greater ULID (recorded later) is newer and comes first.
+    expect(feedRowIds(root)).toEqual([
+      '01JSAMEMS0000000000000000B',
+      '01JSAMEMS0000000000000000A',
+    ]);
+  });
+
+  it('removes the accordion and keeps the triggers card on Settings only', async () => {
+    const { fixture, root, settle } = mount(snapshot([]));
+    openSubView(fixture, 'Activity');
+    await settle();
+
+    expect(root.querySelector('ptah-skill-diagnostics-accordion')).toBeNull();
+    expect(root.querySelector('[data-test="panel-events"]')).toBeTruthy();
+    expect(root.querySelector('[data-test="panel-triggers"]')).toBeNull();
+
+    openSubView(fixture, 'Settings');
+    await settle();
+
+    expect(root.querySelector('[data-test="panel-triggers"]')).toBeTruthy();
+    expect(root.querySelector('[data-test="panel-events"]')).toBeNull();
+  });
+
+  it('shows candidates by status on the status card and refreshes from its Refresh button', async () => {
+    const { fixture, root, dss, settle } = mount(
+      snapshot([], { totalCandidates: 7, totalPromoted: 3, totalRejected: 2 }),
+    );
+    openSubView(fixture, 'Activity');
+    await settle();
+
+    const byStatus = root.querySelector(
+      '[data-testid="skills-pipeline-by-status"]',
+    );
+    const text = byStatus?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(text).toContain('Candidates by status');
+    expect(text).toContain('7 Candidates');
+    expect(text).toContain('3 Promoted');
+    expect(text).toContain('2 Rejected');
+
+    const refreshSpy = jest.spyOn(dss, 'refresh');
+    const button = root.querySelector<HTMLButtonElement>(
+      '[data-testid="skills-pipeline-refresh"]',
+    );
+    expect(button?.textContent?.trim()).toBe('Refresh');
+    button?.click();
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('polls while Activity is shown and stops when the sub-view changes', async () => {
+    const { fixture, dss, settle } = mount(snapshot([]));
+    const start = jest.spyOn(dss, 'startPolling');
+    const stop = jest.spyOn(dss, 'stopPolling');
+
+    openSubView(fixture, 'Activity');
+    await settle();
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(stop).not.toHaveBeenCalled();
+
+    openSubView(fixture, 'Settings');
+    await settle();
+    expect(stop).toHaveBeenCalledTimes(1);
+    // The Settings triggers card must not start a poll of its own.
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('drives the Sessions ineligible hint from the newest event', async () => {
+    // Oldest-first: the ineligible event is the OLDER one, so a reader taking
+    // the oldest event as "latest" would wrongly show the hint.
+    const { fixture, root, dss, settle } = mount(
+      snapshot([
+        wireEvent('e-1', 'ineligible', NOW - 60_000, 's-1'),
+        wireEvent('e-2', 'analyze-run', NOW - 30_000, 's-2'),
+      ]),
+    );
+    openSubView(fixture, 'Sessions');
+    await settle();
+
+    const hint = 'Recent sessions were marked ineligible';
+    expect(root.textContent).not.toContain(hint);
+
+    dss.pushLiveEvent(wireEvent('e-3', 'ineligible', NOW, 's-3'));
+    fixture.detectChanges();
+    expect(root.textContent).toContain(hint);
+  });
+
+  it('drives the status card reason chip from the newest event', async () => {
+    const { fixture, root, dss, settle } = mount(
+      snapshot([
+        wireEvent('e-1', 'ineligible', NOW - 60_000, 's-1'),
+        wireEvent('e-2', 'error', NOW - 30_000, 's-2'),
+      ]),
+    );
+    openSubView(fixture, 'Activity');
+    await settle();
+
+    const chip = (): Element | null =>
+      root.querySelector('[data-testid="skills-pipeline-reason"]');
+    expect(chip()).toBeNull();
+
+    dss.pushLiveEvent(wireEvent('e-3', 'rate-limited', NOW, 's-3'));
+    fixture.detectChanges();
+    expect(chip()?.textContent).toContain('rate-limited');
   });
 });

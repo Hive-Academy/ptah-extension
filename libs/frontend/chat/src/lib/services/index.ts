@@ -43,6 +43,7 @@ export {
   type ValidationResult,
 } from './message-validation.service';
 export { ChatMessageHandler } from './chat-message-handler.service';
+export { AgentSessionAdoptionService } from './agent-session-adoption.service';
 export { VoiceDownloadProgressService } from './voice-download-progress.service';
 export { VoiceProviderErrorService } from './voice-provider-error.service';
 /** @deprecated Import from `@ptah-extension/chat-streaming` instead. */

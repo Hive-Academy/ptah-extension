@@ -1,6 +1,7 @@
 import { Injectable, effect, inject, untracked } from '@angular/core';
 import { AppStateManager, type ChatPromptRequest } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
 
 /**
  * TaskPromptBridgeService — consumes {@link AppStateManager.chatPromptRequest}.
@@ -23,6 +24,9 @@ import { TabManagerService } from '@ptah-extension/chat-state';
  *     edit the prompt before sending it,
  *  4. settles `request.resolve` and clears the bridge signal.
  *
+ * When the request carries a `taskId`, the new tab is registered with
+ * {@link BoardTaskLinkCaptureService} right after it is created.
+ *
  * Worktree isolation remains agent-managed (F-D1): the prefilled orchestrate
  * prompt carries the directive so the agent can isolate its implementation
  * work after the user reviews and sends it.
@@ -31,6 +35,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 export class TaskPromptBridgeService {
   private readonly appState = inject(AppStateManager);
   private readonly tabManager = inject(TabManagerService);
+  private readonly boardTaskLinkCapture = inject(BoardTaskLinkCaptureService);
 
   /** Re-entrancy guard: one launch at a time (clearing the signal re-fires). */
   private processing = false;
@@ -53,6 +58,11 @@ export class TaskPromptBridgeService {
     try {
       const name = this.deriveSessionName(request);
       const tabId = this.tabManager.createTab(name);
+      // A board start links the session to its task once the first send
+      // resolves the real session id (TASK_2026_580).
+      if (request.taskId) {
+        this.boardTaskLinkCapture.expect(tabId, request.taskId);
+      }
       // Navigate to chat FIRST so a grid-layout canvas mounts and adopts the
       // freshly created tab as a tile before its stream starts.
       this.appState.setCurrentView('chat');

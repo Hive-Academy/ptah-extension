@@ -34,6 +34,7 @@ import {
   EffortLevel,
 } from '@ptah-extension/shared';
 import {
+  ABORT_REASON_SUPERSEDED,
   ConversationRegistry,
   deriveSessionTitle,
   TabId,
@@ -218,11 +219,16 @@ export class MessageSenderService {
     signal.addEventListener(
       'abort',
       () => {
+        // A newer send replaced this controller (`createAbortController`): the
+        // old turn is not being closed, and the new turn registers under the
+        // same tab id, so a `chat:abort` here would end the NEW turn.
+        if (signal.reason === ABORT_REASON_SUPERSEDED) return;
         const tab = this.tabManager.tabs().find((t) => t.id === tabId);
-        const sessionId = tab?.claudeSessionId;
-        if (!sessionId) {
-          return;
-        }
+        // During the first turn the real session id is not bound yet. The
+        // backend registers the live record under the tab id (chat:start
+        // passes `tabId`, and its registry `find()` resolves by tab id or real
+        // session id), so the tab id still ends that turn's process.
+        const sessionId = tab?.claudeSessionId ?? (tabId as SessionId);
         this.claudeRpcService
           .call('chat:abort', { sessionId })
           .catch((error) => {

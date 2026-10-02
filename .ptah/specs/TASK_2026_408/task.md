@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: done
 type: BUGFIX
 title: Fix Codex proxy cache accounting and verify context and skill invocation
 description: >-
@@ -9,9 +9,7 @@ description: >-
 executor: backend-developer
 estimate: M
 depends_on: []
-labels:
-  - partial
-updated: '2026-09-26T16:04:53.501Z'
+updated: '2026-10-01T00:00:00.000Z'
 relates_to:
   - TASK_2026_561_9e57
   - TASK_2026_562_4b1d

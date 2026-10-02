@@ -31,14 +31,29 @@ export type SessionIdResolvedCallback = (
 /**
  * One SDK `result`, as published on `session:stats`.
  *
- * `cost`, `tokens`, `duration` and `modelUsage` are the per-result footer and
- * context-gauge fields and keep their historical meaning. `sessionStats` is
- * the backend's authoritative session-lifetime snapshot (TASK_2026_533): the
- * stats panel installs it as-is and never adds the footer fields up.
+ * `turnCost`, `tokens`, `duration` and `modelUsage` are the per-result footer
+ * and context-gauge fields. `sessionStats` is the backend's authoritative
+ * session-lifetime snapshot (TASK_2026_533): the stats panel installs it as-is
+ * and never adds the footer fields up.
+ *
+ * Published once per NEW turn. A result identical to the run's accepted
+ * cumulative value (a duplicate) repeats a turn that was already published
+ * and is not published again, so a consumer may always apply `turnCost` to
+ * the latest assistant message: every payload is a turn of its own.
  */
 export interface ResultStatsPayload {
   readonly sessionId: SessionId;
-  readonly cost: number | null;
+  /**
+   * This result's own spend in USD: the delta of the run's cumulative cost
+   * since the previously accepted result, net of any restored base. Includes
+   * Task-subagent spend of the turn (the SDK's cumulative `modelUsage` covers
+   * subagents), while `tokens` are main-loop only. `null` means UNKNOWN,
+   * never "no update": an unpriced model, a result the session owner did not
+   * accept, a mid-run rate change that lowered the run's cost, or no owner.
+   * Render it as unavailable, never as $0. Rounded to 1e-6. Never a session
+   * or process total: that is `sessionStats.totalCost`.
+   */
+  readonly turnCost: number | null;
   readonly tokens: {
     readonly input: number;
     readonly output: number;
@@ -83,6 +98,11 @@ export type WorktreeCreatedCallback = (data: {
   name: string;
   cwd: string;
   timestamp: number;
+  /**
+   * Absolute path of the created worktree, when the hook reported one.
+   * Absent when only the worktree name is known.
+   */
+  worktreePath?: string;
 }) => void;
 
 export type WorktreeRemovedCallback = (data: {

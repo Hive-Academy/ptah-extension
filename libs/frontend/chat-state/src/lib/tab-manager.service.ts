@@ -25,6 +25,8 @@ import {
   SessionTurnPhase,
   isTerminalTurnPhase,
   GatewayPlatformId,
+  createExecutionChatMessage,
+  type AgentSessionOpenedPayload,
   type SessionStatsEntry,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
@@ -32,6 +34,7 @@ import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
 import {
   TabWorkspacePartitionService,
   TabLookupResult,
+  insertTabAfter,
 } from './tab-workspace-partition.service';
 import { LiveModelStatsPayload } from './tab-state.types';
 import {
@@ -60,6 +63,34 @@ import {
 export type { LiveModelStatsPayload };
 
 export type TerminalTurnClassification = 'success' | 'error';
+
+/**
+ * `AbortSignal.reason` set when a controller is aborted only because a newer
+ * send for the same tab replaced it. The replaced turn's backend process must
+ * NOT be ended by the abort listener: the newer turn registers under the same
+ * tab id / session id, so a `chat:abort` would end the new turn instead.
+ */
+export const ABORT_REASON_SUPERSEDED = 'superseded-by-new-send';
+
+/**
+ * How an agent-started child tab arrived (TASK_2026_584).
+ * - `live`: the backend's `agentSession:opened` push, sent before the child's
+ *   first chunk.
+ * - `late`: `chat:agent-sessions` on bootstrap or workspace switch, for a
+ *   child this webview missed the push for.
+ */
+export type AgentSessionAdoptionMode = 'live' | 'late';
+
+/**
+ * Outcome of {@link TabManagerService.adoptAgentSessionTab}.
+ * - `adopted`: the tab was created.
+ * - `exists`: a tab with the child's id is already in this panel (no-op).
+ * - `parent-absent`: this panel does not hold the parent tab (no-op; another
+ *   panel, or none, owns the child).
+ * - `invalid`: the child tab id is not a tab id (no-op).
+ */
+export type AgentSessionAdoptionResult =
+  'adopted' | 'exists' | 'parent-absent' | 'invalid';
 
 export interface TerminalTurnPulse {
   readonly seq: number;
@@ -98,6 +129,12 @@ export interface ClosedTabEvent {
    * tab survives (re-emptied to a fresh conversation) instead of being removed.
    */
   readonly kind: 'close' | 'forceClose' | 'reset';
+  /**
+   * True when closing aborted an in-flight stream whose abort listener (in
+   * MessageSender) already sent `chat:abort` for this session. Only `closeTab`
+   * sets it; absent or false means no stream abort was dispatched by the close.
+   */
+  readonly streamAbortDispatched?: boolean;
 }
 
 /**
@@ -854,6 +891,135 @@ export class TabManagerService {
   }
 
   /**
+   * Open the tab of a child session another session started with
+   * `ptah_session_start` (TASK_2026_584).
+   *
+   * - Idempotent: a tab with `payload.tabId` already in this panel (any
+   *   partition) is left exactly as it is.
+   * - Adopts ONLY when this panel holds `payload.parentTabId`, in any
+   *   workspace partition. That keeps a second panel from opening a duplicate
+   *   of a child it does not own.
+   * - The child goes into the parent's partition, directly after the parent,
+   *   under the backend's tab id (the stream key its events are routed by).
+   * - Never changes the active tab: a child opening must not steal focus.
+   *
+   * `live`: status `streaming` with the task text as the first user turn.
+   * `late`: status `loaded` bound to the child's SDK session, with no
+   * messages; history arrives through the normal session loader when the user
+   * opens the session from the sidebar. A `late` payload whose session id is
+   * not resolved yet is adopted like `live`.
+   */
+  adoptAgentSessionTab(
+    payload: AgentSessionOpenedPayload,
+    mode: AgentSessionAdoptionMode,
+  ): AgentSessionAdoptionResult {
+    const tabId = TabId.safeParse(payload.tabId);
+    if (!tabId) return 'invalid';
+    if (this.locateTabInPanel(tabId)) return 'exists';
+
+    const parent = this.locateTabInPanel(payload.parentTabId);
+    if (!parent) return 'parent-absent';
+
+    const sessionId =
+      mode === 'late'
+        ? SessionId.safeParse(payload.sessionId ?? undefined)
+        : null;
+    const tab = this.buildAgentSessionTab(tabId, payload, sessionId);
+
+    if (parent.workspacePath === null) {
+      this._tabs.update((tabs) =>
+        insertTabAfter(tabs, tab, payload.parentTabId),
+      );
+      const activePath = this.workspacePartition.activeWorkspacePath;
+      if (sessionId && activePath) {
+        this.workspacePartition.registerSessionForWorkspace(
+          sessionId,
+          activePath,
+        );
+      }
+      this.saveTabState();
+      return 'adopted';
+    }
+
+    return this.workspacePartition.addTabToWorkspace(
+      parent.workspacePath,
+      tab,
+      payload.parentTabId,
+    )
+      ? 'adopted'
+      : 'parent-absent';
+  }
+
+  /**
+   * Find a tab anywhere in this panel. `workspacePath` is `null` when the tab
+   * is in the active tab set (the `_tabs` signal — which is also the only set
+   * when no workspace is active), otherwise the background partition's path.
+   */
+  private locateTabInPanel(
+    tabId: string,
+  ): { workspacePath: string | null } | null {
+    if (this._tabs().some((t) => t.id === tabId))
+      return { workspacePath: null };
+    const found = this.workspacePartition.findTabByIdAcrossWorkspaces(
+      tabId,
+      this._tabs(),
+    );
+    if (!found) return null;
+    return {
+      workspacePath:
+        found.workspacePath === this.workspacePartition.activeWorkspacePath
+          ? null
+          : found.workspacePath,
+    };
+  }
+
+  private buildAgentSessionTab(
+    tabId: TabId,
+    payload: AgentSessionOpenedPayload,
+    sessionId: SessionId | null,
+  ): TabState {
+    const running = sessionId === null;
+    return {
+      id: tabId,
+      claudeSessionId: sessionId,
+      name: payload.label,
+      title: payload.label,
+      // The parent named it; auto-titling must not overwrite that.
+      titleOrigin: 'user',
+      order: 0, // renumbered by insertTabAfter
+      status: running ? 'streaming' : 'loaded',
+      isDirty: false,
+      lastActivityAt: Date.now(),
+      messages: running
+        ? [
+            createExecutionChatMessage({
+              // Client-only id in the optimistic `msg_` shape, so the native
+              // transcript uuid can replace it like any sent first message.
+              id: `msg_${payload.startedAt}_${tabId.slice(0, 8)}`,
+              role: 'user',
+              rawContent: payload.displayPrompt,
+              timestamp: payload.startedAt,
+            }),
+          ]
+        : [],
+      streamingState: null,
+      // Left unset for a `late` tab on purpose: `SessionLoaderService.
+      // switchSession` only switches to a tab flagged live and skips the
+      // history load, so the sidebar click could never fill this tab.
+      ...(running ? { hasLiveSession: true } : {}),
+      agentOrigin: {
+        parentTabId: payload.parentTabId,
+        parentSessionId: payload.parentSessionId,
+        label: payload.label,
+        branch: payload.branch,
+        worktreePath: payload.worktreePath,
+        ...(payload.taskId ? { taskId: payload.taskId } : {}),
+        startedAt: payload.startedAt,
+      },
+    };
+  }
+
+  /**
    * Force-close a tab without confirmation dialog.
    * Used by pop-out flow where the session is being transferred, not abandoned.
    * @param tabId - Tab ID to close
@@ -902,25 +1068,30 @@ export class TabManagerService {
   }
 
   /**
-   * Close a tab (with optional confirmation for streaming/dirty tabs)
+   * Close a tab, ending its session. Asks for confirmation first when the tab
+   * is dirty, streaming, resuming, or has background work running
+   * (`awaiting-background` / `sleeping`).
    * Uses custom confirmation dialog since window.confirm doesn't work in VS Code webviews.
    * @param tabId - Tab ID to close
    */
   async closeTab(tabId: string): Promise<void> {
-    const tabs = this._tabs();
-    const tab = tabs.find((t) => t.id === tabId);
+    const initialTab = this._tabs().find((t) => t.id === tabId);
 
-    if (!tab) return;
+    if (!initialTab) return;
 
     // Check if tab needs confirmation
     const needsConfirmation =
-      tab.isDirty || tab.status === 'streaming' || tab.status === 'resuming';
+      initialTab.isDirty ||
+      initialTab.status === 'streaming' ||
+      initialTab.status === 'resuming' ||
+      initialTab.status === 'awaiting-background' ||
+      initialTab.status === 'sleeping';
 
     if (needsConfirmation) {
       const confirmed = await this.confirmationDialog.confirm({
         title: 'Close Tab?',
         message:
-          'This session has unsaved changes or is actively streaming. Are you sure you want to close it?',
+          'This session has unsaved changes, is streaming, or has background work running. Closing it ends the session. Close anyway?',
         confirmLabel: 'Close',
         cancelLabel: 'Keep Open',
         confirmStyle: 'error',
@@ -931,12 +1102,20 @@ export class TabManagerService {
       }
     }
 
+    // Re-read after the (possibly long) confirm: a session id may have been
+    // bound, or the tab removed / parked by a workspace switch, while the
+    // dialog was open. A tab that is gone from the active list is not closed.
+    const tabs = this._tabs();
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+
     // Abort any in-flight streaming RPC BEFORE tab state cleanup so the
     // registered abort listener (in MessageSender) can still read
     // tab.claudeSessionId and dispatch chat:abort to the backend. Otherwise
     // the backend keeps generating tokens after the user closes the tab —
-    // burning LLM cost.
-    this.abortStreamingForTab(tabId);
+    // burning LLM cost. The result is carried on the close event so a
+    // session ender does not send a second chat:abort for the same session.
+    const streamAbortDispatched = this.abortStreamingForTab(tabId);
 
     // Emit a `close` event so the StreamRouter (which owns the routing
     // graph) performs per-session cleanup: cleanupSessionDeduplication +
@@ -951,6 +1130,7 @@ export class TabManagerService {
       tabId,
       sessionId: tab.claudeSessionId ?? null,
       kind: 'close',
+      streamAbortDispatched,
     });
 
     const tabIndex = tabs.findIndex((t) => t.id === tabId);
@@ -1278,7 +1458,13 @@ export class TabManagerService {
       this.clearAbortController(tabId);
     }
     this.updateTabInternal(tabId, updates);
-    if (shouldEmitTerminalPulse && resolvedSessionId !== null) {
+    // The pulse feeds workspace-keyed completion cards; a tab in no workspace
+    // (the active set while none is active) has no card target.
+    if (
+      shouldEmitTerminalPulse &&
+      resolvedSessionId !== null &&
+      lookup.workspacePath !== null
+    ) {
       const classification: TerminalTurnClassification =
         state.phase === 'idle' && state.terminalReason === 'completed'
           ? 'success'
@@ -2317,97 +2503,6 @@ export class TabManagerService {
     });
   }
 
-  /**
-   * Duplicate a tab
-   * @param tabId - Tab ID to duplicate
-   */
-  duplicateTab(tabId: string): void {
-    const tab = this._tabs().find((t) => t.id === tabId);
-    if (!tab) return;
-
-    const newTabId = this.generateTabId();
-    const duplicatedTab: TabState = {
-      ...tab,
-      id: newTabId,
-      name: `${tab.name} (Copy)`,
-      title: `${tab.title} (Copy)`,
-      titleOrigin: tab.titleOrigin,
-      order: this._tabs().length,
-      status: 'loaded', // Duplicated tab is loaded (not streaming)
-      isDirty: false,
-      lastActivityAt: Date.now(),
-    };
-
-    this._tabs.update((tabs) => [...tabs, duplicatedTab]);
-    this._activeTabId.set(newTabId);
-    this.saveTabState();
-  }
-
-  /**
-   * Close all tabs except the specified one
-   * Uses custom confirmation dialog since window.confirm doesn't work in VS Code webviews.
-   * @param tabId - Tab ID to keep
-   */
-  async closeOtherTabs(tabId: string): Promise<void> {
-    const tab = this._tabs().find((t) => t.id === tabId);
-    if (!tab) return;
-
-    const otherTabsCount = this._tabs().length - 1;
-    if (otherTabsCount === 0) return;
-
-    const confirmed = await this.confirmationDialog.confirm({
-      title: 'Close Other Tabs?',
-      message: `This will close ${otherTabsCount} other tab${
-        otherTabsCount > 1 ? 's' : ''
-      }.`,
-      confirmLabel: 'Close Others',
-      cancelLabel: 'Cancel',
-      confirmStyle: 'warning',
-    });
-
-    if (!confirmed) return;
-
-    this._tabs.set([tab]);
-    this._activeTabId.set(tabId);
-    this.saveTabState();
-  }
-
-  /**
-   * Close all tabs to the right of the specified tab
-   * Uses custom confirmation dialog since window.confirm doesn't work in VS Code webviews.
-   * @param tabId - Tab ID (tabs to the right will be closed)
-   */
-  async closeTabsToRight(tabId: string): Promise<void> {
-    const tabs = this._tabs();
-    const tabIndex = tabs.findIndex((t) => t.id === tabId);
-
-    if (tabIndex === -1 || tabIndex === tabs.length - 1) return;
-
-    const tabsToCloseCount = tabs.length - tabIndex - 1;
-
-    const confirmed = await this.confirmationDialog.confirm({
-      title: 'Close Tabs to Right?',
-      message: `This will close ${tabsToCloseCount} tab${
-        tabsToCloseCount > 1 ? 's' : ''
-      } to the right.`,
-      confirmLabel: 'Close',
-      cancelLabel: 'Cancel',
-      confirmStyle: 'warning',
-    });
-
-    if (!confirmed) return;
-
-    const remaining = tabs.slice(0, tabIndex + 1);
-    this._tabs.set(remaining);
-
-    // If active tab was closed, switch to the kept tab
-    if (!remaining.find((t) => t.id === this._activeTabId())) {
-      this._activeTabId.set(tabId);
-    }
-
-    this.saveTabState();
-  }
-
   // ============================================================================
   // PERSISTENCE (per-workspace localStorage)
   // ============================================================================
@@ -2663,7 +2758,7 @@ export class TabManagerService {
   createAbortController(tabId: string): AbortSignal {
     const existing = this.abortControllers.get(tabId);
     if (existing && !existing.signal.aborted) {
-      existing.abort();
+      existing.abort(ABORT_REASON_SUPERSEDED);
     }
     const controller = new AbortController();
     this.abortControllers.set(tabId, controller);
@@ -2690,14 +2785,19 @@ export class TabManagerService {
   /**
    * Abort the in-flight streaming RPC for a tab and drop the controller.
    * Safe to call when no stream is active (no-op).
+   *
+   * @returns true only when this call aborted a live controller, i.e. the
+   *   abort listener (in MessageSender) fired and sent `chat:abort`. False
+   *   when no controller is registered or it was already aborted — in the
+   *   latter case no new abort is dispatched here.
    */
-  abortStreamingForTab(tabId: string): void {
+  abortStreamingForTab(tabId: string): boolean {
     const controller = this.abortControllers.get(tabId);
-    if (!controller) return;
+    if (!controller) return false;
     this.abortControllers.delete(tabId);
-    if (!controller.signal.aborted) {
-      controller.abort();
-    }
+    if (controller.signal.aborted) return false;
+    controller.abort();
+    return true;
   }
 
   /**
@@ -2710,16 +2810,13 @@ export class TabManagerService {
   /**
    * Toggle a tab between full and compact. Each tab controls its own mode.
    *
-   * Deliberately BINARY, and deliberately not a three-way cycle through
-   * `compact-tall`. This is the tile header's one-click affordance, and its
-   * round-trip is load-bearing: two clicks must return the tile to where it
-   * started. Cycling made the second click land on `compact-tall`, so a tile
-   * the user expected back at full height rendered at 3 units instead of 6 —
-   * caught by `canvas.spec.ts:481` (TASK_2026_512).
+   * Deliberately BINARY. This is the tile header's one-click affordance, and
+   * its round-trip is load-bearing: two clicks must return the tile to where
+   * it started (`canvas.spec.ts`, TASK_2026_512).
    *
-   * Either compact tier returns to full, because "not full" is the question
-   * this affordance asks. A caller that wants a specific tier calls
-   * {@link setViewMode}; the tile header's menu already offers all three.
+   * Height is not a mode: `compactHeightUnits` survives the trip to full, so
+   * returning to compact restores the last compact height. A caller that wants
+   * a specific height calls {@link setCompactHeight}.
    */
   toggleTabViewMode(tabId: string): void {
     const tab = this._tabs().find((t) => t.id === tabId);
@@ -2730,7 +2827,7 @@ export class TabManagerService {
     );
   }
 
-  /** Select a tab's view mode without cycling through the other tiers. */
+  /** Select a tab's view mode. The stored compact height is kept. */
   setViewMode(tabId: string, mode: TabViewMode): void {
     const tab = this._tabs().find((t) => t.id === tabId);
     if (!tab || (tab.viewMode ?? 'full') === mode) return;
@@ -2738,10 +2835,37 @@ export class TabManagerService {
   }
 
   /**
+   * Show a tab compact at `units` canvas grid rows.
+   *
+   * Ignores a `units` that is not a positive integer. The range is canvas's
+   * concern: it clamps the stored value on read. A no-op when the tab is
+   * already compact at that height, so a repeated drag or preset does not
+   * trigger a write.
+   */
+  setCompactHeight(tabId: string, units: number): void {
+    if (!Number.isInteger(units) || units <= 0) return;
+    const tab = this._tabs().find((t) => t.id === tabId);
+    if (!tab) return;
+    if (tab.viewMode === 'compact' && tab.compactHeightUnits === units) return;
+    this.updateTabInternal(tabId, {
+      viewMode: 'compact',
+      compactHeightUnits: units,
+    });
+  }
+
+  /**
    * Get a specific tab's view mode.
    */
   getTabViewMode(tabId: string): TabViewMode {
     return this._tabs().find((t) => t.id === tabId)?.viewMode ?? 'full';
+  }
+
+  /**
+   * Get a tab's stored compact height in canvas grid rows, or `undefined`
+   * when none is stored (canvas then uses its default).
+   */
+  getTabCompactHeightUnits(tabId: string): number | undefined {
+    return this._tabs().find((t) => t.id === tabId)?.compactHeightUnits;
   }
 
   // ============================================================================

@@ -92,14 +92,19 @@ describe('wireRuntimePreWindow — boot ordering (B1)', () => {
     expect(SOURCE).not.toContain('bringUpSubsystems(');
   });
 
-  it('still registers for subagents BEFORE the heavy boot is let through', () => {
-    // Moving the registration behind the window must not move it behind the
-    // Thoth scans: `openWindowGate()` is what releases the reserved boot. The
-    // wait is released by a quit (`settleOnAbort`) so it cannot hold `will-quit`.
-    const awaited = at('await settleOnAbort(');
-    expect(awaited).toBeLessThan(at('registerCodeExecutionMcpForSubagents({'));
-    expect(at('coordinator.abortSignal,')).toBeGreaterThan(awaited);
-    expect(awaited).toBeLessThan(at('booter.openWindowGate()'));
+  it('starts the subagent registration without holding the heavy boot behind it', () => {
+    // Awaited ahead of `openWindowGate()`, the CLI probes kept the boot on
+    // `starting` — and the user on the boot screen — for ~13 s while the real
+    // boot took ~1.5 s. Started first so it still runs as early as before, but
+    // never awaited, so the gate opens in the same tick.
+    const registration = at(
+      'void registerCodeExecutionMcpForSubagents({ container, logger: rpcLogger });',
+    );
+    const gate = at('booter.openWindowGate()');
+
+    expect(registration).toBeLessThan(gate);
+    expect(SOURCE.slice(registration, gate)).not.toContain('await ');
+    expect(SOURCE).not.toContain('await registerCodeExecutionMcpForSubagents(');
   });
 
   it('registers the workspace-change listener after bring-up and immediately before the startup RESERVATION', () => {

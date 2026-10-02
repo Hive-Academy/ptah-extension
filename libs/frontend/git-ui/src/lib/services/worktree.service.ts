@@ -18,6 +18,7 @@ import type {
   GitRemoveWorktreeResult,
   GitWorktreeChangedNotification,
 } from '@ptah-extension/shared';
+import { GitStatusService } from './git-status.service';
 
 const ASYNC_WORKTREE_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -40,6 +41,7 @@ interface PendingOperation {
 export class WorktreeService implements MessageHandler {
   private readonly vscodeService = inject(VSCodeService);
   private readonly layoutService = inject(ElectronLayoutService);
+  private readonly gitStatus = inject(GitStatusService);
   private readonly destroyRef = inject(DestroyRef);
 
   private readonly _worktrees = signal<GitWorktreeInfo[]>([]);
@@ -73,7 +75,7 @@ export class WorktreeService implements MessageHandler {
     const result = await rpcCall<GitWorktreesResult>(
       this.vscodeService,
       'git:worktrees',
-      {},
+      this.scopeParams(),
     );
 
     if (result.success && result.data) {
@@ -105,6 +107,7 @@ export class WorktreeService implements MessageHandler {
         path: options?.path,
         createBranch: options?.createBranch,
         operationId,
+        ...this.scopeParams(),
       },
     );
 
@@ -170,7 +173,7 @@ export class WorktreeService implements MessageHandler {
     const ack = await rpcCall<GitRemoveWorktreeResult>(
       this.vscodeService,
       'git:removeWorktree',
-      { path, force, operationId },
+      { path, force, operationId, ...this.scopeParams() },
     );
 
     if (!ack.success || !ack.data) {
@@ -207,6 +210,18 @@ export class WorktreeService implements MessageHandler {
       success: false,
       error: outcome.error || 'Failed to remove worktree',
     };
+  }
+
+  /**
+   * Scopes the worktree RPCs to the workspace the git views display
+   * (GitStatusService's active workspace), so a list, add or remove never
+   * lands in another repository when the backend's active folder changes
+   * underneath. Empty when no workspace is known: the backend falls back to
+   * its active one.
+   */
+  private scopeParams(): { workspaceRoot?: string } {
+    const root = this.gitStatus.activeWorkspacePath();
+    return root ? { workspaceRoot: root } : {};
   }
 
   private removeWorktreeLocally(path: string): void {

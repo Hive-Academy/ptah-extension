@@ -71,9 +71,8 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
   });
 
   // The header's one-click affordance is binary and its round-trip is
-  // load-bearing: two clicks must land back where they started. A three-way
-  // cycle put the second click on compact-tall, so a tile the user expected
-  // back at full height rendered at 3 units (canvas.spec.ts:481).
+  // load-bearing: two clicks must land back where they started
+  // (canvas.spec.ts). Height is tab state, not a third mode.
   it('toggles full and compact independently per tab, without cycling', () => {
     const tabId = service.createTab('toggling');
     const otherId = service.createTab('unchanged');
@@ -88,26 +87,71 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     expect(service.getTabViewMode(otherId)).toBe('full');
   });
 
-  it('returns a compact-tall tab to full on toggle, since the toggle asks "not full"', () => {
+  it('returns a tall compact tab to full on toggle, then back to the same height', () => {
     const tabId = service.createTab('tall');
-    service.setViewMode(tabId, 'compact-tall');
+    service.setCompactHeight(tabId, 4);
 
     service.toggleTabViewMode(tabId);
-
     expect(service.getTabViewMode(tabId)).toBe('full');
+    expect(service.getTabCompactHeightUnits(tabId)).toBe(4);
+
+    service.toggleTabViewMode(tabId);
+    expect(service.getTabViewMode(tabId)).toBe('compact');
+    expect(service.getTabCompactHeightUnits(tabId)).toBe(4);
   });
 
   it('selects a view mode directly and ignores repeated selections or missing tabs', () => {
     const tabId = service.createTab('direct selection');
-    service.setViewMode(tabId, 'compact-tall');
-    expect(service.getTabViewMode(tabId)).toBe('compact-tall');
+    service.setViewMode(tabId, 'compact');
+    expect(service.getTabViewMode(tabId)).toBe('compact');
     const selected = service.tabs();
-    service.setViewMode(tabId, 'compact-tall');
+    service.setViewMode(tabId, 'compact');
     service.setViewMode('missing-tab', 'compact');
     service.toggleTabViewMode('missing-tab');
     expect(service.tabs()).toBe(selected);
     service.toggleTabViewMode(tabId);
     expect(service.getTabViewMode(tabId)).toBe('full');
+  });
+
+  it('setCompactHeight switches a full tab to compact at the given height', () => {
+    const tabId = service.createTab('height');
+    const otherId = service.createTab('other');
+    expect(service.getTabCompactHeightUnits(tabId)).toBeUndefined();
+
+    service.setCompactHeight(tabId, 3);
+
+    expect(service.getTabViewMode(tabId)).toBe('compact');
+    expect(service.getTabCompactHeightUnits(tabId)).toBe(3);
+    expect(service.getTabViewMode(otherId)).toBe('full');
+    expect(service.getTabCompactHeightUnits(otherId)).toBeUndefined();
+  });
+
+  it('setCompactHeight is a no-op for an equal height, invalid units or a missing tab', () => {
+    const tabId = service.createTab('height');
+    service.setCompactHeight(tabId, 2);
+    const before = service.tabs();
+
+    service.setCompactHeight(tabId, 2);
+    service.setCompactHeight(tabId, 0);
+    service.setCompactHeight(tabId, -1);
+    service.setCompactHeight(tabId, 2.5);
+    service.setCompactHeight(tabId, Number.NaN);
+    service.setCompactHeight('missing-tab', 3);
+
+    expect(service.tabs()).toBe(before);
+    expect(service.getTabCompactHeightUnits(tabId)).toBe(2);
+    expect(service.getTabCompactHeightUnits('missing-tab')).toBeUndefined();
+  });
+
+  it('setCompactHeight re-enters compact from full even when the height is unchanged', () => {
+    const tabId = service.createTab('height');
+    service.setCompactHeight(tabId, 5);
+    service.setViewMode(tabId, 'full');
+
+    service.setCompactHeight(tabId, 5);
+
+    expect(service.getTabViewMode(tabId)).toBe('compact');
+    expect(service.getTabCompactHeightUnits(tabId)).toBe(5);
   });
 
   it('aborts the in-flight controller when closeTab() runs while streaming', async () => {
@@ -164,8 +208,39 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     expect(signal.aborted).toBe(false);
   });
 
-  it('abortStreamingForTab is a no-op when no controller is registered', () => {
-    expect(() => service.abortStreamingForTab('nonexistent')).not.toThrow();
+  it('abortStreamingForTab is a no-op returning false when no controller is registered', () => {
+    expect(service.abortStreamingForTab('nonexistent')).toBe(false);
+  });
+
+  it('abortStreamingForTab returns true when it aborts a live controller', () => {
+    const tabId = service.createTab('live');
+    const signal = service.createAbortController(tabId);
+
+    expect(service.abortStreamingForTab(tabId)).toBe(true);
+    expect(signal.aborted).toBe(true);
+    expect(service.getAbortSignal(tabId)).toBeUndefined();
+  });
+
+  it('abortStreamingForTab returns false on a second call for the same tab', () => {
+    const tabId = service.createTab('twice');
+    service.createAbortController(tabId);
+
+    expect(service.abortStreamingForTab(tabId)).toBe(true);
+    expect(service.abortStreamingForTab(tabId)).toBe(false);
+  });
+
+  it('abortStreamingForTab returns false for a registered but already-aborted controller', () => {
+    const tabId = service.createTab('stale');
+    const stale = new AbortController();
+    const onAbort = jest.fn();
+    stale.signal.addEventListener('abort', onAbort);
+    stale.abort();
+    onAbort.mockClear();
+    service['abortControllers'].set(tabId, stale);
+
+    expect(service.abortStreamingForTab(tabId)).toBe(false);
+    expect(onAbort).not.toHaveBeenCalled();
+    expect(service.getAbortSignal(tabId)).toBeUndefined();
   });
 
   // ---------------------------------------------------------------------

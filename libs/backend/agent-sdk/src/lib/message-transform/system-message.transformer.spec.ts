@@ -4,6 +4,15 @@ import type { TransformerState } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
 
 function makeState(): jest.Mocked<TransformerState> {
+  // Backs the announcement-mark mocks with a real Map (id → origin), so
+  // dedup, origin gating and emit-once behaviour are exercised across
+  // successive transform calls. Deliberately NOT cleared by the mocked
+  // `clearStreamingState` — mirrors the real state, which keeps the marks
+  // across compaction so the terminal event is never lost.
+  const backgroundAnnounced = new Map<
+    string,
+    'task_started' | 'task_updated'
+  >();
   return {
     getMessageId: jest.fn().mockReturnValue(undefined),
     getCurrentModel: jest.fn().mockReturnValue(undefined),
@@ -15,6 +24,10 @@ function makeState(): jest.Mocked<TransformerState> {
     getBackgroundTaskInfo: jest.fn().mockReturnValue(undefined),
     getTaskParentToolUseId: jest.fn().mockReturnValue(undefined),
     isTaskStartedEmitted: jest.fn().mockReturnValue(false),
+    isBackgroundAnnounced: jest.fn((id: string) => backgroundAnnounced.has(id)),
+    getBackgroundAnnounceOrigin: jest.fn((id: string) =>
+      backgroundAnnounced.get(id),
+    ),
     isNonAgentTask: jest.fn().mockReturnValue(false),
     hasActiveSkillToolUseId: jest.fn().mockReturnValue(false),
     activeSkillToolUseIdsCount: jest.fn().mockReturnValue(0),
@@ -33,6 +46,14 @@ function makeState(): jest.Mocked<TransformerState> {
     setTaskParent: jest.fn(),
     clearTaskParent: jest.fn(),
     markTaskStartedEmitted: jest.fn(),
+    markBackgroundAnnounced: jest.fn(
+      (id: string, origin: 'task_started' | 'task_updated') => {
+        backgroundAnnounced.set(id, origin);
+      },
+    ),
+    clearBackgroundAnnounced: jest.fn((id: string) => {
+      backgroundAnnounced.delete(id);
+    }),
     markNonAgentTask: jest.fn(),
     addActiveSkillToolUseId: jest.fn(),
     clearActiveSkillToolUseIds: jest.fn(),
@@ -464,6 +485,133 @@ describe('SystemMessageTransformer', () => {
         helpers.subagentRegistry.peekPendingTeammateName,
       ).toHaveBeenCalledWith('tool-5');
     });
+
+    describe('is_backgrounded (SendMessage-resumed subagent)', () => {
+      const bgMsg = (isBackgrounded?: boolean) =>
+        ({
+          task_id: 'task-resumed',
+          tool_use_id: 'toolu_sendmsg',
+          skip_transcript: false,
+          task_type: 'local_agent',
+          subagent_type: 'code-reviewer',
+          description: 'Continue the review',
+          is_backgrounded: isBackgrounded,
+        }) as never;
+
+      it('emits agent_start AND background_agent_started when is_backgrounded is true', () => {
+        const helpers = makeHelpers();
+        const events = transformer.transformTaskStarted(
+          bgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(events.map((e) => e.eventType)).toEqual([
+          'agent_start',
+          'background_agent_started',
+        ]);
+        expect(events[1]).toMatchObject({
+          toolCallId: 'toolu_sendmsg',
+          parentToolUseId: 'toolu_sendmsg',
+          agentType: 'code-reviewer',
+          agentDescription: 'Continue the review',
+          sessionId: 'sess',
+        });
+        expect(helpers.subagentRegistry.update).toHaveBeenCalledWith(
+          'toolu_sendmsg',
+          expect.objectContaining({ status: 'background', isBackground: true }),
+        );
+      });
+
+      it.each([false, undefined])(
+        'emits only agent_start when is_backgrounded is %s',
+        (flag) => {
+          const helpers = makeHelpers();
+          const events = transformer.transformTaskStarted(
+            bgMsg(flag),
+            state,
+            helpers,
+            'sess' as never,
+          );
+
+          expect(events.map((e) => e.eventType)).toEqual(['agent_start']);
+          expect(helpers.subagentRegistry.update).not.toHaveBeenCalled();
+        },
+      );
+
+      it('a later task_updated backgrounding the same task emits no duplicate', () => {
+        const helpers = makeHelpers();
+        const records = new Map<string, Record<string, unknown>>([
+          ['toolu_sendmsg', { toolCallId: 'toolu_sendmsg', status: 'running' }],
+        ]);
+        (helpers.subagentRegistry.get as jest.Mock).mockImplementation(
+          (id: string) => records.get(id) ?? null,
+        );
+        (helpers.subagentRegistry.update as jest.Mock).mockImplementation(
+          (id: string, patch: Record<string, unknown>) => {
+            records.set(id, { ...records.get(id), ...patch });
+          },
+        );
+
+        const started = transformer.transformTaskStarted(
+          bgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+        expect(
+          started.filter((e) => e.eventType === 'background_agent_started'),
+        ).toHaveLength(1);
+
+        state.getTaskParentToolUseId.mockReturnValue('toolu_sendmsg');
+        const updated = transformer.transformTaskUpdated(
+          {
+            task_id: 'task-resumed',
+            patch: { status: 'running', is_backgrounded: true },
+          } as never,
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(updated.map((e) => e.eventType)).toEqual(['agent_status']);
+      });
+      it('a later task_updated backgrounding the same task emits no duplicate even with NO registry record', () => {
+        // A SendMessage-resumed subagent has no registry record under the
+        // SendMessage tool_use id: `get` → null and `update` is a no-op, so
+        // only the transformer's announcement mark can dedup the pair.
+        const helpers = makeHelpers();
+
+        const started = transformer.transformTaskStarted(
+          bgMsg(true),
+          state,
+          helpers,
+          'sess' as never,
+        );
+        expect(
+          started.filter((e) => e.eventType === 'background_agent_started'),
+        ).toHaveLength(1);
+
+        state.getTaskParentToolUseId.mockReturnValue('toolu_sendmsg');
+        const updated = transformer.transformTaskUpdated(
+          {
+            task_id: 'task-resumed',
+            patch: { status: 'running', is_backgrounded: true },
+          } as never,
+          state,
+          helpers,
+          'sess' as never,
+        );
+
+        expect(updated.map((e) => e.eventType)).toEqual(['agent_status']);
+        expect(state.markBackgroundAnnounced).toHaveBeenCalledTimes(1);
+        expect(state.markBackgroundAnnounced).toHaveBeenCalledWith(
+          'toolu_sendmsg',
+          'task_started',
+        );
+      });
+    });
   });
 
   describe('task_progress', () => {
@@ -720,6 +868,252 @@ describe('SystemMessageTransformer', () => {
 
       expect(events).toEqual([]);
       expect(state.clearTaskParent).toHaveBeenCalledWith('task-bash');
+    });
+
+    it('emits background_agent_completed once for a task the transformer announced as background', () => {
+      const helpers = makeHelpers();
+      // SendMessage-resumed subagent: announced via task_started, no registry
+      // record under the SendMessage tool_use id, no agentId ever learned.
+      transformer.transformTaskStarted(
+        {
+          task_id: 'task-resumed',
+          tool_use_id: 'toolu_sendmsg',
+          skip_transcript: false,
+          task_type: 'local_agent',
+          is_backgrounded: true,
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      state.getTaskParentToolUseId.mockReturnValue('toolu_sendmsg');
+      const notif = {
+        task_id: 'task-resumed',
+        status: 'completed',
+        summary: 'review finished',
+        usage: { total_tokens: 10, tool_uses: 2, duration_ms: 42 },
+      } as never;
+
+      const events = transformer.transformTaskNotification(
+        notif,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events.map((e) => e.eventType)).toEqual([
+        'agent_completed',
+        'background_agent_completed',
+      ]);
+      expect(events[1]).toMatchObject({
+        toolCallId: 'toolu_sendmsg',
+        agentId: '',
+        agentType: 'unknown',
+        result: 'review finished',
+        duration: 42,
+        sessionId: 'sess',
+      });
+      expect(state.clearBackgroundAnnounced).toHaveBeenCalledWith(
+        'toolu_sendmsg',
+      );
+
+      // A repeated notification must not emit it a second time.
+      const again = transformer.transformTaskNotification(
+        notif,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(
+        again.filter((e) => e.eventType === 'background_agent_completed'),
+      ).toHaveLength(0);
+    });
+
+    it('emits no background_agent_completed for a task it never announced', () => {
+      state.getTaskParentToolUseId.mockReturnValue('tool-plain');
+      const helpers = makeHelpers();
+      const msg = {
+        task_id: 'task-plain',
+        status: 'success',
+        summary: 'done',
+        usage: { total_tokens: 1, tool_uses: 0, duration_ms: 1 },
+      } as never;
+
+      const events = transformer.transformTaskNotification(msg, state, helpers);
+
+      expect(events.map((e) => e.eventType)).toEqual(['agent_completed']);
+      // Harmless delete of an absent mark — the settle path clears first, so
+      // a stale mark from any origin can never leak.
+      expect(state.clearBackgroundAnnounced).toHaveBeenCalledWith('tool-plain');
+    });
+
+    it('emits background_agent_completed with status "failed" for a failed SendMessage-resumed task', () => {
+      const helpers = makeHelpers();
+      transformer.transformTaskStarted(
+        {
+          task_id: 'task-resumed',
+          tool_use_id: 'toolu_sendmsg',
+          skip_transcript: false,
+          task_type: 'local_agent',
+          is_backgrounded: true,
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      state.getTaskParentToolUseId.mockReturnValue('toolu_sendmsg');
+      const events = transformer.transformTaskNotification(
+        {
+          task_id: 'task-resumed',
+          status: 'failed',
+          summary: 'agent crashed',
+          usage: { total_tokens: 10, tool_uses: 1, duration_ms: 42 },
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events.map((e) => e.eventType)).toEqual([
+        'agent_completed',
+        'background_agent_completed',
+      ]);
+      expect(events[1]).toMatchObject({
+        toolCallId: 'toolu_sendmsg',
+        agentId: '',
+        status: 'failed',
+        result: 'agent crashed',
+      });
+    });
+
+    it('emits background_agent_stopped for a stopped SendMessage-resumed task', () => {
+      const helpers = makeHelpers();
+      transformer.transformTaskStarted(
+        {
+          task_id: 'task-resumed',
+          tool_use_id: 'toolu_sendmsg',
+          skip_transcript: false,
+          task_type: 'local_agent',
+          is_backgrounded: true,
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      state.getTaskParentToolUseId.mockReturnValue('toolu_sendmsg');
+      const events = transformer.transformTaskNotification(
+        {
+          task_id: 'task-resumed',
+          status: 'stopped',
+          usage: { total_tokens: 10, tool_uses: 1, duration_ms: 42 },
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events.map((e) => e.eventType)).toEqual([
+        'agent_completed',
+        'background_agent_stopped',
+      ]);
+      expect(events[1]).toMatchObject({
+        toolCallId: 'toolu_sendmsg',
+        agentId: '',
+        agentType: 'unknown',
+      });
+    });
+
+    it('emits NO terminal background event for a task announced via task_updated (SubagentStop owns it)', () => {
+      const helpers = makeHelpers();
+      // A Task backgrounded mid-run: announced by `task_updated`, not
+      // `task_started`, and the registry record under the same tool_use id
+      // means the SubagentStop hook path ends the tray entry. A second
+      // terminal event here would insert a duplicate entry.
+      state.getTaskParentToolUseId.mockReturnValue('toolu_midrun');
+      const updated = transformer.transformTaskUpdated(
+        {
+          task_id: 'task-midrun',
+          patch: { status: 'running', is_backgrounded: true },
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+      expect(
+        updated.filter((e) => e.eventType === 'background_agent_started'),
+      ).toHaveLength(1);
+      expect(state.getBackgroundAnnounceOrigin('toolu_midrun')).toBe(
+        'task_updated',
+      );
+
+      const events = transformer.transformTaskNotification(
+        {
+          task_id: 'task-midrun',
+          status: 'completed',
+          summary: 'done',
+          usage: { total_tokens: 1, tool_uses: 0, duration_ms: 1 },
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events.map((e) => e.eventType)).toEqual(['agent_completed']);
+      // The mark is dropped when the task settles whatever its origin —
+      // compaction no longer clears it, so a task_updated mark must not leak.
+      expect(state.clearBackgroundAnnounced).toHaveBeenCalledWith(
+        'toolu_midrun',
+      );
+    });
+
+    it('a compact boundary between announcement and notification does not lose the terminal event', () => {
+      const helpers = makeHelpers();
+      transformer.transformTaskStarted(
+        {
+          task_id: 'task-resumed',
+          tool_use_id: 'toolu_sendmsg',
+          skip_transcript: false,
+          task_type: 'local_agent',
+          is_backgrounded: true,
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      // Compaction lands while the background task is still settling. The
+      // real transformer state keeps the announcement marks across
+      // `clearStreamingState`; the mock mirrors that (the Map is module
+      // scope and `clearStreamingState` is a plain jest.fn()).
+      transformer.transformCompactBoundary(
+        {
+          compact_metadata: { trigger: 'auto' as const, pre_tokens: 100 },
+        } as never,
+        state,
+        helpers,
+      );
+      expect(state.clearStreamingState).toHaveBeenCalled();
+
+      state.getTaskParentToolUseId.mockReturnValue('toolu_sendmsg');
+      const events = transformer.transformTaskNotification(
+        {
+          task_id: 'task-resumed',
+          status: 'completed',
+          summary: 'review finished',
+          usage: { total_tokens: 10, tool_uses: 2, duration_ms: 42 },
+        } as never,
+        state,
+        helpers,
+        'sess' as never,
+      );
+
+      expect(events.map((e) => e.eventType)).toEqual([
+        'agent_completed',
+        'background_agent_completed',
+      ]);
     });
   });
 });

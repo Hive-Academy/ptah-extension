@@ -103,6 +103,8 @@ export {
   registerClient,
   OAuthDiscoveryError,
   OAUTH_DISCOVERY_ERROR_NAME,
+  OAuthTimeoutError,
+  OAUTH_TIMEOUT_ERROR_NAME,
 } from './oauth/mcp-oauth-metadata';
 export type {
   FetchLike,

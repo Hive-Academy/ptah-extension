@@ -338,6 +338,9 @@ function makeHarness(
     pendingPermissions: signal([]).asReadonly(),
     panelOpen: signal(false).asReadonly(),
     workflowSubagentsForSession: jest.fn(() => []),
+    activeSessionSubagents: signal([]).asReadonly(),
+    sessionSubagentsForSession: jest.fn(() => []),
+    getSubagent: jest.fn(() => undefined),
     clearCompleted: jest.fn(),
     clearCompletedInSession: jest.fn(),
     clearPermission: jest.fn(),
@@ -1862,21 +1865,9 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
     jest.clearAllMocks();
   });
 
-  it('renders the compact card for the literal "compact" tier', () => {
+  it('renders the compact card for "compact"', () => {
     const { fixture } = makeHarness({
       activeTabViewMode: 'compact',
-      renderCompactTemplate: true,
-    });
-    fixture.detectChanges();
-
-    expect(
-      fixture.nativeElement.querySelector('ptah-compact-session-card'),
-    ).not.toBeNull();
-  });
-
-  it('renders the compact card for "compact-tall" too, not just the literal "compact"', () => {
-    const { fixture } = makeHarness({
-      activeTabViewMode: 'compact-tall',
       renderCompactTemplate: true,
     });
     fixture.detectChanges();

@@ -1,15 +1,18 @@
 import {
-  COMPACT_TILE_HEIGHT_UNITS,
-  COMPACT_TALL_TILE_HEIGHT_UNITS,
+  clampCompactHeightUnits,
+  compactResizeBounds,
   FULL_TILE_HEIGHT_UNITS,
-  heightUnitsFor,
   logicalRows,
+  MAX_COMPACT_TILE_HEIGHT_UNITS,
+  MIN_COMPACT_TILE_HEIGHT_UNITS,
   packRows,
   projectDragIntent,
   projectPreset,
   projectTileGeometry,
   retainTilesInLogicalRows,
+  sameViewConstraints,
   snapSpan,
+  tileViewConstraint,
   totalExtentOf,
   viewConstraintsFingerprint,
   type TileIntent,
@@ -32,9 +35,11 @@ const tiles = (...rows: readonly (readonly [string, TileWidthIntent][])[]): Tile
   }))).map((tile, order) => ({ ...tile, order }));
 const rowIds = (intent: readonly TileIntent[]): readonly string[][] =>
   logicalRows(intent).map((row) => row.map((tile) => tile.tabId));
-const compactConstraint = (tabId: string): TileViewConstraints => [
-  { tabId, heightTier: 'compact' },
+const compactAt = (tabId: string, heightUnits: number): TileViewConstraints => [
+  { tabId, compact: true, heightUnits },
 ];
+const compactConstraint = (tabId: string): TileViewConstraints =>
+  compactAt(tabId, MIN_COMPACT_TILE_HEIGHT_UNITS);
 /** Projected boxes as `[tabId, x, y, w, h]` rows for exact assertions. */
 const boxes = (
   intent: readonly TileIntent[],
@@ -111,44 +116,89 @@ describe('canvas layout intent', () => {
     expect(snapSpan(10)).toBe('full');
   });
 
-  it('exposes the six, two and three unit height tiers', () => {
+  it('exposes the full height and the compact height bounds', () => {
     expect(FULL_TILE_HEIGHT_UNITS).toBe(6);
-    expect(COMPACT_TILE_HEIGHT_UNITS).toBe(2);
-    expect(COMPACT_TALL_TILE_HEIGHT_UNITS).toBe(3);
-    expect((['full', 'compact', 'compact-tall'] as const).map((tier) =>
-      heightUnitsFor(tier),
-    )).toEqual([6, 2, 3]);
+    expect(MIN_COMPACT_TILE_HEIGHT_UNITS).toBe(2);
+    // One short of full, so a compact tile never gets the full-tile floor.
+    expect(MAX_COMPACT_TILE_HEIGHT_UNITS).toBe(5);
+  });
+
+  it('clamps a stored compact height into [2, 5]', () => {
+    expect(clampCompactHeightUnits(undefined)).toBe(2);
+    expect(clampCompactHeightUnits(Number.NaN)).toBe(2);
+    expect(clampCompactHeightUnits(Number.POSITIVE_INFINITY)).toBe(2);
+    expect(clampCompactHeightUnits(-3)).toBe(2);
+    expect(clampCompactHeightUnits(0)).toBe(2);
+    expect(clampCompactHeightUnits(1)).toBe(2);
+    expect(clampCompactHeightUnits(2)).toBe(2);
+    expect(clampCompactHeightUnits(3.4)).toBe(3);
+    expect(clampCompactHeightUnits(3.6)).toBe(4);
+    expect(clampCompactHeightUnits(5)).toBe(5);
+    expect(clampCompactHeightUnits(6)).toBe(5);
+    expect(clampCompactHeightUnits(99)).toBe(5);
   });
 
   it('fingerprints view constraints structurally', () => {
     const constraints: TileViewConstraints = [
-      { tabId: 'A', heightTier: 'full' },
-      { tabId: 'B', heightTier: 'compact' },
+      { tabId: 'A', compact: false, heightUnits: 6 },
+      { tabId: 'B', compact: true, heightUnits: 2 },
     ];
     const equal: TileViewConstraints = [
-      { tabId: 'A', heightTier: 'full' },
-      { tabId: 'B', heightTier: 'compact' },
+      { tabId: 'A', compact: false, heightUnits: 6 },
+      { tabId: 'B', compact: true, heightUnits: 2 },
     ];
     const different: TileViewConstraints = [
-      { tabId: 'A', heightTier: 'compact' },
-      { tabId: 'B', heightTier: 'compact' },
+      { tabId: 'A', compact: true, heightUnits: 2 },
+      { tabId: 'B', compact: true, heightUnits: 2 },
     ];
     expect(viewConstraintsFingerprint(constraints)).toBe(viewConstraintsFingerprint(equal));
     expect(viewConstraintsFingerprint(constraints)).not.toBe(viewConstraintsFingerprint(different));
-    expect(viewConstraintsFingerprint(constraints)).not.toBe(viewConstraintsFingerprint([
-      { tabId: 'A', heightTier: 'full' },
-      { tabId: 'B', heightTier: 'compact-tall' },
-    ]));
   });
 
-  it('packs three height tiers into the skyline and fills the two-unit hole first', () => {
+  it('builds a clamped compact constraint and a full one from tab view state', () => {
+    expect(tileViewConstraint('A', true, 4)).toEqual({ tabId: 'A', compact: true, heightUnits: 4 });
+    expect(tileViewConstraint('A', true, 9)).toEqual({ tabId: 'A', compact: true, heightUnits: 5 });
+    expect(tileViewConstraint('A', true, undefined)).toEqual({ tabId: 'A', compact: true, heightUnits: 2 });
+    // A full tile ignores a stored compact height.
+    expect(tileViewConstraint('A', false, 4)).toEqual({ tabId: 'A', compact: false, heightUnits: 6 });
+  });
+
+  it('compares view constraints structurally, including height', () => {
+    expect(sameViewConstraints(compactAt('A', 3), compactAt('A', 3))).toBe(true);
+    expect(sameViewConstraints(compactAt('A', 3), compactAt('A', 4))).toBe(false);
+    expect(sameViewConstraints(compactAt('A', 3), compactAt('B', 3))).toBe(false);
+    expect(sameViewConstraints(compactAt('A', 3), [])).toBe(false);
+    expect(sameViewConstraints(
+      [{ tabId: 'A', compact: false, heightUnits: 6 }],
+      [{ tabId: 'A', compact: true, heightUnits: 6 }],
+    )).toBe(false);
+  });
+
+  it('gives compact drag bounds only to a draggable compact tile', () => {
+    expect(compactResizeBounds(true)).toEqual({ minH: 2, maxH: 5 });
+    const cleared = compactResizeBounds(false);
+    // Explicit undefined keys, so Gridstack clears stale bounds.
+    expect(cleared).toHaveProperty('minH', undefined);
+    expect(cleared).toHaveProperty('maxH', undefined);
+  });
+
+  it('changes the fingerprint when only a compact height changes', () => {
+    expect(viewConstraintsFingerprint(compactAt('B', 2))).not.toBe(
+      viewConstraintsFingerprint(compactAt('B', 3)),
+    );
+    expect(viewConstraintsFingerprint(compactAt('B', 4))).not.toBe(
+      viewConstraintsFingerprint(compactAt('B', 5)),
+    );
+  });
+
+  it('packs mixed compact heights into the skyline and fills the two-unit hole first', () => {
     const intent = tiles([
       ['A', auto()], ['B', auto()], ['C', span('third')],
       ['D', span('third')], ['E', span('third')],
     ]);
     const constraints: TileViewConstraints = [
-      { tabId: 'A', heightTier: 'compact-tall' },
-      { tabId: 'B', heightTier: 'compact' },
+      ...compactAt('A', 3),
+      ...compactAt('B', 2),
     ];
     const before = JSON.stringify(intent);
     expect(boxes(intent, 3, null, constraints)).toEqual([
@@ -159,9 +209,27 @@ describe('canvas layout intent', () => {
     expect(JSON.stringify(intent)).toBe(before);
   });
 
-  it('projects an auto compact tall tile at responsive minimum widths', () => {
+  it.each([4, 5])(
+    'packs a compact tile at %i units and fills the hole below it',
+    (units) => {
+      const intent = tiles([
+        ['A', span('third')], ['B', span('third')], ['C', span('third')],
+        ['D', span('third')],
+      ]);
+      const constraints = compactAt('B', units);
+      expect(boxes(intent, 3, null, constraints)).toEqual([
+        ['A', 0, 0, 4, 6],
+        ['B', 4, 0, 4, units],
+        ['C', 8, 0, 4, 6],
+        ['D', 4, units, 4, 6],
+      ]);
+      expect(extentOf(intent, 3, constraints)).toBe(units + 6);
+    },
+  );
+
+  it('projects an auto three-unit compact tile at responsive minimum widths', () => {
     const intent = tiles([['A', auto()]]);
-    const constraints: TileViewConstraints = [{ tabId: 'A', heightTier: 'compact-tall' }];
+    const constraints = compactAt('A', 3);
     expect(boxes(intent, 3, null, constraints)).toEqual([['A', 0, 0, 4, 3]]);
     expect(boxes(intent, 2, null, constraints)).toEqual([['A', 0, 0, 6, 3]]);
     expect(boxes(intent, 1, null, constraints)).toEqual([['A', 0, 0, 12, 3]]);
@@ -169,11 +237,13 @@ describe('canvas layout intent', () => {
     expect(boxes(intent, 3)).toEqual([['A', 0, 0, 12, 6]]);
   });
 
-  it('validates compact tall drag height and unmoved auto width strictly', () => {
+  it('validates compact drag height against its units and unmoved auto width strictly', () => {
     const intent = tiles([['A', auto()], ['B', auto()], ['C', auto()]]);
-    const constraints: TileViewConstraints = [{ tabId: 'B', heightTier: 'compact-tall' }];
+    const constraints = compactAt('B', 4);
     const observations = projectTileGeometry(intent, 3, null, constraints);
+    expect(observations.find((tile) => tile.tabId === 'B')?.h).toBe(4);
     expect(projectDragIntent(intent, observations, 'A', 3, constraints)).not.toBeNull();
+    // The old fixed compact height no longer matches this tile.
     expect(projectDragIntent(intent, observations.map((tile) =>
       tile.tabId === 'B' ? { ...tile, h: 2 } : tile,
     ), 'A', 3, constraints)).toBeNull();
@@ -234,7 +304,8 @@ describe('canvas layout intent', () => {
     ]);
     const constraints: TileViewConstraints = intent.map((tile) => ({
       tabId: tile.tabId,
-      heightTier: 'compact',
+      compact: true,
+      heightUnits: MIN_COMPACT_TILE_HEIGHT_UNITS,
     }));
     expect(boxes(intent, 3, null, constraints)).toEqual([
       ['A', 0, 0, 4, 2], ['B', 4, 0, 4, 2], ['C', 8, 0, 4, 2],

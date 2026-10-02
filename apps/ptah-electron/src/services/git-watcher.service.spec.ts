@@ -10,11 +10,14 @@
  * host's, pinned in platform-core (`workspace-change-coalescer.spec.ts`) and
  * end to end on the real host in `git-watcher.stress.spec.ts`.
  *
- * The dedicated `.git` watchers stay real `fs.watch` handles over temp
- * directories. The `GitInfoService.refreshGitInfo` mock returns a static
- * result so the `git:status-update` broadcast is observable without spawning
- * git, and `getWorktrees` resolves to no worktrees unless a test says
- * otherwise.
+ * The git directory is a second subscription on the same fake port (RC5), told
+ * apart from the workspace one by `nestedRepoDetection: false`; its path table
+ * is pinned in `git-dir-change-classifier.spec.ts` and end to end against real
+ * git in `git-watcher.real-git.spec.ts`.
+ *
+ * The `GitInfoService.refreshGitInfo` mock returns a static result so the
+ * `git:status-update` broadcast is observable without spawning git, and
+ * `getWorktrees` resolves to no worktrees unless a test says otherwise.
  */
 
 import * as fs from 'fs';
@@ -25,6 +28,7 @@ import type { GitInfoService, Logger } from '@ptah-extension/vscode-core';
 import type { WorkspaceChange } from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceWatcher,
+  type MockWorkspaceSubscription,
   type MockWorkspaceWatcher,
 } from '@ptah-extension/platform-core/testing';
 import {
@@ -62,6 +66,11 @@ function makeGitInfo(): jest.Mocked<GitInfoService> {
     getGitInfo: jest.fn(result),
     refreshGitInfo: jest.fn(result),
     getWorktrees: jest.fn(async (): Promise<GitWorktreeInfo[]> => []),
+    pruneWorktrees: jest.fn(
+      async (): Promise<{ success: boolean; error?: string }> => ({
+        success: true,
+      }),
+    ),
   } as unknown as jest.Mocked<GitInfoService>;
 }
 
@@ -104,6 +113,28 @@ describe('GitWatcherService', () => {
     return broadcast.mock.calls.filter(([t]) => t === type);
   }
 
+  /** Workspace-root subscriptions: the only ones with nested-repo detection. */
+  function workspaceSubs(): MockWorkspaceSubscription[] {
+    return workspaceWatcher.__state.subscriptions.filter(
+      (s) => s.options.nestedRepoDetection,
+    );
+  }
+
+  function liveWorkspaceSubs(): MockWorkspaceSubscription[] {
+    return workspaceSubs().filter((s) => !s.disposed);
+  }
+
+  /** Git-directory subscriptions (RC5): recursive, no nested-repo detection. */
+  function gitDirSubs(): MockWorkspaceSubscription[] {
+    return workspaceWatcher.__state.subscriptions.filter(
+      (s) => !s.options.nestedRepoDetection,
+    );
+  }
+
+  function liveGitDirSubs(): MockWorkspaceSubscription[] {
+    return gitDirSubs().filter((s) => !s.disposed);
+  }
+
   beforeEach(() => {
     logger = makeLogger();
     gitInfo = makeGitInfo();
@@ -142,14 +173,11 @@ describe('GitWatcherService', () => {
       // A 1 s leading-edge hold: longer than @parcel/watcher's up-to-550 ms
       // gap between a burst's lone first event and the rest (ST-1b, AC-2).
       expect(options.minBatchIntervalMs).toBe(1_000);
-      // No recursive fs.watch of the workspace any more: a non-git workspace
-      // holds no fs.watch handle at all.
-      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
-        0,
-      );
+      // A non-git workspace holds no git-directory subscription.
+      expect(gitDirSubs()).toHaveLength(0);
     });
 
-    it('a failing watch() is logged and does not break start()', () => {
+    it('a failing watch() is logged for both feeds and does not break start()', () => {
       const root = tempDir('gw-sub-fail-');
       makeGitDir(root);
       workspaceWatcher.watch.mockImplementation(() => {
@@ -161,10 +189,11 @@ describe('GitWatcherService', () => {
         '[GitWatcher] Failed to watch workspace root',
         expect.objectContaining({ error: 'host unavailable' }),
       );
-      // The dedicated .git watchers are still armed.
-      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
-        3,
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Failed to watch git directory',
+        expect.objectContaining({ error: 'host unavailable' }),
       );
+      expect(() => svc.stop()).not.toThrow();
     });
 
     it('stop() disposes the subscription and a late batch does nothing', async () => {
@@ -665,12 +694,12 @@ describe('GitWatcherService', () => {
 
       svc.start(root, broadcast);
       expect(gitInfo.getWorktrees).toHaveBeenCalledWith(root);
-      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+      expect(workspaceSubs()).toHaveLength(1);
 
       await settleListing();
 
-      expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
-      const [first, second] = workspaceWatcher.__state.subscriptions;
+      expect(workspaceSubs()).toHaveLength(2);
+      const [first, second] = workspaceSubs();
       expect(first.disposed).toBe(true);
       expect(second.disposed).toBe(false);
       // Agent worktree directories are already excluded by name.
@@ -689,7 +718,7 @@ describe('GitWatcherService', () => {
       svc.start(root, broadcast);
       await settleListing();
 
-      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+      expect(workspaceSubs()).toHaveLength(1);
     });
 
     it('drops a worktree listing that resolves after the watcher moved on', async () => {
@@ -705,8 +734,8 @@ describe('GitWatcherService', () => {
       ] as GitWorktreeInfo[]);
       await settleListing();
 
-      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
-      expect(workspaceWatcher.__state.live()).toHaveLength(0);
+      expect(workspaceSubs()).toHaveLength(1);
+      expect(liveWorkspaceSubs()).toHaveLength(0);
     });
 
     it('a failed worktree listing keeps the subscription and warns once', async () => {
@@ -730,7 +759,7 @@ describe('GitWatcherService', () => {
         String(m).startsWith('[GitWatcher] Could not list worktrees'),
       );
       expect(failures).toHaveLength(1);
-      expect(workspaceWatcher.__state.live()).toHaveLength(1);
+      expect(liveWorkspaceSubs()).toHaveLength(1);
     });
 
     it('a listing that resolves after a newer one never resubscribes over it', async () => {
@@ -741,7 +770,7 @@ describe('GitWatcherService', () => {
       ] as GitWorktreeInfo[]);
       svc.start(root, broadcast);
       await settleListing();
-      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+      expect(workspaceSubs()).toHaveLength(1);
 
       // Rapid worktree churn: two listings in flight, the older resolves last.
       let resolveOlder!: (list: GitWorktreeInfo[]) => void;
@@ -771,8 +800,8 @@ describe('GitWatcherService', () => {
       resolveOlder([{ path: root }, { path: wt1 }] as GitWorktreeInfo[]);
       await older;
 
-      expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
-      const live = workspaceWatcher.__state.live();
+      expect(workspaceSubs()).toHaveLength(2);
+      const live = liveWorkspaceSubs();
       expect(live).toHaveLength(1);
       expect(
         live[0].options.nestedRepoRoots?.map((r) => r.toLowerCase()),
@@ -795,7 +824,7 @@ describe('GitWatcherService', () => {
 
       svc.start(root, broadcast);
       await settleListing();
-      expect(workspaceWatcher.__state.subscriptions).toHaveLength(1);
+      expect(workspaceSubs()).toHaveLength(1);
 
       const refresh = (
         svc as unknown as { scheduleNestedRootsRefresh(): void }
@@ -805,58 +834,293 @@ describe('GitWatcherService', () => {
       jest.advanceTimersByTime(500);
       await settleListing();
       expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(2);
-      expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
+      expect(workspaceSubs()).toHaveLength(2);
 
       refresh();
       jest.advanceTimersByTime(500);
       await settleListing();
       expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(3);
-      expect(workspaceWatcher.__state.subscriptions).toHaveLength(2);
-      expect(workspaceWatcher.__state.live()).toHaveLength(1);
+      expect(workspaceSubs()).toHaveLength(2);
+      expect(liveWorkspaceSubs()).toHaveLength(1);
     });
   });
 
   // ===========================================================================
-  // DEDICATED .git WATCHERS AND LIFECYCLE — real fs.watch on temp directories
+  // VANISHED AGENT WORKTREES (TASK_2026_576 RC10)
+  //
+  // At most once per 30 s, riding on a worktree re-list or a status refresh,
+  // an unlocked `prunable` worktree under `<main>/.claude-worktrees/` is pruned
+  // and announced as `git:worktreeChanged` `removed`.
+  // ===========================================================================
+
+  describe('agent worktree audit', () => {
+    let root: string;
+    let gitDir: string;
+
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+      root = tempDir('gw-audit-');
+      makeGitDir(root, true);
+      gitDir = fs.realpathSync.native(path.join(root, '.git'));
+    });
+
+    async function settle(): Promise<void> {
+      for (let i = 0; i < 4; i++) await flush();
+    }
+
+    function main(): GitWorktreeInfo {
+      return { path: root, isMain: true } as GitWorktreeInfo;
+    }
+
+    function agentWorktree(
+      name: string,
+      labels: Partial<GitWorktreeInfo> = {},
+    ): GitWorktreeInfo {
+      return {
+        path: path.join(root, '.claude-worktrees', name),
+        isMain: false,
+        ...labels,
+      } as GitWorktreeInfo;
+    }
+
+    function removedPushes(): unknown[] {
+      return calls('git:worktreeChanged').map(([, payload]) => payload);
+    }
+
+    /** One worktree administration change on the git-directory feed. */
+    async function adminChange(): Promise<void> {
+      liveGitDirSubs()[0].fire(
+        'update',
+        path.join(gitDir, 'worktrees', 'wt1', 'HEAD'),
+      );
+      jest.advanceTimersByTime(500);
+      await settle();
+    }
+
+    it('prunes a vanished agent worktree at arm and pushes removed for it', async () => {
+      const vanished = agentWorktree('agent-1', {
+        prunable: true,
+        prunableReason: 'gitdir file points to non-existent location',
+      });
+      gitInfo.getWorktrees
+        .mockResolvedValueOnce([main(), vanished])
+        .mockResolvedValueOnce([main()]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(1);
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledWith(root);
+      expect(removedPushes()).toEqual([
+        { action: 'removed', path: vanished.path },
+      ]);
+    });
+
+    it('pushes removed only for the paths that actually left the list', async () => {
+      const gone = agentWorktree('gone', { prunable: true });
+      const stuck = agentWorktree('stuck', { prunable: true });
+      gitInfo.getWorktrees
+        .mockResolvedValueOnce([main(), gone, stuck])
+        .mockResolvedValueOnce([main(), stuck]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(removedPushes()).toEqual([{ action: 'removed', path: gone.path }]);
+    });
+
+    it('pushes nothing when the confirming listing fails after a prune', async () => {
+      // `getWorktrees` reports a failed listing as `[]`: no main worktree, so
+      // it confirms nothing about the candidates.
+      gitInfo.getWorktrees
+        .mockResolvedValueOnce([main(), agentWorktree('agent-1', { prunable: true })])
+        .mockResolvedValueOnce([]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(1);
+      expect(removedPushes()).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Could not confirm pruned agent worktrees: listing failed',
+        expect.objectContaining({ workspaceRoot: root }),
+      );
+    });
+
+    it('never prunes a prunable worktree outside .claude-worktrees', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        main(),
+        { path: path.join(root, 'sandbox', 'wt1'), prunable: true },
+        { path: path.join(root, '.claude-worktrees'), prunable: true },
+        { path: path.join(os.tmpdir(), 'elsewhere', 'wt2'), prunable: true },
+      ] as GitWorktreeInfo[]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+      expect(removedPushes()).toHaveLength(0);
+    });
+
+    it('never prunes a locked agent worktree', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        main(),
+        agentWorktree('held', {
+          prunable: true,
+          locked: true,
+          lockReason: 'on a removable drive',
+        }),
+      ]);
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+      expect(removedPushes()).toHaveLength(0);
+    });
+
+    it('audits on a worktree administration change at most once per 30 s', async () => {
+      svc.start(root, broadcast);
+      jest.advanceTimersByTime(50);
+      await settle();
+      gitInfo.getWorktrees.mockResolvedValue([
+        main(),
+        agentWorktree('agent-1', { prunable: true }),
+      ]);
+
+      // Inside 30 s of the arm-time audit: the re-list runs, no audit.
+      await adminChange();
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(2);
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(30_000);
+      await adminChange();
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(1);
+
+      // A second change inside the next 30 s does not audit again.
+      jest.advanceTimersByTime(10_000);
+      await adminChange();
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(20_000);
+      await adminChange();
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledTimes(2);
+    });
+
+    it('a status refresh re-lists worktrees for the audit at most once per 30 s', async () => {
+      svc.start(root, broadcast);
+      jest.advanceTimersByTime(50);
+      await settle();
+      gitInfo.getWorktrees.mockClear();
+
+      const head = (): void =>
+        liveGitDirSubs()[0].fire('update', path.join(gitDir, 'HEAD'));
+
+      // Inside 30 s of the arm-time audit: status only.
+      head();
+      jest.advanceTimersByTime(500);
+      await settle();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(2);
+      expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(30_000);
+      head();
+      jest.advanceTimersByTime(500);
+      await settle();
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(1);
+      expect(gitInfo.getWorktrees).toHaveBeenCalledWith(root);
+
+      head();
+      jest.advanceTimersByTime(500);
+      await settle();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(4);
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(1);
+    });
+
+    it('a non-git workspace never audits', async () => {
+      const plain = tempDir('gw-audit-plain-');
+      svc.start(plain, broadcast);
+      liveWorkspaceSubs()[0].fire('update', path.join(plain, 'a.ts'));
+      jest.advanceTimersByTime(40_000);
+      await settle();
+      liveWorkspaceSubs()[0].fire('update', path.join(plain, 'a.ts'));
+      jest.advanceTimersByTime(10_000);
+      await settle();
+
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalled();
+      expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+    });
+
+    it('logs a failed prune, pushes nothing and keeps watching', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        main(),
+        agentWorktree('agent-1', { prunable: true }),
+      ]);
+      gitInfo.pruneWorktrees.mockResolvedValueOnce({
+        success: false,
+        error: 'fatal: cannot lock',
+      });
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(removedPushes()).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Pruning vanished agent worktrees failed',
+        expect.objectContaining({ error: 'fatal: cannot lock' }),
+      );
+      expect(liveGitDirSubs()).toHaveLength(1);
+    });
+
+    it('logs a prune that throws and keeps watching', async () => {
+      gitInfo.getWorktrees.mockResolvedValueOnce([
+        main(),
+        agentWorktree('agent-1', { prunable: true }),
+      ]);
+      gitInfo.pruneWorktrees.mockRejectedValueOnce(new Error('spawn failed'));
+
+      svc.start(root, broadcast);
+      await settle();
+
+      expect(removedPushes()).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Agent worktree audit failed',
+        expect.objectContaining({ error: 'spawn failed' }),
+      );
+
+      liveGitDirSubs()[0].fire('update', path.join(gitDir, 'HEAD'));
+      jest.advanceTimersByTime(500);
+      await settle();
+      expect(calls('git:status-update').length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // ===========================================================================
+  // LIFECYCLE
   // ===========================================================================
 
   describe('lifecycle', () => {
-    it('arms the dedicated .git watchers (HEAD, index, refs) on a git workspace', () => {
+    it('a git workspace holds exactly two subscriptions: the root and its git directory', () => {
       const root = tempDir('gw-life-git-');
       makeGitDir(root);
 
       svc.start(root, broadcast);
 
-      // HEAD + index + refs. The workspace itself is the port subscription.
-      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
-        3,
-      );
-      expect(workspaceWatcher.__state.live()).toHaveLength(1);
+      expect(workspaceWatcher.__state.live()).toHaveLength(2);
+      expect(liveWorkspaceSubs()).toHaveLength(1);
+      expect(liveGitDirSubs()).toHaveLength(1);
     });
 
-    it('watches .git/worktrees when the repository has linked worktrees', () => {
-      const root = tempDir('gw-life-wt-');
-      makeGitDir(root, true);
-
-      svc.start(root, broadcast);
-
-      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
-        4,
-      );
-    });
-
-    it('a non-git workspace arms no .git watcher and lists no worktrees', () => {
+    it('a non-git workspace subscribes no git directory and lists no worktrees', () => {
       const root = tempDir('gw-life-plain-');
       svc.start(root, broadcast);
 
-      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
-        0,
-      );
+      expect(gitDirSubs()).toHaveLength(0);
       expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
       expect(workspaceWatcher.__state.live()).toHaveLength(1);
     });
 
-    it('start() called twice cleans up the previous subscription and watchers (no leak)', () => {
+    it('start() called twice releases both previous subscriptions (no leak)', () => {
       const rootA = tempDir('gw-life-a-');
       const rootB = tempDir('gw-life-b-');
       makeGitDir(rootA);
@@ -866,9 +1130,20 @@ describe('GitWatcherService', () => {
 
       expect(workspaceWatcher.__state.live()).toHaveLength(1);
       expect(workspaceWatcher.__state.live()[0].root).toBe(rootB);
-      expect((svc as unknown as { watchers: unknown[] }).watchers).toHaveLength(
-        0,
-      );
+      expect(gitDirSubs()).toHaveLength(1);
+      expect(gitDirSubs()[0].disposeCount).toBe(1);
+    });
+
+    it('stop() disposes the git-directory subscription exactly once', () => {
+      const root = tempDir('gw-life-stop-');
+      makeGitDir(root);
+      svc.start(root, broadcast);
+
+      svc.stop();
+      svc.stop();
+
+      expect(workspaceWatcher.__state.live()).toHaveLength(0);
+      expect(gitDirSubs()[0].disposeCount).toBe(1);
     });
 
     it('git workspace push fires the initial git:status-update', async () => {
@@ -885,6 +1160,332 @@ describe('GitWatcherService', () => {
         await new Promise((r) => setTimeout(r, 25));
       }
       expect(calls('git:status-update').length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // ===========================================================================
+  // THE GIT-DIRECTORY SUBSCRIPTION (TASK_2026_576 RC5)
+  //
+  // One recursive subscription on the COMMON git directory replaces the
+  // per-file `fs.watch` handles. Batches are driven through the fake port;
+  // the path table itself is `git-dir-change-classifier.spec.ts`.
+  // ===========================================================================
+
+  describe('git-directory subscription', () => {
+    let root: string;
+    let gitDir: string;
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+      root = tempDir('gw-gitdir-');
+      makeGitDir(root);
+      gitDir = fs.realpathSync.native(path.join(root, '.git'));
+    });
+
+    /** Arms the watcher and lets the deferred initial push and listing settle. */
+    async function arm(workspace = root): Promise<MockWorkspaceSubscription> {
+      svc.start(workspace, broadcast);
+      jest.advanceTimersByTime(50);
+      await flush();
+      broadcast.mockClear();
+      gitInfo.refreshGitInfo.mockClear();
+      gitInfo.getWorktrees.mockClear();
+      return liveGitDirSubs()[0];
+    }
+
+    function statusCauses(): GitChangeKind[][] {
+      return calls('git:status-update').map(([, payload]) => [
+        ...((payload as GitStatusUpdatePayload).causes ?? []),
+      ]);
+    }
+
+    it('subscribes once, recursively, to the canonical git directory with anchored exclusions', async () => {
+      const sub = await arm();
+
+      expect(gitDirSubs()).toHaveLength(1);
+      expect(sub.root).toBe(gitDir);
+      expect(sub.options.nestedRepoDetection).toBe(false);
+      expect(sub.options.excludeDirNames).toEqual([]);
+      expect(sub.options.excludeSegmentRules).toEqual([]);
+      expect(sub.options.minBatchIntervalMs).toBe(250);
+      expect(sub.options.excludeGlobs).toEqual(
+        expect.arrayContaining([
+          'objects/**',
+          'logs/**',
+          'hooks/**',
+          'lfs/**',
+          'modules/**',
+          'rr-cache/**',
+          'fsmonitor--daemon/**',
+          'worktrees/*/logs/**',
+          '**/*.lock',
+        ]),
+      );
+    });
+
+    it('a batch of HEAD, index, a nested ref and the stash is one refresh carrying each cause', async () => {
+      const sub = await arm();
+
+      sub.fire(
+        'update',
+        path.join(gitDir, 'HEAD'),
+        path.join(gitDir, 'index'),
+        path.join(gitDir, 'refs', 'heads', 'feature', 'deep', 'x'),
+        path.join(gitDir, 'refs', 'stash'),
+      );
+      jest.advanceTimersByTime(499);
+      await flush();
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(statusCauses()).toHaveLength(1);
+      expect(new Set(statusCauses()[0])).toEqual(
+        new Set(['head', 'index', 'refs', 'refs-stash']),
+      );
+    });
+
+    it('created files (MERGE_HEAD, packed-refs) count like updates', async () => {
+      const sub = await arm();
+
+      sub.fire('create', path.join(gitDir, 'MERGE_HEAD'));
+      sub.fire('delete', path.join(gitDir, 'packed-refs'));
+      jest.advanceTimersByTime(500);
+      await flush();
+
+      expect(statusCauses()).toHaveLength(1);
+      expect(new Set(statusCauses()[0])).toEqual(new Set(['head', 'refs']));
+    });
+
+    it('paths that do not affect status schedule nothing', async () => {
+      const sub = await arm();
+
+      sub.fire(
+        'update',
+        path.join(gitDir, 'config'),
+        path.join(gitDir, 'COMMIT_EDITMSG'),
+        path.join(gitDir, 'info', 'exclude'),
+      );
+      jest.advanceTimersByTime(10_000);
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+      expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+    });
+
+    it('another worktree changing re-lists worktrees once and refreshes no status', async () => {
+      const sub = await arm();
+
+      sub.fire(
+        'create',
+        path.join(gitDir, 'worktrees', 'wt1', 'HEAD'),
+        path.join(gitDir, 'worktrees', 'wt1', 'gitdir'),
+      );
+      sub.fire('update', path.join(gitDir, 'worktrees', 'wt1', 'index'));
+      jest.advanceTimersByTime(500);
+      await flush();
+
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(1);
+      expect(gitInfo.getWorktrees).toHaveBeenCalledWith(root);
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+    });
+
+    it('an overflow schedules one refresh with head, index and refs, and one worktree re-list', async () => {
+      const sub = await arm();
+
+      sub.deliver({ overflow: true, droppedCount: 4_000 });
+      sub.deliver({ overflow: true });
+      jest.advanceTimersByTime(500);
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+      expect(statusCauses()).toHaveLength(1);
+      expect(new Set(statusCauses()[0])).toEqual(
+        new Set(['head', 'index', 'refs']),
+      );
+      expect(gitInfo.getWorktrees).toHaveBeenCalledTimes(1);
+      // No content push: the git directory holds no open editor's file.
+      expect(calls('file:content-changed')).toHaveLength(0);
+
+      jest.advanceTimersByTime(60_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it('a truncated batch is handled like an overflow', async () => {
+      const sub = await arm();
+
+      sub.deliver({
+        changes: [{ path: path.join(gitDir, 'config'), kind: 'update' }],
+        truncated: true,
+        droppedCount: 900,
+      });
+      jest.advanceTimersByTime(500);
+      await flush();
+
+      expect(new Set(statusCauses()[0])).toEqual(
+        new Set(['head', 'index', 'refs']),
+      );
+    });
+
+    it('a linked worktree subscribes to the common dir and reads its own HEAD and index from worktrees/<name>', async () => {
+      const common = gitDir;
+      const ownGitDir = path.join(common, 'worktrees', 'wt1');
+      fs.mkdirSync(ownGitDir, { recursive: true });
+      fs.writeFileSync(path.join(ownGitDir, 'commondir'), '../..\n');
+      fs.writeFileSync(path.join(ownGitDir, 'HEAD'), 'ref: refs/heads/wt\n');
+      const worktree = tempDir('gw-gitdir-linked-');
+      fs.writeFileSync(
+        path.join(worktree, '.git'),
+        `gitdir: ${ownGitDir.replace(/\\/g, '/')}\n`,
+      );
+
+      const sub = await arm(worktree);
+      expect(sub.root).toBe(common);
+
+      // The main worktree's HEAD and index are not this worktree's.
+      sub.fire('update', path.join(common, 'HEAD'), path.join(common, 'index'));
+      jest.advanceTimersByTime(10_000);
+      await flush();
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+      expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+
+      sub.fire(
+        'update',
+        path.join(ownGitDir, 'index'),
+        path.join(common, 'refs', 'heads', 'wt'),
+      );
+      jest.advanceTimersByTime(500);
+      await flush();
+      expect(statusCauses()).toHaveLength(1);
+      expect(new Set(statusCauses()[0])).toEqual(new Set(['index', 'refs']));
+      expect(gitInfo.refreshGitInfo).toHaveBeenCalledWith(worktree);
+    });
+
+    it('resolves commondir relative to the canonical own gitdir when gitdir is symlinked', async () => {
+      const common = gitDir;
+      const ownGitDir = path.join(common, 'worktrees', 'wt-sym');
+      fs.mkdirSync(ownGitDir, { recursive: true });
+      fs.writeFileSync(path.join(ownGitDir, 'commondir'), '../..\n');
+      fs.writeFileSync(path.join(ownGitDir, 'HEAD'), 'ref: refs/heads/sym\n');
+
+      const linkParent = tempDir('gw-link-parent-');
+      const symlinkedGitDir = path.join(linkParent, 'extra-depth', 'wt-sym');
+      fs.mkdirSync(path.dirname(symlinkedGitDir), { recursive: true });
+      fs.symlinkSync(
+        ownGitDir,
+        symlinkedGitDir,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+
+      const worktree = tempDir('gw-worktree-sym-');
+      fs.writeFileSync(
+        path.join(worktree, '.git'),
+        `gitdir: ${symlinkedGitDir.replace(/\\/g, '/')}\n`,
+      );
+
+      const sub = await arm(worktree);
+      expect(sub.root).toBe(common);
+    });
+
+    it('without a commondir file the gitdir is the subscription root', async () => {
+      const sub = await arm();
+      expect(sub.root).toBe(gitDir);
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        '[GitWatcher] Failed to read commondir',
+        expect.anything(),
+      );
+    });
+
+    it('a commondir naming a missing directory falls back to the own gitdir and says so once', async () => {
+      const ownGitDir = path.join(gitDir, 'worktrees', 'orphan');
+      fs.mkdirSync(ownGitDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(ownGitDir, 'commondir'),
+        `${path.join(root, 'gone-common')}\n`,
+      );
+      fs.writeFileSync(path.join(ownGitDir, 'HEAD'), 'ref: refs/heads/o\n');
+      const worktree = tempDir('gw-gitdir-orphan-');
+      fs.writeFileSync(
+        path.join(worktree, '.git'),
+        `gitdir: ${ownGitDir.replace(/\\/g, '/')}\n`,
+      );
+
+      const sub = await arm(worktree);
+
+      expect(sub.root).toBe(ownGitDir);
+      const fallbacks = (logger.warn as jest.Mock).mock.calls.filter(([m]) =>
+        String(m).startsWith('[GitWatcher] commondir target is missing'),
+      );
+      expect(fallbacks).toHaveLength(1);
+      expect(fallbacks[0][1]).toEqual(
+        expect.objectContaining({
+          commonDir: path.join(root, 'gone-common'),
+          ownGitDir,
+        }),
+      );
+
+      // The own HEAD is still classified against the fallback root.
+      sub.fire('update', path.join(ownGitDir, 'HEAD'));
+      jest.advanceTimersByTime(500);
+      await flush();
+      expect(new Set(statusCauses()[0])).toEqual(new Set(['head']));
+    });
+
+    it('a failing git-directory subscription warns and leaves the workspace feed and initial push working', async () => {
+      workspaceWatcher.watch.mockImplementation(
+        (watchedRoot, options, listener) => {
+          if (!options.nestedRepoDetection) {
+            throw new Error('git dir unavailable');
+          }
+          return createMockWorkspaceWatcher().watch(
+            watchedRoot,
+            options,
+            listener,
+          );
+        },
+      );
+
+      svc.start(root, broadcast);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[GitWatcher] Failed to watch git directory',
+        expect.objectContaining({ error: 'git dir unavailable' }),
+      );
+      jest.advanceTimersByTime(50);
+      await flush();
+      expect(calls('git:status-update')).toHaveLength(1);
+      expect(() => svc.stop()).not.toThrow();
+    });
+
+    it('stop() disposes it and a late batch does nothing', async () => {
+      const sub = await arm();
+      svc.stop();
+
+      expect(sub.disposed).toBe(true);
+      sub.fire('update', path.join(gitDir, 'HEAD'));
+      sub.deliver({ overflow: true });
+      jest.advanceTimersByTime(10_000);
+      await flush();
+
+      expect(gitInfo.refreshGitInfo).not.toHaveBeenCalled();
+      expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+    });
+
+    it('a batch from the previous workspace is ignored after a restart', async () => {
+      const stale = await arm();
+      const other = tempDir('gw-gitdir-other-');
+      svc.start(other, broadcast);
+      broadcast.mockClear();
+
+      expect(stale.disposed).toBe(true);
+      stale.fire('update', path.join(gitDir, 'HEAD'));
+      jest.advanceTimersByTime(10_000);
+      await flush();
+
+      expect(calls('git:status-update')).toHaveLength(0);
     });
   });
 

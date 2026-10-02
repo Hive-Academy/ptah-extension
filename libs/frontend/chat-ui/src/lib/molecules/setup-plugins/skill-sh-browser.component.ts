@@ -26,6 +26,7 @@ import type {
   InstalledSkill,
   SkillDetectionResult,
 } from '@ptah-extension/shared';
+import { MARKETPLACE_RPC_TIMEOUTS } from './marketplace-rpc-timeouts';
 
 /** SkillShEntry enriched with its card meta line for template use */
 interface DisplaySkillEntry extends SkillShEntry {
@@ -368,10 +369,11 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     this.error.set(null);
 
     try {
-      const result = await this.rpcService.call('skillsSh:install', {
-        source: skill.source,
-        skillId: skill.skillId,
-      });
+      const result = await this.rpcService.call(
+        'skillsSh:install',
+        { source: skill.source, skillId: skill.skillId },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.SKILL_INSTALL_MS },
+      );
 
       if (this.destroyed) return;
 
@@ -379,8 +381,12 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
         await this.loadInstalled();
         this.refreshInstalledStatus();
         this.skillInstalled.emit(skill);
-      } else if (result.isSuccess() && !result.data.success) {
+      } else if (result.isSuccess()) {
         this.error.set(result.data.error || 'Install failed');
+      } else {
+        // An RPC-level failure (timeout, transport) used to clear the spinner
+        // and say nothing.
+        this.error.set(result.error || 'Install failed');
       }
     } catch {
       if (this.destroyed) return;
@@ -459,7 +465,11 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     this.error.set(null);
 
     try {
-      const result = await this.rpcService.call('skillsSh:search', { query });
+      const result = await this.rpcService.call(
+        'skillsSh:search',
+        { query },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.SKILL_SEARCH_MS },
+      );
 
       if (this.destroyed) return;
 
@@ -497,7 +507,11 @@ export class SkillShBrowserComponent implements OnInit, OnDestroy {
     this.isLoadingPopular.set(true);
 
     try {
-      const result = await this.rpcService.call('skillsSh:getPopular', {});
+      const result = await this.rpcService.call(
+        'skillsSh:getPopular',
+        {},
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.SKILL_POPULAR_MS },
+      );
 
       if (this.destroyed) return;
 

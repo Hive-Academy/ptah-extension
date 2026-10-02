@@ -124,6 +124,14 @@ export interface BootRefs extends ThothRuntimeRefs {
    * {@link cliRegistry}.
    */
   agentProcessManager: { disposeAll: () => Promise<void> } | null;
+  /**
+   * Child chat session spawner (TASK_2026_584). `dispose()` is synchronous and
+   * idempotent: it ends every live child (`host-shutdown`), clears its timers
+   * and releases its policy and MCP root. Disposed BEFORE
+   * {@link agentProcessManager}; captured eagerly for the same reason as
+   * {@link cliRegistry}.
+   */
+  sessionSpawner: { dispose: () => void } | null;
   /** Per-workspace isolated provider-proxy pool; shutdown-wide backstop. */
   providerProxyPool: { disposeAll: () => Promise<void> } | null;
   /**
@@ -170,6 +178,7 @@ export function createEmptyBootRefs(): BootRefs {
     updateManager: null,
     cliRegistry: null,
     agentProcessManager: null,
+    sessionSpawner: null,
     providerProxyPool: null,
     integrityService: null,
     workspaceWatcher: null,

@@ -1,4 +1,4 @@
-import { DashboardSessionEntry } from '../services/session-analytics-state.service';
+import { DashboardSessionEntry } from '../models/session-analytics.models';
 
 /**
  * A single slice of a session's token composition, carrying both its value and

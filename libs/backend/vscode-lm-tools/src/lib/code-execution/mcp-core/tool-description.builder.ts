@@ -862,7 +862,8 @@ export function buildAgentReportTool(): MCPToolDefinition {
       'report on behalf of another agent. Returns "delivered": false with a ' +
       '"reason" when the report reached nobody — it never claims a delivery ' +
       'it did not make. Rate-limited per agent; send considered updates, not ' +
-      'a running commentary.',
+      'a running commentary. A child session started by ptah_session_start ' +
+      'can call it too; its report reaches the session that started it.',
     inputSchema: {
       type: 'object',
       properties: {

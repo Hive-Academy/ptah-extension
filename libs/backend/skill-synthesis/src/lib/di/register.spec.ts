@@ -15,6 +15,10 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.service';
 import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
+import { SkillBacklogPurgeStateStore } from '../lifecycle/skill-backlog-purge-state.store';
+import { SkillRetirementService } from '../lifecycle/skill-retirement.service';
+import { SkillUmbrellaMergeService } from '../lifecycle/skill-umbrella-merge.service';
+import { SkillCuratorService } from '../skill-curator.service';
 import { registerSkillSynthesisServices } from './register';
 import {
   PROVIDER_AUTH_RESOLVER_TOKEN,
@@ -67,6 +71,98 @@ describe('registerSkillSynthesisServices', () => {
     expect(
       container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE),
     ).toBe(service);
+  });
+
+  it('resolves the backlog purge-state store token as a singleton', () => {
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    registerSkillSynthesisServices(container, stubLogger);
+
+    const store = container.resolve<SkillBacklogPurgeStateStore>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_PURGE_STATE_STORE,
+    );
+
+    expect(store).toBeInstanceOf(SkillBacklogPurgeStateStore);
+    expect(
+      container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_PURGE_STATE_STORE),
+    ).toBe(store);
+    expect(container.resolve(SkillBacklogPurgeStateStore)).toBe(store);
+    expect(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_PURGE_STATE_STORE.description,
+    ).toBe('PtahSkillBacklogPurgeStateStore');
+  });
+
+  it('resolves the retirement service token as a singleton', () => {
+    // The optional collaborators (registry, repropagation, workspace) resolve
+    // through the real registration; only the host-provided tokens are stubbed.
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    container.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    registerSkillSynthesisServices(container, stubLogger);
+
+    const service = container.resolve<SkillRetirementService>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_RETIREMENT_SERVICE,
+    );
+
+    expect(service).toBeInstanceOf(SkillRetirementService);
+    expect(
+      container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_RETIREMENT_SERVICE),
+    ).toBe(service);
+    expect(container.resolve(SkillRetirementService)).toBe(service);
+    expect(SKILL_SYNTHESIS_TOKENS.SKILL_RETIREMENT_SERVICE.description).toBe(
+      'PtahSkillRetirementService',
+    );
+  });
+
+  it('resolves the umbrella merge service token as a singleton', () => {
+    // All eight collaborators resolve through the real registration; only the
+    // host-provided tokens are stubbed (constructors store them, touch nothing).
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    container.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    container.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {});
+    container.registerInstance(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT, {});
+    registerSkillSynthesisServices(container, stubLogger);
+
+    const service = container.resolve<SkillUmbrellaMergeService>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_UMBRELLA_MERGE_SERVICE,
+    );
+
+    expect(service).toBeInstanceOf(SkillUmbrellaMergeService);
+    expect(
+      container.resolve(SKILL_SYNTHESIS_TOKENS.SKILL_UMBRELLA_MERGE_SERVICE),
+    ).toBe(service);
+    expect(container.resolve(SkillUmbrellaMergeService)).toBe(service);
+    expect(
+      SKILL_SYNTHESIS_TOKENS.SKILL_UMBRELLA_MERGE_SERVICE.description,
+    ).toBe('PtahSkillUmbrellaMergeService');
+  });
+
+  it('resolves the curator facade with its lifecycle collaborators (R-i)', () => {
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
+    container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    container.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    container.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {});
+    container.registerInstance(SDK_TOKENS.SDK_CURATOR_RATE_LIMIT, {});
+    registerSkillSynthesisServices(container, stubLogger);
+    // The enhancer needs the host's user-layer mirror; it is not under test
+    // here. The umbrella, retirement and promotion collaborators resolve
+    // through the real registration.
+    container.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_ENHANCER_SERVICE,
+      {},
+    );
+
+    const curator = container.resolve<SkillCuratorService>(
+      SKILL_SYNTHESIS_TOKENS.SKILL_CURATOR_SERVICE,
+    );
+
+    expect(curator).toBeInstanceOf(SkillCuratorService);
+    expect(container.resolve(SkillCuratorService)).toBe(curator);
   });
 
   it('gives the queue and budget stores globally unique token descriptions', () => {

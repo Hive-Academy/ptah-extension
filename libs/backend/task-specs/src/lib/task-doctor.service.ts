@@ -63,6 +63,7 @@ import {
 import { normalizeWorkspaceRoot } from './normalize-workspace-root';
 import { toTaskType } from './task-enum-narrowing';
 import { parseTaskFile } from './task-frontmatter';
+import { isResidueFolder } from './task-folder-residue';
 import { TaskWriterService } from './task-writer.service';
 import { TASK_SPECS_TOKENS } from './di/tokens';
 
@@ -416,7 +417,7 @@ export class TaskDoctorService {
           );
           if (contradiction) warnings.push(contradiction);
         }
-      } else {
+      } else if (!(await this.isResidue(folderPath))) {
         actions.push(await this.planAdoption(folderPath, folderName, docs));
       }
 
@@ -707,6 +708,19 @@ export class TaskDoctorService {
       .map((e) => e.name)
       .filter((name) => TASK_FOLDER_RE.test(name))
       .sort();
+  }
+
+  /** Residue of a removed task is not adopted — see {@link isResidueFolder}. */
+  private async isResidue(folderPath: string): Promise<boolean> {
+    try {
+      const entries = await this.fs.readDirectory(folderPath);
+      return isResidueFolder(entries.map((e) => e.name));
+    } catch {
+      // degradation-audit: optional-capability - an unreadable folder is not
+      // residue, so the doctor still plans its adoption as before. Nothing is
+      // skipped because of this failure.
+      return false;
+    }
   }
 
   private async listFileNames(folderPath: string): Promise<string[]> {

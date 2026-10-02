@@ -121,7 +121,6 @@ test.describe('historical branch review controls', () => {
     expect((await ui.waitForObservedCall('git:checkout')).params).toEqual({
       workspaceRoot: root,
       branch: 'feature/review',
-      force: false,
     });
   });
 });

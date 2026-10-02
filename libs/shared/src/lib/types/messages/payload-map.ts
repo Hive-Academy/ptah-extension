@@ -108,6 +108,7 @@ import type {
   SdkTurnFailedPayload,
 } from '../sdk-hook.types';
 import type { SessionMcpStatusPayload } from './session-mcp-status';
+import type { AgentSessionOpenedPayload } from './agent-session';
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
@@ -131,6 +132,7 @@ import type { SurfaceChange } from '../../../mcp-apps-contracts/surface.types';
 import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
 import type { GitStatusUpdatePayload } from './git-status';
+import type { GitTurnChangeSetPayload } from '../rpc/rpc-change-set.types';
 
 /**
  * Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed').
@@ -264,6 +266,20 @@ export interface SurfaceUpdatedPayload {
 }
 
 /**
+ * Payload for MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED
+ * ('session:organizationChanged').
+ *
+ * Ids only: the receiver re-reads the affected rows through `session:list`.
+ * `reason` says what caused the change — a user edit, an automatic capture
+ * (worktree, PR, task link, rekey), or the cascade of a session delete.
+ */
+export interface SessionOrganizationChangedPayload {
+  readonly workspaceRoot: string;
+  readonly sessionIds: string[];
+  readonly reason: 'user' | 'capture' | 'delete';
+}
+
+/**
  * Type mapping for message payloads - eliminates 'any' types
  */
 export interface MessagePayloadMap {
@@ -366,6 +382,8 @@ export interface MessagePayloadMap {
   'session:turnFailed': SdkTurnFailedPayload;
   'session:subagentEnded': SdkSubagentEndedPayload;
   'session:mcpStatus': SessionMcpStatusPayload;
+  'session:organizationChanged': SessionOrganizationChangedPayload;
+  'agentSession:opened': AgentSessionOpenedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;
@@ -386,6 +404,7 @@ export interface MessagePayloadMap {
   'surface:updated': SurfaceUpdatedPayload;
   'harness:healthChanged': HarnessHealthChangedPayload;
   'git:status-update': GitStatusUpdatePayload;
+  'git:turnChangeSet': GitTurnChangeSetPayload;
   'file:content-changed': FileContentChangedPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;

@@ -48,3 +48,4 @@ export * from './modal';
 export * from './provider-model-picker';
 export * from './provider-mark';
 export * from './peer-session-picker';
+export * from './file-status-badge';

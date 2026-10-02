@@ -1,0 +1,404 @@
+{
+  "anubis-360": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 490,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 724,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      }
+    ],
+    "ls": [
+      {
+        "t": 631,
+        "v": 0.0007,
+        "had": false,
+        "srcs": ["BUTTON", "BUTTON", "BUTTON", "SPAN", "BUTTON"]
+      },
+      {
+        "t": 724,
+        "v": 0.0151,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 3988,
+        "v": 0.0347,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5303,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 243
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 5985,
+        "v": 0.0022,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 588,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 794,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      }
+    ],
+    "ls": [
+      {
+        "t": 692,
+        "v": 0.0006,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 796,
+        "v": 0.0149,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4047,
+        "v": 0.0345,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5362,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 243
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6064,
+        "v": 0.0021,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-1400": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 484,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 712,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      }
+    ],
+    "ls": [
+      {
+        "t": 714,
+        "v": 0.0069,
+        "had": false,
+        "srcs": ["DIV", "#text", "DIV", "DIV", "BUTTON"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 3977,
+        "v": 0.0127,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5289,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 243
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 5994,
+        "v": 0.0008,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-light-360": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 457,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 692,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 217
+      }
+    ],
+    "ls": [
+      {
+        "t": 579,
+        "v": 0.0007,
+        "had": false,
+        "srcs": ["BUTTON", "BUTTON", "BUTTON", "SPAN", "BUTTON"]
+      },
+      {
+        "t": 694,
+        "v": 0.0156,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 3996,
+        "v": 0.0345,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5307,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 245
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6011,
+        "v": 0.002,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-light-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 480,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 723,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 217
+      }
+    ],
+    "ls": [
+      {
+        "t": 618,
+        "v": 0.0006,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 724,
+        "v": 0.0154,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4014,
+        "v": 0.0343,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5347,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 245
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6045,
+        "v": 0.002,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-light-1400": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 478,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 712,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 217
+      }
+    ],
+    "ls": [
+      {
+        "t": 612,
+        "v": 0.0004,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 713,
+        "v": 0.0057,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4046,
+        "v": 0.0126,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5354,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 245
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6062,
+        "v": 0.0007,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  }
+}

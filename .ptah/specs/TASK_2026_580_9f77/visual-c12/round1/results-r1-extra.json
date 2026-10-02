@@ -1,0 +1,492 @@
+{
+  "anubis": {
+    "liveDot": {
+      "rest": {
+        "fillSize": 10,
+        "fill": 4.71,
+        "ringOverFill": 10.16,
+        "ringVsBg": 7.36
+      },
+      "trough": {
+        "opacity": 0.5,
+        "ring": 3.51,
+        "fill": 2.11
+      },
+      "anim": "pulse",
+      "dur": "2s",
+      "anims": 1
+    },
+    "metaContrast": 4.97,
+    "selects": [
+      {
+        "id": "session-filter-sort",
+        "text": "Last active",
+        "w": 104,
+        "truncated": false
+      },
+      {
+        "id": "session-filter-group",
+        "text": "No grouping",
+        "w": 104,
+        "truncated": false
+      }
+    ],
+    "titles": [
+      {
+        "n": "Refactor session loader",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Fix flaky e2e on CI",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Investigate memory leak in t",
+        "vis": 186,
+        "need": 336,
+        "trunc": true
+      },
+      {
+        "n": "Spike: opencode lane messagi",
+        "vis": 186,
+        "need": 221,
+        "trunc": true
+      },
+      {
+        "n": "Plain session, defaults only",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Hotfix auth token refresh",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Parent root session",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Child A of root",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Grandchild B",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Great-grandchild C",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Depth four D (capped at 3)",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Waiting on review for docs",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      }
+    ],
+    "btnPr": "12px",
+    "overlap": [
+      "Refactor session -> ",
+      "Fix flaky e2e on -> session-chip-task@4px",
+      "Investigate memo -> ",
+      "Spike: opencode  -> ",
+      "Plain session, d -> 4h ago17 msgs@70px",
+      "Hotfix auth toke -> session-chip-task@4px",
+      "Parent root sess -> 6h ago19 msgs@70px",
+      "Child A of root -> 6h ago20 msgs@70px",
+      "Grandchild B -> 7h ago21 msgs@70px",
+      "Great-grandchild -> 7h ago22 msgs@70px",
+      "Depth four D (ca -> 8h ago23 msgs@70px",
+      "Waiting on revie -> "
+    ],
+    "focusSettled": {
+      "active": "session-organize",
+      "opacity": "1",
+      "fv": true
+    }
+  },
+  "anubis-reduced": {
+    "liveDot": {
+      "rest": {
+        "fillSize": 10,
+        "fill": 4.71,
+        "ringOverFill": 10.16,
+        "ringVsBg": 7.36
+      },
+      "trough": null,
+      "anim": "none",
+      "dur": "1e-05s",
+      "anims": 0
+    },
+    "metaContrast": 4.97,
+    "selects": [
+      {
+        "id": "session-filter-sort",
+        "text": "Last active",
+        "w": 104,
+        "truncated": false
+      },
+      {
+        "id": "session-filter-group",
+        "text": "No grouping",
+        "w": 104,
+        "truncated": false
+      }
+    ],
+    "titles": [
+      {
+        "n": "Refactor session loader",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Fix flaky e2e on CI",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Investigate memory leak in t",
+        "vis": 186,
+        "need": 336,
+        "trunc": true
+      },
+      {
+        "n": "Spike: opencode lane messagi",
+        "vis": 186,
+        "need": 221,
+        "trunc": true
+      },
+      {
+        "n": "Plain session, defaults only",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Hotfix auth token refresh",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Parent root session",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Child A of root",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Grandchild B",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Great-grandchild C",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Depth four D (capped at 3)",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Waiting on review for docs",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      }
+    ],
+    "btnPr": "12px",
+    "overlap": [
+      "Refactor session -> ",
+      "Fix flaky e2e on -> session-chip-task@4px",
+      "Investigate memo -> ",
+      "Spike: opencode  -> ",
+      "Plain session, d -> 4h ago17 msgs@70px",
+      "Hotfix auth toke -> session-chip-task@4px",
+      "Parent root sess -> 6h ago19 msgs@70px",
+      "Child A of root -> 6h ago20 msgs@70px",
+      "Grandchild B -> 7h ago21 msgs@70px",
+      "Great-grandchild -> 7h ago22 msgs@70px",
+      "Depth four D (ca -> 8h ago23 msgs@70px",
+      "Waiting on revie -> "
+    ]
+  },
+  "anubis-light": {
+    "liveDot": {
+      "rest": {
+        "fillSize": 10,
+        "fill": 2.32,
+        "ringOverFill": 8.94,
+        "ringVsBg": 5.88
+      },
+      "trough": {
+        "opacity": 0.5,
+        "ring": 2.57,
+        "fill": 1.57
+      },
+      "anim": "pulse",
+      "dur": "2s",
+      "anims": 1
+    },
+    "metaContrast": 4.48,
+    "selects": [
+      {
+        "id": "session-filter-sort",
+        "text": "Last active",
+        "w": 104,
+        "truncated": false
+      },
+      {
+        "id": "session-filter-group",
+        "text": "No grouping",
+        "w": 104,
+        "truncated": false
+      }
+    ],
+    "titles": [
+      {
+        "n": "Refactor session loader",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Fix flaky e2e on CI",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Investigate memory leak in t",
+        "vis": 186,
+        "need": 336,
+        "trunc": true
+      },
+      {
+        "n": "Spike: opencode lane messagi",
+        "vis": 186,
+        "need": 221,
+        "trunc": true
+      },
+      {
+        "n": "Plain session, defaults only",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Hotfix auth token refresh",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Parent root session",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Child A of root",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Grandchild B",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Great-grandchild C",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Depth four D (capped at 3)",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Waiting on review for docs",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      }
+    ],
+    "btnPr": "12px",
+    "overlap": [
+      "Refactor session -> ",
+      "Fix flaky e2e on -> session-chip-task@4px",
+      "Investigate memo -> ",
+      "Spike: opencode  -> ",
+      "Plain session, d -> 4h ago17 msgs@70px",
+      "Hotfix auth toke -> session-chip-task@4px",
+      "Parent root sess -> 6h ago19 msgs@70px",
+      "Child A of root -> 6h ago20 msgs@70px",
+      "Grandchild B -> 7h ago21 msgs@70px",
+      "Great-grandchild -> 7h ago22 msgs@70px",
+      "Depth four D (ca -> 8h ago23 msgs@70px",
+      "Waiting on revie -> "
+    ],
+    "focusSettled": {
+      "active": "session-organize",
+      "opacity": "1",
+      "fv": true
+    }
+  },
+  "anubis-light-reduced": {
+    "liveDot": {
+      "rest": {
+        "fillSize": 10,
+        "fill": 2.32,
+        "ringOverFill": 8.94,
+        "ringVsBg": 5.88
+      },
+      "trough": null,
+      "anim": "none",
+      "dur": "1e-05s",
+      "anims": 0
+    },
+    "metaContrast": 4.48,
+    "selects": [
+      {
+        "id": "session-filter-sort",
+        "text": "Last active",
+        "w": 104,
+        "truncated": false
+      },
+      {
+        "id": "session-filter-group",
+        "text": "No grouping",
+        "w": 104,
+        "truncated": false
+      }
+    ],
+    "titles": [
+      {
+        "n": "Refactor session loader",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Fix flaky e2e on CI",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Investigate memory leak in t",
+        "vis": 186,
+        "need": 336,
+        "trunc": true
+      },
+      {
+        "n": "Spike: opencode lane messagi",
+        "vis": 186,
+        "need": 221,
+        "trunc": true
+      },
+      {
+        "n": "Plain session, defaults only",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Hotfix auth token refresh",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Parent root session",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Child A of root",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Grandchild B",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Great-grandchild C",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Depth four D (capped at 3)",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      },
+      {
+        "n": "Waiting on review for docs",
+        "vis": 186,
+        "need": 186,
+        "trunc": false
+      }
+    ],
+    "btnPr": "12px",
+    "overlap": [
+      "Refactor session -> ",
+      "Fix flaky e2e on -> session-chip-task@4px",
+      "Investigate memo -> ",
+      "Spike: opencode  -> ",
+      "Plain session, d -> 4h ago17 msgs@70px",
+      "Hotfix auth toke -> session-chip-task@4px",
+      "Parent root sess -> 6h ago19 msgs@70px",
+      "Child A of root -> 6h ago20 msgs@70px",
+      "Grandchild B -> 7h ago21 msgs@70px",
+      "Great-grandchild -> 7h ago22 msgs@70px",
+      "Depth four D (ca -> 8h ago23 msgs@70px",
+      "Waiting on revie -> "
+    ]
+  }
+}

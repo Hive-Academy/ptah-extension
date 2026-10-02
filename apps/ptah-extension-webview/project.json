@@ -130,6 +130,13 @@
         "spa": true
       }
     },
+    "verify-eager-bundle": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "command": "node apps/ptah-extension-webview/scripts/assert-eager-bundle.mjs"
+      }
+    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {

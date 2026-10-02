@@ -9,7 +9,11 @@ import {
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
-import { SessionId, type SessionStatsEntry } from '@ptah-extension/shared';
+import {
+  SessionId,
+  type ResultStatsPayload,
+  type SessionStatsEntry,
+} from '@ptah-extension/shared';
 import {
   deriveLiveModelStats,
   type TurnModelUsage,
@@ -19,24 +23,27 @@ import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { MessageDispatchService } from './message-dispatch.service';
 
 /**
- * A `session:stats` broadcast for one SDK result: the per-result footer fields
- * (forwarded unchanged to the streaming handler) plus, when the backend has
- * one, its session-lifetime snapshot.
+ * A `session:stats` broadcast for one SDK result, as the webview receives it.
+ *
+ * Derived from the shared wire type so a rename of any footer field on
+ * `ResultStatsPayload` fails typecheck here instead of silently reading
+ * `undefined` (TASK_2026_575, R2). `turnCost` is that turn's own spend
+ * (`null` = unknown), forwarded unchanged to the streaming handler for the
+ * message footer; `sessionStats` is the backend's session-lifetime snapshot,
+ * validated and installed as-is for the header. The two are never combined.
+ *
+ * Two fields are narrowed for the webview: `sessionId` is the raw wire string
+ * (routing parses it), and `modelUsage` uses {@link TurnModelUsage}, the shape
+ * the context-badge derivation reads. Its `costUSD` keeps the wire's `null`
+ * for an unpriced model; it is forwarded unchanged, never coerced to 0.
  */
-export interface SessionStatsResultEvent {
+export type SessionStatsResultEvent = Omit<
+  ResultStatsPayload,
+  'sessionId' | 'modelUsage'
+> & {
   readonly sessionId: string;
-  readonly cost: number | null;
-  readonly tokens: {
-    readonly input: number;
-    readonly output: number;
-    readonly cacheRead?: number;
-    readonly cacheCreation?: number;
-  };
-  readonly duration: number;
   readonly modelUsage?: TurnModelUsage[];
-  /** Wire contract only: validated before it is installed. */
-  readonly sessionStats?: SessionStatsEntry;
-}
+};
 
 /**
  * A `session:stats` broadcast that carries only a session snapshot and no
@@ -45,7 +52,7 @@ export interface SessionStatsResultEvent {
 export interface SessionStatsSnapshotEvent {
   readonly sessionId: string;
   readonly sessionStats?: SessionStatsEntry;
-  readonly cost?: undefined;
+  readonly turnCost?: undefined;
   readonly tokens?: undefined;
   readonly duration?: undefined;
   readonly modelUsage?: undefined;
@@ -56,14 +63,14 @@ export type SessionStatsEvent =
   SessionStatsResultEvent | SessionStatsSnapshotEvent;
 
 /**
- * True when no per-turn footer field is present. A zero or `null` cost is a
- * present field; only an absent (`undefined`) one counts as missing.
+ * True when no per-turn footer field is present. A zero or `null` turn cost is
+ * a present field; only an absent (`undefined`) one counts as missing.
  */
 function isSnapshotOnly(
   stats: SessionStatsEvent,
 ): stats is SessionStatsSnapshotEvent {
   return (
-    stats.cost === undefined &&
+    stats.turnCost === undefined &&
     stats.tokens === undefined &&
     stats.duration === undefined
   );

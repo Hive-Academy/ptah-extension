@@ -64,6 +64,9 @@ import type {
   SymbolIndexEntry,
 } from '../types';
 import { buildCodeNamespace } from '../namespace-builders/code-namespace.builder';
+import { buildSessionOrganizationNamespace } from '../namespace-builders/session-organization-namespace.builder';
+import { buildSessionNamespace } from '../namespace-builders/session-namespace.builder';
+import type { ISessionSpawner } from '@ptah-extension/cli-agent-runtime';
 import {
   buildBrowserNamespace,
   type IBrowserCapabilities,
@@ -844,6 +847,172 @@ describe('tools/call — task specs routing', () => {
       code: 'TASK_CONFLICT',
       error: 'changed on disk',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ptah_session_link_task (TASK_2026_580, D12)
+// ---------------------------------------------------------------------------
+
+describe('ptah_session_link_task', () => {
+  const TOOL = 'ptah_session_link_task';
+  const TASK_ID = 'TASK_2026_580_9f77';
+  /** Tab id → SDK session id, as the lifecycle manager would map it. */
+  const SDK_IDS = new Map([['tab-1', 'sdk-session-1']]);
+
+  function linkDeps(
+    options: {
+      recorder?: { linkTask: jest.Mock } | null;
+      logger?: MockLogger;
+    } = {},
+  ): { deps: ProtocolHandlerDependencies; linkTask: jest.Mock } {
+    const linkTask = jest.fn();
+    const recorder =
+      options.recorder === null
+        ? undefined
+        : (options.recorder ?? { linkTask });
+    const sessionOrganization = buildSessionOrganizationNamespace({
+      // The real wiring: the caller comes from the request context only.
+      resolveCallerSessionId: () => {
+        const caller = getCallerSessionId();
+        return caller ? SDK_IDS.get(caller) : undefined;
+      },
+      getRecorder: () => recorder,
+      getWorkspaceRootHint: () => undefined,
+    });
+    return {
+      linkTask: recorder?.linkTask ?? linkTask,
+      deps: buildDeps({
+        ptahAPI: buildPtahAPIStub({ sessionOrganization }),
+        logger: asLogger(options.logger ?? createMockLogger()),
+      }),
+    };
+  }
+
+  async function call(
+    deps: ProtocolHandlerDependencies,
+    args: Record<string, unknown>,
+    extra: Partial<MCPRequest> = {},
+  ): Promise<{ text: string; isError?: boolean }> {
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'link-1',
+        method: 'tools/call',
+        params: { name: TOOL, arguments: args },
+        ...extra,
+      }),
+      deps,
+    );
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    return { text: result.content[0].text, isError: result.isError };
+  }
+
+  it('is always on: listed even with every namespace toggle disabled', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'link-list', method: 'tools/list' }),
+        buildDeps({
+          disabledMcpNamespaces: [
+            'tasks',
+            'session',
+            'sessionOrganization',
+            'agent',
+            'git',
+            'json',
+            'browser',
+            'harness',
+            'code',
+          ],
+        }),
+      ),
+    );
+    expect(names).toContain(TOOL);
+    expect(names.indexOf(TOOL)).toBe(names.indexOf('ptah_task_check') + 1);
+  });
+
+  it('links the CALLER resolved from the request context, not from args', async () => {
+    const { deps, linkTask } = linkDeps();
+
+    const { text, isError } = await call(
+      deps,
+      { taskId: TASK_ID },
+      { _callerSessionId: 'tab-1' },
+    );
+
+    expect(isError).toBeUndefined();
+    expect(linkTask).toHaveBeenCalledWith({
+      sessionId: 'sdk-session-1',
+      taskId: TASK_ID,
+      role: 'primary',
+      source: 'agent',
+    });
+    expect(text).toContain('Link recorded for this session (sdk-session-1)');
+    expect(text).toContain(`task ${TASK_ID}, role primary`);
+    // A success means "handed to the recorder", never "the task exists".
+    expect(text).toContain('not checked');
+  });
+
+  it('refuses a session id passed as an argument', async () => {
+    const { deps, linkTask } = linkDeps();
+
+    const { text, isError } = await call(
+      deps,
+      { taskId: TASK_ID, sessionId: 'someone-else' },
+      { _callerSessionId: 'tab-1' },
+    );
+
+    expect(isError).toBeUndefined();
+    expect(text).toMatch(/^Not linked \(invalid-args\): /);
+    expect(linkTask).not.toHaveBeenCalled();
+  });
+
+  it('reports organization-unavailable when the host has no recorder', async () => {
+    const { deps } = linkDeps({ recorder: null });
+
+    const { text } = await call(
+      deps,
+      { taskId: TASK_ID },
+      { _callerSessionId: 'tab-1' },
+    );
+
+    expect(text).toMatch(/^Not linked \(organization-unavailable\): /);
+  });
+
+  it('reports unattributed-caller without a caller session or for an unknown tab', async () => {
+    const { deps, linkTask } = linkDeps();
+
+    for (const extra of [{}, { _callerSessionId: 'tab-unknown' }]) {
+      const { text } = await call(deps, { taskId: TASK_ID }, extra);
+      expect(text).toMatch(/^Not linked \(unattributed-caller\): /);
+    }
+    expect(linkTask).not.toHaveBeenCalled();
+  });
+
+  it('logs a recorder failure and returns fixed text without its message', async () => {
+    const logger = createMockLogger();
+    const recorder = {
+      linkTask: jest.fn(() => {
+        throw new Error('SQLITE_BUSY at /home/user/.ptah/org.db');
+      }),
+    };
+    const { deps } = linkDeps({ recorder, logger });
+
+    const { text } = await call(
+      deps,
+      { taskId: TASK_ID },
+      { _callerSessionId: 'tab-1' },
+    );
+
+    expect(text).toMatch(/^Not linked \(link-failed\): /);
+    expect(text).not.toContain('org.db');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[MCP] ptah_session_link_task: the recorder threw',
+      'CodeExecutionMCP',
+      { message: 'SQLITE_BUSY at /home/user/.ptah/org.db' },
+    );
   });
 });
 
@@ -3024,18 +3193,95 @@ describe('protocol-handlers › ptah_agent_report', () => {
     },
   );
 
-  it('never attributes a report to the caller session when no agent is named', async () => {
-    const report = jest.fn();
+  // TASK_2026_584: a calling chat session with no agent id reports as a
+  // CHILD session. The router (not this dispatcher) decides whether the
+  // session is a linked child; an unlinked one comes back refused.
+  it('reports as a child session when the URL names a session but no agent', async () => {
+    const report = jest
+      .fn()
+      .mockResolvedValue({ delivered: true, parentSessionId: 'tab-parent' });
     const res = await handleMCPRequest(
       makeRequest({
         id: 'ar-session',
         method: 'tools/call',
         params: {
           name: 'ptah_agent_report',
-          arguments: { message: 'blocked' },
+          arguments: { message: 'blocked', summary: 'b' },
         },
         _callerSessionId: 'tab-abc',
         _callerWorkspaceRoot: 'D:\\ws-A',
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(report).toHaveBeenCalledWith({
+      childSessionId: 'tab-abc',
+      message: 'blocked',
+      summary: 'b',
+    });
+    expect(agentToolResult(res).text).toMatch(/Report Delivered/);
+  });
+
+  it('renders the router refusal for a session that is not a linked child', async () => {
+    const report = jest
+      .fn()
+      .mockResolvedValue({ delivered: false, reason: 'unattributed-caller' });
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ar-unlinked',
+        method: 'tools/call',
+        params: { name: 'ptah_agent_report', arguments: { message: 'x' } },
+        _callerSessionId: 'tab-not-a-child',
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ childSessionId: 'tab-not-a-child' }),
+    );
+    expect(agentToolResult(res).text).toMatch(/unattributed-caller/);
+  });
+
+  it('prefers the agent id when the URL names both an agent and a session', async () => {
+    const report = jest.fn().mockResolvedValue({ delivered: true });
+    await handleMCPRequest(
+      makeRequest({
+        id: 'ar-both',
+        method: 'tools/call',
+        params: { name: 'ptah_agent_report', arguments: { message: 'x' } },
+        _callerAgentId: 'agent-1',
+        _callerSessionId: 'tab-abc',
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          agent: { report } as unknown as PtahAPI['agent'],
+        }),
+      }),
+    );
+
+    expect(report).toHaveBeenCalledWith({
+      agentId: 'agent-1',
+      message: 'x',
+      summary: undefined,
+    });
+  });
+
+  it('treats a whitespace session id as absent (unattributed-caller, no call)', async () => {
+    const report = jest.fn();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'ar-ws',
+        method: 'tools/call',
+        params: { name: 'ptah_agent_report', arguments: { message: 'x' } },
+        _callerSessionId: '   ',
       }),
       buildDeps({
         ptahAPI: buildPtahAPIStub({
@@ -7399,5 +7645,237 @@ describe('protocol-handlers › LSP reports (TASK_2026_559 Batch 26a)', () => {
     expect(formatLspReferences([])).toContain(
       'Found: 0 references (qualified as above; not proof that none exist)',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ptah_session_* (TASK_2026_584)
+// ---------------------------------------------------------------------------
+
+const SESSION_TOOLS = [
+  'ptah_session_start',
+  'ptah_session_send',
+  'ptah_session_status',
+  'ptah_session_read',
+  'ptah_session_stop',
+];
+
+/** A real session namespace over a fake spawner: the caller comes from the request context. */
+function sessionDeps(spawner: Partial<ISessionSpawner>) {
+  const full = {
+    takeHeldCompletions: jest.fn().mockReturnValue([]),
+    ...spawner,
+  } as unknown as ISessionSpawner;
+  return buildDeps({
+    ptahAPI: buildPtahAPIStub({
+      session: buildSessionNamespace({
+        getSpawner: () => full,
+        getCallerSessionId,
+      }),
+    }),
+  });
+}
+
+describe('protocol-handlers › session tools', () => {
+  it('lists the five tools in the agent group, right after ptah_agent_list', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 's-list', method: 'tools/list' }),
+        buildDeps(),
+      ),
+    );
+    const at = names.indexOf('ptah_agent_list');
+    expect(names.slice(at + 1, at + 6)).toEqual(SESSION_TOOLS);
+  });
+
+  it('drops them with the agent namespace toggle', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 's-off', method: 'tools/list' }),
+        buildDeps({ disabledMcpNamespaces: ['agent'] }),
+      ),
+    );
+    for (const tool of SESSION_TOOLS) expect(names).not.toContain(tool);
+  });
+
+  it('serves a byte-identical tool list to every caller', async () => {
+    const deps = buildDeps();
+    const lists = await Promise.all(
+      [
+        {},
+        { _callerSessionId: '11111111-2222-4333-8444-555555555555' },
+        { _callerAgentId: 'agent-7' },
+        { _callerWorkspaceRoot: '/ws' },
+      ].map(async (extra) =>
+        JSON.stringify(
+          (
+            await handleMCPRequest(
+              makeRequest({ id: 's-b', method: 'tools/list', ...extra }),
+              deps,
+            )
+          ).result,
+        ),
+      ),
+    );
+    for (const list of lists.slice(1)) expect(list).toBe(lists[0]);
+  });
+
+  it('takes the caller from the request context, not from the arguments', async () => {
+    const status = jest.fn().mockReturnValue({ ok: true, children: [] });
+    const takeHeldCompletions = jest.fn().mockReturnValue([]);
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 's-caller',
+        method: 'tools/call',
+        params: { name: 'ptah_session_status', arguments: {} },
+        _callerSessionId: 'tab-parent',
+      }),
+      sessionDeps({ status, takeHeldCompletions }),
+    );
+
+    expect(status).toHaveBeenCalledWith({
+      callerSessionId: 'tab-parent',
+      childSessionId: undefined,
+    });
+    expect(takeHeldCompletions).toHaveBeenCalledWith('tab-parent');
+    expect(agentToolResult(res).text).toBe(
+      'This session has no child sessions.',
+    );
+  });
+
+  it('rejects a caller key in the arguments as isError', async () => {
+    const start = jest.fn();
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 's-forge',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_session_start',
+          arguments: { task: 't', branch: 'b', callerSessionId: 'other-tab' },
+        },
+        _callerSessionId: 'tab-parent',
+      }),
+      sessionDeps({ start }),
+    );
+
+    expect(start).not.toHaveBeenCalled();
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toMatch(/callerSessionId/);
+  });
+
+  it('delegates start, send, read and stop to the spawner', async () => {
+    const child = {
+      childSessionId: 'c-1',
+      label: 'l',
+      branch: 'b',
+      baseRef: 'sha',
+      worktreePath: '/wt',
+      status: 'working',
+      startedAt: 'now',
+      deliverables: [],
+      turnsSettled: 0,
+      reportsDelivered: 0,
+      reportsRefused: 0,
+      subagentPtahTools: 'available',
+    };
+    const spawner = {
+      start: jest.fn().mockResolvedValue({ ok: true, child }),
+      send: jest
+        .fn()
+        .mockResolvedValue({ delivered: true, effect: 'held-until-turn-end' }),
+      read: jest.fn().mockResolvedValue({
+        ok: true,
+        result: {
+          child,
+          transcript: 'TAIL',
+          truncated: false,
+          available: true,
+        },
+      }),
+      stop: jest.fn().mockResolvedValue({ ok: true, child }),
+    };
+    const deps = sessionDeps(spawner);
+    const run = (name: string, args: Record<string, unknown>) =>
+      handleMCPRequest(
+        makeRequest({
+          id: `s-${name}`,
+          method: 'tools/call',
+          params: { name, arguments: args },
+          _callerSessionId: 'tab-parent',
+        }),
+        deps,
+      );
+
+    expect(
+      agentToolResult(
+        await run('ptah_session_start', { task: 't', branch: 'b' }),
+      ).text,
+    ).toMatch(/sessionId c-1/);
+    expect(
+      agentToolResult(
+        await run('ptah_session_send', { sessionId: 'c-1', message: 'm' }),
+      ).text,
+    ).toMatch(/held and starts its next turn/);
+    expect(
+      agentToolResult(await run('ptah_session_read', { sessionId: 'c-1' }))
+        .text,
+    ).toMatch(/TAIL/);
+    expect(
+      agentToolResult(await run('ptah_session_stop', { sessionId: 'c-1' }))
+        .text,
+    ).toMatch(/remain/);
+    expect(spawner.send).toHaveBeenCalledWith(
+      expect.objectContaining({ callerSessionId: 'tab-parent', mode: 'queue' }),
+    );
+  });
+
+  it('appends held completions to the result', async () => {
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 's-held',
+        method: 'tools/call',
+        params: { name: 'ptah_session_status', arguments: {} },
+        _callerSessionId: 'tab-parent',
+      }),
+      sessionDeps({
+        status: jest.fn().mockReturnValue({ ok: true, children: [] }),
+        takeHeldCompletions: jest.fn().mockReturnValue([
+          {
+            childSessionId: 'c-1',
+            turn: 1,
+            verdict: 'unverified',
+            text: '<agent-lane-completed turn="1"/>',
+          },
+        ]),
+      }),
+    );
+
+    const { text } = agentToolResult(res);
+    expect(text).toMatch(/Held while this session was not live:/);
+    expect(text).toMatch(/<agent-lane-completed turn="1"\/>/);
+  });
+
+  it('a host without a spawner answers with the named error, not a crash', async () => {
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 's-none',
+        method: 'tools/call',
+        params: { name: 'ptah_session_status', arguments: {} },
+        _callerSessionId: 'tab-parent',
+      }),
+      buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          session: buildSessionNamespace({
+            getSpawner: () => undefined,
+            getCallerSessionId,
+          }),
+        }),
+      }),
+    );
+
+    const { text, isError } = agentToolResult(res);
+    expect(isError).toBe(true);
+    expect(text).toMatch(/Agent sessions are unavailable/);
   });
 });

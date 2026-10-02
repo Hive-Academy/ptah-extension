@@ -46,6 +46,7 @@ import {
   FileSystemRpcHandlers,
   FileViewRpcHandlers,
   GatewayRpcHandlers,
+  GitChangeSetRpcHandlers,
   GitRpcHandlers,
   HarnessRpcHandlers,
   ImagePickerRpcHandlers,
@@ -61,6 +62,7 @@ import {
   ProviderRpcHandlers,
   PtahCliRpcHandlers,
   QualityRpcHandlers,
+  SessionOrganizationRpcHandlers,
   SessionRpcHandlers,
   SettingsRpcHandlers,
   SetupRpcHandlers,
@@ -195,6 +197,14 @@ export const RPC_HANDLER_MANIFEST = [
     handler: GitRpcHandlers,
   },
   {
+    // `requires: []`: a read of workspace state, which every host has. A
+    // host without git simply has no change sets recorded.
+    key: 'gitChangeSet',
+    methods: GitChangeSetRpcHandlers.METHODS,
+    requires: [],
+    handler: GitChangeSetRpcHandlers,
+  },
+  {
     key: 'harness',
     methods: HarnessRpcHandlers.METHODS,
     requires: [],
@@ -261,6 +271,16 @@ export const RPC_HANDLER_MANIFEST = [
     methods: SessionRpcHandlers.METHODS,
     requires: [],
     handler: SessionRpcHandlers,
+  },
+  {
+    // `requires: []` on purpose (TASK_2026_580 D5). Only Electron and the CLI
+    // register the organization store; the handler injects it optionally and
+    // answers `organization-unavailable` on VS Code instead of hiding the
+    // namespace, so every host serves the same method set.
+    key: 'sessionOrganization',
+    methods: SessionOrganizationRpcHandlers.METHODS,
+    requires: [],
+    handler: SessionOrganizationRpcHandlers,
   },
   {
     key: 'settings',

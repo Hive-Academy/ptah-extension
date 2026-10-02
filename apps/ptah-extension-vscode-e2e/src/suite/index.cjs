@@ -239,6 +239,10 @@ test('activation does not leave the host with pending unhandledRejections', asyn
   }
 });
 
+// ----- Review commands (TASK_2026_576 Requirement 5) ---------------------
+
+require('./review-commands.cjs').register(test, { waitForActivation });
+
 // ----- Mocha-style entry point expected by @vscode/test-electron ---------
 
 module.exports = {

@@ -11,6 +11,7 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { LucideAngularModule, Search, KeyRound, Trash2 } from 'lucide-angular';
+import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import {
   BrandMarkComponent,
@@ -848,7 +849,11 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
    */
   private async loadAccount(): Promise<void> {
     try {
-      const result = await this.rpc.call('mcpDirectory:smitheryAccount', {});
+      const result = await this.rpc.call(
+        'mcpDirectory:smitheryAccount',
+        {},
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+      );
       if (this.destroyed) return;
       if (!result.isSuccess()) {
         this.accountError.set(
@@ -871,6 +876,7 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
       const result = await this.rpc.call(
         'mcpDirectory:listSmitheryConnections',
         {},
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_TWO_REQUEST_MS },
       );
       if (this.destroyed) return;
       if (!result.isSuccess()) {
@@ -905,9 +911,11 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     this.addToSet(this.connectionBusyIds, connection.connectionId);
     this.connectionsError.set(null);
     try {
-      const result = await this.rpc.call('mcpDirectory:openSmitherySetup', {
-        serverKey,
-      });
+      const result = await this.rpc.call(
+        'mcpDirectory:openSmitherySetup',
+        { serverKey },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_TWO_REQUEST_MS },
+      );
       if (this.destroyed) return;
       if (!result.isSuccess() || !result.data.opened) {
         // Nothing changed upstream, so do NOT re-read the list: a successful
@@ -940,9 +948,11 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     this.addToSet(this.connectionBusyIds, connection.connectionId);
     this.connectionsError.set(null);
     try {
-      const result = await this.rpc.call('mcpDirectory:uninstallSmithery', {
-        serverKey,
-      });
+      const result = await this.rpc.call(
+        'mcpDirectory:uninstallSmithery',
+        { serverKey },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+      );
       if (this.destroyed) return;
       if (!result.isSuccess() || !result.data.success) {
         this.connectionsError.set(
@@ -1121,10 +1131,11 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     this.expandedName.set(server.name);
     this.isLoadingDetails.set(true);
     try {
-      const result = await this.rpc.call('mcpDirectory:getDetails', {
-        name: server.name,
-        source: 'smithery',
-      });
+      const result = await this.rpc.call(
+        'mcpDirectory:getDetails',
+        { name: server.name, source: 'smithery' },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+      );
       if (this.destroyed) return;
       if (result.isSuccess()) {
         this.activeConfigSchema.set(
@@ -1181,10 +1192,11 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     this.setupError.set(null);
     this.setupPhase.set('validating');
     try {
-      const validation = await this.rpc.call('mcpDirectory:resolveSmithery', {
-        qualifiedName: server.name,
-        config,
-      });
+      const validation = await this.rpc.call(
+        'mcpDirectory:resolveSmithery',
+        { qualifiedName: server.name, config },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+      );
       if (this.destroyed) return;
       if (!validation.isSuccess() || !validation.data.config) {
         this.setupError.set(
@@ -1195,10 +1207,11 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
       }
 
       this.setupPhase.set('installing');
-      const installed = await this.rpc.call('mcpDirectory:installSmithery', {
-        qualifiedName: server.name,
-        config,
-      });
+      const installed = await this.rpc.call(
+        'mcpDirectory:installSmithery',
+        { qualifiedName: server.name, config },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_TWO_REQUEST_MS },
+      );
       if (this.destroyed) return;
       if (!installed.isSuccess() || !installed.data.success) {
         this.setupError.set(
@@ -1238,9 +1251,11 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     this.addToSet(this.uninstallingKeys, serverKey);
     this.setupError.set(null);
     try {
-      const result = await this.rpc.call('mcpDirectory:uninstallSmithery', {
-        serverKey,
-      });
+      const result = await this.rpc.call(
+        'mcpDirectory:uninstallSmithery',
+        { serverKey },
+        { timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS },
+      );
       if (this.destroyed) return;
       if (result.isSuccess() && result.data.success) {
         this.installedByName.update((prev) => {
@@ -1423,7 +1438,9 @@ export class SmitherySurfaceComponent implements OnInit, OnDestroy {
     if (cursor !== undefined) {
       params.cursor = cursor;
     }
-    return this.rpc.call('mcpDirectory:search', params);
+    return this.rpc.call('mcpDirectory:search', params, {
+      timeout: MARKETPLACE_RPC_TIMEOUTS.MCP_SINGLE_REQUEST_MS,
+    });
   }
 
   // ── Internals ───────────────────────────────────────────────────────────────

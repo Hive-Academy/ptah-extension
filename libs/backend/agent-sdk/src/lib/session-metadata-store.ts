@@ -391,9 +391,6 @@ export class SessionMetadataStore {
    * ({@link wireSessionMetadataChangeBroadcast}) subscribes to this and
    * broadcasts the payload to all open webviews so sidebars refresh
    * without needing imperative `loadSessions()` calls everywhere.
-   *
-   * Stat-only updates from `addStats()` intentionally do NOT emit — they
-   * fire on every assistant turn and would flood the webview channel.
    */
   private readonly events = new EventEmitter<{
     metadataChanged: (payload: SessionMetadataChangedNotification) => void;
@@ -448,7 +445,7 @@ export class SessionMetadataStore {
 
   /**
    * Internal save implementation (NOT serialized).
-   * Called directly by addStats()/addCliSession() which already enqueue their own writes.
+   * Called directly by addCliSession() and other mutations that already enqueue their own writes.
    * Public callers must use save() which wraps this in enqueueWrite().
    */
   private async _saveInternal(metadata: SessionMetadata): Promise<void> {
@@ -890,70 +887,6 @@ export class SessionMetadataStore {
   }
 
   /**
-   * Update session stats (cost, tokens) from result message.
-   * Serialized through writeQueue to prevent lost updates from concurrent writes.
-   */
-  async addStats(
-    sessionId: string,
-    stats: { cost: number; tokens: { input: number; output: number } },
-  ): Promise<void> {
-    return this.enqueueWrite(async () => {
-      const metadata = await this.get(sessionId);
-      if (metadata) {
-        await this._saveInternal({
-          ...metadata,
-          lastActiveAt: Date.now(),
-          totalCost: metadata.totalCost + stats.cost,
-          totalTokens: {
-            input: metadata.totalTokens.input + stats.tokens.input,
-            output: metadata.totalTokens.output + stats.tokens.output,
-          },
-        });
-        if (metadata.isChildSession) {
-          await this.propagateStatsToParent(sessionId, stats);
-        }
-      }
-    });
-  }
-
-  /**
-   * Propagate child session stats to the parent session.
-   * Finds the parent by scanning all sessions' cliSessions arrays for a reference
-   * whose sdkSessionId matches the child's sessionId.
-   *
-   * Called within enqueueWrite, so concurrent updates are safe.
-   * Silently skips if no parent is found (orphan child or timing issue).
-   */
-  private async propagateStatsToParent(
-    childSessionId: string,
-    stats: { cost: number; tokens: { input: number; output: number } },
-  ): Promise<void> {
-    const all = await this.getAll();
-    for (const summary of all) {
-      const session = isAsyncStateStorage(this.storage)
-        ? await this.get(summary.sessionId)
-        : summary;
-      if (
-        session?.cliSessions?.some((ref) => ref.sdkSessionId === childSessionId)
-      ) {
-        await this._saveInternal({
-          ...session,
-          lastActiveAt: Date.now(),
-          totalCost: session.totalCost + stats.cost,
-          totalTokens: {
-            input: session.totalTokens.input + stats.tokens.input,
-            output: session.totalTokens.output + stats.tokens.output,
-          },
-        });
-        this.logger.debug(
-          `[SessionMetadataStore] Propagated subagent stats to parent ${session.sessionId}`,
-        );
-        break;
-      }
-    }
-  }
-
-  /**
    * Add a CLI session reference to a parent session's metadata.
    * Called when a CLI agent exits with a captured cliSessionId.
    *
@@ -1107,12 +1040,19 @@ export class SessionMetadataStore {
    * distinguish brand-new sessions from forked ones (e.g. for highlight UX).
    * When metadata already exists, the kind is downgraded to `'updated'` —
    * a duplicate `create()` is semantically just an activity touch.
+   *
+   * `workingDirectory` is the session's cwd when it differs from the workspace
+   * it is listed under — an agent child session runs in a worktree but belongs
+   * to its parent's workspace (TASK_2026_584). Omitted, it defaults to
+   * `workspaceId`, so every existing caller's record is unchanged. It applies
+   * to a NEW record only; an existing record keeps its own value.
    */
   async create(
     sessionId: string,
     workspaceId: string,
     name: string,
     kind: SessionMetadataChangeKind = 'created',
+    workingDirectory?: string,
   ): Promise<SessionMetadata> {
     // Same invariant SessionRegistry.bindRealSessionId enforces on the same
     // value three lines away in SdkAgentAdapter. A record keyed by '' is not a
@@ -1141,7 +1081,7 @@ export class SessionMetadataStore {
       sessionId,
       name,
       workspaceId,
-      workingDirectory: workspaceId,
+      workingDirectory: blankToUndefined(workingDirectory) ?? workspaceId,
       createdAt: now,
       lastActiveAt: now,
       totalCost: 0,

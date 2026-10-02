@@ -20,6 +20,7 @@ import {
   WORKTREE_CHANGED_MESSAGE_TYPE,
   WorktreeService,
 } from './worktree.service';
+import { GitStatusService } from './git-status.service';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -62,20 +63,28 @@ function makeLayoutStub() {
   };
 }
 
+/** The git views' active workspace; null until a test pins one. */
+function makeGitStatusStub() {
+  return { activeWorkspacePath: signal<string | null>(null) };
+}
+
 describe('WorktreeService as a MessageHandler', () => {
   let service: WorktreeService;
   let layout: ReturnType<typeof makeLayoutStub>;
+  let gitStatus: ReturnType<typeof makeGitStatusStub>;
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockRpcCall.mockReset();
     layout = makeLayoutStub();
+    gitStatus = makeGitStatusStub();
 
     TestBed.configureTestingModule({
       providers: [
         WorktreeService,
         { provide: VSCodeService, useValue: makeVscodeStub() },
         { provide: ElectronLayoutService, useValue: layout },
+        { provide: GitStatusService, useValue: gitStatus },
       ],
     });
 
@@ -100,6 +109,7 @@ describe('WorktreeService as a MessageHandler', () => {
         WorktreeService,
         { provide: VSCodeService, useValue: makeVscodeStub() },
         { provide: ElectronLayoutService, useValue: makeLayoutStub() },
+        { provide: GitStatusService, useValue: makeGitStatusStub() },
       ],
     });
     TestBed.inject(WorktreeService);
@@ -340,6 +350,7 @@ describe('WorktreeService as a MessageHandler', () => {
         WorktreeService,
         { provide: VSCodeService, useValue: makeVscodeStub('linux') },
         { provide: ElectronLayoutService, useValue: layout },
+        { provide: GitStatusService, useValue: gitStatus },
       ],
     });
     service = TestBed.inject(WorktreeService);
@@ -366,6 +377,7 @@ describe('WorktreeService as a MessageHandler', () => {
         WorktreeService,
         { provide: VSCodeService, useValue: makeVscodeStub('win32') },
         { provide: ElectronLayoutService, useValue: layout },
+        { provide: GitStatusService, useValue: gitStatus },
       ],
     });
     service = TestBed.inject(WorktreeService);
@@ -428,6 +440,93 @@ describe('WorktreeService as a MessageHandler', () => {
 
     expect(layout.removeFolder).not.toHaveBeenCalled();
   });
+  describe('workspace scoping (RC10)', () => {
+    const ROOT = '/repo';
+
+    beforeEach(() => {
+      gitStatus.activeWorkspacePath.set(ROOT);
+    });
+
+    it('scopes git:worktrees to the active workspace', async () => {
+      mockRpcCall.mockResolvedValue({
+        success: true,
+        data: { worktrees: [] },
+      });
+
+      await service.loadWorktrees();
+
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        'git:worktrees',
+        { workspaceRoot: ROOT },
+      );
+    });
+
+    it('scopes git:addWorktree and its reload to the active workspace', async () => {
+      mockRpcCall.mockImplementation((_vscode, method: string) => {
+        if (method === 'git:addWorktree') {
+          return Promise.resolve({
+            success: true,
+            data: { success: true, worktreePath: '/repo/.claude-worktrees/x' },
+          });
+        }
+        return Promise.resolve({ success: true, data: { worktrees: [] } });
+      });
+
+      await service.addWorktree('x', { createBranch: true });
+
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        'git:addWorktree',
+        expect.objectContaining({
+          branch: 'x',
+          createBranch: true,
+          workspaceRoot: ROOT,
+        }),
+      );
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        'git:worktrees',
+        { workspaceRoot: ROOT },
+      );
+    });
+
+    it('scopes git:removeWorktree to the active workspace', async () => {
+      mockRpcCall.mockResolvedValue({
+        success: true,
+        data: { success: true, pending: false },
+      });
+
+      await service.removeWorktree('/repo/.claude-worktrees/x', true);
+
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        'git:removeWorktree',
+        expect.objectContaining({
+          path: '/repo/.claude-worktrees/x',
+          force: true,
+          workspaceRoot: ROOT,
+        }),
+      );
+    });
+
+    it('omits workspaceRoot when no workspace is active', async () => {
+      gitStatus.activeWorkspacePath.set(null);
+      mockRpcCall.mockResolvedValue({
+        success: true,
+        data: { worktrees: [] },
+      });
+
+      await service.loadWorktrees();
+
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        'git:worktrees',
+        {},
+      );
+    });
+  });
+
   it('ignores an unrelated message type', () => {
     service.handleMessage({
       type: 'git:status-update',

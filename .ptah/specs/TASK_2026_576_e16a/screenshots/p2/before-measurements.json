@@ -1,0 +1,177 @@
+{
+  "measurements": {
+    "badges-dark": [],
+    "badges-light": [],
+    "picker-list-dark": [
+      {
+        "label": "branch row (ghost btn)",
+        "text": "feature/review",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          26,
+          26,
+          32
+        ],
+        "opacity": 1,
+        "ratio": 13.89,
+        "fontPx": "11px",
+        "w": 278,
+        "h": 24
+      },
+      {
+        "label": "current branch (disabled)",
+        "text": "main",
+        "fg": [
+          67,
+          67,
+          72
+        ],
+        "bg": [
+          27,
+          27,
+          34
+        ],
+        "opacity": 1,
+        "ratio": 1.76,
+        "fontPx": "11px",
+        "w": 278,
+        "h": 24
+      }
+    ],
+    "picker-list-light": [
+      {
+        "label": "branch row (ghost btn)",
+        "text": "feature/review",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          239,
+          234,
+          230
+        ],
+        "opacity": 1,
+        "ratio": 1.04,
+        "fontPx": "11px",
+        "w": 278,
+        "h": 24
+      },
+      {
+        "label": "current branch (disabled)",
+        "text": "main",
+        "fg": [
+          204,
+          201,
+          199
+        ],
+        "bg": [
+          197,
+          193,
+          192
+        ],
+        "opacity": 1,
+        "ratio": 1.08,
+        "fontPx": "11px",
+        "w": 278,
+        "h": 24
+      }
+    ],
+    "picker-blocked-dark": [
+      {
+        "label": "old warning panel",
+        "text": "Force checkout will discard all uncommit",
+        "fg": [
+          249,
+          115,
+          22
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 5.38,
+        "fontPx": "12px",
+        "w": 286,
+        "h": 80
+      }
+    ],
+    "picker-blocked-light": [
+      {
+        "label": "old warning panel",
+        "text": "Force checkout will discard all uncommit",
+        "fg": [
+          247,
+          127,
+          0
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 2.02,
+        "fontPx": "12px",
+        "w": 286,
+        "h": 80
+      }
+    ],
+    "picker-create-error-dark": [
+      {
+        "label": "create error copy (text-error on base-200)",
+        "text": "Force checkout will discard all uncommit",
+        "fg": [
+          249,
+          115,
+          22
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 5.38,
+        "fontPx": "12px",
+        "w": 286,
+        "h": 80,
+        "invalid": true,
+        "invalidReason": "Mislabelled capture: the text, colours and box match the blocked-switch warning panel, not the create-error copy. No verified pre-P2 create-error measurement exists."
+      }
+    ],
+    "picker-create-error-light": [
+      {
+        "label": "create error copy (text-error on base-200)",
+        "text": "Force checkout will discard all uncommit",
+        "fg": [
+          247,
+          127,
+          0
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 2.02,
+        "fontPx": "12px",
+        "w": 286,
+        "h": 80,
+        "invalid": true,
+        "invalidReason": "Mislabelled capture: the text, colours and box match the blocked-switch warning panel, not the create-error copy. No verified pre-P2 create-error measurement exists."
+      }
+    ]
+  },
+  "focus": {
+    "blocked": "BUTTON testid=null text=feature/review"
+  }
+}

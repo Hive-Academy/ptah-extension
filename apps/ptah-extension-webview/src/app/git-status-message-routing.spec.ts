@@ -39,7 +39,7 @@ import {
   MessageRouterService,
   VSCodeService,
 } from '@ptah-extension/core';
-import { GitStatusService } from '@ptah-extension/git-ui';
+import { GitStatusService } from '@ptah-extension/git-ui/services';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 /**

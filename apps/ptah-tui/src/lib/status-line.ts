@@ -14,7 +14,10 @@
 export interface StatusLineStats {
   readonly inputTokens: number;
   readonly outputTokens: number;
-  readonly costUSD: number;
+  /** Session cost; `null` is unknown and is never rendered as $0. */
+  readonly costUSD: number | null;
+  /** True when `costUSD` is a lower bound because pricing is partial. */
+  readonly costPartial?: boolean;
   readonly contextUsagePercent: number;
   readonly model?: string | null;
 }
@@ -108,11 +111,13 @@ export function deriveStatusLine(input: StatusLineInput): StatusLineModel {
       ? `${formatTokenCount(stats.inputTokens)}/${formatTokenCount(stats.outputTokens)}`
       : null;
 
-  const costValue = stats?.costUSD ?? 0;
+  // An unknown cost is left off the bar rather than shown as $0; a partial
+  // cost is a lower bound and says so.
+  const costValue = stats?.costUSD ?? null;
   const cost =
-    stats !== null && costValue > 0
+    stats !== null && costValue !== null && costValue > 0
       ? {
-          label: formatCost(costValue),
+          label: `${stats.costPartial === true ? '>=' : ''}${formatCost(costValue)}`,
           tone: (costValue > 5
             ? 'error'
             : costValue >= 1

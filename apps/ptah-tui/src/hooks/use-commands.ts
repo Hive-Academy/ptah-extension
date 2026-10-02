@@ -310,7 +310,13 @@ export function useCommands(callbacks: CommandCallbacks): UseCommandsResult {
           `Session: ${sessionId ?? 'unknown'}\n` +
           `Model: ${stats.model ?? 'unknown'}\n` +
           `Context: ${stats.contextUsagePercent}% used (${stats.contextUsed.toLocaleString()}/${stats.contextWindow.toLocaleString()} tokens)\n` +
-          `Cost: $${stats.costUSD.toFixed(4)}`
+          `Cost: ${
+            stats.costUSD === null
+              ? 'unavailable'
+              : stats.costPartial
+                ? `>=$${stats.costUSD.toFixed(4)} (partial pricing)`
+                : `$${stats.costUSD.toFixed(4)}`
+          }`
         );
       }
 

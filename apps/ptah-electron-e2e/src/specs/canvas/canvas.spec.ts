@@ -1,4 +1,79 @@
+import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../../support/fixtures';
+
+/**
+ * Wait until an item's rendered height stops changing. Gridstack animates
+ * height (`grid-stack-animate`), so a box read right after a geometry change
+ * is mid-transition, and a pointer aimed at it lands on a neighbour.
+ */
+async function waitForSettledHeight(item: Locator): Promise<void> {
+  let previous = -1;
+  await expect
+    .poll(
+      async () => {
+        const height = (await item.boundingBox())?.height ?? -1;
+        const settled = height > 0 && height === previous;
+        previous = height;
+        return settled;
+      },
+      { intervals: [150] },
+    )
+    .toBe(true);
+}
+
+/**
+ * Gridstack shows auto-hidden resize handles only for the one item recorded
+ * as hovered (`DDManager.overResizeElement`), and clears that record on the
+ * item's `mouseout`. A tile menu item removed from under the pointer leaves
+ * the record stale, so no other item shows handles on hover. Passing the
+ * pointer through every item and out again clears it.
+ */
+async function releaseResizeHover(page: Page): Promise<void> {
+  const items = page.locator('gridstack-item');
+  const count = await items.count();
+  for (let index = 0; index < count; index += 1) {
+    await items.nth(index).hover();
+    await page.mouse.move(0, 0);
+  }
+}
+
+/** Rendered pixels per Gridstack height unit for an item, once settled. */
+async function rowPitch(item: Locator): Promise<number> {
+  await waitForSettledHeight(item);
+  const [box, h] = await Promise.all([
+    item.boundingBox(),
+    item.getAttribute('gs-h'),
+  ]);
+  if (!box || !h) throw new Error('Gridstack item is not measurable');
+  return box.height / Number(h);
+}
+
+/**
+ * Drag an item's south resize handle by `deltaY` pixels with a real pointer.
+ * `whileDragging` runs after the pointer has moved and before release, so a
+ * test can observe the live preview.
+ */
+async function dragSouthHandle(
+  page: Page,
+  item: Locator,
+  deltaY: number,
+  whileDragging?: () => Promise<void>,
+): Promise<void> {
+  await waitForSettledHeight(item);
+  await releaseResizeHover(page);
+  await item.hover();
+  const handle = item.locator('.ui-resizable-s');
+  await expect(handle).toBeVisible();
+  const box = await handle.boundingBox();
+  if (!box) throw new Error('Gridstack south resize handle is not measurable');
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + deltaY, { steps: 16 });
+  await whileDragging?.();
+  await page.mouse.up();
+}
 
 test.describe('Canvas', () => {
   test('Electron forces grid layout even when a persisted preference requests single mode', async ({
@@ -556,16 +631,87 @@ test.describe('Canvas', () => {
       { x: '4', y: '2', w: '4', h: '6' },
     ]);
 
-    // A compact tile carries no resize handle.
-    const compactResizeHandles = items.nth(1).locator('.ui-resizable-handle');
-    await expect(compactResizeHandles).toHaveCount(2);
-    for (let index = 0; index < 2; index += 1) {
-      await expect(compactResizeHandles.nth(index)).toBeHidden();
+    // A compact tile carries all three handles, but only its height (south)
+    // edge is active; a full tile shows only its span (east/west) edges.
+    const compact = items.nth(1);
+    await waitForSettledHeight(compact);
+    await releaseResizeHover(page);
+    await compact.hover();
+    await expect(compact.locator('.ui-resizable-handle')).toHaveCount(3);
+    await expect(compact.locator('.ui-resizable-e')).toBeHidden();
+    await expect(compact.locator('.ui-resizable-w')).toBeHidden();
+    await expect(compact.locator('.ui-resizable-s')).toBeVisible();
+    await items.nth(0).hover();
+    await expect(items.nth(0).locator('.ui-resizable-s')).toBeHidden();
+    await expect(items.nth(0).locator('.ui-resizable-e')).toBeVisible();
+
+    const grid = page.locator('ptah-canvas-workspace-grid:visible');
+    const commits = async (): Promise<number> =>
+      Number((await grid.getAttribute('data-canvas-gesture-commits')) ?? '-1');
+    const compactGeometry = (h: number): Geometry => [
+      { x: '0', y: '0', w: '4', h: '6' },
+      { x: '4', y: '0', w: '4', h: String(h) },
+      { x: '8', y: '0', w: '4', h: '6' },
+      { x: '4', y: String(h), w: '4', h: '6' },
+    ];
+
+    // Dragging the south edge 1.3 rows down snaps to one extra row, commits a
+    // gesture, and the tile below reflows.
+    const pitch = await rowPitch(compact);
+    const commitsBeforeDrag = await commits();
+    await dragSouthHandle(page, compact, pitch * 1.3);
+    await expect.poll(readGeometry).toEqual(compactGeometry(3));
+    await expect.poll(commits).toBe(commitsBeforeDrag + 1);
+
+    // Far past either bound clamps into [2, 5].
+    await dragSouthHandle(page, compact, pitch * 6);
+    await expect.poll(readGeometry).toEqual(compactGeometry(5));
+    await dragSouthHandle(page, compact, -pitch * 6);
+    await expect.poll(readGeometry).toEqual(compactGeometry(2));
+
+    // Menu presets: Tall = 3, Compact = 2; each closes the menu.
+    const openMenu = () =>
+      compact.locator('[data-testid="tile-layout-trigger"]').click();
+    const preset = (id: string) =>
+      compact.locator(`[data-layout-item][data-view-mode="${id}"]`);
+    await openMenu();
+    await expect(preset('tall')).toHaveAttribute('aria-checked', 'false');
+    await preset('tall').click();
+    await expect.poll(readGeometry).toEqual(compactGeometry(3));
+    await openMenu();
+    await expect(preset('tall')).toHaveAttribute('aria-checked', 'true');
+    await preset('compact').click();
+    await expect.poll(readGeometry).toEqual(compactGeometry(2));
+
+    // Stepper: − is disabled at 2, + steps to 5 and is then disabled; the menu
+    // stays open between steps and no preset is checked at a custom height.
+    await openMenu();
+    const decrease = compact.locator('[data-height-step="decrease"]');
+    const increase = compact.locator('[data-height-step="increase"]');
+    const units = compact.locator('[data-testid="tile-height-units"]');
+    await expect(units).toHaveText('2 rows');
+    await expect(decrease).toBeDisabled();
+    for (const next of [3, 4, 5]) {
+      await increase.click();
+      await expect(units).toHaveText(`${next} rows`);
+      await expect.poll(readGeometry).toEqual(compactGeometry(next));
     }
+    await expect(increase).toBeDisabled();
+    await expect(decrease).toBeEnabled();
+    for (const id of ['full', 'compact', 'tall']) {
+      await expect(preset(id)).toHaveAttribute('aria-checked', 'false');
+    }
+    for (const next of [4, 3, 2]) {
+      await decrease.click();
+      await expect(units).toHaveText(`${next} rows`);
+    }
+    await expect(decrease).toBeDisabled();
+    await expect.poll(readGeometry).toEqual(compactGeometry(2));
+    await page.keyboard.press('Escape');
 
     // Back to full: the stored third span returns untouched and the fourth
     // tile leaves the hole.
-    await items.nth(1).locator('[data-testid="tile-view-mode-toggle"]').click();
+    await compact.locator('[data-testid="tile-view-mode-toggle"]').click();
     await expect.poll(readGeometry).toEqual(fullThirds);
   });
 
@@ -662,11 +808,13 @@ test.describe('Canvas', () => {
     }
     await page.keyboard.press('Escape');
 
-    // Every GEOMETRY item in the tile layout menu is disabled while locked —
-    // the four span choices, Focus and Start new row. Anything that changes
-    // only the view mode is the deliberate exception, because a view-mode
-    // change reflows without committing a gesture.
+    // Every GEOMETRY item in a full tile's layout menu is disabled while
+    // locked — the four span choices, Focus and Start new row. Anything that
+    // changes only the tile height is the deliberate exception, because a
+    // height change reflows without committing a gesture. A full tile has no
+    // height stepper, so the count holds for full tiles only.
     await items.nth(0).locator('[data-testid="tile-layout-trigger"]').click();
+    await expect(items.nth(0).locator('[data-height-step]')).toHaveCount(0);
     const menuButtons = items
       .nth(0)
       .locator('[data-layout-item]:not([data-view-mode])');
@@ -674,9 +822,9 @@ test.describe('Canvas', () => {
     for (let index = 0; index < 6; index += 1) {
       await expect(menuButtons.nth(index)).toBeDisabled();
     }
-    // The three height tiers stay live under lock, for the same reason the
-    // header toggle does. They are the menu's way of picking a specific tier,
-    // which the binary header toggle deliberately cannot do.
+    // The three height presets stay live under lock, for the same reason the
+    // header toggle does. They are the menu's way of picking a specific
+    // height, which the binary header toggle deliberately cannot do.
     const viewModeItems = items
       .nth(0)
       .locator('[data-layout-item][data-view-mode]');
@@ -703,6 +851,36 @@ test.describe('Canvas', () => {
       { x: '8', y: '0', w: '4', h: '6' },
       { x: '4', y: '2', w: '4', h: '6' },
     ]);
+    expect(await grid.getAttribute('data-canvas-gesture-commits')).toBe(
+      String(commitsBefore),
+    );
+
+    // A locked compact tile shows no resize handle, but its height stepper
+    // stays live: + reflows the neighbour below and commits no gesture.
+    const compact = items.nth(1);
+    await waitForSettledHeight(compact);
+    await releaseResizeHover(page);
+    await compact.hover();
+    const lockedHandles = compact.locator('.ui-resizable-handle');
+    const lockedHandleCount = await lockedHandles.count();
+    for (let index = 0; index < lockedHandleCount; index += 1) {
+      await expect(lockedHandles.nth(index)).toBeHidden();
+    }
+    await compact.locator('[data-testid="tile-layout-trigger"]').click();
+    const increase = compact.locator('[data-height-step="increase"]');
+    await expect(compact.locator('[data-height-step]')).toHaveCount(2);
+    await expect(increase).toBeEnabled();
+    await increase.click();
+    await expect(
+      compact.locator('[data-testid="tile-height-units"]'),
+    ).toHaveText('3 rows');
+    await expect.poll(readGeometry).toEqual([
+      { x: '0', y: '0', w: '4', h: '6' },
+      { x: '4', y: '0', w: '4', h: '3' },
+      { x: '8', y: '0', w: '4', h: '6' },
+      { x: '4', y: '3', w: '4', h: '6' },
+    ]);
+    await page.keyboard.press('Escape');
     expect(await grid.getAttribute('data-canvas-gesture-commits')).toBe(
       String(commitsBefore),
     );
@@ -760,5 +938,66 @@ test.describe('Canvas', () => {
         return Boolean(gridBox && itemBox && itemBox.height < gridBox.height);
       })
       .toBe(true);
+  });
+
+  test('a compact singleton previews a south-edge drag live and keeps its height across a reload', async ({
+    ui,
+  }) => {
+    const page = ui.page;
+    await page.setViewportSize({ width: 2600, height: 1200 });
+    await ui.goto('canvas');
+
+    await page.getByRole('button', { name: 'Create new session' }).click();
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+
+    const items = page.locator('gridstack-item');
+    await expect(items).toHaveCount(1);
+    const tile = items.nth(0);
+    await tile.locator('[data-testid="tile-view-mode-toggle"]').click();
+    await expect(tile).toHaveAttribute('gs-h', '2');
+
+    const pitch = await rowPitch(tile);
+    const startBox = await tile.boundingBox();
+    if (!startBox) throw new Error('Compact singleton is not measurable');
+
+    // Mid-drag, the lone tile follows the pointer instead of staying pinned
+    // at its stored height.
+    await dragSouthHandle(page, tile, pitch * 2, async () => {
+      await expect
+        .poll(async () => (await tile.boundingBox())?.height ?? 0)
+        .toBeGreaterThan(startBox.height + pitch);
+    });
+    await expect(tile).toHaveAttribute('gs-h', '4');
+
+    // Rendered at the stored four rows (twice its two-row height), not
+    // stretched to fill the grid.
+    const visibleGrid = page.locator(
+      'ptah-canvas-workspace-grid:visible gridstack',
+    );
+    await expect
+      .poll(async () => {
+        const [gridBox, box] = await Promise.all([
+          visibleGrid.boundingBox(),
+          tile.boundingBox(),
+        ]);
+        if (!gridBox || !box) return 'unmeasurable';
+        if (box.height >= gridBox.height) return 'fills grid';
+        return Math.round(box.height / startBox.height);
+      })
+      .toBe(2);
+
+    // The height is stored per tab and survives a renderer reload.
+    await ui.prepare();
+    await ui.goto('canvas');
+    const restored = page.locator('gridstack-item');
+    await expect(restored).toHaveCount(1);
+    await expect(restored.nth(0)).toHaveAttribute('gs-h', '4');
+    await restored
+      .nth(0)
+      .locator('[data-testid="tile-layout-trigger"]')
+      .click();
+    await expect(
+      restored.nth(0).locator('[data-testid="tile-height-units"]'),
+    ).toHaveText('4 rows');
   });
 });

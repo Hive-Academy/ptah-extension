@@ -48,7 +48,11 @@
  * the whole lib rests on, so it is one bug, not two.
  */
 
-import type { SessionStatus, TabState } from '@ptah-extension/chat-types';
+import type {
+  SessionStatus,
+  TabAgentOrigin,
+  TabState,
+} from '@ptah-extension/chat-types';
 import { DEFAULT_SESSION_NAME_PATTERN } from './session-identity';
 
 function legacyTitleOrigin(tab: TabState): 'default' | 'history' {
@@ -150,6 +154,96 @@ const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set([
 ]);
 
 /**
+ * Height, in canvas grid rows, of the retired `'compact-tall'` view mode.
+ * A tab saved in that mode restores as `'compact'` at this height.
+ */
+export const LEGACY_COMPACT_TALL_HEIGHT_UNITS = 3;
+
+/**
+ * Height, in canvas grid rows, that a plain `'compact'` tab had before heights
+ * were stored. A compact tab restored without a valid height gets this one, so
+ * old tabs keep the size they were saved at.
+ */
+export const LEGACY_COMPACT_HEIGHT_UNITS = 2;
+
+/** The retired view-mode value, only ever read from old stored blobs. */
+const LEGACY_COMPACT_TALL_VIEW_MODE = 'compact-tall';
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+/**
+ * Stored view mode and compact height, validated.
+ *
+ * Persisted JSON is external input: a `compactHeightUnits` that is not a
+ * positive integer is dropped. A legacy `'compact-tall'` tab becomes compact at
+ * {@link LEGACY_COMPACT_TALL_HEIGHT_UNITS}, and a compact tab without a valid
+ * height gets {@link LEGACY_COMPACT_HEIGHT_UNITS}; a valid stored height always
+ * wins. The range is canvas's concern; it clamps again on read.
+ */
+function restoredCompactView(
+  tab: TabState,
+): Pick<TabState, 'viewMode' | 'compactHeightUnits'> {
+  const storedMode: string | undefined = tab.viewMode;
+  const storedUnits = isPositiveInteger(tab.compactHeightUnits)
+    ? tab.compactHeightUnits
+    : undefined;
+  if (storedMode === LEGACY_COMPACT_TALL_VIEW_MODE) {
+    return {
+      viewMode: 'compact',
+      compactHeightUnits: storedUnits ?? LEGACY_COMPACT_TALL_HEIGHT_UNITS,
+    };
+  }
+  if (storedMode === 'compact') {
+    return {
+      viewMode: 'compact',
+      compactHeightUnits: storedUnits ?? LEGACY_COMPACT_HEIGHT_UNITS,
+    };
+  }
+  return { viewMode: tab.viewMode, compactHeightUnits: storedUnits };
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Stored agent origin, validated (TASK_2026_584).
+ *
+ * `agentOrigin` is persisted on purpose — it is a fact of the session, not a
+ * live flag — so it is written verbatim by {@link projectTabForPersist}. On
+ * the way back in it is external input: a malformed record is dropped rather
+ * than rendered, and the tab restores as an ordinary tab.
+ */
+function restoredAgentOrigin(tab: TabState): TabAgentOrigin | undefined {
+  const raw: unknown = tab.agentOrigin;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const origin = raw as Record<string, unknown>;
+  if (
+    !isNonEmptyString(origin['parentTabId']) ||
+    !isNonEmptyString(origin['label']) ||
+    typeof origin['branch'] !== 'string' ||
+    typeof origin['worktreePath'] !== 'string' ||
+    typeof origin['startedAt'] !== 'number' ||
+    !Number.isFinite(origin['startedAt'])
+  ) {
+    return undefined;
+  }
+  const parentSessionId = origin['parentSessionId'];
+  const taskId = origin['taskId'];
+  return {
+    parentTabId: origin['parentTabId'],
+    parentSessionId: isNonEmptyString(parentSessionId) ? parentSessionId : null,
+    label: origin['label'],
+    branch: origin['branch'],
+    worktreePath: origin['worktreePath'],
+    ...(isNonEmptyString(taskId) ? { taskId } : {}),
+    startedAt: origin['startedAt'],
+  };
+}
+
+/**
  * Bring one stored tab back to a state the running app can own.
  *
  * The single definition of "restored tab", used by BOTH readers —
@@ -169,6 +263,10 @@ const NON_RESTORABLE_STATUSES: ReadonlySet<SessionStatus> = new Set([
 export function sanitizeRestoredTab(tab: TabState): TabState {
   return {
     ...tab,
+    // Persisted, but external input on the way back: a malformed record is
+    // dropped and the tab restores as an ordinary one.
+    agentOrigin: restoredAgentOrigin(tab),
+    ...restoredCompactView(tab),
     // Mirror projectTabForPersist explicitly. Only a recognized placeholder or
     // generated name on an empty draft is safe to treat as default.
     titleOrigin: tab.titleOrigin ?? legacyTitleOrigin(tab),

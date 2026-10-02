@@ -12,7 +12,8 @@ export interface TurnModelUsage {
   readonly outputTokens: number;
   readonly contextWindow: number;
   readonly contextCapacity?: ContextCapacity;
-  readonly costUSD: number;
+  /** `null` = the model is unpriced (unknown cost), never a zero spend. */
+  readonly costUSD: number | null;
   readonly cacheReadInputTokens?: number;
   readonly lastTurnContextTokens?: number;
 }
@@ -43,9 +44,14 @@ export function deriveLiveModelStats(
 ): DerivedLiveStats | null {
   if (modelUsage.length === 0) return null;
 
+  // `totalCost` here is only a ranking key, never a displayed figure: an
+  // unpriced row ranks as zero spend so a known cost always outranks it —
+  // the same key the backend snapshot uses (session-usage-aggregator), so the
+  // live header and the snapshot name the same model. The row itself (and
+  // `primaryModel.costUSD`) keeps its `null`.
   const ranked: CostRankedModelUsage[] = modelUsage.map((m) => ({
     model: m.model,
-    totalCost: m.costUSD,
+    totalCost: m.costUSD ?? 0,
     tokens: {
       input: m.inputTokens,
       output: m.outputTokens,

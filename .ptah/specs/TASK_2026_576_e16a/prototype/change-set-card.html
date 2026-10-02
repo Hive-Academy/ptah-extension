@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prototype — Change-set card (Req 4, 5)</title>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+<style>
+  .viewport-sidebar { max-width: 400px; margin: 0 auto; border-left: 1px dashed oklch(var(--bc) / 0.2); border-right: 1px dashed oklch(var(--bc) / 0.2); }
+  .viewport-wide { max-width: 100%; margin: 0 auto; }
+</style>
+</head>
+<body class="bg-base-100 text-base-content min-h-screen">
+
+<header class="bg-base-200 border-b border-base-300 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+  <div class="flex items-center gap-2">
+    <button id="themeToggle" class="btn btn-xs btn-outline">Toggle theme</button>
+    <button id="widthToggle" class="btn btn-xs btn-outline">Toggle embedded width</button>
+    <select id="stateSelector" class="select select-xs select-bordered">
+      <option value="populated">Populated (default)</option>
+      <option value="unavailable">Counts unavailable (Req 4.4)</option>
+      <option value="reconciled">File reconciled (Req 4.3)</option>
+    </select>
+  </div>
+  <nav class="flex items-center gap-1 flex-wrap">
+    <a href="index.html" class="btn btn-xs btn-ghost">Overview</a>
+    <a href="change-set-card.html" class="btn btn-xs btn-ghost btn-active">Change-set card</a>
+    <a href="review-canvas.html" class="btn btn-xs btn-ghost">Review canvas</a>
+    <a href="spot-editor.html" class="btn btn-xs btn-ghost">Spot editor</a>
+    <a href="commit-composer.html" class="btn btn-xs btn-ghost">Commit composer</a>
+    <a href="task-worktree.html" class="btn btn-xs btn-ghost">Task/worktree</a>
+    <a href="conflict-banner.html" class="btn btn-xs btn-ghost">Conflict banner</a>
+    <a href="history-timeline.html" class="btn btn-xs btn-ghost">History timeline</a>
+  </nav>
+</header>
+
+<main id="prototypeContainer" class="viewport-wide p-6">
+  <div class="max-w-2xl mx-auto space-y-8">
+
+    <section>
+      <h2 class="text-sm font-bold mb-2">Electron transcript card</h2>
+      <div class="bg-base-200 rounded p-3">
+        <!-- Chat message stand-in -->
+        <div class="text-sm text-base-content-muted mb-2">Agent: "I've refactored the hunk toolbar and added a reject confirmation."</div>
+
+        <!-- populated -->
+        <div class="state-view" data-state="populated">
+          <div class="bg-base-300/30 rounded border-l-2 max-w-md" style="border-left-color: oklch(var(--wa))">
+            <div class="py-1.5 px-2 flex items-center gap-1.5 text-[11px]">
+              <span aria-hidden="true">⌥</span>
+              <span class="font-semibold text-base-content-muted">4 files changed</span>
+              <span class="font-mono text-[10px]"><span class="text-success">+128</span> <span class="text-error">−42</span></span>
+              <span class="ml-auto"></span>
+              <button class="btn btn-primary btn-xs">Review</button>
+            </div>
+            <div class="border-t border-base-300/30">
+              <button class="w-full flex items-center gap-2 px-2 py-1 text-[11px] hover:bg-base-300/50 text-left" type="button">
+                <span class="badge badge-xs badge-info">M</span>
+                <span class="font-mono truncate flex-1">src/app.ts</span>
+                <span class="text-[10px] text-base-content-muted font-mono">+12 −3</span>
+                <span aria-hidden="true">›</span>
+              </button>
+              <button class="w-full flex items-center gap-2 px-2 py-1 text-[11px] hover:bg-base-300/50 text-left" type="button">
+                <span class="badge badge-xs badge-success">A</span>
+                <span class="font-mono truncate flex-1">src/new-file.ts</span>
+                <span class="text-[10px] text-base-content-muted font-mono">+40</span>
+                <span aria-hidden="true">›</span>
+              </button>
+              <button class="w-full flex items-center gap-2 px-2 py-1 text-[11px] hover:bg-base-300/50 text-left" type="button">
+                <span class="badge badge-xs bg-error err-solid-text">D</span>
+                <span class="font-mono truncate flex-1">src/old.ts</span>
+                <span class="text-[10px] text-base-content-muted font-mono">−39</span>
+                <span aria-hidden="true">›</span>
+              </button>
+              <button class="w-full flex items-center gap-2 px-2 py-1 text-[11px] hover:bg-base-300/50 text-left" type="button">
+                <span class="badge badge-xs badge-secondary">R</span>
+                <span class="font-mono truncate flex-1">src/moved.ts <span class="text-base-content-muted">← src/orig.ts</span></span>
+                <span class="text-[10px] text-base-content-muted font-mono">+2</span>
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- counts unavailable -->
+        <div class="state-view hidden" data-state="unavailable">
+          <div class="bg-base-300/30 rounded border-l-2 max-w-md" style="border-left-color: oklch(var(--bc) / 0.3)">
+            <div class="py-1.5 px-2 flex items-center gap-1.5 text-[11px]">
+              <span aria-hidden="true">⌥</span>
+              <span class="font-semibold text-base-content-muted">4 files changed</span>
+              <span class="badge badge-ghost badge-xs">counts unavailable</span>
+              <span class="ml-auto"></span>
+              <button class="btn btn-primary btn-xs">Review</button>
+            </div>
+            <div class="border-t border-base-300/30">
+              <button class="w-full flex items-center gap-2 px-2 py-1 text-[11px] hover:bg-base-300/50 text-left" type="button">
+                <span class="badge badge-xs badge-info">M</span>
+                <span class="font-mono truncate flex-1">src/app.ts</span>
+                <span class="text-[10px] text-base-content-muted font-mono">?</span>
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- reconciled -->
+        <div class="state-view hidden" data-state="reconciled">
+          <div class="bg-base-300/30 rounded border-l-2 max-w-md" style="border-left-color: oklch(var(--su))">
+            <div class="py-1.5 px-2 flex items-center gap-1.5 text-[11px]">
+              <span aria-hidden="true">⌥</span>
+              <span class="font-semibold text-base-content-muted">4 files changed</span>
+              <span class="font-mono text-[10px]"><span class="text-success">+128</span> <span class="text-error">−42</span></span>
+              <span class="ml-auto"></span>
+              <button class="btn btn-primary btn-xs">Review</button>
+            </div>
+            <div class="border-t border-base-300/30">
+              <div class="w-full flex items-center gap-2 px-2 py-1 text-[11px] opacity-60" role="listitem">
+                <span class="badge badge-xs badge-info">M</span>
+                <span class="font-mono truncate flex-1">src/app.ts</span>
+                <span class="badge badge-ghost badge-xs">No longer changes HEAD</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-sm font-bold mb-2">VS Code transcript card (Req 5)</h2>
+      <div class="bg-base-200 rounded p-3">
+        <div class="text-sm text-base-content-muted mb-2">Agent: "Same turn, reviewed via VS Code's own diff/changes/merge views."</div>
+        <div class="bg-base-300/30 rounded border-l-2 max-w-md" style="border-left-color: oklch(var(--wa))">
+          <div class="py-1.5 px-2 flex items-center gap-1.5 text-[11px]">
+            <span aria-hidden="true">⌥</span>
+            <span class="font-semibold text-base-content-muted">4 files changed</span>
+            <span class="font-mono text-[10px]"><span class="text-success">+128</span> <span class="text-error">−42</span></span>
+            <span class="ml-auto"></span>
+            <button class="btn btn-primary btn-xs">Review all</button>
+          </div>
+          <div class="border-t border-base-300/30">
+            <button class="w-full flex items-center gap-2 px-2 py-1 text-[11px] hover:bg-base-300/50 text-left" type="button" title="Opens vscode.diff against HEAD">
+              <span class="badge badge-xs badge-info">M</span>
+              <span class="font-mono truncate flex-1">src/app.ts</span>
+              <span class="text-[10px] text-base-content-muted font-mono">+12 −3</span>
+              <span aria-hidden="true">›</span>
+            </button>
+            <button class="w-full flex items-center gap-2 px-2 py-1 text-[11px] hover:bg-base-300/50 text-left" type="button" title="Opens git.openMergeEditor">
+              <span class="badge badge-xs bg-error err-solid-text">Conflicted</span>
+              <span class="font-mono truncate flex-1">src/b.ts</span>
+              <span class="text-[10px] text-base-content-muted font-mono">—</span>
+              <span aria-hidden="true">›</span>
+            </button>
+          </div>
+          <div class="border-t border-base-300/30 px-2 py-1.5">
+            <button class="btn btn-ghost btn-xs">Open Source Control</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

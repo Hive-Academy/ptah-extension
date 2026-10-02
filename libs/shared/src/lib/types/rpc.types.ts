@@ -17,6 +17,7 @@ export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
 export * from './rpc/rpc-git.types';
+export * from './rpc/rpc-change-set.types';
 export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
 export * from './rpc/rpc-mem.types';
@@ -90,6 +91,8 @@ import type {
   ChatPendingQuestionsResult,
   ChatRunningAgentsParams,
   ChatRunningAgentsResult,
+  ChatAgentSessionsParams,
+  ChatAgentSessionsResult,
 } from './rpc/rpc-chat.types';
 
 import type {
@@ -115,6 +118,18 @@ import type {
   SessionRewindResult,
   SessionStatusParams,
   SessionStatusResponse,
+  SessionSetOrganizationParams,
+  SessionSetOrganizationResult,
+  SessionLinkTaskParams,
+  SessionLinkTaskResult,
+  SessionUnlinkTaskParams,
+  SessionUnlinkTaskResult,
+  SessionAddPrLinkParams,
+  SessionAddPrLinkResult,
+  SessionRemovePrLinkParams,
+  SessionRemovePrLinkResult,
+  SessionListForTasksParams,
+  SessionListForTasksResult,
 } from './rpc/rpc-session.types';
 
 import type {
@@ -369,6 +384,10 @@ import type {
   GitLastCommitParams,
   GitLastCommitResult,
 } from './rpc/rpc-git.types';
+import type {
+  GitTurnChangeSetsParams,
+  GitTurnChangeSetsResult,
+} from './rpc/rpc-change-set.types';
 
 import type {
   MemoryListParams,
@@ -711,6 +730,10 @@ export interface RpcMethodRegistry {
     params: ChatRunningAgentsParams;
     result: ChatRunningAgentsResult;
   };
+  'chat:agent-sessions': {
+    params: ChatAgentSessionsParams;
+    result: ChatAgentSessionsResult;
+  };
   'session:list': { params: SessionListParams; result: SessionListResult };
   'session:load': { params: SessionLoadParams; result: SessionLoadResult };
   'session:delete': {
@@ -748,6 +771,32 @@ export interface RpcMethodRegistry {
   'session:status': {
     params: SessionStatusParams;
     result: SessionStatusResponse;
+  };
+  // Session organization (TASK_2026_580). Served on every host; a host
+  // without the organization store answers `organization-unavailable`.
+  'session:setOrganization': {
+    params: SessionSetOrganizationParams;
+    result: SessionSetOrganizationResult;
+  };
+  'session:linkTask': {
+    params: SessionLinkTaskParams;
+    result: SessionLinkTaskResult;
+  };
+  'session:unlinkTask': {
+    params: SessionUnlinkTaskParams;
+    result: SessionUnlinkTaskResult;
+  };
+  'session:addPrLink': {
+    params: SessionAddPrLinkParams;
+    result: SessionAddPrLinkResult;
+  };
+  'session:removePrLink': {
+    params: SessionRemovePrLinkParams;
+    result: SessionRemovePrLinkResult;
+  };
+  'session:listForTasks': {
+    params: SessionListForTasksParams;
+    result: SessionListForTasksResult;
   };
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
@@ -1592,6 +1641,10 @@ export interface RpcMethodRegistry {
   'git:lastCommit': {
     params: GitLastCommitParams;
     result: GitLastCommitResult;
+  };
+  'git:turnChangeSets': {
+    params: GitTurnChangeSetsParams;
+    result: GitTurnChangeSetsResult;
   };
   'harness:initialize': {
     params: HarnessInitializeParams;
@@ -3573,6 +3626,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'chat:abort': true,
   'chat:pending-questions': true,
   'chat:running-agents': true,
+  'chat:agent-sessions': true,
   'chat:resume': true,
   'chat:history-page': true,
   'session:list': true,
@@ -3586,6 +3640,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:forkSession': true,
   'session:rewindFiles': true,
   'session:status': true,
+  'session:setOrganization': true,
+  'session:linkTask': true,
+  'session:unlinkTask': true,
+  'session:addPrLink': true,
+  'session:removePrLink': true,
+  'session:listForTasks': true,
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
   'autocomplete:agents': true,
@@ -3781,6 +3841,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:tags': true,
   'git:remotes': true,
   'git:lastCommit': true,
+  'git:turnChangeSets': true,
   'harness:initialize': true,
   'harness:suggest-config': true,
   'harness:search-skills': true,

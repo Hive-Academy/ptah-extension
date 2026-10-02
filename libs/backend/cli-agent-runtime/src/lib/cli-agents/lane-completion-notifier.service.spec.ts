@@ -15,7 +15,15 @@ import type { AgentProcessInfo } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 import { FileType } from '@ptah-extension/platform-core';
-import { LaneCompletionNotifier } from './lane-completion-notifier.service';
+import {
+  LaneCompletionNotifier,
+  buildSessionChildCompletionEnvelope,
+  sessionChildVerdictOf,
+} from './lane-completion-notifier.service';
+import type {
+  SessionChildCompletionSubject,
+  SessionChildSettle,
+} from '../session-children/session-spawner.port';
 
 const PARENT = '11111111-2222-4333-8444-555555555555';
 const AGENT_ID = 'agent-abc';
@@ -36,7 +44,9 @@ function createLogger(): jest.Mocked<Logger> {
   } as unknown as jest.Mocked<Logger>;
 }
 
-function createInfo(overrides: Partial<AgentProcessInfo> = {}): AgentProcessInfo {
+function createInfo(
+  overrides: Partial<AgentProcessInfo> = {},
+): AgentProcessInfo {
   return {
     agentId: AGENT_ID,
     cli: 'codex',
@@ -493,6 +503,337 @@ describe('LaneCompletionNotifier.signal', () => {
       await h.notifier.signal(createInfo({ role: 'code-logic-reviewer' }));
 
       expect(h.envelope()).toContain('Role: code-logic-reviewer');
+    });
+  });
+});
+
+/*
+ * Session children started with `ptah_session_start` (TASK_2026_584).
+ */
+describe('LaneCompletionNotifier.signalSessionChild', () => {
+  const CHILD = 'aaaaaaaa-2222-4333-8444-555555555555';
+  const PARENT_SDK = 'cccccccc-2222-4333-8444-555555555555';
+  const CHILD_STARTED = '2026-10-01T10:00:00.000Z';
+  const SETTLED = '2026-10-01T10:05:30.000Z';
+  const WT = '/wt/auth-fix';
+
+  function subject(
+    overrides: Partial<SessionChildCompletionSubject> = {},
+  ): SessionChildCompletionSubject {
+    return {
+      childSessionId: CHILD,
+      label: 'auth-fix',
+      parentSessionIds: [PARENT, PARENT_SDK],
+      task: 'Fix the auth refresh.\nDetails nobody needs.',
+      deliverables: [],
+      worktreePath: WT,
+      branch: 'feat/auth-fix',
+      startedAt: CHILD_STARTED,
+      reportsDelivered: 2,
+      ...overrides,
+    };
+  }
+
+  function settle(
+    overrides: Partial<SessionChildSettle> = {},
+  ): SessionChildSettle {
+    return { turn: 1, status: 'completed', completedAt: SETTLED, ...overrides };
+  }
+
+  describe('deliverable timing against the child startedAt', () => {
+    it('reports no-deliverable for a file older than startedAt (a checkout file), while a lane calls it delivered', async () => {
+      const before = Date.parse(CHILD_STARTED) - 1;
+      const session = createHarness({
+        files: { '/wt/auth-fix/out.md': 10 },
+        mtime: before,
+      });
+
+      const result = await session.notifier.signalSessionChild(
+        subject({ deliverables: ['out.md'] }),
+        settle(),
+      );
+
+      expect(result.delivered).toBe(true);
+      if (!result.delivered) return;
+      expect(result.envelope.verdict).toBe('no-deliverable');
+      expect(result.envelope.text).toContain('(NOT written by this run)');
+
+      // The lane rule is unchanged: existence + non-empty is delivered.
+      const lane = createHarness({
+        files: { '/ws/out.md': 10 },
+        mtime: Date.parse(STARTED_AT) - 1,
+      });
+      const laneResult = await lane.notifier.signal(
+        createInfo({ deliverables: ['out.md'] }),
+      );
+      expect(laneResult.signal?.verdict).toBe('delivered');
+    });
+
+    it('counts a file whose mtime equals startedAt as written (the >= boundary)', async () => {
+      const h = createHarness({
+        files: { '/wt/auth-fix/out.md': 10 },
+        mtime: Date.parse(CHILD_STARTED),
+      });
+
+      const result = await h.notifier.signalSessionChild(
+        subject({ deliverables: ['out.md'] }),
+        settle(),
+      );
+
+      expect(result.delivered && result.envelope.verdict).toBe('delivered');
+    });
+
+    it('reports delivered for a file written after startedAt', async () => {
+      const h = createHarness({
+        files: { '/wt/auth-fix/out.md': 10 },
+        mtime: Date.parse(SETTLED),
+      });
+
+      const result = await h.notifier.signalSessionChild(
+        subject({ deliverables: ['out.md'] }),
+        settle(),
+      );
+
+      expect(result.delivered && result.envelope.verdict).toBe('delivered');
+    });
+
+    it('fails closed on an unparsable startedAt: no-deliverable and a warning', async () => {
+      const h = createHarness({
+        files: { '/wt/auth-fix/out.md': 10 },
+        mtime: Date.parse(SETTLED),
+      });
+
+      const result = await h.notifier.signalSessionChild(
+        subject({ startedAt: 'not-a-date', deliverables: ['out.md'] }),
+        settle(),
+      );
+
+      expect(result.delivered).toBe(true);
+      if (!result.delivered) return;
+      expect(result.envelope.verdict).toBe('no-deliverable');
+      expect(result.envelope.text).toContain(
+        '10 bytes (NOT written by this run)',
+      );
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('startedAt is not a date'),
+        expect.objectContaining({ childSessionId: CHILD }),
+      );
+    });
+
+    it('leaves the lane verdict unchanged on an unparsable startedAt', async () => {
+      const h = createHarness({ files: { '/ws/out.md': 10 } });
+
+      const result = await h.notifier.signal(
+        createInfo({ startedAt: 'not-a-date', deliverables: ['out.md'] }),
+      );
+
+      expect(result.signal?.verdict).toBe('delivered');
+      expect(result.signal?.deliverables[0].writtenAfterSpawn).toBeUndefined();
+    });
+
+    it('resolves relative deliverables against the task folder inside the worktree', async () => {
+      const h = createHarness({ files: { '/wt/auth-fix/tf/report.md': 5 } });
+
+      await h.notifier.signalSessionChild(
+        subject({ taskFolder: 'tf', deliverables: ['report.md'] }),
+        settle(),
+      );
+
+      expect(h.exists).toHaveBeenCalledWith(p('/wt/auth-fix/tf/report.md'));
+    });
+  });
+
+  describe('verdict table', () => {
+    it.each([
+      ['completed', [], 'unverified'],
+      ['completed', ['missing.md'], 'no-deliverable'],
+      ['completed', ['empty.md'], 'no-deliverable'],
+      ['completed', ['out.md'], 'delivered'],
+      ['failed', ['out.md'], 'failed'],
+      ['timeout', [], 'failed'],
+    ] as const)(
+      'status %s with %j -> %s',
+      async (status, deliverables, verdict) => {
+        const h = createHarness({
+          files: { '/wt/auth-fix/out.md': 10, '/wt/auth-fix/empty.md': 0 },
+          mtime: Date.parse(SETTLED),
+        });
+
+        const result = await h.notifier.signalSessionChild(
+          subject({ deliverables: [...deliverables] }),
+          settle({ status }),
+        );
+
+        expect(result.delivered && result.envelope.verdict).toBe(verdict);
+      },
+    );
+
+    it('keeps the lane rule when the mtime is unreadable (flag absent)', () => {
+      expect(
+        sessionChildVerdictOf('completed', [
+          { path: '/x', exists: true, bytes: 3 },
+        ]),
+      ).toBe('delivered');
+    });
+  });
+
+  describe('delivery', () => {
+    it('delivers into the parent tab with the ptah-session origin', async () => {
+      const h = createHarness();
+
+      const result = await h.notifier.signalSessionChild(subject(), settle());
+
+      expect(result).toMatchObject({
+        delivered: true,
+        parentSessionId: PARENT,
+      });
+      expect(h.sendMessageToSession.mock.calls[0][0]).toBe(PARENT);
+      expect(h.sendMessageToSession.mock.calls[0][2]).toEqual({
+        origin: {
+          kind: 'peer',
+          from: `ptah-session:${CHILD}`,
+          name: 'session · auth-fix',
+        },
+      });
+    });
+
+    it('falls back to the parent SDK id when the parent tab is not live', async () => {
+      const h = createHarness();
+      h.isSessionActive.mockImplementation((id: unknown) => id === PARENT_SDK);
+
+      const result = await h.notifier.signalSessionChild(subject(), settle());
+
+      expect(result).toMatchObject({
+        delivered: true,
+        parentSessionId: PARENT_SDK,
+      });
+    });
+
+    it('returns the refusal WITH the built envelope when no parent is live', async () => {
+      const h = createHarness({ sessionActive: false });
+
+      const result = await h.notifier.signalSessionChild(
+        subject(),
+        settle({ turn: 3 }),
+      );
+
+      expect(h.sendMessageToSession).not.toHaveBeenCalled();
+      expect(result.delivered).toBe(false);
+      expect(result.delivered === false && result.reason).toBe(
+        'parent-session-not-active',
+      );
+      if (result.delivered || result.reason === 'already-signalled') {
+        throw new Error('expected an envelope-bearing refusal');
+      }
+      expect(result.envelope.childSessionId).toBe(CHILD);
+      expect(result.envelope.turn).toBe(3);
+      expect(result.envelope.text).toContain('turn="3"');
+    });
+
+    it('returns the envelope on chat-runtime-unavailable and delivery-failed too', async () => {
+      const noAdapter = createHarness({ withAdapter: false });
+      const failing = createHarness({
+        sendImpl: () => Promise.reject(new Error('busy')),
+      });
+
+      const a = await noAdapter.notifier.signalSessionChild(
+        subject(),
+        settle(),
+      );
+      const b = await failing.notifier.signalSessionChild(subject(), settle());
+
+      expect(a).toMatchObject({
+        delivered: false,
+        reason: 'chat-runtime-unavailable',
+      });
+      expect(b).toMatchObject({ delivered: false, reason: 'delivery-failed' });
+      expect('envelope' in a && 'envelope' in b).toBe(true);
+    });
+
+    it('refuses no-parent-recorded when no parent id is a session id', async () => {
+      const h = createHarness();
+
+      const result = await h.notifier.signalSessionChild(
+        subject({ parentSessionIds: ['not-a-uuid'] }),
+        settle(),
+      );
+
+      expect(result).toMatchObject({
+        delivered: false,
+        reason: 'no-parent-recorded',
+      });
+    });
+  });
+
+  describe('per-turn dedupe', () => {
+    it('signals each turn once and a later turn again', async () => {
+      const h = createHarness();
+
+      const first = await h.notifier.signalSessionChild(subject(), settle());
+      const repeat = await h.notifier.signalSessionChild(subject(), settle());
+      const next = await h.notifier.signalSessionChild(
+        subject(),
+        settle({ turn: 2 }),
+      );
+
+      expect(first.delivered).toBe(true);
+      expect(repeat).toEqual({ delivered: false, reason: 'already-signalled' });
+      expect(next.delivered).toBe(true);
+      expect(h.sendMessageToSession).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('envelope', () => {
+    it('renders the full envelope (snapshot)', () => {
+      const envelope = buildSessionChildCompletionEnvelope(
+        subject({
+          taskFolder: '/wt/auth-fix/tf',
+          lastRecap: '  Done; tests pass.  ',
+        }),
+        settle({ turn: 2 }),
+        [
+          {
+            path: '/wt/auth-fix/tf/a.md',
+            exists: true,
+            bytes: 12,
+            writtenAfterSpawn: true,
+          },
+          { path: '/wt/auth-fix/tf/b.md', exists: false },
+        ],
+      );
+
+      expect(envelope.verdict).toBe('no-deliverable');
+      expect(envelope.text).toBe(
+        [
+          `<agent-lane-completed agent-id="${CHILD}" agent="auth-fix" cli="ptah-session" status="completed" verdict="no-deliverable" turn="2">`,
+          'Child session auth-fix settled: completed after 5m 30s (settled turn 2).',
+          'Task: Fix the auth refresh.',
+          'Branch: feat/auth-fix',
+          'Worktree: /wt/auth-fix',
+          'Task folder: /wt/auth-fix/tf',
+          'Deliverables:',
+          '- /wt/auth-fix/tf/a.md — 12 bytes',
+          '- /wt/auth-fix/tf/b.md — MISSING',
+          'Reports sent by this child so far: 2.',
+          'Last message: Done; tests pass.',
+          'Next: the child went idle without writing every deliverable it was ' +
+            'given, so treat the task as NOT done. Inspect it with ' +
+            'ptah_session_read, then steer it with ptah_session_send naming the ' +
+            'missing paths. The child stays open in its tab and holds a slot ' +
+            'until ptah_session_stop; the user owns merge, PR and worktree cleanup.',
+          '</agent-lane-completed>',
+        ].join('\n'),
+      );
+    });
+
+    it('escapes attribute values', () => {
+      const envelope = buildSessionChildCompletionEnvelope(
+        subject({ label: 'a"b<c>' }),
+        settle(),
+        [],
+      );
+
+      expect(envelope.text).toContain('agent="a&quot;b&lt;c&gt;"');
     });
   });
 });

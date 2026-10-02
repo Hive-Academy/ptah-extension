@@ -11,6 +11,11 @@
  *   5. Catch the `?code=&state=` redirect, validate `state`, exchange the code
  *      (+ verifier) for tokens, and store them encrypted.
  *
+ * Time bounds: every request is capped at `OAUTH_REQUEST_TIMEOUT_MS`, and
+ * steps 1-3 together at `OAUTH_DISCOVERY_DEADLINE_MS`, so `connect()` takes at
+ * most 45 s + callback timeout (300 s) + 15 s = 360 s. `probeDiscovery()` is
+ * capped at `OAUTH_PROBE_DEADLINE_MS` (25 s).
+ *
  * Tokens are never written to disk config — only non-secret metadata goes to
  * the plaintext manifest. Errors are sanitized by the caller before crossing
  * the RPC boundary; this service never logs a token.
@@ -27,6 +32,13 @@ import {
   discoverAuthorizationServer,
   discoverAuthServerMetadata,
   registerClient,
+  withRequestTimeout,
+  OAuthTimeoutError,
+  OAUTH_DISCOVERY_DEADLINE_MS,
+  OAUTH_PROBE_DEADLINE_MS,
+  OAUTH_REQUEST_TIMEOUT_MS,
+  OAUTH_TIMEOUT_ERROR_NAME,
+  type AuthServerMetadata,
   type FetchLike,
 } from './mcp-oauth-metadata';
 import type {
@@ -68,12 +80,26 @@ export interface McpOAuthServiceDeps {
   openExternal?(url: string): Promise<boolean>;
   tokenStore: McpOAuthTokenStore;
   manifest: McpOAuthInstalledManifestStore;
+  /**
+   * Transport. Defaults to the global `fetch`. Either way it is wrapped with
+   * `withRequestTimeout`, so every request this service makes is bounded.
+   */
   fetchImpl?: FetchLike;
   logger?: McpOAuthLogger;
   /** Injectable clock for tests. */
   now?: () => number;
   callbackTimeoutMs?: number;
+  /** Per-request cap. Defaults to `OAUTH_REQUEST_TIMEOUT_MS`. */
+  requestTimeoutMs?: number;
+  /** Discovery + registration cap. Defaults to `OAUTH_DISCOVERY_DEADLINE_MS`. */
+  discoveryDeadlineMs?: number;
+  /** `probeDiscovery()` cap. Defaults to `OAUTH_PROBE_DEADLINE_MS`. */
+  probeDeadlineMs?: number;
 }
+
+/** The flow step a timeout is logged against. */
+type OAuthStep =
+  'discovery' | 'registration' | 'token-exchange' | 'probe-discovery';
 
 export interface ConnectOptions {
   serverUrl: string;
@@ -114,6 +140,8 @@ export class McpOAuthService {
   private readonly logger?: McpOAuthLogger;
   private readonly now: () => number;
   private readonly callbackTimeoutMs: number;
+  private readonly discoveryDeadlineMs: number;
+  private readonly probeDeadlineMs: number;
 
   constructor(deps: McpOAuthServiceDeps) {
     this.httpServerProvider = deps.httpServerProvider;
@@ -121,12 +149,59 @@ export class McpOAuthService {
     this.openExternal = deps.openExternal;
     this.tokenStore = deps.tokenStore;
     this.manifest = deps.manifest;
-    this.fetchImpl =
-      deps.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
+    this.fetchImpl = withRequestTimeout(
+      deps.fetchImpl ?? (globalThis.fetch as unknown as FetchLike),
+      deps.requestTimeoutMs ?? OAUTH_REQUEST_TIMEOUT_MS,
+    );
     this.logger = deps.logger;
     this.now = deps.now ?? (() => Date.now());
     this.callbackTimeoutMs =
       deps.callbackTimeoutMs ?? DEFAULT_CALLBACK_TIMEOUT_MS;
+    this.discoveryDeadlineMs =
+      deps.discoveryDeadlineMs ?? OAUTH_DISCOVERY_DEADLINE_MS;
+    this.probeDeadlineMs = deps.probeDeadlineMs ?? OAUTH_PROBE_DEADLINE_MS;
+  }
+
+  /**
+   * Run one flow step, logging a timeout at warn with the server and step
+   * before it propagates. The error itself already carries user-facing copy.
+   */
+  private async timedStep<T>(
+    step: OAuthStep,
+    serverUrl: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await work();
+    } catch (error: unknown) {
+      if (
+        error instanceof OAuthTimeoutError ||
+        (error instanceof Error && error.name === OAUTH_TIMEOUT_ERROR_NAME)
+      ) {
+        this.logger?.warn('MCP OAuth: request timed out', {
+          serverUrl,
+          step,
+          url: error instanceof OAuthTimeoutError ? error.url : undefined,
+        });
+      }
+      throw error;
+    }
+  }
+
+  /** Discover the authorization server and its metadata within `signal`. */
+  private discover(
+    serverUrl: string,
+    signal: AbortSignal,
+    step: OAuthStep = 'discovery',
+  ): Promise<AuthServerMetadata> {
+    return this.timedStep(step, serverUrl, async () => {
+      const authServer = await discoverAuthorizationServer(
+        serverUrl,
+        this.fetchImpl,
+        signal,
+      );
+      return discoverAuthServerMetadata(authServer, this.fetchImpl, signal);
+    });
   }
 
   /**
@@ -173,11 +248,9 @@ export class McpOAuthService {
       options.serverKey?.trim() || deriveMcpOAuthServerKey(serverUrl);
     const name = options.name?.trim() || new URL(serverUrl).host;
 
-    const authServer = await discoverAuthorizationServer(
-      serverUrl,
-      this.fetchImpl,
-    );
-    const meta = await discoverAuthServerMetadata(authServer, this.fetchImpl);
+    // One deadline for everything before the browser callback wait.
+    const deadline = AbortSignal.timeout(this.discoveryDeadlineMs);
+    const meta = await this.discover(serverUrl, deadline);
 
     const pkce = generatePkceChallenge();
 
@@ -190,10 +263,15 @@ export class McpOAuthService {
       let clientSecret: string | undefined;
       const preRegisteredClientId = options.clientId?.trim();
       if (meta.registrationEndpoint) {
-        const registered = await registerClient(
-          meta.registrationEndpoint,
-          redirectUri,
-          this.fetchImpl,
+        const registrationEndpoint = meta.registrationEndpoint;
+        const registered = await this.timedStep('registration', serverUrl, () =>
+          registerClient(
+            registrationEndpoint,
+            redirectUri,
+            this.fetchImpl,
+            undefined,
+            deadline,
+          ),
         );
         clientId = registered.clientId;
         clientSecret = registered.clientSecret;
@@ -234,16 +312,18 @@ export class McpOAuthService {
 
       const code = await callback.waitForCode(this.callbackTimeoutMs);
 
-      const token = await this.exchangeCode({
-        tokenEndpoint: meta.tokenEndpoint,
-        code,
-        redirectUri,
-        codeVerifier: pkce.codeVerifier,
-        clientId,
-        clientSecret,
-        scope,
-        resource: serverUrl,
-      });
+      const token = await this.timedStep('token-exchange', serverUrl, () =>
+        this.exchangeCode({
+          tokenEndpoint: meta.tokenEndpoint,
+          code,
+          redirectUri,
+          codeVerifier: pkce.codeVerifier,
+          clientId,
+          clientSecret,
+          scope,
+          resource: serverUrl,
+        }),
+      );
 
       await this.tokenStore.setToken(serverKey, token);
       this.manifest.record({ serverKey, name, serverUrl });
@@ -270,11 +350,11 @@ export class McpOAuthService {
   async probeDiscovery(
     serverUrl: string,
   ): Promise<{ dynamicRegistration: boolean }> {
-    const authServer = await discoverAuthorizationServer(
+    const meta = await this.discover(
       serverUrl,
-      this.fetchImpl,
+      AbortSignal.timeout(this.probeDeadlineMs),
+      'probe-discovery',
     );
-    const meta = await discoverAuthServerMetadata(authServer, this.fetchImpl);
     return { dynamicRegistration: Boolean(meta.registrationEndpoint) };
   }
 
@@ -343,6 +423,8 @@ export class McpOAuthService {
     } catch (error: unknown) {
       this.logger?.warn('MCP OAuth: refresh request failed', {
         serverKey,
+        step: 'refresh',
+        tokenEndpoint: token.tokenEndpoint,
         error: error instanceof Error ? error.message : String(error),
       });
       return null;

@@ -66,6 +66,50 @@ export class GitOutputLimitError extends Error {
   }
 }
 
+/**
+ * Rejection for a git child that ran past its timeout. The child has already
+ * been told to die when this is thrown; its slot is held until it does. The
+ * message keeps the `git <sub> timed out after <n>ms` shape that existing
+ * callers classify on.
+ */
+export class GitTimeoutError extends Error {
+  readonly code = 'GIT_TIMEOUT' as const;
+
+  constructor(
+    readonly subcommand: string | undefined,
+    readonly timeoutMs: number,
+  ) {
+    super(`git ${subcommand} timed out after ${timeoutMs}ms`);
+    this.name = 'GitTimeoutError';
+  }
+}
+
+/**
+ * Rejection for a git call whose `signal` aborted before it finished. Thrown
+ * without spawning when the abort came first; otherwise the child is killed
+ * through the same path as a timeout.
+ */
+export class GitCancelledError extends Error {
+  readonly code = 'GIT_CANCELLED' as const;
+
+  constructor(readonly subcommand: string | undefined) {
+    super(`git ${subcommand} was cancelled`);
+    this.name = 'GitCancelledError';
+  }
+}
+
+/**
+ * git's C-locale message when another process holds the index lock, e.g.
+ * `fatal: Unable to create '/repo/.git/index.lock': File exists.`
+ * `execGit` pins `LC_ALL=C`, so the English text is stable.
+ */
+const INDEX_LOCK_FAILURE = /Unable to create '.*index\.lock': File exists/;
+
+/** True when `stderr` says git could not take `index.lock` because it exists. */
+export function isIndexLockFailure(stderr: string): boolean {
+  return INDEX_LOCK_FAILURE.test(stderr);
+}
+
 /** Gives a gate slot back. Idempotent: a second call does nothing. */
 export type GitSlotRelease = () => void;
 
@@ -443,6 +487,32 @@ export interface ExecGitOptions {
    * status refresh); user-initiated commands leave it unset.
    */
   priority?: 'normal' | 'background';
+  /**
+   * Cancels the call. Aborted before a slot is granted: rejects with
+   * {@link GitCancelledError} without spawning, and a slot granted later is
+   * handed straight back. Aborted while the child runs: the child is killed
+   * exactly as on a timeout (its slot is held until it exits) and the call
+   * rejects with {@link GitCancelledError}. Aborted after the call settled:
+   * nothing happens.
+   */
+  signal?: AbortSignal;
+  /**
+   * Observer for live output, called with each decoded chunk as it arrives.
+   * Each stream has its own streaming UTF-8 decoder, so a multi-byte character
+   * split across chunks arrives whole in one call. The full output is still
+   * collected and returned as usual. Not called for output past
+   * `maxOutputBytes` or after the call settled.
+   */
+  onOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  /**
+   * Called once when the git process itself has exited — including one killed
+   * after the call already rejected on a timeout or abort. It fires on `exit`,
+   * not `close`: a process git started may outlive it and hold the output
+   * pipes (on Windows an MSYS program a hook had exec'd escapes the tree
+   * kill), and git's own exit is what ends its hold on the repository.
+   * Never called twice, and never for a spawn error alone.
+   */
+  onExit?: () => void;
 }
 
 export interface ExecGitResult {
@@ -480,6 +550,8 @@ interface GitChildHandle {
   readonly whenSpawned: Promise<number | undefined>;
   isKilled(): boolean;
   kill(signal: NodeJS.Signals): void;
+  /** git itself exited; its stdio may still be held by processes it started. */
+  onExit(listener: () => void): void;
   onClose(listener: (code: number | null) => void): void;
   onError(listener: (error: Error) => void): void;
 }
@@ -512,6 +584,7 @@ function spawnGitChild(
       kill: (signal) => {
         handle.kill(signal);
       },
+      onExit: (listener) => handle.on('exit', () => listener()),
       onClose: (listener) => handle.on('close', (code) => listener(code)),
       onError: (listener) => handle.on('error', listener),
     };
@@ -530,6 +603,9 @@ function spawnGitChild(
     isKilled: () => child.killed,
     kill: (signal) => {
       child.kill(signal);
+    },
+    onExit: (listener) => {
+      child.on('exit', () => listener());
     },
     onClose: (listener) => {
       child.on('close', (code: number | null) => listener(code));
@@ -580,8 +656,50 @@ export async function execGitBuffer(
     (options?.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS) > LONG_GIT_CALL_MS
       ? 'background'
       : 'interactive';
-  const release = await gitProcessGate().acquire(cwd, lane);
+  const signal = options?.signal;
+  if (signal?.aborted) throw new GitCancelledError(args[0]);
+  const acquired = gitProcessGate().acquire(cwd, lane);
+  const release = signal
+    ? await acquireUnlessAborted(acquired, signal, args[0])
+    : await acquired;
   return runGitChild(args, cwd, options, release);
+}
+
+/**
+ * Wait for a gate slot, rejecting at once if `signal` aborts first. The gate
+ * cannot drop a queued waiter, so a slot granted after the abort is released
+ * the moment it arrives: a cancelled call never holds one.
+ *
+ * A signal that is already aborted never fires `abort` again, so it is
+ * rejected on entry rather than waiting on an event that cannot come. A gate
+ * that rejects (it does not today) settles the call with that rejection
+ * instead of leaving it pending forever.
+ */
+function acquireUnlessAborted(
+  acquired: Promise<GitSlotRelease>,
+  signal: AbortSignal,
+  subcommand: string | undefined,
+): Promise<GitSlotRelease> {
+  return new Promise((resolve, reject) => {
+    let cancelled = false;
+    const onAbort = (): void => {
+      cancelled = true;
+      reject(new GitCancelledError(subcommand));
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+    acquired.then(
+      (release) => {
+        signal.removeEventListener('abort', onAbort);
+        if (cancelled) release();
+        else resolve(release);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**
@@ -598,7 +716,16 @@ function runGitChild(
   const timeoutMs = options?.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS;
   const maxOutputBytes =
     options?.maxOutputBytes ?? DEFAULT_GIT_MAX_OUTPUT_BYTES;
+  const signal = options?.signal;
+  const onOutput = options?.onOutput;
   return new Promise((resolve, reject) => {
+    // The abort may land between the slot grant and this call; nothing is
+    // spawned then, and the slot goes straight back.
+    if (signal?.aborted) {
+      release();
+      reject(new GitCancelledError(args[0]));
+      return;
+    }
     let child: GitChildHandle;
     try {
       child = spawnGitChild(
@@ -619,6 +746,8 @@ function runGitChild(
     let outputBytes = 0;
     let settled = false;
     let exited = false;
+    /** git itself exited (`exit`); `exited` waits for its pipes (`close`). */
+    let exitNotified = false;
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
 
     if (options?.priority === 'background') {
@@ -640,33 +769,90 @@ function runGitChild(
      * closes or the grace runs out, escalating to SIGKILL first.
      */
     const terminate = (): void => {
-      child.kill('SIGTERM');
       // Off-thread the pid is not known synchronously, so the tree kill waits
       // for it rather than reading a field that would still be `undefined`.
-      void child.whenSpawned.then((pid) => {
-        if (!exited && pid !== undefined) void killProcessTree(pid);
-      });
+      if (process.platform === 'win32') {
+        // Tree first. `kill` is TerminateProcess on git.exe alone, and once
+        // git.exe is gone `taskkill /T` can no longer find its children (a
+        // hook's sh.exe and whatever it started): they would live on, holding
+        // the output pipes and the repository. `kill` then only backs up a
+        // tree kill that failed. An MSYS program the hook shell had exec'd is
+        // re-parented to an exited stub and escapes any Windows tree walk; it
+        // ends on its own, and the hook script around it is already dead.
+        void child.whenSpawned
+          .then(async (pid) => {
+            try {
+              if (!exitNotified && pid !== undefined) {
+                await killProcessTree(pid);
+              }
+            } finally {
+              if (!exitNotified) child.kill('SIGTERM');
+            }
+          })
+          .catch(() => {
+            // degradation-audit: reported - a failed tree kill has still
+            // fallen through to `kill` above; a child that outlives both is
+            // SIGKILLed by `armReleaseGrace` below, and the caller already
+            // holds the timeout or cancellation error that started this.
+          });
+      } else {
+        // SIGTERM first on POSIX: git removes its own lock files on the way out.
+        child.kill('SIGTERM');
+        void child.whenSpawned.then((pid) => {
+          if (!exited && pid !== undefined) void killProcessTree(pid);
+        });
+      }
       armReleaseGrace(() => {
         if (!child.isKilled()) child.kill('SIGKILL');
       });
     };
 
+    const onAbortSignal = (): void => {
+      abort(new GitCancelledError(args[0]));
+    };
+
+    /** Stop the timeout clock and the abort listener once the call settles. */
+    const finish = (): void => {
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbortSignal);
+    };
+
     /** Settle with `error` and kill the child; its slot stays held. */
     const abort = (error: Error): void => {
       if (settled) return;
-      settled = true;
-      clearTimeout(timer);
+      finish();
       terminate();
       reject(error);
     };
 
     const timer = setTimeout(() => {
-      abort(new Error(`git ${args[0]} timed out after ${timeoutMs}ms`));
+      abort(new GitTimeoutError(args[0], timeoutMs));
     }, timeoutMs);
     timer.unref?.();
+    signal?.addEventListener('abort', onAbortSignal, { once: true });
+
+    const stdoutDecoder = onOutput ? new TextDecoder('utf-8') : undefined;
+    const stderrDecoder = onOutput ? new TextDecoder('utf-8') : undefined;
+
+    /** Hand decoded text to the observer; its failure never fails the run. */
+    const emitOutput = (stream: 'stdout' | 'stderr', text: string): void => {
+      if (!onOutput || text.length === 0) return;
+      try {
+        onOutput(stream, text);
+      } catch {
+        // degradation-audit: optional-capability - `onOutput` only observes;
+        // a throwing observer must not become an unhandled error inside the
+        // stream's `data` event or change the git result the caller awaits.
+      }
+    };
 
     const collect =
-      (chunks: Buffer[]) =>
+      (
+        chunks: Buffer[],
+        stream: 'stdout' | 'stderr',
+        decoder: TextDecoder | undefined,
+      ) =>
       (data: Buffer): void => {
         if (settled) return;
         outputBytes += data.byteLength;
@@ -675,17 +861,34 @@ function runGitChild(
           return;
         }
         chunks.push(data);
+        if (decoder) emitOutput(stream, decoder.decode(data, { stream: true }));
       };
-    child.stdout?.on('data', collect(stdoutChunks));
-    child.stderr?.on('data', collect(stderrChunks));
+    child.stdout?.on('data', collect(stdoutChunks, 'stdout', stdoutDecoder));
+    child.stderr?.on('data', collect(stderrChunks, 'stderr', stderrDecoder));
+
+    const notifyExit = (): void => {
+      if (exitNotified) return;
+      exitNotified = true;
+      try {
+        options?.onExit?.();
+      } catch {
+        // degradation-audit: optional-capability - `onExit` only observes; a
+        // throwing observer must not change the result the caller awaits.
+      }
+    };
+    child.onExit(notifyExit);
 
     child.onClose((code: number | null) => {
       exited = true;
       if (graceTimer) clearTimeout(graceTimer);
       release();
+      notifyExit(); // `close` without a prior `exit` still counts, once
       if (settled) return;
-      settled = true;
-      clearTimeout(timer);
+      finish();
+      // Flush any bytes a decoder still holds; a truncated final sequence
+      // decodes to U+FFFD, the same as the returned buffer would.
+      if (stdoutDecoder) emitOutput('stdout', stdoutDecoder.decode());
+      if (stderrDecoder) emitOutput('stderr', stderrDecoder.decode());
       resolve({
         stdout: Buffer.concat(stdoutChunks),
         stderr: Buffer.concat(stderrChunks).toString('utf8'),
@@ -702,8 +905,7 @@ function runGitChild(
         else if (!exited) terminate();
       });
       if (settled) return;
-      settled = true;
-      clearTimeout(timer);
+      finish();
       reject(error);
     });
 

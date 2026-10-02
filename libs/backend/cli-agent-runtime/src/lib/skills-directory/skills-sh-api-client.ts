@@ -49,7 +49,7 @@ function delay(ms: number): Promise<void> {
 }
 
 const BASE_URL = 'https://skills.sh/api';
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 30_000;
 const SEARCH_TTL_MS = 60 * 1000;
 
 /** Rows returned when the caller names no limit. */

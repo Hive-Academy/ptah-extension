@@ -47,6 +47,7 @@ export { CapabilityRpcHandlers } from './capability-rpc.handlers';
 export { OutputStyleRpcHandlers } from './output-style-rpc.handlers';
 export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 export { GitRpcHandlers } from './git-rpc.handlers';
+export { GitChangeSetRpcHandlers } from './git-change-set-rpc.handlers';
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 export { SettingsRpcHandlers } from './settings-rpc.handlers';
 export { MemoryRpcHandlers } from './memory-rpc.handlers';
@@ -76,6 +77,7 @@ export type {
 } from './persistence-rpc.handlers';
 export { EmbedderRpcHandlers } from './embedder-rpc.handlers';
 export { TasksRpcHandlers } from './tasks-rpc.handlers';
+export { SessionOrganizationRpcHandlers } from './session-organization-rpc.handlers';
 export { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';
 export { EditorRpcHandlers } from './editor-rpc.handlers';
 export { FileViewRpcHandlers } from './file-view-rpc.handlers';

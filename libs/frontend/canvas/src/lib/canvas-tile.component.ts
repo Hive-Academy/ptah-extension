@@ -37,11 +37,16 @@ import {
   Scan,
   CornerDownLeft,
   Check,
+  Minus,
+  Plus,
 } from 'lucide-angular';
 import { TileAgentIndicatorComponent } from './tile-agent-indicator.component';
 import { TileAgentMiniPanelComponent } from './tile-agent-mini-panel.component';
 import {
+  clampCompactHeightUnits,
   DEFAULT_TILE_WIDTH,
+  MAX_COMPACT_TILE_HEIGHT_UNITS,
+  MIN_COMPACT_TILE_HEIGHT_UNITS,
   type TileSpan,
   type TileWidthIntent,
 } from './canvas-layout-intent';
@@ -63,22 +68,31 @@ const SPAN_OPTIONS: ReadonlyArray<{
 
 const MENU_NAVIGATION_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
 
-const VIEW_MODE_OPTIONS: ReadonlyArray<{
-  readonly mode: TabViewMode;
-  readonly short: string;
-  readonly label: string;
-}> = [
-  { mode: 'full', short: 'Full', label: 'Full' },
-  { mode: 'compact', short: 'Compact', label: 'Compact' },
-  { mode: 'compact-tall', short: 'Tall', label: 'Compact tall' },
+/** One-click height shortcuts; the stepper reaches every other height. */
+type HeightPreset =
+  | { readonly id: 'full'; readonly short: string; readonly label: string }
+  | {
+      readonly id: 'compact' | 'tall';
+      readonly units: number;
+      readonly short: string;
+      readonly label: string;
+    };
+
+const HEIGHT_PRESETS: readonly HeightPreset[] = [
+  { id: 'full', short: 'Full', label: 'Full' },
+  {
+    id: 'compact',
+    units: MIN_COMPACT_TILE_HEIGHT_UNITS,
+    short: 'Compact',
+    label: 'Compact',
+  },
+  { id: 'tall', units: 3, short: 'Tall', label: 'Compact tall' },
 ];
 
 const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
   full: 'Switch to compact view',
-  // The one-click affordance is binary: either compact tier returns to full.
-  // Picking a specific tier is the menu's job (`VIEW_MODE_OPTIONS`).
+  // The one-click affordance is binary. Picking a height is the menu's job.
   compact: 'Switch to full view',
-  'compact-tall': 'Switch to full view',
 };
 
 /**
@@ -205,7 +219,8 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
                 }
               </div>
             </div>
-            <!-- HEIGHT: segmented control over the three view modes -->
+            <!-- HEIGHT: view-mode presets, plus a row stepper while compact.
+                 Height is tab-owned, so neither is disabled by the lock. -->
             <div
               role="group"
               aria-label="Tile height"
@@ -216,24 +231,73 @@ const NEXT_VIEW_MODE_LABEL: Readonly<Record<TabViewMode, string>> = {
                 >Height</span
               >
               <div class="join w-full" data-layout-group="height">
-                @for (option of viewModeOptions; track option.mode) {
+                @for (preset of heightPresets; track preset.id) {
                   <button
                     type="button"
                     role="menuitemradio"
                     tabindex="-1"
                     data-layout-item
                     class="join-item btn btn-xs flex-1 font-normal px-0"
-                    [class.btn-ghost]="!(viewMode() === option.mode)"
-                    [class.btn-primary]="viewMode() === option.mode"
-                    [attr.data-view-mode]="option.mode"
-                    [attr.aria-checked]="viewMode() === option.mode"
-                    [attr.aria-label]="'Set tile height to ' + option.label"
-                    (click)="requestViewMode(option.mode)"
+                    [class.btn-ghost]="!isHeightPresetChecked(preset)"
+                    [class.btn-primary]="isHeightPresetChecked(preset)"
+                    [attr.data-view-mode]="preset.id"
+                    [attr.aria-checked]="isHeightPresetChecked(preset)"
+                    [attr.aria-label]="'Set tile height to ' + preset.label"
+                    (click)="requestHeightPreset(preset)"
                   >
-                    {{ option.short }}
+                    {{ preset.short }}
                   </button>
                 }
               </div>
+              @if (isCompactMode()) {
+                <div
+                  class="flex items-center gap-1 px-1"
+                  data-layout-group="height-step"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabindex="-1"
+                    data-layout-item
+                    data-height-step="decrease"
+                    class="btn btn-ghost btn-xs px-1 min-h-0 h-6"
+                    aria-label="Decrease tile height"
+                    title="Decrease tile height"
+                    [disabled]="compactHeightUnits() <= minCompactHeight"
+                    (click)="stepCompactHeight(-1)"
+                  >
+                    <lucide-angular
+                      [img]="MinusIcon"
+                      class="w-3 h-3"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <span
+                    class="flex-1 text-center tabular-nums text-base-content"
+                    data-testid="tile-height-units"
+                    aria-live="polite"
+                    >{{ compactHeightUnits() }} rows</span
+                  >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabindex="-1"
+                    data-layout-item
+                    data-height-step="increase"
+                    class="btn btn-ghost btn-xs px-1 min-h-0 h-6"
+                    aria-label="Increase tile height"
+                    title="Increase tile height"
+                    [disabled]="compactHeightUnits() >= maxCompactHeight"
+                    (click)="stepCompactHeight(1)"
+                  >
+                    <lucide-angular
+                      [img]="PlusIcon"
+                      class="w-3 h-3"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+              }
             </div>
             <!-- ARRANGE: focus and row placement -->
             <div role="group" aria-label="Arrange" class="flex flex-col gap-1">
@@ -361,10 +425,11 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   /** Whether this tile is the workspace's transient layout-focus tile. */
   readonly layoutFocused = input<boolean>(false);
   /**
-   * Canvas lock: every layout action is disabled. The compact/full toggle is
-   * the deliberate exception — view mode is owned by `TabManagerService`, not
-   * by canvas layout intent, so it stays enabled and its authoritative
-   * reflow is applied by the workspace grid.
+   * Canvas lock: every layout action is disabled. Height is the deliberate
+   * exception — the compact/full toggle, the height presets and the stepper
+   * write tab state owned by `TabManagerService`, not canvas layout intent,
+   * so they stay enabled and the workspace grid applies their reflow. Drag
+   * resize is still unavailable under lock.
    */
   readonly layoutLocked = input<boolean>(false);
 
@@ -395,7 +460,9 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     viewChild<ElementRef<HTMLElement>>('layoutMenu');
   readonly layoutMenuOpen = signal(false);
   protected readonly spanOptions = SPAN_OPTIONS;
-  protected readonly viewModeOptions = VIEW_MODE_OPTIONS;
+  protected readonly heightPresets = HEIGHT_PRESETS;
+  protected readonly minCompactHeight = MIN_COMPACT_TILE_HEIGHT_UNITS;
+  protected readonly maxCompactHeight = MAX_COMPACT_TILE_HEIGHT_UNITS;
 
   private readonly tabManager = inject(TabManagerService);
   private readonly effortState = inject(EffortStateService);
@@ -468,6 +535,8 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   readonly ScanIcon = Scan;
   readonly CornerDownLeftIcon = CornerDownLeft;
   readonly CheckIcon = Check;
+  readonly MinusIcon = Minus;
+  readonly PlusIcon = Plus;
 
   /**
    * Display label for the tile header.
@@ -482,8 +551,13 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   readonly viewMode = computed(() =>
     this.tabManager.getTabViewMode(this.tabId()),
   );
-  /** Both compact tiers use the condensed card. */
   readonly isCompactMode = computed(() => isCompactViewMode(this.viewMode()));
+  /** Compact height in grid rows, clamped exactly as the grid projects it. */
+  readonly compactHeightUnits = computed(() =>
+    clampCompactHeightUnits(
+      this.tabManager.getTabCompactHeightUnits(this.tabId()),
+    ),
+  );
   protected readonly nextViewModeLabel = computed(
     () => NEXT_VIEW_MODE_LABEL[this.viewMode()],
   );
@@ -517,7 +591,8 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Cycles the three view modes for this tile. View mode stays owned by
+   * Toggles this tile between full and compact; compact returns to the last
+   * compact height. View mode stays owned by
    * `TabManagerService`; canvas only projects it. Stops propagation to avoid
    * triggering onTileClick / Gridstack drag, and stays available under layout
    * lock because it is not a layout-intent mutation.
@@ -549,10 +624,41 @@ export class CanvasTileComponent implements OnInit, OnDestroy {
     this.layoutMenuOpen.set(false);
   }
 
-  /** View mode remains available while layout intent is locked. */
-  protected requestViewMode(mode: TabViewMode): void {
-    this.tabManager.setViewMode(this.tabId(), mode);
+  /** Full preset when not compact; otherwise the preset at this height. */
+  protected isHeightPresetChecked(preset: HeightPreset): boolean {
+    if (preset.id === 'full') return !this.isCompactMode();
+    return this.isCompactMode() && this.compactHeightUnits() === preset.units;
+  }
+
+  /** Height remains available while layout intent is locked. */
+  protected requestHeightPreset(preset: HeightPreset): void {
+    if (preset.id === 'full') {
+      this.tabManager.setViewMode(this.tabId(), 'full');
+    } else {
+      this.tabManager.setCompactHeight(this.tabId(), preset.units);
+    }
     this.closeLayoutMenu();
+  }
+
+  /**
+   * One row up or down, clamped; the menu stays open for repeated steps. When
+   * the step reaches a bound, focus moves to the opposite button so keyboard
+   * focus never lands on the button that just became disabled.
+   */
+  protected stepCompactHeight(delta: 1 | -1): void {
+    const units = clampCompactHeightUnits(this.compactHeightUnits() + delta);
+    if (units === this.compactHeightUnits()) return;
+    this.tabManager.setCompactHeight(this.tabId(), units);
+    const atBound =
+      units === MIN_COMPACT_TILE_HEIGHT_UNITS ||
+      units === MAX_COMPACT_TILE_HEIGHT_UNITS;
+    if (atBound) {
+      this.layoutMenu()
+        ?.nativeElement.querySelector<HTMLButtonElement>(
+          `[data-height-step="${delta > 0 ? 'decrease' : 'increase'}"]`,
+        )
+        ?.focus();
+    }
   }
 
   /** Selection closes the menu; the popover restores focus to the trigger. */

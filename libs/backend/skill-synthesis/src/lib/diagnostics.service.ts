@@ -52,13 +52,26 @@ export class SkillSynthesisDiagnosticsService {
         promoted: s.promoted,
         rejected: s.rejected,
         invocations: s.invocations,
+        active: s.active,
+        dormant: s.dormant,
+        merged: s.merged,
+        retired: s.retired,
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn('[skill-synthesis] diagnostics getStats failed', {
         error: message,
       });
-      return { candidate: 0, promoted: 0, rejected: 0, invocations: 0 };
+      return {
+        candidate: 0,
+        promoted: 0,
+        rejected: 0,
+        invocations: 0,
+        active: 0,
+        dormant: 0,
+        merged: 0,
+        retired: 0,
+      };
     }
   }
 }

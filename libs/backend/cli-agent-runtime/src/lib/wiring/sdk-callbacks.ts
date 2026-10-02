@@ -33,6 +33,8 @@ export interface WorktreeCreatedData {
   readonly name: string;
   readonly cwd: string;
   readonly timestamp: number;
+  /** Absolute worktree path when the hook reported one; skips the resolver. */
+  readonly worktreePath?: string;
 }
 
 export interface WireSdkCallbacksOptions {
@@ -134,7 +136,7 @@ function wireResultStatsCallback(
 ): void {
   sdkAdapter.setResultStatsCallback(async (stats) => {
     logger.info(`${tag} Session stats received: ${stats.sessionId}`, {
-      cost: stats.cost,
+      turnCost: stats.turnCost,
       tokens: stats.tokens,
       duration: stats.duration,
       modelUsage: stats.modelUsage,
@@ -341,16 +343,17 @@ function wireWorktreeCallbacks(
   logger: Logger,
   tag: string,
   resolveWorktreePath:
-    | ((data: WorktreeCreatedData) => Promise<string | undefined>)
-    | undefined,
+    ((data: WorktreeCreatedData) => Promise<string | undefined>) | undefined,
 ): void {
   sdkAdapter.setWorktreeCreatedCallback(async (data) => {
     logger.info(
       `${tag} Worktree created: name=${data.name}, sessionId=${data.sessionId}`,
     );
 
-    let worktreePath: string | undefined;
-    if (resolveWorktreePath) {
+    // The hook's own path is authoritative; the platform resolver is only the
+    // fallback for a hook that reported a name alone.
+    let worktreePath: string | undefined = data.worktreePath || undefined;
+    if (!worktreePath && resolveWorktreePath) {
       try {
         worktreePath = await resolveWorktreePath(data);
       } catch (err) {
@@ -366,6 +369,7 @@ function wireWorktreeCallbacks(
         action: 'created',
         name: data.name,
         path: worktreePath,
+        sessionId: data.sessionId,
       })
       .catch((error) => {
         logger.error(
@@ -404,7 +408,7 @@ async function sendStatsWithRetry(
       () =>
         webviewManager.broadcastMessage(MESSAGE_TYPES.SESSION_STATS, {
           sessionId: stats.sessionId,
-          cost: stats.cost,
+          turnCost: stats.turnCost,
           tokens: stats.tokens,
           duration: stats.duration,
           modelUsage: stats.modelUsage,

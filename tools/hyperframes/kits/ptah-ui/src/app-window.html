@@ -1,0 +1,464 @@
+<!doctype html>
+<!--
+  ptah-ui/app-window: the Ptah desktop app frame (top bar, nav tabs, rails, canvas dock) with EMPTY session slots (SPEC 4.11).
+  Mirrors libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts:100-216 (navbar, tabs, global actions),
+  :233-240 (Workspaces rail), app-shell.component.html:350 (Sessions rail),
+  libs/frontend/chat-ui/src/lib/atoms/sidebar-tab.component.ts:30-75 (rotated rail labels),
+  libs/frontend/canvas/src/lib/orchestra-canvas.component.ts:86-135 (dock row, New Session button),
+  libs/frontend/canvas/src/lib/canvas-workspace-grid.component.ts:197 (grid margin 8 -> 16 px gutters x2 = 32 kit gap),
+  libs/frontend/canvas/src/lib/canvas-tile.component.ts:114-134 (tile border, primary focus ring),
+  libs/frontend/notification-center/src/lib/notification-center.component.ts:252 ("9+" cap).
+
+  Components cannot nest: the window draws only the chrome and empty slot placeholders. Hosts mount
+  ptah-ui-session-shell instances ON TOP of the slots, at exactly these rectangles (design px = frame px at
+  a 1920x1080 mount; every slot is 9:5, the session-shell design aspect 1800:1000, so the tile fills it exactly):
+
+    layout   titleBar=false (x, y, w, h)                           titleBar=true (x, y, w, h)
+    1        s0 183,168,1602,890                                   s0 228,224,1512,840
+    2        s0 113,168,855,475   s1 1000,168,855,475              s0 113,224,855,475   s1 1000,224,855,475
+    1+2      s0 117,168,1152,640  s1 1301,168,549,305              s0 117,224,1152,640  s1 1301,224,549,305
+             s2 1301,503,549,305                                   s2 1301,559,549,305
+    2+2      s0 194,168,774,430   s1 1000,168,774,430              s0 248,224,720,400   s1 1000,224,720,400
+             s2 194,630,774,430   s3 1000,630,774,430              s2 248,656,720,400   s3 1000,656,720,400
+
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 frame fades, top bar settles, logo springs, global actions spring
+    c1 0.30 nav tabs spring (0.09 s stagger), then the active tab box slides in under the active tab
+    c2 0.85 rails fade in (0.09 s stagger)
+    c3 1.10 dock row settles; Layout and New Session spring
+    c4 1.45 slots draw in (scale .96 -> 1, opacity) 0.09 s stagger
+    c5 c4 + n*0.09 + 0.35 focusedSlot primary ring (when focusedSlot >= 0)
+    newSessionPress: New Session press at that time; the last slot springs in with a primary highlight
+  Design box 1920 x 1080. Mount full frame.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-app-window"
+  data-composition-duration="6"
+  data-composition-variables='[
+    { "id": "layout", "type": "enum", "label": "Layout", "default": "2+2", "options": [{ "value": "1", "label": "1" }, { "value": "2", "label": "2 side by side" }, { "value": "1+2", "label": "1 + 2 stacked" }, { "value": "2+2", "label": "2 + 2 grid" }] },
+    { "id": "activeTab", "type": "enum", "label": "Active tab", "default": "Chat", "options": [{ "value": "Chat", "label": "Chat" }, { "value": "Apps", "label": "Apps" }, { "value": "Tasks", "label": "Tasks" }, { "value": "Tribunal", "label": "Tribunal" }, { "value": "Analytics", "label": "Analytics" }] },
+    { "id": "notifications", "type": "string", "label": "Notification badge", "default": "9+" },
+    { "id": "focusedSlot", "type": "number", "label": "Focused slot (-1 none)", "default": -1, "min": -1, "max": 3, "step": 1 },
+    { "id": "titleBar", "type": "boolean", "label": "Electron title bar", "default": false },
+    { "id": "newSessionPress", "type": "number", "label": "New Session press at (s, -1 none)", "default": -1 },
+    { "id": "logo", "type": "string", "label": "Logo image", "default": "assets/brand/ptah-icon.png" },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "nav", "label": "Nav" }, { "value": "toolbar", "label": "Toolbar" }, { "value": "rails", "label": "Rails" }, { "value": "slot-0", "label": "Slot 0" }, { "value": "slot-1", "label": "Slot 1" }, { "value": "slot-2", "label": "Slot 2" }, { "value": "slot-3", "label": "Slot 3" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui app-window</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-app-window" data-duration="6" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .aw-frame {
+            position: absolute;
+            inset: 0;
+            background: var(--b100);
+          }
+          .aw-title {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            height: calc(56 * var(--u));
+            display: flex;
+            align-items: center;
+            gap: calc(8 * var(--u));
+            padding-left: calc(20 * var(--u));
+            background: #0e0e12;
+            border-bottom: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.06);
+            color: var(--muted);
+            font-size: calc(26 * var(--u));
+          }
+          .aw-title .menu {
+            padding: 0 calc(12 * var(--u));
+          }
+          .aw-title .caption {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            line-height: calc(56 * var(--u));
+            transform: translateX(-50%);
+            white-space: nowrap;
+          }
+          .aw-title .ctl {
+            margin-left: auto;
+            display: flex;
+            height: 100%;
+          }
+          .aw-title .ctl > span {
+            width: calc(80 * var(--u));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .aw-top {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: calc(80 * var(--u));
+            background: var(--b200);
+            border-bottom: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+          }
+          .aw-brand {
+            position: absolute;
+            left: calc(24 * var(--u));
+            top: 0;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+          }
+          .aw-brand img {
+            width: calc(40 * var(--u));
+            height: calc(40 * var(--u));
+            display: block;
+          }
+          .aw-brand span {
+            font-size: calc(30 * var(--u));
+            font-weight: 600;
+            color: var(--muted);
+          }
+          .aw-nav {
+            position: absolute;
+            left: 50%;
+            top: calc(10 * var(--u));
+            height: calc(70 * var(--u));
+            transform: translateX(-50%);
+            display: flex;
+            align-items: stretch;
+          }
+          .aw-tab {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: calc(12 * var(--u));
+            padding: 0 calc(28 * var(--u));
+            font-size: calc(30 * var(--u));
+            font-weight: 500;
+            color: var(--muted);
+            white-space: nowrap;
+          }
+          .aw-tab.on {
+            color: var(--fg);
+          }
+          .aw-tab > .box {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            bottom: calc(-2 * var(--u));
+            background: var(--b100);
+            border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.16);
+            border-bottom: 0;
+            border-radius: calc(12 * var(--u)) calc(12 * var(--u)) 0 0;
+          }
+          .aw-tab > .ico,
+          .aw-tab > .lbl {
+            position: relative;
+          }
+          .aw-actions {
+            position: absolute;
+            right: calc(20 * var(--u));
+            top: 0;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            gap: calc(4 * var(--u));
+            color: var(--muted);
+          }
+          .aw-actions > span {
+            position: relative;
+            width: calc(56 * var(--u));
+            height: calc(56 * var(--u));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .aw-badge {
+            position: absolute;
+            right: calc(-6 * var(--u));
+            top: calc(-4 * var(--u));
+            min-width: calc(36 * var(--u));
+            height: calc(34 * var(--u));
+            padding: 0 calc(6 * var(--u));
+            border-radius: 999px;
+            background: var(--error);
+            color: var(--fg);
+            font-size: calc(26 * var(--u));
+            font-weight: 700;
+            line-height: calc(34 * var(--u));
+            text-align: center;
+            white-space: nowrap;
+          }
+          .aw-rails {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: calc(96 * var(--u));
+            display: flex;
+          }
+          .aw-rail {
+            position: relative;
+            width: calc(48 * var(--u));
+            height: 100%;
+            background: var(--b100);
+            border-right: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .aw-rail.right {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            height: auto;
+            border-right: 0;
+            border-left: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+          }
+          .aw-rail > span {
+            writing-mode: vertical-rl;
+            white-space: nowrap;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-size: calc(26 * var(--u));
+            font-weight: 600;
+            color: var(--muted);
+          }
+          .aw-rails .aw-rail > span {
+            transform: rotate(180deg);
+          }
+          .aw-dock {
+            position: absolute;
+            left: calc(96 * var(--u));
+            right: calc(48 * var(--u));
+            height: calc(72 * var(--u));
+            padding: 0 calc(24 * var(--u));
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: calc(16 * var(--u));
+            background: rgba(26, 26, 32, 0.5);
+            border-bottom: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+          }
+          .aw-btn {
+            display: flex;
+            align-items: center;
+            gap: calc(10 * var(--u));
+            height: calc(48 * var(--u));
+            padding: 0 calc(18 * var(--u));
+            border-radius: calc(12 * var(--u));
+            font-size: calc(28 * var(--u));
+            font-weight: 500;
+            white-space: nowrap;
+          }
+          .aw-btn.ghost {
+            color: var(--fg);
+            background: rgba(19, 19, 23, 0.9);
+            border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+          }
+          .aw-btn.primary {
+            color: #f8f7f4;
+            background: var(--primary);
+            box-shadow: 0 calc(2 * var(--u)) calc(4 * var(--u)) rgba(0, 0, 0, 0.3);
+          }
+          .aw-slot {
+            position: absolute;
+            background: var(--b100);
+            border: calc(2 * var(--u)) solid var(--b300);
+            border-radius: calc(16 * var(--u));
+          }
+          .aw-slot > .fring {
+            position: absolute;
+            inset: calc(-4 * var(--u));
+            border: calc(6 * var(--u)) solid var(--primary);
+            border-radius: calc(20 * var(--u));
+          }
+          .aw-slot > .nring {
+            position: absolute;
+            inset: calc(-4 * var(--u));
+            border: calc(4 * var(--u)) dashed rgba(37, 99, 235, 0.85);
+            border-radius: calc(20 * var(--u));
+            background: rgba(37, 99, 235, 0.08);
+          }
+        </style>
+
+        <div id="aw-clip" class="clip" data-start="0" data-duration="6" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="aw-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var K = ptahKit(root, { dw: 1920, dh: 1080, id: "ptah-ui-app-window" });
+            var tl = K.tl;
+            K.vignette();
+
+            var layout = K.oneOf("layout", ["1", "2", "1+2", "2+2"], "2+2");
+            var TABS = ["Chat", "Apps", "Tasks", "Tribunal", "Analytics"];
+            var activeTab = K.oneOf("activeTab", TABS, "Chat");
+            var notes = K.str("notifications", "9+");
+            var titleBar = K.bool("titleBar", false);
+            var logo = K.str("logo", "assets/brand/ptah-icon.png");
+            var press = K.num("newSessionPress", -1);
+            var TB = titleBar ? 56 : 0;
+
+            // Slot rectangles in design px (SPEC 4.11). Every slot is 9:5 so a session-shell mount fills it exactly.
+            var SLOTS = {
+              "1": [[183, 168, 1602, 890]],
+              "2": [[113, 168, 855, 475], [1000, 168, 855, 475]],
+              "1+2": [[117, 168, 1152, 640], [1301, 168, 549, 305], [1301, 503, 549, 305]],
+              "2+2": [[194, 168, 774, 430], [1000, 168, 774, 430], [194, 630, 774, 430], [1000, 630, 774, 430]],
+            };
+            var SLOTS_TB = {
+              "1": [[228, 224, 1512, 840]],
+              "2+2": [[248, 224, 720, 400], [1000, 224, 720, 400], [248, 656, 720, 400], [1000, 656, 720, 400]],
+            };
+            var slots = (titleBar && SLOTS_TB[layout]) || SLOTS[layout].map(function (r) {
+              return [r[0], r[1] + TB, r[2], r[3]];
+            });
+            var focusedSlot = Math.round(K.num("focusedSlot", -1, -1, slots.length - 1));
+
+            // lucide paths not in the shared runtime set
+            var ICONS = {
+              "layout-grid": '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
+              "app-window": '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/>',
+              "clipboard-list": '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+              scale: '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+              "bar-chart": '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+              sliders: '<path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>',
+              palette: '<circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+              bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+              minus: '<path d="M5 12h14"/>',
+            };
+            function ico(name, size) {
+              if (!ICONS[name]) return K.icon(name, size);
+              return (
+                '<svg class="pu-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:calc(' +
+                size + " * var(--u));height:calc(" + size + ' * var(--u))">' + ICONS[name] + "</svg>"
+              );
+            }
+            function box(x, y, w, h) {
+              return "left:calc(" + x + " * var(--u));top:calc(" + y + " * var(--u));width:calc(" + w + " * var(--u));height:calc(" + h + " * var(--u))";
+            }
+            var e = K.esc;
+            var TAB_ICON = { Chat: "layout-grid", Apps: "app-window", Tasks: "clipboard-list", Tribunal: "scale", Analytics: "bar-chart" };
+
+            var html = '<div class="aw-frame"></div>';
+            if (titleBar) {
+              html +=
+                '<div class="aw-title"><img src="' + e(logo) + '" alt="" style="width:calc(28 * var(--u));height:calc(28 * var(--u))" />' +
+                ["File", "Edit", "View", "Window", "Help"].map(function (m) {
+                  return '<span class="menu">' + m + "</span>";
+                }).join("") +
+                '<span class="caption">Ptah - Coding Orchestra</span>' +
+                '<span class="ctl"><span>' + ico("minus", 28) + "</span><span>" + ico("square", 24) + "</span><span>" + ico("x", 28) + "</span></span></div>";
+            }
+            html +=
+              '<div class="aw-top" style="top:calc(' + TB + ' * var(--u))">' +
+              '<div class="aw-brand"><img class="aw-logo" src="' + e(logo) + '" alt="Ptah" /><span>Ptah</span></div>' +
+              '<div class="aw-nav" data-ptah-part="nav">' +
+              TABS.map(function (t) {
+                var on = t === activeTab;
+                return '<span class="aw-tab' + (on ? " on" : "") + '">' + (on ? '<i class="box"></i>' : "") +
+                  '<span class="ico">' + ico(TAB_ICON[t], 28) + '</span><span class="lbl">' + t + "</span></span>";
+              }).join("") +
+              "</div>" +
+              '<div class="aw-actions"><span>' + ico("sliders", 32) + "</span><span>" + ico("palette", 32) + "</span><span>" + ico("bell", 32) +
+              (notes ? '<b class="aw-badge">' + e(notes) + "</b>" : "") + "</span></div>" +
+              "</div>" +
+              '<div class="aw-rails" data-ptah-part="rails" style="top:calc(' + (TB + 80) + ' * var(--u))">' +
+              '<div class="aw-rail"><span>Workspaces</span></div><div class="aw-rail"><span>Sessions</span></div></div>' +
+              '<div class="aw-rail right" style="top:calc(' + (TB + 80) + ' * var(--u))"><span>Agents</span></div>' +
+              '<div class="aw-dock" data-ptah-part="toolbar" style="top:calc(' + (TB + 80) + ' * var(--u))">' +
+              '<span class="aw-btn ghost">' + ico("layout-grid", 28) + "<span>Layout</span></span>" +
+              '<span class="aw-btn primary aw-new">' + ico("plus", 28) + "<span>New Session</span></span></div>" +
+              slots.map(function (r, i) {
+                return '<div class="aw-slot" data-ptah-part="slot-' + i + '" style="' + box(r[0], r[1], r[2], r[3]) + '">' +
+                  (i === focusedSlot ? '<i class="fring"></i>' : "") + "</div>";
+              }).join("");
+
+            var stage = document.getElementById("aw-stage");
+            stage.innerHTML = html;
+
+            var c = K.cues([0, 0.3, 0.85, 1.1, 1.45]);
+            // c0: frame, title bar, top bar
+            K.fadeIn(K.q(".aw-frame"), c[0], 0.3);
+            if (titleBar) K.settle(K.q(".aw-title"), c[0], { dy: -12 });
+            K.settle(K.q(".aw-top"), c[0] + 0.05, { dy: -16 });
+            K.spring(K.q(".aw-logo"), c[0] + 0.15);
+            K.qa(".aw-actions > span").forEach(function (a, i) {
+              K.spring(a, c[0] + 0.2 + i * 0.09);
+            });
+            var badge = K.q(".aw-badge");
+            if (badge) K.spring(badge, c[0] + 0.55);
+            // c1: tabs spring, active box slides in under the active tab
+            var tabs = K.qa(".aw-tab");
+            tabs.forEach(function (t, i) {
+              K.spring(t, c[1] + i * 0.09);
+            });
+            var tbox = K.q(".aw-tab > .box");
+            var boxAt = c[1] + tabs.length * 0.09 + 0.05;
+            gsap.set(tbox, { opacity: 0, x: -48 * K.U });
+            tl.fromTo(tbox, { opacity: 0, x: -48 * K.U }, { opacity: 1, x: 0, duration: 0.45, ease: "power3.out", immediateRender: false }, boxAt);
+            // c2: rails
+            [K.q(".aw-rails .aw-rail"), K.qa(".aw-rails .aw-rail")[1], K.q(".aw-rail.right")].forEach(function (r, i) {
+              K.fadeIn(r, c[2] + i * 0.09, 0.3);
+            });
+            // c3: dock row and buttons
+            var btns = K.qa(".aw-btn");
+            K.fadeIn(K.q(".aw-dock"), c[3], 0.25);
+            btns.forEach(function (b, i) {
+              K.spring(b, c[3] + 0.1 + i * 0.09);
+            });
+            // c4: slots draw in; with a New Session press the last slot is held back and springs in on the press
+            var slotEls = K.qa(".aw-slot");
+            var pressed = press >= 0 ? slotEls[slotEls.length - 1] : null;
+            slotEls.forEach(function (s, i) {
+              if (s === pressed) return;
+              gsap.set(s, { opacity: 0, scale: 0.96 });
+              tl.fromTo(s, { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.45, ease: "power3.out" }, c[4] + i * 0.09);
+            });
+            var last = c[4] + slotEls.length * 0.09 + 0.35;
+            // c5: product focus ring (primary)
+            var fr = K.q(".fring");
+            if (fr) {
+              gsap.set(fr, { opacity: 0 });
+              tl.fromTo(fr, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "expo.out", immediateRender: false }, last);
+              last += 0.5;
+            }
+            // New Session press: button press, then the new empty slot springs in with a primary highlight that settles away
+            if (pressed) {
+              var nb = K.q(".aw-new");
+              var pt = Math.max(press, c[3] + 0.5);
+              K.press(nb, pt);
+              pressed.appendChild(K.el('<i class="nring"></i>'));
+              var nr = K.q(".nring");
+              gsap.set(pressed, { opacity: 0, scale: 0.9 });
+              tl.fromTo(pressed, { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.6)" }, pt + 0.2);
+              gsap.set(nr, { opacity: 0 });
+              tl.fromTo(nr, { opacity: 0 }, { opacity: 1, duration: 0.2, ease: "none", immediateRender: false }, pt + 0.2);
+              tl.fromTo(nr, { opacity: 1 }, { opacity: 0, duration: 0.5, ease: "expo.out", immediateRender: false }, pt + 1.2);
+              last = Math.max(last, pt + 0.8);
+            }
+            K.focusFromVars(last + 0.5);
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>

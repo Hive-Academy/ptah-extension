@@ -1,0 +1,375 @@
+<!doctype html>
+<!--
+  ptah-ui/session-shell: the session tile frame with stat header, context bar and status-line footer (SPEC 4.1).
+  Mirrors libs/frontend/canvas/src/lib/canvas-tile.component.ts:114-134 (tile, header, focus ring),
+  libs/frontend/chat-ui/src/lib/molecules/session/session-stats-summary.component.ts:58-200 (compact stats row), :606-636 (context bar),
+  libs/frontend/chat/src/lib/components/molecules/chat-input/chat-input.component.ts:395-425 (status line).
+
+  The body rectangle (x 0, y 228, w 1800, h 640 design px) is left empty: host scenes mount sibling components there.
+  Beats (seconds from mount start, override with `cues`):
+    c0 0.00 tile slide-settles, header title fades in
+    c1 0.30 stat badges spring (0.09 s stagger); tokens / cost / time / agents count up over 0.9 s
+    c2 0.90 context bar fills to contextPct (expo.out 0.6 s), percentage counts with it
+    c3 1.20 footer chips settle left to right, MCP dot springs
+    c4 1.80 primary `focused` ring fades in (only when focused = true)
+  Design box 1800 x 1000. Mount at that size for the 26 px type floor.
+-->
+<html
+  lang="en"
+  data-composition-id="ptah-ui-session-shell"
+  data-composition-duration="4"
+  data-composition-variables='[
+    { "id": "title", "type": "string", "label": "Title", "default": "continue editor upgrades" },
+    { "id": "contextPct", "type": "number", "label": "Main context %", "default": 18.1, "min": 0, "max": 100, "step": 0.1 },
+    { "id": "tokens", "type": "string", "label": "Tokens", "default": "13.5M" },
+    { "id": "cost", "type": "string", "label": "Cost", "default": "$7.64" },
+    { "id": "time", "type": "string", "label": "Time", "default": "51m 28s" },
+    { "id": "agents", "type": "number", "label": "Agents", "default": 4, "min": 0, "max": 99, "step": 1 },
+    { "id": "models", "type": "number", "label": "Models", "default": 2, "min": 1, "max": 9, "step": 1 },
+    { "id": "modelName", "type": "string", "label": "Model name (models = 1)", "default": "Opus 5.5" },
+    { "id": "handoff", "type": "boolean", "label": "Hand off control", "default": true },
+    { "id": "strip", "type": "string", "label": "Background strip", "default": "" },
+    { "id": "autopilot", "type": "string", "label": "Autopilot chip", "default": "Full Auto (YOLO)" },
+    { "id": "mcp", "type": "string", "label": "MCP count", "default": "7/12" },
+    { "id": "mcpAttention", "type": "boolean", "label": "MCP needs attention", "default": true },
+    { "id": "peer", "type": "boolean", "label": "Peer chip", "default": true },
+    { "id": "auth", "type": "string", "label": "Auth label", "default": "Claude CLI" },
+    { "id": "footer", "type": "boolean", "label": "Footer status line", "default": true },
+    { "id": "focused", "type": "boolean", "label": "Focused tile (primary ring)", "default": false },
+    { "id": "countUp", "type": "boolean", "label": "Count up values", "default": true },
+    { "id": "cues", "type": "string", "label": "Cues", "default": "" },
+    { "id": "focus", "type": "enum", "label": "Focus part", "default": "", "options": [{ "value": "", "label": "None" }, { "value": "stats", "label": "Stats" }, { "value": "context-bar", "label": "Context bar" }, { "value": "footer", "label": "Footer" }, { "value": "header", "label": "Header" }] },
+    { "id": "focusAt", "type": "number", "label": "Focus at", "default": -1 },
+    { "id": "dimOthers", "type": "number", "label": "Dim others", "default": 0.38 },
+    { "id": "vignette", "type": "boolean", "label": "Vignette", "default": false },
+    { "id": "exit", "type": "enum", "label": "Exit", "default": "none", "options": [{ "value": "none", "label": "None" }, { "value": "fade", "label": "Fade" }, { "value": "up", "label": "Up" }] }
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ptah-ui session-shell</title>
+  </head>
+  <body>
+    <template>
+      <div id="root" data-composition-id="ptah-ui-session-shell" data-duration="4" data-fps="30">
+        <style>
+          /*@include base.css*/
+          .ss-tile {
+            position: absolute;
+            inset: 0;
+            border: calc(2 * var(--u)) solid var(--b300);
+            border-radius: calc(16 * var(--u));
+            background: var(--b100);
+            overflow: hidden;
+          }
+          .ss-focused {
+            position: absolute;
+            inset: 0;
+            border: calc(6 * var(--u)) solid var(--primary);
+            border-radius: calc(16 * var(--u));
+          }
+          .ss-header {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            height: calc(64 * var(--u));
+            padding: 0 calc(16 * var(--u));
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+            background: var(--b300);
+            border-radius: calc(14 * var(--u)) calc(14 * var(--u)) 0 0;
+          }
+          .ss-title {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-weight: 500;
+          }
+          .ss-handoff {
+            font-weight: 500;
+          }
+          .ss-stats {
+            position: absolute;
+            left: calc(16 * var(--u));
+            right: calc(16 * var(--u));
+            top: calc(80 * var(--u));
+            display: flex;
+            align-items: center;
+            gap: calc(16 * var(--u));
+            padding: calc(8 * var(--u)) calc(16 * var(--u));
+            background: rgba(26, 26, 32, 0.5);
+            border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+            border-radius: calc(8 * var(--u));
+          }
+          .ss-stat {
+            display: inline-flex;
+            align-items: center;
+            gap: calc(10 * var(--u));
+            padding: calc(4 * var(--u)) calc(12 * var(--u));
+            border-radius: calc(8 * var(--u));
+            border: calc(2 * var(--u)) solid rgba(232, 230, 225, 0.1);
+            background: rgba(232, 230, 225, 0.05);
+            white-space: nowrap;
+            flex: 0 0 auto;
+          }
+          .ss-stat .lab {
+            font-weight: 600;
+          }
+          .ss-stat .val {
+            font-size: calc(28 * var(--u));
+            font-variant-numeric: tabular-nums;
+            display: inline-block;
+          }
+          .ss-stat.purple {
+            background: rgba(147, 51, 234, 0.15);
+            border-color: rgba(147, 51, 234, 0.25);
+          }
+          .ss-stat.purple .val {
+            color: #c084fc;
+            font-weight: 600;
+          }
+          .ss-stat.cyan {
+            background: rgba(8, 145, 178, 0.15);
+            border-color: rgba(8, 145, 178, 0.25);
+          }
+          .ss-stat.cyan .val {
+            color: #22d3ee;
+          }
+          .ss-stat.info {
+            background: rgba(59, 130, 246, 0.1);
+            border-color: rgba(59, 130, 246, 0.25);
+          }
+          .ss-stat.info .val {
+            color: var(--info);
+          }
+          .ss-costb {
+            display: inline-flex;
+            align-items: center;
+            height: calc(36 * var(--u));
+            padding: 0 calc(10 * var(--u));
+            border-radius: calc(8 * var(--u));
+            background: var(--success);
+            color: #131317;
+            font-size: calc(26 * var(--u));
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+          }
+          .ss-stats-chev {
+            margin-left: auto;
+            color: var(--muted);
+          }
+          .ss-ctx {
+            position: absolute;
+            left: calc(16 * var(--u));
+            right: calc(16 * var(--u));
+            top: calc(160 * var(--u));
+            height: calc(8 * var(--u));
+            border-radius: calc(4 * var(--u));
+            background: oklch(0.3 0 0 / 0.4);
+            overflow: hidden;
+          }
+          .ss-ctx-fill {
+            position: absolute;
+            inset: 0;
+            border-radius: calc(4 * var(--u));
+            transform-origin: 0 50%;
+            background: oklch(0.72 0.15 200 / 0.5);
+          }
+          .ss-ctx-fill.warning {
+            background: linear-gradient(90deg, oklch(0.795 0.184 86.047 / 0.7), oklch(0.795 0.184 86.047 / 0.9));
+          }
+          .ss-ctx-fill.critical {
+            background: linear-gradient(90deg, oklch(0.637 0.237 25.331 / 0.7), oklch(0.637 0.237 25.331 / 0.95));
+          }
+          .ss-strip {
+            position: absolute;
+            left: calc(24 * var(--u));
+            top: calc(180 * var(--u));
+            display: flex;
+            align-items: center;
+            gap: calc(12 * var(--u));
+          }
+          .ss-footer {
+            position: absolute;
+            left: calc(16 * var(--u));
+            right: calc(24 * var(--u));
+            bottom: calc(28 * var(--u));
+            height: calc(48 * var(--u));
+          }
+          .ss-footer .pu-chip {
+            padding: 0 calc(12 * var(--u));
+          }
+          .ss-footer .warn {
+            color: var(--warning);
+          }
+          .ss-mcpdot {
+            width: calc(12 * var(--u));
+            height: calc(12 * var(--u));
+          }
+        </style>
+
+        <div id="ss-clip" class="clip" data-start="0" data-duration="4" data-track-index="0" style="position: absolute; inset: 0">
+          <div class="pu-stage" id="ss-stage"></div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js" integrity="sha384-sG0Hv1tP1lZCk9KQmrIbY/XNwi+OY84GQqhMscbnsoBFqAz8KNCil1kvfL3Hbbk2" crossorigin="anonymous"></script>
+        <script>
+          (function () {
+            "use strict";
+            /*@include runtime.js*/
+            var root = document.getElementById("root");
+            var K = ptahKit(root, { dw: 1800, dh: 1000, id: "ptah-ui-session-shell" });
+            var tl = K.tl;
+            K.vignette();
+
+            var title = K.str("title", "continue editor upgrades");
+            var pct = K.num("contextPct", 18.1, 0, 100);
+            var tokens = K.str("tokens", "13.5M");
+            var cost = K.str("cost", "$7.64");
+            var time = K.str("time", "51m 28s");
+            var agents = Math.round(K.num("agents", 4, 0, 999));
+            var models = Math.round(K.num("models", 2, 1, 99));
+            var modelName = K.str("modelName", "Opus 5.5");
+            var handoff = K.bool("handoff", true);
+            var strip = K.str("strip", "");
+            var autopilot = K.str("autopilot", "Full Auto (YOLO)");
+            var mcp = K.str("mcp", "7/12");
+            var mcpAttention = K.bool("mcpAttention", true);
+            var peer = K.bool("peer", true);
+            var auth = K.str("auth", "Claude CLI");
+            var footer = K.bool("footer", true);
+            var focused = K.bool("focused", false);
+            var countUp = K.bool("countUp", true);
+            var e = K.esc;
+
+            function stat(part, cls, label, valHtml) {
+              return (
+                '<span class="ss-stat ' + cls + '" data-stat="' + part + '">' +
+                '<span class="lab t-micro upper muted">' + e(label) + "</span>" + valHtml + "</span>"
+              );
+            }
+            var ctxCls = pct >= 90 ? "critical" : pct >= 70 ? "warning" : "";
+            var statsHtml =
+              (models === 1 ? stat("model", "purple", "Model", '<span class="val">' + e(modelName) + "</span>") : "") +
+              stat("context", "cyan", "Main context", '<span class="val" data-count="pct">' + pct.toFixed(1) + "%</span>") +
+              stat("tokens", "", "Tokens", '<span class="val" data-count="tokens">' + e(tokens) + "</span>") +
+              stat("cost", "", "Cost", '<span class="ss-costb val" data-count="cost">' + e(cost) + "</span>") +
+              stat("time", "", "Time", '<span class="val" data-count="time">' + e(time) + "</span>") +
+              stat("agents", "info", "Agents", '<span class="val" data-count="agents">' + agents + "</span>") +
+              (models > 1 ? stat("models", "purple", "Models", '<span class="val">' + models + "</span>" + '<span style="color:#c084fc">' + K.icon("chevron-down", 24) + "</span>") : "");
+
+            var footerHtml = footer
+              ? '<div class="pu-status ss-footer" data-ptah-part="footer">' +
+                '<span class="pu-chip">' + K.icon("zap", 28, "#2563eb") + "<span>" + e(autopilot) + '</span><span style="opacity:.6">' + K.icon("chevron-down", 24) + "</span></span>" +
+                (mcp ? '<span class="pu-chip' + (mcpAttention ? " warn" : "") + '"><span class="pu-dot ss-mcpdot" style="background:' + (mcpAttention ? "#f97316" : "#16a34a") + '"></span><span>MCP</span><span class="tabular">' + e(mcp) + "</span></span>" : "") +
+                (peer ? '<span class="pu-chip">' + K.icon("message-square", 28) + "<span>Peer</span></span>" : "") +
+                (auth ? '<span class="auth trunc">' + e(auth) + "</span>" : "") +
+                "</div>"
+              : "";
+
+            var stage = document.getElementById("ss-stage");
+            stage.innerHTML =
+              '<div class="ss-tile">' +
+              '<div class="ss-header" data-ptah-part="header">' +
+              '<span class="ss-title t-ui trunc">' + e(title) + "</span>" +
+              (handoff ? '<span class="ss-handoff t-micro muted">Hand off</span>' : "") +
+              '<span class="muted">' + K.icon("more", 28) + "</span>" +
+              '<span class="muted">' + K.icon("x", 28) + "</span>" +
+              "</div>" +
+              '<div class="ss-stats" data-ptah-part="stats" data-layout-allow-overflow>' + statsHtml + '<span class="ss-stats-chev">' + K.icon("chevron-down", 24) + "</span></div>" +
+              '<div class="ss-ctx" data-ptah-part="context-bar"><div class="ss-ctx-fill ' + ctxCls + '"></div></div>' +
+              (strip ? '<div class="ss-strip t-small muted"><span class="pu-dot" style="background:#16a34a"></span><span>' + e(strip) + "</span></div>" : "") +
+              footerHtml +
+              (focused ? '<div class="ss-focused"></div>' : "") +
+              "</div>";
+
+            // A narrow tile clips the stats row, as the app does; the clipped chips are intentional (layout audit).
+            K.qa(".ss-stats span").forEach(function (s) { s.setAttribute("data-layout-allow-occlusion", ""); });
+            var tile = K.q(".ss-tile");
+            var statEls = K.qa(".ss-stat");
+            var fill = K.q(".ss-ctx-fill");
+
+            // lock each counting value to its final width so counting never reflows the row
+            K.qa("[data-count]").forEach(function (v) {
+              v.style.minWidth = "calc(" + (v.getBoundingClientRect().width / K.U).toFixed(2) + " * var(--u))";
+            });
+
+            // number formatter that keeps prefix/suffix and decimals ("$7.64", "13.5M", "18.1%")
+            function numFmt(s) {
+              var m = /^(\D*?)(\d+(?:\.\d+)?)(.*)$/.exec(String(s));
+              if (!m) return null;
+              var dec = (m[2].split(".")[1] || "").length;
+              return {
+                to: parseFloat(m[2]),
+                fmt: function (v) {
+                  return m[1] + v.toFixed(dec) + m[3];
+                },
+              };
+            }
+            function timeFmt(s) {
+              var m = /^(\d+)m\s+(\d+)s$/.exec(String(s).trim());
+              if (!m) return numFmt(s);
+              return {
+                to: parseInt(m[1], 10) * 60 + parseInt(m[2], 10),
+                fmt: function (v) {
+                  var t = Math.round(v);
+                  return Math.floor(t / 60) + "m " + (t % 60) + "s";
+                },
+              };
+            }
+
+            var c = K.cues([0, 0.3, 0.9, 1.2, 1.8]);
+            var last = footer ? c[3] + 0.6 : c[2] + 0.6;
+            K.focusFromVars(focused ? Math.max(c[4] + 0.5, last) : last);
+
+            // c0: tile + header
+            K.settle(tile, c[0]);
+            K.fadeIn(K.q(".ss-title"), c[0] + 0.15, 0.3);
+            K.qa(".ss-header > span:not(.ss-title)").forEach(function (el, i) {
+              K.fadeIn(el, c[0] + 0.2 + i * 0.05, 0.25);
+            });
+            // c1: stat badges + counters
+            K.fadeIn(K.q(".ss-stats"), c[1] - 0.05 < c[0] ? c[0] : c[1] - 0.05, 0.2);
+            statEls.forEach(function (s, i) {
+              K.spring(s, c[1] + i * 0.09);
+            });
+            if (countUp) {
+              var specs = { tokens: numFmt(tokens), cost: numFmt(cost), time: timeFmt(time), agents: numFmt(String(agents)) };
+              Object.keys(specs).forEach(function (k) {
+                var sp = specs[k];
+                var el = K.q('[data-count="' + k + '"]');
+                if (sp && el) K.count(el, 0, sp.to, c[1] + 0.1, 0.9, sp.fmt);
+              });
+            }
+            // c2: context bar fill + percentage
+            gsap.set(fill, { scaleX: 0 });
+            tl.fromTo(fill, { scaleX: 0 }, { scaleX: Math.max(0.001, pct / 100), duration: 0.6, ease: "expo.out", immediateRender: false }, c[2]);
+            if (countUp) {
+              K.count(K.q('[data-count="pct"]'), 0, pct, c[2], 0.6, function (v) {
+                return v.toFixed(1) + "%";
+              });
+            }
+            var stripEl = K.q(".ss-strip");
+            if (stripEl) K.settle(stripEl, c[2] + 0.1, { dur: 0.45 });
+            // c3: footer chips left to right
+            if (footer) {
+              K.qa(".ss-footer > *").forEach(function (el, i) {
+                K.settle(el, c[3] + i * 0.09, { dy: 16 });
+              });
+              var dot = K.q(".ss-mcpdot");
+              if (dot) K.spring(dot, c[3] + 0.2);
+            }
+            // c4: focused tile ring (primary = product state)
+            var ring = K.q(".ss-focused");
+            if (ring) {
+              gsap.set(ring, { opacity: 0 });
+              tl.fromTo(ring, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "expo.out", immediateRender: false }, c[4]);
+            }
+            K.finish(stage);
+          })();
+        </script>
+      </div>
+    </template>
+  </body>
+</html>

@@ -18,8 +18,6 @@
  *     and excludes child sessions unless `includeChildren` is true.
  *   - `addCliSession` upserts by `cliSessionId` (resume replaces, not
  *     duplicates).
- *   - `addStats` accumulates, and if the session is a child, propagates the
- *     stats to the parent referenced via `cliSessions[*].sdkSessionId`.
  *   - Concurrent `addCliSession` calls serialize through the internal write
  *     queue (no lost updates).
  */
@@ -148,6 +146,42 @@ describe('SessionMetadataStore', () => {
       await expect(store.get(id)).resolves.toBeNull();
     });
 
+    // TASK_2026_584: an agent child session runs in a worktree but is listed
+    // under its parent's workspace.
+    it('records workingDirectory = workspaceId when no working directory is given', async () => {
+      const md = await store.create('sess-1', WORKSPACE, 'Plain');
+      expect(md.workingDirectory).toBe(WORKSPACE);
+    });
+
+    it('records an explicit workingDirectory and keeps the workspaceId', async () => {
+      const md = await store.create(
+        'sess-child',
+        '/root',
+        'Child',
+        'created',
+        '/root/.claude-worktrees/x',
+      );
+      expect(md).toMatchObject({
+        workspaceId: '/root',
+        workingDirectory: '/root/.claude-worktrees/x',
+      });
+      await expect(store.get('sess-child')).resolves.toMatchObject({
+        workspaceId: '/root',
+        workingDirectory: '/root/.claude-worktrees/x',
+      });
+    });
+
+    it('falls back to workspaceId for a blank workingDirectory', async () => {
+      const md = await store.create(
+        'sess-1',
+        WORKSPACE,
+        'Plain',
+        'created',
+        '  ',
+      );
+      expect(md.workingDirectory).toBe(WORKSPACE);
+    });
+
     it('marks child sessions with isChildSession=true', async () => {
       const md = await store.createChild(
         'sess-child',
@@ -174,10 +208,9 @@ describe('SessionMetadataStore', () => {
 
     it('flags an already-imported top-level session WITHOUT clobbering name/cost', async () => {
       await store.create('leaked-1', WORKSPACE, 'Real name');
-      await store.addStats('leaked-1', {
-        cost: 4.2,
-        tokens: { input: 10, output: 5 },
-      });
+      const created = await store.get('leaked-1');
+      if (!created) throw new Error('create did not persist leaked-1');
+      await store.save({ ...created, totalCost: 4.2 });
 
       await store.markChildSession('leaked-1', WORKSPACE);
 
@@ -214,6 +247,26 @@ describe('SessionMetadataStore', () => {
         'child-1',
         'parent-1',
       ]);
+    });
+
+    it('lists a session created in a worktree under the parent workspace (session:list source)', async () => {
+      await store.create('parent-1', '/root', 'Parent');
+      await store.create(
+        'child-wt',
+        '/root',
+        'Child',
+        'created',
+        '/root/.claude-worktrees/x',
+      );
+
+      const listed = await store.getForWorkspace('/root');
+      expect(listed.map((m) => m.sessionId).sort()).toEqual([
+        'child-wt',
+        'parent-1',
+      ]);
+      await expect(
+        store.getForWorkspace('/root/.claude-worktrees/x'),
+      ).resolves.toEqual([]);
     });
 
     it('matches workspaceId across path-separator differences (Windows/POSIX)', async () => {
@@ -445,8 +498,7 @@ describe('SessionMetadataStore', () => {
     it('has reached storage by the time an awaited write resolves', async () => {
       await store.create('sess-1', WORKSPACE, 'parent');
       const persisted = storage.__state.entries.get(METADATA_KEY) as
-        | Array<{ sessionId: string }>
-        | undefined;
+        Array<{ sessionId: string }> | undefined;
       expect(persisted?.map((m) => m.sessionId)).toEqual(['sess-1']);
     });
 
@@ -495,8 +547,7 @@ describe('SessionMetadataStore', () => {
 
     function persistedNames(): string[] {
       const blob = storage.__state.entries.get(METADATA_KEY) as
-        | Array<{ name: string }>
-        | undefined;
+        Array<{ name: string }> | undefined;
       return (blob ?? []).map((m) => m.name);
     }
 
@@ -717,10 +768,7 @@ describe('SessionMetadataStore', () => {
         fatDetail([fatRef('agent-a', 'cli-a'), fatRef('agent-b', 'cli-b')]),
       ]);
 
-      await store.addStats('sess-1', {
-        cost: 0.01,
-        tokens: { input: 1, output: 1 },
-      });
+      await store.touch('sess-1');
 
       const blob = JSON.stringify(storage.__state.entries.get(METADATA_KEY));
       expect(blob).not.toContain('streamEvents');
@@ -1522,60 +1570,6 @@ describe('SessionMetadataStore', () => {
         false,
       );
       expect(await store.get('sess-1')).toBeNull();
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // addStats — accumulation + parent propagation
-  // -------------------------------------------------------------------------
-
-  describe('addStats', () => {
-    it('accumulates cost and tokens', async () => {
-      await store.create('sess-1', WORKSPACE, 'parent');
-      await store.addStats('sess-1', {
-        cost: 0.01,
-        tokens: { input: 5, output: 3 },
-      });
-      await store.addStats('sess-1', {
-        cost: 0.02,
-        tokens: { input: 2, output: 1 },
-      });
-
-      const md = await store.get('sess-1');
-      expect(md?.totalCost).toBeCloseTo(0.03, 5);
-      expect(md?.totalTokens).toEqual({ input: 7, output: 4 });
-    });
-
-    it('propagates child session stats to the referenced parent', async () => {
-      await store.create('parent-1', WORKSPACE, 'parent');
-      await store.createChild('child-1', WORKSPACE, 'child');
-      // Link the child to the parent via a CliSessionReference whose
-      // sdkSessionId points at the child's session id.
-      await store.addCliSession(
-        'parent-1',
-        cliRef({
-          cliSessionId: 'cli-parent-link',
-          sdkSessionId: 'child-1',
-        }),
-      );
-
-      await store.addStats('child-1', {
-        cost: 0.05,
-        tokens: { input: 100, output: 50 },
-      });
-
-      const parent = await store.get('parent-1');
-      expect(parent?.totalCost).toBeCloseTo(0.05, 5);
-      expect(parent?.totalTokens).toEqual({ input: 100, output: 50 });
-
-      const child = await store.get('child-1');
-      expect(child?.totalCost).toBeCloseTo(0.05, 5);
-    });
-
-    it('silently no-ops when the target session does not exist', async () => {
-      await expect(
-        store.addStats('missing', { cost: 1, tokens: { input: 1, output: 1 } }),
-      ).resolves.toBeUndefined();
     });
   });
 

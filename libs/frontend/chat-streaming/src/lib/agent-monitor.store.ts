@@ -59,6 +59,17 @@ function readWorkflowFields(src: unknown): WorkflowRunFields {
   return { workflowRunId: s.workflowRunId, workflowName: s.workflowName };
 }
 
+/** A plain (non-workflow) subagent that is still running, queued, backgrounded, or paused. */
+function isActiveSessionSubagent(r: SubagentRecord): boolean {
+  return (
+    !r.workflowRunId &&
+    (r.status === 'running' ||
+      r.status === 'pending' ||
+      r.status === 'background' ||
+      r.status === 'paused')
+  );
+}
+
 /** Maximum completed/failed agents retained in the store.
  * Only agents with status 'completed' or 'failed' are evicted; 'running' and
  * 'interrupted' agents are always preserved. */
@@ -203,7 +214,8 @@ export interface SubagentRecord {
     | 'failed'
     | 'killed'
     | 'stopped'
-    | 'paused';
+    | 'paused'
+    | 'background';
   /** Cumulative token usage (last reported) */
   totalTokens?: number;
   /** Tool invocation count (last reported) */
@@ -470,6 +482,38 @@ export class AgentMonitorStore implements OnDestroy {
     return [...this._subagents().values()].filter(
       (r) =>
         !!r.workflowRunId &&
+        agentVisibleInSession(r.parentSessionId, sessionId),
+    );
+  }
+
+  /**
+   * Non-workflow subagents — SubagentRecords with no `workflowRunId` whose status
+   * is active ('running' | 'pending' | 'paused') — scoped to the active tab's session.
+   * Mirrors {@link activeWorkflowSubagents} scoping: when no tab is active all
+   * active non-workflow subagents are returned; records without a `parentSessionId`
+   * are shown in every tab.
+   */
+  readonly activeSessionSubagents = computed<SubagentRecord[]>(() => {
+    const sessionSubs = [...this._subagents().values()].filter(
+      isActiveSessionSubagent,
+    );
+    const activeSessionId = this.tabManager.activeTabSessionId();
+    if (!activeSessionId) return sessionSubs;
+    return sessionSubs.filter((r) =>
+      agentVisibleInSession(r.parentSessionId, activeSessionId),
+    );
+  });
+
+  /**
+   * Non-workflow subagents owned by a specific session (scoped accessor for the
+   * embedded / canvas-tile panel — mirrors {@link workflowSubagentsForSession}).
+   */
+  sessionSubagentsForSession(
+    sessionId: string | null | undefined,
+  ): SubagentRecord[] {
+    return [...this._subagents().values()].filter(
+      (r) =>
+        isActiveSessionSubagent(r) &&
         agentVisibleInSession(r.parentSessionId, sessionId),
     );
   }

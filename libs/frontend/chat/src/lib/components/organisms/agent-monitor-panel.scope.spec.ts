@@ -24,6 +24,9 @@ describe('AgentMonitorPanelComponent — unresolved session scope', () => {
   let storeMock: {
     activeWorkflowSubagents: jest.Mock;
     workflowSubagentsForSession: jest.Mock;
+    activeSessionSubagents: jest.Mock;
+    sessionSubagentsForSession: jest.Mock;
+    getSubagent: jest.Mock;
     clearCompleted: jest.Mock;
     clearCompletedInSession: jest.Mock;
     activeTabAgents: jest.Mock;
@@ -48,6 +51,9 @@ describe('AgentMonitorPanelComponent — unresolved session scope', () => {
         { parentToolUseId: 'toolu_foreign', status: 'running' },
       ]),
       workflowSubagentsForSession: jest.fn(() => []),
+      activeSessionSubagents: jest.fn(() => []),
+      sessionSubagentsForSession: jest.fn(() => []),
+      getSubagent: jest.fn(() => undefined),
       clearCompleted: jest.fn(),
       clearCompletedInSession: jest.fn(),
       activeTabAgents: jest.fn(() => []),

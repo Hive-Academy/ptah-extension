@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Frame 02 - split (C)</title>
+    <!-- Prototype C, Frame 02: Split. 3.582 s = 2 bars from the drop.
+         On the drop Frame 01's transcript scrolls up and out; a new prompt arrives and the session starts three lanes:
+         three gold ptah_agent_spawn rows on beats 2-4 (one per lane, each runs to done).
+         Column: prompt y 100-340, rows y 364 / 452 / 540 (72 px + 16 px gaps).
+         Fragment for assemble.mjs: times are frame-local; the script runs on the main timeline at T0. -->
+  </head>
+  <body>
+    <template>
+      <div id="f02" class="scene" data-composition-id="f02" data-width="1920" data-height="1080" data-frame-start="1.791" data-frame-duration="3.582" data-seam-in="cut" data-duck="0">
+        <div id="f02-vig" class="vig"></div>
+
+        <!-- Frame 01's transcript, same variables and preroll, so the cut is invisible -->
+        <div id="f02-old" class="col">
+          <div id="f02-old-in" class="col-in">
+            <div id="f02-m1" class="clip fm" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0" data-duration="0.5" data-track-index="1" data-variable-values='{"role":"user","text":"Fix the review on 579 and run the full test suite.","preroll":3.791}' style="left: 0; top: 100px; width: 1400px; height: 240px"></div>
+            <div id="f02-m2" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0" data-duration="0.5" data-track-index="2" data-variable-values='{"tool":"Bash","label":"Run the full test suite","liveText":"Executing Bash...","cues":"0,0.45,9","runFor":9,"preroll":2.591}' style="left: 0; top: 364px; width: 1400px; height: 72px"></div>
+          </div>
+        </div>
+
+        <div id="f02-col" class="col">
+          <div id="f02-in" class="col-in">
+            <div id="f02-m3" class="clip fm" data-composition-id="ptah-ui-chat-message" data-composition-src="compositions/components/ptah-ui-chat-message.html" data-start="0.3" data-duration="3.282" data-track-index="3" data-variable-values='{"role":"user","text":"Review batch 5 in three lanes: Glm, Codex and Copilot."}' style="left: 0; top: 100px; width: 1400px; height: 240px"></div>
+            <div id="f02-m4" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0.448" data-duration="3.134" data-track-index="4" data-variable-values='{"tool":"mcp__ptah__ptah_agent_spawn","label":"Glm · review the code logic","cues":"0,0.35,0.9","runFor":0.55}' style="left: 0; top: 364px; width: 1400px; height: 72px"></div>
+            <div id="f02-m5" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="0.896" data-duration="2.686" data-track-index="5" data-variable-values='{"tool":"mcp__ptah__ptah_agent_spawn","label":"Codex · fix the review comments","cues":"0,0.35,0.9","runFor":0.55}' style="left: 0; top: 452px; width: 1400px; height: 72px"></div>
+            <div id="f02-m6" class="clip fm" data-composition-id="ptah-ui-tool-call-row" data-composition-src="compositions/components/ptah-ui-tool-call-row.html" data-start="1.343" data-duration="2.239" data-track-index="6" data-variable-values='{"tool":"mcp__ptah__ptah_agent_spawn","label":"Copilot · run lint and tests","cues":"0,0.35,0.9","runFor":0.55}' style="left: 0; top: 540px; width: 1400px; height: 72px"></div>
+          </div>
+        </div>
+
+        <div id="f02-cap" class="cap"><span id="f02-c1">One prompt.</span> <span id="f02-c2" class="g">Three lanes.</span></div>
+
+        <audio id="sx-f02-drop" src="assets/sfx/impact-bass-1.mp3" data-start="0" data-duration="1.791" data-track-index="30" data-volume="0.75"></audio>
+        <audio id="sx-f02-w1" src="assets/sfx/pop.mp3" data-start="0.448" data-duration="0.5" data-track-index="31" data-volume="0.4"></audio>
+        <audio id="sx-f02-w2" src="assets/sfx/pop.mp3" data-start="0.896" data-duration="0.5" data-track-index="32" data-volume="0.4"></audio>
+        <audio id="sx-f02-w3" src="assets/sfx/pop.mp3" data-start="1.343" data-duration="0.5" data-track-index="33" data-volume="0.4"></audio>
+      </div>
+
+      <script>
+          var B = 0.448;
+          // The old transcript scrolls up and out on the drop.
+          tl.fromTo("#f02-old-in", { y: 0, opacity: 1 }, { y: -420, opacity: 0, duration: 0.35, ease: "expo.in" }, T0);
+          tl.fromTo("#f02-c1", { scale: 1.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, ease: "expo.out" }, T0);
+          tl.fromTo("#f02-c2", { x: 120, opacity: 0 }, { x: 0, opacity: 1, duration: 0.35, ease: "expo.out" }, T0 + B);
+      </script>
+    </template>
+  </body>
+</html>

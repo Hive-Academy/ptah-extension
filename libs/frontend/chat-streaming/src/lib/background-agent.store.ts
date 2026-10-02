@@ -340,8 +340,7 @@ export class BackgroundAgentStore {
         teammateName: event.teammateName,
         agentDescription: event.agentDescription,
         sessionId: knownSessionId(event.sessionId) as
-          | ClaudeSessionId
-          | undefined,
+          ClaudeSessionId | undefined,
         status: 'running',
         startedAt: event.timestamp,
       });
@@ -349,16 +348,50 @@ export class BackgroundAgentStore {
     });
   }
 
+  /**
+   * Resolve the entry a terminal event addresses. A terminal event with no
+   * agentId resolves to its `toolCallId` key, but SubagentStop may already
+   * have moved that entry onto its real agentId (`adoptRealAgentId`) — so on
+   * a miss, fall back to the toolCallId identity space before treating the
+   * event as one for an unseen agent.
+   */
+  private locateEntry(
+    map: ReadonlyMap<BackgroundAgentId, BackgroundAgentEntry>,
+    key: BackgroundAgentId,
+    toolCallId: string,
+  ): [BackgroundAgentId, BackgroundAgentEntry | undefined] {
+    const direct = map.get(key);
+    // Only an event that carried no agentId falls back; a real agentId that
+    // misses is a genuinely unseen agent.
+    if (direct || key !== toolCallId) return [key, direct];
+    for (const [k, a] of map) {
+      if (a.toolCallId === toolCallId) return [k, a];
+    }
+    return [key, undefined];
+  }
+
   onCompleted(event: BackgroundAgentCompletedEvent): void {
-    const key = this.resolveKey(event.agentId, event.toolCallId);
+    const resolved = this.resolveKey(event.agentId, event.toolCallId);
     this.applyMutation((map) => {
-      const agent = map.get(key);
+      const [key, agent] = this.locateEntry(map, resolved, event.toolCallId);
+
+      // A terminal entry is never reopened: the SubagentStop `stopped` can
+      // land before this notification, and a late completion must not
+      // overwrite it. Decline the write — same map, no revision bump.
+      if (agent && agent.status !== 'running') {
+        return map;
+      }
+
+      // 'failed' is the entry's `error` status; absent or 'completed' both
+      // mean an ordinary completion.
+      const status: BackgroundAgentEntry['status'] =
+        event.status === 'failed' ? 'error' : 'completed';
 
       const next = new Map(map);
       if (agent) {
         next.set(key, {
           ...agent,
-          status: 'completed',
+          status,
           completedAt: event.timestamp,
           result: event.result,
           cost: event.cost,
@@ -371,9 +404,8 @@ export class BackgroundAgentStore {
           hasRealAgentId: !!(event.agentId && event.agentId.length > 0),
           agentType: event.agentType || 'unknown',
           sessionId: knownSessionId(event.sessionId) as
-            | ClaudeSessionId
-            | undefined,
-          status: 'completed',
+            ClaudeSessionId | undefined,
+          status,
           startedAt: event.timestamp,
           completedAt: event.timestamp,
           result: event.result,
@@ -387,9 +419,15 @@ export class BackgroundAgentStore {
   }
 
   onStopped(event: BackgroundAgentStoppedEvent): void {
-    const key = this.resolveKey(event.agentId, event.toolCallId);
+    const resolved = this.resolveKey(event.agentId, event.toolCallId);
     this.applyMutation((map) => {
-      const agent = map.get(key);
+      const [key, agent] = this.locateEntry(map, resolved, event.toolCallId);
+
+      // Same terminal guard as `onCompleted`: a `completed`/`error` entry
+      // must not be reopened by a late `stopped`. Decline the write.
+      if (agent && agent.status !== 'running') {
+        return map;
+      }
 
       const next = new Map(map);
       if (agent) {
@@ -405,8 +443,7 @@ export class BackgroundAgentStore {
           hasRealAgentId: !!(event.agentId && event.agentId.length > 0),
           agentType: event.agentType || 'unknown',
           sessionId: knownSessionId(event.sessionId) as
-            | ClaudeSessionId
-            | undefined,
+            ClaudeSessionId | undefined,
           status: 'stopped',
           startedAt: event.timestamp,
           completedAt: event.timestamp,

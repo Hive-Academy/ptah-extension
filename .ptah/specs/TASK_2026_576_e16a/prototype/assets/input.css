@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Measured per-theme text-color overrides (design-spec-review.md round 1,
+ * findings 1/5/6). The theme's own same-hue `*-content` token fails WCAG AA
+ * at small sizes for these specific pairs (verified with the CSS Color 4
+ * OKLCH -> linear-sRGB -> relative-luminance formula, see design-spec.md
+ * §2 "Verified overrides"). These are NOT new design-system colors — they
+ * are per-theme substitutes for the same semantic role (destructive text,
+ * diff addition/deletion text), following the same measure-and-gate method
+ * the project already used for `--bcm` (base-content-muted).
+ */
+[data-theme='anubis-light'] .err-solid-text {
+  color: #131317; /* near-black; error(64%,.246,16.439) bg -> 5.51:1 */
+}
+[data-theme='anubis'] .err-solid-text {
+  color: #ffffff; /* white; error(#dc2626) bg -> 4.83:1 */
+}
+[data-theme='anubis-light'] .diff-add-text {
+  color: oklch(45% 0.17 162.48); /* -> 5.90:1 on base-100, 4.90:1 on base-300 */
+}
+[data-theme='anubis'] .diff-add-text {
+  color: #16a34a; /* --su unchanged; already 5.62:1 on base-100 */
+}
+[data-theme='anubis-light'] .diff-del-text {
+  color: oklch(45% 0.22 20); /* -> 6.94:1 on base-100, 5.76:1 on base-300 */
+}
+[data-theme='anubis'] .diff-del-text {
+  color: #f87171; /* -> 6.70:1 on base-100, 5.54:1 on base-300 (stock --er dark only
+                      reaches 3.84:1/3.17:1; #ef4444 alone cleared base-100 at 4.92:1
+                      but fell to 4.07:1 on base-300, where the change-set card's totals
+                      also render, so red-400 is used for a safe margin everywhere) */
+}
+
+/*
+ * Illustrative syntax-token colors for the review-canvas prototype (finding
+ * 7: "raise visual polish... syntax-highlighted code"). The real
+ * implementation gets these from Pierre's own Shiki theme
+ * (`preferredHighlighter: 'shiki-js'`, per research-report.md), not from
+ * hand-picked classes — these exist only so the prototype can demonstrate
+ * the intended density and hierarchy before that theme is wired up.
+ */
+[data-theme='anubis'] {
+  --tok-keyword: #c792ea;
+  --tok-string: #ecc48d;
+  --tok-fn: #82aaff;
+}
+[data-theme='anubis-light'] {
+  --tok-keyword: #7c3aed;
+  --tok-string: #b45309;
+  --tok-fn: #1d4ed8;
+}
+/*
+ * Same method as `.err-solid-text`, applied to the one other solid-fill
+ * button this round's verification pass found failing where it is actually
+ * used in the prototype: `btn-success` ("Accept") in `anubis` dark, where
+ * `success-content` (#e8e6e1) on `success` (#16a34a) measures 2.64:1. Only a
+ * dark-theme rule is needed — light's `success-content` on `success` already
+ * measures 6.05:1 and is left untouched. (`info-content` on `info` has the
+ * same defect in dark at 2.95:1; the same #131317 also passes there at
+ * 5.04:1, so this class is reused for any solid `info`/`success` fill.)
+ */
+[data-theme='anubis'] .ok-solid-text {
+  color: #131317;
+}
+.tok-kw { color: var(--tok-keyword); }
+.tok-str { color: var(--tok-string); }
+.tok-fn { color: var(--tok-fn); }
+
+/* Word-level intraline change highlight: a stronger tint nested inside the
+ * line's own softer tint, standing in for Pierre's word-diff annotation. */
+[data-theme='anubis'] .word-add { background-color: oklch(69% 0.17 162.48 / 0.35); border-radius: 2px; }
+[data-theme='anubis-light'] .word-add { background-color: oklch(45% 0.17 162.48 / 0.22); border-radius: 2px; }
+[data-theme='anubis'] .word-del { background-color: rgba(239, 68, 68, 0.3); border-radius: 2px; }
+[data-theme='anubis-light'] .word-del { background-color: oklch(45% 0.22 20 / 0.18); border-radius: 2px; }
+
+/* Diff line gutter (old/new line numbers), a fixed-width column pair so
+ * added/removed/context lines all align (finding 7: "old/new gutter"). */
+.diff-line { display: grid; grid-template-columns: 2.75rem 2.75rem 1fr; column-gap: 0.5rem; }
+.diff-gutter-num { text-align: right; user-select: none; }

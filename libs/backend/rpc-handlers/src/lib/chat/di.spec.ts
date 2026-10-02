@@ -29,8 +29,10 @@ jest.mock('@ptah-extension/agent-generation', () => ({
 
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
 
 import { registerChatServices, CHAT_TOKENS } from './di';
+import { ChildChatSessionHostAdapter } from './session/child-chat-session-host.adapter';
 import { SessionMcpStatusRegistry } from './session/session-mcp-status.registry';
 import { SurfaceSubmitTurnService } from './session/surface-submit-turn.service';
 
@@ -197,5 +199,34 @@ describe('registerChatServices — SurfaceSubmitTurnService', () => {
 
     expect(first).toBeInstanceOf(SurfaceSubmitTurnService);
     expect(c.resolve(CHAT_TOKENS.SURFACE_SUBMIT_TURN)).toBe(first);
+  });
+});
+
+/**
+ * TASK_2026_584 — the chat-path host port for child sessions. The spawner in
+ * `cli-agent-runtime` resolves it by token; this lib owns the only binding.
+ */
+describe('registerChatServices — ChildChatSessionHostAdapter', () => {
+  it('resolves CHILD_CHAT_SESSION_HOST to one shared ChildChatSessionHostAdapter', () => {
+    const c = rootContainer.createChildContainer();
+    c.register(OUTPUT_STYLE_TOKENS.SESSION_ACTIVATION, { useValue: {} });
+    registerChatServices(c);
+    // Stand-ins for the adapter's collaborators, bound AFTER registration so
+    // the session stand-in replaces the real class binding.
+    c.register(TOKENS.LOGGER, {
+      useValue: { debug: jest.fn(), info: jest.fn(), warn: jest.fn() },
+    });
+    c.register(TOKENS.WEBVIEW_MANAGER, { useValue: {} });
+    c.register(CHAT_TOKENS.SESSION, { useValue: {} });
+
+    expect(
+      c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST),
+    ).toBe(true);
+    const first = c.resolve(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST);
+
+    expect(first).toBeInstanceOf(ChildChatSessionHostAdapter);
+    expect(c.resolve(CLI_AGENT_RUNTIME_TOKENS.CHILD_CHAT_SESSION_HOST)).toBe(
+      first,
+    );
   });
 });

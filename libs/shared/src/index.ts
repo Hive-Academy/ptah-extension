@@ -37,6 +37,7 @@ export * from './lib/types/ptah-cli.types';
 export * from './lib/types/agent-permission.types';
 export * from './lib/types/mcp-directory.types';
 export * from './lib/types/task-spec.types';
+export * from './lib/types/session-organization.types';
 export * from './lib/types/task-spec.contract';
 export * from './lib/types/task-graph';
 export * from './lib/types/task-filter';
@@ -69,6 +70,7 @@ export * from './lib/providers';
 export * from './lib/constants/environment.constants';
 export * from './lib/constants/workspace-scan.constants';
 export * from './lib/constants/skill-drain.constants';
+export * from './lib/constants/git-operation.constants';
 export * from './lib/constants/stack-profiles';
 export * from './lib/connectors/ptah-connectors.catalog';
 

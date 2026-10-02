@@ -29,6 +29,7 @@ import { SessionHistoryReaderService } from '../session-history-reader.service';
 import { SessionStatsReaderService } from '../session-stats';
 import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
+import { UnattendedSessionPolicyRegistry } from '../permission/unattended-session-policy.registry';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
 import {
@@ -170,6 +171,15 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_STATS_READER,
     { useClass: SessionStatsReaderService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Before the permission handler: it injects the registry as an OPTIONAL
+  // dependency, and tsyringe resolves that once, when the singleton handler is
+  // built — a later registration would leave the handler without it.
+  container.register(
+    SDK_TOKENS.SDK_UNATTENDED_SESSION_POLICY_REGISTRY,
+    { useClass: UnattendedSessionPolicyRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 

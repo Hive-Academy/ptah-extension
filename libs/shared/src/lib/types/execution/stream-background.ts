@@ -69,6 +69,12 @@ export interface BackgroundAgentCompletedEvent extends FlatStreamEvent {
   readonly agentId: string;
   /** Agent type (e.g., 'software-architect', 'Explore') for display when start event was missed */
   readonly agentType?: string;
+  /**
+   * Terminal disposition of the agent. Absent means 'completed'. A 'failed'
+   * status tells the tray to render the entry as failed instead of
+   * completed; the agent's summary still travels in `result`.
+   */
+  readonly status?: 'completed' | 'failed';
   /** Final result text from the agent */
   readonly result?: string;
   /** Total cost in USD */
@@ -155,12 +161,7 @@ export interface AgentStatusEvent extends FlatStreamEvent {
   readonly taskId: string;
   /** New lifecycle status from the SDK patch */
   readonly status:
-    | 'pending'
-    | 'running'
-    | 'completed'
-    | 'failed'
-    | 'killed'
-    | 'paused';
+    'pending' | 'running' | 'completed' | 'failed' | 'killed' | 'paused';
   /** Optional description update from the SDK patch */
   readonly description?: string;
   /** Error text if status is 'failed' */
@@ -224,11 +225,7 @@ export interface AgentCompletedEvent extends FlatStreamEvent {
  * - 'failed': StopFailure observed for this turn
  */
 export type SessionTurnPhase =
-  | 'generating'
-  | 'awaiting-background'
-  | 'sleeping'
-  | 'idle'
-  | 'failed';
+  'generating' | 'awaiting-background' | 'sleeping' | 'idle' | 'failed';
 
 /** The phases that say the turn ENDED. Everything except 'generating'. */
 const TERMINAL_TURN_PHASES: ReadonlySet<SessionTurnPhase> = new Set([

@@ -23,6 +23,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   AgentId,
   AgentProcessInfo,
+  IAgentAdapter,
   ResultStatsPayload,
   SessionStatsEntry,
 } from '@ptah-extension/shared';
@@ -529,7 +530,7 @@ describe('wireSdkCallbacks — session stats snapshot transport (TASK_2026_533)'
 
   const footer = {
     sessionId: REAL_SESSION_ID as ResultStatsPayload['sessionId'],
-    cost: 0.5,
+    turnCost: 0.5,
     tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 },
     duration: 100,
   };
@@ -571,5 +572,99 @@ describe('wireSdkCallbacks — session stats snapshot transport (TASK_2026_533)'
     const payload = webviewManager.broadcastMessage.mock.calls[0][1];
     expect(payload).not.toHaveProperty('sessionStats');
     expect(payload).toMatchObject(footer);
+  });
+});
+
+/**
+ * TASK_2026_580 — the `git:worktreeChanged` (created) broadcast names the
+ * session that created the worktree, and uses the hook's own path before the
+ * platform resolver.
+ */
+describe('wireSdkCallbacks — worktree created broadcast (TASK_2026_580)', () => {
+  type CreatedData = Parameters<
+    Parameters<IAgentAdapter['setWorktreeCreatedCallback']>[0]
+  >[0];
+
+  function wireWorktree(
+    resolveWorktreePath?: jest.Mock<Promise<string | undefined>, [unknown]>,
+  ) {
+    let onCreated: ((data: CreatedData) => Promise<void>) | undefined;
+    const sdkAdapter = {
+      setResultStatsCallback: jest.fn(),
+      setSessionIdResolvedCallback: jest.fn(),
+      setCompactionStartCallback: jest.fn(),
+      setWorktreeCreatedCallback: jest.fn(
+        (cb: (data: CreatedData) => Promise<void>) => {
+          onCreated = cb;
+        },
+      ),
+      setWorktreeRemovedCallback: jest.fn(),
+    };
+    const webviewManager = {
+      broadcastMessage: jest.fn().mockResolvedValue(undefined),
+    };
+    const registry = new Map<symbol, unknown>([
+      [TOKENS.AGENT_ADAPTER, sdkAdapter],
+      [TOKENS.WEBVIEW_MANAGER, webviewManager],
+    ]);
+    wireSdkCallbacks(
+      {
+        isRegistered: (token: symbol) => registry.has(token),
+        resolve: (token: symbol) => registry.get(token),
+      } as unknown as DependencyContainer,
+      {
+        logger: createMockLogger() as unknown as Logger,
+        platform: 'electron',
+        options: { worktree: true, resolveWorktreePath },
+      },
+    );
+    if (!onCreated)
+      throw new Error('setWorktreeCreatedCallback was never wired');
+    return { onCreated, webviewManager };
+  }
+
+  const base: CreatedData = {
+    sessionId: REAL_SESSION_ID,
+    name: 'feat-x',
+    cwd: '/repo',
+    timestamp: 1,
+  };
+
+  it('carries sessionId and prefers the hook-reported worktreePath', async () => {
+    const resolver = jest
+      .fn<Promise<string | undefined>, [unknown]>()
+      .mockResolvedValue('/resolved/path');
+    const { onCreated, webviewManager } = wireWorktree(resolver);
+
+    await onCreated({ ...base, worktreePath: '/repo/.worktrees/feat-x' });
+
+    expect(resolver).not.toHaveBeenCalled();
+    expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      'git:worktreeChanged',
+      {
+        action: 'created',
+        name: 'feat-x',
+        path: '/repo/.worktrees/feat-x',
+        sessionId: REAL_SESSION_ID,
+      },
+    );
+  });
+
+  it('falls back to the resolver when the hook reported no path', async () => {
+    const resolver = jest
+      .fn<Promise<string | undefined>, [unknown]>()
+      .mockResolvedValue('/resolved/path');
+    const { onCreated, webviewManager } = wireWorktree(resolver);
+
+    await onCreated(base);
+
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      'git:worktreeChanged',
+      expect.objectContaining({
+        path: '/resolved/path',
+        sessionId: REAL_SESSION_ID,
+      }),
+    );
   });
 });

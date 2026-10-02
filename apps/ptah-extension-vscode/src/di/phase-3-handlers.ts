@@ -13,7 +13,7 @@
  * for it — that would change caching behavior.
  */
 
-import type { DependencyContainer } from 'tsyringe';
+import { instanceCachingFactory, type DependencyContainer } from 'tsyringe';
 
 import { TOKENS, GitInfoService } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -55,8 +55,14 @@ export function registerPhase3Handlers(
   _logger: Logger,
 ): void {
   void _logger;
+  // One `GitInfoService` per host: its caches are invalidated by the worktree
+  // hook, the task sweep and the file-link policy, and the next `git:*` RPC
+  // must see that. `instanceCachingFactory` because tsyringe rejects a
+  // lifecycle on a factory provider.
   container.register(TOKENS.GIT_INFO_SERVICE, {
-    useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
+    useFactory: instanceCachingFactory(
+      (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
+    ),
   });
   registerHarnessServices(container);
   registerChatServices(container);

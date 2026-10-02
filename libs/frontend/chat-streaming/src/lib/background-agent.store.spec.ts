@@ -180,6 +180,59 @@ describe('BackgroundAgentStore', () => {
       expect(agent.result).toBe('surprise');
     });
 
+    it('maps a failed status to the error entry status', () => {
+      store.onStarted(startEvent({ agentId: 'a-F', toolCallId: 'tc-F' }));
+      store.onCompleted(
+        completedEvent({
+          agentId: 'a-F',
+          toolCallId: 'tc-F',
+          status: 'failed',
+          result: 'agent crashed',
+        }),
+      );
+
+      const agent = store.agents()[0];
+      expect(agent.status).toBe('error');
+      expect(agent.result).toBe('agent crashed');
+    });
+
+    it('is a no-op on an already-stopped entry: status stays, revision does not bump', () => {
+      store.onStarted(startEvent({ agentId: 'a-L', toolCallId: 'tc-L' }));
+      store.onStopped(stoppedEvent({ agentId: 'a-L', toolCallId: 'tc-L' }));
+      const afterStop = store.revision();
+      const entryAtStop = store.agents()[0];
+
+      // The SubagentStop `stopped` can land before the task_notification's
+      // `background_agent_completed`. The late completion must not reopen
+      // the terminal entry.
+      store.onCompleted(
+        completedEvent({
+          agentId: 'a-L',
+          toolCallId: 'tc-L',
+          result: 'late completion',
+        }),
+      );
+
+      const agent = store.agents()[0];
+      expect(agent.status).toBe('stopped');
+      expect(agent.result).toBeUndefined();
+      // Same entry object: the declined write returned the same map.
+      expect(agent).toBe(entryAtStop);
+      expect(store.revision()).toBe(afterStop);
+    });
+
+    it('finds an entry rekeyed onto its real agentId when the event has no agentId', () => {
+      // Started before the SubagentStart hook knew the agentId → filed under
+      // the toolCallId; SubagentStop then moved it onto the real id.
+      store.onStarted(startEvent({ agentId: '', toolCallId: 'tc-R' }));
+      store.adoptRealAgentId('tc-R', 'a-R');
+      store.onStopped(stoppedEvent({ agentId: 'a-R', toolCallId: 'tc-R' }));
+
+      store.onCompleted(completedEvent({ agentId: '', toolCallId: 'tc-R' }));
+
+      expect(store.agents()).toHaveLength(1);
+      expect(store.agents()[0].status).toBe('stopped');
+    });
   });
 
   describe('onStopped', () => {
@@ -591,5 +644,4 @@ describe('BackgroundAgentStore', () => {
       expect(store.findByToolCallId('toolu_absent')).toBeNull();
     });
   });
-
 });

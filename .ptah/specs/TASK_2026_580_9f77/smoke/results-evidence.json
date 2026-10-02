@@ -1,0 +1,19 @@
+{
+  "boots": [
+    {
+      "rpcReadyMs": 17808,
+      "availableAfterMs": 44818,
+      "falseResponsesBeforeAvailable": 46
+    },
+    {
+      "rpcReadyMs": 324,
+      "availableAfterMs": 20990,
+      "falseResponsesBeforeAvailable": 67
+    },
+    {
+      "rpcReadyMs": 436,
+      "availableAfterMs": 33156,
+      "falseResponsesBeforeAvailable": 79
+    }
+  ]
+}

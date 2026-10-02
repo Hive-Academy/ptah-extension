@@ -24,6 +24,8 @@
  *   git:diffFile       — rejects malformed params without invoking git
  *   git:diffFile       — returns a not-a-repo error result with no workspace
  *   git:diffFile       — maps a thrown rejection to an error result
+ *   git:commit/stage   — code, hookOutput, exitCode, hash, subject reach the
+ *                        RPC result unchanged (TASK_2026_576 RC1)
  *
  * Mocking posture: direct constructor injection; narrow mock surfaces.
  *
@@ -67,6 +69,8 @@ type MockGitInfo = jest.Mocked<
   Pick<
     GitInfoService,
     | 'getGitInfo'
+    | 'stageFiles'
+    | 'commit'
     | 'reviewChanges'
     | 'reviewFile'
     | 'getBranches'
@@ -84,6 +88,9 @@ type MockGitInfo = jest.Mocked<
     | 'stashShow'
     | 'diffFile'
     | 'applyHunks'
+    | 'getWorktrees'
+    | 'addWorktree'
+    | 'removeWorktree'
   >
 >;
 
@@ -94,6 +101,8 @@ function createMockGitInfo(): MockGitInfo {
       branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
       files: [],
     }),
+    stageFiles: jest.fn().mockResolvedValue({ success: true }),
+    commit: jest.fn().mockResolvedValue({ success: true }),
     reviewChanges: jest.fn().mockResolvedValue({
       success: true,
       base: { name: 'main', sha: 'a'.repeat(40) },
@@ -154,6 +163,11 @@ function createMockGitInfo(): MockGitInfo {
     applyHunks: jest
       .fn()
       .mockResolvedValue({ success: true, snapshotToken: 'token-2' }),
+    getWorktrees: jest.fn().mockResolvedValue([]),
+    addWorktree: jest
+      .fn()
+      .mockResolvedValue({ success: true, worktreePath: '/wt/feature' }),
+    removeWorktree: jest.fn().mockResolvedValue({ success: true }),
   };
 }
 
@@ -653,6 +667,77 @@ describe('git:branches handler', () => {
 });
 
 // ===========================================================================
+// RC1 / RC8 pass-through — the handler returns the service result unchanged
+// ===========================================================================
+
+describe('git mutation result pass-through (TASK_2026_576 RC1)', () => {
+  it('git:commit forwards HOOK_FAILED with hookOutput, exitCode and code untouched', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const failure = {
+      success: false,
+      code: 'HOOK_FAILED' as const,
+      exitCode: 1,
+      hookOutput: 'lint failed in src/calc.ts\n1 problem\n',
+      error: 'A git hook rejected the commit (exit code 1).',
+    };
+    gitInfo.commit.mockResolvedValueOnce(failure);
+
+    const result = await getHandler(rpc, 'git:commit')({ message: 'feat: x' });
+
+    expect(gitInfo.commit).toHaveBeenCalledWith('/workspace', 'feat: x');
+    expect(result).toEqual(failure);
+  });
+
+  it('git:commit forwards the hash and subject read back from git', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const success = {
+      success: true,
+      commitHash: 'abc1234',
+      subject: 'feat: x',
+    };
+    gitInfo.commit.mockResolvedValueOnce(success);
+
+    await expect(
+      getHandler(rpc, 'git:commit')({ message: 'feat: x' }),
+    ).resolves.toEqual(success);
+  });
+
+  it.each(['TIMEOUT', 'CANCELLED', 'LOCKED'] as const)(
+    'git:commit forwards code %s',
+    async (code) => {
+      const { handlers, rpc, gitInfo } = buildSuite();
+      handlers.register();
+      gitInfo.commit.mockResolvedValueOnce({
+        success: false,
+        code,
+        error: 'x',
+      });
+
+      await expect(
+        getHandler(rpc, 'git:commit')({ message: 'feat: x' }),
+      ).resolves.toEqual({ success: false, code, error: 'x' });
+    },
+  );
+
+  it('git:stage forwards LOCKED with the fixed message', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const locked = {
+      success: false,
+      code: 'LOCKED' as const,
+      error: 'Another git process is using this repository.',
+    };
+    gitInfo.stageFiles.mockResolvedValueOnce(locked);
+
+    await expect(
+      getHandler(rpc, 'git:stage')({ paths: ['a.txt'] }),
+    ).resolves.toEqual(locked);
+  });
+});
+
+// ===========================================================================
 // git:discard — workspaceRoot scoping guard for a destructive operation
 // ===========================================================================
 
@@ -669,6 +754,124 @@ describe('git:discard handler workspace scoping', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
+  });
+});
+
+// ===========================================================================
+// Worktree RPCs — workspaceRoot scoping (TASK_2026_576 RC10)
+// ===========================================================================
+
+describe('worktree handlers workspace scoping', () => {
+  it('git:worktrees lists the active workspace when no workspaceRoot is given', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    await getHandler(rpc, 'git:worktrees')(undefined);
+
+    expect(gitInfo.getWorktrees).toHaveBeenCalledWith('/workspace');
+  });
+
+  it('git:worktrees lists the registered folder named in workspaceRoot', async () => {
+    const { handlers, rpc, workspace, gitInfo } = buildSuite();
+    workspace.getWorkspaceFolders.mockReturnValue(['/workspace', '/other']);
+    handlers.register();
+
+    await getHandler(rpc, 'git:worktrees')({ workspaceRoot: '/other' });
+
+    expect(gitInfo.getWorktrees).toHaveBeenCalledWith('/other');
+  });
+
+  it('git:worktrees returns an empty list for an unregistered workspaceRoot', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    const result = await getHandler(
+      rpc,
+      'git:worktrees',
+    )({ workspaceRoot: '/elsewhere' });
+
+    expect(result).toEqual({ worktrees: [] });
+    expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+  });
+
+  it('git:worktrees returns an empty list and warns for malformed params', async () => {
+    const { handlers, rpc, gitInfo, logger } = buildSuite();
+    handlers.register();
+
+    const result = await getHandler(
+      rpc,
+      'git:worktrees',
+    )({ workspaceRoot: 42 });
+
+    expect(result).toEqual({ worktrees: [] });
+    expect(gitInfo.getWorktrees).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[GitRpc] git:worktrees called with invalid params',
+    );
+  });
+
+  it('git:addWorktree runs in the registered folder named in workspaceRoot', async () => {
+    const { handlers, rpc, workspace, gitInfo } = buildSuite();
+    workspace.getWorkspaceFolders.mockReturnValue(['/workspace', '/other']);
+    handlers.register();
+
+    await getHandler(
+      rpc,
+      'git:addWorktree',
+    )({ branch: 'feature', workspaceRoot: '/other' });
+
+    expect(gitInfo.addWorktree).toHaveBeenCalledWith('/other', {
+      branch: 'feature',
+      path: undefined,
+      createBranch: undefined,
+    });
+  });
+
+  it('git:addWorktree rejects an unregistered workspaceRoot', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    const result = (await getHandler(
+      rpc,
+      'git:addWorktree',
+    )({ branch: 'feature', workspaceRoot: '/elsewhere' })) as {
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(gitInfo.addWorktree).not.toHaveBeenCalled();
+  });
+
+  it('git:removeWorktree runs in the registered folder named in workspaceRoot', async () => {
+    const { handlers, rpc, workspace, gitInfo } = buildSuite();
+    workspace.getWorkspaceFolders.mockReturnValue(['/workspace', '/other']);
+    handlers.register();
+
+    await getHandler(
+      rpc,
+      'git:removeWorktree',
+    )({ path: '/other/.claude-worktrees/a', workspaceRoot: '/other' });
+
+    expect(gitInfo.removeWorktree).toHaveBeenCalledWith(
+      '/other',
+      '/other/.claude-worktrees/a',
+      undefined,
+    );
+  });
+
+  it('git:removeWorktree rejects an unregistered workspaceRoot', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+
+    const result = (await getHandler(
+      rpc,
+      'git:removeWorktree',
+    )({ path: '/elsewhere/wt', workspaceRoot: '/elsewhere' })) as {
+      success: boolean;
+    };
+
+    expect(result.success).toBe(false);
+    expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
   });
 });
 
@@ -739,7 +942,43 @@ describe('git:checkout handler', () => {
       'feat/x',
       undefined,
       true,
+      { stash: undefined, track: undefined },
     );
+  });
+
+  it('passes stash and track through to gitInfo.checkout', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:checkout');
+
+    await handler({ branch: 'origin/feat', stash: true, track: true });
+
+    expect(gitInfo.checkout).toHaveBeenCalledWith(
+      '/workspace',
+      'origin/feat',
+      undefined,
+      undefined,
+      { stash: true, track: true },
+    );
+  });
+
+  it('returns a dirty refusal with conflictingPaths unchanged', async () => {
+    const { handlers, rpc, gitInfo } = buildSuite();
+    handlers.register();
+    const handler = getHandler(rpc, 'git:checkout');
+    gitInfo.checkout.mockResolvedValueOnce({
+      success: false,
+      dirty: true,
+      conflictingPaths: ['src/a.ts'],
+    });
+
+    const result = await handler({ branch: 'feat/x' });
+
+    expect(result).toEqual({
+      success: false,
+      dirty: true,
+      conflictingPaths: ['src/a.ts'],
+    });
   });
 });
 

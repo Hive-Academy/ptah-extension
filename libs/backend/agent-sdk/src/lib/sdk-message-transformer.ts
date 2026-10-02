@@ -45,6 +45,7 @@ import {
   userMessageHasToolResult,
 } from './message-transform';
 import type {
+  BackgroundAnnounceOrigin,
   BackgroundTaskInfo,
   TransformerState,
   TransformerHelpers,
@@ -97,6 +98,10 @@ export class SdkMessageTransformer implements TransformerState {
     new Map();
   private readonly taskIdToParentToolUseId: Map<string, string> = new Map();
   private readonly taskStartedEmitted: Set<string> = new Set();
+  private readonly backgroundAnnouncedToolUseIds = new Map<
+    string,
+    BackgroundAnnounceOrigin
+  >();
   private readonly nonAgentTaskIds: Set<string> = new Set();
   private readonly activeSkillToolUseIds: Set<string> = new Set();
   private readonly workflowRunByToolUseId: Map<string, WorkflowRunInfo> =
@@ -183,8 +188,7 @@ export class SdkMessageTransformer implements TransformerState {
     const sessionId =
       callerSessionId ||
       ((sdkMessage as { session_id?: string }).session_id as
-        | SessionId
-        | undefined) ||
+        SessionId | undefined) ||
       undefined;
 
     try {
@@ -382,7 +386,20 @@ export class SdkMessageTransformer implements TransformerState {
     this.toolCallIdByContextAndBlock.clear();
     this.backgroundTaskToolUseIds.clear();
     this.activeSkillToolUseIds.clear();
-    this.taskIdToParentToolUseId.clear();
+    // backgroundAnnouncedToolUseIds is deliberately NOT cleared here: a
+    // compact boundary can land while a background task is still settling,
+    // and clearing the mark would lose its terminal
+    // background_agent_completed/stopped event and leave the tray entry
+    // `running` forever. Each mark is removed per id when that terminal
+    // event fires. For the same reason an announced task keeps its
+    // task → parent mapping: a task_notification may omit tool_use_id and
+    // then resolves its parent through this map (task_notification clears
+    // the entry per task, so nothing leaks).
+    for (const [taskId, parent] of this.taskIdToParentToolUseId) {
+      if (!this.backgroundAnnouncedToolUseIds.has(parent)) {
+        this.taskIdToParentToolUseId.delete(taskId);
+      }
+    }
     this.taskStartedEmitted.clear();
     this.nonAgentTaskIds.clear();
     this.workflowRunByToolUseId.clear();
@@ -418,6 +435,16 @@ export class SdkMessageTransformer implements TransformerState {
 
   isTaskStartedEmitted(toolUseId: string): boolean {
     return this.taskStartedEmitted.has(toolUseId);
+  }
+
+  isBackgroundAnnounced(toolUseId: string): boolean {
+    return this.backgroundAnnouncedToolUseIds.has(toolUseId);
+  }
+
+  getBackgroundAnnounceOrigin(
+    toolUseId: string,
+  ): BackgroundAnnounceOrigin | undefined {
+    return this.backgroundAnnouncedToolUseIds.get(toolUseId);
   }
 
   isNonAgentTask(taskId: string): boolean {
@@ -507,6 +534,17 @@ export class SdkMessageTransformer implements TransformerState {
 
   markTaskStartedEmitted(toolUseId: string): void {
     this.taskStartedEmitted.add(toolUseId);
+  }
+
+  markBackgroundAnnounced(
+    toolUseId: string,
+    origin: BackgroundAnnounceOrigin,
+  ): void {
+    this.backgroundAnnouncedToolUseIds.set(toolUseId, origin);
+  }
+
+  clearBackgroundAnnounced(toolUseId: string): void {
+    this.backgroundAnnouncedToolUseIds.delete(toolUseId);
   }
 
   addActiveSkillToolUseId(toolUseId: string): void {
