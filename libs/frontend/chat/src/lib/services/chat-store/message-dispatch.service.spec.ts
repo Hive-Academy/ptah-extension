@@ -262,6 +262,26 @@ new`);
       expect(sendMock).toHaveBeenCalledWith('hello', undefined);
     });
 
+    it('resolves the outcome: send result passed through, queue accepted, blocked command refused', async () => {
+      activeTabStatus.set('loaded');
+      sendMock.mockResolvedValue({ success: false, error: 'AUTH_REQUIRED' });
+      await expect(service.sendOrQueueMessage('hello')).resolves.toEqual({
+        success: false,
+        error: 'AUTH_REQUIRED',
+      });
+
+      activeTabStatus.set('streaming');
+      await expect(service.sendOrQueueMessage('queued')).resolves.toEqual({
+        success: true,
+      });
+
+      activeTabStatus.set('loaded');
+      persistedAuthMethod.set('copilot');
+      const blocked = await service.sendOrQueueMessage('/context');
+      expect(blocked.success).toBe(false);
+      expect(blocked.error).toBeTruthy();
+    });
+
     it('queues (never sends/aborts) when the self-heal flag is set despite a non-streaming status', async () => {
       // Self-heal case: SDK paused/resumed → status reverted to loaded while
       // isTabStreaming stays true. A follow-up must queue, not send-and-abort.

@@ -2,7 +2,10 @@ import { Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import { createExecutionChatMessage, MessageId } from '@ptah-extension/shared';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { MessageSenderService } from '../message-sender.service';
+import {
+  MessageSenderService,
+  type SendOutcome,
+} from '../message-sender.service';
 import type {
   SendMessageOptions,
   SessionStatus,
@@ -133,14 +136,21 @@ export class MessageDispatchService {
   /**
    * Smart send or queue routing
    * Delegates to MessageSenderService for streaming check, ConversationService for queue.
+   *
+   * Resolves with the outcome. A queued message counts as accepted (it is
+   * delivered when the running turn ends); a blocked slash command or a
+   * rejected send resolves `success: false`, after the in-transcript notice.
    */
   async sendOrQueueMessage(
     content: string,
     options?: SendMessageOptions,
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
     if (this.isBlockedSlashCommand(content)) {
       this.showBlockedCommandWarning(content, options?.tabId);
-      return;
+      return {
+        success: false,
+        error: 'This command is not available for the current provider.',
+      };
     }
     const targetTabId = options?.tabId;
     // `tabs()` is the ACTIVE-WORKSPACE signal. An explicit `tabId` can name a
@@ -177,12 +187,13 @@ export class MessageDispatchService {
         }
       }
       this.conversation.queueOrAppendMessage(content, options);
-    } else {
-      const outcome = await this.messageSender.send(content, options);
-      if (outcome && !outcome.success && resolvedTabId) {
-        this.showSendFailure(resolvedTabId, outcome.error);
-      }
+      return { success: true };
     }
+    const outcome = await this.messageSender.send(content, options);
+    if (outcome && !outcome.success && resolvedTabId) {
+      this.showSendFailure(resolvedTabId, outcome.error);
+    }
+    return outcome;
   }
 
   /**

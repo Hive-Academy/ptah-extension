@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 34/69
+Total tasks: 87 | Batches: 69 | Complete: 35/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1550,14 +1550,14 @@ executors at once.
   tests live in the a11y spec. Verified: core + git-ui typecheck/lint green, git-ui 569/569 (the existing
   `diff-view-dialog.a11y.spec.ts` axe tests time out under load, pass alone), eager guard exit 0.
 
-## Batch 34: Chat feedback sender — PENDING
+## Batch 34: Chat feedback sender — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 33
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-extension-webview`
 
-### Task 34.1: `ChatAgentFeedbackSender` provided next to `FILE_LINK_OPENER` — PENDING
+### Task 34.1: `ChatAgentFeedbackSender` provided next to `FILE_LINK_OPENER` — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/agent-feedback/chat-agent-feedback-sender.service.ts (+ .spec.ts); MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/index.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts
 - Plan reference: implementation-plan.md:953-965
@@ -1565,6 +1565,14 @@ executors at once.
 - Quality requirements: `sent:false` keeps drafts.
 - Validation notes: A4 — read `SendMessageOptions` and the tab-switch API; record.
 - Implementation details: `ChatStore.sendOrQueueMessage` (`chat.store.ts:227-232`).
+- Outcome: executor frontend-developer. `ChatAgentFeedbackSender` (chat `services/agent-feedback/`, 10 tests)
+  bound via `{provide: AGENT_FEEDBACK_SENDER, useExisting}` in `app.config.ts`. A4: finds the session's tab across
+  workspaces, `switchTab` only when it is in the active workspace and not already active, sends with `{tabId}`
+  (background-workspace tabs receive in place); unknown session / no active tab / blank text / backend rejection /
+  blocked command / throw → `sent:false` with a readable message; queued counts as sent; app view unchanged.
+  Accepted deviation: `sendOrQueueMessage` (dispatch service + ChatStore wrapper) now returns `SendOutcome` instead
+  of `void` so failures are reported (existing callers ignore it). Verified: chat + webview typecheck/test/lint
+  green; eager guard exit 0.
 
 ## Batch 35: `ReviewDiffService` and `ReviewNavigationService` — PENDING
 
