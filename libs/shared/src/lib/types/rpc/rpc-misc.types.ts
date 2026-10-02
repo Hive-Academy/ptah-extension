@@ -199,6 +199,13 @@ export type FileViewContentResult =
       content: string;
       sizeBytes: number;
       encoding: 'utf-8' | 'utf-16le' | 'utf-16be';
+      /**
+       * Lowercase hex sha256 of the raw bytes on disk (BOM included). The
+       * spot editor sends it back as `expectedSha256` on `file:saveContent`.
+       */
+      sha256: string;
+      /** True when the file began with a byte-order mark (stripped from `content`). */
+      bom: boolean;
     }
   | {
       success: false;
@@ -224,6 +231,46 @@ export type FileViewContentResult =
  * renderer.
  */
 export const FILE_VIEW_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Why a `file:saveContent` was refused.
+ *
+ * Every reason maps to one fixed, path-free sentence on the backend — the same
+ * rule as {@link FileViewFailureReason}.
+ */
+export type FileSaveFailureReason =
+  | 'conflict'
+  | 'outside-roots'
+  | 'not-found'
+  | 'not-a-file'
+  | 'too-large'
+  | 'invalid-request'
+  | 'unwritable';
+
+export interface FileSaveContentParams {
+  /** Decoded filesystem path, resolved exactly as `file:viewContent` resolves it. */
+  path: string;
+  /** Originating session's workspace (tab partition root). Base-selection hint only. */
+  workspaceRoot?: string;
+  /** Full new file text, UTF-8. Line separators are written as given. */
+  content: string;
+  /** `sha256` from the read this edit started from; a mismatch is a `conflict`. */
+  expectedSha256: string;
+  /** Skip the `expectedSha256` comparison (the user chose Overwrite). */
+  overwrite?: boolean;
+}
+
+export type FileSaveContentResult =
+  | {
+      success: true;
+      /** Lowercase hex sha256 of the bytes now on disk (BOM included). */
+      sha256: string;
+    }
+  | {
+      success: false;
+      reason: FileSaveFailureReason;
+      error: string;
+    };
 
 /** Parameters for license:getStatus RPC method */
 export type LicenseGetStatusParams = Record<string, never>;

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 33/69
+Total tasks: 87 | Batches: 69 | Complete: 34/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1666,7 +1666,7 @@ executors at once.
 - Validation notes: A9 — spike on the 200-file / 10,000-line fixture; on failure switch to Pierre `CodeView` with overlays (pre-approved in the plan) and record.
 - Implementation details: as plan.
 
-## Batch 39: `file:viewContent` sha256/bom and save contract types — PENDING
+## Batch 39: `file:viewContent` sha256/bom and save contract types — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
@@ -1674,7 +1674,7 @@ executors at once.
 - Concurrency-eligible with: Batches 33-38
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/rpc-handlers`
 
-### Task 39.1: Read path gains `sha256`, `bom`; save params/result types — PENDING
+### Task 39.1: Read path gains `sha256`, `bom`; save params/result types — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-misc.types.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/file-view-rpc.handlers.ts; MODIFY D:/projects/ptah-extension/libs/backend/rpc-handlers/src/lib/handlers/file-view-rpc.handlers.spec.ts
 - Plan reference: implementation-plan.md:1107, 1115, 1137-1138
@@ -1682,6 +1682,15 @@ executors at once.
 - Quality requirements: sha256 of raw bytes.
 - Validation notes: no registry change here (V5).
 - Implementation details: as plan.
+- Outcome: executor backend-developer. `file:viewContent` success adds `sha256` (lowercase hex of the raw bytes,
+  BOM included) and `bom` (true for UTF-8 and UTF-16 BOMs). Types `FileSaveFailureReason` (plan's seven),
+  `FileSaveContentParams {path, workspaceRoot?, content, expectedSha256, overwrite?}`, `FileSaveContentResult`.
+  No registry change (V5). Accepted deviation: decoder uses `ignoreBOM: true` so a second BOM survives in `content`
+  (round-trip safe). For Batch 40: map `resolveForView` refusals (`unsupported-path`, `no-base-root`,
+  `root-not-open`, `unreadable`) and UTF-16/binary targets onto save reasons. Noted: three git-ui spec mocks build
+  view results without `sha256`/`bom` (untyped) — update with the spot-editor batch. Verified by the orchestrator:
+  shared + rpc-handlers typecheck/lint green, file-view spec 28/28; agent: shared 2257, rpc-handlers 3445 passed
+  (1 known `harness-skill-selection` flake).
 
 ## Batch 40: `FileEditRpcHandlers` — PENDING
 
