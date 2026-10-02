@@ -10,8 +10,12 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { ChevronDown, LucideAngularModule } from 'lucide-angular';
-import { rpcCall, VSCodeService } from '@ptah-extension/core';
+import { ChevronDown, LucideAngularModule, PanelLeft } from 'lucide-angular';
+import {
+  ElectronLayoutService,
+  rpcCall,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitReviewService } from '../services/git-review.service';
@@ -53,6 +57,9 @@ const FOCUS_RING =
  *   persisted as `diff.renderSideBySide` through `settings:get/set`, the key the
  *   existing diff view uses, so the choice carries over.
  * - The totals. The row wraps rather than clipping at narrow dock widths.
+ * - While the changed-file tree is collapsed, "Show changed files" brings it
+ *   back from beside the list, not only from the dock header (the old
+ *   collapsed-pane button, L-13; parity row 36).
  */
 @Component({
   selector: 'ptah-comparison-bar',
@@ -64,6 +71,21 @@ const FOCUS_RING =
       class="flex flex-wrap items-center gap-2 border-b border-base-content/10 bg-base-200 px-2 py-1.5 text-xs"
       data-testid="comparison-bar"
     >
+      @if (layout.gitRailCollapsed()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs gap-1 {{ focusRing }}"
+          data-testid="comparison-show-files"
+          (click)="layout.toggleGitRail()"
+        >
+          <lucide-angular
+            [img]="PanelLeftIcon"
+            class="h-3 w-3"
+            aria-hidden="true"
+          />
+          Show changed files
+        </button>
+      }
       <ptah-native-popover
         [isOpen]="pickerOpen()"
         placement="bottom-start"
@@ -224,6 +246,7 @@ export class ComparisonBarComponent implements OnInit {
   private readonly navigation = inject(ReviewNavigationService);
   protected readonly review = inject(GitReviewService);
   protected readonly branches = inject(GitBranchesService);
+  protected readonly layout = inject(ElectronLayoutService);
 
   /** The filter text the canvas applies to the tree and the diff list. */
   readonly filter = input('');
@@ -235,6 +258,7 @@ export class ComparisonBarComponent implements OnInit {
   readonly filterChange = output<string>();
 
   protected readonly ChevronDownIcon = ChevronDown;
+  protected readonly PanelLeftIcon = PanelLeft;
   protected readonly focusRing = FOCUS_RING;
   protected readonly simpleKinds: readonly ReviewComparisonKind[] = [
     'worktree',

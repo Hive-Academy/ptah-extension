@@ -46,6 +46,9 @@ type Outcome =
 const REFUSED_FALLBACK_MESSAGE =
   'The hunk could not be applied. Nothing was written.';
 
+const REFUSAL_CHIP_CLASS =
+  'inline-flex items-center gap-1.5 border border-error/60 bg-error/10 rounded px-2 py-0.5 basis-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2';
+
 const ACTION_TEXT: Readonly<Record<GitApplyHunksOperation, string>> = {
   stage: 'Accept',
   revert: 'Reject',
@@ -105,7 +108,9 @@ function focusNearestHunkStop(container: HTMLElement, ordinal: number): void {
  *   rather than re-aimed (Requirement 6.6).
  * - A refusal replaces the buttons with the sanitized reason chip until the
  *   forced re-read delivers a new token; a success leaves the buttons inert
- *   until then too, so one snapshot is never applied twice.
+ *   until then too, so one snapshot is never applied twice. After the re-read
+ *   the buttons return and the chip stays until it is dismissed or the next
+ *   apply supersedes it.
  * - A success usually removes the hunk, and the re-read then destroys this
  *   row with focus still on the pressed button. Focus moves to the nearest
  *   remaining hunk's toolbar (or the nearest focusable ancestor) instead of
@@ -141,15 +146,28 @@ function focusNearestHunkStop(container: HTMLElement, ordinal: number): void {
       @if (refusal(); as message) {
         <div
           #refusalChip
-          class="motion-safe:animate-glow-urgent inline-flex items-center gap-1.5 border border-error/60 bg-error/10 rounded px-2 py-0.5 basis-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          [class]="refusalChipClass()"
           role="alert"
           tabindex="-1"
           data-testid="hunk-refused"
+          [attr.data-awaiting-reread]="awaitingReread() || null"
         >
           <span class="text-error text-xs" aria-hidden="true">⚠</span>
-          <span class="font-medium text-base-content">{{ message }}</span>
+          <span class="min-w-0 flex-1 font-medium text-base-content">{{
+            message
+          }}</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs h-5 min-h-5 px-1"
+            aria-label="Dismiss error"
+            data-testid="hunk-refused-dismiss"
+            (click)="dismissRefusal()"
+          >
+            <span aria-hidden="true">✕</span>
+          </button>
         </div>
-      } @else {
+      }
+      @if (!awaitingReread()) {
         <!-- The roving tabindex lives on the buttons; the container only
              receives the bubbled arrow keys. -->
         <!-- eslint-disable-next-line @angular-eslint/template/interactive-supports-focus -->
@@ -268,6 +286,7 @@ export class HunkToolbarComponent {
 
   protected readonly inFlight = signal(false);
   private readonly outcome = signal<Outcome | null>(null);
+  private readonly refusalMessage = signal<string | null>(null);
   private readonly focusedControl = signal<ToolbarControl>('prev');
 
   /** Token captured when the reject dialog opened; null when it is closed. */
@@ -311,10 +330,26 @@ export class HunkToolbarComponent {
       : null;
   });
 
-  protected readonly refusal = computed(() => {
-    const outcome = this.currentOutcome();
-    return outcome?.kind === 'refused' ? outcome.message : null;
-  });
+  /**
+   * The last refusal's sanitized reason. It outlives the forced re-read: it
+   * is the only feedback for a refused apply, so it stays until the user
+   * dismisses it or a new apply supersedes it (parity row 146).
+   */
+  protected readonly refusal = this.refusalMessage.asReadonly();
+
+  /** A refused apply whose re-read has not landed: its buttons stay away. */
+  protected readonly awaitingReread = computed(
+    () => this.currentOutcome()?.kind === 'refused',
+  );
+
+  /**
+   * The glow is an infinite box-shadow animation, so it runs only while the
+   * re-read is pending; the chip that stays afterwards is static.
+   */
+  protected readonly refusalChipClass = computed(
+    () =>
+      `${REFUSAL_CHIP_CLASS}${this.awaitingReread() ? ' motion-safe:animate-glow-urgent' : ''}`,
+  );
 
   protected readonly canApply = computed(
     () =>
@@ -394,7 +429,10 @@ export class HunkToolbarComponent {
 
   protected onKeydown(event: KeyboardEvent): void {
     const order = this.controlOrder();
-    const from = Math.max(0, order.indexOf(this.domFocusedControl() ?? order[0]));
+    const from = Math.max(
+      0,
+      order.indexOf(this.domFocusedControl() ?? order[0]),
+    );
     let next: number;
     switch (event.key) {
       case 'ArrowRight':
@@ -418,6 +456,25 @@ export class HunkToolbarComponent {
     this.controls()
       .find((ref) => ref.nativeElement.dataset['control'] === control)
       ?.nativeElement.focus();
+  }
+
+  /**
+   * Remove the refusal chip. Focus goes to the toolbar's tab stop, or, while
+   * the re-read is still pending and the toolbar is away, to the nearest
+   * focusable ancestor, so it never falls to `<body>`.
+   */
+  protected dismissRefusal(): void {
+    this.refusalMessage.set(null);
+    afterNextRender(
+      () => {
+        const host = this.host.nativeElement;
+        const stop =
+          host.querySelector<HTMLElement>('[role="toolbar"] [tabindex="0"]') ??
+          host.parentElement?.closest<HTMLElement>('[tabindex]');
+        stop?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   protected onFocusOut(event: FocusEvent): void {
@@ -446,7 +503,11 @@ export class HunkToolbarComponent {
     const container = this.hunkRowsContainer;
     // The raw outcome: the re-read that destroys this row has already ended
     // `currentOutcome`.
-    if (!container || !this.focusWithin || this.outcome()?.kind !== 'consumed') {
+    if (
+      !container ||
+      !this.focusWithin ||
+      this.outcome()?.kind !== 'consumed'
+    ) {
       return;
     }
     const ordinal = this.hunk().index;
@@ -466,6 +527,8 @@ export class HunkToolbarComponent {
     token: string,
   ): Promise<void> {
     this.inFlight.set(true);
+    // A new apply supersedes the last refusal.
+    this.refusalMessage.set(null);
     try {
       const result = await this.reviewDiff.applyHunks({
         key: this.entryKey(),
@@ -500,6 +563,8 @@ export class HunkToolbarComponent {
     } finally {
       this.inFlight.set(false);
     }
+    const outcome = this.outcome();
+    if (outcome?.kind === 'refused') this.refusalMessage.set(outcome.message);
     // The pressed button is gone once the chip replaces the toolbar; move
     // focus to the reason instead of leaving it on <body>.
     if (this.refusal() !== null) {

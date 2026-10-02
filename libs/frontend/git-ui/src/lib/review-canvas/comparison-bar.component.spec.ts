@@ -2,7 +2,7 @@ import axe from 'axe-core';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
-import { VSCodeService } from '@ptah-extension/core';
+import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitReviewService } from '../services/git-review.service';
 import {
@@ -54,6 +54,12 @@ describe('ComparisonBarComponent', () => {
     ]).asReadonly(),
   };
 
+  const railCollapsed = signal(false);
+  const layout = {
+    gitRailCollapsed: railCollapsed.asReadonly(),
+    toggleGitRail: jest.fn(() => railCollapsed.update((value) => !value)),
+  };
+
   const host = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const byTestId = <T extends HTMLElement = HTMLElement>(
     id: string,
@@ -80,6 +86,7 @@ describe('ComparisonBarComponent', () => {
     scope.set({ kind: 'worktree' });
     base.set('main');
     head.set('HEAD');
+    railCollapsed.set(false);
     TestBed.configureTestingModule({
       imports: [ComparisonBarComponent],
       providers: [
@@ -87,7 +94,24 @@ describe('ComparisonBarComponent', () => {
         { provide: ReviewNavigationService, useValue: navigation },
         { provide: GitReviewService, useValue: review },
         { provide: GitBranchesService, useValue: branches },
+        { provide: ElectronLayoutService, useValue: layout },
       ],
+    });
+  });
+
+  describe('collapsed file tree (parity row 36, L-13)', () => {
+    it('offers "Show changed files" only while the tree is collapsed, and it brings the tree back', () => {
+      create();
+      expect(byTestId('comparison-show-files')).toBeNull();
+
+      railCollapsed.set(true);
+      fixture.detectChanges();
+      const show = byTestId<HTMLButtonElement>('comparison-show-files');
+      expect(show?.textContent?.trim()).toBe('Show changed files');
+      show?.click();
+      fixture.detectChanges();
+      expect(layout.toggleGitRail).toHaveBeenCalledTimes(1);
+      expect(byTestId('comparison-show-files')).toBeNull();
     });
   });
 

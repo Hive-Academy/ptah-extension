@@ -13,15 +13,14 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { LucideAngularModule, MessageSquarePlus, Pencil } from 'lucide-angular';
 import type { EditorTarget, GitConflictKind } from '@ptah-extension/shared';
-import {
-  FileStatusBadgeComponent,
-  type FileStatusCode,
-} from '@ptah-extension/ui';
+import type { FileStatusCode } from '@ptah-extension/ui';
 import { PierreDiffHostComponent } from '../renderer/pierre-diff-host.component';
-import type { DiffUnrenderable } from '../types/diff-tab.types';
-import type { PierreDiffStyle } from '../renderer/pierre-config';
+import type { DiffTabState, DiffUnrenderable } from '../types/diff-tab.types';
+import type {
+  PierreDiffStyle,
+  PierreThemeMode,
+} from '../renderer/pierre-config';
 import {
   ReviewDiffService,
   reviewDiffKey,
@@ -31,14 +30,12 @@ import {
   ReviewCommentDraftStore,
   type ReviewDraftOwner,
 } from '../services/review-comment-draft.store';
-import {
-  OpenInButtonComponent,
-  type OpenInRequest,
-} from '../open-in/open-in-button.component';
+import type { OpenInRequest } from '../open-in/open-in-button.component';
 import {
   HunkToolbarComponent,
   type HunkToolbarComparison,
 } from './hunk-toolbar.component';
+import { FileSectionHeaderComponent } from './file-section-header.component';
 
 /** Rows that never mount the renderer (Requirement 6.10). */
 export type ReviewFileLabel = 'binary' | 'submodule' | 'conflicted';
@@ -167,6 +164,22 @@ function formatSize(bytes: number): string | null {
 const FOCUS_RING =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[oklch(var(--s))]';
 
+/**
+ * Both sides exist and are identical text (a file reverted to its base, say).
+ * Driven by the resolved refs, never by empty text: an empty tracked file is
+ * not a new one (parity row 136, the old diff header's "no changes" chip).
+ */
+function hasNoChanges(diff: DiffTabState): boolean {
+  return (
+    !diff.isBinary &&
+    diff.originalRef.kind !== 'absent' &&
+    diff.modifiedRef.kind !== 'absent' &&
+    diff.original === diff.modified
+  );
+}
+
+let nextBodyId = 0;
+
 /** Split on line terminators; a final terminator does not start a line. */
 function splitLines(text: string): string[] {
   const lines = text.split(/\r?\n/);
@@ -178,8 +191,11 @@ function splitLines(text: string): string[] {
  * FileDiffSectionComponent — one file of the review canvas's continuous diff
  * (implementation-plan Component 24, design-spec §6.1).
  *
- * - A sticky header: status badge, path, rename source, hunk count, chips,
- *   +N/−N, a "Comment" action, "Edit" (working-tree files only) and Open-in.
+ * - A sticky header (`FileSectionHeaderComponent`): collapse toggle, status
+ *   badge, path, rename source, comparison side, chips (hunk count, new,
+ *   deleted, no changes), +N/−N, "Comment", "Edit" (working-tree files only)
+ *   and Open-in. Collapsed (the canvas's state), only the header renders and
+ *   the read is released.
  * - The body mounts only while the canvas reports the section {@link near} the
  *   viewport: `ReviewDiffService.mount` reads the diff lazily, and Pierre's
  *   host is created inside `@defer`, so the renderer and its observers exist
@@ -195,7 +211,7 @@ function splitLines(text: string): string[] {
  *   than the cap, before Pierre mounts.
  * - A failed read shows its sanitized message with Retry, never as content.
  * - Each hunk carries a `HunkToolbarComponent` through Pierre's slot. While a
- *   refusal chip shows, the diff body is dimmed to 85% until the re-read.
+ *   refused apply waits for its re-read, the diff body is dimmed to 85%.
  * - "Comment" opens a small composer (side, line range, text) that adds a
  *   draft to `ReviewCommentDraftStore` with the quoted lines.
  */
@@ -203,9 +219,7 @@ function splitLines(text: string): string[] {
   selector: 'ptah-file-diff-section',
   standalone: true,
   imports: [
-    LucideAngularModule,
-    FileStatusBadgeComponent,
-    OpenInButtonComponent,
+    FileSectionHeaderComponent,
     PierreDiffHostComponent,
     HunkToolbarComponent,
   ],
@@ -216,264 +230,217 @@ function splitLines(text: string): string[] {
     '[style.min-height.px]': 'minHeight()',
   },
   template: `
-    <div
-      class="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-base-content/10 bg-base-200/95 px-2 py-1.5 text-xs backdrop-blur-sm"
-      data-testid="file-section-header"
-    >
-      <ptah-file-status-badge
-        [status]="file().status"
-        [conflictKind]="file().conflictKind"
-      />
-      <h3
-        class="min-w-0 truncate font-mono font-medium text-base-content"
-        [attr.title]="file().path"
-        data-testid="file-section-path"
-      >
-        {{ file().path }}
-      </h3>
-      @if (file().originalPath; as from) {
-        <span class="min-w-0 truncate text-[11px] text-base-content-muted">
-          renamed from {{ from }}
-        </span>
-      }
-      @for (chip of chips(); track chip) {
-        <span class="badge badge-ghost badge-xs" data-testid="file-chip">{{
-          chip
-        }}</span>
-      }
-      <span class="ml-auto flex items-center gap-2">
-        @if (totals(); as t) {
-          <span class="whitespace-nowrap" data-testid="file-section-totals">
-            <span class="sr-only"
-              >{{ t.additions }} additions, {{ t.deletions }} deletions</span
-            >
-            <span class="diff-add-text" aria-hidden="true"
-              >+{{ t.additions }}</span
-            >
-            <span class="diff-del-text" aria-hidden="true"
-              >−{{ t.deletions }}</span
-            >
-          </span>
-        }
-        @if (canComment()) {
-          <button
-            #commentButton
-            type="button"
-            class="btn btn-ghost btn-xs {{ focusRing }}"
-            [attr.aria-expanded]="composer() !== null"
-            [attr.aria-label]="'Comment on lines of ' + file().path"
-            data-testid="file-section-comment"
-            (click)="toggleComposer()"
-          >
-            <lucide-angular
-              [img]="CommentIcon"
-              class="h-3 w-3"
-              aria-hidden="true"
-            />
-            Comment
-          </button>
-        }
-        @if (canEdit()) {
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs {{ focusRing }}"
-            [attr.aria-label]="'Edit ' + file().path"
-            data-testid="file-section-edit"
-            (click)="onEdit()"
-          >
-            <lucide-angular
-              [img]="EditIcon"
-              class="h-3 w-3"
-              aria-hidden="true"
-            />
-            Edit
-          </button>
-        }
-        @if (editorTargets().length > 0) {
-          <ptah-open-in-button
-            mode="icon-only"
-            [targets]="editorTargets()"
-            [path]="file().path"
-            [root]="workspaceRoot()"
-            (open)="openFile.emit($event)"
-          />
-        }
-      </span>
-    </div>
+    <ptah-file-section-header
+      [file]="file()"
+      [chips]="chips()"
+      [totals]="totals()"
+      [collapsed]="collapsed()"
+      [bodyId]="bodyId"
+      [canComment]="canComment()"
+      [composerOpen]="composer() !== null"
+      [canEdit]="canEdit()"
+      [editorTargets]="editorTargets()"
+      [workspaceRoot]="workspaceRoot()"
+      (collapsedChange)="collapsedChange.emit($event)"
+      (commentToggle)="toggleComposer()"
+      (edit)="onEdit()"
+      (openFile)="openFile.emit($event)"
+    />
 
-    @if (composer(); as draft) {
-      <form
-        class="flex flex-wrap items-end gap-2 border-b border-base-content/10 bg-base-200 px-2 py-2 text-xs"
-        [attr.aria-label]="'Draft a comment on ' + file().path"
-        data-testid="comment-composer"
-        (submit)="addDraft($event)"
-      >
-        <label class="flex flex-col gap-0.5">
-          <span class="text-base-content-muted">Side</span>
-          <select
-            #composerStart
-            class="select select-bordered select-xs"
-            data-testid="comment-side"
-            (change)="patchComposer({ side: sideValue($event) })"
+    <!-- Collapsed, the header stays and the body and its read are released. -->
+    <div [id]="bodyId" data-testid="file-section-body">
+      @if (!collapsed()) {
+        @if (composer(); as draft) {
+          <form
+            class="flex flex-wrap items-end gap-2 border-b border-base-content/10 bg-base-200 px-2 py-2 text-xs"
+            [attr.aria-label]="'Draft a comment on ' + file().path"
+            data-testid="comment-composer"
+            (submit)="addDraft($event)"
           >
-            <option value="additions" [selected]="draft.side === 'additions'">
-              New
-            </option>
-            <option value="deletions" [selected]="draft.side === 'deletions'">
-              Old
-            </option>
-          </select>
-        </label>
-        <label class="flex flex-col gap-0.5">
-          <span class="text-base-content-muted">From line</span>
-          <input
-            type="number"
-            min="1"
-            class="input input-bordered input-xs w-20"
-            data-testid="comment-from"
-            [value]="draft.from"
-            (input)="patchComposer({ from: numberValue($event) })"
-          />
-        </label>
-        <label class="flex flex-col gap-0.5">
-          <span class="text-base-content-muted">To line</span>
-          <input
-            type="number"
-            min="1"
-            class="input input-bordered input-xs w-20"
-            data-testid="comment-to"
-            [value]="draft.to"
-            (input)="patchComposer({ to: numberValue($event) })"
-          />
-        </label>
-        <label class="flex min-w-[12rem] flex-1 flex-col gap-0.5">
-          <span class="text-base-content-muted">Comment</span>
-          <textarea
-            class="textarea textarea-bordered textarea-xs"
-            rows="2"
-            data-testid="comment-body"
-            [value]="draft.body"
-            (input)="patchComposer({ body: textValue($event) })"
-          ></textarea>
-        </label>
-        <span class="flex items-center gap-1">
-          <button
-            type="submit"
-            class="btn btn-primary btn-xs"
-            data-testid="comment-add"
-          >
-            Add draft
-          </button>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs {{ focusRing }}"
-            data-testid="comment-cancel"
-            (click)="closeComposer()"
-          >
-            Cancel
-          </button>
-        </span>
-        @if (composerError(); as message) {
-          <p
-            class="basis-full text-error"
-            role="alert"
-            data-testid="comment-error"
-          >
-            {{ message }}
-          </p>
+            <label class="flex flex-col gap-0.5">
+              <span class="text-base-content-muted">Side</span>
+              <select
+                #composerStart
+                class="select select-bordered select-xs"
+                data-testid="comment-side"
+                (change)="patchComposer({ side: sideValue($event) })"
+              >
+                <option
+                  value="additions"
+                  [selected]="draft.side === 'additions'"
+                >
+                  New
+                </option>
+                <option
+                  value="deletions"
+                  [selected]="draft.side === 'deletions'"
+                >
+                  Old
+                </option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-0.5">
+              <span class="text-base-content-muted">From line</span>
+              <input
+                type="number"
+                min="1"
+                class="input input-bordered input-xs w-20"
+                data-testid="comment-from"
+                [value]="draft.from"
+                (input)="patchComposer({ from: numberValue($event) })"
+              />
+            </label>
+            <label class="flex flex-col gap-0.5">
+              <span class="text-base-content-muted">To line</span>
+              <input
+                type="number"
+                min="1"
+                class="input input-bordered input-xs w-20"
+                data-testid="comment-to"
+                [value]="draft.to"
+                (input)="patchComposer({ to: numberValue($event) })"
+              />
+            </label>
+            <label class="flex min-w-[12rem] flex-1 flex-col gap-0.5">
+              <span class="text-base-content-muted">Comment</span>
+              <textarea
+                class="textarea textarea-bordered textarea-xs"
+                rows="2"
+                data-testid="comment-body"
+                [value]="draft.body"
+                (input)="patchComposer({ body: textValue($event) })"
+              ></textarea>
+            </label>
+            <span class="flex items-center gap-1">
+              <button
+                type="submit"
+                class="btn btn-primary btn-xs"
+                data-testid="comment-add"
+              >
+                Add draft
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs {{ focusRing }}"
+                data-testid="comment-cancel"
+                (click)="closeComposer()"
+              >
+                Cancel
+              </button>
+            </span>
+            @if (composerError(); as message) {
+              <p
+                class="basis-full text-error"
+                role="alert"
+                data-testid="comment-error"
+              >
+                {{ message }}
+              </p>
+            }
+          </form>
         }
-      </form>
-    }
 
-    @if (labelRow(); as row) {
-      <div
-        class="flex items-center gap-2 px-2 py-2 text-xs"
-        data-testid="file-label-row"
-      >
-        <span [class]="row.iconClass" aria-hidden="true">{{ row.icon }}</span>
-        <span [class]="row.textClass">{{ row.text }}</span>
-      </div>
-    } @else if (!near()) {
-      <div aria-hidden="true" data-testid="file-placeholder"></div>
-    } @else if (diff(); as d) {
-      @if (d.status === 'error') {
-        <div
-          class="flex flex-wrap items-center gap-2 px-2 py-2 text-xs"
-          role="alert"
-          data-testid="file-read-error"
-        >
-          <span class="text-error" aria-hidden="true">⚠</span>
-          <span class="text-base-content">{{
-            d.errorMessage ?? readFailedMessage
-          }}</span>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs {{ focusRing }}"
-            data-testid="file-read-retry"
-            (click)="retry()"
-          >
-            Retry
-          </button>
-        </div>
-      } @else {
-        @if (d.status === 'stale') {
+        @if (labelRow(); as row) {
           <div
-            class="flex flex-wrap items-center gap-2 px-2 py-1 text-[11px] text-base-content-muted"
-            role="status"
-            data-testid="file-stale-note"
+            class="flex items-center gap-2 px-2 py-2 text-xs"
+            data-testid="file-label-row"
           >
-            <span>{{ d.errorMessage ?? staleMessage }}</span>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs {{ focusRing }}"
-              data-testid="file-stale-retry"
-              (click)="retry()"
-            >
-              Retry
-            </button>
+            <span [class]="row.iconClass" aria-hidden="true">{{
+              row.icon
+            }}</span>
+            <span [class]="row.textClass">{{ row.text }}</span>
           </div>
-        }
-        <div
-          class="has-[[data-testid=hunk-refused]]:opacity-[0.85]"
-          [attr.aria-busy]="d.status === 'refreshing' || null"
-          data-testid="file-diff-body"
-        >
-          @defer (on immediate) {
-            <ptah-pierre-diff-host
-              [oldText]="d.originalRef.kind === 'absent' ? null : d.original"
-              [newText]="d.modifiedRef.kind === 'absent' ? null : d.modified"
-              [fileName]="d.path"
-              [hunks]="d.hunks"
-              [diffStyle]="effectiveDiffStyle()"
-              [hunkToolbar]="hunkToolbar"
-            />
-          } @placeholder {
-            <div class="skeleton h-16 rounded-none" aria-hidden="true"></div>
-          } @error {
-            <p class="px-2 py-2 text-xs text-base-content" role="alert">
-              The diff viewer could not be loaded.
-            </p>
+        } @else if (!near()) {
+          <div aria-hidden="true" data-testid="file-placeholder"></div>
+        } @else if (diff(); as d) {
+          @if (d.status === 'error') {
+            <div
+              class="flex flex-wrap items-center gap-2 px-2 py-2 text-xs"
+              role="alert"
+              data-testid="file-read-error"
+            >
+              <span class="text-error" aria-hidden="true">⚠</span>
+              <span class="text-base-content">{{
+                d.errorMessage ?? readFailedMessage
+              }}</span>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs {{ focusRing }}"
+                data-testid="file-read-retry"
+                (click)="retry()"
+              >
+                Retry
+              </button>
+            </div>
+          } @else {
+            @if (d.status === 'stale') {
+              <div
+                class="flex flex-wrap items-center gap-2 px-2 py-1 text-[11px] text-base-content-muted"
+                role="status"
+                data-testid="file-stale-note"
+              >
+                <span>{{ d.errorMessage ?? staleMessage }}</span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs {{ focusRing }}"
+                  data-testid="file-stale-retry"
+                  (click)="retry()"
+                >
+                  Retry
+                </button>
+              </div>
+            }
+            <div
+              class="has-[[data-awaiting-reread]]:opacity-[0.85]"
+              [attr.aria-busy]="d.status === 'refreshing' || null"
+              data-testid="file-diff-body"
+            >
+              @defer (on immediate) {
+                <ptah-pierre-diff-host
+                  [oldText]="
+                    d.originalRef.kind === 'absent' ? null : d.original
+                  "
+                  [newText]="
+                    d.modifiedRef.kind === 'absent' ? null : d.modified
+                  "
+                  [fileName]="d.path"
+                  [hunks]="d.hunks"
+                  [diffStyle]="effectiveDiffStyle()"
+                  [themeType]="themeType()"
+                  [hunkToolbar]="hunkToolbar"
+                />
+              } @placeholder {
+                <div
+                  class="skeleton h-16 rounded-none"
+                  aria-hidden="true"
+                ></div>
+              } @error {
+                <p class="px-2 py-2 text-xs text-base-content" role="alert">
+                  The diff viewer could not be loaded.
+                </p>
+              }
+            </div>
+            <ng-template #hunkToolbar let-hunk>
+              <ptah-hunk-toolbar
+                [hunk]="hunk"
+                [hunkCount]="d.hunks.length"
+                [comparison]="file().comparison"
+                [entryKey]="entryKey() ?? ''"
+                [snapshotToken]="d.snapshotToken"
+                (navigate)="goToHunk($event)"
+              />
+            </ng-template>
           }
-        </div>
-        <ng-template #hunkToolbar let-hunk>
-          <ptah-hunk-toolbar
-            [hunk]="hunk"
-            [hunkCount]="d.hunks.length"
-            [comparison]="file().comparison"
-            [entryKey]="entryKey() ?? ''"
-            [snapshotToken]="d.snapshotToken"
-            (navigate)="goToHunk($event)"
-          />
-        </ng-template>
+        } @else {
+          <div
+            class="skeleton h-16 rounded-none"
+            role="status"
+            aria-label="Loading diff"
+            data-testid="file-loading"
+          ></div>
+        }
       }
-    } @else {
-      <div
-        class="skeleton h-16 rounded-none"
-        role="status"
-        aria-label="Loading diff"
-        data-testid="file-loading"
-      ></div>
-    }
+    </div>
   `,
 })
 export class FileDiffSectionComponent {
@@ -492,14 +459,22 @@ export class FileDiffSectionComponent {
   readonly draftOwner = input<ReviewDraftOwner | null>(null);
   readonly editorTargets = input<readonly EditorTarget[]>([]);
   readonly workspaceRoot = input('');
+  /**
+   * Header only: the body is not rendered and its read is released. The
+   * canvas owns the state (parity rows 39, 40: the closed diff tab).
+   */
+  readonly collapsed = input(false);
+  /** Pierre's light/dark theme; the canvas follows the app theme. */
+  readonly themeType = input<PierreThemeMode>('dark');
 
   readonly openFile = output<OpenInRequest>();
   /** "Edit": open the file in the spot editor, editable (design-spec §3.3). */
   readonly edit = output<ReviewFileEditRequest>();
+  /** The header's toggle or Delete asked to collapse (or expand) this file. */
+  readonly collapsedChange = output<boolean>();
 
-  protected readonly CommentIcon = MessageSquarePlus;
-  protected readonly EditIcon = Pencil;
   protected readonly focusRing = FOCUS_RING;
+  protected readonly bodyId = `file-section-body-${nextBodyId++}`;
   protected readonly readFailedMessage = 'Git could not read this file.';
   protected readonly staleMessage =
     'Could not refresh this diff. Showing the last successful read.';
@@ -509,19 +484,22 @@ export class FileDiffSectionComponent {
   protected readonly composer = signal<CommentComposer | null>(null);
   protected readonly composerError = signal<string | null>(null);
 
-  private readonly commentButton =
-    viewChild<ElementRef<HTMLButtonElement>>('commentButton');
+  private readonly header = viewChild.required(FileSectionHeaderComponent);
   private readonly composerStart =
     viewChild<ElementRef<HTMLElement>>('composerStart');
 
   /**
-   * The read to keep mounted: only while near, never for a labelled row.
-   * Compared by cache key, so a re-built file list does not remount.
+   * The read to keep mounted: only while near and expanded, never for a
+   * labelled row. Compared by cache key, so a re-built file list does not
+   * remount.
    */
   private readonly mountRequest = computed<ReviewDiffRequest | null>(
     () => {
       const file = this.file();
-      return this.near() && file.label === null && !this.overLineCap()
+      return this.near() &&
+        !this.collapsed() &&
+        file.label === null &&
+        !this.overLineCap()
         ? file.request
         : null;
     },
@@ -602,7 +580,7 @@ export class FileDiffSectionComponent {
 
   /** Placeholder height while nothing measurable is rendered. */
   protected readonly minHeight = computed(() => {
-    if (this.labelKind() !== null) return null;
+    if (this.collapsed() || this.labelKind() !== null) return null;
     const rendered = this.near() && this.diff() !== null;
     return rendered ? null : this.reservedHeight() || null;
   });
@@ -615,6 +593,7 @@ export class FileDiffSectionComponent {
       if (hunks > 0) chips.push(hunks === 1 ? '1 hunk' : `${hunks} hunks`);
       if (diff.originalRef.kind === 'absent') chips.push('new');
       if (diff.modifiedRef.kind === 'absent') chips.push('deleted');
+      if (hasNoChanges(diff)) chips.push('no changes');
     }
     return chips;
   });
@@ -689,7 +668,9 @@ export class FileDiffSectionComponent {
   protected onEdit(): void {
     const diff = this.diff();
     const first =
-      diff && diff.status !== 'error' ? diff.hunks[0]?.modifiedStart : undefined;
+      diff && diff.status !== 'error'
+        ? diff.hunks[0]?.modifiedStart
+        : undefined;
     this.edit.emit({
       path: this.file().path,
       ...(first !== undefined && first > 0 ? { line: first } : {}),
@@ -742,9 +723,7 @@ export class FileDiffSectionComponent {
   protected closeComposer(): void {
     this.composer.set(null);
     this.composerError.set(null);
-    afterNextRender(() => this.commentButton()?.nativeElement.focus(), {
-      injector: this.injector,
-    });
+    this.header().focusComment();
   }
 
   protected patchComposer(patch: Partial<CommentComposer>): void {

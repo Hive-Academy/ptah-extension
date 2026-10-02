@@ -81,7 +81,11 @@ function viewResult(overrides: Partial<ViewSuccess> = {}): ViewSuccess {
  */
 function routeRpc(
   reads: FileViewContentResult[],
-  saves: { success: boolean; data?: FileSaveContentResult; error?: string }[] = [],
+  saves: {
+    success: boolean;
+    data?: FileSaveContentResult;
+    error?: string;
+  }[] = [],
 ): void {
   mockRpcCall.mockImplementation(
     async (_vscode: unknown, method: string): Promise<unknown> => {
@@ -164,7 +168,10 @@ describe('SpotEditorComponent', () => {
   });
 
   async function render(
-    request: FileViewOpenRequest = { path: '/ws/src/a.ts', workspaceRoot: '/ws' },
+    request: FileViewOpenRequest = {
+      path: '/ws/src/a.ts',
+      workspaceRoot: '/ws',
+    },
     startEditable = false,
   ) {
     const fixture = TestBed.createComponent(SpotEditorComponent);
@@ -258,7 +265,9 @@ describe('SpotEditorComponent', () => {
         'utf8',
       );
       expect(source).not.toMatch(/from\s+['"]@codemirror\//);
-      expect(source).not.toMatch(/import\s+(?!type\b)[^;]*from\s+['"]\.\/codemirror-setup['"]/);
+      expect(source).not.toMatch(
+        /import\s+(?!type\b)[^;]*from\s+['"]\.\/codemirror-setup['"]/,
+      );
       expect(source).toContain("import('./codemirror-setup')");
     });
   });
@@ -274,7 +283,9 @@ describe('SpotEditorComponent', () => {
       expect(byTestId(fixture, 'spot-editor-edit')).not.toBeNull();
       expect(editorView(fixture).state.readOnly).toBe(true);
       expect(
-        el(fixture).querySelector('.cm-content')?.getAttribute('contenteditable'),
+        el(fixture)
+          .querySelector('.cm-content')
+          ?.getAttribute('contenteditable'),
       ).toBe('false');
       expect(
         byTestId<HTMLButtonElement>(fixture, 'spot-editor-save')?.disabled,
@@ -408,9 +419,9 @@ describe('SpotEditorComponent', () => {
       type(fixture, 'x');
       await clickSave(fixture);
 
-      expect(byTestId(fixture, 'spot-editor-save-error')?.textContent).toContain(
-        'This file cannot be written.',
-      );
+      expect(
+        byTestId(fixture, 'spot-editor-save-error')?.textContent,
+      ).toContain('This file cannot be written.');
       expect(editorView(fixture).state.sliceDoc()).toBe('const a = 1;\nx');
       expect(
         byTestId<HTMLButtonElement>(fixture, 'spot-editor-save')?.disabled,
@@ -426,9 +437,9 @@ describe('SpotEditorComponent', () => {
       type(fixture, 'x');
       await clickSave(fixture);
 
-      expect(byTestId(fixture, 'spot-editor-save-error')?.textContent).toContain(
-        'Saving is not available in this window.',
-      );
+      expect(
+        byTestId(fixture, 'spot-editor-save-error')?.textContent,
+      ).toContain('Saving is not available in this window.');
       expect(byTestId(fixture, 'spot-editor-ro')).not.toBeNull();
       expect(byTestId(fixture, 'spot-editor-edit')).toBeNull();
       expect(editorView(fixture).state.readOnly).toBe(true);
@@ -443,9 +454,9 @@ describe('SpotEditorComponent', () => {
       const fixture = await render(undefined, true);
       type(fixture, 'x');
       await clickSave(fixture);
-      expect(byTestId(fixture, 'spot-editor-save-error')?.textContent).toContain(
-        'The file could not be saved.',
-      );
+      expect(
+        byTestId(fixture, 'spot-editor-save-error')?.textContent,
+      ).toContain('The file could not be saved.');
       expect(editorView(fixture).state.readOnly).toBe(false);
     });
   });
@@ -817,7 +828,11 @@ describe('SpotEditorComponent', () => {
     it('opens the next file directly when there are no edits', async () => {
       routeRpc([
         viewResult(),
-        viewResult({ absolutePath: '/ws/b.ts', relativePath: 'b.ts', content: 'b\n' }),
+        viewResult({
+          absolutePath: '/ws/b.ts',
+          relativePath: 'b.ts',
+          content: 'b\n',
+        }),
       ]);
       const fixture = await render();
       fixture.componentRef.setInput('request', { path: '/ws/b.ts' });
@@ -829,7 +844,11 @@ describe('SpotEditorComponent', () => {
     it('asks before discarding unsaved edits; Cancel keeps them', async () => {
       routeRpc([
         viewResult(),
-        viewResult({ absolutePath: '/ws/b.ts', relativePath: 'b.ts', content: 'b\n' }),
+        viewResult({
+          absolutePath: '/ws/b.ts',
+          relativePath: 'b.ts',
+          content: 'b\n',
+        }),
       ]);
       const fixture = await render(undefined, true);
       type(fixture, 'x');
@@ -849,7 +868,11 @@ describe('SpotEditorComponent', () => {
     it('Discard and open replaces the file', async () => {
       routeRpc([
         viewResult(),
-        viewResult({ absolutePath: '/ws/b.ts', relativePath: 'b.ts', content: 'b\n' }),
+        viewResult({
+          absolutePath: '/ws/b.ts',
+          relativePath: 'b.ts',
+          content: 'b\n',
+        }),
       ]);
       const fixture = await render(undefined, true);
       type(fixture, 'x');
@@ -904,6 +927,38 @@ describe('SpotEditorComponent', () => {
       ).toBe('true');
     });
 
+    it('marks the preview with its document and workspace root for link resolution, in a non-active root (parity row 160)', async () => {
+      routeRpc([
+        viewResult({
+          absolutePath: '/repos/other/docs/guide.md',
+          workspaceRoot: '/repos/other',
+          relativePath: 'docs/guide.md',
+          content: 'See [setup](./setup.md).',
+        }),
+      ]);
+      const fixture = await render({
+        path: 'docs/guide.md',
+        workspaceRoot: '/repos/other',
+      });
+      const preview = byTestId(fixture, 'spot-editor-preview-body');
+      expect(preview).not.toBeNull();
+      const scope = preview?.closest('[data-ptah-file-links]');
+      expect(scope).not.toBeNull();
+      expect(scope?.getAttribute('data-ptah-link-document')).toBe(
+        '/repos/other/docs/guide.md',
+      );
+      expect(scope?.getAttribute('data-ptah-link-root')).toBe('/repos/other');
+      // The read went to the requested root, not the active one.
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        'file:viewContent',
+        expect.objectContaining({
+          path: 'docs/guide.md',
+          workspaceRoot: '/repos/other',
+        }),
+      );
+    });
+
     it('disables the preview over 512 KB with a note', async () => {
       routeRpc([
         viewResult({
@@ -914,7 +969,10 @@ describe('SpotEditorComponent', () => {
         }),
       ]);
       const fixture = await render({ path: '/ws/big.md' });
-      const preview = byTestId<HTMLButtonElement>(fixture, 'spot-editor-preview');
+      const preview = byTestId<HTMLButtonElement>(
+        fixture,
+        'spot-editor-preview',
+      );
       expect(preview?.disabled).toBe(true);
       expect(preview?.title).toBe('Preview is disabled for files over 512 KB.');
       expect(byTestId(fixture, 'spot-editor-preview-body')).toBeNull();
@@ -922,6 +980,48 @@ describe('SpotEditorComponent', () => {
   });
 
   describe('blocked and failed reads', () => {
+    it('says "Loading file…" while the read is in flight (parity row 161)', async () => {
+      let finish: (value: unknown) => void = () => undefined;
+      mockRpcCall.mockImplementation(
+        () => new Promise((resolve) => (finish = resolve)),
+      );
+      const fixture = TestBed.createComponent(SpotEditorComponent);
+      fixture.componentRef.setInput('request', {
+        path: '/ws/src/a.ts',
+        workspaceRoot: '/ws',
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const loading = el(fixture).querySelector('[role="status"][aria-busy]');
+      expect(loading?.textContent?.trim()).toBe('Loading file…');
+      expect(byTestId(fixture, 'spot-editor-read-error')).toBeNull();
+
+      finish({ success: true, data: viewResult() });
+      await settle(fixture);
+      expect(
+        el(fixture).querySelector('[role="status"][aria-busy]'),
+      ).toBeNull();
+    });
+
+    it('shows a blocked reason without Open-in when opening outside is not allowed (parity row 162)', async () => {
+      routeRpc([
+        {
+          success: false,
+          reason: 'unsupported-path',
+          error: 'This path cannot be opened.',
+          externalOpenAllowed: false,
+        },
+      ]);
+      const fixture = await render({ path: 'bad\u0000path' });
+      expect(byTestId(fixture, 'spot-editor-blocked')?.textContent).toContain(
+        'This path cannot be opened.',
+      );
+      expect(el(fixture).querySelector('ptah-open-in-button')).toBeNull();
+      expect(byTestId(fixture, 'spot-editor-edit')).toBeNull();
+    });
+
     it('shows the blocked reason and confirms before opening outside the workspace', async () => {
       routeRpc([
         {
@@ -970,9 +1070,9 @@ describe('SpotEditorComponent', () => {
         viewResult(),
       ]);
       const fixture = await render();
-      expect(byTestId(fixture, 'spot-editor-read-error')?.textContent).toContain(
-        'The file does not exist.',
-      );
+      expect(
+        byTestId(fixture, 'spot-editor-read-error')?.textContent,
+      ).toContain('The file does not exist.');
       el(fixture)
         .querySelector<HTMLButtonElement>(
           '[data-testid="spot-editor-read-error"] button',

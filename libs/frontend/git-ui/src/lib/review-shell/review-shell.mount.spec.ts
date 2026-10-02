@@ -43,6 +43,7 @@ class MockPierreDiffHost {
   readonly fileName = input('');
   readonly hunks = input<readonly GitHunkRef[]>([]);
   readonly diffStyle = input<'split' | 'unified'>('split');
+  readonly themeType = input<'light' | 'dark'>('dark');
   readonly hunkToolbar = input<TemplateRef<PierreHunkToolbarContext> | null>(
     null,
   );

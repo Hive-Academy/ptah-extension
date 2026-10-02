@@ -58,6 +58,7 @@ class MockPierreDiffHost {
   readonly fileName = input('');
   readonly hunks = input<readonly GitHunkRef[]>([]);
   readonly diffStyle = input<'split' | 'unified'>('split');
+  readonly themeType = input<'light' | 'dark'>('dark');
   readonly hunkToolbar = input<TemplateRef<PierreHunkToolbarContext> | null>(
     null,
   );
@@ -273,6 +274,10 @@ describe('FileDiffSectionComponent', () => {
       const header = byTestId('file-section-header');
       expect(header?.classList.contains('sticky')).toBe(true);
       expect(header?.classList.contains('top-0')).toBe(true);
+      // Sticky pins within its parent: the header must be the section's own
+      // child, beside the body, not wrapped in a box of its own height.
+      expect(header?.parentElement).toBe(host());
+      expect(header?.nextElementSibling).toBe(byTestId('file-section-body'));
     });
 
     it('passes a null side for an added file and marks it new', async () => {
@@ -326,6 +331,161 @@ describe('FileDiffSectionComponent', () => {
         expect(await renderedStyle({ comparison, status: 'A' })).toBe('split');
       },
     );
+  });
+
+  describe('header (parity rows 136, 183)', () => {
+    const chipTexts = (): string[] =>
+      Array.from(host().querySelectorAll('[data-testid="file-chip"]')).map(
+        (chip) => chip.textContent?.trim() ?? '',
+      );
+
+    it('shows where a renamed file came from', async () => {
+      await create({ file: makeFile({ originalPath: 'src/old.ts' }) });
+      expect(byTestId('file-section-path')?.textContent?.trim()).toBe(
+        'src/app.ts',
+      );
+      expect(byTestId('file-section-renamed')?.textContent?.trim()).toBe(
+        'renamed from src/old.ts',
+      );
+    });
+
+    it('shows no rename line for a file that kept its path', async () => {
+      await create();
+      expect(byTestId('file-section-renamed')).toBeNull();
+    });
+
+    it.each([
+      ['worktree', 'Working tree'],
+      ['staged', 'Staged'],
+    ] as const)(
+      'names the %s side, so the staged and unstaged headers of one path differ',
+      async (comparison, label) => {
+        await create({ file: makeFile({ comparison }) });
+        expect(byTestId('file-section-side')?.textContent?.trim()).toBe(label);
+        expect(byTestId('file-section-path')?.textContent?.trim()).toBe(
+          'src/app.ts',
+        );
+      },
+    );
+
+    it.each(['branch', 'historical'] as const)(
+      'shows no side for a %s comparison (the comparison bar names it)',
+      async (comparison) => {
+        await create({ file: makeFile({ comparison }) });
+        expect(byTestId('file-section-side')).toBeNull();
+      },
+    );
+
+    it('marks a read whose two sides are identical "no changes"', async () => {
+      await create({ near: true });
+      setDiff(makeDiff({ original: 'same\n', modified: 'same\n', hunks: [] }));
+      await settle();
+      expect(chipTexts()).toEqual(['no changes']);
+    });
+
+    it('never calls an added, deleted or failed read "no changes"', async () => {
+      await create({ near: true });
+      setDiff(
+        makeDiff({
+          originalRef: { kind: 'absent' },
+          original: '',
+          modified: '',
+          hunks: [],
+        }),
+      );
+      await settle();
+      expect(chipTexts()).toEqual(['new']);
+
+      setDiff(
+        makeDiff({ status: 'error', original: '', modified: '', hunks: [] }),
+      );
+      await settle();
+      expect(chipTexts()).toEqual([]);
+    });
+  });
+
+  describe('collapse (parity rows 39, 40: the closed diff tab)', () => {
+    const toggle = (): HTMLButtonElement | null =>
+      byTestId<HTMLButtonElement>('file-section-toggle');
+
+    it('offers a named disclosure button that asks to collapse', async () => {
+      await create({ near: true });
+      setDiff(makeDiff());
+      await settle();
+      const emitted: boolean[] = [];
+      fixture.componentInstance.collapsedChange.subscribe((value) =>
+        emitted.push(value),
+      );
+      const button = toggle();
+      expect(button?.getAttribute('aria-label')).toBe('Collapse src/app.ts');
+      expect(button?.getAttribute('aria-expanded')).toBe('true');
+      expect(button?.getAttribute('aria-controls')).toBe(
+        byTestId('file-section-body')?.id,
+      );
+      button?.click();
+      expect(emitted).toEqual([true]);
+    });
+
+    it('collapsed: keeps the header, drops the body and releases the read', async () => {
+      await create({ near: true, draftOwner: owner });
+      setDiff(makeDiff());
+      await settle();
+      expect(pierre()).not.toBeNull();
+
+      fixture.componentRef.setInput('collapsed', true);
+      await settle();
+      expect(byTestId('file-section-header')).not.toBeNull();
+      expect(byTestId('file-section-path')?.textContent?.trim()).toBe(
+        'src/app.ts',
+      );
+      expect(byTestId('file-section-body')?.children).toHaveLength(0);
+      expect(pierre()).toBeNull();
+      expect(reviewDiff.unmount).toHaveBeenCalledWith(KEY);
+      expect(host().style.minHeight).toBe('');
+      expect(toggle()?.getAttribute('aria-expanded')).toBe('false');
+      expect(toggle()?.getAttribute('aria-label')).toBe('Expand src/app.ts');
+
+      fixture.componentRef.setInput('collapsed', false);
+      await settle();
+      expect(reviewDiff.mount).toHaveBeenCalledTimes(2);
+      expect(pierre()).not.toBeNull();
+    });
+
+    it('Delete in the header asks to collapse and keeps focus on the toggle', async () => {
+      await create({ near: true, draftOwner: owner });
+      setDiff(makeDiff());
+      await settle();
+      const emitted: boolean[] = [];
+      fixture.componentInstance.collapsedChange.subscribe((value) => {
+        emitted.push(value);
+        fixture.componentRef.setInput('collapsed', value);
+      });
+      const comment = byTestId<HTMLButtonElement>('file-section-comment');
+      comment?.focus();
+      comment?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }),
+      );
+      await settle();
+      expect(emitted).toEqual([true]);
+      expect(byTestId('file-section-comment')).toBeNull();
+      expect(document.activeElement).toBe(toggle());
+
+      // Already collapsed: Delete does nothing more.
+      toggle()?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }),
+      );
+      expect(emitted).toEqual([true]);
+    });
+  });
+
+  it("hands Pierre the canvas's theme and follows a change", async () => {
+    await create({ near: true, themeType: 'light' });
+    setDiff(makeDiff());
+    await settle();
+    expect(pierre()?.themeType()).toBe('light');
+    fixture.componentRef.setInput('themeType', 'dark');
+    await settle();
+    expect(pierre()?.themeType()).toBe('dark');
   });
 
   describe('labelled rows', () => {
@@ -603,12 +763,12 @@ describe('FileDiffSectionComponent', () => {
       expect(accept?.getAttribute('aria-disabled')).toBeNull();
     });
 
-    it('dims the body while a refusal chip shows (85%)', async () => {
+    it('dims the body while a refused apply waits for its re-read (85%)', async () => {
       await create({ near: true });
       setDiff(makeDiff());
       await settle();
       expect(byTestId('file-diff-body')?.className).toContain(
-        'has-[[data-testid=hunk-refused]]:opacity-[0.85]',
+        'has-[[data-awaiting-reread]]:opacity-[0.85]',
       );
     });
 

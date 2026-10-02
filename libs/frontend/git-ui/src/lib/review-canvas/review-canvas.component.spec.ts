@@ -9,7 +9,11 @@ import {
 } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
+import {
+  ElectronLayoutService,
+  ThemeService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import type {
   GitFileStatus,
   GitHunkRef,
@@ -50,6 +54,7 @@ class MockPierreDiffHost {
   readonly fileName = input('');
   readonly hunks = input<readonly GitHunkRef[]>([]);
   readonly diffStyle = input<'split' | 'unified'>('split');
+  readonly themeType = input<'light' | 'dark'>('dark');
   readonly hunkToolbar = input<TemplateRef<PierreHunkToolbarContext> | null>(
     null,
   );
@@ -249,6 +254,7 @@ describe('ReviewCanvasComponent', () => {
     entries: entries.asReadonly(),
     mount: jest.fn((request: ReviewDiffRequest) => reviewDiffKey(request)),
     unmount: jest.fn(),
+    entry: jest.fn((key: string) => entries().get(key)),
     retry: jest.fn(async () => undefined),
     applyHunks: jest.fn(),
   };
@@ -265,6 +271,8 @@ describe('ReviewCanvasComponent', () => {
     setGitRailWidth: jest.fn(),
     commitGitRailWidth: jest.fn(),
   };
+
+  const isDarkMode = signal(true);
 
   const host = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const byTestId = <T extends HTMLElement = HTMLElement>(
@@ -341,6 +349,7 @@ describe('ReviewCanvasComponent', () => {
     reviewError.set(null);
     reviewLoading.set(false);
     entries.set(new Map());
+    isDarkMode.set(true);
     TestBed.configureTestingModule({
       imports: [Canvas],
       providers: [
@@ -356,6 +365,7 @@ describe('ReviewCanvasComponent', () => {
         { provide: SourceControlService, useValue: {} },
         { provide: ReviewDiffService, useValue: reviewDiff },
         { provide: EditorLauncherService, useValue: launchers },
+        { provide: ThemeService, useValue: { isDarkMode } },
       ],
     });
   });
@@ -632,6 +642,126 @@ describe('ReviewCanvasComponent', () => {
       await settle();
       expect(scrolled.length).toBe(2);
       expect(scrolled[1]).not.toBe(scrolled[0]);
+    });
+
+    it('Alt+ArrowUp from the first file wraps to the last (parity row 40)', async () => {
+      await create();
+      const list = byTestId('review-canvas-list');
+      const altKey = (key: string): void => {
+        list?.dispatchEvent(
+          new KeyboardEvent('keydown', { key, altKey: true, bubbles: true }),
+        );
+      };
+      altKey('ArrowDown');
+      await settle();
+      expect(scrolled).toEqual(['src/app.ts']);
+      altKey('ArrowUp');
+      await settle();
+      // Tree order ends with logo.png; the untracked directory is skipped.
+      expect(scrolled[1]).toBe('logo.png');
+    });
+
+    describe('collapsing a file (parity rows 39, 40)', () => {
+      const treeRow = (name: string): HTMLElement => {
+        const found = Array.from(
+          host().querySelectorAll<HTMLElement>('[role="treeitem"]'),
+        ).find(
+          (item) =>
+            item.querySelector('[id$="-name"]')?.textContent?.trim() === name,
+        );
+        if (!found) throw new Error(`no row ${name}`);
+        return found;
+      };
+      const section = (path: string): SectionType => {
+        const found = sectionInstances().find((s) => s.file().path === path);
+        if (!found) throw new Error(`no section ${path}`);
+        return found;
+      };
+
+      it("from a section's header toggle, and back", async () => {
+        await create();
+        const toggle = sectionFor(
+          'src/util.ts',
+        ).querySelector<HTMLButtonElement>(
+          '[data-testid="file-section-toggle"]',
+        );
+        toggle?.click();
+        await settle();
+        expect(section('src/util.ts').collapsed()).toBe(true);
+        expect(section('src/app.ts').collapsed()).toBe(false);
+        toggle?.click();
+        await settle();
+        expect(section('src/util.ts').collapsed()).toBe(false);
+      });
+
+      it('Delete on a tree row collapses that section; selecting the row shows it again', async () => {
+        await create();
+        const row = treeRow('util.ts');
+        row.focus();
+        row.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }),
+        );
+        await settle();
+        expect(section('src/util.ts').collapsed()).toBe(true);
+        expect(
+          sectionFor('src/util.ts').querySelector(
+            '[data-testid="file-section-header"]',
+          ),
+        ).not.toBeNull();
+
+        treeRow('util.ts').click();
+        await settle();
+        expect(section('src/util.ts').collapsed()).toBe(false);
+        expect(scrolled).toContain('src/util.ts');
+      });
+
+      it('forgets collapsed files when the comparison changes', async () => {
+        await create();
+        sectionFor('src/app.ts')
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="file-section-toggle"]',
+          )
+          ?.click();
+        await settle();
+        expect(section('src/app.ts').collapsed()).toBe(true);
+        navigate({ scope: { kind: 'staged' }, target: { kind: 'none' } });
+        await settle();
+        expect(section('src/app.ts').collapsed()).toBe(false);
+      });
+    });
+
+    it('re-reads a cached diff when its tree row is selected again (A1 AC4 re-click revalidation)', async () => {
+      await create();
+      const key = reviewDiffKey({
+        comparison: { kind: 'worktree' },
+        path: 'src/util.ts',
+      });
+      const row = (): HTMLElement | undefined =>
+        Array.from(
+          host().querySelectorAll<HTMLElement>('[role="treeitem"]'),
+        ).find((item) => item.textContent?.includes('util.ts'));
+
+      // Never read yet: the section's mount reads it, nothing to revalidate.
+      row()?.click();
+      await settle();
+      expect(reviewDiff.retry).not.toHaveBeenCalled();
+
+      entries.set(new Map([[key, { key } as unknown as ReviewDiffEntry]]));
+      row()?.click();
+      await settle();
+      expect(reviewDiff.retry).toHaveBeenCalledWith(key);
+    });
+
+    it('hands every section the app theme and follows a switch', async () => {
+      await create();
+      expect(sectionInstances().every((s) => s.themeType() === 'dark')).toBe(
+        true,
+      );
+      isDarkMode.set(false);
+      await settle();
+      expect(sectionInstances().every((s) => s.themeType() === 'light')).toBe(
+        true,
+      );
     });
 
     it("a section's Edit opens the spot editor, editable, in the active workspace", async () => {

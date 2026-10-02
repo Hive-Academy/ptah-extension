@@ -61,7 +61,10 @@ describe('GitDockHeaderComponent', () => {
   };
   const launchers = {
     targets: signal<readonly EditorTarget[]>([kiro]),
-    launchStatus: signal(null),
+    launchStatus: signal<{
+      kind: 'success' | 'error';
+      message: string;
+    } | null>(null),
     openWorkspace: jest.fn(async () => false),
   };
   const reviewMode = signal<'working-tree' | 'branch-review'>('working-tree');
@@ -77,6 +80,7 @@ describe('GitDockHeaderComponent', () => {
     gitBranches.stashCount.set(0);
     reviewMode.set('working-tree');
     railCollapsed.set(false);
+    launchers.launchStatus.set(null);
     gitStatus.branch.set({
       branch: 'main',
       upstream: 'origin/main',
@@ -256,6 +260,56 @@ describe('GitDockHeaderComponent', () => {
     query(fixture, 'git-fetch-button').click();
     await fixture.whenStable();
     expect(gitBranches.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('spins the fetch icon while the fetch runs, and stops when it settles (parity row 56)', async () => {
+    let finish: (value: { success: boolean }) => void = () => undefined;
+    gitBranches.fetch.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const icon = (): Element | null =>
+      query(fixture, 'git-fetch-button').querySelector('lucide-angular');
+    expect(icon()?.classList.contains('animate-spin')).toBe(false);
+
+    query(fixture, 'git-fetch-button').click();
+    fixture.detectChanges();
+    expect(icon()?.classList.contains('animate-spin')).toBe(true);
+    expect(query(fixture, 'git-fetch-button').disabled).toBe(true);
+
+    finish({ success: true });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(icon()?.classList.contains('animate-spin')).toBe(false);
+    expect(query(fixture, 'git-fetch-button').disabled).toBe(false);
+  });
+
+  it("shows the editor launcher's status line, red for a failure (parity row 60)", () => {
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const statusLine = (): HTMLElement | undefined =>
+      [
+        ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>(
+          '[role="status"]',
+        ),
+      ].find((node) => node.textContent?.includes('Kiro'));
+    expect(statusLine()).toBeUndefined();
+
+    launchers.launchStatus.set({ kind: 'success', message: 'Opened in Kiro.' });
+    fixture.detectChanges();
+    expect(statusLine()?.textContent?.trim()).toBe('Opened in Kiro.');
+    expect(statusLine()?.classList.contains('text-error')).toBe(false);
+
+    launchers.launchStatus.set({
+      kind: 'error',
+      message: 'Kiro could not be started.',
+    });
+    fixture.detectChanges();
+    expect(statusLine()?.textContent?.trim()).toBe(
+      'Kiro could not be started.',
+    );
+    expect(statusLine()?.classList.contains('text-error')).toBe(true);
   });
 
   it('does not publish or refresh a sync result after the workspace changes', async () => {

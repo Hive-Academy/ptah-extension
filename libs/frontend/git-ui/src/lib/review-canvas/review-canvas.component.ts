@@ -9,13 +9,18 @@ import {
   inject,
   Injector,
   input,
+  linkedSignal,
   signal,
   untracked,
   viewChild,
   viewChildren,
 } from '@angular/core';
+import { ThemeService } from '@ptah-extension/core';
 import type { GitFileStatus, GitReviewFile } from '@ptah-extension/shared';
-import type { PierreDiffStyle } from '../renderer/pierre-config';
+import type {
+  PierreDiffStyle,
+  PierreThemeMode,
+} from '../renderer/pierre-config';
 import { EditorLauncherService } from '../services/editor-launcher.service';
 import { GitReviewService } from '../services/git-review.service';
 import { GitStatusService } from '../services/git-status.service';
@@ -23,10 +28,13 @@ import {
   ReviewCommentDraftStore,
   type ReviewDraftOwner,
 } from '../services/review-comment-draft.store';
-import type { ReviewDiffComparison } from '../services/review-diff.service';
+import {
+  ReviewDiffService,
+  reviewDiffKey,
+  type ReviewDiffComparison,
+} from '../services/review-diff.service';
 import {
   ReviewNavigationService,
-  type ReviewScope,
   type ReviewTarget,
 } from '../services/review-navigation.service';
 import type { OpenInRequest } from '../open-in/open-in-button.component';
@@ -44,8 +52,13 @@ import {
   FileDiffSectionComponent,
   type ReviewCanvasFile,
   type ReviewFileEditRequest,
-  type ReviewFileLabel,
 } from './file-diff-section.component';
+import {
+  reviewCanvasFile,
+  reviewFileId,
+  reviewScopeId,
+  statusCanvasFile,
+} from './review-canvas-files';
 
 /** Estimated row height and fixed chrome, for placeholders before a measure. */
 const ESTIMATED_ROW_PX = 20;
@@ -100,23 +113,6 @@ function rememberAnchor(comparisonId: string, anchor: ScrollAnchor): void {
   }
 }
 
-function scopeId(scope: ReviewScope, branchRange: string | null): string {
-  if (scope.kind === 'historical') {
-    return `historical:${scope.base.sha}..${scope.head.sha}`;
-  }
-  return scope.kind === 'branch' ? `branch:${branchRange ?? ''}` : scope.kind;
-}
-
-function statusLabel(file: GitFileStatus): ReviewFileLabel | null {
-  if (file.status === 'U') return 'conflicted';
-  if (file.submodule) return 'submodule';
-  return file.binary ? 'binary' : null;
-}
-
-function fileId(kind: string, path: string, originalPath?: string): string {
-  return `${kind}\u0000${originalPath ?? path}\u0000${path}`;
-}
-
 /**
  * ReviewCanvasComponent — the Changes tab body (implementation-plan
  * Component 24, design-spec §6.1; Requirement 6): the comparison bar, the
@@ -139,8 +135,14 @@ function fileId(kind: string, path: string, originalPath?: string): string {
  *   body again after hiding it (a hidden list loses its `scrollTop`). Because
  *   sections are estimated until measured, the restore re-anchors frame by
  *   frame until the anchor file stops moving. Nothing is saved while hidden.
- * - Selecting a file in the tree scrolls its section into view; Alt+Down /
- *   Alt+Up move to the next / previous file.
+ * - Selecting a file in the tree scrolls its section into view, expands it
+ *   and re-reads its diff (the old row re-click revalidation, A1 AC4);
+ *   Alt+Down / Alt+Up move to the next / previous file, wrapping at the ends.
+ * - A file collapses to its header from the header toggle, Delete in the
+ *   header, or Delete on its tree row (the old diff tab's close, parity rows
+ *   39, 40). Collapsed files are per comparison and reset when it changes.
+ * - Pierre follows the app theme (`ThemeService`) live, as the old Monaco
+ *   diff followed theme changes.
  * - When the draft bar disappears with focus inside it, focus moves to the
  *   diff list rather than being dropped on the page.
  */
@@ -178,6 +180,7 @@ function fileId(kind: string, path: string, originalPath?: string): string {
         [editorTargets]="launchers.targets()"
         [workspaceRoot]="workspaceRoot()"
         (fileSelected)="onFileSelected($event)"
+        (collapseFile)="setCollapsed(sectionId($event), true)"
         (openFile)="openInEditor($event)"
       />
 
@@ -209,8 +212,11 @@ function fileId(kind: string, path: string, originalPath?: string): string {
             [draftOwner]="draftOwner()"
             [editorTargets]="launchers.targets()"
             [workspaceRoot]="workspaceRoot()"
+            [collapsed]="collapsedIds().has(file.id)"
+            [themeType]="themeType()"
             (openFile)="openInEditor($event)"
             (edit)="onEdit($event)"
+            (collapsedChange)="setCollapsed(file.id, $event)"
           />
         }
       </div>
@@ -228,6 +234,8 @@ export class ReviewCanvasComponent {
   private readonly gitStatus = inject(GitStatusService);
   private readonly review = inject(GitReviewService);
   private readonly draftStore = inject(ReviewCommentDraftStore);
+  private readonly reviewDiff = inject(ReviewDiffService);
+  private readonly theme = inject(ThemeService);
   private readonly injector = inject(Injector);
   protected readonly launchers = inject(EditorLauncherService);
 
@@ -291,6 +299,10 @@ export class ReviewCanvasComponent {
 
   protected readonly diffStyle = computed<PierreDiffStyle>(() =>
     this.sideBySide() ? 'split' : 'unified',
+  );
+
+  protected readonly themeType = computed<PierreThemeMode>(() =>
+    this.theme.isDarkMode() ? 'dark' : 'light',
   );
 
   /** A change-set target owns the drafts; otherwise the workspace does. */
@@ -374,48 +386,15 @@ export class ReviewCanvasComponent {
           (file) =>
             !file.isDirectory && (scope.kind === 'worktree' || file.staged),
         )
-        .map((file) => {
-          const kind = file.staged ? 'staged' : 'worktree';
-          return {
-            id: fileId(kind, file.path, file.origPath),
-            path: file.path,
-            ...(file.origPath ? { originalPath: file.origPath } : {}),
-            status: file.status,
-            ...(file.conflict ? { conflictKind: file.conflict.kind } : {}),
-            additions: file.additions ?? null,
-            deletions: file.deletions ?? null,
-            comparison: kind,
-            request: {
-              comparison: { kind },
-              path: file.path,
-              ...(file.origPath ? { origPath: file.origPath } : {}),
-            },
-            label: statusLabel(file),
-          } satisfies ReviewCanvasFile;
-        });
+        .map(statusCanvasFile);
     }
     const comparison: ReviewDiffComparison | null =
       scope.kind === 'historical'
         ? { kind: 'historical', base: scope.base, head: scope.head }
         : this.branchComparison();
     if (!comparison) return [];
-    return this.treeReviewFiles().map(
-      (file) =>
-        ({
-          id: fileId(scope.kind, file.path, file.originalPath),
-          path: file.path,
-          ...(file.originalPath ? { originalPath: file.originalPath } : {}),
-          status: file.status,
-          additions: file.additions,
-          deletions: file.deletions,
-          comparison: scope.kind,
-          request: {
-            comparison,
-            path: file.path,
-            ...(file.originalPath ? { origPath: file.originalPath } : {}),
-          },
-          label: file.binary ? 'binary' : null,
-        }) satisfies ReviewCanvasFile,
+    return this.treeReviewFiles().map((file) =>
+      reviewCanvasFile(file, scope.kind, comparison),
     );
   });
 
@@ -445,13 +424,19 @@ export class ReviewCanvasComponent {
   /** The workspace and comparison a reading position belongs to. */
   private readonly comparisonId = computed(() => {
     const branch = this.branchComparison();
-    const scope = scopeId(
+    const scope = reviewScopeId(
       this.scope(),
       branch?.kind === 'historical'
         ? `${branch.base.sha}..${branch.head.sha}`
         : null,
     );
     return `${this.workspaceRoot()}\u0000${scope}`;
+  });
+
+  /** Files collapsed to their header; reset when the comparison changes. */
+  protected readonly collapsedIds = linkedSignal<string, ReadonlySet<string>>({
+    source: this.comparisonId,
+    computation: () => new Set(),
   });
 
   protected readonly listMessageIsError = computed(() => {
@@ -544,18 +529,48 @@ export class ReviewCanvasComponent {
     return ESTIMATED_CHROME_PX + rows * ESTIMATED_ROW_PX;
   }
 
+  /**
+   * A tree row was activated: show its section (expanded), re-read its diff
+   * so a re-opened file is never stale (A1 AC4), and mark it active.
+   */
   protected onFileSelected(selection: ChangedFileSelection): void {
-    const kind = this.scope().kind;
-    const sectionKind =
-      kind === 'worktree' || kind === 'staged'
-        ? selection.staged
-          ? 'staged'
-          : 'worktree'
-        : kind;
-    this.scrollToFile(
-      fileId(sectionKind, selection.path, selection.originalPath),
+    const id = this.sectionId(selection);
+    this.setCollapsed(id, false);
+    const file = this.files().find((candidate) => candidate.id === id);
+    if (file?.request) {
+      const key = reviewDiffKey(file.request);
+      // Only a cached entry: a first read happens when the section mounts.
+      if (this.reviewDiff.entry(key)) void this.reviewDiff.retry(key);
+    }
+    this.scrollToFile(id);
+    this.active.set({
+      path: selection.path,
+      staged: this.sectionKind(selection) === 'staged',
+    });
+  }
+
+  /** The section a tree selection stands for. */
+  protected sectionId(selection: ChangedFileSelection): string {
+    return reviewFileId(
+      this.sectionKind(selection),
+      selection.path,
+      selection.originalPath,
     );
-    this.active.set({ path: selection.path, staged: sectionKind === 'staged' });
+  }
+
+  private sectionKind(selection: ChangedFileSelection): string {
+    const kind = this.scope().kind;
+    if (kind !== 'worktree' && kind !== 'staged') return kind;
+    return selection.staged ? 'staged' : 'worktree';
+  }
+
+  protected setCollapsed(id: string, collapsed: boolean): void {
+    const current = this.collapsedIds();
+    if (current.has(id) === collapsed) return;
+    const next = new Set(current);
+    if (collapsed) next.add(id);
+    else next.delete(id);
+    this.collapsedIds.set(next);
   }
 
   protected onListKeydown(event: KeyboardEvent): void {
@@ -671,9 +686,12 @@ export class ReviewCanvasComponent {
         }
       } else if (near.delete(id)) {
         // Leaving the window with its diff still rendered: the exact height
-        // its placeholder should hold from now on.
+        // its placeholder should hold from now on. A collapsed file shows
+        // only its header, which says nothing about its expanded height.
         const height = entry.boundingClientRect.height;
-        if (height > 0) this.measuredHeights.set(this.heightKey(id), height);
+        if (height > 0 && !this.collapsedIds().has(id)) {
+          this.measuredHeights.set(this.heightKey(id), height);
+        }
         changed = true;
       }
     }
