@@ -655,7 +655,7 @@ describe('custom entry edits and the last connection check', () => {
   it.each([
     ['a new endpoint', { changes: { baseUrl: 'https://other.example.com' } }],
     ['a new lane', { changes: { lane: 'openai' } }],
-    ['a replaced key', { changes: {}, apiKey: 'Zq9Wm4Xn7Bv2Lk5Hj8Gf' }],
+    ['a replaced key', { changes: {}, apiKey: 'FAKE0PROVIDER0KEY0AAA' }],
     ['a cleared key', { changes: {}, apiKey: '' }],
   ])(
     'provider:updateCustomEntry with %s clears the record',

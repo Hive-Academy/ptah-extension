@@ -56,7 +56,7 @@ import type {
 import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { AuthRpcHandlers } from './auth-rpc.handlers';
 
-const KEY = 'Rt5Gh8Jk2Lm6Np0Qs4Uv9Wx3';
+const KEY = 'FAKE0KEY1QQQ2WWW3ZZZ4XXX';
 
 interface Harness {
   rpcHandler: MockRpcHandler;
@@ -338,7 +338,7 @@ describe('a key change forgets the last check (revise round 1, S-1)', () => {
 
     await rpc(h, 'auth:setApiKey', {
       provider: 'moonshot',
-      apiKey: 'Zq9Wm4Xn7Bv2Lk5Hj8Gf',
+      apiKey: 'FAKE0PROVIDER0KEY0AAA',
     });
 
     expect(await routeProvider(h, 'moonshot')).not.toHaveProperty('lastCheck');
@@ -359,8 +359,8 @@ describe('a key change forgets the last check (revise round 1, S-1)', () => {
     await rpc(h, 'auth:saveSettings', {
       authMethod: 'thirdParty',
       anthropicProviderId: 'moonshot',
-      providerApiKey: 'Zq9Wm4Xn7Bv2Lk5Hj8Gf',
-      anthropicApiKey: 'Pl3Ok8Ij5Uh2Yg7Tf4Rd',
+      providerApiKey: 'FAKE0PROVIDER0KEY0AAA',
+      anthropicApiKey: 'FAKE0ANTHROPIC0KEY0BBB',
     });
 
     expect(h.recorder.get('moonshot')).toBeUndefined();
