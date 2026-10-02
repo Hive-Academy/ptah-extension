@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 44/69
+Total tasks: 87 | Batches: 69 | Complete: 45/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1938,14 +1938,14 @@ executors at once.
 | W8 | 54 ∥ 55 | |
 | W9 | 56 | then the P5 phase-end review |
 
-## Batch 45: Commit streaming backend — PENDING
+## Batch 45: Commit streaming backend — COMPLETE
 
 - Recommended executor: backend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: P4 complete
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/shared @ptah-extension/vscode-core`
 
-### Task 45.1: `OperationRegistry`, commit `onOutput`/abort, `readStagedPatch`, shared types — PENDING
+### Task 45.1: `OperationRegistry`, commit `onOutput`/abort, `readStagedPatch`, shared types — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git/git-operation.registry.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.ts; MODIFY D:/projects/ptah-extension/libs/backend/vscode-core/src/services/git-info.service.spec.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/rpc/rpc-git.types.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/messages/message-constants.ts; MODIFY D:/projects/ptah-extension/libs/shared/src/lib/types/messages/payload-map.ts
 - Plan reference: implementation-plan.md:1214-1220, 1246-1248
@@ -1953,6 +1953,18 @@ executors at once.
 - Quality requirements: registry entry deleted on settle; 256 KiB tail for `hookOutput`; staged patch capped 48 KiB with a note.
 - Validation notes: no registry (`rpc.types.ts`) change here (V5).
 - Implementation details: `git:operationOutput` push type.
+- Outcome: executor backend-developer. `GitOperationRegistry` (operationId → abort control, removed on settle,
+  duplicate running id refused with GIT_ERROR, caller signal honoured); `commit` takes `operationId` + `onOutput`;
+  `cancelOperation(id)` → CANCELLED with the existing lock recovery; `hookOutput` = last 256 KiB interleaved in
+  arrival order with a truncation line; `readStagedPatch` (`git-staged-patch.reader.ts`, `git diff --cached`, cut at
+  the last whole line within 48 KiB, `none`/`failed`). Shared: `GitCommitParams.operationId`,
+  `git:operationOutput` push type/payload, cancel + generate param/result types (registry untouched, V5).
+  Accepted deviations: commit runner + spec, new reader, registry spec, hooks real-git spec, two type exports in
+  the vscode-core barrel; `git-info.service.ts` +~60 lines (facade only); `hookOutput` order changed to arrival
+  order. Notes: 46 maps `none` → `no-staged-changes`; 47 forwards operationId/onOutput with the 100 ms / 16 KiB
+  throttle and checks the strict `git:commit` schema. Verified: shared 2257 + vscode-core 859 tests,
+  typecheck/lint green; real-git 147 passed / 2 skipped (hook output streams ≥1 s before commit end, cancel leaves
+  no `index.lock`, staged diff read, 48 KiB cut).
 
 ## Batch 46: Commit-message generator — PENDING
 

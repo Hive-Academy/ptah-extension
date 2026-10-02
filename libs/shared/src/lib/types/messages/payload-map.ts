@@ -132,6 +132,7 @@ import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
 import type { GitStatusUpdatePayload } from './git-status';
 import type { GitTurnChangeSetPayload } from '../rpc/rpc-change-set.types';
+import type { GitOperationOutputPayload } from '../rpc/rpc-git.types';
 
 /**
  * Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed').
@@ -388,6 +389,7 @@ export interface MessagePayloadMap {
   'harness:healthChanged': HarnessHealthChangedPayload;
   'git:status-update': GitStatusUpdatePayload;
   'git:turnChangeSet': GitTurnChangeSetPayload;
+  'git:operationOutput': GitOperationOutputPayload;
   'file:content-changed': FileContentChangedPayload;
   'chat:sendMessage:response': MessageResponse;
   'chat:newSession:response': MessageResponse;

@@ -70,7 +70,15 @@ import {
 } from './git-review-reader.service';
 import { parseStatusV2Z } from './git/git-status-parser';
 import { GitRepoWriteLock } from './git/git-write-lock';
-import { GitCommitRunner } from './git/git-commit-runner';
+import {
+  GitCommitRunner,
+  type GitCommitRunOptions,
+} from './git/git-commit-runner';
+import { GitOperationRegistry } from './git/git-operation.registry';
+import {
+  GitStagedPatchReader,
+  type StagedPatchRead,
+} from './git/git-staged-patch.reader';
 import { GitRemoteSync } from './git/git-remote-sync';
 import { AgentWorktreeAdmin } from './git/agent-worktree-admin';
 import { GitRepoOperationReader } from './git/git-repo-operation.reader';
@@ -430,6 +438,12 @@ export interface DiffFileRequest {
   originalPath?: string;
 }
 
+/** Options for {@link GitInfoService.commit}. */
+export interface GitCommitOptions extends GitCommitRunOptions {
+  /** Registers the commit for {@link GitInfoService.cancelOperation}. */
+  readonly operationId?: string;
+}
+
 /** Request shape for {@link GitInfoService.applyHunks}. */
 export interface ApplyHunksRequest extends DiffFileRequest {
   operation: GitApplyHunksOperation;
@@ -499,6 +513,8 @@ export class GitInfoService {
   private readonly worktreeAdmin: AgentWorktreeAdmin;
   private readonly operationReader: GitRepoOperationReader;
   private readonly changeSetNumstat: GitChangeSetNumstatReader;
+  private readonly stagedPatch: GitStagedPatchReader;
+  private readonly operations = new GitOperationRegistry();
 
   /**
    * @param spawner Optional `IProcessSpawner`. When a host supplies one, every
@@ -535,6 +551,11 @@ export class GitInfoService {
       countUntracked: (repositoryRoot, relativePath) =>
         this.readUntrackedNumstat(repositoryRoot, relativePath),
       maxUntrackedFiles: MAX_UNTRACKED_NUMSTAT_FILES,
+    });
+    this.stagedPatch = new GitStagedPatchReader({
+      exec: deps.exec,
+      logger,
+      diffFlags: DIFF_FLAGS,
     });
   }
 
@@ -1135,11 +1156,15 @@ export class GitInfoService {
    * Ptah stopped is `TIMEOUT` / `CANCELLED`, after which its own leftover
    * `index.lock` is recovered (see `GitCommitRunner`). The hash and
    * subject are read back from git, never parsed from its chatter.
+   *
+   * `onOutput` sees the output live. With an `operationId` the commit can be
+   * stopped by {@link cancelOperation} from the moment it is queued until it
+   * settles; an id already in use is refused without running.
    */
   async commit(
     workspacePath: string,
     message: string,
-    options: { signal?: AbortSignal } = {},
+    options: GitCommitOptions = {},
   ): Promise<GitCommitResult> {
     const trimmedMessage = message.trim();
     if (!trimmedMessage) {
@@ -1148,18 +1173,51 @@ export class GitInfoService {
     if (options.signal?.aborted) {
       return { success: false, code: 'CANCELLED', error: 'Commit cancelled.' };
     }
+    const operation = this.operations.start(
+      options.operationId,
+      options.signal,
+    );
+    if (!operation) {
+      return {
+        success: false,
+        code: 'GIT_ERROR',
+        error: 'An operation with this id is already running.',
+      };
+    }
     try {
       return await this.writeLock.run(workspacePath, () =>
-        this.commitRunner.run(workspacePath, trimmedMessage, options.signal),
+        this.commitRunner.run(workspacePath, trimmedMessage, {
+          signal: operation.signal,
+          onOutput: options.onOutput,
+        }),
       );
-    } catch (error) {
+    } catch (error: unknown) {
       const outcome = thrownOutcome(error);
       this.logger.error('[GitInfoService] commit failed', {
         workspacePath,
         error: outcome.error,
       } as unknown as Error);
       return outcome;
+    } finally {
+      operation.settle();
     }
+  }
+
+  /**
+   * Stop the running operation started with `operationId` (a commit). True
+   * when one was running; its own result then reports `CANCELLED`, and a
+   * commit killed while holding `index.lock` has that lock recovered.
+   */
+  cancelOperation(operationId: string): boolean {
+    return this.operations.cancel(operationId);
+  }
+
+  /**
+   * The staged diff (`git diff --cached`, the patch flags), capped at 48 KiB
+   * with a closing truncation note: see {@link GitStagedPatchReader}.
+   */
+  readStagedPatch(workspacePath: string): Promise<StagedPatchRead> {
+    return this.stagedPatch.read(workspacePath);
   }
 
   /** Push, pull and fetch: see {@link GitRemoteSync} (pull is locked). */

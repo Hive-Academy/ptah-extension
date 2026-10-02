@@ -340,7 +340,72 @@ export interface GitDiscardResult {
 export interface GitCommitParams extends GitWorkspaceScopedParams {
   /** Commit message */
   message: string;
+  /**
+   * Caller-chosen id for this commit while it runs. When present, the hook
+   * output streams as `git:operationOutput` pushes carrying this id, and
+   * `git:cancelOperation` with the same id stops the commit. Unique among
+   * running operations; a commit whose id is already running is refused.
+   */
+  operationId?: string;
 }
+
+/** Which git output stream a `git:operationOutput` chunk came from. */
+export type GitOperationOutputStream = 'stdout' | 'stderr';
+
+/**
+ * Push payload for `git:operationOutput` (backend → frontend): live output of
+ * a running git operation, such as the hooks of a `git:commit` sent with an
+ * `operationId`. Chunks arrive in order and are batched by the backend; they
+ * are not line-aligned. A push notification, not an RPC method.
+ */
+export interface GitOperationOutputPayload {
+  /** The `operationId` of the request that started the operation. */
+  operationId: string;
+  stream: GitOperationOutputStream;
+  chunk: string;
+}
+
+/** Parameters for git:cancelOperation RPC method */
+export interface GitCancelOperationParams {
+  /** The `operationId` the running operation was started with. */
+  operationId: string;
+}
+
+/** Result from git:cancelOperation RPC method */
+export interface GitCancelOperationResult {
+  /**
+   * True when a running operation with that id was told to stop. Its own
+   * result then reports `CANCELLED` — unless it had already finished.
+   * False when no operation with that id is running.
+   */
+  cancelled: boolean;
+}
+
+/** Parameters for git:generateCommitMessage RPC method */
+export type GitGenerateCommitMessageParams = GitWorkspaceScopedParams;
+
+/**
+ * Why no commit message was generated. The message field stays editable in
+ * every case; none of these blocks committing.
+ * - `no-staged-changes` — nothing is staged.
+ * - `no-provider` — no AI provider is configured.
+ * - `rate-limited` — the provider refused for quota.
+ * - `unreachable` — the provider or the staged diff could not be read.
+ * - `empty` — the provider answered without a usable message.
+ * - `timeout` — the provider did not answer in time.
+ */
+export type GitCommitMessageUnavailableReason =
+  | 'no-staged-changes'
+  | 'no-provider'
+  | 'rate-limited'
+  | 'unreachable'
+  | 'empty'
+  | 'timeout';
+
+/** Result from git:generateCommitMessage RPC method; never an empty message. */
+export type GitGenerateCommitMessageResult =
+  | { status: 'generated'; message: string }
+  | { status: 'unavailable'; reason: GitCommitMessageUnavailableReason };
 
 /** Result from git:commit RPC method */
 export interface GitCommitResult {
@@ -355,6 +420,8 @@ export interface GitCommitResult {
   /**
    * Hook output, verbatim, when a hook produced any (typically on
    * `HOOK_FAILED`). Shown to the user as-is: it is output they asked to see.
+   * stdout and stderr interleaved in arrival order; only the last 256 KiB is
+   * kept, after a truncation line, when the hooks printed more.
    */
   hookOutput?: string;
   /** git's exit code when the commit ran and failed. */

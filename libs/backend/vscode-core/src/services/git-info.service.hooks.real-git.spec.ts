@@ -13,6 +13,11 @@
  *   tree and ends with no lock; on Windows the removal is Ptah's and logged.
  *   On real files: its own unchanged lock is removed; a foreign, changed or
  *   unconfirmed one never is.
+ * - Hook output streams to `onOutput` before the commit settles, and the
+ *   streamed text is the `hookOutput`; `cancelOperation` stops a commit by
+ *   its `operationId` (Component 30).
+ * - `readStagedPatch` reads the staged diff, `none` when nothing is staged,
+ *   and cuts a large one at 48 KiB.
  * - R6: the delay from `commit()` to the hook starting is measured and logged.
  * - `[slow]`: a hook that sleeps 60 s still commits. Runs where `CI` is set
  *   (the `git-real-git` job excludes `[slow]` names on Windows and macOS).
@@ -315,6 +320,91 @@ describe('GitInfoService.commit with hooks (real git)', () => {
       success: true,
       subject: 'after abort',
     });
+  });
+
+  it('streams hook output while the hook still runs, and keeps it as hookOutput', async () => {
+    const repo = makeRepo();
+    installHook(repo, 'pre-commit', [
+      'echo "step 1"',
+      'sleep 1',
+      'echo "step 2"',
+      'sleep 1',
+      'echo "step 3"',
+      'exit 1',
+    ]);
+    const arrivals: { at: number; chunk: string }[] = [];
+
+    const result = await new GitInfoService(makeLogger()).commit(
+      repo,
+      'feat: streamed',
+      {
+        operationId: 'stream-1',
+        onOutput: (_stream, chunk) =>
+          arrivals.push({ at: Date.now(), chunk }),
+      },
+    );
+    const settledAt = Date.now();
+
+    const streamed = arrivals.map((a) => a.chunk).join('');
+    expect(streamed).toContain('step 1');
+    expect(streamed).toContain('step 3');
+    const first = arrivals.find((a) => a.chunk.includes('step 1'));
+    // "step 1" was seen while the hook still had ~2 s to run.
+    expect(settledAt - (first?.at ?? settledAt)).toBeGreaterThanOrEqual(1_000);
+    expect(result).toMatchObject({ success: false, code: 'HOOK_FAILED' });
+    expect(result.hookOutput).toBe(streamed);
+  });
+
+  it('cancelOperation stops a commit mid-hook by its operation id', async () => {
+    const repo = makeRepo();
+    const hook = sleepingHook(repo, 4);
+    const head = git(repo, 'rev-parse', 'HEAD');
+    const service = new GitInfoService(makeLogger());
+
+    const pending = service.commit(repo, 'never lands', {
+      operationId: 'cancel-me',
+    });
+    await waitForFile(hook.started, 30_000);
+    expect(service.cancelOperation('cancel-me')).toBe(true);
+    const result = await pending;
+
+    expect(result).toMatchObject({ success: false, code: 'CANCELLED' });
+    expect(service.cancelOperation('cancel-me')).toBe(false);
+    expect(fs.existsSync(indexLock(repo))).toBe(false);
+    await expectHookKilled(hook.finished, 4);
+    expect(git(repo, 'rev-parse', 'HEAD')).toBe(head);
+  });
+
+  it('readStagedPatch reads the staged diff, and none once nothing is staged', async () => {
+    const repo = makeRepo();
+    const service = new GitInfoService(makeLogger());
+
+    const staged = await service.readStagedPatch(repo);
+    expect(staged).toMatchObject({ kind: 'patch', truncated: false });
+    if (staged.kind === 'patch') {
+      expect(staged.patch).toContain('diff --git a/a.txt b/a.txt');
+      expect(staged.patch).toContain('+two');
+    }
+
+    git(repo, 'reset', '-q');
+    await expect(service.readStagedPatch(repo)).resolves.toEqual({
+      kind: 'none',
+    });
+  });
+
+  it('readStagedPatch cuts a large staged diff at 48 KiB', async () => {
+    const repo = makeRepo();
+    const big = Array.from({ length: 4_000 }, (_, i) => `line ${i} ${'x'.repeat(40)}`);
+    fs.writeFileSync(path.join(repo, 'big.txt'), big.join('\n') + '\n');
+    git(repo, 'add', 'big.txt');
+
+    const result = await new GitInfoService(makeLogger()).readStagedPatch(repo);
+
+    expect(result).toMatchObject({ kind: 'patch', truncated: true });
+    if (result.kind === 'patch') {
+      expect(Buffer.byteLength(result.patch)).toBeLessThan(49 * 1024);
+      expect(result.patch).toMatch(/Staged diff truncated at 48 KiB/);
+    }
   });
 
   it('refuses an already-aborted signal without spawning git', async () => {
