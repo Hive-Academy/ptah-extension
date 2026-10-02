@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 36/69
+Total tasks: 87 | Batches: 69 | Complete: 37/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1574,14 +1574,14 @@ executors at once.
   of `void` so failures are reported (existing callers ignore it). Verified: chat + webview typecheck/test/lint
   green; eager guard exit 0.
 
-## Batch 35: `ReviewDiffService` and `ReviewNavigationService` — PENDING
+## Batch 35: `ReviewDiffService` and `ReviewNavigationService` — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 2 | Depends on: Batches 22, 34
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui ptah-extension-webview`
 
-### Task 35.1: Services — PENDING
+### Task 35.1: Services — COMPLETE
 
 - Files: CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/review-diff.service.ts (+ .spec.ts); CREATE D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/services/review-navigation.service.ts (+ .spec.ts)
 - Plan reference: implementation-plan.md:1024-1029
@@ -1590,7 +1590,7 @@ executors at once.
 - Validation notes: same spec cases as Task 19.1.
 - Implementation details: as plan.
 
-### Task 35.2: Push routing beside `DiffTabsService` (V6) — PENDING
+### Task 35.2: Push routing beside `DiffTabsService` (V6) — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/services.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts
 - Plan reference: implementation-plan.md:1056 (adjusted by V6)
@@ -1598,6 +1598,18 @@ executors at once.
 - Quality requirements: `verify-eager-bundle` still passes.
 - Validation notes: V6 — add, do not swap.
 - Implementation details: `MESSAGE_HANDLERS` lists both until Task 64.1.
+- Outcome: executor frontend-developer. `ReviewDiffService` (git-ui services, 43 tests): cache keyed by
+  (comparison, path, origPath), lazy `mount`/`unmount`, pushes invalidate unmounted entries, RC11 refresh rules moved
+  over from `DiffTabsService` (cause scoping, file-set match, 250 ms debounce, one trailing run, workspace-switch
+  drop), hunk apply with the same STALE_SNAPSHOT rules, `switchWorkspace`/`removeWorkspaceState` ready for 63.1.
+  `ReviewNavigationService` (17 tests): tab/comparison/target, `openChangeSet`, `openFile`, `openHistorical(sha)`,
+  `openStashFile`, `backToReview`, `selectTab`, `selectComparison`. 35.2: second `MESSAGE_HANDLERS` entry beside
+  `DiffTabsService` (both until 64.1); exported via `git-ui/services`. Accepted deviations: commit-pair diffs read via
+  `git:reviewFile` through the same cache (never revalidated); ≤64 unmounted entries LRU; `openHistorical` returns
+  `{opened, error}` and validates the sha; `openStashFile` takes resolved commits (37.2 calls it that way); service
+  never reveals the dock. Open: export `ReviewNavigationService` from the git-ui main barrel before 58.2;
+  `git-status-message-routing.spec.ts` does not assert ReviewDiffService routing. Verified: git-ui 629 + webview
+  306 tests, typecheck/lint green; eager guard passes, `main.js` 370,048 B gz.
 
 ## Batch 36: Draft comments and hunk toolbar — PENDING
 

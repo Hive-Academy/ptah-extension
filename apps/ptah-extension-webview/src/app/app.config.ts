@@ -66,6 +66,7 @@ import {
   DiffTabsService,
   GitBranchesService,
   GitStatusService,
+  ReviewDiffService,
   WorktreeService,
 } from '@ptah-extension/git-ui/services';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
@@ -220,6 +221,9 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: GitBranchesService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: WorktreeService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: DiffTabsService, multi: true },
+    // Beside DiffTabsService, not instead of it, until Task 64.1 deletes the
+    // old dock (TASK_2026_576 V6).
+    { provide: MESSAGE_HANDLERS, useExisting: ReviewDiffService, multi: true },
     {
       provide: MESSAGE_HANDLERS,
       useExisting: ElectronLayoutService,
