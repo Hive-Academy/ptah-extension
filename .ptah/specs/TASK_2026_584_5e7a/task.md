@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_584_5e7a
-status: in_progress
+status: in_review
 type: FEATURE
 title: >-
   Let an agent start and steer full Ptah chat sessions, each in its own worktree

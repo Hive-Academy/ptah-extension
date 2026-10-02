@@ -120,6 +120,7 @@ export type {
   MemoryWriteRequest,
   MemoryWriteResult,
 } from './interfaces/memory-writer.interface';
+export type { ISessionOrganizationRecorder } from './interfaces/session-organization-recorder.interface';
 export type {
   IHttpServerProvider,
   IHttpServerHandle,
@@ -135,6 +136,10 @@ export type {
   McpSessionWiring,
 } from './interfaces/mcp-server-status.interface';
 export { resolveMcpSessionWiring } from './interfaces/mcp-server-status.interface';
+export type {
+  IMcpSubagentRootRegistrar,
+  McpSubagentRootRetention,
+} from './interfaces/mcp-subagent-root-registrar.interface';
 export type { ICallerWorkspaceResolver } from './interfaces/caller-workspace-resolver.interface';
 export type { ITracer } from './interfaces/tracer.interface';
 export type {

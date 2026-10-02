@@ -29,6 +29,7 @@ import {
   AgentProcessManager,
   CLI_AGENT_RUNTIME_TOKENS,
   PtahCliRegistry,
+  type ISessionSpawner,
 } from '@ptah-extension/cli-agent-runtime';
 import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
 import { DIContainer } from './di/container';
@@ -136,6 +137,25 @@ export async function deactivate(): Promise<void> {
   // it then fails its way out instead of being aborted, which is the opposite of
   // a clean reap. Electron already tore down in this order and said so in its
   // comment; the extension only said so.
+  //
+  // Child sessions BEFORE the agents (TASK_2026_584): `dispose()` marks every
+  // live child stopped (`host-shutdown`), clears its timers and releases its
+  // policy and MCP root synchronously, so no completion is pushed into a parent
+  // that is going away and no runtime timer outlives the host.
+  try {
+    if (DIContainer.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER)) {
+      DIContainer.resolve<ISessionSpawner>(
+        CLI_AGENT_RUNTIME_TOKENS.SESSION_SPAWNER,
+      ).dispose();
+    }
+  } catch (error: unknown) {
+    // degradation-audit: reported - logged at warn; shutdown continues and
+    // the agent reap below still runs.
+    logger.warn('Session spawner dispose failed (non-fatal)', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   try {
     const agentProcessManager = DIContainer.resolve<AgentProcessManager>(
       TOKENS.AGENT_PROCESS_MANAGER,

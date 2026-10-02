@@ -7,6 +7,8 @@
  *   - switchWorkspace delegates to tabManager + sessionLoader
  *   - removeWorkspaceState delegates to tabManager + sessionLoader
  *   - getStreamingSessionIds filters streaming tabs with claudeSessionId
+ *   - getSessionIds returns every session id of a workspace, de-duplicated,
+ *     and switchWorkspace never closes a tab (TASK_2026_592)
  *   - confirm passes options through to ConfirmationDialogService
  *   - A failed git-service resolution logs loudly (console.error) and lets the
  *     switch resolve anyway — it does NOT swallow to `[]` silently. Before
@@ -655,6 +657,56 @@ describe('WorkspaceCoordinatorService', () => {
 
       const ids = service.getStreamingSessionIds('D:/repo/mixed');
       expect(ids).toEqual(['sess-A', 'sess-C']);
+    });
+  });
+
+  describe('getSessionIds (TASK_2026_592)', () => {
+    it('returns [] for an unknown workspace', () => {
+      tabManager.getWorkspaceTabs.mockReturnValue([]);
+      expect(service.getSessionIds('D:/repo/unknown')).toEqual([]);
+      expect(tabManager.getWorkspaceTabs).toHaveBeenCalledWith(
+        'D:/repo/unknown',
+      );
+    });
+
+    it('returns every non-null session id of the workspace, streaming or idle, de-duplicated', () => {
+      tabManager.getWorkspaceTabs.mockReturnValue([
+        makeTab({ id: 't1', status: 'streaming', claudeSessionId: 'sess-A' }),
+        makeTab({ id: 't2', status: 'loaded', claudeSessionId: 'sess-B' }),
+        makeTab({ id: 't3', status: 'fresh', claudeSessionId: null }),
+        makeTab({ id: 't4', status: 'sleeping', claudeSessionId: 'sess-C' }),
+        // A canvas tile and its tab can hold the same session twice.
+        makeTab({ id: 't5', status: 'loaded', claudeSessionId: 'sess-B' }),
+      ]);
+
+      expect(service.getSessionIds('D:/repo/mixed')).toEqual([
+        'sess-A',
+        'sess-B',
+        'sess-C',
+      ]);
+    });
+  });
+
+  describe('switchWorkspace never closes tabs (TASK_2026_592)', () => {
+    it('never calls tabManager.closeTab or forceCloseTab on a switch and back', async () => {
+      const closers = {
+        closeTab: jest.fn(async () => undefined),
+        forceCloseTab: jest.fn(),
+      };
+      Object.assign(tabManager, closers);
+      tabManager.getWorkspaceTabs.mockReturnValue([
+        makeTab({ id: 't1', status: 'loaded', claudeSessionId: 'sess-A' }),
+      ]);
+
+      await service.switchWorkspace('D:/repo/a');
+      await service.switchWorkspace('D:/repo/b');
+      await service.switchWorkspace('D:/repo/a');
+      await flushMicrotasks();
+
+      expect(tabManager.switchWorkspace).toHaveBeenCalledTimes(3);
+      expect(closers.closeTab).not.toHaveBeenCalled();
+      expect(closers.forceCloseTab).not.toHaveBeenCalled();
+      expect(tabManager.removeWorkspaceState).not.toHaveBeenCalled();
     });
   });
 

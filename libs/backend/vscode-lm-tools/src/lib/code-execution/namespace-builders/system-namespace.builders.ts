@@ -59,6 +59,7 @@ AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, message, report)
 MEMORY/CORPUS: ptah.memory.* (search/list memories), ptah.corpus.* (build/list/rebuild/prime knowledge boards)
 HARNESS: ptah.harness.* (skill + MCP discovery, install, and proposeConfig)
 TASKS: ptah.tasks.* (task specs: create, update, get, paged list, check)
+SESSION ORGANIZATION: ptah.sessionOrganization.* (link the calling session to a task)
 DASHBOARD: ptah.dashboard.* (propose a declarative dashboard spec to the surface)
 SURFACE: ptah.surface.* (create, replace, patch, delete and read scoped surface state)
 
@@ -174,7 +175,26 @@ instead of throwing.
     with a note; read it with get().
 - check() - Tree health: { healthy, taskCount, invalid, invalidTotal, excluded,
     excludedTotal }. invalid and excluded hold at most ${TASK_CHECK_ENTRY_CAP} entries each;
-    the totals and healthy count the full set.`,
+    the totals and healthy count the full set.
+
+To link the session you are running in to a task, use
+ptah.sessionOrganization.linkTask (see ptah.help('sessionOrganization')).`,
+
+  sessionOrganization: `ptah.sessionOrganization - Per-user session organization
+
+Also exposed as the MCP tool ptah_session_link_task.
+
+- linkTask({ taskId, role? }) - Link the CALLING session to a task folder under
+    .ptah/specs. The session is resolved from the call itself; there is no
+    session argument, and an extra key is rejected. role is 'primary' (default)
+    or 'related'; a new primary link demotes the existing one.
+    Returns { ok: true, sessionId, taskId, role } or { ok: false, error, message }
+    with error one of invalid-args, organization-unavailable (always in VS Code),
+    unattributed-caller (the session has no SDK id yet; retry later), link-failed.
+
+The link is stored per user, outside the repository, and never edits task.md.
+ok: true means the link was handed to the store for this session; the task
+folder is not checked, and a missing task shows as missing in the UI.`,
 
   harness: `ptah.harness - Harness Builder (skills, MCP servers, config)
 

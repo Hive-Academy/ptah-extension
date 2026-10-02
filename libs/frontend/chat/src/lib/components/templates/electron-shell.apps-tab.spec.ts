@@ -49,6 +49,7 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { ElectronShellComponent } from './electron-shell.component';
+import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 
 describe('ElectronShellComponent Apps tab', () => {
   let fixture: ComponentFixture<ElectronShellComponent>;
@@ -100,6 +101,8 @@ describe('ElectronShellComponent Apps tab', () => {
     await TestBed.configureTestingModule({
       imports: [ElectronShellComponent],
       providers: [
+        // Eager root singleton stubbed; its behaviour is covered by closed-tab-session-ender.service.spec.ts.
+        { provide: ClosedTabSessionEnderService, useValue: {} },
         provideRouter([]),
         { provide: ElectronLayoutService, useValue: layoutStub },
         { provide: AppStateManager, useValue: appStateStub },

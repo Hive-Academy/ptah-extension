@@ -22,6 +22,10 @@ export {
   TasksStore,
   TASKS_CHANGED_MESSAGE_TYPE,
 } from './lib/services/tasks-store.service';
+export {
+  TaskSessionLinksService,
+  type TaskSessionLinkMap,
+} from './lib/services/task-session-links.service';
 export type {
   ApplyMetadataOptions,
   BulkFailure,

@@ -49,6 +49,13 @@ import type {
   LaneCompletionVerdict,
   LaneDeliverableCheck,
 } from '@ptah-extension/shared';
+import type {
+  SessionChildCompletionDelivery,
+  SessionChildCompletionEnvelope,
+  SessionChildCompletionRefusalReason,
+  SessionChildCompletionSubject,
+  SessionChildSettle,
+} from '../session-children/session-spawner.port';
 
 /** Characters of the task echoed into the signal for recognition. */
 const TASK_HEADLINE_LENGTH = 120;
@@ -88,6 +95,144 @@ function formatDuration(ms: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${seconds % 60}s`;
+}
+
+/** What the deliverable check needs, for a lane and a session child alike. */
+interface DeliverableTarget {
+  readonly deliverables: readonly string[];
+  readonly taskFolder?: string;
+  readonly workingDirectory: string;
+  /** Agent or child id, for the log line only. */
+  readonly id: string;
+}
+
+/** One rendered deliverable line: `- {path} — MISSING | EMPTY | N bytes [(NOT written by this run)]`. */
+function deliverableLine(check: LaneDeliverableCheck): string {
+  return `- ${check.path} — ${deliverableState(check)}`;
+}
+
+function deliverableState(check: LaneDeliverableCheck): string {
+  if (!check.exists) return 'MISSING';
+  if ((check.bytes ?? 0) === 0) return 'EMPTY';
+  const stale =
+    check.writtenAfterSpawn === false ? ' (NOT written by this run)' : '';
+  return `${check.bytes} bytes${stale}`;
+}
+
+/**
+ * The verdict for a session child's settled turn.
+ *
+ * The lane semantics, plus one stricter rule (TASK_2026_584, Revision 1 fix
+ * 3): a deliverable whose mtime is earlier than the child's `startedAt`
+ * (`writtenAfterSpawn === false`) counts as NOT delivered. A child works in a
+ * fresh worktree, so every tracked file already "exists" there with a
+ * checkout-time mtime; existence alone must not read as the child's work. An
+ * absent flag (mtime unreadable) keeps the lane rule: existence + non-empty.
+ */
+export function sessionChildVerdictOf(
+  status: SessionChildSettle['status'],
+  deliverables: readonly LaneDeliverableCheck[],
+): LaneCompletionVerdict {
+  if (status !== 'completed') return 'failed';
+  if (deliverables.length === 0) return 'unverified';
+  const allWritten = deliverables.every(
+    (check) =>
+      check.exists &&
+      (check.bytes ?? 0) > 0 &&
+      check.writtenAfterSpawn !== false,
+  );
+  return allWritten ? 'delivered' : 'no-deliverable';
+}
+
+function sessionChildNextAction(verdict: LaneCompletionVerdict): string {
+  const keepOpen =
+    'The child stays open in its tab and holds a slot until ' +
+    'ptah_session_stop; the user owns merge, PR and worktree cleanup.';
+  switch (verdict) {
+    case 'delivered':
+      return (
+        'Next: read the deliverable files in the worktree and verify the work ' +
+        'yourself; a file being written is not proof the content is right. ' +
+        'Steer the child with ptah_session_send or inspect it with ' +
+        `ptah_session_read. ${keepOpen}`
+      );
+    case 'no-deliverable':
+      return (
+        'Next: the child went idle without writing every deliverable it was ' +
+        'given, so treat the task as NOT done. Inspect it with ' +
+        'ptah_session_read, then steer it with ptah_session_send naming the ' +
+        `missing paths. ${keepOpen}`
+      );
+    case 'failed':
+      return (
+        'Next: the turn did not finish. Inspect the child with ' +
+        'ptah_session_read, then steer it with ptah_session_send or stop it ' +
+        `with ptah_session_stop. ${keepOpen}`
+      );
+    case 'unverified':
+    default:
+      return (
+        'Next: no deliverables were declared, so nothing was checked. Inspect ' +
+        'the child with ptah_session_read and check its claims against the ' +
+        'files and the project tests; steer it with ptah_session_send. ' +
+        keepOpen
+      );
+  }
+}
+
+/**
+ * The completion envelope for one settled turn of a session child. Pure: the
+ * deliverable checks are passed in, so a held completion is rendered exactly
+ * as it would have been delivered.
+ */
+export function buildSessionChildCompletionEnvelope(
+  subject: SessionChildCompletionSubject,
+  settle: SessionChildSettle,
+  deliverables: readonly LaneDeliverableCheck[],
+): SessionChildCompletionEnvelope {
+  const verdict = sessionChildVerdictOf(settle.status, deliverables);
+  const startedMs = Date.parse(subject.startedAt);
+  const completedMs = Date.parse(settle.completedAt);
+  const durationMs =
+    Number.isFinite(startedMs) && Number.isFinite(completedMs)
+      ? Math.max(completedMs - startedMs, 0)
+      : 0;
+
+  const attrs = [
+    `agent-id="${escapeAttribute(subject.childSessionId)}"`,
+    `agent="${escapeAttribute(subject.label)}"`,
+    'cli="ptah-session"',
+    `status="${escapeAttribute(settle.status)}"`,
+    `verdict="${escapeAttribute(verdict)}"`,
+    `turn="${settle.turn}"`,
+  ].join(' ');
+
+  const lines: string[] = [
+    `Child session ${subject.label} settled: ${settle.status} after ` +
+      `${formatDuration(durationMs)} (settled turn ${settle.turn}).`,
+    `Task: ${headline(subject.task) || '(no task headline)'}`,
+    `Branch: ${subject.branch}`,
+    `Worktree: ${subject.worktreePath}`,
+  ];
+  if (subject.taskFolder) lines.push(`Task folder: ${subject.taskFolder}`);
+  if (deliverables.length === 0) {
+    lines.push('Deliverables: none were declared, so nothing was checked.');
+  } else {
+    lines.push('Deliverables:', ...deliverables.map(deliverableLine));
+  }
+  lines.push(`Reports sent by this child so far: ${subject.reportsDelivered}.`);
+  const recap = subject.lastRecap?.trim();
+  if (recap) lines.push(`Last message: ${recap}`);
+  lines.push(sessionChildNextAction(verdict));
+
+  return {
+    childSessionId: subject.childSessionId,
+    turn: settle.turn,
+    verdict,
+    text: `<agent-lane-completed ${attrs}>\n${lines.join(
+      '\n',
+    )}\n</agent-lane-completed>`,
+  };
 }
 
 export interface LaneCompletionContext {
@@ -211,6 +356,146 @@ export class LaneCompletionNotifier {
     return { delivered: true, parentSessionId, signal };
   }
 
+  /**
+   * Push the completion of one settled turn of a session child
+   * (`ptah_session_start`, TASK_2026_584) into its parent.
+   *
+   * One signal per `{childSessionId}:turn:{n}` — the spawner may observe the
+   * same settle twice (turn-ended and session-end paths) and the second call
+   * is `already-signalled`. Deliverables are checked against the child's
+   * `startedAt`, which is fixed for the child's life: a file written in an
+   * earlier turn is still this run's work.
+   *
+   * When no parent id is live the refusal carries the BUILT envelope, so the
+   * spawner can hold it and hand it to the parent's next `ptah_session_*`
+   * call. Nothing here queues or retries.
+   */
+  async signalSessionChild(
+    subject: SessionChildCompletionSubject,
+    settle: SessionChildSettle,
+  ): Promise<SessionChildCompletionDelivery> {
+    const key = `${subject.childSessionId}:turn:${settle.turn}`;
+    if (this.signalledKeys.includes(key)) {
+      return { delivered: false, reason: 'already-signalled' };
+    }
+    this.remember(key);
+
+    const startedMs = Date.parse(subject.startedAt);
+    const measured = await this.checkDeliverables(
+      {
+        deliverables: subject.deliverables,
+        taskFolder: subject.taskFolder,
+        workingDirectory: subject.worktreePath,
+        id: subject.childSessionId,
+      },
+      startedMs,
+    );
+    // Without a reference time nothing can prove a deliverable is this
+    // child's work, and in a fresh worktree every tracked file already
+    // exists. Fail closed: every deliverable counts as NOT written by this run
+    // (verdict `no-deliverable`), never as delivered. Session subjects only —
+    // the lane path keeps omitting the flag.
+    let checks = measured;
+    if (!Number.isFinite(startedMs)) {
+      this.logger.warn(
+        '[LaneCompletionNotifier] Session child startedAt is not a date; ' +
+          'treating every deliverable as not written by this run',
+        {
+          childSessionId: subject.childSessionId,
+          startedAt: subject.startedAt,
+        },
+      );
+      checks = measured.map((check) => ({
+        ...check,
+        writtenAfterSpawn: false,
+      }));
+    }
+    const envelope = buildSessionChildCompletionEnvelope(
+      subject,
+      settle,
+      checks,
+    );
+
+    const candidates = subject.parentSessionIds
+      .map((id) => SessionId.safeParse(id?.trim()))
+      .filter((id): id is SessionId => !!id);
+    if (candidates.length === 0) {
+      return this.refuseSessionChild('no-parent-recorded', envelope, {
+        detail: 'the child records no parent session id',
+      });
+    }
+
+    if (!this.agentAdapter) {
+      return this.refuseSessionChild('chat-runtime-unavailable', envelope, {
+        detail:
+          'no agent adapter is registered in this host, so no chat session ' +
+          'can be driven',
+      });
+    }
+
+    const adapter = this.agentAdapter;
+    const parentSessionId = candidates.find((id) =>
+      adapter.isSessionActive(id),
+    );
+    if (!parentSessionId) {
+      return this.refuseSessionChild('parent-session-not-active', envelope, {
+        parentSessionIds: candidates,
+      });
+    }
+
+    try {
+      await adapter.sendMessageToSession(parentSessionId, envelope.text, {
+        origin: {
+          kind: 'peer',
+          from: `ptah-session:${subject.childSessionId}`,
+          name: `session · ${subject.label}`,
+        },
+      });
+    } catch (error: unknown) {
+      return this.refuseSessionChild('delivery-failed', envelope, {
+        parentSessionId,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    this.logger.info(
+      '[LaneCompletionNotifier] Session child completion delivered',
+      {
+        childSessionId: subject.childSessionId,
+        parentSessionId,
+        turn: settle.turn,
+        status: settle.status,
+        verdict: envelope.verdict,
+        deliverables: checks.length,
+      },
+    );
+
+    return { delivered: true, parentSessionId, envelope };
+  }
+
+  private refuseSessionChild(
+    reason: SessionChildCompletionRefusalReason,
+    envelope: SessionChildCompletionEnvelope,
+    context: Record<string, unknown> & { detail?: string } = {},
+  ): SessionChildCompletionDelivery {
+    this.logger.warn(
+      '[LaneCompletionNotifier] Session child completion not delivered',
+      {
+        reason,
+        childSessionId: envelope.childSessionId,
+        turn: envelope.turn,
+        verdict: envelope.verdict,
+        ...context,
+      },
+    );
+    return {
+      delivered: false,
+      reason,
+      ...(context.detail ? { detail: context.detail } : {}),
+      envelope,
+    };
+  }
+
   /** The signal, with every declared deliverable checked against disk. */
   private async buildSignal(
     info: AgentProcessInfo,
@@ -224,7 +509,15 @@ export class LaneCompletionNotifier {
         ? Math.max(completedMs - startedMs, 0)
         : 0;
 
-    const deliverables = await this.checkDeliverables(info, startedMs);
+    const deliverables = await this.checkDeliverables(
+      {
+        deliverables: info.deliverables ?? [],
+        taskFolder: info.taskFolder,
+        workingDirectory: info.workingDirectory,
+        id: info.agentId,
+      },
+      startedMs,
+    );
 
     return {
       agentId: info.agentId,
@@ -246,15 +539,15 @@ export class LaneCompletionNotifier {
   }
 
   private async checkDeliverables(
-    info: AgentProcessInfo,
+    target: DeliverableTarget,
     startedMs: number,
   ): Promise<readonly LaneDeliverableCheck[]> {
-    const declared = info.deliverables ?? [];
-    const checks: LaneDeliverableCheck[] = [];
-    for (const entry of declared) {
-      checks.push(await this.checkOne(info, entry, startedMs));
-    }
-    return checks;
+    // Independent read-only checks; `Promise.all` keeps the declared order.
+    return Promise.all(
+      target.deliverables.map((entry) =>
+        this.checkOne(target, entry, startedMs),
+      ),
+    );
   }
 
   /**
@@ -264,11 +557,11 @@ export class LaneCompletionNotifier {
    * decision the orchestrator makes next.
    */
   private async checkOne(
-    info: AgentProcessInfo,
+    target: DeliverableTarget,
     entry: string,
     startedMs: number,
   ): Promise<LaneDeliverableCheck> {
-    const path = this.resolveDeliverablePath(info, entry);
+    const path = this.resolveDeliverablePath(target, entry);
     try {
       if (!(await this.fileSystem.exists(path))) {
         return { path, exists: false };
@@ -286,7 +579,7 @@ export class LaneCompletionNotifier {
       this.logger.warn(
         '[LaneCompletionNotifier] Could not read a declared deliverable',
         {
-          agentId: info.agentId,
+          agentId: target.id,
           path,
           detail: error instanceof Error ? error.message : String(error),
         },
@@ -300,16 +593,19 @@ export class LaneCompletionNotifier {
    * given one, because that is where the spawn prompt told the lane to write.
    * Otherwise it resolves against the lane's working directory.
    */
-  private resolveDeliverablePath(info: AgentProcessInfo, entry: string): string {
+  private resolveDeliverablePath(
+    target: DeliverableTarget,
+    entry: string,
+  ): string {
     // `resolve` even for an already-absolute entry: the path is reported to the
     // orchestrator, and one canonical spelling beats echoing whatever mix of
     // separators the caller typed.
     if (isAbsolute(entry)) return resolve(entry);
-    const base = info.taskFolder
-      ? isAbsolute(info.taskFolder)
-        ? info.taskFolder
-        : resolve(info.workingDirectory, info.taskFolder)
-      : info.workingDirectory;
+    const { taskFolder, workingDirectory } = target;
+    if (!taskFolder) return resolve(workingDirectory, entry);
+    const base = isAbsolute(taskFolder)
+      ? taskFolder
+      : resolve(workingDirectory, taskFolder);
     return resolve(base, entry);
   }
 
@@ -366,18 +662,7 @@ export class LaneCompletionNotifier {
           '"deliverables" on the next spawn so the next signal can verify it.',
       );
     } else {
-      lines.push('Deliverables:');
-      for (const check of signal.deliverables) {
-        const state = !check.exists
-          ? 'MISSING'
-          : (check.bytes ?? 0) === 0
-            ? 'EMPTY'
-            : `${check.bytes} bytes` +
-              (check.writtenAfterSpawn === false
-                ? ' (NOT written by this run)'
-                : '');
-        lines.push(`- ${check.path} — ${state}`);
-      }
+      lines.push('Deliverables:', ...signal.deliverables.map(deliverableLine));
     }
 
     lines.push(

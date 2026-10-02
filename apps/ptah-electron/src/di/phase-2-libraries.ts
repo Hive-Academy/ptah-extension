@@ -79,6 +79,10 @@ import {
   registerTaskSpecsServices,
   startTaskSpecsIndex,
 } from '@ptah-extension/task-specs';
+import {
+  registerSessionOrganizationServices,
+  startSessionOrganization,
+} from '@ptah-extension/session-organization';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import { registerPluginMarketplaceServices } from '@ptah-extension/plugin-marketplace';
 import { registerCronSchedulerServices } from '@ptah-extension/cron-scheduler';
@@ -391,6 +395,14 @@ export function registerPhase2Libraries(
   // restores its workspace AFTER DI, so the helper also re-attempts on
   // `onDidChangeWorkspaceFolders`. Non-blocking and failure-swallowing.
   startTaskSpecsIndex(container, logger);
+  // Session organization (TASK_2026_580). Binds nothing when the SQLite block
+  // above was skipped, and `start` only subscribes, never aborting activation.
+  // Runs after `registerSdkServices` (the callback registries it subscribes
+  // to) and before phase 4, so the producers holding the optional recorder
+  // (WorktreeHookHandler, SessionForkService, PtahAPIBuilder) are first
+  // resolved with the recorder already bound.
+  registerSessionOrganizationServices(container);
+  startSessionOrganization(container);
   // output-styles registered in all three hosts: OutputStyleRpcHandlers is a
   // `requires: []` manifest entry, so every host resolves it. Its services
   // depend only on the Phase 1 platform adapters (FILE_SYSTEM_PROVIDER,

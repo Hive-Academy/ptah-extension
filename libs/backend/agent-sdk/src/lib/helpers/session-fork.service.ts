@@ -1,6 +1,9 @@
 import { injectable, inject } from 'tsyringe';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  ISessionOrganizationRecorder,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type { SessionId, MessageAnchorHint } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
@@ -57,6 +60,13 @@ export class SessionForkService {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    /**
+     * Session-organization capture port. Registered only where the SQLite
+     * connection is (absent in VS Code today); when absent, fork lineage is
+     * not recorded.
+     */
+    @inject(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER, { isOptional: true })
+    private readonly recorder: ISessionOrganizationRecorder | null = null,
   ) {}
 
   async forkSession(params: ForkSessionParams): Promise<ForkSessionResult> {
@@ -134,6 +144,13 @@ export class SessionForkService {
         forkName,
         'forked',
       );
+      // Both ids are SDK session UUIDs: the SDK-issued fork id and the source
+      // id the SDK just forked from. The port never throws.
+      this.recorder?.recordLineage({
+        sessionId: result.sessionId,
+        forkOfSessionId: sessionId,
+        workspaceRootHint: workspaceId,
+      });
 
       this.logger.info('[SessionForkService] Session forked successfully', {
         sourceSessionId: sessionId,

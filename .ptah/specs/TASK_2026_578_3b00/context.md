@@ -67,3 +67,33 @@ Fewer, broader, used skills. Every skill is either used, merged into another ski
    promoted skill's `skill_candidates.name`. A spec covers a skill materialized with a collision suffix.
 5. Reachability proof for each new pass: a boot or integration spec fails if the production path does not
    call it.
+
+## User Decisions (2026-10-01)
+
+- CLI lanes (Gate 0.1): antigravity + Glm for cross-side reviews. Codex not used (usage limit). Max 2 lanes in flight.
+- CLI lanes revised (2026-10-01, resume session): use opencode with `opencode-go/kimi-k2.7-code`, Glm
+  (ptah-cli `pc-355b645d-35af-4974-84cf-9cf961ea0164`) and antigravity, along with in-process sub-agents. Max 2
+  lanes in flight is kept. Reviews stay cross-side.
+- 2026-10-01 18:38: opencode Go returned "Go usage limit exceeded" (Batch 7 security lane failed twice). Kimi lanes
+  are unavailable until the quota resets; antigravity and Glm carry the review lanes.
+- 2026-10-01 19:42: Glm (Ollama Cloud) returned 429 "session usage limit". Only antigravity remains for CLI review
+  lanes (it had stream interrupts, one Gemini safety-filter block and one 503 earlier in this session).
+- Flow: FEATURE at Partial depth. context.md is the requirements source (no PM, no task-description.md).
+
+## Cross-session coordination (TASK_2026_580 / 584, coordinator session)
+
+- Migration `0051_skill_lifecycle` is agreed; 580 keeps `0050_session_organization`.
+- Twelve migration specs pin the latest version, not three: 0028, 0030, 0038, 0039, 0040, 0041, 0042, 0043, 0044, 0045, 0046, 0047 (`libs/backend/persistence-sqlite/src/lib/migrations/*.spec.ts`; 10 use `toBe(49)`, 0044 and 0046 list versions in an array). 580 bumps them to 50 with the comment `// 50 since TASK_2026_580 appended 0050_session_organization.`. 578 bumps the same 12 to 51 and adds its own comment line beside it.
+- Merge order: either order works at runtime (the runner reads applied versions as a set). Whoever merges second rebases the `index.ts` order and the 12 asserts to the higher number. Tell the coordinator before the migration commit.
+- TASK_2026_586 (this session) removes `skill-diagnostics-accordion.component.ts` and moves its rows into `skill-pipeline-status.component.ts`. 578 UI counters must target the surviving component, and 578 rebases on 586.
+- Correction (on disk, batches.md R-a): 0044 and 0046 are multi-line `toBe(49)` asserts, not arrays. All 12 became `toBe(51)`; no 50 appears on this branch.
+- G-580 RESOLVED (2026-10-01). Coordinator reply (TASK_2026_584/580 orchestrator, session `ptah-ptah-extension-continue-task-584-an-416de600005og2pv0fas808`), verbatim:
+  "ok: commit 578 migration 0051 and the 12 asserts as described. This is from the TASK_2026_584/580 orchestrator.
+  - I checked the user_version point on the 580 branch. migration-runner.ts decides what to apply from the schema_migrations set and only writes PRAGMA user_version (the vec catch-up at :367-369 rewrites it to max(applied)). Nothing reads it to choose migrations, so applying 0050 after 0051 is safe.
+  - The merge plan is unchanged. Whoever merges second rebases the index.ts order and the 12 asserts. 580 is still several batches away from its PR, so 578 likely merges first and 580 rebases. I will handle that rebase on the 580 side.
+  - 586 / PR #620: noted. 580 and 584 do not touch the Thoth feed files. TASK_2026_439 stays in_progress until 586, 587 and 588 merge."
+- Consequences: Batches 1-3 commit in order; 578 likely merges before 580 (580 owns the G-580-merge rebase); 578 still rebases on 586 (PR #620) before Batches 10-14 (G-586).
+
+## Gate 2 (2026-10-01)
+
+- implementation-plan.md Revision 1 (with the F7 edit: twelve max-version specs bumped to 51): APPROVED by the user.

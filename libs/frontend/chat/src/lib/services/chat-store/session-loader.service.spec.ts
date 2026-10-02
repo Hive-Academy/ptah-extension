@@ -855,7 +855,12 @@ describe('SessionLoaderService', () => {
                   sessionId: SESSION,
                   model: 'claude-opus-5',
                   totalCost: 1,
-                  tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+                  tokens: {
+                    input: 10,
+                    output: 2,
+                    cacheRead: 0,
+                    cacheCreation: 0,
+                  },
                   messageCount: 1,
                   status: 'ok',
                   contextSnapshot: { model: 42, contextTokens: 'many' },
@@ -2965,6 +2970,306 @@ describe('SessionLoaderService', () => {
       expect(loadCalls.length).toBe(2);
     }, 10000);
   });
+
+  describe('organization list query (TASK_2026_580)', () => {
+    const FILTERED = {
+      status: ['waiting' as const],
+      priority: ['urgent' as const, 'high' as const],
+      text: 'auth',
+      sort: 'priority' as const,
+      groupBy: 'status' as const,
+    };
+
+    function listCalls(): Record<string, unknown>[] {
+      return rpcCall.mock.calls
+        .filter((c) => c[0] === 'session:list')
+        .map((c) => c[1] as Record<string, unknown>);
+    }
+
+    function listResult(
+      ids: string[],
+      extra: Record<string, unknown> = {},
+    ): unknown {
+      return {
+        success: true,
+        data: {
+          sessions: ids.map((id) => makeSummary({ id })),
+          total: ids.length,
+          hasMore: false,
+          ...extra,
+        },
+      };
+    }
+
+    /** Let a fire-and-forget read settle. */
+    async function drain(): Promise<void> {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    }
+
+    /** One read that reports organization as available. */
+    async function becomeAvailable(): Promise<void> {
+      rpcCall.mockResolvedValueOnce(
+        listResult(['seed'], { organizationAvailable: true }),
+      );
+      await service.loadSessions();
+      expect(service.organizationAvailable()).toBe(true);
+    }
+
+    it('sends only sort lastActive while organization is unavailable (VS Code shape)', async () => {
+      rpcCall.mockClear();
+      await service.loadSessions();
+
+      expect(listCalls()).toEqual([
+        { workspacePath: 'D:/repo', limit: 30, offset: 0, sort: 'lastActive' },
+      ]);
+      expect(service.organizationAvailable()).toBe(false);
+    }, 10000);
+
+    it('keeps the filters off the wire when the host does not serve organization', async () => {
+      service.setListQuery(FILTERED);
+      await drain();
+
+      const call = listCalls().at(-1);
+      expect(call).toEqual({
+        workspacePath: 'D:/repo',
+        limit: 30,
+        offset: 0,
+        sort: 'lastActive',
+      });
+    });
+
+    it('reads availability as true only for an explicit true (R-TL2)', async () => {
+      await becomeAvailable();
+
+      rpcCall.mockResolvedValueOnce(listResult(['a']));
+      await service.loadSessions();
+      expect(service.organizationAvailable()).toBe(false);
+    }, 10000);
+
+    it('sends the full query once organization is available', async () => {
+      await becomeAvailable();
+      rpcCall.mockClear();
+
+      service.setListQuery(FILTERED);
+      await drain();
+
+      expect(listCalls()).toEqual([
+        { workspacePath: 'D:/repo', limit: 30, offset: 0, ...FILTERED },
+      ]);
+      expect(service.listQuery()).toEqual(FILTERED);
+    }, 10000);
+
+    it('defaults sort to lastActive when the query leaves it out', async () => {
+      await becomeAvailable();
+      rpcCall.mockClear();
+
+      service.setListQuery({ pinned: true });
+      await drain();
+
+      expect(listCalls().at(-1)).toMatchObject({
+        pinned: true,
+        sort: 'lastActive',
+      });
+    }, 10000);
+
+    it('resets the offset to the first page when the query changes', async () => {
+      await becomeAvailable();
+      // Grow the offset to 60 through two loaded pages.
+      rpcCall.mockResolvedValueOnce({
+        success: true,
+        data: {
+          sessions: Array.from({ length: 30 }, (_, i) =>
+            makeSummary({ id: `p1-${i}` }),
+          ),
+          total: 90,
+          hasMore: true,
+          organizationAvailable: true,
+        },
+      });
+      await service.loadSessions();
+      rpcCall.mockResolvedValueOnce({
+        success: true,
+        data: {
+          sessions: Array.from({ length: 30 }, (_, i) =>
+            makeSummary({ id: `p2-${i}` }),
+          ),
+          total: 90,
+          hasMore: true,
+          organizationAvailable: true,
+        },
+      });
+      await service.loadMoreSessions();
+      expect(listCalls().at(-1)).toMatchObject({ offset: 30 });
+
+      rpcCall.mockClear();
+      rpcCall.mockResolvedValueOnce(
+        listResult(['match'], { organizationAvailable: true }),
+      );
+      service.setListQuery({ text: 'match' });
+      await drain();
+
+      // Before the change a reload asked for every loaded row (limit 60).
+      expect(listCalls()).toEqual([
+        {
+          workspacePath: 'D:/repo',
+          limit: 30,
+          offset: 0,
+          text: 'match',
+          sort: 'lastActive',
+        },
+      ]);
+      expect(service.sessions().map((s) => s.id)).toEqual(['match']);
+      expect(service.hasMoreSessions()).toBe(false);
+    }, 10000);
+
+    it('ignores a query equal to the current one', async () => {
+      await becomeAvailable();
+      service.setListQuery({ ...FILTERED });
+      await drain();
+      rpcCall.mockClear();
+
+      service.setListQuery({
+        ...FILTERED,
+        priority: ['high', 'urgent'],
+      });
+      await drain();
+
+      expect(listCalls()).toEqual([]);
+    }, 10000);
+
+    it('discards a read that started under the previous query', async () => {
+      await becomeAvailable();
+      let releaseOld: ((value: unknown) => void) | null = null;
+      rpcCall.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseOld = resolve;
+          }),
+      );
+      jest.useFakeTimers();
+      const oldRead = service.loadSessions();
+      jest.advanceTimersByTime(300);
+      jest.useRealTimers();
+
+      rpcCall.mockResolvedValueOnce(
+        listResult(['new'], { organizationAvailable: true }),
+      );
+      service.setListQuery({ text: 'new' });
+      await drain();
+      expect(service.sessions().map((s) => s.id)).toEqual(['new']);
+
+      // The old read lands last; its rows answer a query nobody shows.
+      releaseOld?.(listResult(['old'], { organizationAvailable: true }));
+      await oldRead;
+      expect(service.sessions().map((s) => s.id)).toEqual(['new']);
+    }, 10000);
+
+    it('does not append a page of the previous query to the new rows', async () => {
+      await becomeAvailable();
+      rpcCall.mockResolvedValueOnce({
+        success: true,
+        data: {
+          sessions: [makeSummary({ id: 'first' })],
+          total: 2,
+          hasMore: true,
+          organizationAvailable: true,
+        },
+      });
+      await service.loadSessions();
+
+      let releasePage: ((value: unknown) => void) | null = null;
+      rpcCall.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releasePage = resolve;
+          }),
+      );
+      const page = service.loadMoreSessions();
+
+      rpcCall.mockResolvedValueOnce(
+        listResult(['filtered'], { organizationAvailable: true }),
+      );
+      service.setListQuery({ pinned: true });
+      await drain();
+
+      releasePage?.(
+        listResult(['stale-page'], { organizationAvailable: true }),
+      );
+      await page;
+      expect(service.sessions().map((s) => s.id)).toEqual(['filtered']);
+    }, 10000);
+
+    describe('a success reply without rows (E2E harness shape)', () => {
+      it('leaves an empty list after the immediate load', async () => {
+        rpcCall.mockResolvedValueOnce({ success: true, data: {} });
+        await expect(service.loadSessions()).resolves.toBeUndefined();
+
+        expect(service.sessions()).toEqual([]);
+        expect(service.totalSessions()).toBe(0);
+        expect(service.hasMoreSessions()).toBe(false);
+        expect(service.organizationAvailable()).toBe(false);
+      }, 10000);
+
+      it('appends nothing on a load-more page', async () => {
+        rpcCall.mockResolvedValueOnce({
+          success: true,
+          data: {
+            sessions: [makeSummary({ id: 'first' })],
+            total: 2,
+            hasMore: true,
+          },
+        });
+        await service.loadSessions();
+
+        rpcCall.mockResolvedValueOnce({ success: true, data: {} });
+        await expect(service.loadMoreSessions()).resolves.toBeUndefined();
+
+        expect(service.sessions().map((s) => s.id)).toEqual(['first']);
+        expect(service.totalSessions()).toBe(1);
+        expect(service.hasMoreSessions()).toBe(false);
+      }, 10000);
+
+      it('leaves an empty list after the workspace-switch read', async () => {
+        rpcCall.mockResolvedValue({ success: true, data: {} });
+        service.switchWorkspace('D:/repo-empty');
+        await drain();
+
+        expect(service.sessions()).toEqual([]);
+        expect(service.totalSessions()).toBe(0);
+        expect(service.hasMoreSessions()).toBe(false);
+      });
+    });
+
+    it('sends the query on the workspace-switch read and skips a cache filled under another query', async () => {
+      rpcCall.mockResolvedValue(
+        listResult(['row'], { organizationAvailable: true }),
+      );
+      await becomeAvailable();
+      service.setListQuery({ text: 'x' });
+      await drain();
+
+      rpcCall.mockClear();
+      service.switchWorkspace('D:/repo-B');
+      await drain();
+      expect(listCalls().at(-1)).toMatchObject({
+        workspacePath: 'D:/repo-B',
+        text: 'x',
+        sort: 'lastActive',
+      });
+
+      // Back to D:/repo: its cache was filled under the same query -> no read.
+      service.switchWorkspace('D:/repo');
+      await drain();
+      // Change the query, then revisit D:/repo-B: its cache is stale -> read.
+      service.setListQuery({ text: 'y' });
+      await drain();
+      rpcCall.mockClear();
+      service.switchWorkspace('D:/repo-B');
+      await drain();
+      expect(listCalls()).toHaveLength(1);
+      expect(listCalls()[0]).toMatchObject({ text: 'y' });
+    }, 10000);
+  });
 });
 
 describe('SessionLoaderService targeted replay with the real streaming state pipeline', () => {
@@ -3193,6 +3498,48 @@ describe('SessionLoaderService targeted replay with the real streaming state pip
       'Continued from previous conversation (compacted)',
     );
     expect(JSON.stringify(target?.messages)).not.toContain('/compact compact');
+  });
+
+  // TASK_2026_584 B7 visual review, finding 1: a host that never activates a
+  // workspace partition (the VS Code panel) holds its tabs only in the active
+  // set. A targeted history load into an empty agent tab must still find it.
+  it('loads history into a targeted tab when no workspace partition is active', async () => {
+    const sessionId = SessionId.create();
+    const rpcCall = jest.fn(async (method: string) =>
+      method === 'chat:resume'
+        ? {
+            success: true,
+            data: {
+              events: [
+                event(sessionId, 'a-start', 'message_start', 'a', {
+                  role: 'assistant',
+                }),
+                event(sessionId, 'a-text', 'text_delta', 'a', {
+                  blockIndex: 0,
+                  delta: restoredText,
+                }),
+                event(sessionId, 'a-complete', 'message_complete', 'a', {
+                  stopReason: 'end_turn',
+                }),
+              ],
+            },
+          }
+        : { success: true, data: {} },
+    );
+    const { loader, tabManager } = configureRealPipeline(rpcCall);
+    expect(tabManager.activeWorkspacePath).toBeNull();
+    const targetTabId = tabManager.createTab('agent child') as TabId;
+
+    await loader.switchSession(sessionId, { targetTabId });
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'chat:resume',
+      expect.objectContaining({ sessionId, tabId: targetTabId }),
+      expect.anything(),
+    );
+    const target = tabManager.tabs().find((tab) => tab.id === targetTabId);
+    expect(target?.claudeSessionId).toBe(sessionId);
+    expect(JSON.stringify(target?.messages)).toContain(restoredText);
   });
 
   // TASK_2026_437 C15 equivalence oracle: chunking changes WHEN the renderer

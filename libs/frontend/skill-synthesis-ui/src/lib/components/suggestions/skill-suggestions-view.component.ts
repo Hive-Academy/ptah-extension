@@ -21,6 +21,7 @@ import {
 import type { SkillSuggestionSummary } from '@ptah-extension/shared';
 
 import { SkillSynthesisStateService } from '../../services/skill-synthesis-state.service';
+import { SkillDiagnosticsStateService } from '../../services/skill-diagnostics-state.service';
 
 interface SuggestionsToast {
   readonly message: string;
@@ -399,6 +400,7 @@ interface SuggestionsToast {
 })
 export class SkillSuggestionsViewComponent implements OnInit {
   private readonly state = inject(SkillSynthesisStateService);
+  private readonly diagnostics = inject(SkillDiagnosticsStateService);
   private readonly vscodeService = inject(VSCodeService);
 
   protected readonly LayersIcon = Layers;
@@ -451,8 +453,15 @@ export class SkillSuggestionsViewComponent implements OnInit {
     this.busyId.set(s.id);
     this.state.clearSuggestionDetail();
     try {
-      await this.state.accept(s.id);
-      this.showToast(`Accepted "${s.name}".`, 'success');
+      if (await this.state.accept(s.id)) {
+        this.refreshPipelineCounts();
+        this.showToast(`Accepted "${s.name}".`, 'success');
+      } else {
+        this.showToast(
+          this.error() ?? 'Could not accept the suggestion.',
+          'error',
+        );
+      }
     } finally {
       this.busyId.set(null);
     }
@@ -499,9 +508,17 @@ export class SkillSuggestionsViewComponent implements OnInit {
   protected async onAcceptFromModal(id: string, name: string): Promise<void> {
     this.busyId.set(id);
     try {
-      await this.state.accept(id);
-      this.showToast(`Accepted "${name}".`, 'success');
-      this.onCloseReview();
+      if (await this.state.accept(id)) {
+        this.refreshPipelineCounts();
+        this.showToast(`Accepted "${name}".`, 'success');
+        this.onCloseReview();
+      } else {
+        // The review stays open so the user can retry.
+        this.showToast(
+          this.error() ?? 'Could not accept the suggestion.',
+          'error',
+        );
+      }
     } finally {
       this.busyId.set(null);
     }
@@ -532,6 +549,17 @@ export class SkillSuggestionsViewComponent implements OnInit {
   protected formatScore(score: number): string {
     if (!Number.isFinite(score)) return '—';
     return score.toFixed(1);
+  }
+
+  /**
+   * An accept promotes a skill and may merge its members, which moves the
+   * pipeline card's Promoted and Merged counts. Those read the diagnostics
+   * snapshot, which otherwise refreshes only on tab open, the manual Refresh,
+   * or the activity feed's poll. `refresh()` reports its own failure through
+   * the diagnostics `error` signal and never rejects, so it is not awaited.
+   */
+  private refreshPipelineCounts(): void {
+    void this.diagnostics.refresh();
   }
 
   private showToast(message: string, kind: SuggestionsToast['kind']): void {

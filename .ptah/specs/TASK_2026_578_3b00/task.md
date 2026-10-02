@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_578_3b00
-status: backlog
+status: in_progress
 type: FEATURE
 title: 'Close the skill lifecycle: merge suggestions into broader skills, gate on the judge, promote on accept, retire unused skills'
 depends_on: []

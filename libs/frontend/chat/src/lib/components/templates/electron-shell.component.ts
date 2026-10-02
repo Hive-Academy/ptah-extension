@@ -56,6 +56,7 @@ import {
 } from '@ptah-extension/chat-ui';
 import { NotificationCenterComponent } from '@ptah-extension/notification-center';
 import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
+import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 
 @Component({
   selector: 'ptah-electron-shell',
@@ -315,6 +316,10 @@ export class ElectronShellComponent {
   protected readonly appState = inject(AppStateManager);
   private readonly surfaceRouter = inject(SurfaceRouterService);
   private readonly injector = inject(Injector);
+  // Injected only to instantiate the root singleton eagerly: it ends the backend session of a closed tab.
+  private readonly _closedTabSessionEnder = inject(
+    ClosedTabSessionEnderService,
+  );
   private readonly configurationSurfaceHost = viewChild<
     ElementRef<HTMLElement>
   >('configurationSurfaceHost');

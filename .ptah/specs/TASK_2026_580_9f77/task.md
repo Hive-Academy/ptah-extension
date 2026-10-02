@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_580_9f77
-status: backlog
+status: in_review
 type: FEATURE
 title: 'Organize sessions: priority, workflow status, worktree and PR links, and links to tasks'
 depends_on: []

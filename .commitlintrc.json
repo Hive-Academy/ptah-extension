@@ -63,6 +63,7 @@
         "voice-providers",
         "cron-scheduler",
         "task-specs",
+        "session-organization",
         "output-styles",
         "skill-synthesis",
         "harness-sync",

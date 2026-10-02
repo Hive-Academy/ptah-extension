@@ -322,6 +322,14 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       .map((tab) => tab.claudeSessionId as SessionId);
   }
 
+  getSessionIds(workspacePath: string): SessionId[] {
+    const ids = new Set<SessionId>();
+    for (const tab of this.tabManager.getWorkspaceTabs(workspacePath)) {
+      if (tab.claudeSessionId != null) ids.add(tab.claudeSessionId);
+    }
+    return [...ids];
+  }
+
   confirm(options: ConfirmDialogOptions): Promise<boolean> {
     return this.confirmDialog.confirm(options);
   }

@@ -30,6 +30,7 @@ import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { SessionId } from '@ptah-extension/shared';
 import type { AgentProcessInfo, IAgentAdapter } from '@ptah-extension/shared';
 import { AgentProcessManager } from './agent-process-manager.service';
+import { SessionChildRegistry } from '../session-children/session-child.registry';
 
 /*
  * ---------------------------------------------------------------------------
@@ -130,15 +131,23 @@ export type AgentReportRefusalReason =
   /** The chat runtime rejected the injected turn. */
   | 'delivery-failed';
 
-export interface AgentReportInput {
-  /**
-   * The reporting agent, taken from the MCP URL — NEVER from the tool
-   * arguments.
-   */
-  readonly agentId: string;
-  readonly message: string;
-  readonly summary?: string;
-}
+/**
+ * One report. The reporter is either a spawned CLI agent (`agentId`, from the
+ * `/agent/{id}` MCP URL) or a child chat session started with
+ * `ptah_session_start` (`childSessionId`, from the `/session/{id}` MCP URL).
+ * Both come from the transport — NEVER from the tool arguments.
+ */
+export type AgentReportInput =
+  | {
+      readonly agentId: string;
+      readonly message: string;
+      readonly summary?: string;
+    }
+  | {
+      readonly childSessionId: string;
+      readonly message: string;
+      readonly summary?: string;
+    };
 
 export interface AgentReportDelivery {
   readonly delivered: boolean;
@@ -172,6 +181,34 @@ function firstLine(message: string, limit: number): string {
   const line = message.split('\n', 1)[0] ?? '';
   const trimmed = line.trim();
   return trimmed.length > limit ? `${trimmed.slice(0, limit)}…` : trimmed;
+}
+
+/**
+ * The envelope body. The summary is emitted only when it ADDS information.
+ * Callers that have no separate summary pass the message itself (the report
+ * RPC allows `summary === message`), and a byte-identical repeat renders the
+ * same text twice inside the envelope — the parent's model reads it twice and
+ * the parent chat shows it twice (TASK_2026_466 defect 3). Any other
+ * difference, however small, is kept: only an exact repeat is provably
+ * redundant.
+ */
+function reportBody(message: string, summary?: string): string {
+  const trimmedSummary = summary?.trim();
+  const summaryAddsInformation =
+    !!trimmedSummary && trimmedSummary !== message.trim();
+  return summaryAddsInformation ? `${trimmedSummary}\n\n${message}` : message;
+}
+
+type SessionChildReportInput = Extract<
+  AgentReportInput,
+  { readonly childSessionId: string }
+>;
+
+function isSessionChildInput(
+  input: AgentReportInput,
+): input is SessionChildReportInput {
+  const candidate = (input as { childSessionId?: unknown }).childSessionId;
+  return typeof candidate === 'string' && candidate.trim().length > 0;
 }
 
 @injectable()
@@ -209,6 +246,14 @@ export class AgentReportRouter {
      */
     @inject(TOKENS.AGENT_ADAPTER, { isOptional: true })
     private readonly agentAdapter: IAgentAdapter | null = null,
+    /**
+     * The parent → child session link (TASK_2026_584). Registered as a
+     * singleton in every host that registers this lib; absent only in tests
+     * that exercise the agent branch, where every child report is
+     * `unattributed-caller`.
+     */
+    @inject(SessionChildRegistry, { isOptional: true })
+    private readonly sessionChildren: SessionChildRegistry | null = null,
   ) {}
 
   /**
@@ -219,6 +264,11 @@ export class AgentReportRouter {
    * over-size body is rejected before any session state is consulted.
    */
   async deliver(input: AgentReportInput): Promise<AgentReportDelivery> {
+    // A non-empty string, not mere key presence: an input built as
+    // `{ agentId, childSessionId: undefined }` belongs on the agent path.
+    if (isSessionChildInput(input)) {
+      return this.deliverFromSessionChild(input);
+    }
     const { agentId, message, summary } = input;
 
     if (!agentId) {
@@ -344,20 +394,148 @@ export class AgentReportRouter {
       `agent="${escapeAttribute(agentLabel(info))}"`,
       `cli="${escapeAttribute(info.cli)}"`,
     ].join(' ');
-    // The summary is emitted only when it ADDS information. Callers that have
-    // no separate summary pass the message itself (the report RPC allows
-    // `summary === message`), and a byte-identical repeat renders the same
-    // text twice inside the envelope — the parent's model reads it twice and
-    // the parent chat shows it twice (TASK_2026_466 defect 3). Any other
-    // difference, however small, is kept: only an exact repeat is provably
-    // redundant.
-    const trimmedSummary = summary?.trim();
-    const summaryAddsInformation =
-      !!trimmedSummary && trimmedSummary !== message.trim();
-    const body = summaryAddsInformation
-      ? `${trimmedSummary}\n\n${message}`
-      : message;
-    return `<agent-report ${attrs}>\n${body}\n</agent-report>`;
+    return `<agent-report ${attrs}>\n${reportBody(
+      message,
+      summary,
+    )}\n</agent-report>`;
+  }
+
+  /**
+   * Child chat session → parent session (TASK_2026_584).
+   *
+   * The same checks as the agent branch, in the same order, against the link
+   * `SessionChildRegistry` recorded at `ptah_session_start`. The parent is the
+   * recorded parent TAB id while that tab is live, else the recorded parent
+   * SDK id — a parent reopened from the sidebar runs under a new tab id but
+   * the same SDK session. Rate and duplicate history is keyed
+   * `session:{childSessionId}` so it can never collide with an agent id.
+   *
+   * A refusal because the parent is not live is counted on the child record
+   * (for `ptah_session_status`) and returned to the child; it is NOT queued —
+   * a report is a point-in-time message and replaying a backlog into a resumed
+   * conversation would present stale progress as current.
+   */
+  private async deliverFromSessionChild(
+    input: SessionChildReportInput,
+  ): Promise<AgentReportDelivery> {
+    const { message, summary } = input;
+    const reportedId = input.childSessionId.trim();
+
+    const child = this.sessionChildren?.get(reportedId);
+    if (!child) {
+      return this.refuseSessionChild('unattributed-caller', reportedId, {
+        detail: 'this session was not started with ptah_session_start',
+      });
+    }
+    const childSessionId = child.childSessionId;
+
+    if (message.length > MAX_AGENT_REPORT_LENGTH) {
+      return this.refuseSessionChild('report-too-large', childSessionId, {
+        length: message.length,
+        cap: MAX_AGENT_REPORT_LENGTH,
+      });
+    }
+
+    const candidates = [child.parentSessionId, child.parentSdkSessionId]
+      .map((id) => SessionId.safeParse(id?.trim()))
+      .filter((id): id is SessionId => !!id);
+    if (candidates.length === 0) {
+      return this.refuseSessionChild('no-parent-recorded', childSessionId, {
+        detail: 'the parent recorded at ptah_session_start is not a session id',
+      });
+    }
+
+    if (!this.agentAdapter) {
+      return this.refuseSessionChild(
+        'chat-runtime-unavailable',
+        childSessionId,
+        {
+          detail:
+            'no agent adapter is registered in this host, so no chat session ' +
+            'can be driven',
+        },
+      );
+    }
+
+    const adapter = this.agentAdapter;
+    const parentSessionId = candidates.find((id) =>
+      adapter.isSessionActive(id),
+    );
+    if (!parentSessionId) {
+      this.sessionChildren?.markReportRefused(
+        childSessionId,
+        summary?.trim() || firstLine(message, TILE_NOTE_PREVIEW_LENGTH),
+      );
+      return this.refuseSessionChild(
+        'parent-session-not-active',
+        childSessionId,
+        { parentSessionIds: candidates },
+      );
+    }
+
+    const rateKey = `session:${childSessionId}`;
+    const now = Date.now();
+    if (this.recentDeliveryCount(rateKey, now) >= AGENT_REPORT_BURST_LIMIT) {
+      return this.refuseSessionChild('rate-limited', childSessionId, {
+        limit: AGENT_REPORT_BURST_LIMIT,
+        windowMs: AGENT_REPORT_BURST_WINDOW_MS,
+      });
+    }
+    if (
+      this.recentBodyEntries(rateKey, now).some((e) => e.message === message)
+    ) {
+      return this.refuseSessionChild('duplicate-report', childSessionId, {
+        detail: 'an identical report from this session was delivered recently',
+      });
+    }
+
+    const attrs = [
+      `agent-id="${escapeAttribute(childSessionId)}"`,
+      `agent="${escapeAttribute(child.label)}"`,
+      `cli="ptah-session"`,
+    ].join(' ');
+    const envelope = `<agent-report ${attrs}>\n${reportBody(
+      message,
+      summary,
+    )}\n</agent-report>`;
+    try {
+      await adapter.sendMessageToSession(parentSessionId, envelope, {
+        origin: {
+          kind: 'peer',
+          from: `ptah-session:${childSessionId}`,
+          name: `session · ${child.label}`,
+        },
+      });
+    } catch (error: unknown) {
+      return this.refuseSessionChild('delivery-failed', childSessionId, {
+        parentSessionId,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    this.remember(rateKey, { at: now, message });
+    this.sessionChildren?.markReportDelivered(childSessionId);
+
+    this.logger.info('[AgentReportRouter] Session child report delivered', {
+      childSessionId,
+      parentSessionId,
+      length: message.length,
+    });
+
+    return { delivered: true, parentSessionId };
+  }
+
+  private refuseSessionChild(
+    reason: AgentReportRefusalReason,
+    childSessionId: string,
+    context: Record<string, unknown> = {},
+  ): AgentReportDelivery {
+    this.logger.warn('[AgentReportRouter] Session child report refused', {
+      reason,
+      childSessionId,
+      ...context,
+    });
+    return { delivered: false, reason };
   }
 
   /**

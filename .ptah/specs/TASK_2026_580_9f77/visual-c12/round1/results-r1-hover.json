@@ -1,0 +1,168 @@
+{
+  "anubis": {
+    "rows": {
+      "Refactor session": {
+        "actionsBox": [130, 123, 76, 24],
+        "liH": 153,
+        "textOverlap": []
+      },
+      "Fix flaky": {
+        "actionsBox": [130, 99, 76, 24],
+        "liH": 129,
+        "textOverlap": []
+      },
+      "Investigate memory": {
+        "actionsBox": [130, 75, 76, 24],
+        "liH": 105,
+        "textOverlap": []
+      },
+      "Plain session": {
+        "actionsBox": [130, 29, 76, 24],
+        "liH": 59,
+        "textOverlap": []
+      },
+      "Hotfix auth": {
+        "actionsBox": [130, 75, 76, 24],
+        "liH": 105,
+        "textOverlap": []
+      },
+      "Child A of root": {
+        "actionsBox": [130, 29, 76, 24],
+        "liH": 59,
+        "textOverlap": []
+      }
+    },
+    "chipsOverflow": [
+      {
+        "sw": 173,
+        "cw": 104,
+        "right": 122,
+        "aw": 224,
+        "kids": "34,54,96,144,191,55"
+      },
+      {
+        "sw": 122,
+        "cw": 104,
+        "right": 122,
+        "aw": 224,
+        "kids": "71,79,140"
+      },
+      {
+        "sw": 122,
+        "cw": 104,
+        "right": 122,
+        "aw": 224,
+        "kids": "34,76,140"
+      }
+    ],
+    "nested": [
+      {
+        "d": "1",
+        "metaH": 16,
+        "metaTrunc": true,
+        "title": "Child A of root:174/174"
+      },
+      {
+        "d": "2",
+        "metaH": 16,
+        "metaTrunc": true,
+        "title": "Grandchild B:162/162"
+      },
+      {
+        "d": "3",
+        "metaH": 16,
+        "metaTrunc": true,
+        "title": "Great-grandchild C:150/150"
+      },
+      {
+        "d": "3",
+        "metaH": 16,
+        "metaTrunc": true,
+        "title": "Depth four D (capped:150/178"
+      }
+    ]
+  },
+  "anubis-light": {
+    "rows": {
+      "Refactor session": {
+        "actionsBox": [130, 123, 76, 24],
+        "liH": 153,
+        "textOverlap": []
+      },
+      "Fix flaky": {
+        "actionsBox": [130, 99, 76, 24],
+        "liH": 129,
+        "textOverlap": []
+      },
+      "Investigate memory": {
+        "actionsBox": [130, 75, 76, 24],
+        "liH": 105,
+        "textOverlap": []
+      },
+      "Plain session": {
+        "actionsBox": [130, 29, 76, 24],
+        "liH": 59,
+        "textOverlap": []
+      },
+      "Hotfix auth": {
+        "actionsBox": [130, 75, 76, 24],
+        "liH": 105,
+        "textOverlap": []
+      },
+      "Child A of root": {
+        "actionsBox": [130, 29, 76, 24],
+        "liH": 59,
+        "textOverlap": []
+      }
+    },
+    "chipsOverflow": [
+      {
+        "sw": 173,
+        "cw": 104,
+        "right": 122,
+        "aw": 224,
+        "kids": "34,54,96,144,191,55"
+      },
+      {
+        "sw": 122,
+        "cw": 104,
+        "right": 122,
+        "aw": 224,
+        "kids": "71,79,140"
+      },
+      {
+        "sw": 122,
+        "cw": 104,
+        "right": 122,
+        "aw": 224,
+        "kids": "34,76,140"
+      }
+    ],
+    "nested": [
+      {
+        "d": "1",
+        "metaH": 16,
+        "metaTrunc": true,
+        "title": "Child A of root:174/174"
+      },
+      {
+        "d": "2",
+        "metaH": 16,
+        "metaTrunc": true,
+        "title": "Grandchild B:162/162"
+      },
+      {
+        "d": "3",
+        "metaH": 16,
+        "metaTrunc": true,
+        "title": "Great-grandchild C:150/150"
+      },
+      {
+        "d": "3",
+        "metaH": 16,
+        "metaTrunc": true,
+        "title": "Depth four D (capped:150/178"
+      }
+    ]
+  }
+}

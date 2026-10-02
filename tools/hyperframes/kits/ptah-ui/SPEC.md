@@ -112,6 +112,10 @@ Criterion: WCAG 2.2 AA. Kit text is always >= 26px, which is "large text" (3:1 t
 
 Kit deviation (deliberate, contrast): filled `badge-success` and `badge-info` use `#131317` text, not the theme `*-content` token. Source uses the content token (`CU/atoms/cost-badge.component.ts:32`). The dark text on green that appears in the reference screenshots is consistent with this. Error fills keep `error-content` (passes large).
 
+Kit deviation 2 (deliberate, contrast, approved 2026-10-01): the kit muted token is `#989291`, not the app's `#8e8887`. Multi-session shots (`app-window` 2+2) mount session tiles at u = 0.43, so kit text renders at about 11 px and the `hyperframes check` contrast audit applies the 4.5:1 normal-text rule. The app value measures 4.21-4.44:1 there (ghost chips, muted labels on base-300); `#989291` passes on base-100/200/300. Icon and accent uses of `#8e8887` (tool icon fallback, `unverified` toast accent, uncolored subagent) keep the app value because they carry no text.
+
+Badge text weight is 500 (SPEC 4.3 `micro` 26/500); `base.css` had 400.
+
 ### 1.6 Source vs screenshot conflicts (source wins)
 
 1. Tool-name badge color is **status**, not tool identity: `badge-success` complete, `badge-info` streaming, `badge-error` error, `badge-ghost` pending (`CU/molecules/tool-execution/tool-call-header.component.ts:405-412`). Tool identity is the **icon** color (`CU/atoms/tool-icon.component.ts:94-127`): Read info, Write success, Bash warning, Grep secondary (gold), Edit accent, Glob info, Workflow primary, Task* secondary, Monitor accent, SendMessage info, ScheduleWakeup warning, anything else (including PowerShell) muted with the Terminal icon. Screenshots show all-green badges because every visible tool was complete.
@@ -140,6 +144,7 @@ Follows `REF/contract-example-notification-stack.html`.
 | `focusAt` | number | `-1` | focus cue in seconds; `-1` = default (last beat + 0.5s) |
 | `dimOthers` | number | `0.38` | opacity of non-focus parts during focus (0.38 is the floor that keeps the text legible: muted on dimmed stays above 3:1) |
 | `vignette` | boolean | `false` | draws the kit's single allowed background element (see 3.4); default off so mounts stay transparent |
+| `preroll` | number | `0` | seconds already played at mount start: the mount opens in the state it would reach after N s (use a value past the last beat for a settled world at a scene cut). Implemented as a wrapper timeline that scrubs the built one from N, so seeking stays pure |
 
 - Shared partials (badges, status glyphs, tool row, status line) are written once in the kit source and inlined into each composition at build; mounted components cannot import each other (Open question 2).
 - Files: `tools/hyperframes/kits/ptah-ui/src/<name>.html` (source), built to `components/<name>.html` by `build.mjs`; gallery at `gallery/index.html`.
@@ -431,8 +436,12 @@ Variables:
 | `lane1Rows` | string | `Read\|.../git/run-stage-failure.spec.ts;Thinking;Bash\|Show git operation constants;Thinking;Write\|.../reviews/p1-approval.md` (semicolon rows, pipe = `tool\|label`, `Thinking` = thinking row) |
 | `lane1Text` | string | `All checks pass. I write the deliverable now.` |
 | `lane2Rows` | string | `view_file\|view_file;write_to_file\|write_to_file;call_mcp_tool\|call_mcp_tool` |
-| `selected` | number | `1` |
+| `lane3Name` | string | `""` (empty = two lanes; set it to show a third column, as the real panel does up to 3: `CH/organisms/agent-monitor/agent-lane-layout.ts:11-13`) |
+| `lane3Status` | enum running/completed/failed | `running` |
+| `lane3Rows` | string | `Read\|README.md;Bash\|npm test` |
+| `selected` | number | `1` (0-3) |
 | `rowGap` | number | `0.45` (seconds between rows, floor 0.3) |
+| `laneOffset` | number | `0.2` (row start offset per later lane; 0 = all lanes on the same beat) |
 
 Beats: c0 0.00 panel slide-settle, header; c1 0.30 tabs spring with 0.12s stagger, dots start (running dots pulse via finite tween); c2 0.80 lane columns settle; c3 1.10 rows enter in order each `rowGap` apart (each row runs the 4.3 pending to running to done in 0.6s); c4 = after last row `lane1Text` streams; c5 lane status flip (dot cross-fade to final color, tab check spring). Focus parts: `tabs`, `lane-1`, `lane-2`, `header`.
 
