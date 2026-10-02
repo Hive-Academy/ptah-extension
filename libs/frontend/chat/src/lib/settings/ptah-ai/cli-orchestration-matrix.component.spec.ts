@@ -641,4 +641,33 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(row('codex')?.querySelectorAll('td')[7]?.textContent?.trim()).toBe('');
     });
   });
+
+  describe('Batch 52: live-shaped values', () => {
+    beforeEach(() => {
+      state.orchestration.set(ready({ ...ORCHESTRATION,
+        detectedClis: ORCHESTRATION.detectedClis.map((cli) => cli.cli === 'codex' ? { ...cli, version: 'codex-cli 0.155.1' }
+          : cli.cli === 'copilot' ? { ...cli, version: 'GitHub Copilot CLI 1.0.83.' } : cli.cli === 'opencode' ? { ...cli, version: 'opencode v2.0.12' } : cli),
+        antigravityModel: 'claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)' }));
+      fixture.detectChanges();
+    });
+
+    it('52.1: the version beside the name is the normalised token, on the name\'s line, with the CLI line as its title', () => {
+      const version = (id: string) => row(id)?.querySelector('[data-testid="cli-matrix-version"]');
+      expect(version('codex')?.textContent?.trim()).toBe('v0.155.1');
+      expect(version('codex')?.getAttribute('title')).toBe('codex-cli 0.155.1');
+      expect(version('copilot')?.textContent?.trim()).toBe('v1.0.83');
+      expect(version('opencode')?.textContent?.trim()).toBe('v2.0.12');
+      expect(version('codex')?.className).toContain('truncate');
+      expect(version('codex')?.parentElement?.className).toContain('flex-nowrap');
+      expect(row('codex')?.textContent).not.toContain('vcodex');
+    });
+
+    it('52.2: the model cell shows the model id once (at most two lines), with the display name in its title', () => {
+      const cell = q<HTMLButtonElement>('[data-testid="cli-matrix-model-antigravity"]');
+      expect(cell?.querySelector('span')?.textContent?.trim()).toBe('claude-sonnet-4-6');
+      expect(cell?.querySelector('span')?.className).toContain('line-clamp-2');
+      expect(cell?.getAttribute('title')).toBe('claude-sonnet-4-6 (Claude Sonnet 4.6 (Thinking))');
+      expect(cell?.getAttribute('aria-label')).toBe('Antigravity model: claude-sonnet-4-6. Change');
+    });
+  });
 });

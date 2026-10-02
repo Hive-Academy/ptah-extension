@@ -1,6 +1,8 @@
 import type { CliDetectionResult, PtahCliSummary } from '@ptah-extension/shared';
 import {
   cliMatrixRows,
+  cliModelDisplay,
+  cliVersionLabel,
   type CliMatrixRow,
   type CliMatrixSources,
   type InstanceCliMatrixRow,
@@ -133,7 +135,7 @@ describe('cliMatrixRows', () => {
     it('shows Ready for an installed, enabled CLI with its model, effort and version', () => {
       expect(row('codex')).toMatchObject({
         name: 'Codex', status: { kind: 'ready', label: 'Ready', tone: 'success' }, enabled: true, interactive: true,
-        version: '1.4', provider: 'OpenAI Codex',
+        version: '1.4', versionLabel: 'v1.4', provider: 'OpenAI Codex',
         model: { key: 'codexModel', value: 'gpt-5.5-codex' }, effort: { key: 'codexReasoningEffort', value: 'medium' },
         credentialAction: false,
       });
@@ -280,5 +282,31 @@ describe('cliMatrixRows', () => {
     it('uses the Ptah instance permission note', () => {
       expect(glm().permission).toEqual(cliPermissionNote('ptah-cli'));
     });
+  });
+});
+
+describe('Batch 52: live CLI values', () => {
+  it.each([
+    ['codex-cli 0.155.1', 'v0.155.1'],
+    ['opencode v2.0.12', 'v2.0.12'],
+    ['GitHub Copilot CLI 1.0.83.', 'v1.0.83'],
+    ['1.2.14', 'v1.2.14'],
+    ['pi 0.9.0-beta.2 (build 7)', 'v0.9.0-beta.2'],
+    ['  2024 edition  ', '2024 edition'],
+  ])('cliVersionLabel(%j) is %j: one version token, never "v" + the CLI name', (raw, label) => {
+    expect(cliVersionLabel(raw)).toBe(label);
+  });
+
+  it('a row keeps the raw line (for the title) and shows the label', () => {
+    const rows = cliMatrixRows({ orchestration: orchestration({ detectedClis: [detected('codex', true, { version: 'codex-cli 0.155.1' })] }),
+      cliAgents: [], cliModels: null, cliTest: null });
+    expect(rows.installed[0]).toMatchObject({ version: 'codex-cli 0.155.1', versionLabel: 'v0.155.1' });
+  });
+
+  it('cliModelDisplay shows the id of an "id<TAB>name" value, with the name in the title; a plain value is itself', () => {
+    expect(cliModelDisplay('claude-sonnet-4-6	Claude Sonnet 4.6 (Thinking)'))
+      .toEqual({ label: 'claude-sonnet-4-6', title: 'claude-sonnet-4-6 (Claude Sonnet 4.6 (Thinking))' });
+    expect(cliModelDisplay('Gemini 3.1 Pro (High)')).toEqual({ label: 'Gemini 3.1 Pro (High)', title: 'Gemini 3.1 Pro (High)' });
+    expect(cliModelDisplay('')).toEqual({ label: '', title: '' });
   });
 });

@@ -38,7 +38,7 @@ interface ScopeLayer {
   readonly active: boolean;
 }
 
-interface BadgeView {
+export interface BadgeView {
   readonly text: string;
   readonly icon: LucideIconData | null;
   readonly tone: string;
@@ -46,6 +46,26 @@ interface BadgeView {
 }
 
 const LAYER_ORDER: readonly SettingScope[] = ['global', 'app', 'workspace'];
+
+const BADGE_BASE =
+  'badge badge-sm h-auto min-h-6 gap-1 px-2 py-0.5 font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+
+/**
+ * A scope badge's colour and icon per layer: App info + chip, Workspace secondary + folder, Global and Mixed neutral.
+ * Shared by the field badges here and the Main Agent's per-layer badges (Batch 52.6).
+ */
+export function scopeBadgeLook(scope: SettingScopeDisplay): Pick<BadgeView, 'icon' | 'iconTone' | 'tone'> {
+  if (scope === 'app') return { icon: Cpu, iconTone: 'h-3 w-3 text-info', tone: `${BADGE_BASE} border-info/40 bg-info/10` };
+  if (scope === 'workspace') {
+    return { icon: Folder, iconTone: 'h-3 w-3 text-secondary', tone: `${BADGE_BASE} border-secondary/40 bg-secondary/10` };
+  }
+  return { icon: null, iconTone: '', tone: `${BADGE_BASE} badge-outline border-base-content-muted bg-base-100` };
+}
+
+/** Whether a field renders a badge at all: an override, or a mixed/unknown source (an inherited value shows none). */
+export function scopeBadgeShown(scope: SettingScopeDisplay | null, hasOverride: boolean): boolean {
+  return scope === 'mixed' || (hasOverride && scope !== null);
+}
 const ACTION =
   'btn btn-ghost btn-sm min-h-9 w-full justify-start text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
@@ -204,19 +224,10 @@ export class SettingScopeRowComponent {
   protected readonly badge = computed<BadgeView | null>(() => {
     const scope = this.scope();
     const name = this.shortFieldName() || this.fieldName();
-    const base =
-      'badge badge-sm h-auto min-h-6 gap-1 px-2 py-0.5 font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-    if (scope === 'mixed') {
-      return { text: `${name} · Mixed sources`, icon: null, iconTone: '', tone: `${base} badge-outline border-base-content-muted bg-base-100` };
-    }
-    if (!this.hasOverride() || scope === null) return null;
-    if (scope === 'app') {
-      return { text: `${name} · App`, icon: Cpu, iconTone: 'h-3 w-3 text-info', tone: `${base} border-info/40 bg-info/10` };
-    }
-    if (scope === 'workspace') {
-      return { text: `${name} · Workspace`, icon: Folder, iconTone: 'h-3 w-3 text-secondary', tone: `${base} border-secondary/40 bg-secondary/10` };
-    }
-    return { text: `${name} · Global`, icon: null, iconTone: '', tone: `${base} badge-outline border-base-content-muted bg-base-100` };
+    if (scope === null || !scopeBadgeShown(scope, this.hasOverride())) return null;
+    const look = scopeBadgeLook(scope);
+    const layer = scope === 'mixed' ? 'Mixed sources' : scope === 'app' ? 'App' : scope === 'workspace' ? 'Workspace' : 'Global';
+    return { text: `${name} · ${layer}`, ...look };
   });
 
   /** Global, then App and Workspace where they can hold this value; the winning layer is marked. */

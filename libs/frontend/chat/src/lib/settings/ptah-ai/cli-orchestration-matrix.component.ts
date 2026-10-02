@@ -7,7 +7,7 @@ import { NativePopoverComponent } from '@ptah-extension/ui';
 import type { SystemCliType } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import {
-  cliMatrixRows, type CliMatrixRow, type CliMatrixStatus, type CliKeyStatus, type InstanceCliMatrixRow, type SystemCliMatrixRow,
+  cliMatrixRows, cliModelDisplay, type CliMatrixRow, type CliMatrixStatus, type CliKeyStatus, type InstanceCliMatrixRow, type SystemCliMatrixRow,
 } from './cli-matrix-rows';
 import type { CliPermissionTone } from './cli-permission-notes';
 import { CliModelEffortPopoverComponent, type CliMatrixCellField } from './cli-model-effort-popover.component';
@@ -139,10 +139,13 @@ const SAVE_SCOPE = 'global';
             [attr.aria-label]="row.name + ' enabled'" (change)="toggle(row, $event)" [attr.data-testid]="'cli-matrix-toggle-' + row.id" />
         </td>
         <td>
-          <div class="flex flex-wrap items-center gap-1.5 font-bold" [class.text-base-content-muted]="!row.interactive">
-            {{ row.name }}
-            @if (row.kind === 'system' && row.version) {
-              <span class="text-xs font-normal text-base-content-muted">v{{ row.version }}</span>
+          <!-- One line next to the name (prototype): the version is the normalised token (Batch 52.1); a line with none
+               truncates, with the CLI's own line in the title. -->
+          <div class="flex min-w-0 flex-nowrap items-baseline gap-1.5 font-bold" [class.text-base-content-muted]="!row.interactive">
+            <span class="shrink-0 whitespace-nowrap">{{ row.name }}</span>
+            @if (row.kind === 'system' && row.versionLabel) {
+              <span class="min-w-0 max-w-[8rem] truncate whitespace-nowrap text-xs font-normal text-base-content-muted" [title]="row.version"
+                data-testid="cli-matrix-version">{{ row.versionLabel }}</span>
             }
             @if (row.kind === 'instance') {
               <span [class]="'badge badge-outline badge-xs whitespace-nowrap font-medium text-base-content border-primary/40 bg-primary/10'">Ptah CLI</span>
@@ -192,8 +195,8 @@ const SAVE_SCOPE = 'global';
                 backdropClass="transparent" (closed)="close()" (opened)="focusOpened()">
                 <button trigger type="button" [class]="cell" [disabled]="busy()" (click)="openCell(row.id, 'model')"
                   [attr.aria-label]="row.name + ' model: ' + value + '. Change'" [attr.aria-expanded]="isOpen(row.id, 'model')"
-                  [attr.data-testid]="'cli-matrix-model-' + row.id">
-                  <span class="break-words">{{ value }}</span>
+                  [title]="modelTitle(row)" [attr.data-testid]="'cli-matrix-model-' + row.id">
+                  <span class="line-clamp-2 break-words">{{ value }}</span>
                   <lucide-angular [img]="ChevronIcon" class="h-2.5 w-2.5 shrink-0 text-base-content-muted" aria-hidden="true" />
                 </button>
                 @if (isOpen(row.id, 'model')) {
@@ -201,7 +204,7 @@ const SAVE_SCOPE = 'global';
                 }
               </ptah-native-popover>
             } @else {
-              <span class="break-words font-mono text-xs text-base-content-muted">{{ value }}</span>
+              <span class="line-clamp-2 break-words font-mono text-xs text-base-content-muted" [title]="modelTitle(row)">{{ value }}</span>
             }
           }
         </td>
@@ -563,10 +566,16 @@ export class CliOrchestrationMatrixComponent {
     return row.provider ?? 'Set by the model';
   }
 
-  /** The Model cell's text; null when the instance's saved model has not loaded. */
+  /** The Model cell's text: one value, the model id (Batch 52.2); null when the instance's saved model has not loaded. */
   protected modelValue(row: CliMatrixRow): string | null {
-    if (row.kind === 'system') return row.model.value || 'provider default';
+    if (row.kind === 'system') return cliModelDisplay(row.model.value).label || 'provider default';
     return row.selectedModel === null ? null : row.selectedModel || 'provider default';
+  }
+
+  /** The Model cell's title: the full saved value, with a display name when the value carries one. */
+  protected modelTitle(row: CliMatrixRow): string | null {
+    if (row.kind === 'system') return row.model.value ? cliModelDisplay(row.model.value).title : null;
+    return row.selectedModel || null;
   }
 
   /** Narrow layout: "3 tier models" (or "No tier models") in place of the three tier badges. */

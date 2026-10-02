@@ -64,7 +64,10 @@ describe('RoutingMapNodeComponent', () => {
 
   it('header badges are projected above the stretched action and keep their own clicks', () => {
     const badge = query('badge');
-    expect(badge?.parentElement?.className).toContain('relative z-10');
+    // Batch 52.6: the slot is display: contents (its items wrap with the title row); its buttons get relative z-10.
+    expect(badge?.parentElement?.getAttribute('data-testid')).toBe('routing-node-badges');
+    expect(badge?.parentElement?.className).toContain('[&_button]:relative');
+    expect(badge?.parentElement?.className).toContain('[&_button]:z-10');
     expect(badge?.closest('button[data-testid="routing-node-action"]')).toBeNull();
   });
 

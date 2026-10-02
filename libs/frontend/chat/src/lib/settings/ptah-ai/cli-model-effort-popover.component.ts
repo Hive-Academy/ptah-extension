@@ -8,7 +8,7 @@ import {
 } from '@ptah-extension/ui';
 import { CLI_REASONING_EFFORT_VALUES, PI_REASONING_EFFORT_VALUES } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
-import type { CliEffortSettingKey, CliMatrixRow, CliModelSettingKey, SystemCliMatrixRow } from './cli-matrix-rows';
+import { cliModelDisplay, type CliEffortSettingKey, type CliMatrixRow, type CliModelSettingKey, type SystemCliMatrixRow } from './cli-matrix-rows';
 
 export type CliMatrixCellField = 'model' | 'effort';
 
@@ -85,7 +85,7 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
           </p>
         }
         <ptah-provider-model-search-field [inputId]="titleId() + '-model'" [ariaLabel]="cell.name + ' model'"
-          [options]="modelOptions()" [selectedId]="cell.model.value" [includeDefault]="true" [compact]="true"
+          [options]="modelOptions()" [selectedId]="savedModelId(cell)" [includeDefault]="true" [compact]="true"
           placeholder="Search models"
           [defaultLabel]="catalogueStatus() === 'loading' ? 'Loading models…' : 'Provider default'"
           [disabled]="busy() || !context || catalogueStatus() === 'loading'" (modelSelected)="saveSystemModel(cell, $event)" />
@@ -165,7 +165,7 @@ export class CliModelEffortPopoverComponent implements OnInit {
     if (!row) return [];
     const options = (this.state.delegatedModelOptions().data?.[row.cli] ?? [])
       .map((model) => ({ id: model.id, name: model.name || model.id, supportsToolUse: null }));
-    const saved = row.model.value;
+    const saved = this.savedModelId(row);
     return !saved || options.some((option) => option.id === saved)
       ? options : [{ id: saved, name: 'saved, not in the current list', supportsToolUse: null }, ...options];
   });
@@ -207,6 +207,15 @@ export class CliModelEffortPopoverComponent implements OnInit {
   protected effortClass(value: string): string {
     const selected = this.systemEffort()?.effort?.value === value;
     return `btn btn-xs min-h-7 font-medium ${selected ? 'btn-primary' : 'btn-outline border-base-content-muted text-base-content'} ${FOCUS}`;
+  }
+
+  /**
+   * The saved model as a catalogue id (Batch 52.7): a value saved by the earlier `agy models` parse is "id<TAB>name",
+   * the same shape the matrix cell shows as its id (`cliModelDisplay`). Read that way, it is the selected catalogue
+   * model, not "saved, not in the current list". Undo still writes back the stored value as it was.
+   */
+  protected savedModelId(row: SystemCliMatrixRow): string {
+    return cliModelDisplay(row.model.value).label;
   }
 
   protected saveSystemModel(row: SystemCliMatrixRow, model: string): Promise<void> {

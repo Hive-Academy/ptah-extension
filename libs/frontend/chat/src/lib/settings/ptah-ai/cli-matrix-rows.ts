@@ -37,8 +37,10 @@ export interface SystemCliMatrixRow extends CliMatrixRowBase {
   readonly kind: 'system';
   readonly cli: SystemCliType;
   readonly installed: boolean;
-  /** Detected version; null when unknown, and for Cursor, whose bundled SDK reports `sdk`. */
+  /** Detected version line as the CLI printed it; null when unknown, and for Cursor, whose bundled SDK reports `sdk`. */
   readonly version: string | null;
+  /** `version` for display (`cliVersionLabel`): "v0.155.1", never the CLI name again (Batch 52.1). */
+  readonly versionLabel: string | null;
   /**
    * The account the CLI uses. Each system CLI signs in on its own; opencode and Pi take the provider
    * from the `provider/model` id, so theirs is null until a model is saved. Null for uninstalled rows.
@@ -137,6 +139,30 @@ const TIERS: readonly Pick<CliTierBadge, 'tier' | 'label'>[] = [
   { tier: 'sonnet', label: 'Sonnet' }, { tier: 'opus', label: 'Opus' }, { tier: 'haiku', label: 'Haiku' },
 ];
 
+/** A semver-like token: 0.155.1, v2.0.12, 1.0.83 (a trailing sentence dot is not part of it), 1.2.3-beta.1. */
+const VERSION_TOKEN = /(?:^|[^\w.])v?(\d+(?:\.\d+){1,3}(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?)(?!\w)/;
+
+/**
+ * Batch 52.1: the detected version is the CLI's raw `--version` line (`probeCliVersion`), e.g. "codex-cli 0.155.1",
+ * "opencode v2.0.12" or "GitHub Copilot CLI 1.0.83.". Shows the version token as "v0.155.1"; a line with no such token
+ * is shown trimmed and without a "v" (the cell truncates it, with the raw line in its title).
+ */
+export function cliVersionLabel(raw: string): string {
+  const token = VERSION_TOKEN.exec(raw)?.[1];
+  return token ? `v${token}` : raw.trim();
+}
+
+/**
+ * Batch 52.2: a model value saved from the earlier `agy models` parse is "id<TAB>display name"
+ * ("claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)"). The cell shows the id alone, with the name in its title.
+ */
+export function cliModelDisplay(value: string): { readonly label: string; readonly title: string } {
+  const tab = value.indexOf('\t');
+  if (tab < 0) return { label: value, title: value };
+  const id = value.slice(0, tab).trim(), name = value.slice(tab + 1).trim();
+  return { label: id, title: name ? `${id} (${name})` : id };
+}
+
 function isSystemCli(cli: string): cli is SystemCliType {
   return (SYSTEM_CLI_TYPES as readonly string[]).includes(cli);
 }
@@ -172,6 +198,7 @@ function systemRows(orchestration: NonNullable<CliMatrixSources['orchestration']
       installed,
       interactive: installed && enabled,
       version: version && !(cli === 'cursor' && version === 'sdk') ? version : null,
+      versionLabel: version && !(cli === 'cursor' && version === 'sdk') ? cliVersionLabel(version) : null,
       provider: installed ? (spec.provider ?? providerFromModelId(model)) : null,
       model: { key: spec.modelKey, value: model },
       effort: spec.effortKey ? { key: spec.effortKey, value: orchestration[spec.effortKey] ?? '' } : null,

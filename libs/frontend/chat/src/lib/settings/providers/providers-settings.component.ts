@@ -9,7 +9,7 @@ import {
 import type {
   SettingScope, AuthVerifyDraftConnectionParams, AuthCancelDraftVerificationParams, ConnectionCheckRecord,
 } from '@ptah-extension/shared';
-import { SettingScopeRowComponent } from './setting-scope-row.component';
+import { MainAgentScopeBadgesComponent, type MainAgentScopeField } from './main-agent-scope-badges.component';
 import { ProviderConnectionCardComponent } from './provider-connection-card.component';
 import type { ProviderConnectionCardStatus } from './provider-connection-card.state';
 import {
@@ -39,7 +39,7 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
   selector: 'ptah-providers-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SettingScopeRowComponent, ProviderConnectionCardComponent, ProviderSetupWizardComponent,
+  imports: [MainAgentScopeBadgesComponent, ProviderConnectionCardComponent, ProviderSetupWizardComponent,
     ConnectionDetailDrawerComponent, RoutingMapComponent, MainAgentReassignPopoverComponent, ProviderCatalogModalComponent],
   template: `
     <div class="h-full overflow-y-auto bg-base-100 font-sans text-sm text-base-content">
@@ -57,28 +57,9 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
           <ptah-main-agent-reassign-popover main-agent-popover [open]="mainPopover() !== null"
             [initialFocus]="mainPopover()?.focus ?? null" (closed)="mainPopover.set(null)" />
           <div main-agent-badges class="contents" data-testid="main-scope-badges">
-            @for (fieldName of mainValueFields; track fieldName) {
-              @if (state.mainSources().data?.[fieldName]; as entry) {
-                <ptah-setting-scope-row [fieldName]="fieldName === 'model' ? 'Main agent model' : 'Reasoning effort'"
-                  [shortFieldName]="fieldName === 'model' ? 'Model' : 'Effort'" [scope]="entry.scope"
-                  [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(entry.key)" [workspaceName]="workspaceName()"
-                  [fallbackPreview]="entry.fallbackPreview" [disabled]="saving() || state.mainSources().status !== 'ready'"
-                  (clearRequested)="reviewClear(entry.key)"
-                  [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'" (useGlobalRequested)="reviewClear(entry.key, 'all-above-global')" />
-              }
-            }
-            @for (key of mainKeys; track key) {
-              @if (state.scopeEntry(key); as entry) {
-                <ptah-setting-scope-row [fieldName]="key === 'authMethod' ? 'Main agent authentication' : 'Main agent provider'"
-                  [shortFieldName]="key === 'authMethod' ? 'Authentication' : 'Provider'"
-                  [scope]="entry.scope" [hasOverride]="entry.hasOverride" [supportedTargets]="state.writeScopes(key)"
-                  [workspaceName]="workspaceName()" [fallbackPreview]="entry.fallbackPreview" [credentialSource]="entry.credentialSource"
-                  [fallbackValueLabel]="key === 'authMethod' ? authenticationLabel(entry.fallbackPreview?.value) : null"
-                  [hasIntermediateAppLayer]="entry.fallbackPreview?.scope === 'app'"
-                  [disabled]="saving() || state.scopes().status !== 'ready'"
-                  (clearRequested)="reviewClear(key)" (useGlobalRequested)="reviewClear(key, 'all-above-global')" />
-              }
-            }
+            <!-- Batch 52.6: one badge per overridden layer ("Workspace override"), listing its fields (prototype). -->
+            <ptah-main-agent-scope-badges [fields]="mainScopeFields()" [workspaceName]="workspaceName()"
+              (clearRequested)="reviewClear($event.key, $event.target)" />
           </div>
         </ptah-routing-map>
         } @placeholder {
@@ -238,8 +219,21 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly control = CONTROL;
   protected readonly globalTarget: readonly SettingScope[] = ['global'];
-  protected readonly mainKeys = ['authMethod', 'anthropicProviderId'];
-  protected readonly mainValueFields = ['model', 'effort'] as const;
+  /** D16 badges of the Main Agent node, in field order: model, effort, authentication, provider (Batch 52.3). */
+  protected readonly mainScopeFields = computed<readonly MainAgentScopeField[]>(() => {
+    const sources = this.state.mainSources(), saving = this.saving();
+    const field = (key: string, fieldName: string, shortFieldName: string, entry: MainAgentScopeField['entry'] | null | undefined,
+      disabled: boolean, fallbackValueLabel: string | null = null): MainAgentScopeField[] =>
+      entry ? [{ key, fieldName, shortFieldName, entry, supportedTargets: this.state.writeScopes(key), fallbackValueLabel, disabled }] : [];
+    const valuesBusy = saving || sources.status !== 'ready', scopesBusy = saving || this.state.scopes().status !== 'ready';
+    const model = sources.data?.model, effort = sources.data?.effort, auth = this.state.scopeEntry('authMethod');
+    return [
+      ...field(model?.key ?? '', 'Main agent model', 'Model', model, valuesBusy),
+      ...field(effort?.key ?? '', 'Reasoning effort', 'Effort', effort, valuesBusy),
+      ...field('authMethod', 'Main agent authentication', 'Authentication', auth, scopesBusy, auth ? this.authenticationLabel(auth.fallbackPreview?.value) : null),
+      ...field('anthropicProviderId', 'Main agent provider', 'Provider', this.state.scopeEntry('anthropicProviderId'), scopesBusy),
+    ];
+  });
   protected readonly focusRing = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
   /** The provider catalog modal is open. */
   protected readonly catalogOpen = signal(false);

@@ -20,7 +20,7 @@ const CATALOGUE: AgentListCliModelsResult = {
 };
 
 const system = (overrides: Partial<SystemCliMatrixRow> = {}): SystemCliMatrixRow => ({
-  kind: 'system', id: 'codex', cli: 'codex', name: 'Codex', installed: true, version: '1.4', provider: 'OpenAI Codex',
+  kind: 'system', id: 'codex', cli: 'codex', name: 'Codex', installed: true, version: '1.4', versionLabel: 'v1.4', provider: 'OpenAI Codex',
   status: { kind: 'ready', label: 'Ready', tone: 'success' }, enabled: true, interactive: true,
   model: { key: 'codexModel', value: 'gpt-5.5-codex' }, effort: { key: 'codexReasoningEffort', value: 'medium' },
   permission: cliPermissionNote('codex'), credentialAction: false, ...overrides,
@@ -115,6 +115,14 @@ describe('CliModelEffortPopoverComponent', () => {
     it('keeps a saved id the catalogue lacks, so opening never changes it', () => {
       create(system({ model: { key: 'codexModel', value: 'gpt-old' } }), 'model');
       expect(searchField().options()[0]).toEqual({ id: 'gpt-old', name: 'saved, not in the current list', supportsToolUse: null });
+    });
+
+    it('Batch 52.7: a model saved as "id<TAB>name" by the earlier agy parse is the selected catalogue model', () => {
+      state.delegatedModelOptions.set(ready({ ...CATALOGUE, antigravity: [{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)' }] }));
+      create(system({ id: 'antigravity', cli: 'antigravity', name: 'Antigravity', effort: null,
+        model: { key: 'antigravityModel', value: 'claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)' } }), 'model');
+      expect(searchField().selectedId()).toBe('claude-sonnet-4-6');
+      expect(searchField().options()).toEqual([{ id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6 (Thinking)', supportsToolUse: null }]);
     });
 
     it('loads the catalogue on demand and shows its loading and error states', () => {

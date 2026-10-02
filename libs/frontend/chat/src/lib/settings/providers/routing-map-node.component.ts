@@ -18,7 +18,7 @@ const DOT: Readonly<Record<RoutingNodeTone, string>> = {
  *
  * The footer action is the node's one real `<button>`, stretched over the whole node (`after:inset-0`),
  * so the entire node is one keyboard-operable target without nesting interactive elements: header
- * badges sit above the stretch (`relative z-10`) and keep their own clicks.
+ * badge buttons sit above the stretch (`relative z-10`, set on every button in the badge slot) and keep their own clicks.
  *
  * While its section loads the node shows a skeleton (`aria-busy`); a failed read shows fixed copy and
  * Retry instead of the preview, and the node action stays available.
@@ -34,16 +34,19 @@ const DOT: Readonly<Record<RoutingNodeTone, string>> = {
          The class must not contain "popover": the light theme styles every [class*='popover'] (styles.css). -->
     <div class="relative flex h-full min-h-[88px] flex-col justify-between gap-2 rounded-lg border border-base-300 bg-base-100 px-3.5 py-2.5 transition-colors hover:border-primary focus-within:border-primary has-[[role=dialog]]:z-30"
       [attr.data-testid]="'routing-node-' + nodeId()" [attr.aria-busy]="state() === 'loading'">
-      <!-- Prototype header: the status pill and the D16 badges stay on the title row; where the node is narrow the
-           title wraps (e.g. "MAIN / AGENT") instead of pushing the badges to a row of their own (Gate V 28). -->
-      <div class="flex items-start justify-between gap-2">
-        <div class="flex min-w-0 flex-1 items-start gap-1.5">
-          <span [class]="dotClass() + ' mt-1'" aria-hidden="true"></span>
-          <h3 class="min-w-0 break-words text-xs font-bold uppercase leading-4 tracking-wide text-base-content">{{ title() }}</h3>
+      <!-- Head (Batch 52.6; prototype: the title with "App override" / "Workspace override" beside it). The title is
+           one line and never shrinks; the status pill and the projected badges follow it in the same wrapping row, so
+           a badge that does not fit beside the title moves to the next line under it, whole, never truncated. The badge
+           wrapper is display: contents, so its items are items of this row. -->
+      <div class="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+        <div class="mr-auto flex shrink-0 items-center gap-1.5">
+          <span [class]="dotClass()" aria-hidden="true"></span>
+          <h3 class="whitespace-nowrap text-xs font-bold uppercase leading-4 tracking-wide text-base-content" data-testid="routing-node-title">{{ title() }}</h3>
         </div>
-        <div class="relative z-10 flex max-w-[70%] flex-none flex-wrap items-center justify-end gap-1" data-testid="routing-node-badges">
+        <!-- Every badge button rises above the stretched node action (z-10) and keeps its own click. -->
+        <div class="contents [&_button]:relative [&_button]:z-10" data-testid="routing-node-badges">
           <!-- The dot's meaning in words (prototype header pill). -->
-          <span class="whitespace-nowrap rounded bg-base-200 px-1.5 py-0.5 text-[11px] font-medium text-base-content"
+          <span class="shrink-0 whitespace-nowrap rounded bg-base-200 px-1.5 py-0.5 text-[11px] font-medium text-base-content"
             data-testid="routing-node-status">{{ statusText() }}</span>
           <ng-content select="[node-badges]" />
         </div>

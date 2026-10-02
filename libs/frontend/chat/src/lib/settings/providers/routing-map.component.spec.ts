@@ -135,9 +135,12 @@ describe('RoutingMapComponent', () => {
       const badges = within('main-agent', 'routing-node-badges');
       expect(badges?.contains(within('main-agent', 'routing-node-status') ?? null)).toBe(true);
       expect(badges?.contains(within('main-agent', 'badge') ?? null)).toBe(true);
-      // The badge group never gives way; the title wraps instead of pushing the badges to their own row.
-      expect(badges?.className).toContain('flex-none');
-      expect(node('main-agent').querySelector('h3')?.className).not.toContain('whitespace-nowrap');
+      // Batch 52.6: the title is one line and never shrinks; the pill and the badges are items of the same wrapping
+      // row (the badge wrapper is display: contents), so a badge that does not fit moves under the title, whole.
+      expect(badges?.className).toContain('contents');
+      expect(badges?.parentElement?.className).toContain('flex-wrap');
+      expect(node('main-agent').querySelector('h3')?.className).toContain('whitespace-nowrap');
+      expect(node('main-agent').querySelector('h3')?.parentElement?.className).toContain('shrink-0');
       for (const row of ['routing-main-provider-row', 'routing-main-model-row']) {
         expect(within('main-agent', row)?.className).not.toContain('flex-wrap');
       }

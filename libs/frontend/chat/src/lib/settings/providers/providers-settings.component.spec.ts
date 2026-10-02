@@ -439,6 +439,12 @@ describe('ProvidersSettingsComponent', () => {
     it('shows one badge per overridden field, naming it, and nothing for the inherited ones (RUX-6)', async () => {
       await render();
       expect(element.querySelector('[data-testid="setting-scope-row"]')).toBeNull();
+      // Batch 52.6: the node head holds one badge per overridden layer; its dialog lists the field badges.
+      const layers = Array.from(element.querySelectorAll<HTMLButtonElement>('[data-testid="main-scope-layer"]'));
+      expect(layers.map((layer) => layer.textContent?.trim())).toEqual(['Workspace override']);
+      expect(layers[0].getAttribute('aria-label')).toBe('Workspace override: Reasoning effort, Main agent provider');
+      expect(badges()).toHaveLength(0);
+      layers[0].click(); await render();
       expect(badges().map((badge) => badge.getAttribute('data-field'))).toEqual(['Reasoning effort', 'Main agent provider']);
       expect(badges()[0].textContent).toContain('Effort · Workspace');
       expect(badges()[1].textContent).toContain('Provider · Workspace');
@@ -451,6 +457,7 @@ describe('ProvidersSettingsComponent', () => {
       ['anthropicProviderId', 1, 'anthropicProviderId'],
     ])('clearing %s is reviewed with "ends running chat sessions" before it runs, with no Undo (D6)', async (_name, index, key) => {
       await render();
+      element.querySelector<HTMLButtonElement>('[data-testid="main-scope-layer"]')?.click(); await render();
       badges()[index].click(); await render();
       element.querySelector<HTMLButtonElement>('[data-testid="scope-clear-override"]')?.click(); await render();
       expect(state.clearScopeOverride).not.toHaveBeenCalled();
