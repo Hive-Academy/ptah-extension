@@ -14,6 +14,7 @@ import { NativeTabGroupComponent, type NativeTab } from '@ptah-extension/ui';
 import { CommitComposerComponent } from '../commit/commit-composer.component';
 import { ConflictBannerComponent } from '../conflict/conflict-banner.component';
 import { GitDockHeaderComponent } from '../git-dock/git-dock-header.component';
+import { HistoryTimelineComponent } from '../history/history-timeline.component';
 import { ReviewCanvasComponent } from '../review-canvas/review-canvas.component';
 import { EditorLauncherService } from '../services/editor-launcher.service';
 import { FileContentChangesService } from '../services/file-content-changes.service';
@@ -31,11 +32,13 @@ import { TaskWorktreeViewComponent } from '../task/task-worktree-view.component'
 /** Below this shell width the file tree stacks above the diff (design-spec §6.1a). */
 const STACK_BELOW_PX = 520;
 
-/**
- * The tabs this shell has so far. History joins with Batch 56; the shell is
- * not mounted before then (V3).
- */
-const SHELL_TABS: readonly ReviewTab[] = ['changes', 'commit', 'task'];
+/** The tabs this shell shows (design-spec §3). */
+const SHELL_TABS: readonly ReviewTab[] = [
+  'changes',
+  'commit',
+  'task',
+  'history',
+];
 
 function fileCountLabel(count: number): string {
   return count === 1 ? 'file' : 'files';
@@ -82,6 +85,9 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
  * - **Task tab.** The task/worktree view (branch, PR/CI, worktrees), in a
  *   `@defer` block that loads the first time the tab shows. It is told
  *   whether it shows, so its PR refresh timer runs only then.
+ * - **History tab.** The history timeline (stashes and the branch's own
+ *   commits), in a `@defer` block that loads the first time the tab shows. It
+ *   is told whether it shows, so it reads `git:log` only then.
  * - Every body stays mounted once rendered and is hidden while another tab
  *   shows.
  * - **Width.** One `ResizeObserver` on the host decides `stacked` (< 520 px)
@@ -100,6 +106,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
     CommitComposerComponent,
     ConflictBannerComponent,
     GitDockHeaderComponent,
+    HistoryTimelineComponent,
     NativeTabGroupComponent,
     ReviewCanvasComponent,
     SpotEditorComponent,
@@ -284,6 +291,35 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
               </p>
             }
           </div>
+
+          <!-- Loaded the first time the History tab shows, then kept mounted
+               (hidden); [shown] keeps its git:log reads to while it shows. -->
+          <div
+            class="min-h-0 flex-1 flex-col overflow-y-auto"
+            data-testid="review-shell-history-body"
+            [class.flex]="shownTab() === 'history'"
+            [class.hidden]="shownTab() !== 'history'"
+          >
+            @defer (when shownTab() === 'history') {
+              <ptah-history-timeline [shown]="shownTab() === 'history'" />
+            } @placeholder {
+              <p
+                class="p-4 text-xs text-base-content-muted"
+                role="status"
+                data-testid="review-shell-history-loading"
+              >
+                Loading the history…
+              </p>
+            } @error {
+              <p
+                class="p-4 text-xs text-base-content"
+                role="alert"
+                data-testid="review-shell-history-error"
+              >
+                The history could not be loaded. Reload the window to try again.
+              </p>
+            }
+          </div>
         </ptah-native-tab-group>
       }
     </div>
@@ -309,14 +345,10 @@ export class ReviewShellComponent {
     return target.kind === 'file' ? target : null;
   });
 
-  /**
-   * The tab whose body shows: the navigation's tab when this shell has it,
-   * otherwise Changes (the tab strip falls back the same way).
-   */
-  protected readonly shownTab = computed<ReviewTab>(() => {
-    const tab = this.navigation.current().tab;
-    return SHELL_TABS.includes(tab) ? tab : 'changes';
-  });
+  /** The tab whose body shows. */
+  protected readonly shownTab = computed<ReviewTab>(
+    () => this.navigation.current().tab,
+  );
 
   protected readonly tabs = computed<readonly NativeTab[]>(() => {
     const isRepo = this.gitStatus.isGitRepo();
@@ -344,6 +376,7 @@ export class ReviewShellComponent {
             }),
       },
       { id: 'task', label: 'Task' },
+      { id: 'history', label: 'History' },
     ];
   });
 

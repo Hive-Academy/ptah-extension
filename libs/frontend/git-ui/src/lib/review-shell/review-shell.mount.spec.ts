@@ -370,6 +370,56 @@ describe('ReviewShellComponent mounted with its real header and canvas', () => {
     expect(results.violations.map((violation) => violation.id)).toEqual([]);
   });
 
+  it('loads the real history timeline on the History tab and reads git:log for the workspace', async () => {
+    rpcData['git:log'] = {
+      status: 'ok',
+      mode: 'since-base',
+      base: 'origin/main',
+      branch: 'feat/x',
+      commits: [
+        {
+          sha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+          shortSha: 'a1b2c3d',
+          subject: 'feat: add hunk toolbar',
+          authorName: 'Ada',
+          authorDate: '2026-10-01T10:00:00+00:00',
+          parentCount: 1,
+          isRoot: false,
+        },
+      ],
+      truncated: false,
+    };
+    rpcData['git:stashList'] = { entries: [] };
+
+    query<HTMLButtonElement>('[data-tab-id="history"]')?.click();
+    await settle();
+    await settle();
+
+    expect(query('[role="tabpanel"] ptah-history-timeline')).not.toBeNull();
+    expect(mockRpcCall).toHaveBeenCalledWith(expect.anything(), 'git:log', {
+      workspaceRoot: '/ws/a',
+    });
+    expect(query('[data-testid="history-heading"]')?.textContent?.trim()).toBe(
+      'Commits since origin/main',
+    );
+    expect(query('[data-testid="history-commit"]')?.textContent).toContain(
+      'feat: add hunk toolbar',
+    );
+
+    const results = await axe.run(
+      query('[data-testid="review-shell-history-body"]') as Parameters<
+        typeof axe.run
+      >[0],
+      {
+        rules: {
+          'color-contrast': { enabled: false },
+          'target-size': { enabled: false },
+        },
+      },
+    );
+    expect(results.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
   it('has no axe violations', async () => {
     const results = await axe.run(
       fixture.nativeElement as Parameters<typeof axe.run>[0],
