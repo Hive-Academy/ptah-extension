@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 61/69 (P5 closed)
+Total tasks: 87 | Batches: 69 | Complete: 63/69 (P5 closed)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2471,14 +2471,14 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
   Remove, quiet PR line). New `support/spot-editor.ts`. Stale `commit-hook-failure.spec.ts` retargeted in the
   verification run.
 
-## Batch 62: Parity matrix — PENDING
+## Batch 62: Parity matrix — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent) — cross-check rows against `parity-inventory.md` and the OLD surface at 722d921ab
 - Tasks: 1 | Depends on: Batch 61
 - Verification: every `keep`/`move` row maps to a passing test (file:line); the 4 approved removals listed
 
-### Task 62.1: `parity-tests.md` — PENDING
+### Task 62.1: `parity-tests.md` — COMPLETE
 
 - File: CREATE D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/parity-tests.md
 - Plan reference: implementation-plan.md:1178-1194
@@ -2486,15 +2486,24 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: any row without a green test blocks Batches 63-66.
 - Validation notes: R10.
 - Implementation details: run `nx run-many -t test,lint,typecheck -p @ptah-extension/git-ui @ptah-extension/chat @ptah-extension/chat-ui @ptah-extension/skill-synthesis-ui ptah-extension-webview` and the Electron e2e `specs/git/*`; record results.
+- Outcome: executor senior-tester (`5e120df3a`, 4 tests added); independent review by a code-logic-reviewer subagent
+  on Sonnet (`reviews/parity-tests-review.md`, REVISE: P-1..P-14, 47 rows sampled). Blocker row 135 restored
+  (`e6ef69706`, inline layout for added/deleted files in branch review). P-1 (diff-tab close, Delete, wrap) was a
+  fifth removal outside the approved list, so it got a successor instead of a waiver: collapse a file from its
+  header, Delete or a tree row, and wrapping file stepping; P-2..P-13 closed with successors and tests (`60ab360b4`).
+  Matrix: 118 rows (64 keep, 51 move, 4 approved removals), 0 blockers, 438 citations resolve to test lines. Stale
+  e2e `row-stage-failure` and the git docs shots retargeted; `support/source-control.ts` now unused (Batch 64).
+  Runs: git-ui 1208, chat 1737, chat-ui 433, skill-synthesis-ui 428, webview 313 tests; e2e git specs green after
+  rebuild (except the out-of-scope C# AST test).
 
-## Batch 63: WorkspaceCoordinator swap — PENDING
+## Batch 63: WorkspaceCoordinator swap — COMPLETE
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 62
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
 
-### Task 63.1: Resolve `ReviewDiffService`/`GitReviewService` from the new surface — PENDING
+### Task 63.1: Resolve `ReviewDiffService`/`GitReviewService` from the new surface — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/workspace-coordinator.service.ts (+ spec)
 - Plan reference: implementation-plan.md:1190, 1198
@@ -2502,6 +2511,11 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: must land before Batch 64 deletes `DiffTabsService`.
 - Validation notes: none.
 - Implementation details: as plan.
+- Outcome (`20cd58125`): executor frontend-developer. The coordinator resolves `GitStatusService`,
+  `GitBranchesService`, `ReviewDiffService` (lazy `/services` entry) and `GitReviewService` (main barrel) by dynamic
+  import and switches/clears all four per workspace. No chat reference to the old surface remains. For Batch 64:
+  `app.config.ts:66, 225-226` still provide `DiffTabsService`; if `GitReviewService` leaves the main barrel, add it to
+  `services.ts` and switch the coordinator import. Verified: chat 1737 tests, typecheck/lint, eager guard.
 
 ## Batch 64: Old-surface deletion and barrel rewrite — PENDING
 
