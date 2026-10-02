@@ -31,6 +31,9 @@ jest.mock('@floating-ui/dom', () => {
   };
 });
 
+/** The registry's providers viewed through the optional per-tier mapping only some of them declare. */
+const TIERED_PROVIDERS: readonly { readonly id: string; readonly name: string; readonly defaultTiers?: { readonly haiku?: string } }[] = ANTHROPIC_PROVIDERS;
+
 describe('ProviderModelPickerComponent', () => {
   let listModels: jest.Mock<Promise<ProviderListModelsResult>, [string?]>;
 
@@ -449,7 +452,7 @@ describe('ProviderModelPickerComponent', () => {
     });
 
     it("names the chosen provider's own tier model when the registry declares one", async () => {
-      const entry = ANTHROPIC_PROVIDERS.find((p) => p.defaultTiers?.haiku);
+      const entry = TIERED_PROVIDERS.find((p) => p.defaultTiers?.haiku);
       expect(entry).toBeDefined();
       const fixture = await create({ provider: entry?.id });
       expect(labelOf(fixture)).toBe(
@@ -458,14 +461,14 @@ describe('ProviderModelPickerComponent', () => {
     });
 
     it('falls back to a named tier for a provider with no declared mapping', async () => {
-      const entry = ANTHROPIC_PROVIDERS.find((p) => !p.defaultTiers);
+      const entry = TIERED_PROVIDERS.find((p) => !p.defaultTiers);
       expect(entry).toBeDefined();
       const fixture = await create({ provider: entry?.id });
       expect(labelOf(fixture)).toBe(`Default (${entry?.name} haiku tier)`);
     });
 
     it('re-labels live when the user switches provider', async () => {
-      const withTiers = ANTHROPIC_PROVIDERS.find((p) => p.defaultTiers?.haiku);
+      const withTiers = TIERED_PROVIDERS.find((p) => p.defaultTiers?.haiku);
       const fixture = await create();
       expect(labelOf(fixture)).toBe("Default (active provider's haiku tier)");
 
