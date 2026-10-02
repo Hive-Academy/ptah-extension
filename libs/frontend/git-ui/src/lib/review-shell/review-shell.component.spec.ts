@@ -72,6 +72,17 @@ class MockSpotEditor {
   readonly confirmLeave = jest.fn<boolean | Promise<boolean>, []>(() => true);
 }
 
+@Component({
+  selector: 'ptah-commit-composer',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<div data-testid="mock-composer"></div>`,
+})
+class MockCommitComposer {}
+
+jest.mock('../commit/commit-composer.component', () => ({
+  CommitComposerComponent: MockCommitComposer,
+}));
 jest.mock('../git-dock/git-dock-header.component', () => ({
   GitDockHeaderComponent: MockGitDockHeader,
 }));
@@ -122,6 +133,7 @@ function makeGitStatus() {
     statusUnavailable: signal<GitStatusUnavailableReason | null>(null),
     staleReason: signal<GitStatusUnavailableReason | null>(null),
     changedFileCount: signal(3),
+    stagedCount: signal(2),
   };
 }
 
@@ -351,7 +363,7 @@ describe('ReviewShellComponent', () => {
 
   // -- Tabs -----------------------------------------------------------------
 
-  it('renders the Changes tab with its count as an accessible tablist', async () => {
+  it('renders the Changes and Commit tabs with their counts as an accessible tablist', async () => {
     const fixture = await render();
     const tablist = query(fixture, '[role="tablist"]');
     const tabs = [
@@ -360,29 +372,107 @@ describe('ReviewShellComponent', () => {
     const panel = query(fixture, '[role="tabpanel"]');
 
     expect(tablist?.getAttribute('aria-label')).toBe('Review');
-    expect(tabs).toHaveLength(1);
+    expect(tabs).toHaveLength(2);
     expect(tabs[0].textContent?.replace(/\s+/g, '')).toBe('Changes3');
     expect(tabs[0].getAttribute('aria-label')).toBe('Changes, 3 changed files');
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
     expect(tabs[0].getAttribute('tabindex')).toBe('0');
     expect(tabs[0].getAttribute('aria-controls')).toBe(panel?.id);
+    expect(tabs[1].textContent?.replace(/\s+/g, '')).toBe('Commit2');
+    expect(tabs[1].getAttribute('aria-label')).toBe('Commit, 2 staged files');
+    expect(tabs[1].getAttribute('aria-selected')).toBe('false');
+    expect(tabs[1].getAttribute('tabindex')).toBe('-1');
     expect(panel?.getAttribute('aria-labelledby')).toBe(tabs[0].id);
     expect(panel?.contains(query(fixture, 'ptah-review-canvas'))).toBe(true);
   });
 
-  it('keeps focus and selection on the only tab under arrow keys', async () => {
-    const fixture = await render();
-    const tab = query(fixture, '[role="tab"]') as HTMLButtonElement;
-    tab.focus();
+  it('says "1 staged file" in the singular', async () => {
+    gitStatus.stagedCount.set(1);
 
-    tab.dispatchEvent(
+    const fixture = await render();
+
+    expect(
+      query(fixture, '[data-tab-id="commit"]')?.getAttribute('aria-label'),
+    ).toBe('Commit, 1 staged file');
+  });
+
+  it('moves focus and selection to the Commit tab with the arrow keys', async () => {
+    const fixture = await render();
+    const changes = query(fixture, '[data-tab-id="changes"]') as HTMLElement;
+    changes.focus();
+
+    changes.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
     );
     await settle(fixture);
 
-    expect(document.activeElement).toBe(tab);
-    expect(tab.getAttribute('aria-selected')).toBe('true');
-    expect(navigation.current().tab).toBe('changes');
+    const commit = query(fixture, '[data-tab-id="commit"]');
+    expect(document.activeElement).toBe(commit);
+    expect(commit?.getAttribute('aria-selected')).toBe('true');
+    expect(navigation.current().tab).toBe('commit');
+  });
+
+  // -- Commit tab (Batch 48) --------------------------------------------------
+
+  function composer(
+    fixture: ComponentFixture<unknown>,
+  ): MockCommitComposer | null {
+    return (
+      (fixture.debugElement.query(By.directive(MockCommitComposer))
+        ?.componentInstance as MockCommitComposer | undefined) ?? null
+    );
+  }
+
+  it('does not load the commit composer until the Commit tab shows', async () => {
+    const fixture = await render();
+
+    expect(composer(fixture)).toBeNull();
+    expect(
+      query(fixture, '[data-testid="review-shell-commit-body"]')?.classList,
+    ).toContain('hidden');
+  });
+
+  it('shows the composer in the tab panel when Commit is picked', async () => {
+    const fixture = await render();
+
+    (query(fixture, '[data-tab-id="commit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    const panel = query(fixture, '[role="tabpanel"]');
+    const body = query(fixture, '[data-testid="review-shell-commit-body"]');
+    expect(navigation.current().tab).toBe('commit');
+    expect(composer(fixture)).not.toBeNull();
+    expect(panel?.contains(query(fixture, 'ptah-commit-composer'))).toBe(true);
+    expect(panel?.getAttribute('aria-labelledby')).toBe(
+      query(fixture, '[data-tab-id="commit"]')?.id,
+    );
+    expect(body?.classList).toContain('flex');
+    expect(body?.classList).not.toContain('hidden');
+    expect(
+      query(fixture, '[data-testid="review-shell-changes-body"]')?.classList,
+    ).toContain('hidden');
+  });
+
+  it('keeps both bodies mounted across tab switches', async () => {
+    const fixture = await render();
+    const before = canvas(fixture);
+
+    navigation.selectTab('commit');
+    await settle(fixture);
+    const mountedComposer = composer(fixture);
+    expect(canvas(fixture)).toBe(before);
+
+    navigation.selectTab('changes');
+    await settle(fixture);
+
+    expect(canvas(fixture)).toBe(before);
+    expect(composer(fixture)).toBe(mountedComposer);
+    expect(
+      query(fixture, '[data-testid="review-shell-commit-body"]')?.classList,
+    ).toContain('hidden');
+    expect(
+      query(fixture, '[data-testid="review-shell-changes-body"]')?.classList,
+    ).toContain('flex');
   });
 
   it('shows the Changes tab when navigation names a tab the shell does not have yet', async () => {
@@ -401,10 +491,14 @@ describe('ReviewShellComponent', () => {
     navigation.openFile('/ws/a/readme.md');
 
     const fixture = await render();
-    const tab = query(fixture, '[role="tab"]');
+    const tabs = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '[role="tab"]',
+    );
 
-    expect(tab?.textContent?.trim()).toBe('Changes');
-    expect(tab?.hasAttribute('aria-label')).toBe(false);
+    expect(tabs[0]?.textContent?.trim()).toBe('Changes');
+    expect(tabs[0]?.hasAttribute('aria-label')).toBe(false);
+    expect(tabs[1]?.textContent?.trim()).toBe('Commit');
+    expect(tabs[1]?.hasAttribute('aria-label')).toBe(false);
   });
 
   // -- Spot editor mode (design-spec §3.3) -----------------------------------

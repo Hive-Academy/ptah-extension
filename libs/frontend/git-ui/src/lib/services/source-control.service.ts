@@ -10,6 +10,8 @@ import type {
   GitUnstageResult,
   GitDiscardResult,
   GitCommitResult,
+  GitCancelOperationResult,
+  GitGenerateCommitMessageResult,
   GitShowFileResult,
 } from '@ptah-extension/shared';
 import { GitStatusService } from './git-status.service';
@@ -22,6 +24,13 @@ import { GitStatusService } from './git-status.service';
  * before the renderer gives up.
  */
 const MUTATION_RPC_TIMEOUT_MS = gitRpcTimeoutFor(GIT_HOOK_TIMEOUT_MS);
+
+/**
+ * Renderer timeout for `git:generateCommitMessage`. The backend aborts the
+ * provider call at 45 s (`COMMIT_MESSAGE_TIMEOUT_MS`), so its typed
+ * `unavailable` result lands well inside this (implementation-plan §30).
+ */
+export const COMMIT_MESSAGE_RPC_TIMEOUT_MS = 75_000;
 
 /**
  * SourceControlService - Frontend RPC wrapper for git source control operations.
@@ -124,16 +133,45 @@ export class SourceControlService {
   /**
    * Create a commit with the given message.
    * @param message - Commit message
+   * @param operationId - Optional id; the hook output then streams as
+   *   `git:operationOutput` pushes with this id and `cancelOperation` can stop it.
    */
-  async commit(message: string): Promise<RpcCallResult<GitCommitResult>> {
+  async commit(
+    message: string,
+    operationId?: string,
+  ): Promise<RpcCallResult<GitCommitResult>> {
     return rpcCall<GitCommitResult>(
       this.vscodeService,
       'git:commit',
       {
         message,
         ...this.scopeParams(),
+        ...(operationId ? { operationId } : {}),
       },
       MUTATION_RPC_TIMEOUT_MS,
+    );
+  }
+
+  /** Stop the running operation started with `operationId`. */
+  async cancelOperation(
+    operationId: string,
+  ): Promise<RpcCallResult<GitCancelOperationResult>> {
+    return rpcCall<GitCancelOperationResult>(
+      this.vscodeService,
+      'git:cancelOperation',
+      { operationId },
+    );
+  }
+
+  /** Ask the active AI provider for a message describing the staged changes. */
+  async generateCommitMessage(): Promise<
+    RpcCallResult<GitGenerateCommitMessageResult>
+  > {
+    return rpcCall<GitGenerateCommitMessageResult>(
+      this.vscodeService,
+      'git:generateCommitMessage',
+      { ...this.scopeParams() },
+      COMMIT_MESSAGE_RPC_TIMEOUT_MS,
     );
   }
 

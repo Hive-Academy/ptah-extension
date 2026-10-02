@@ -3,7 +3,10 @@ import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
 import { GIT_HOOK_TIMEOUT_MS, gitRpcTimeoutFor } from '@ptah-extension/shared';
 import { GitStatusService } from './git-status.service';
-import { SourceControlService } from './source-control.service';
+import {
+  COMMIT_MESSAGE_RPC_TIMEOUT_MS,
+  SourceControlService,
+} from './source-control.service';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -107,6 +110,43 @@ describe('SourceControlService', () => {
       'git:commit',
       { message: 'feat: new feature', workspaceRoot: '/test/workspace' },
       EXPECTED_MUTATION_TIMEOUT,
+    );
+  });
+
+  it('commit forwards an operationId when one is given', async () => {
+    await service.commit('feat: x', 'op-1');
+
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:commit',
+      {
+        message: 'feat: x',
+        workspaceRoot: '/test/workspace',
+        operationId: 'op-1',
+      },
+      EXPECTED_MUTATION_TIMEOUT,
+    );
+  });
+
+  it('cancelOperation sends only the operationId', async () => {
+    await service.cancelOperation('op-1');
+
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:cancelOperation',
+      { operationId: 'op-1' },
+    );
+  });
+
+  it('generateCommitMessage is scoped and waits 75 s', async () => {
+    await service.generateCommitMessage();
+
+    expect(COMMIT_MESSAGE_RPC_TIMEOUT_MS).toBe(75_000);
+    expect(mockRpcCall).toHaveBeenCalledWith(
+      expect.anything(),
+      'git:generateCommitMessage',
+      { workspaceRoot: '/test/workspace' },
+      75_000,
     );
   });
 

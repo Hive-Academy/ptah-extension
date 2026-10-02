@@ -11,6 +11,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { NativeTabGroupComponent, type NativeTab } from '@ptah-extension/ui';
+import { CommitComposerComponent } from '../commit/commit-composer.component';
 import { GitDockHeaderComponent } from '../git-dock/git-dock-header.component';
 import { ReviewCanvasComponent } from '../review-canvas/review-canvas.component';
 import { EditorLauncherService } from '../services/editor-launcher.service';
@@ -29,10 +30,14 @@ import { SpotEditorComponent } from '../spot-editor/spot-editor.component';
 const STACK_BELOW_PX = 520;
 
 /**
- * The tabs this shell has so far. Commit, Task and History join with Batches
- * 48, 50 and 56; the shell is not mounted before then (V3).
+ * The tabs this shell has so far. Task and History join with Batches 50 and
+ * 56; the shell is not mounted before then (V3).
  */
-const SHELL_TABS: readonly ReviewTab[] = ['changes'];
+const SHELL_TABS: readonly ReviewTab[] = ['changes', 'commit'];
+
+function fileCountLabel(count: number): string {
+  return count === 1 ? 'file' : 'files';
+}
 
 /**
  * What the spot editor exposes to the shell. Structural, so this file never
@@ -68,6 +73,9 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
  *   targets a file (design-spec §3.3, "Back to review" returns). Both bodies
  *   are `@defer` blocks, so the canvas (and Pierre behind it) and CodeMirror
  *   stay in lazy chunks. The spot editor also opens outside a repository.
+ * - **Commit tab.** The commit composer, in a `@defer` block that loads the
+ *   first time the tab shows. Both bodies stay mounted once rendered and are
+ *   hidden while the other tab shows.
  * - **Width.** One `ResizeObserver` on the host decides `stacked` (< 520 px)
  *   for the canvas; it is disconnected on destroy.
  * - **Disk changes.** `file:content-changed` batches reach the open spot
@@ -81,6 +89,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
   selector: 'ptah-review-shell',
   standalone: true,
   imports: [
+    CommitComposerComponent,
     GitDockHeaderComponent,
     NativeTabGroupComponent,
     ReviewCanvasComponent,
@@ -133,14 +142,19 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
           class="!flex min-h-0 flex-1 flex-col [&>div:first-child>button:focus-visible]:outline [&>div:first-child>button:focus-visible]:outline-2 [&>div:first-child>button:focus-visible]:outline-offset-[-2px] [&>div:first-child>button:focus-visible]:outline-[oklch(var(--s))] [&>div:first-child]:flex-shrink-0 [&>div:first-child]:bg-base-100 [&>div:first-child]:px-2 [&>div:last-child:focus-visible]:outline [&>div:last-child:focus-visible]:outline-2 [&>div:last-child:focus-visible]:outline-offset-[-2px] [&>div:last-child:focus-visible]:outline-[oklch(var(--s))] [&>div:last-child]:flex [&>div:last-child]:min-h-0 [&>div:last-child]:flex-1 [&>div:last-child]:flex-col"
           ariaLabel="Review"
           [tabs]="tabs()"
-          [activeId]="activeTab()"
+          [activeId]="shownTab()"
           (tabSelected)="onTabSelected($event)"
         >
           <!-- The header's collapse control names this id in aria-controls;
-               the changed-file tree it collapses is inside. -->
+               the changed-file tree it collapses is inside. The Changes body
+               stays mounted (hidden) while another tab shows, so the canvas
+               and an open spot editor keep their state. -->
           <div
             id="git-source-control-rail"
-            class="flex min-h-0 flex-1 flex-col"
+            class="min-h-0 flex-1 flex-col"
+            data-testid="review-shell-changes-body"
+            [class.flex]="shownTab() === 'changes'"
+            [class.hidden]="shownTab() !== 'changes'"
           >
             @if (fileTarget(); as target) {
               @defer (on immediate) {
@@ -194,6 +208,37 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
               }
             }
           </div>
+
+          <!-- Loaded the first time the Commit tab shows, then kept mounted
+               (hidden) so a running commit and its output survive a tab
+               switch. -->
+          <div
+            class="min-h-0 flex-1 flex-col overflow-y-auto"
+            data-testid="review-shell-commit-body"
+            [class.flex]="shownTab() === 'commit'"
+            [class.hidden]="shownTab() !== 'commit'"
+          >
+            @defer (when shownTab() === 'commit') {
+              <ptah-commit-composer />
+            } @placeholder {
+              <p
+                class="p-4 text-xs text-base-content-muted"
+                role="status"
+                data-testid="review-shell-commit-loading"
+              >
+                Loading the commit composer…
+              </p>
+            } @error {
+              <p
+                class="p-4 text-xs text-base-content"
+                role="alert"
+                data-testid="review-shell-commit-error"
+              >
+                The commit composer could not be loaded. Reload the window to
+                try again.
+              </p>
+            }
+          </div>
         </ptah-native-tab-group>
       }
     </div>
@@ -219,21 +264,38 @@ export class ReviewShellComponent {
     return target.kind === 'file' ? target : null;
   });
 
-  protected readonly activeTab = computed(() => this.navigation.current().tab);
+  /**
+   * The tab whose body shows: the navigation's tab when this shell has it,
+   * otherwise Changes (the tab strip falls back the same way).
+   */
+  protected readonly shownTab = computed<ReviewTab>(() => {
+    const tab = this.navigation.current().tab;
+    return SHELL_TABS.includes(tab) ? tab : 'changes';
+  });
 
   protected readonly tabs = computed<readonly NativeTab[]>(() => {
-    const count = this.gitStatus.isGitRepo()
-      ? this.gitStatus.changedFileCount()
-      : null;
+    const isRepo = this.gitStatus.isGitRepo();
+    const changed = isRepo ? this.gitStatus.changedFileCount() : null;
+    const staged = isRepo ? this.gitStatus.stagedCount() : null;
     return [
       {
         id: 'changes',
         label: 'Changes',
-        count,
-        ...(count === null
+        count: changed,
+        ...(changed === null
           ? {}
           : {
-              ariaLabel: `Changes, ${count} changed ${count === 1 ? 'file' : 'files'}`,
+              ariaLabel: `Changes, ${changed} changed ${fileCountLabel(changed)}`,
+            }),
+      },
+      {
+        id: 'commit',
+        label: 'Commit',
+        count: staged,
+        ...(staged === null
+          ? {}
+          : {
+              ariaLabel: `Commit, ${staged} staged ${fileCountLabel(staged)}`,
             }),
       },
     ];
