@@ -1517,3 +1517,179 @@ describe('CodeExecutionMCP — re-pointing queue', () => {
     expect(serversIn(disk, ROOT_A)).toEqual({});
   });
 });
+
+// ===========================================================================
+// 7. Retained roots — IMcpSubagentRootRegistrar (TASK_2026_584)
+// ===========================================================================
+
+/**
+ * A child session runs in a git worktree that is NOT an open workspace folder,
+ * and its Task subagents read `<worktree>/.mcp.json`. The retained root is
+ * planned beside the open folders, so it is written, it survives every
+ * workspace reconcile, and only `releaseRoot` takes it back.
+ */
+describe('CodeExecutionMCP — retained subagent roots', () => {
+  const WORKTREE = '/wt1';
+  const ROOT_WT = path.join(WORKTREE, '.mcp.json');
+
+  it('writes the ptah entry into a retained root that is not an open folder', async () => {
+    const disk = useVirtualDisk();
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+
+    expect(await service.retainRoot(WORKTREE)).toEqual({ registered: true });
+
+    expect(serversIn(disk, ROOT_WT)).toEqual(ptahEntryFor(WORKTREE));
+  });
+
+  it('keeps the retained root through a workspace-folder reconcile', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+    await service.retainRoot(WORKTREE);
+
+    workspaceProvider.__state.setFolders(['/wsB']);
+    await settleMcpJsonWrites();
+
+    expect(serversIn(disk, ROOT_WT)).toEqual(ptahEntryFor(WORKTREE));
+    expect(serversIn(disk, ROOT_B)).toEqual(ptahEntryFor('/wsB'));
+    expect(serversIn(disk, ROOT_A)).toEqual({});
+  });
+
+  it('removes the entry on release and leaves the open folders alone', async () => {
+    const disk = useVirtualDisk();
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+    await service.retainRoot(WORKTREE);
+
+    await service.releaseRoot(WORKTREE);
+
+    expect(serversIn(disk, ROOT_WT)).toEqual({});
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
+  });
+
+  it('a second release is a no-op that touches no file', async () => {
+    useVirtualDisk();
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.retainRoot(WORKTREE);
+    await service.releaseRoot(WORKTREE);
+
+    fsReadFileSyncMock.mockClear();
+    fsWriteFileSyncMock.mockClear();
+    await expect(service.releaseRoot(WORKTREE)).resolves.toBeUndefined();
+
+    expect(fsReadFileSyncMock).not.toHaveBeenCalled();
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('releasing a root that was never retained is a no-op', async () => {
+    useVirtualDisk();
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+
+    await expect(service.releaseRoot(WORKTREE)).resolves.toBeUndefined();
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the entry when the released root is also an open folder', async () => {
+    const disk = useVirtualDisk();
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+    await service.retainRoot('/wsA');
+
+    await service.releaseRoot('/wsA');
+
+    expect(serversIn(disk, ROOT_A)).toEqual(ptahEntryFor('/wsA'));
+  });
+
+  it('reports not-started before start() and writes nothing', async () => {
+    useVirtualDisk();
+    const { service } = build({ folders: ['/wsA'] });
+
+    expect(await service.retainRoot(WORKTREE)).toEqual({
+      registered: false,
+      reason: 'not-started',
+    });
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+
+    // Nothing was retained, so a later start + registration does not write it.
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalledWith(
+      ROOT_WT,
+      expect.anything(),
+    );
+  });
+
+  it('refuses a relative or empty root without queueing any work', async () => {
+    useVirtualDisk();
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+
+    expect(await service.retainRoot('relative/dir')).toEqual({
+      registered: false,
+      reason: 'invalid-root',
+    });
+    expect(await service.retainRoot('  ')).toEqual({
+      registered: false,
+      reason: 'invalid-root',
+    });
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a lock timeout and retains nothing', async () => {
+    const disk = useVirtualDisk();
+    const { service, workspaceProvider } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    (withMcpConfigLockMock as unknown as jest.Mock).mockImplementation(
+      async (configPath: string, task: () => Promise<unknown>) => {
+        if (configPath === ROOT_WT) {
+          throw new FileLockTimeoutError(configPath, 2000);
+        }
+        return task();
+      },
+    );
+
+    expect(await service.retainRoot(WORKTREE)).toEqual({
+      registered: false,
+      reason: 'lock-timeout',
+    });
+
+    // The refused root is not retried by the next reconcile.
+    (withMcpConfigLockMock as unknown as jest.Mock).mockImplementation(
+      async (_configPath: string, task: () => Promise<unknown>) => task(),
+    );
+    workspaceProvider.__state.setFolders(['/wsA', '/wsB']);
+    await settleMcpJsonWrites();
+    expect(serversIn(disk, ROOT_WT)).toBeUndefined();
+  });
+
+  it('stop() gives the retained entry back, and release after stop writes nothing', async () => {
+    const disk = useVirtualDisk();
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.retainRoot(WORKTREE);
+
+    await service.stop();
+    expect(serversIn(disk, ROOT_WT)).toEqual({});
+
+    fsWriteFileSyncMock.mockClear();
+    await service.releaseRoot(WORKTREE);
+    expect(fsWriteFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it('a host that never retains plans exactly the open folders', async () => {
+    const disk = useVirtualDisk();
+    const { service } = build({ folders: ['/wsA'] });
+    await service.start();
+    await service.ensureRegisteredForSubagents();
+
+    expect([...disk.keys()]).toEqual([ROOT_A]);
+  });
+});

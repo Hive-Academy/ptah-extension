@@ -77,6 +77,14 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_BACKLOG_CLEANUP_STORE: Symbol.for('PtahSkillBacklogCleanupStore'),
   /** SkillBacklogCleanupService — one-time conservative candidate cleanup. */
   SKILL_BACKLOG_CLEANUP_SERVICE: Symbol.for('PtahSkillBacklogCleanupService'),
+  /** SkillBacklogPurgeStateStore — one-row marker for the backlog purge (`0051`). */
+  SKILL_BACKLOG_PURGE_STATE_STORE: Symbol.for(
+    'PtahSkillBacklogPurgeStateStore',
+  ),
+  /** SkillRetirementService — usage-based dormancy and retirement sweep. */
+  SKILL_RETIREMENT_SERVICE: Symbol.for('PtahSkillRetirementService'),
+  /** SkillUmbrellaMergeService — umbrella merge, singletons, one-time backlog purge. */
+  SKILL_UMBRELLA_MERGE_SERVICE: Symbol.for('PtahSkillUmbrellaMergeService'),
   /** SkillClusterDedupService — cluster-centroid dedup for promoted skills. */
   SKILL_CLUSTER_DEDUP_SERVICE: Symbol.for('PtahSkillClusterDedupService'),
   /** SkillJudgeService — LLM-as-judge gate during promotion. */

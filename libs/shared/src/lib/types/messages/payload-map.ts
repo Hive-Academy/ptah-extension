@@ -108,6 +108,7 @@ import type {
   SdkTurnFailedPayload,
 } from '../sdk-hook.types';
 import type { SessionMcpStatusPayload } from './session-mcp-status';
+import type { AgentSessionOpenedPayload } from './agent-session';
 import type {
   IndexingProgressEvent,
   IndexingCompleteEvent,
@@ -366,6 +367,7 @@ export interface MessagePayloadMap {
   'session:turnFailed': SdkTurnFailedPayload;
   'session:subagentEnded': SdkSubagentEndedPayload;
   'session:mcpStatus': SessionMcpStatusPayload;
+  'agentSession:opened': AgentSessionOpenedPayload;
   'indexing:progress': IndexingProgressEvent;
   'indexing:complete': IndexingCompleteEvent;
   'boot:readinessChanged': BootReadinessChangedPayload;

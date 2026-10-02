@@ -83,11 +83,15 @@ function makeStore() {
   return {
     findById: jest.fn(),
     listByStatus: jest.fn().mockReturnValue([]),
-    listInvocations: jest.fn().mockReturnValue([]),
+    listInvocationEvents: jest.fn().mockReturnValue([]),
     getStats: jest.fn().mockReturnValue({
       candidates: 4,
       promoted: 2,
       rejected: 1,
+      active: 2,
+      dormant: 0,
+      merged: 0,
+      retired: 0,
       invocations: 7,
     }),
     getInvocationStats: jest.fn().mockReturnValue({
@@ -240,7 +244,16 @@ function makeDiagnostics() {
         prefilterRejected: 0,
         accepted: 0,
       },
-      byStatus: { candidate: 0, promoted: 0, rejected: 0, invocations: 0 },
+      byStatus: {
+        candidate: 0,
+        promoted: 0,
+        rejected: 0,
+        invocations: 0,
+        active: 0,
+        dormant: 0,
+        merged: 0,
+        retired: 0,
+      },
       recentEvents: [],
       triggers: {
         sessionEnd: true,
@@ -338,7 +351,16 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
         prefilterRejected: 5,
         accepted: 4,
       },
-      byStatus: { candidate: 10, promoted: 3, rejected: 2, invocations: 12 },
+      byStatus: {
+        candidate: 10,
+        promoted: 3,
+        rejected: 2,
+        invocations: 12,
+        active: 2,
+        dormant: 1,
+        merged: 4,
+        retired: 5,
+      },
       recentEvents: [
         { kind: 'analyze-run', timestamp: 1700000000000, sessionId: 's-1' },
       ],
@@ -356,6 +378,10 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       candidates: 10,
       promoted: 3,
       rejected: 2,
+      active: 2,
+      dormant: 1,
+      merged: 4,
+      retired: 5,
       invocations: 12,
     });
 
@@ -374,10 +400,111 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
       totalPromoted: 3,
       totalRejected: 2,
       totalInvocations: 12,
-      activeSkills: 3,
+      // Resident only: the dormant promoted row is not active.
+      activeSkills: 2,
+      totalMerged: 4,
+      totalRetired: 5,
+      totalDormant: 1,
       eligibilityHistogram: { accepted: 4 },
       triggers: { sessionEnd: true, idleMs: 300000, bootScan: false },
     });
+  });
+
+  it('carries each event id onto the wire and keeps the newest-first order of getSnapshot', async () => {
+    const { rpcHandler, diagnostics } = buildHandlers();
+    // Two events in the same millisecond, then an older one: newest-first as
+    // `SkillSynthesisService.recentEvents` returns them.
+    const newest = {
+      id: '01HNZXD07M5CEN5XA66EMZSRZY',
+      kind: 'ineligible' as const,
+      timestamp: 1700000000500,
+      sessionId: 's-b',
+    };
+    // Realistic ineligible event: reason + candidateId live outside `stats`
+    // internally and must be folded into wire `stats`, exactly as the live
+    // SKILL_SYNTHESIS_EVENT broadcast does (see the matching literal in
+    // skill-synthesis.service.spec.ts "folds reason and candidateId ...").
+    const sameMs = {
+      id: '01HNZXD07M5CEN5XA66EMZSRZX',
+      kind: 'ineligible' as const,
+      timestamp: 1700000000500,
+      sessionId: 's-a',
+      reason: 'prefilterTooThin',
+      candidateId: 'cand_1',
+      stats: { turns: 2 },
+    };
+    const older = {
+      id: '01HNZXD07M5CEN5XA66EMZSRZW',
+      kind: 'error' as const,
+      timestamp: 1700000000000,
+      sessionId: 's-a',
+      error: 'boom',
+    };
+    diagnostics.getSnapshot.mockResolvedValue({
+      lastAnalyzeRunAt: null,
+      lastCuratorPassAt: null,
+      eligibilityHistogram: {
+        prefilterTooThin: 0,
+        prefilterRejected: 0,
+        accepted: 0,
+      },
+      byStatus: {
+        candidate: 0,
+        promoted: 0,
+        rejected: 0,
+        invocations: 0,
+        active: 0,
+        dormant: 0,
+        merged: 0,
+        retired: 0,
+      },
+      recentEvents: [newest, sameMs, older],
+      triggers: {
+        sessionEnd: true,
+        idleMs: 600000,
+        bootScan: true,
+        subagentStop: { enabled: true },
+        postToolUse: { enabled: true, minEditCount: 3 },
+        turnComplete: { enabled: true },
+        maxAnalyzesPerHour: 6,
+      },
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:diagnostics', {
+      workspaceRoot: '/workspace/project',
+    })) as { recentEvents: Array<Record<string, unknown>> };
+
+    expect(result.recentEvents.map((e) => e['id'])).toEqual([
+      newest.id,
+      sameMs.id,
+      older.id,
+    ]);
+    expect(result.recentEvents).toEqual([
+      {
+        id: newest.id,
+        kind: 'ineligible',
+        timestamp: 1700000000500,
+        sessionId: 's-b',
+        stats: undefined,
+        error: undefined,
+      },
+      {
+        id: sameMs.id,
+        kind: 'ineligible',
+        timestamp: 1700000000500,
+        sessionId: 's-a',
+        stats: { turns: 2, candidateId: 'cand_1', reason: 'prefilterTooThin' },
+        error: undefined,
+      },
+      {
+        id: older.id,
+        kind: 'error',
+        timestamp: 1700000000000,
+        sessionId: 's-a',
+        stats: undefined,
+        error: 'boom',
+      },
+    ]);
   });
 
   it('rejects invalid workspaceRoot with INVALID_PARAMS', async () => {
@@ -403,6 +530,97 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
     const rpcErr = thrown as RpcUserError;
     expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
     expect(rpcErr.message).not.toContain('SQLITE_CORRUPT');
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:stats', () => {
+  it('reports resident-only activeSkills and event-based invocations', async () => {
+    const { rpcHandler, store } = buildHandlers();
+    store.getStats.mockReturnValue({
+      candidates: 6,
+      promoted: 5,
+      rejected: 3,
+      active: 3,
+      dormant: 2,
+      merged: 1,
+      retired: 2,
+      invocations: 9,
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:stats', {});
+
+    expect(result).toEqual({
+      totalCandidates: 6,
+      totalPromoted: 5,
+      totalRejected: 3,
+      totalInvocations: 9,
+      activeSkills: 3,
+    });
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — skillSynthesis:invocations', () => {
+  it('reads tracker events by candidate id and maps them onto the wire', async () => {
+    const { rpcHandler, store } = buildHandlers();
+    store.listInvocationEvents.mockReturnValue([
+      {
+        id: 'evt-2',
+        skillId: 'cand_1',
+        sessionId: 's-2',
+        succeeded: true,
+        invokedAt: 1700000000500,
+        notes: 'tool-use',
+        contextId: 'ctx-1',
+      },
+      {
+        id: 'evt-1',
+        skillId: 'cand_1',
+        sessionId: 's-1',
+        succeeded: false,
+        invokedAt: 1700000000000,
+        notes: null,
+        contextId: null,
+      },
+    ]);
+
+    const result = await rpcHandler.call('skillSynthesis:invocations', {
+      skillId: 'cand_1',
+      limit: 25,
+    });
+
+    expect(store.listInvocationEvents).toHaveBeenCalledWith('cand_1', 25);
+    expect(result).toEqual({
+      invocations: [
+        {
+          id: 'evt-2',
+          skillId: 'cand_1',
+          sessionId: 's-2',
+          succeeded: true,
+          invokedAt: 1700000000500,
+          notes: 'tool-use',
+        },
+        {
+          id: 'evt-1',
+          skillId: 'cand_1',
+          sessionId: 's-1',
+          succeeded: false,
+          invokedAt: 1700000000000,
+          notes: null,
+        },
+      ],
+    });
+  });
+
+  it('defaults the limit to 200 and returns [] without a skillId', async () => {
+    const { rpcHandler, store } = buildHandlers();
+
+    await rpcHandler.call('skillSynthesis:invocations', { skillId: 'cand_9' });
+    expect(store.listInvocationEvents).toHaveBeenCalledWith('cand_9', 200);
+
+    store.listInvocationEvents.mockClear();
+    const empty = await rpcHandler.call('skillSynthesis:invocations', {});
+    expect(empty).toEqual({ invocations: [] });
+    expect(store.listInvocationEvents).not.toHaveBeenCalled();
   });
 });
 
@@ -2772,8 +2990,6 @@ const fakeSuggestionRow = {
 function makeSuggestionStore() {
   return {
     listByStatus: jest.fn().mockReturnValue([]),
-    hasExistingForCluster: jest.fn().mockReturnValue(false),
-    insertPending: jest.fn(),
     findById: jest.fn().mockReturnValue(fakeSuggestionRow),
     updatePending: jest.fn().mockReturnValue(fakeSuggestionRow),
   };

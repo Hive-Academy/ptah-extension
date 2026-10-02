@@ -9,6 +9,18 @@ export const CLI_AGENT_RUNTIME_TOKENS = {
    */
   AGENT_REPORT_ROUTER: Symbol.for('AgentReportRouter'),
   AGENT_ROLE_RESOLVER: Symbol.for('AgentRoleResolver'),
+  /**
+   * `ISessionSpawner` (TASK_2026_584): child chat sessions started with
+   * `ptah_session_start`. Registered by this lib's `register.ts` once the
+   * spawner exists; consumers resolve it optionally.
+   */
+  SESSION_SPAWNER: Symbol.for('SessionSpawner'),
+  /**
+   * `IChildChatSessionHost` (TASK_2026_584): the chat-path adapter a host
+   * registers so the spawner can start a child session. Absent in a host
+   * without a chat runtime.
+   */
+  CHILD_CHAT_SESSION_HOST: Symbol.for('ChildChatSessionHost'),
 } as const;
 
 export type CliAgentRuntimeDIToken = keyof typeof CLI_AGENT_RUNTIME_TOKENS;

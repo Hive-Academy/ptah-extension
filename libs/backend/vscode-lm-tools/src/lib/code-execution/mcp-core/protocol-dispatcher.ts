@@ -123,6 +123,19 @@ import {
   buildSurfaceUpdateTool,
 } from './surface-tools';
 import { handleSurfaceToolCall } from './surface-tool-handlers';
+import {
+  SESSION_READ_TOOL_NAME,
+  SESSION_SEND_TOOL_NAME,
+  SESSION_START_TOOL_NAME,
+  SESSION_STATUS_TOOL_NAME,
+  SESSION_STOP_TOOL_NAME,
+  buildSessionReadTool,
+  buildSessionSendTool,
+  buildSessionStartTool,
+  buildSessionStatusTool,
+  buildSessionStopTool,
+} from './session-tools';
+import { handleSessionToolCall } from './session-tool-handlers';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 import { buildServerInstructions } from './server-instructions';
@@ -439,6 +452,13 @@ function buildToolDefinitions(
           buildAgentReportTool(),
           buildAgentStopTool(),
           buildAgentListTool(),
+          // Child chat sessions (TASK_2026_584): the same group, so the one
+          // `agent` toggle governs every way to start delegated work.
+          buildSessionStartTool(),
+          buildSessionSendTool(),
+          buildSessionStatusTool(),
+          buildSessionReadTool(),
+          buildSessionStopTool(),
         ]
       : []),
     ...(!disabled.has('git')
@@ -1194,8 +1214,21 @@ async function handleIndividualTool(
         // guessing would deliver one agent's report into another's session.
         // Read from the request context only: `resolveMcpCaller` already
         // treats an empty or whitespace-only id as absent.
+        //
+        // A spawned agent (`/agent/{id}`) wins. Without one, a calling chat
+        // session (`/session/{id}`) reports as a child session
+        // (TASK_2026_584): the router delivers only when that session IS a
+        // child started with ptah_session_start, and refuses any other
+        // session itself. Neither id -> today's `unattributed-caller`.
         const callerAgentId = getCallerAgentId();
-        if (callerAgentId === undefined) {
+        const callerSessionId = getCallerSessionId()?.trim() || undefined;
+        const { message, summary } = parsed.data;
+        let reportInput: Parameters<PtahAPI['agent']['report']>[0];
+        if (callerAgentId !== undefined) {
+          reportInput = { agentId: callerAgentId, message, summary };
+        } else if (callerSessionId !== undefined) {
+          reportInput = { childSessionId: callerSessionId, message, summary };
+        } else {
           return await createToolSuccessResponse(
             request,
             formatAgentReport({
@@ -1205,11 +1238,7 @@ async function handleIndividualTool(
             deps,
           );
         }
-        const delivery = await ptahAPI.agent.report({
-          agentId: callerAgentId,
-          message: parsed.data.message,
-          summary: parsed.data.summary,
-        });
+        const delivery = await ptahAPI.agent.report(reportInput);
         return await createToolSuccessResponse(
           request,
           formatAgentReport(delivery),
@@ -1987,6 +2016,25 @@ async function handleIndividualTool(
             sessionId: getCallerSessionId(),
             toolCallId: request.id.toString(),
           },
+          logger,
+        );
+        return reply.isError
+          ? toolErrorResponse(request, reply.text)
+          : await createToolSuccessResponse(request, reply.text, deps);
+      }
+
+      // Child chat sessions (TASK_2026_584). The caller is the transport's
+      // session id, read by the namespace from the request context; the
+      // arguments never carry it.
+      case SESSION_START_TOOL_NAME:
+      case SESSION_SEND_TOOL_NAME:
+      case SESSION_STATUS_TOOL_NAME:
+      case SESSION_READ_TOOL_NAME:
+      case SESSION_STOP_TOOL_NAME: {
+        const reply = await handleSessionToolCall(
+          name,
+          args,
+          ptahAPI.session,
           logger,
         );
         return reply.isError

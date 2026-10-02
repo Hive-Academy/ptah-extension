@@ -379,6 +379,11 @@ Edge cases:
 - From the correction review (moderate, needs a backend change): a registration race. A turn-1 close
   sends `chat:abort` with the tab id; if that arrives before the backend has registered the record for
   that tab, `endSession` returns 'already-ended' and the process that registers next is left running.
+- After merging main (TASK_2026_584 agent-started child tabs): closing a child tab ends the child session like any
+  tab (consistent with 584, which treats a child-tab close as deliberate). Gap: a `live` child tab closed before its
+  session id resolves has no AbortController and `claudeSessionId` null, so no `chat:abort` is sent and the child keeps
+  running (same as before this task, not a regression). A fix would abort by the child's backend tab id for tabs with
+  `agentOrigin`.
 - Ptah lane issue (not this repo's code): a shared antigravity CLI session id delivered another
   session's report to this task's lane. Ptah should keep lane session ids per task/session.
 - Open item, accepted by the orchestrator, NOT a pass: the claude.exe runtime check (visual-review.md

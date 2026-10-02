@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   input,
+  output,
 } from '@angular/core';
 import type {
   EligibilityHistogramDto,
@@ -12,6 +13,9 @@ import type {
   SkillSynthesisQueueStage,
   SkillSynthesisStageSpend,
 } from '@ptah-extension/shared';
+
+import type { SkillByStatusCounts } from '../services/skill-diagnostics-state.service';
+import { EligibilityHistogramComponent } from './diagnostics/eligibility-histogram.component';
 
 /**
  * A stage key as the cost strip folds on it: the eleven queue stages plus the
@@ -84,8 +88,11 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
  *
  * Three bands, in the order a user asks the questions:
  *
- *  1. **Is analysis happening at all?** — last analysis + today's accepted /
- *     ineligible split.
+ *  1. **Is analysis happening at all?** — last analysis (relative, with the
+ *     absolute time), last curator pass, today's sessions as one total with
+ *     its accepted / ineligible split and the per-bucket bars, candidates by
+ *     status, and a manual Refresh. `recentEvents` is NEWEST-FIRST, so the
+ *     reason chip reads `recentEvents[0]` as the latest event.
  *  2. **Is the drain running?** — the recent `job_runs` feed. Before this
  *     existed the only signal here was a rate-limit chip on the newest event,
  *     which said nothing when the cron tier simply never fired.
@@ -116,6 +123,7 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
   selector: 'ptah-skill-pipeline-status',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [EligibilityHistogramComponent],
   template: `
     <section
       class="overflow-hidden rounded-xl border border-base-300 bg-base-200/40"
@@ -123,33 +131,121 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
       aria-label="Skill synthesis pipeline status"
     >
       <div class="border-b border-base-300 px-4 py-3">
-        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-          <span class="text-base-content-muted">Last analysis:</span>
-          <span class="font-medium">{{ lastAnalysisLabel() }}</span>
-          @if (reasonChip(); as chip) {
-            <span
-              class="inline-flex items-center gap-1.5 text-xs text-base-content-muted"
-              data-testid="skills-pipeline-reason"
-            >
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <span class="text-base-content-muted">Last analysis:</span>
               <span
-                class="inline-block size-1.5 rounded-full bg-warning"
-                aria-hidden="true"
-              ></span>
-              {{ chip.label }}
-            </span>
-          }
+                class="font-medium"
+                [attr.title]="lastAnalysisAbsolute()"
+                data-testid="skills-pipeline-last-run"
+                >{{ lastAnalysisLabel() }}</span
+              >
+              @if (lastAnalyzeRunAt() !== null) {
+                <span
+                  class="text-xs text-base-content-muted"
+                  data-testid="skills-pipeline-last-run-absolute"
+                  >{{ lastAnalysisAbsolute() }}</span
+                >
+              }
+              @if (reasonChip(); as chip) {
+                <span
+                  class="inline-flex items-center gap-1.5 text-xs text-base-content-muted"
+                  data-testid="skills-pipeline-reason"
+                >
+                  <span
+                    class="inline-block size-1.5 rounded-full bg-warning"
+                    aria-hidden="true"
+                  ></span>
+                  {{ chip.label }}
+                </span>
+              }
+            </div>
+            <p
+              class="mt-1 text-xs text-base-content-muted"
+              data-testid="skills-pipeline-last-curator"
+            >
+              Last curator pass:
+              <span class="text-base-content">{{ lastCuratorAbsolute() }}</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm transition-colors duration-150"
+            [disabled]="refreshing()"
+            (click)="refresh.emit()"
+            data-testid="skills-pipeline-refresh"
+          >
+            Refresh
+          </button>
         </div>
-        <p class="mt-1 text-xs text-base-content-muted">
-          Today:
-          <span class="tabular-nums text-base-content-muted">{{
-            acceptedToday()
-          }}</span>
-          accepted,
-          <span class="tabular-nums text-base-content-muted">{{
-            ineligibleToday()
-          }}</span>
-          ineligible
-        </p>
+
+        <div class="mt-3" data-testid="skills-pipeline-sessions-today">
+          <p class="text-xs text-base-content-muted">
+            Sessions analyzed today
+            <span class="tabular-nums text-base-content"
+              >({{ sessionsToday() }})</span
+            >:
+            <span class="tabular-nums text-base-content-muted">{{
+              acceptedToday()
+            }}</span>
+            accepted,
+            <span class="tabular-nums text-base-content-muted">{{
+              ineligibleToday()
+            }}</span>
+            ineligible
+          </p>
+          <div class="mt-2">
+            <ptah-eligibility-histogram [histogram]="histogram()" />
+          </div>
+        </div>
+
+        @if (byStatus(); as counts) {
+          <div
+            class="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs"
+            role="group"
+            aria-label="Candidates by status"
+            data-testid="skills-pipeline-by-status"
+          >
+            <span class="text-base-content-muted">Candidates by status</span>
+            <span>
+              <span class="font-semibold tabular-nums">{{
+                counts.totalCandidates
+              }}</span>
+              <span class="text-base-content-muted"> Candidates</span>
+            </span>
+            <span>
+              <span class="font-semibold tabular-nums">{{
+                counts.totalPromoted
+              }}</span>
+              <span class="text-base-content-muted"> Promoted</span>
+            </span>
+            <span>
+              <span class="font-semibold tabular-nums">{{
+                counts.totalRejected
+              }}</span>
+              <span class="text-base-content-muted"> Rejected</span>
+            </span>
+            <span>
+              <span class="font-semibold tabular-nums">{{
+                counts.totalMerged
+              }}</span>
+              <span class="text-base-content-muted"> Merged</span>
+            </span>
+            <span>
+              <span class="font-semibold tabular-nums">{{
+                counts.totalRetired
+              }}</span>
+              <span class="text-base-content-muted"> Retired</span>
+            </span>
+            <span>
+              <span class="font-semibold tabular-nums">{{
+                counts.totalDormant
+              }}</span>
+              <span class="text-base-content-muted"> Dormant</span>
+            </span>
+          </div>
+        }
       </div>
 
       <div class="border-b border-base-300 px-4 py-3">
@@ -276,8 +372,24 @@ const IN_FLIGHT_STATUSES: ReadonlySet<SkillSynthesisQueueItem['status']> =
 export class SkillPipelineStatusComponent {
   public readonly lastAnalyzeRunAt = input.required<number | null>();
   public readonly histogram = input.required<EligibilityHistogramDto>();
+  /** Recent skill-synthesis events, NEWEST-FIRST (`[0]` is the latest). */
   public readonly recentEvents =
     input.required<readonly SkillSynthesisEventWire[]>();
+
+  /** When the curator last ran; `null` renders "Never". */
+  public readonly lastCuratorPassAt = input<number | null>(null);
+
+  /**
+   * Candidate counts by status from the diagnostics snapshot. `null` (the
+   * default for hosts that do not pass it) hides the row.
+   */
+  public readonly byStatus = input<SkillByStatusCounts | null>(null);
+
+  /** True while the host's refresh is in flight; disables Refresh. */
+  public readonly refreshing = input<boolean>(false);
+
+  /** Manual refresh request; the host re-reads the diagnostics snapshot. */
+  public readonly refresh = output<void>();
 
   /** Recent drain `job_runs`, most-recently-scheduled first. */
   public readonly drainRuns = input<readonly SkillSynthesisDrainRun[]>([]);
@@ -304,6 +416,19 @@ export class SkillPipelineStatusComponent {
     return this.formatRelative(this.nowMs() - ts);
   });
 
+  protected readonly lastAnalysisAbsolute = computed<string>(() =>
+    this.formatAbsolute(this.lastAnalyzeRunAt()),
+  );
+
+  protected readonly lastCuratorAbsolute = computed<string>(() =>
+    this.formatAbsolute(this.lastCuratorPassAt()),
+  );
+
+  protected readonly sessionsToday = computed<number>(() => {
+    const h = this.histogram();
+    return h.prefilterTooThin + h.prefilterRejected + h.accepted;
+  });
+
   protected readonly acceptedToday = computed<number>(
     () => this.histogram().accepted,
   );
@@ -318,6 +443,7 @@ export class SkillPipelineStatusComponent {
   } | null>(() => {
     const events = this.recentEvents();
     if (events.length === 0) return null;
+    // Input contract is newest-first, so the first event is the latest.
     const latest = events[0];
     if (latest.kind === 'ineligible') {
       return { label: 'ineligible' };
@@ -425,6 +551,11 @@ export class SkillPipelineStatusComponent {
   protected readonly totalRows = computed<number>(
     () => this.queueItems().length,
   );
+
+  /** Absolute local time, or "Never" when there is no timestamp. */
+  private formatAbsolute(ts: number | null): string {
+    return ts ? new Date(ts).toLocaleString() : 'Never';
+  }
 
   private nowMs(): number {
     return this.now() ?? Date.now();
