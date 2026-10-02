@@ -14,6 +14,7 @@ import {
   DestroyRef,
   ElementRef,
 } from '@angular/core';
+import { AlertTriangle, LucideAngularModule } from 'lucide-angular';
 import { MessageBubbleComponent } from '../message-bubble.component';
 import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
 import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
@@ -140,6 +141,7 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
 @Component({
   selector: 'ptah-chat-transcript',
   imports: [
+    LucideAngularModule,
     MessageBubbleComponent,
     ChatEmptyStateComponent,
     TranscriptSlotDirective,
@@ -485,6 +487,8 @@ export class ChatTranscriptComponent {
   protected readonly changeSetHost = computed<ChangeSetCardHost>(() =>
     this.vscodeService.isElectron ? 'electron' : 'vscode',
   );
+
+  protected readonly ChangeSetErrorIcon = AlertTriangle;
 
   /** The last failed action per card (by turn), shown inline under it. */
   private readonly changeSetErrors = signal<ReadonlyMap<string, string>>(

@@ -60,18 +60,32 @@ function anchorInTurnWindow(
 }
 
 /**
+ * How far the renderer's clock may run ahead of the backend's and still
+ * find the turn's own user message in the fallback. The renderer stamps the
+ * user message before the backend's prompt hook stamps `turnStartedAt`, so on
+ * one clock the message is never later; a later key is skew. Larger skews
+ * keep the old behaviour (the previous turn's message can win).
+ */
+export const ANCHOR_CLOCK_SKEW_MS = 2_000;
+
+/**
  * Fallback when no assistant key falls in the window (a clock the two sides
  * do not share): the turn whose user message is the last one sent at or
- * before `turnStartedAt`, and in it the last assistant message before the
- * next user message. A turn whose user message is not in the transcript (an
- * unloaded older page) gets no card rather than a wrong one.
+ * before `turnStartedAt` (plus {@link ANCHOR_CLOCK_SKEW_MS}, never past
+ * `turnEndedAt`), and in it the last assistant message before the next user
+ * message. A turn whose user message is not in the transcript (an unloaded
+ * older page) gets no card rather than a wrong one.
  */
 function anchorAfterUserMessage(
   messages: readonly ExecutionChatMessage[],
   keys: readonly number[],
   changeSet: TurnChangeSet,
 ): string | null {
-  let userIndex = upperBound(keys, changeSet.turnStartedAt) - 1;
+  const latestUserKey = Math.min(
+    changeSet.turnStartedAt + ANCHOR_CLOCK_SKEW_MS,
+    changeSet.turnEndedAt,
+  );
+  let userIndex = upperBound(keys, latestUserKey) - 1;
   while (userIndex >= 0 && messages[userIndex].role !== 'user') userIndex--;
   if (userIndex < 0) return null;
   let anchor: string | null = null;

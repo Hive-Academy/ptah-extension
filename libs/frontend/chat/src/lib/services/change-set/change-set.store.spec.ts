@@ -163,6 +163,30 @@ describe('ChangeSetStore', () => {
       ]);
     });
 
+    it('carries the binary flag through validation and drops a malformed one', async () => {
+      const binaryFile = {
+        path: 'logo.png',
+        status: 'A',
+        additions: null,
+        deletions: null,
+        binary: true,
+      } as const;
+      persisted = [
+        changeSet({ files: [binaryFile] }),
+        changeSet({
+          turnStartedAt: 300,
+          turnEndedAt: 400,
+          files: [{ ...binaryFile, binary: 'yes' as unknown as boolean }],
+        }),
+      ];
+      const store = createStore();
+      await openSession('s1');
+
+      const sets = store.changeSetsFor('s1');
+      expect(sets).toHaveLength(1);
+      expect(sets[0].files[0].binary).toBe(true);
+    });
+
     it('keeps live sets only, and logs, when the read fails', async () => {
       persisted = null;
       const store = createStore();
@@ -241,10 +265,146 @@ describe('ChangeSetStore', () => {
       expect([...store.marksFor(set).conflicted]).toEqual(['src/a.ts']);
     });
 
+    describe('a file recorded as U at turn end', () => {
+      beforeEach(() => {
+        persisted = [
+          changeSet({
+            files: [
+              {
+                path: 'src/a.ts',
+                status: 'U',
+                additions: null,
+                deletions: null,
+              },
+              { path: 'src/b.ts', status: 'A', additions: 10, deletions: 0 },
+            ],
+          }),
+        ];
+      });
+
+      it('is conflicted from the record until a trustworthy status read', async () => {
+        const store = createStore();
+        await openSession('s1');
+        const [set] = store.changeSetsFor('s1');
+
+        expect([...store.marksFor(set).conflicted]).toEqual(['src/a.ts']);
+        expect(store.marksFor(set).reconciled.size).toBe(0);
+        // Same object on every read, so a card input keeps its identity.
+        expect(store.marksFor(set)).toBe(store.marksFor(set));
+      });
+
+      it('reconciles once the conflict is resolved and committed', async () => {
+        gitInfo = status([{ path: 'src/b.ts' }]);
+        const store = createStore();
+        await openSession('s1');
+        await passDebounce();
+        const [set] = store.changeSetsFor('s1');
+
+        expect([...store.marksFor(set).reconciled]).toEqual(['src/a.ts']);
+        expect(store.marksFor(set).conflicted.size).toBe(0);
+      });
+
+      it('is neither conflicted nor reconciled once resolved but not committed', async () => {
+        gitInfo = status([
+          { path: 'src/a.ts', status: 'M' },
+          { path: 'src/b.ts' },
+        ]);
+        const store = createStore();
+        await openSession('s1');
+        await passDebounce();
+        const [set] = store.changeSetsFor('s1');
+
+        expect(store.marksFor(set).conflicted.size).toBe(0);
+        expect(store.marksFor(set).reconciled.size).toBe(0);
+      });
+
+      it('falls back to the record again when the status becomes untrustworthy', async () => {
+        gitInfo = status([{ path: 'src/b.ts' }]);
+        const store = createStore();
+        await openSession('s1');
+        await passDebounce();
+        gitInfo = status([], { statusUnavailable: 'timeout' });
+        store.handleMessage({
+          type: MESSAGE_TYPES.SESSION_TURN_ENDED,
+          payload: { sessionId: 's1' },
+        });
+        await passDebounce();
+        const [set] = store.changeSetsFor('s1');
+
+        expect([...store.marksFor(set).conflicted]).toEqual(['src/a.ts']);
+        expect(store.marksFor(set).reconciled.size).toBe(0);
+      });
+    });
+
+    it('never lets a read in flight replace a newer git:status-update', async () => {
+      let resolveRead: (value: unknown) => void = () => undefined;
+      const store = createStore();
+      await openSession('s1');
+      mockRpcCall.mockImplementation(async (_vscode, method: string) => {
+        if (method !== 'git:info') throw new Error(`unexpected ${method}`);
+        return new Promise((resolve) => (resolveRead = resolve));
+      });
+      await passDebounce();
+      expect(rpcCallsFor('git:info')).toHaveLength(1);
+
+      // Newer: everything committed. Arrives while the read is in flight.
+      store.handleMessage({
+        type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+        payload: { ...status([]), workspaceRoot: ROOT },
+      });
+      // Older: the read started before the push and saw a conflict.
+      resolveRead({
+        success: true,
+        data: status([{ path: 'src/a.ts', status: 'U' }, { path: 'src/b.ts' }]),
+      });
+      await jest.advanceTimersByTimeAsync(0);
+      const [set] = store.changeSetsFor('s1');
+      expect(store.marksFor(set).conflicted.size).toBe(0);
+
+      await passDebounce();
+      expect(store.marksFor(set).reconciled.size).toBe(2);
+      expect(store.marksFor(set).conflicted.size).toBe(0);
+      expect(rpcCallsFor('git:info')).toHaveLength(1);
+    });
+
+    it('applies a git:status-update to every loaded session in that tree', async () => {
+      persisted = [
+        changeSet(),
+        changeSet({ sessionId: 's2' }),
+        changeSet({ sessionId: 's3', workspaceRoot: 'D:/elsewhere' }),
+      ];
+      const store = createStore();
+      await openSession('s1');
+      await openSession('s3');
+      await openSession('s2');
+      await passDebounce();
+      const callsBefore = rpcCallsFor('git:info').length;
+
+      // s2 is active; s1 is a visible background canvas tile.
+      store.handleMessage({
+        type: MESSAGE_TYPES.GIT_STATUS_UPDATE,
+        payload: { ...status([]), workspaceRoot: ROOT },
+      });
+      await passDebounce();
+
+      expect(store.marksFor(store.changeSetsFor('s1')[0]).reconciled.size).toBe(
+        2,
+      );
+      expect(store.marksFor(store.changeSetsFor('s2')[0]).reconciled.size).toBe(
+        2,
+      );
+      expect(store.marksFor(store.changeSetsFor('s3')[0]).reconciled.size).toBe(
+        0,
+      );
+      expect(rpcCallsFor('git:info')).toHaveLength(callsBefore);
+    });
+
     it('keeps a file inside a collapsed untracked directory changed', async () => {
       persisted = [
         changeSet({
-          files: [{ path: 'new/dir/x.ts', status: 'A', additions: 1, deletions: 0 }],
+          files: [
+            { path: 'new/dir/x.ts', status: 'A', additions: 1, deletions: 0 },
+          ],
         }),
       ];
       gitInfo = status([{ path: 'new/', status: '??', isDirectory: true }]);
@@ -334,7 +494,10 @@ describe('ChangeSetStore', () => {
 
     it.each([
       ['the read fails', null],
-      ['the status is unavailable', status([], { statusUnavailable: 'timeout' })],
+      [
+        'the status is unavailable',
+        status([], { statusUnavailable: 'timeout' }),
+      ],
       ['the tree is not a repository', status([], { isGitRepo: false })],
     ])('shows no marks and keeps counts when %s', async (_label, info) => {
       const store = createStore();

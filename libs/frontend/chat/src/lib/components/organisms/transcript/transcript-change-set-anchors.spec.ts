@@ -75,6 +75,22 @@ describe('anchorChangeSets', () => {
     expect(anchorChangeSets(TRANSCRIPT, [set]).get('a1b')).toEqual([set]);
   });
 
+  it('finds the turn own user message when the renderer clock runs slightly ahead', () => {
+    // u2 is stamped at 200, 1 ms after the backend's turnStartedAt (199), and
+    // no assistant key falls in (199, 205]. Without the skew tolerance the
+    // fallback walked back to u1 and anchored the card on the previous turn.
+    const set = changeSet(199, 205);
+    const anchors = anchorChangeSets(TRANSCRIPT, [set]);
+    expect(anchors.get('a2')).toEqual([set]);
+    expect(anchors.get('a1b')).toBeUndefined();
+  });
+
+  it('never reaches past turnEndedAt for the skew tolerance', () => {
+    // u2 (200) is within the tolerance of 150 but after the turn ended (199).
+    const set = changeSet(150, 199);
+    expect(anchorChangeSets(TRANSCRIPT, [set]).get('a1b')).toEqual([set]);
+  });
+
   it('renders no card for a turn whose messages are not loaded', () => {
     const olderTurn = changeSet(10, 20);
     expect(anchorChangeSets(TRANSCRIPT, [olderTurn])).toBe(

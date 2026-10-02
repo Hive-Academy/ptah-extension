@@ -75,7 +75,8 @@ function isChangeSetFile(value: unknown): boolean {
     isRecord(value) &&
     typeof value['path'] === 'string' &&
     value['path'] !== '' &&
-    FILE_STATUSES.has(value['status'] as TurnChangeSetFileStatus)
+    FILE_STATUSES.has(value['status'] as TurnChangeSetFileStatus) &&
+    (value['binary'] === undefined || typeof value['binary'] === 'boolean')
   );
 }
 
@@ -128,7 +129,8 @@ function mergeChangeSets(
   incoming: readonly TurnChangeSet[],
 ): readonly TurnChangeSet[] {
   const byKey = new Map<string, TurnChangeSet>();
-  for (const changeSet of current) byKey.set(changeSetKey(changeSet), changeSet);
+  for (const changeSet of current)
+    byKey.set(changeSetKey(changeSet), changeSet);
   for (const changeSet of incoming) {
     const key = changeSetKey(changeSet);
     if (!byKey.has(key)) byKey.set(key, changeSet);
@@ -193,6 +195,21 @@ function marksOf(
 }
 
 /**
+ * Marks when no trustworthy status read exists: the files recorded as
+ * unmerged at turn end stay conflicted, nothing is reconciled. A status read
+ * replaces this entirely, so a conflict resolved since the turn reconciles.
+ */
+function recordedMarks(changeSet: TurnChangeSet): ChangeSetMarks {
+  const conflicted = new Set<string>();
+  for (const file of changeSet.files) {
+    if (file.status === 'U') conflicted.add(file.path);
+  }
+  return conflicted.size === 0
+    ? NO_MARKS
+    : { reconciled: new Set<string>(), conflicted };
+}
+
+/**
  * Turn change sets per session, and what the current git status says about
  * them (TASK_2026_576, Component 20).
  *
@@ -207,12 +224,14 @@ function marksOf(
  *
  * One status read per session view decides which recorded files no longer
  * change HEAD and which are conflicted. Session open, `session:turnEnded` and
- * a `git:status-update` for the active session's tree all request it; the
+ * a `git:status-update` for a loaded session's tree all request it; the
  * requests for one session coalesce into one run {@link RECONCILE_DEBOUNCE_MS}
  * later, a run reuses a read younger than {@link RECONCILE_FRESHNESS_MS} unless
  * the trigger says the tree moved, and a run never overlaps another for the
  * same session. A `git:status-update` carries the status itself, so it costs
- * no RPC. There is one pending timer per session with cards — none per card.
+ * no RPC, and a read already in flight when it arrives is discarded so an
+ * older read never replaces it. There is one pending timer per session with
+ * cards — none per card.
  *
  * A failed or untrustworthy read drops the marks: cards then show their
  * recorded counts with no reconciled rows. Counts are never rewritten, so a
@@ -251,13 +270,18 @@ export class ChangeSetStore implements MessageHandler {
     return result;
   });
 
+  /** Fallback marks per set, kept so a card input keeps its identity. */
+  private readonly recorded = new WeakMap<TurnChangeSet, ChangeSetMarks>();
   private readonly loads = new Map<string, Promise<void>>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly forced = new Set<string>();
   private readonly pushedStatus = new Map<string, GitInfoResult>();
   private readonly inFlight = new Set<string>();
   private readonly rerun = new Set<string>();
-  /** Bumped by every applied or dropped snapshot; stale reads are discarded. */
+  /**
+   * Bumped by every applied or dropped snapshot and by every accepted status
+   * push; a read whose start generation is no longer current is discarded.
+   */
   private readonly generations = new Map<string, number>();
 
   constructor() {
@@ -272,14 +296,28 @@ export class ChangeSetStore implements MessageHandler {
   }
 
   /** The session's change sets, oldest first. Reactive when read in a template. */
-  changeSetsFor(sessionId: string | null | undefined): readonly TurnChangeSet[] {
+  changeSetsFor(
+    sessionId: string | null | undefined,
+  ): readonly TurnChangeSet[] {
     if (!sessionId) return NO_CHANGE_SETS;
     return this._changeSets().get(sessionId) ?? NO_CHANGE_SETS;
   }
 
-  /** Reconcile marks for one card; empty until a trustworthy status read. */
+  /**
+   * Reconcile marks for one card, and the single source of "conflicted" for
+   * the card and for click routing. With a trustworthy status read the marks
+   * follow the current status only; without one, the recorded `U` files are
+   * the conflicted set and nothing is reconciled.
+   */
   marksFor(changeSet: TurnChangeSet): ChangeSetMarks {
-    return this.marks().get(changeSet) ?? NO_MARKS;
+    const current = this.marks().get(changeSet);
+    if (current) return current;
+    let recorded = this.recorded.get(changeSet);
+    if (!recorded) {
+      recorded = recordedMarks(changeSet);
+      this.recorded.set(changeSet, recorded);
+    }
+    return recorded;
   }
 
   /**
@@ -363,20 +401,27 @@ export class ChangeSetStore implements MessageHandler {
   }
 
   /**
-   * A watcher push for the active session's tree carries the status, so it
-   * replaces the RPC. A push for any other tree says nothing about it.
+   * A watcher push carries the status of one tree, so it replaces the RPC for
+   * every loaded session in that tree — the active one and any other visible
+   * canvas tile. A push for any other tree says nothing about them.
+   *
+   * The push is newer than any read still in flight for those sessions, so
+   * their generation advances now: that read is discarded when it lands and
+   * can never replace the pushed status, even inside the debounce window.
    */
   private onStatusUpdate(payload: unknown): void {
     if (!isRecord(payload)) return;
-    const sessionId = this.tabManager.activeTabSessionId();
-    const root = sessionId ? this.rootFor(sessionId) : null;
-    if (!sessionId || !root) return;
     const status = payload as unknown as GitStatusUpdatePayload;
     const pushRoot =
       status.workspaceRoot ?? this.vscode.config().workspaceRoot ?? '';
-    if (!pushRoot || !sameRoot(pushRoot, root)) return;
-    this.pushedStatus.set(sessionId, status);
-    this.requestReconcile(sessionId, true);
+    if (!pushRoot) return;
+    for (const sessionId of this._changeSets().keys()) {
+      const root = this.rootFor(sessionId);
+      if (!root || !sameRoot(pushRoot, root)) continue;
+      this.pushedStatus.set(sessionId, status);
+      this.bumpGeneration(sessionId);
+      this.requestReconcile(sessionId, true);
+    }
   }
 
   private merge(sessionId: string, incoming: readonly TurnChangeSet[]): void {
@@ -444,17 +489,20 @@ export class ChangeSetStore implements MessageHandler {
   private async reconcile(sessionId: string): Promise<void> {
     const root = this.rootFor(sessionId);
     if (!root) return;
+    // A pushed status costs no RPC and is newer than a read in flight, so it
+    // applies even while one runs; that read is then discarded by generation.
+    const pushed = this.pushedStatus.get(sessionId);
+    if (pushed) {
+      this.pushedStatus.delete(sessionId);
+      this.forced.delete(sessionId);
+      this.setSnapshot(sessionId, toSnapshot(root, pushed));
+      return;
+    }
     if (this.inFlight.has(sessionId)) {
       this.rerun.add(sessionId);
       return;
     }
     const force = this.forced.delete(sessionId);
-    const pushed = this.pushedStatus.get(sessionId);
-    this.pushedStatus.delete(sessionId);
-    if (pushed) {
-      this.setSnapshot(sessionId, toSnapshot(root, pushed));
-      return;
-    }
     const current = this._snapshots().get(sessionId);
     if (
       !force &&
@@ -495,8 +543,16 @@ export class ChangeSetStore implements MessageHandler {
     if (this.rerun.delete(sessionId)) this.requestReconcile(sessionId, true);
   }
 
-  private setSnapshot(sessionId: string, snapshot: StatusSnapshot | null): void {
+  /** Any read started before this call is now older than what the store holds. */
+  private bumpGeneration(sessionId: string): void {
     this.generations.set(sessionId, (this.generations.get(sessionId) ?? 0) + 1);
+  }
+
+  private setSnapshot(
+    sessionId: string,
+    snapshot: StatusSnapshot | null,
+  ): void {
+    this.bumpGeneration(sessionId);
     this._snapshots.update((current) => {
       if (!snapshot && !current.has(sessionId)) return current;
       const next = new Map(current);

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { TurnChangeSet, TurnChangeSetFile } from '@ptah-extension/shared';
 import {
@@ -51,6 +53,8 @@ describe('formatFileCounts', () => {
     [{ additions: 0, deletions: 0 }, false, '+0 −0'],
     [{ additions: null, deletions: 3 }, false, '?'],
     [{ additions: 12, deletions: 3 }, true, '?'],
+    [{ additions: null, deletions: null, binary: true }, false, 'binary'],
+    [{ additions: null, deletions: null, binary: true }, true, 'binary'],
   ])('formats %p (unavailable=%p) as %p', (counts, unavailable, expected) => {
     expect(formatFileCounts(file({ path: 'a', ...counts }), unavailable)).toBe(
       expected,
@@ -63,8 +67,8 @@ describe('changeSetAccent', () => {
     [{ additions: 100, deletions: 10 }, false, 'oklch(var(--su))'],
     [{ additions: 10, deletions: 100 }, false, 'oklch(var(--er))'],
     [{ additions: 50, deletions: 50 }, false, 'oklch(var(--wa))'],
-    [{ additions: 0, deletions: 0 }, false, 'oklch(var(--bc) / 0.3)'],
-    [{ additions: 100, deletions: 0 }, true, 'oklch(var(--bc) / 0.3)'],
+    [{ additions: 0, deletions: 0 }, false, 'oklch(var(--bcm, var(--bc)))'],
+    [{ additions: 100, deletions: 0 }, true, 'oklch(var(--bcm, var(--bc)))'],
   ])('maps %p (unavailable=%p) to %p', (totals, unavailable, expected) => {
     expect(
       changeSetAccent(
@@ -133,7 +137,12 @@ describe('ChangeSetCardComponent', () => {
       expect(row.tagName).toBe('BUTTON');
       expect(row.getAttribute('type')).toBe('button');
       expect(row.querySelector('button, a, input, [tabindex]')).toBeNull();
-      expect(row.className).toContain('focus-visible:ring-1');
+      // The global 2 px focus outline (>= 3:1 in both anubis themes) stays
+      // on, drawn inset, with a tint as a second cue.
+      expect(row.className).not.toContain('focus-visible:outline-none');
+      expect(row.className).not.toContain('ring-primary');
+      expect(row.className).toContain('focus-visible:-outline-offset-2');
+      expect(row.className).toContain('focus-visible:bg-base-300/50');
     }
     expect(queryAll('[data-testid="change-set-row-counts"]').map(text)).toEqual(
       ['+12 −3', '+40', '−39', '+2'],
@@ -235,6 +244,64 @@ describe('ChangeSetCardComponent', () => {
     expect(query('[data-testid="change-set-row-reconciled"]')).toBeNull();
   });
 
+  it('reconciles a file recorded as U once the marks say its conflict is gone', () => {
+    const resolved = file({
+      path: 'src/merged.ts',
+      status: 'U',
+      additions: null,
+      deletions: null,
+    });
+    render(
+      changeSet({
+        files: [resolved],
+        totals: { files: 1, additions: 0, deletions: 0 },
+      }),
+      { host: 'vscode', reconciled: new Set(['src/merged.ts']) },
+    );
+
+    const row = el('[data-testid="change-set-row-reconciled"]');
+    expect(text(row)).toContain('No longer changes HEAD');
+    expect(query('[data-testid="change-set-row-conflicted"]')).toBeNull();
+    expect(query('[data-testid="change-set-row"]')).toBeNull();
+  });
+
+  it('shows a recorded U file as conflicted only through the conflicted input', () => {
+    const recorded = file({ path: 'src/merged.ts', status: 'U' });
+    const set = changeSet({
+      files: [recorded],
+      totals: { files: 1, additions: 1, deletions: 1 },
+    });
+    render(set, { host: 'vscode', conflicted: new Set(['src/merged.ts']) });
+    expect(query('[data-testid="change-set-row-conflicted"]')).not.toBeNull();
+
+    // A resolved but uncommitted file: the marks drop it from conflicted.
+    fixture.componentRef.setInput('conflicted', new Set<string>());
+    fixture.detectChanges();
+    const row = el('[data-testid="change-set-row"]');
+    expect(query('[data-testid="change-set-row-conflicted"]')).toBeNull();
+    expect(row.getAttribute('title')).toContain('diff');
+  });
+
+  it('shows "binary" for a binary file, never zeros', () => {
+    render(
+      changeSet({
+        files: [
+          file({
+            path: 'logo.png',
+            status: 'A',
+            additions: null,
+            deletions: null,
+            binary: true,
+          }),
+        ],
+        totals: { files: 1, additions: 0, deletions: 0 },
+      }),
+    );
+    const counts = el('[data-testid="change-set-row-counts"]');
+    expect(text(counts)).toBe('binary');
+    expect(counts.className).toContain('text-base-content-muted');
+  });
+
   it('counts files left out by the stored-file bound', () => {
     render(
       changeSet({
@@ -272,6 +339,76 @@ describe('ChangeSetCardComponent', () => {
       }),
     );
     expect(text(el('[data-testid="change-set-files"]'))).toBe('1 file changed');
+  });
+
+  it('draws the 9 px ghost badges in full ink (muted was 4.48:1 in light)', () => {
+    render(
+      changeSet({
+        countsUnavailable: true,
+        files: [file({ path: 'src/app.ts', additions: null, deletions: null })],
+      }),
+      { reconciled: new Set(['src/app.ts']) },
+    );
+    const badges = [
+      el('[data-testid="change-set-counts-unavailable"]'),
+      el('[data-testid="change-set-row-reconciled"] .badge'),
+    ];
+    for (const badge of badges) {
+      expect(badge.classList).toContain('text-base-content');
+      expect(badge.classList).not.toContain('text-base-content-muted');
+    }
+  });
+
+  it('dims the reconciled path itself, outside the light theme .truncate ink rule', () => {
+    render(changeSet(), { reconciled: new Set(['src/old.ts']) });
+    const path = el('[data-testid="change-set-row-reconciled-path"]');
+    expect(path.classList).toContain('text-base-content-muted');
+    expect(path.classList).not.toContain('truncate');
+    expect(path.classList).toContain('text-ellipsis');
+    expect(path.getAttribute('title')).toBe('src/old.ts');
+  });
+
+  describe('narrow tile', () => {
+    // jest-preset-angular strips inline `styles`, so read the source, as
+    // compact-session-activity.component.spec.ts does.
+    const styles = (): string => {
+      const source = readFileSync(
+        join(__dirname, 'change-set-card.component.ts'),
+        'utf8',
+      );
+      return source.slice(source.indexOf('styles: ['));
+    };
+
+    it('wraps the header so Review stays on the card', () => {
+      render(changeSet());
+      const header = el('[data-testid="change-set-header"]');
+      expect(header.classList).toContain('flex-wrap');
+      expect(el('[data-testid="change-set-review"]').classList).toContain(
+        'shrink-0',
+      );
+    });
+
+    it('is its own inline-size container with a 240 px tier', () => {
+      const css = styles();
+      expect(css).toMatch(/container-type:\s*inline-size/);
+      expect(css).toMatch(/@container\s*\(max-width:\s*240px\)/);
+    });
+
+    it('moves the path to a full-width line and drops the chevron in that tier', () => {
+      const css = styles();
+      const tier = css.slice(css.indexOf('@container'));
+      expect(tier).toMatch(/\.cs-path\s*\{[^}]*flex-basis:\s*100%/);
+      expect(tier).toMatch(/\.cs-row\s*\{[^}]*flex-wrap:\s*wrap/);
+      expect(tier).toMatch(/\.cs-chevron\s*\{[^}]*display:\s*none/);
+
+      render(changeSet(), { reconciled: new Set(['src/old.ts']) });
+      for (const row of queryAll(
+        '[data-testid="change-set-row"], [data-testid="change-set-row-reconciled"]',
+      )) {
+        expect(row.classList).toContain('cs-row');
+        expect(row.querySelector('.cs-path')).not.toBeNull();
+      }
+    });
   });
 
   it('never uses an alpha base-content text class', () => {

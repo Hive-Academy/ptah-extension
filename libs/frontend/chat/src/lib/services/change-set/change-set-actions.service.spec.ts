@@ -157,7 +157,13 @@ describe('ChangeSetActionsService', () => {
       });
     });
 
-    it('opens a recorded U file with ptah.review.openMerge', async () => {
+    it('opens a recorded U file with ptah.review.openMerge while the store marks it conflicted', async () => {
+      // The store's fallback when no trustworthy status exists.
+      marks = {
+        reconciled: new Set(),
+        conflicted: new Set(['src/conflict.ts']),
+      };
+
       await create().openFile(CHANGE_SET, 'src/conflict.ts');
 
       expect(commandCall()).toEqual({
@@ -175,6 +181,19 @@ describe('ChangeSetActionsService', () => {
 
       expect(commandCall()).toEqual(
         expect.objectContaining({ command: REVIEW_COMMANDS.openMerge }),
+      );
+    });
+
+    it('opens the diff of a recorded U file whose conflict the current status no longer reports', async () => {
+      marks = {
+        reconciled: new Set(['src/conflict.ts']),
+        conflicted: new Set(),
+      };
+
+      await create().openFile(CHANGE_SET, 'src/conflict.ts');
+
+      expect(commandCall()).toEqual(
+        expect.objectContaining({ command: REVIEW_COMMANDS.openDiff }),
       );
     });
 
@@ -252,9 +271,7 @@ describe('ChangeSetActionsService', () => {
       editorPanelVisible.mockReturnValue(true);
       mockOpenFileView.mockRejectedValue(new Error('boom'));
 
-      await expect(
-        create().openFile(CHANGE_SET, 'src/a.ts'),
-      ).rejects.toThrow();
+      await expect(create().openFile(CHANGE_SET, 'src/a.ts')).rejects.toThrow();
       expect(setEditorPanelVisible).not.toHaveBeenCalledWith(false);
     });
   });

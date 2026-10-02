@@ -184,7 +184,9 @@ export class TurnChangeSetRecorder {
     return {
       workspaceRoot,
       snapshot:
-        workspaceRoot === null ? NOT_A_REPO : await this.takeSnapshot(workspaceRoot),
+        workspaceRoot === null
+          ? NOT_A_REPO
+          : await this.takeSnapshot(workspaceRoot),
     };
   }
 
@@ -303,6 +305,7 @@ export class TurnChangeSetRecorder {
         status: c.status,
         additions: fileAdditions,
         deletions: fileDeletions,
+        ...(count?.binary === true && { binary: true }),
       };
     });
 
@@ -450,7 +453,9 @@ function pathChanged(then: PathState, now: PathState): boolean {
 }
 
 /** Status rows per path; ignored entries and untracked directories dropped. */
-function groupRows(files: readonly GitFileStatus[]): Map<string, GitFileStatus[]> {
+function groupRows(
+  files: readonly GitFileStatus[],
+): Map<string, GitFileStatus[]> {
   const rows = new Map<string, GitFileStatus[]>();
   for (const file of files) {
     if (file.status === '!' || file.isDirectory) continue;
@@ -473,17 +478,19 @@ function statusOf(entries: readonly GitFileStatus[]): TurnChangeSetFileStatus {
 }
 
 function signatureOf(entries: readonly GitFileStatus[]): string {
-  return entries
-    .map(
-      (e) =>
-        `${e.staged ? 'S' : 'W'}${e.status}|${e.origPath ?? ''}|${String(
-          e.additions ?? '?',
-        )}|${String(e.deletions ?? '?')}`,
-    )
-    // Ordinal (UTF-16 code unit) order, as the default sort gave: only a
-    // stable, locale-independent order matters for comparing signatures.
-    .sort(compareOrdinal)
-    .join(';');
+  return (
+    entries
+      .map(
+        (e) =>
+          `${e.staged ? 'S' : 'W'}${e.status}|${e.origPath ?? ''}|${String(
+            e.additions ?? '?',
+          )}|${String(e.deletions ?? '?')}`,
+      )
+      // Ordinal (UTF-16 code unit) order, as the default sort gave: only a
+      // stable, locale-independent order matters for comparing signatures.
+      .sort(compareOrdinal)
+      .join(';')
+  );
 }
 
 function compareOrdinal(a: string, b: string): number {

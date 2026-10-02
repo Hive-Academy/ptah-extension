@@ -1,0 +1,40 @@
+{
+  "anubis-error": {
+    "ratio": 5.31,
+    "fg": [
+      142,
+      136,
+      135,
+      1
+    ],
+    "bg": [
+      19,
+      19,
+      23
+    ],
+    "color": "oklch(0.630482 0.00745 23.428)"
+  },
+  "anubis-light-error": {
+    "ratio": 5.01,
+    "fg": [
+      128,
+      99,
+      110,
+      1
+    ],
+    "bg": [
+      250,
+      247,
+      245
+    ],
+    "color": "oklch(0.532596 0.0412 354.463)"
+  },
+  "tileWidthAfterDock": 118,
+  "cardAfterDock": {
+    "w": 66,
+    "scrollW": 175,
+    "reviewX": 126,
+    "reviewW": 50,
+    "cardRight": 66
+  }
+}

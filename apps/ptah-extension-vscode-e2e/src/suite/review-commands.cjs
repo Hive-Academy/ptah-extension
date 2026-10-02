@@ -144,7 +144,8 @@ function register(test, { waitForActivation }) {
       ],
     });
     const tab = await waitFor(
-      () => allTabs().find((t) => t.label.startsWith('Agent changes (2 files)')),
+      () =>
+        allTabs().find((t) => t.label.startsWith('Agent changes (2 files)')),
       'the "Agent changes (2 files)" multi-diff tab',
     );
     // `TabInputTextMultiDiff` exists on recent VS Code; the title above is the
@@ -191,7 +192,10 @@ function register(test, { waitForActivation }) {
 
   test('review: a path outside the workspace is refused', async () => {
     await setup();
-    const outsideAbsolute = path.join(path.dirname(workspaceRoot), 'outside.txt');
+    const outsideAbsolute = path.join(
+      path.dirname(workspaceRoot),
+      'outside.txt',
+    );
     for (const bad of ['../outside.txt', outsideAbsolute]) {
       const err = await rejection(
         vscode.commands.executeCommand('ptah.review.openDiff', {
@@ -222,7 +226,8 @@ function register(test, { waitForActivation }) {
     );
     assert.equal(rootErr?.message, OUTSIDE_MESSAGE);
     assert.equal(
-      allTabs().filter((t) => t.input instanceof vscode.TabInputTextDiff).length,
+      allTabs().filter((t) => t.input instanceof vscode.TabInputTextDiff)
+        .length,
       0,
       'a refused path must not open an editor',
     );
@@ -245,8 +250,7 @@ function register(test, { waitForActivation }) {
         allTabs().find(
           (t) =>
             (t.input instanceof vscode.TabInputText &&
-              path.normalize(t.input.uri.fsPath) ===
-                path.normalize(path.join(workspaceRoot, FILE_A))) ||
+              path.normalize(t.input.uri.fsPath) === path.normalize(target)) ||
             t.label.startsWith('Merging:'),
         ),
       'the merge editor or the fallback plain editor for the merge target',

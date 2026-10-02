@@ -25,6 +25,12 @@ export interface TurnChangeSetFile {
   additions: number | null;
   /** Lines deleted against HEAD, or null when the count is unknown. */
   deletions: number | null;
+  /**
+   * True when git reports the file as binary: it has no line counts, so
+   * `additions`/`deletions` are null and the card shows "binary" for it.
+   * Absent on text files and on records written before the field existed.
+   */
+  binary?: boolean;
 }
 
 /** Header totals of a change set. */

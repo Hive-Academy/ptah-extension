@@ -189,6 +189,11 @@ describe('ChatTranscriptComponent change-set cards', () => {
     expect(alert.getAttribute('role')).toBe('alert');
     expect(alert.textContent?.trim()).toBe('Could not open the review.');
     expect(alert.className).not.toMatch(/text-base-content\//);
+    // Reads as an error without relying on colour: error ink plus an icon.
+    expect(alert.className).toContain('text-error');
+    expect(
+      alert.querySelector('lucide-angular')?.getAttribute('aria-hidden'),
+    ).toBe('true');
 
     button.click();
     await fixture.whenStable();

@@ -20,7 +20,9 @@ import { dirname, join, resolve } from 'node:path';
 const FORBIDDEN_MARKERS = [
   'ptah-git-',
   'ptah-diff-view',
-  'ptah-change-set-card',
+  // The card's own template text: the `ptah-change-set-card` tag itself stays
+  // in the eager transcript that names it in a `@defer` block.
+  'No longer changes HEAD',
   'ptah-review-',
   'ptah-spot-editor',
   'ptah-commit-composer',

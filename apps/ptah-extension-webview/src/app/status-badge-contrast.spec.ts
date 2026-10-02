@@ -204,6 +204,53 @@ describe('anubis ink overrides', () => {
   );
 });
 
+/**
+ * The change-set card (libs/frontend/chat-ui, P3 visual review) relies on:
+ * - the global 2 px `button:focus-visible` outline for its rows: `--s` in
+ *   anubis (the light theme's `--ptah-gold-strong` is measured below);
+ * - `--bcm` as its neutral accent border (non-text, 3:1);
+ * - `text-base-content` on 9 px ghost badges, whose fill is base-200 under
+ *   the card's base-300 tint, so base-content must hold 4.5:1 on all layers.
+ */
+describe('change-set card colour pairs', () => {
+  it.each(BASE_LAYERS)(
+    `anubis row focus ring (--s) clears ${AA_NON_TEXT}:1 against %s`,
+    (layer) => {
+      const source = customThemes['anubis'];
+      expect(STYLES_CSS).toMatch(
+        /button:focus-visible,[\s\S]*?outline:\s*2px solid oklch\(var\(--s\)\);/,
+      );
+      expect(
+        wcagContrast(parsed(source['secondary']), resolveBase(source)[layer]),
+      ).toBeGreaterThanOrEqual(AA_NON_TEXT);
+    },
+  );
+
+  describe.each(ANUBIS_THEMES)('theme "%s"', (theme) => {
+    const source = customThemes[theme];
+    const base = resolveBase(source);
+
+    it.each(BASE_LAYERS)(
+      `neutral accent (--bcm) clears ${AA_NON_TEXT}:1 against %s`,
+      (layer) => {
+        const bcm = parsed(`oklch(${source['--bcm']})`);
+        expect(wcagContrast(bcm, base[layer])).toBeGreaterThanOrEqual(
+          AA_NON_TEXT,
+        );
+      },
+    );
+
+    it.each(BASE_LAYERS)(
+      `ghost badge ink (base-content) clears ${AA_NORMAL}:1 on %s`,
+      (layer) => {
+        expect(wcagContrast(base.bc, base[layer])).toBeGreaterThanOrEqual(
+          AA_NORMAL,
+        );
+      },
+    );
+  });
+});
+
 describe('anubis-light focus ring', () => {
   const base = resolveBase(customThemes['anubis-light']);
 

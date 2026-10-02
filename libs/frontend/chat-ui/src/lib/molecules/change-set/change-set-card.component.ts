@@ -28,25 +28,30 @@ const EMPTY_SET: ReadonlySet<string> = new Set<string>();
  * The left accent follows the dominant change type (design-spec §4.1):
  * success when mostly additions, error when mostly deletions, warning when
  * mixed, neutral when the counts are unknown or empty. A border, not text.
+ * Neutral is the opaque muted-text tier (`--bcm`, >= 4.5:1 on every base layer
+ * in both anubis themes per base-content-muted.spec.ts), so it holds 3:1; the
+ * old `--bc / 0.3` measured 2.40 dark / 1.93 light.
  */
 const ACCENT = {
   additions: 'oklch(var(--su))',
   deletions: 'oklch(var(--er))',
   mixed: 'oklch(var(--wa))',
-  neutral: 'oklch(var(--bc) / 0.3)',
+  neutral: 'oklch(var(--bcm, var(--bc)))',
 } as const;
 
 /** Share of additions at or above which a set reads as "mostly additions". */
 const DOMINANT_SHARE = 0.75;
 
 /**
- * Per-file counts as the row shows them. Unknown counts (the set's or the
- * file's) read `?`; a zero side is omitted unless both sides are zero.
+ * Per-file counts as the row shows them. A binary file reads `binary` (git
+ * has no line counts for it); unknown counts (the set's or the file's) read
+ * `?`; a zero side is omitted unless both sides are zero.
  */
 export function formatFileCounts(
   file: TurnChangeSetFile,
   countsUnavailable: boolean,
 ): string {
+  if (file.binary === true) return 'binary';
   const { additions, deletions } = file;
   if (countsUnavailable || additions === null || deletions === null) {
     return '?';
@@ -82,6 +87,15 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
  * Contrast: text uses `text-base-content` / `text-base-content-muted` and the
  * AA-measured `.diff-add-text`, `.diff-del-text` and `.err-solid-text`
  * overrides (webview `styles.css`), never an alpha `text-base-content/NN`.
+ * The 9 px ghost badges use full `text-base-content`: muted measured 4.48:1
+ * on the ghost fill in anubis-light. Row focus is the global 2 px
+ * `button:focus-visible` outline (`--s` gold; `--ptah-gold-strong` in
+ * anubis-light, both >= 3:1), drawn inset so the card never clips it.
+ *
+ * Narrow tiles (the chat tile squeezed by the Review dock): the header wraps
+ * so Review stays on the card, and at 240 px or less each row puts
+ * its path on a full-width second line, left-truncated so the file name end
+ * stays visible, and drops the decorative chevron. Nothing overflows the card.
  */
 @Component({
   selector: 'ptah-change-set-card',
@@ -94,7 +108,10 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
       [attr.aria-label]="filesLabel()"
       data-testid="change-set-card"
     >
-      <div class="py-1.5 px-2 flex items-center gap-1.5 text-[11px]">
+      <div
+        class="cs-pad py-1.5 px-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]"
+        data-testid="change-set-header"
+      >
         <lucide-angular
           [img]="FileDiffIcon"
           class="w-3 h-3 shrink-0 text-base-content-muted"
@@ -107,13 +124,13 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
         >
         @if (changeSet().countsUnavailable) {
           <span
-            class="badge badge-ghost badge-xs text-base-content-muted"
+            class="cs-badge badge badge-ghost badge-xs text-base-content"
             data-testid="change-set-counts-unavailable"
             >counts unavailable</span
           >
         } @else {
           <span
-            class="inline-flex gap-1 font-mono text-[10px]"
+            class="inline-flex flex-wrap gap-1 font-mono text-[10px]"
             data-testid="change-set-totals"
           >
             <span class="diff-add-text"
@@ -127,7 +144,7 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
         <span class="ml-auto"></span>
         <button
           type="button"
-          class="btn btn-primary btn-xs"
+          class="btn btn-primary btn-xs shrink-0"
           data-testid="change-set-review"
           (click)="review.emit()"
         >
@@ -148,25 +165,31 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
         @for (row of rows(); track row.file.path) {
           <li>
             @if (row.state === 'reconciled') {
+              <!-- The path spells out truncation instead of using the
+                   .truncate class: anubis-light forces full ink on every
+                   .truncate (styles.css "Tab Bar Fixes"), which undid the
+                   muted dimming of this inert row in light only. -->
               <div
-                class="w-full flex items-center gap-2 px-2 py-1 text-[11px] text-base-content-muted"
+                class="cs-pad cs-row w-full flex items-center gap-2 px-2 py-1 text-[11px] text-base-content-muted"
                 data-testid="change-set-row-reconciled"
               >
                 <ptah-file-status-badge [status]="row.file.status" />
                 <span
-                  class="font-mono truncate flex-1 min-w-0 text-left"
+                  class="cs-path font-mono overflow-hidden text-ellipsis whitespace-nowrap flex-1 min-w-0 text-left text-base-content-muted"
                   dir="rtl"
                   [title]="row.file.path"
+                  data-testid="change-set-row-reconciled-path"
                   ><bdi dir="ltr">{{ row.file.path }}</bdi></span
                 >
-                <span class="badge badge-ghost badge-xs text-base-content-muted"
+                <span
+                  class="cs-badge badge badge-ghost badge-xs text-base-content"
                   >No longer changes HEAD</span
                 >
               </div>
             } @else {
               <button
                 type="button"
-                class="w-full flex items-center gap-2 px-2 py-1 text-[11px] text-left text-base-content hover:bg-base-300/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary"
+                class="cs-pad cs-row w-full flex items-center gap-2 px-2 py-1 text-[11px] text-left text-base-content hover:bg-base-300/50 focus-visible:bg-base-300/50 focus-visible:-outline-offset-2"
                 [title]="rowTitle(row)"
                 data-testid="change-set-row"
                 (click)="openFile.emit(row.file.path)"
@@ -175,7 +198,7 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
                   [status]="row.state === 'conflicted' ? 'U' : row.file.status"
                 />
                 <span
-                  class="font-mono truncate flex-1 min-w-0 text-left"
+                  class="cs-path font-mono truncate flex-1 min-w-0 text-left"
                   dir="rtl"
                   ><bdi dir="ltr"
                     >{{ row.file.path }}
@@ -191,7 +214,7 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
                 >
                 @if (row.state === 'conflicted') {
                   <span
-                    class="badge badge-xs bg-error border-error err-solid-text"
+                    class="cs-badge badge badge-xs bg-error border-error err-solid-text"
                     data-testid="change-set-row-conflicted"
                     >Conflicted</span
                   >
@@ -204,7 +227,7 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
                 }
                 <lucide-angular
                   [img]="ChevronRightIcon"
-                  class="w-3 h-3 shrink-0 text-base-content-muted"
+                  class="cs-chevron w-3 h-3 shrink-0 text-base-content-muted"
                   aria-hidden="true"
                 />
               </button>
@@ -235,6 +258,37 @@ export function changeSetAccent(changeSet: TurnChangeSet): string {
       }
     </section>
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+        container-type: inline-size;
+      }
+      /* Narrow tile (e.g. the chat tile beside an open Review dock). */
+      @container (max-width: 240px) {
+        .cs-pad {
+          padding-inline: 0.25rem;
+        }
+        .cs-row {
+          flex-wrap: wrap;
+          row-gap: 0.125rem;
+        }
+        /* Path on its own full-width line, after the status chip and meta. */
+        .cs-path {
+          order: 1;
+          flex-basis: 100%;
+        }
+        .cs-chevron {
+          display: none;
+        }
+        .cs-badge {
+          max-width: 100%;
+          height: auto;
+          white-space: normal;
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ChangeSetCardComponent {
@@ -242,7 +296,10 @@ export class ChangeSetCardComponent {
   readonly host = input.required<ChangeSetCardHost>();
   /** Paths whose diff against HEAD is now empty (committed or reverted). */
   readonly reconciled = input<ReadonlySet<string>>(EMPTY_SET);
-  /** Paths git currently reports as unmerged. */
+  /**
+   * Paths to show as conflicted: unmerged in the current status, or recorded
+   * `U` when no trustworthy status exists. A recorded status is not re-read.
+   */
   readonly conflicted = input<ReadonlySet<string>>(EMPTY_SET);
 
   /** Review the whole set: the dock on Electron, `vscode.changes` in VS Code. */
@@ -259,14 +316,16 @@ export class ChangeSetCardComponent {
     const changeSet = this.changeSet();
     const reconciled = this.reconciled();
     const conflicted = this.conflicted();
+    // The inputs alone decide: the store derives them from the current status
+    // and falls back to the recorded `U` only when it has no trustworthy read,
+    // so a conflict resolved since the turn can reconcile.
     return changeSet.files.map((file) => ({
       file,
-      state:
-        conflicted.has(file.path) || file.status === 'U'
-          ? 'conflicted'
-          : reconciled.has(file.path)
-            ? 'reconciled'
-            : 'changed',
+      state: conflicted.has(file.path)
+        ? 'conflicted'
+        : reconciled.has(file.path)
+          ? 'reconciled'
+          : 'changed',
       counts: formatFileCounts(file, changeSet.countsUnavailable),
     }));
   });

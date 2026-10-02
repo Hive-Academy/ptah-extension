@@ -67,7 +67,10 @@ async function settle(rounds = 40): Promise<void> {
  * loop turns a recording takes depend on machine load, so a fixed count of
  * turns is not enough under a parallel test run.
  */
-async function waitUntil(condition: () => boolean, timeoutMs = 4_000): Promise<void> {
+async function waitUntil(
+  condition: () => boolean,
+  timeoutMs = 4_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!condition()) {
     if (Date.now() > deadline) throw new Error('condition not met in time');
@@ -109,7 +112,9 @@ describe('TurnChangeSetRecorder', () => {
     registry = new UserPromptSubmitCallbackRegistry(asLogger);
     gitInfoResult = repo([]);
     numstat = (paths) =>
-      new Map(paths.map((p) => [p, { additions: 3, deletions: 1, binary: false }]));
+      new Map(
+        paths.map((p) => [p, { additions: 3, deletions: 1, binary: false }]),
+      );
     gitInfo = {
       getGitInfo: jest.fn(async () => gitInfoResult),
       readChangeSetNumstat: jest.fn(
@@ -185,7 +190,13 @@ describe('TurnChangeSetRecorder', () => {
   it('records and pushes nothing when the turn changed nothing', async () => {
     await fs.writeFile(path.join(root, 'dirty.ts'), 'x\n');
     gitInfoResult = repo([
-      { path: 'dirty.ts', status: 'M', staged: false, additions: 1, deletions: 0 },
+      {
+        path: 'dirty.ts',
+        status: 'M',
+        staged: false,
+        additions: 1,
+        deletions: 0,
+      },
     ]);
     submitPrompt();
     await settle();
@@ -243,7 +254,9 @@ describe('TurnChangeSetRecorder', () => {
     await settle();
     gitInfoResult = repo([{ path: 'gone.ts', status: 'D', staged: false }]);
     numstat = (paths) =>
-      new Map(paths.map((p) => [p, { additions: 0, deletions: 7, binary: false }]));
+      new Map(
+        paths.map((p) => [p, { additions: 0, deletions: 7, binary: false }]),
+      );
     endTurn();
     await waitUntil(() => pushes.length === 1);
 
@@ -319,7 +332,13 @@ describe('TurnChangeSetRecorder', () => {
     expect(changeSet.countsUnavailable).toBe(true);
     expect(changeSet.files).toEqual([
       { path: 'a.ts', status: 'M', additions: null, deletions: null },
-      { path: 'logo.png', status: 'M', additions: null, deletions: null },
+      {
+        path: 'logo.png',
+        status: 'M',
+        additions: null,
+        deletions: null,
+        binary: true,
+      },
     ]);
     expect(changeSet.totals).toEqual({ files: 2, additions: 0, deletions: 0 });
   });
@@ -335,6 +354,16 @@ describe('TurnChangeSetRecorder', () => {
     endTurn();
     await waitUntil(() => pushes.length === 1);
     expect(pushes[0].changeSet.countsUnavailable).toBe(false);
+    // The flag reaches the card, which shows "binary", never zeros.
+    expect(pushes[0].changeSet.files).toEqual([
+      {
+        path: 'logo.png',
+        status: 'A',
+        additions: null,
+        deletions: null,
+        binary: true,
+      },
+    ]);
   });
 
   it('records nothing when the after-status is unavailable', async () => {

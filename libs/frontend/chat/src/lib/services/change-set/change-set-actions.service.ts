@@ -59,8 +59,11 @@ export class ChangeSetActionsService {
   }
 
   /**
-   * Open one file of the change set: its merge editor when the current status
-   * reports it conflicted, its diff against HEAD otherwise.
+   * Open one file of the change set: its merge editor when the store's marks
+   * say it is conflicted, its diff against HEAD otherwise. The marks follow
+   * the current status and fall back to the recorded `U` only when no
+   * trustworthy status exists, so a conflict resolved since the turn opens
+   * its diff.
    */
   async openFile(changeSet: TurnChangeSet, path: string): Promise<void> {
     const file = changeSet.files.find((entry) => entry.path === path);
@@ -73,9 +76,7 @@ export class ChangeSetActionsService {
       });
       return;
     }
-    const conflicted =
-      file.status === 'U' ||
-      this.store.marksFor(changeSet).conflicted.has(file.path);
+    const conflicted = this.store.marksFor(changeSet).conflicted.has(file.path);
     await this.executeCommand(
       conflicted ? REVIEW_COMMANDS.openMerge : REVIEW_COMMANDS.openDiff,
       { workspaceRoot: changeSet.workspaceRoot, ...toCommandFile(file) },
