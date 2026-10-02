@@ -154,6 +154,12 @@ export const MESSAGE_TYPES = {
    */
   SESSION_MCP_STATUS: 'session:mcpStatus',
   /**
+   * Backend → Frontend: organization data (priority, status, pin, archive,
+   * task links, PR links) changed for one or more sessions of a workspace.
+   * The payload carries ids only; the webview re-reads rows via `session:list`.
+   */
+  SESSION_ORGANIZATION_CHANGED: 'session:organizationChanged',
+  /**
    * Backend → Frontend: a parent session started a child chat session with
    * `ptah_session_start` and its tab should open (TASK_2026_584).
    *

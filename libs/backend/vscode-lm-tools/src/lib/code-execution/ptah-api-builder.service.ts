@@ -46,6 +46,7 @@ import type {
   IDiagnosticsProvider,
   ISecretStorage,
   IMemoryWriter,
+  ISessionOrganizationRecorder,
 } from '@ptah-extension/platform-core';
 import {
   WorkspaceAnalyzerService,
@@ -102,6 +103,12 @@ import {
   resolveEffectivePluginPaths,
   type EffectivePluginPolicySource,
 } from './namespace-builders/harness-namespace.builder';
+import type {
+  CallerWorktreeRecord,
+  WorktreeChangeCallback,
+} from './namespace-builders/git-namespace.builder';
+// Imported from the builder file, not the barrel, like the git types above.
+import { buildSessionOrganizationNamespace } from './namespace-builders/session-organization-namespace.builder';
 import { TASK_SPECS_TOKENS } from '@ptah-extension/task-specs';
 import { buildSessionAwareWorkspaceProvider } from './session-aware-workspace-provider';
 import {
@@ -490,6 +497,14 @@ export class PtahAPIBuilder {
     private readonly surfaceStateService?: SurfaceStateService,
 
     /**
+     * Session-organization capture port (TASK_2026_580). Optional and last for
+     * the same reason as `surfaceStateService`: it is bound only where the
+     * SQLite connection is (not VS Code), and absence skips the capture.
+     */
+    @inject(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER, { isOptional: true })
+    private readonly sessionOrganizationRecorder?: ISessionOrganizationRecorder,
+
+    /**
      * The container, for the ONE collaborator looked up per call: the session
      * spawner (TASK_2026_584). This builder is registered in an earlier phase
      * than the chat services the spawner's host adapter needs, so injecting
@@ -770,6 +785,9 @@ export class PtahAPIBuilder {
         buildGitNamespace({
           getWorkspaceRoot: getWorkspaceRootLazy,
           onWorktreeChanged: this.buildWorktreeChangeHandler(),
+          resolveCallerSessionId: () => this.resolveCallerSdkSessionId(),
+          recordWorktreeForCaller: (record) =>
+            this.recordWorktreeForCaller(record),
         }),
       ),
       json: this.buildNamespaceSafe('json', () =>
@@ -825,6 +843,13 @@ export class PtahAPIBuilder {
           getWriter: () => this.taskWriter,
           getIndex: () => this.taskIndex,
           getWorkspaceRoot: () => this.getWorkspaceRoot(),
+        }),
+      ),
+      sessionOrganization: this.buildNamespaceSafe('sessionOrganization', () =>
+        buildSessionOrganizationNamespace({
+          resolveCallerSessionId: () => this.resolveCallerSdkSessionId(),
+          getRecorder: () => this.sessionOrganizationRecorder,
+          getWorkspaceRootHint: () => this.resolveSessionWorkspaceRoot(),
         }),
       ),
       harness: this.buildNamespaceSafe('harness', () => {
@@ -1010,17 +1035,84 @@ export class PtahAPIBuilder {
   }
 
   /**
+   * SDK session id of the session that issued the current MCP call. The
+   * request context carries the caller's tab id; only the lifecycle manager's
+   * `realSessionId` is returned, so a tab id never reaches the recorder. A
+   * caller that does not resolve (unknown tab, SDK id not assigned yet, no
+   * lifecycle manager, a lookup that throws) yields `undefined` and is logged.
+   * Never throws: callers treat an unresolved caller as unattributed.
+   */
+  private resolveCallerSdkSessionId(): string | undefined {
+    const callerId = getCallerSessionId();
+    if (!callerId) {
+      return undefined;
+    }
+    let realSessionId: string | undefined;
+    try {
+      realSessionId =
+        this.sdkSessionLifecycleManager?.find(callerId)?.realSessionId ??
+        undefined;
+    } catch (error: unknown) {
+      // degradation-audit: reported - the lookup error is debug-logged below,
+      // and undefined becomes an explicit unattributed-caller result for the agent.
+      this.logger.debug(
+        `[PtahAPIBuilder] Resolving the SDK session id of MCP caller ${callerId} failed; caller not attributed`,
+        error,
+      );
+      return undefined;
+    }
+    if (!realSessionId) {
+      this.logger.debug(
+        `[PtahAPIBuilder] MCP caller ${callerId} has no SDK session id; caller not attributed`,
+      );
+      return undefined;
+    }
+    return realSessionId;
+  }
+
+  /**
+   * Record a worktree an agent's `ptah_git_worktree_add` created on the
+   * calling session. The only MCP worktree capture path (L15): the shared
+   * change handler below records nothing. Never throws: the recorder's
+   * contract is never-throw, and a faulty recorder is logged here so the git
+   * namespace can keep reporting the add as the success it was.
+   */
+  private recordWorktreeForCaller(record: CallerWorktreeRecord): void {
+    const recorder = this.sessionOrganizationRecorder;
+    if (!recorder) {
+      this.logger.debug(
+        '[PtahAPIBuilder] Session-organization recorder not registered, skipping worktree capture',
+      );
+      return;
+    }
+    try {
+      recorder.recordWorktree({
+        sessionId: record.sessionId,
+        worktreePath: record.worktreePath,
+        branch: record.branch,
+        workspaceRootHint: this.resolveSessionWorkspaceRoot(),
+      });
+    } catch (error: unknown) {
+      this.logger.debug(
+        `[PtahAPIBuilder] Worktree capture failed for session ${record.sessionId} at ${record.worktreePath}`,
+        error,
+      );
+    }
+  }
+
+  /**
    * Build a worktree change handler that broadcasts git:worktreeChanged
    * to the frontend via WebviewManager when MCP tools create/remove worktrees.
+   *
+   * It only forwards `event.sessionId` and records nothing: agent session
+   * start (TASK_2026_584) reuses this handler for a child's worktree, which
+   * must never be attributed to the calling parent session (D9). Capture
+   * happens in the git namespace through `recordWorktreeForCaller`.
    *
    * WebviewManager is resolved lazily on each invocation (not at build time)
    * to handle cases where the manager is registered after PtahAPIBuilder.build().
    */
-  private buildWorktreeChangeHandler(): (event: {
-    action: 'created' | 'removed';
-    worktreePath?: string;
-    branch?: string;
-  }) => void {
+  private buildWorktreeChangeHandler(): WorktreeChangeCallback {
     const logger = this.logger;
 
     const webviewManager = this.webviewManager;
@@ -1041,6 +1133,7 @@ export class PtahAPIBuilder {
           action: event.action,
           name: event.branch,
           path: event.worktreePath,
+          ...(event.sessionId ? { sessionId: event.sessionId } : {}),
         })
         .catch((error) => {
           logger.error(

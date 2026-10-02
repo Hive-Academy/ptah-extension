@@ -36,6 +36,7 @@ import {
   parseSessionMcpStatusPayload,
 } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
+import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
 import {
   AgentSessionAdoptionService,
   parseAgentSessionOpenedPayload,
@@ -68,6 +69,7 @@ export class ChatMessageHandler implements MessageHandler {
   private readonly turnStateApplier = inject(TurnStateApplier);
   private readonly workflowClaims = inject(WorkflowSessionClaimService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
+  private readonly boardTaskLinkCapture = inject(BoardTaskLinkCaptureService);
   private readonly agentSessionAdoption = inject(AgentSessionAdoptionService);
   /**
    * Authoritative StreamRouter.
@@ -120,6 +122,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
     MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
     MESSAGE_TYPES.SESSION_METADATA_CHANGED,
+    MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
     MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE,
     MESSAGE_TYPES.SESSION_TURN_ENDED,
     MESSAGE_TYPES.SESSION_TURN_FAILED,
@@ -167,7 +170,10 @@ export class ChatMessageHandler implements MessageHandler {
       case MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP:
         this.handlePermissionSessionCleanup(message.payload);
         break;
+      // Organization pushes carry ids only; they share the debounced
+      // session-list refresh (TASK_2026_580).
       case MESSAGE_TYPES.SESSION_METADATA_CHANGED:
+      case MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED:
         this.handleSessionMetadataChanged();
         break;
       case MESSAGE_TYPES.SESSION_COMPACTION_COMPLETE:
@@ -635,6 +641,12 @@ export class ChatMessageHandler implements MessageHandler {
         tabId: tabId as string,
         realSessionId: realSessionId as string,
       });
+      if (tabId) {
+        void this.boardTaskLinkCapture.onSessionIdResolved(
+          tabId,
+          realSessionId,
+        );
+      }
       this.streamRouter.refreshQuestionTargetsForSession(
         realSessionId as ClaudeSessionId,
       );

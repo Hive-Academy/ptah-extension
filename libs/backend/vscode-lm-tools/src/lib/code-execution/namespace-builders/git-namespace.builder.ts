@@ -29,7 +29,20 @@ export type WorktreeChangeCallback = (event: {
   action: 'created' | 'removed';
   worktreePath?: string;
   branch?: string;
+  /**
+   * SDK session id of the agent whose MCP call created the worktree. Set only
+   * on `created` when the caller resolves to an SDK session id.
+   */
+  sessionId?: string;
 }) => void;
+
+/** A worktree an agent's MCP call created, attributed to the calling session. */
+export interface CallerWorktreeRecord {
+  /** SDK session id of the caller, never a webview tab id. */
+  sessionId: string;
+  worktreePath: string;
+  branch: string;
+}
 
 /**
  * Dependencies required to build the git namespace.
@@ -40,6 +53,19 @@ export interface GitNamespaceDependencies {
   getWorkspaceRoot: () => string;
   /** Optional callback fired after worktree add/remove to notify frontend */
   onWorktreeChanged?: WorktreeChangeCallback;
+  /**
+   * Resolves the SDK session id of the session that issued the current MCP
+   * call, or `undefined` when there is no caller or it has no SDK id yet.
+   * Must never return a webview tab id.
+   */
+  resolveCallerSessionId?: () => string | undefined;
+  /**
+   * Records a successfully added worktree on the calling session. This is the
+   * only MCP worktree capture path: the shared `onWorktreeChanged` handler
+   * records nothing, because agent session start reuses it for child
+   * worktrees that must not land on the parent.
+   */
+  recordWorktreeForCaller?: (record: CallerWorktreeRecord) => void;
 }
 
 /**
@@ -52,7 +78,52 @@ export interface GitNamespaceDependencies {
 export function buildGitNamespace(
   deps: GitNamespaceDependencies,
 ): GitNamespace {
-  const { getWorkspaceRoot, onWorktreeChanged } = deps;
+  const {
+    getWorkspaceRoot,
+    onWorktreeChanged,
+    resolveCallerSessionId,
+    recordWorktreeForCaller,
+  } = deps;
+
+  /**
+   * Attribute a created worktree to the calling session. Returns the caller's
+   * SDK session id when one resolves, so the change event can carry it.
+   * Capture is best-effort: a resolver or recorder failure never turns a
+   * worktree that git already created into a failed add.
+   */
+  function captureForCaller(
+    worktreePath: string,
+    branch: string,
+  ): string | undefined {
+    let sessionId: string | undefined;
+    try {
+      sessionId = resolveCallerSessionId?.() || undefined;
+      if (sessionId && recordWorktreeForCaller) {
+        recordWorktreeForCaller({ sessionId, worktreePath, branch });
+      }
+    } catch {
+      // Both deps are never-throw and log their own failures (PtahAPIBuilder);
+      // this only stops a faulty implementation from failing a successful add.
+    }
+    return sessionId;
+  }
+
+  /**
+   * Tell the frontend a worktree changed. A throwing listener must not turn a
+   * git operation that already succeeded into a reported failure.
+   */
+  function notifyWorktreeChanged(
+    event: Parameters<WorktreeChangeCallback>[0],
+  ): void {
+    if (!onWorktreeChanged) {
+      return;
+    }
+    try {
+      onWorktreeChanged(event);
+    } catch {
+      // The listener is a UI refresh; the git operation already succeeded.
+    }
+  }
 
   function runGit(
     args: string[],
@@ -127,13 +198,13 @@ export function buildGitNamespace(
             error: stderr.trim() || 'Failed to add worktree',
           };
         }
-        if (onWorktreeChanged) {
-          onWorktreeChanged({
-            action: 'created',
-            worktreePath,
-            branch: params.branch,
-          });
-        }
+        const sessionId = captureForCaller(worktreePath, params.branch);
+        notifyWorktreeChanged({
+          action: 'created',
+          worktreePath,
+          branch: params.branch,
+          ...(sessionId ? { sessionId } : {}),
+        });
 
         return { success: true, worktreePath };
       } catch (error) {
@@ -161,16 +232,10 @@ export function buildGitNamespace(
             error: stderr.trim() || 'Failed to remove worktree',
           };
         }
-        if (onWorktreeChanged) {
-          try {
-            onWorktreeChanged({
-              action: 'removed',
-              worktreePath: params.path,
-            });
-          } catch {
-            void 0;
-          }
-        }
+        notifyWorktreeChanged({
+          action: 'removed',
+          worktreePath: params.path,
+        });
 
         return { success: true };
       } catch (error) {

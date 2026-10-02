@@ -26,6 +26,7 @@ import {
   SessionId,
   SubagentRecord,
   type ChatResumeResult,
+  type SessionListParams,
 } from '@ptah-extension/shared';
 import {
   SessionManager,
@@ -55,6 +56,53 @@ interface CachedSessionState {
   totalSessions: number;
   hasMoreSessions: boolean;
   sessionsOffset: number;
+  /** {@link sessionListQueryKey} of the query these rows were loaded with. */
+  queryKey: string;
+}
+
+/**
+ * The organization part of a `session:list` request (TASK_2026_580): the
+ * sidebar's filters, sort and grouping. Pagination and the workspace are
+ * owned by the loader.
+ */
+export type SessionListQuery = Pick<
+  SessionListParams,
+  | 'status'
+  | 'priority'
+  | 'taskId'
+  | 'pinned'
+  | 'hasPr'
+  | 'text'
+  | 'sort'
+  | 'groupBy'
+>;
+
+/** The query every sidebar starts with: today's order, no filter. */
+export const DEFAULT_SESSION_LIST_QUERY: SessionListQuery = {
+  sort: 'lastActive',
+};
+
+/**
+ * Canonical comparison key for a query: defaults applied and a fixed field
+ * order, so two queries that select the same rows compare equal.
+ */
+export function sessionListQueryKey(query: SessionListQuery): string {
+  return JSON.stringify([
+    [...(query.status ?? [])].sort(compareCodeUnits),
+    [...(query.priority ?? [])].sort(compareCodeUnits),
+    query.taskId ?? '',
+    query.pinned ?? null,
+    query.hasPr ?? null,
+    query.text ?? '',
+    query.sort ?? 'lastActive',
+    query.groupBy ?? 'none',
+  ]);
+}
+
+/** UTF-16 code-unit order — the same order `Array.prototype.sort()` uses by default. */
+function compareCodeUnits(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }
 
 interface SwitchSessionOptions {
@@ -76,6 +124,42 @@ interface CliOutputLoadState {
   abortController: AbortController | null;
 }
 
+/**
+ * A `session:list` result as the loader stores it. The reply crosses the RPC
+ * boundary, so its declared shape is not a runtime guarantee: a host (or a
+ * test harness) that answers `success: true` without rows must leave the
+ * sidebar empty, never `undefined` — an `undefined` list throws in every
+ * reader and takes the shell's change detection down with it.
+ */
+interface SessionListPage {
+  sessions: ChatSessionSummary[];
+  total: number;
+  hasMore: boolean;
+  organizationAvailable: boolean;
+}
+
+function readSessionListPage(
+  data: {
+    sessions?: ChatSessionSummary[] | null;
+    total?: number | null;
+    hasMore?: boolean | null;
+    organizationAvailable?: boolean;
+  },
+  /** Rows already loaded before this page (load-more); 0 for a full read. */
+  offset = 0,
+): SessionListPage {
+  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  return {
+    sessions,
+    // Without a total, the rows loaded so far are all there is.
+    total:
+      typeof data.total === 'number' ? data.total : offset + sessions.length,
+    hasMore: data.hasMore === true,
+    // Only an explicit `true` counts (R-TL2).
+    organizationAvailable: data.organizationAvailable === true,
+  };
+}
+
 @Injectable({ providedIn: 'root' })
 export class SessionLoaderService {
   private readonly claudeRpcService = inject(ClaudeRpcService);
@@ -93,6 +177,21 @@ export class SessionLoaderService {
   private readonly _sessionsOffset = signal(0);
   private readonly _isLoadingMoreSessions = signal(false);
   private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
+  private readonly _listQuery = signal<SessionListQuery>(
+    DEFAULT_SESSION_LIST_QUERY,
+  );
+  /**
+   * Whether the host serves session organization, from the last successful
+   * `session:list` result. Only an explicit `true` counts (R-TL2): an absent
+   * field — VS Code, or a producer that predates it — reads as unavailable.
+   */
+  private readonly _organizationAvailable = signal(false);
+
+  /**
+   * Bumped by every query change. A list read that started under an older
+   * generation discards its result: its rows answer a query nobody shows.
+   */
+  private listQueryGeneration = 0;
 
   /**
    * Tracks which session ID the current _resumableSubagents belong to.
@@ -185,6 +284,8 @@ export class SessionLoaderService {
   readonly totalSessions = this._totalSessions.asReadonly();
   readonly isLoadingMoreSessions = this._isLoadingMoreSessions.asReadonly();
   readonly resumableSubagents = this._resumableSubagents.asReadonly();
+  readonly listQuery = this._listQuery.asReadonly();
+  readonly organizationAvailable = this._organizationAvailable.asReadonly();
 
   /** Guard to ensure the restored-session check runs only once */
   private restoredSessionChecked = false;
@@ -271,11 +372,15 @@ export class SessionLoaderService {
    * gets a fresh read.
    */
   private runLoadSessions(): Promise<void> {
-    const existing = this.loadSessionsInFlight;
-    if (existing !== null) {
-      return existing;
-    }
+    return this.loadSessionsInFlight ?? this.startSessionsRead();
+  }
 
+  /**
+   * Start a fresh read and make it the one later callers join. Used directly
+   * (never joining) after a query change, because a read already in flight
+   * answers the old query.
+   */
+  private startSessionsRead(): Promise<void> {
     const promise = this._loadSessionsImmediate().finally(() => {
       if (this.loadSessionsInFlight === promise) {
         this.loadSessionsInFlight = null;
@@ -283,6 +388,40 @@ export class SessionLoaderService {
     });
     this.loadSessionsInFlight = promise;
     return promise;
+  }
+
+  /**
+   * Replace the sidebar's organization query (TASK_2026_580). An equal query
+   * is a no-op. A change drops the pagination offset to the first page and
+   * reloads at once — the filter bar has already debounced typing.
+   */
+  setListQuery(query: SessionListQuery): void {
+    if (sessionListQueryKey(query) === sessionListQueryKey(this._listQuery())) {
+      return;
+    }
+    this._listQuery.set(query);
+    this.listQueryGeneration++;
+    this._sessionsOffset.set(0);
+    this.startSessionsRead().catch((error: unknown) => {
+      console.error(
+        '[SessionLoaderService] Failed to load sessions for a new query:',
+        error,
+      );
+    });
+  }
+
+  /**
+   * The query part of every `session:list` request. Every call carries `sort`,
+   * so the sidebar is always in query mode; the organization filters are sent
+   * only to a host that serves them (VS Code gets `sort: 'lastActive'`, which
+   * is today's order).
+   */
+  private listQueryParams(): SessionListQuery {
+    const query = this._listQuery();
+    if (!this._organizationAvailable()) {
+      return { sort: 'lastActive' };
+    }
+    return { ...query, sort: query.sort ?? 'lastActive' };
   }
 
   /**
@@ -309,10 +448,12 @@ export class SessionLoaderService {
         currentOffset,
       );
 
+      const generation = this.listQueryGeneration;
       const result = await this.claudeRpcService.call('session:list', {
         workspacePath,
         limit,
         offset: 0,
+        ...this.listQueryParams(),
       });
       const activeNow =
         this.currentWorkspacePath || this.vscodeService.config().workspaceRoot;
@@ -323,12 +464,17 @@ export class SessionLoaderService {
       ) {
         return;
       }
+      if (generation !== this.listQueryGeneration) {
+        return;
+      }
 
       if (result.success && result.data) {
-        this._sessions.set(result.data.sessions);
-        this._totalSessions.set(result.data.total);
-        this._hasMoreSessions.set(result.data.hasMore);
-        this._sessionsOffset.set(result.data.sessions.length);
+        const page = readSessionListPage(result.data);
+        this._organizationAvailable.set(page.organizationAvailable);
+        this._sessions.set(page.sessions);
+        this._totalSessions.set(page.total);
+        this._hasMoreSessions.set(page.hasMore);
+        this._sessionsOffset.set(page.sessions.length);
         this.updateCache(workspacePath);
       } else {
         console.error(
@@ -360,6 +506,7 @@ export class SessionLoaderService {
       }
 
       const currentOffset = this._sessionsOffset();
+      const generation = this.listQueryGeneration;
 
       const { success, data, error } = await this.claudeRpcService.call(
         'session:list',
@@ -367,14 +514,21 @@ export class SessionLoaderService {
           workspacePath,
           limit: SessionLoaderService.SESSIONS_PAGE_SIZE,
           offset: currentOffset,
+          ...this.listQueryParams(),
         },
       );
+      // A page of the old query must not be appended to the new one's rows.
+      if (generation !== this.listQueryGeneration) {
+        return;
+      }
 
       if (success && data) {
-        this._sessions.update((current) => [...current, ...data.sessions]);
-        this._totalSessions.set(data.total);
-        this._hasMoreSessions.set(data.hasMore);
-        this._sessionsOffset.set(currentOffset + data.sessions.length);
+        const page = readSessionListPage(data, currentOffset);
+        this._organizationAvailable.set(page.organizationAvailable);
+        this._sessions.update((current) => [...current, ...page.sessions]);
+        this._totalSessions.set(page.total);
+        this._hasMoreSessions.set(page.hasMore);
+        this._sessionsOffset.set(currentOffset + page.sessions.length);
         this.updateCache(workspacePath);
       } else {
         console.error(
@@ -478,8 +632,10 @@ export class SessionLoaderService {
     }
 
     this.currentWorkspacePath = normalizedNew;
+    // Rows cached under another query would show filters the list does not
+    // honour; treat them as a miss and read again.
     const cached = this.sessionCache.get(normalizedNew);
-    if (cached) {
+    if (cached && cached.queryKey === sessionListQueryKey(this._listQuery())) {
       this.sessionCache.delete(normalizedNew);
       this.sessionCache.set(normalizedNew, cached);
       this._sessions.set(cached.sessions);
@@ -526,6 +682,7 @@ export class SessionLoaderService {
       totalSessions: this._totalSessions(),
       hasMoreSessions: this._hasMoreSessions(),
       sessionsOffset: this._sessionsOffset(),
+      queryKey: sessionListQueryKey(this._listQuery()),
     });
     while (
       this.sessionCache.size > SessionLoaderService.MAX_CACHED_WORKSPACES
@@ -553,18 +710,23 @@ export class SessionLoaderService {
       const normalizedPath =
         SessionLoaderService.normalizeCacheKey(workspacePath);
 
+      const generation = this.listQueryGeneration;
       const result = await this.claudeRpcService.call('session:list', {
         workspacePath,
         limit: SessionLoaderService.SESSIONS_PAGE_SIZE,
         offset: 0,
+        ...this.listQueryParams(),
       });
       if (this.currentWorkspacePath !== normalizedPath) return;
+      if (generation !== this.listQueryGeneration) return;
 
       if (result.success && result.data) {
-        this._sessions.set(result.data.sessions);
-        this._totalSessions.set(result.data.total);
-        this._hasMoreSessions.set(result.data.hasMore);
-        this._sessionsOffset.set(result.data.sessions.length);
+        const page = readSessionListPage(result.data);
+        this._organizationAvailable.set(page.organizationAvailable);
+        this._sessions.set(page.sessions);
+        this._totalSessions.set(page.total);
+        this._hasMoreSessions.set(page.hasMore);
+        this._sessionsOffset.set(page.sessions.length);
         this.updateCache(workspacePath);
       } else {
         console.error(

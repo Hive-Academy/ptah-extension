@@ -64,6 +64,7 @@ import type {
   SymbolIndexEntry,
 } from '../types';
 import { buildCodeNamespace } from '../namespace-builders/code-namespace.builder';
+import { buildSessionOrganizationNamespace } from '../namespace-builders/session-organization-namespace.builder';
 import { buildSessionNamespace } from '../namespace-builders/session-namespace.builder';
 import type { ISessionSpawner } from '@ptah-extension/cli-agent-runtime';
 import {
@@ -846,6 +847,172 @@ describe('tools/call — task specs routing', () => {
       code: 'TASK_CONFLICT',
       error: 'changed on disk',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ptah_session_link_task (TASK_2026_580, D12)
+// ---------------------------------------------------------------------------
+
+describe('ptah_session_link_task', () => {
+  const TOOL = 'ptah_session_link_task';
+  const TASK_ID = 'TASK_2026_580_9f77';
+  /** Tab id → SDK session id, as the lifecycle manager would map it. */
+  const SDK_IDS = new Map([['tab-1', 'sdk-session-1']]);
+
+  function linkDeps(
+    options: {
+      recorder?: { linkTask: jest.Mock } | null;
+      logger?: MockLogger;
+    } = {},
+  ): { deps: ProtocolHandlerDependencies; linkTask: jest.Mock } {
+    const linkTask = jest.fn();
+    const recorder =
+      options.recorder === null
+        ? undefined
+        : (options.recorder ?? { linkTask });
+    const sessionOrganization = buildSessionOrganizationNamespace({
+      // The real wiring: the caller comes from the request context only.
+      resolveCallerSessionId: () => {
+        const caller = getCallerSessionId();
+        return caller ? SDK_IDS.get(caller) : undefined;
+      },
+      getRecorder: () => recorder,
+      getWorkspaceRootHint: () => undefined,
+    });
+    return {
+      linkTask: recorder?.linkTask ?? linkTask,
+      deps: buildDeps({
+        ptahAPI: buildPtahAPIStub({ sessionOrganization }),
+        logger: asLogger(options.logger ?? createMockLogger()),
+      }),
+    };
+  }
+
+  async function call(
+    deps: ProtocolHandlerDependencies,
+    args: Record<string, unknown>,
+    extra: Partial<MCPRequest> = {},
+  ): Promise<{ text: string; isError?: boolean }> {
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 'link-1',
+        method: 'tools/call',
+        params: { name: TOOL, arguments: args },
+        ...extra,
+      }),
+      deps,
+    );
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+    };
+    return { text: result.content[0].text, isError: result.isError };
+  }
+
+  it('is always on: listed even with every namespace toggle disabled', async () => {
+    const names = listedToolNames(
+      await handleMCPRequest(
+        makeRequest({ id: 'link-list', method: 'tools/list' }),
+        buildDeps({
+          disabledMcpNamespaces: [
+            'tasks',
+            'session',
+            'sessionOrganization',
+            'agent',
+            'git',
+            'json',
+            'browser',
+            'harness',
+            'code',
+          ],
+        }),
+      ),
+    );
+    expect(names).toContain(TOOL);
+    expect(names.indexOf(TOOL)).toBe(names.indexOf('ptah_task_check') + 1);
+  });
+
+  it('links the CALLER resolved from the request context, not from args', async () => {
+    const { deps, linkTask } = linkDeps();
+
+    const { text, isError } = await call(
+      deps,
+      { taskId: TASK_ID },
+      { _callerSessionId: 'tab-1' },
+    );
+
+    expect(isError).toBeUndefined();
+    expect(linkTask).toHaveBeenCalledWith({
+      sessionId: 'sdk-session-1',
+      taskId: TASK_ID,
+      role: 'primary',
+      source: 'agent',
+    });
+    expect(text).toContain('Link recorded for this session (sdk-session-1)');
+    expect(text).toContain(`task ${TASK_ID}, role primary`);
+    // A success means "handed to the recorder", never "the task exists".
+    expect(text).toContain('not checked');
+  });
+
+  it('refuses a session id passed as an argument', async () => {
+    const { deps, linkTask } = linkDeps();
+
+    const { text, isError } = await call(
+      deps,
+      { taskId: TASK_ID, sessionId: 'someone-else' },
+      { _callerSessionId: 'tab-1' },
+    );
+
+    expect(isError).toBeUndefined();
+    expect(text).toMatch(/^Not linked \(invalid-args\): /);
+    expect(linkTask).not.toHaveBeenCalled();
+  });
+
+  it('reports organization-unavailable when the host has no recorder', async () => {
+    const { deps } = linkDeps({ recorder: null });
+
+    const { text } = await call(
+      deps,
+      { taskId: TASK_ID },
+      { _callerSessionId: 'tab-1' },
+    );
+
+    expect(text).toMatch(/^Not linked \(organization-unavailable\): /);
+  });
+
+  it('reports unattributed-caller without a caller session or for an unknown tab', async () => {
+    const { deps, linkTask } = linkDeps();
+
+    for (const extra of [{}, { _callerSessionId: 'tab-unknown' }]) {
+      const { text } = await call(deps, { taskId: TASK_ID }, extra);
+      expect(text).toMatch(/^Not linked \(unattributed-caller\): /);
+    }
+    expect(linkTask).not.toHaveBeenCalled();
+  });
+
+  it('logs a recorder failure and returns fixed text without its message', async () => {
+    const logger = createMockLogger();
+    const recorder = {
+      linkTask: jest.fn(() => {
+        throw new Error('SQLITE_BUSY at /home/user/.ptah/org.db');
+      }),
+    };
+    const { deps } = linkDeps({ recorder, logger });
+
+    const { text } = await call(
+      deps,
+      { taskId: TASK_ID },
+      { _callerSessionId: 'tab-1' },
+    );
+
+    expect(text).toMatch(/^Not linked \(link-failed\): /);
+    expect(text).not.toContain('org.db');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[MCP] ptah_session_link_task: the recorder threw',
+      'CodeExecutionMCP',
+      { message: 'SQLITE_BUSY at /home/user/.ptah/org.db' },
+    );
   });
 });
 

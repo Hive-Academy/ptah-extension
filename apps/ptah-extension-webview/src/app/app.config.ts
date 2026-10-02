@@ -83,7 +83,10 @@ import { HarnessWorkflowMessageHandler } from '@ptah-extension/harness-builder/s
 // importing `HarnessHealthStore` from the wide barrel would pull the whole
 // marketplace hub back into the eager graph just to register one push handler.
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
-import { TasksStore } from '@ptah-extension/tasks-ui/services';
+import {
+  TaskSessionLinksService,
+  TasksStore,
+} from '@ptah-extension/tasks-ui/services';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui/services';
 import {
   MARKDOWN_FILE_LINK_HANDLER,
@@ -212,6 +215,11 @@ export const appConfig: ApplicationConfig = {
     // that with a `RouteReuseStrategy`).
     { provide: ORCHESTRA_CANVAS_COMPONENT, useValue: OrchestraCanvasComponent },
     { provide: MESSAGE_HANDLERS, useExisting: TasksStore, multi: true },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: TaskSessionLinksService,
+      multi: true,
+    },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },

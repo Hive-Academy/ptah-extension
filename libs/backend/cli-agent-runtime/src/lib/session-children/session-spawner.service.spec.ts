@@ -60,7 +60,13 @@ function envelope(turn: number): SessionChildCompletionEnvelope {
   };
 }
 
-function makeHarness(options: { config?: Record<string, unknown> } = {}) {
+function makeHarness(
+  options: {
+    config?: Record<string, unknown>;
+    /** `null` builds the spawner with no recorder bound (VS Code). */
+    recorder?: { recordAgentStartedSession: jest.Mock } | null;
+  } = {},
+) {
   const logger = createMockLogger() as unknown as Logger;
   const registry = new SessionChildRegistry();
   const policies = new UnattendedSessionPolicyRegistry();
@@ -151,6 +157,10 @@ function makeHarness(options: { config?: Record<string, unknown> } = {}) {
     retainRoot: jest.fn().mockResolvedValue({ registered: true }),
     releaseRoot: jest.fn().mockResolvedValue(undefined),
   };
+  const recorder =
+    'recorder' in options
+      ? (options.recorder ?? null)
+      : { recordAgentStartedSession: jest.fn() };
 
   /** A real child container holding `hostValue` (none when `null`). */
   const containerWith = (hostValue: unknown): DependencyContainer => {
@@ -192,6 +202,7 @@ function makeHarness(options: { config?: Record<string, unknown> } = {}) {
         : containerWith('host' in overrides ? overrides.host : host),
       ('mcpStatus' in overrides ? overrides.mcpStatus : mcpStatus) as never,
       registrar,
+      recorder as never,
     );
 
   const spawner = build();
@@ -258,6 +269,7 @@ function makeHarness(options: { config?: Record<string, unknown> } = {}) {
     lines,
     mcpStatus,
     registrar,
+    recorder,
     request,
     startChild,
     turnEnded,
@@ -818,6 +830,145 @@ describe('SessionSpawnerService — parent not live: held completions', () => {
       h.registry.get(child.childSessionId)?.terminalStatus,
     ).toBeUndefined();
     expect(h.adapter.interruptSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionSpawnerService — session organization record (TASK_2026_580 R-TL8)', () => {
+  function resolveChild(
+    h: ReturnType<typeof makeHarness>,
+    childSessionId: string,
+  ): void {
+    h.idResolved.notifyAll({
+      tabId: childSessionId,
+      realSessionId: CHILD_SDK,
+      timestamp: 1,
+    });
+  }
+
+  /** The harness's default recorder; fails loudly if a test lost it. */
+  function recordCalls(h: ReturnType<typeof makeHarness>): jest.Mock {
+    if (!h.recorder) throw new Error('harness built without a recorder');
+    return h.recorder.recordAgentStartedSession;
+  }
+
+  it('records the child under its SDK id with the parent SDK id, worktree, branch and task', async () => {
+    const h = makeHarness();
+    const child = await h.startChild({ taskId: 'TASK_2026_001' });
+    expect(recordCalls(h)).not.toHaveBeenCalled();
+
+    resolveChild(h, child.childSessionId);
+    await flush();
+
+    expect(recordCalls(h)).toHaveBeenCalledTimes(1);
+    expect(recordCalls(h)).toHaveBeenCalledWith({
+      sessionId: CHILD_SDK,
+      workspaceRoot: ROOT,
+      parentSessionId: PARENT_SDK,
+      worktreePath: WORKTREE,
+      branch: BRANCH,
+      taskId: 'TASK_2026_001',
+    });
+  });
+
+  it('omits the task id when the child was started without one', async () => {
+    const h = makeHarness();
+    const child = await h.startChild();
+
+    resolveChild(h, child.childSessionId);
+    await flush();
+
+    const input = recordCalls(h).mock.calls[0][0];
+    expect(input).not.toHaveProperty('taskId');
+  });
+
+  it('falls back to the parent tab live SDK id when none was captured at start', async () => {
+    const h = makeHarness();
+    h.lifecycleIds.delete(PARENT);
+    const child = await h.startChild();
+    expect(child.parentSdkSessionId).toBeUndefined();
+
+    h.lifecycleIds.set(PARENT, PARENT_SDK);
+    resolveChild(h, child.childSessionId);
+    await flush();
+
+    expect(recordCalls(h)).toHaveBeenCalledWith(
+      expect.objectContaining({ parentSessionId: PARENT_SDK }),
+    );
+  });
+
+  it('omits the parent when its SDK id is unknown, never passing the parent tab id', async () => {
+    const h = makeHarness();
+    h.lifecycleIds.delete(PARENT);
+    const child = await h.startChild();
+
+    resolveChild(h, child.childSessionId);
+    await flush();
+
+    const input = recordCalls(h).mock.calls[0][0];
+    expect(input).not.toHaveProperty('parentSessionId');
+    expect(Object.values(input)).not.toContain(PARENT);
+  });
+
+  it('records the same input again when the same child resolves twice (the store upserts)', async () => {
+    const h = makeHarness();
+    const child = await h.startChild({ taskId: 'TASK_2026_001' });
+
+    resolveChild(h, child.childSessionId);
+    resolveChild(h, child.childSessionId);
+    await flush();
+
+    expect(recordCalls(h)).toHaveBeenCalledTimes(2);
+    expect(recordCalls(h).mock.calls[1][0]).toEqual(
+      recordCalls(h).mock.calls[0][0],
+    );
+    expect(h.registry.get(child.childSessionId)?.sdkSessionId).toBe(CHILD_SDK);
+  });
+
+  it('records nothing for a resolve that is not one of its children', async () => {
+    const h = makeHarness();
+    await h.startChild();
+
+    h.idResolved.notifyAll({
+      tabId: OTHER,
+      realSessionId: CHILD_SDK,
+      timestamp: 1,
+    });
+    await flush();
+
+    expect(recordCalls(h)).not.toHaveBeenCalled();
+  });
+
+  it('binds the child without a recorder bound', async () => {
+    const h = makeHarness({ recorder: null });
+    const child = await h.startChild();
+
+    expect(() => resolveChild(h, child.childSessionId)).not.toThrow();
+    await flush();
+
+    expect(h.registry.get(child.childSessionId)?.sdkSessionId).toBe(CHILD_SDK);
+  });
+
+  it('keeps the bind and logs when the recorder throws', async () => {
+    const recorder = {
+      recordAgentStartedSession: jest.fn(() => {
+        throw new Error('db closed');
+      }),
+    };
+    const h = makeHarness({ recorder });
+    const child = await h.startChild();
+
+    expect(() => resolveChild(h, child.childSessionId)).not.toThrow();
+    await flush();
+
+    expect(recorder.recordAgentStartedSession).toHaveBeenCalledTimes(1);
+    expect(h.registry.get(child.childSessionId)?.sdkSessionId).toBe(CHILD_SDK);
+    expect(
+      h.lines.some((line) =>
+        line.includes(
+          `${child.childSessionId} organization not recorded: db closed`,
+        ),
+      ),
+    ).toBe(true);
   });
 });
 

@@ -41,6 +41,7 @@ import type { MemoryNamespace } from './namespace-builders/memory-namespace.buil
 import type { CorpusNamespace } from './namespace-builders/corpus-namespace.builder';
 import type { CodeNamespace } from './namespace-builders/code-namespace.builder';
 import type { TasksNamespace } from './namespace-builders/tasks-namespace.builder';
+import type { SessionOrganizationNamespace } from './namespace-builders/session-organization-namespace.builder';
 import type {
   WebSearchFailureReason,
   WebSearchProviderType,
@@ -74,6 +75,13 @@ export interface PtahAPI {
    * by hand — which is the failure mode this namespace exists to remove.
    */
   tasks: TasksNamespace;
+  /**
+   * Per-user session organization (TASK_2026_580). NON-optional: without a
+   * recorder (VS Code) every method returns `organization-unavailable`, so
+   * there is no host on which the namespace is missing. Named
+   * `sessionOrganization` because TASK_2026_584 owns `session`.
+   */
+  sessionOrganization: SessionOrganizationNamespace;
   webSearch?: {
     search(
       query: string,

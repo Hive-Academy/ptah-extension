@@ -1,0 +1,724 @@
+{
+  "anubis-360": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 3401,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 3613,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      }
+    ],
+    "ls": [
+      {
+        "t": 3615,
+        "v": 0.0176,
+        "had": false,
+        "srcs": ["DIV", "DIV", "BUTTON", "BUTTON", "BUTTON"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 6902,
+        "v": 0.0347,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 8240,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 243
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 8937,
+        "v": 0.0022,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 561,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 746,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      }
+    ],
+    "ls": [
+      {
+        "t": 607,
+        "v": 0.0006,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 747,
+        "v": 0.0149,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 3999,
+        "v": 0.0345,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5341,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 243
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6033,
+        "v": 0.0021,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-1400": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 605,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 789,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      }
+    ],
+    "ls": [
+      {
+        "t": 640,
+        "v": 0.0004,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 790,
+        "v": 0.0055,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4060,
+        "v": 0.0127,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5384,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 243
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6075,
+        "v": 0.0008,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-light-360": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 586,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 794,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 215
+      },
+      {
+        "t": 899,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 217
+      }
+    ],
+    "ls": [
+      {
+        "t": 699,
+        "v": 0.0007,
+        "had": false,
+        "srcs": ["BUTTON", "BUTTON", "BUTTON", "SPAN", "BUTTON"]
+      },
+      {
+        "t": 796,
+        "v": 0.0151,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4171,
+        "v": 0.0345,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5500,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 245
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6182,
+        "v": 0.002,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-light-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 620,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 824,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 217
+      }
+    ],
+    "ls": [
+      {
+        "t": 660,
+        "v": 0.0006,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 826,
+        "v": 0.0154,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4107,
+        "v": 0.0343,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5433,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 245
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6105,
+        "v": 0.002,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "anubis-light-1400": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 648,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 747,
+        "top": 153
+      },
+      {
+        "t": 880,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1045,
+        "top": 217
+      }
+    ],
+    "ls": [
+      {
+        "t": 707,
+        "v": 0.0004,
+        "had": false,
+        "srcs": ["#text", "DIV", "BUTTON", "H2", "SPAN"]
+      },
+      {
+        "t": 881,
+        "v": 0.0057,
+        "had": false,
+        "srcs": ["DIV", "DIV"]
+      }
+    ],
+    "reloadFrames": [],
+    "reloadLs": [
+      {
+        "t": 4209,
+        "v": 0.0126,
+        "had": false,
+        "srcs": ["LI", "LI", "LI", "LI"]
+      }
+    ],
+    "groupReloadFrames": [
+      {
+        "t": 5554,
+        "rows": 12,
+        "chips": 12,
+        "fb": true,
+        "localSearch": false,
+        "sk": false,
+        "h": 1157,
+        "top": 245
+      }
+    ],
+    "groupReloadLs": [
+      {
+        "t": 6251,
+        "v": 0.0007,
+        "had": false,
+        "srcs": ["LI[session-group]"]
+      }
+    ]
+  },
+  "vscode-anubis-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 576,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 787,
+        "top": 113
+      },
+      {
+        "t": 748,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 1014,
+        "top": 119
+      },
+      {
+        "t": 2489,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 838,
+        "top": 119
+      },
+      {
+        "t": 2505,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 822,
+        "top": 119
+      },
+      {
+        "t": 2521,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 806,
+        "top": 119
+      }
+    ],
+    "ls": [
+      {
+        "t": 656,
+        "v": 0.0024,
+        "had": false,
+        "srcs": ["DIV", "#text", "BUTTON", "DIV", "H2"]
+      },
+      {
+        "t": 2353,
+        "v": 0.0063,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2371,
+        "v": 0.0129,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2391,
+        "v": 0.0219,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2406,
+        "v": 0.2917,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "#text", "IMG"]
+      },
+      {
+        "t": 2420,
+        "v": 0.0341,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "SPAN", "IMG", "LUCIDE-ANGULAR"]
+      },
+      {
+        "t": 2441,
+        "v": 0.0709,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2457,
+        "v": 0.0228,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "SPAN"]
+      },
+      {
+        "t": 2473,
+        "v": 0.0166,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "SPAN"]
+      },
+      {
+        "t": 2491,
+        "v": 0.1832,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "LI", "LI", "LI"]
+      },
+      {
+        "t": 2507,
+        "v": 0.0168,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "LI", "LI", "LI"]
+      },
+      {
+        "t": 2522,
+        "v": 0.0068,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2540,
+        "v": 0.0051,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "IMG"]
+      },
+      {
+        "t": 2555,
+        "v": 0.0041,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV"]
+      },
+      {
+        "t": 2570,
+        "v": 0.0026,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV"]
+      }
+    ],
+    "aria": "- list:\n  - listitem:\n    - button \"Refactor session loader 12m ago 12 msgs\"\n    - 'button \"Rename session: Refactor session loader\"'\n    - 'button \"Delete session: Refactor session loader\"'\n  - listitem:\n    - button \"Fix flaky e2e on CI 1h ago 13 msgs\"\n    - 'button \"Rename session: Fix flaky e2e on CI\"'\n    - 'button \"Delete session: Fix flaky e2e on CI\"'\n  - listitem:\n    - button \"Investigate memory leak in the renderer process... 2h ago 14 msgs\"\n    - 'button \"Rename session: Investigate memory leak in the renderer process...\"'",
+    "listRoles": {
+      "uls": ["(native)"],
+      "lis": 13,
+      "explicitRoles": 0,
+      "listStyle": "none",
+      "ulPad": "0px"
+    }
+  },
+  "vscode-anubis-light-800": {
+    "errs": [],
+    "frames": [
+      {
+        "t": 632,
+        "rows": 0,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 787,
+        "top": 113
+      },
+      {
+        "t": 737,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 1014,
+        "top": 119
+      },
+      {
+        "t": 2493,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 838,
+        "top": 119
+      },
+      {
+        "t": 2511,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 822,
+        "top": 119
+      },
+      {
+        "t": 2526,
+        "rows": 13,
+        "chips": 0,
+        "fb": false,
+        "localSearch": true,
+        "sk": false,
+        "h": 806,
+        "top": 119
+      }
+    ],
+    "ls": [
+      {
+        "t": 667,
+        "v": 0.0024,
+        "had": false,
+        "srcs": ["DIV", "#text", "BUTTON", "DIV", "H2"]
+      },
+      {
+        "t": 2360,
+        "v": 0.0064,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2378,
+        "v": 0.0128,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2395,
+        "v": 0.0221,
+        "had": true,
+        "srcs": ["DIV", "BUTTON"]
+      },
+      {
+        "t": 2414,
+        "v": 0.2911,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "#text", "IMG"]
+      },
+      {
+        "t": 2429,
+        "v": 0.0342,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2446,
+        "v": 0.0709,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2463,
+        "v": 0.0228,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "SPAN"]
+      },
+      {
+        "t": 2478,
+        "v": 0.0166,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "SPAN"]
+      },
+      {
+        "t": 2494,
+        "v": 0.1832,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "LI", "LI", "LI"]
+      },
+      {
+        "t": 2512,
+        "v": 0.0168,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "LI", "LI", "LI"]
+      },
+      {
+        "t": 2527,
+        "v": 0.0068,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "SPAN", "IMG"]
+      },
+      {
+        "t": 2547,
+        "v": 0.0051,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV", "IMG"]
+      },
+      {
+        "t": 2561,
+        "v": 0.0041,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV"]
+      },
+      {
+        "t": 2579,
+        "v": 0.0027,
+        "had": true,
+        "srcs": ["DIV", "BUTTON", "DIV", "DIV"]
+      }
+    ],
+    "aria": "- list:\n  - listitem:\n    - button \"Refactor session loader 12m ago 12 msgs\"\n    - 'button \"Rename session: Refactor session loader\"'\n    - 'button \"Delete session: Refactor session loader\"'\n  - listitem:\n    - button \"Fix flaky e2e on CI 1h ago 13 msgs\"\n    - 'button \"Rename session: Fix flaky e2e on CI\"'\n    - 'button \"Delete session: Fix flaky e2e on CI\"'\n  - listitem:\n    - button \"Investigate memory leak in the renderer process... 2h ago 14 msgs\"\n    - 'button \"Rename session: Investigate memory leak in the renderer process...\"'",
+    "listRoles": {
+      "uls": ["(native)"],
+      "lis": 13,
+      "explicitRoles": 0,
+      "listStyle": "none",
+      "ulPad": "0px"
+    }
+  }
+}

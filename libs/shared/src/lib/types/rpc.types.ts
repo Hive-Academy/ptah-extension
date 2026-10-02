@@ -117,6 +117,18 @@ import type {
   SessionRewindResult,
   SessionStatusParams,
   SessionStatusResponse,
+  SessionSetOrganizationParams,
+  SessionSetOrganizationResult,
+  SessionLinkTaskParams,
+  SessionLinkTaskResult,
+  SessionUnlinkTaskParams,
+  SessionUnlinkTaskResult,
+  SessionAddPrLinkParams,
+  SessionAddPrLinkResult,
+  SessionRemovePrLinkParams,
+  SessionRemovePrLinkResult,
+  SessionListForTasksParams,
+  SessionListForTasksResult,
 } from './rpc/rpc-session.types';
 
 import type {
@@ -749,6 +761,32 @@ export interface RpcMethodRegistry {
   'session:status': {
     params: SessionStatusParams;
     result: SessionStatusResponse;
+  };
+  // Session organization (TASK_2026_580). Served on every host; a host
+  // without the organization store answers `organization-unavailable`.
+  'session:setOrganization': {
+    params: SessionSetOrganizationParams;
+    result: SessionSetOrganizationResult;
+  };
+  'session:linkTask': {
+    params: SessionLinkTaskParams;
+    result: SessionLinkTaskResult;
+  };
+  'session:unlinkTask': {
+    params: SessionUnlinkTaskParams;
+    result: SessionUnlinkTaskResult;
+  };
+  'session:addPrLink': {
+    params: SessionAddPrLinkParams;
+    result: SessionAddPrLinkResult;
+  };
+  'session:removePrLink': {
+    params: SessionRemovePrLinkParams;
+    result: SessionRemovePrLinkResult;
+  };
+  'session:listForTasks': {
+    params: SessionListForTasksParams;
+    result: SessionListForTasksResult;
   };
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
@@ -3587,6 +3625,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:forkSession': true,
   'session:rewindFiles': true,
   'session:status': true,
+  'session:setOrganization': true,
+  'session:linkTask': true,
+  'session:unlinkTask': true,
+  'session:addPrLink': true,
+  'session:removePrLink': true,
+  'session:listForTasks': true,
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
   'autocomplete:agents': true,

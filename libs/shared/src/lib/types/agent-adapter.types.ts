@@ -98,6 +98,11 @@ export type WorktreeCreatedCallback = (data: {
   name: string;
   cwd: string;
   timestamp: number;
+  /**
+   * Absolute path of the created worktree, when the hook reported one.
+   * Absent when only the worktree name is known.
+   */
+  worktreePath?: string;
 }) => void;
 
 export type WorktreeRemovedCallback = (data: {

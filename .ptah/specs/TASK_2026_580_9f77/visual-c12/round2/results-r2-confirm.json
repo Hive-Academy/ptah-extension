@@ -1,0 +1,186 @@
+{
+  "anubis-360": {
+    "dialogBefore": 0,
+    "openMs": 88,
+    "first": {
+      "open": true,
+      "visible": "visible/1",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [15, 329, 321, 242],
+      "vw": 360,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "dialogAfterOpen": 1,
+    "afterEscape": {
+      "open": true,
+      "visible": "visible/1",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [15, 329, 321, 242],
+      "vw": 360,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "afterCancel": {
+      "open": false,
+      "active": "BODY",
+      "rows": 12,
+      "deleteRpc": 0
+    },
+    "second": {
+      "open": true,
+      "visible": "visible/0",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [31, 341, 289, 218],
+      "vw": 360,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "afterConfirm": {
+      "open": false,
+      "rows": 12,
+      "deleteRpc": 1
+    }
+  },
+  "anubis-800": {
+    "dialogBefore": 0,
+    "openMs": 66,
+    "first": {
+      "open": true,
+      "visible": "visible/1",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [203, 339, 384, 222],
+      "vw": 800,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "dialogAfterOpen": 1,
+    "afterEscape": {
+      "open": true,
+      "visible": "visible/1",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [203, 339, 384, 222],
+      "vw": 800,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "afterCancel": {
+      "open": false,
+      "active": "BODY",
+      "rows": 12,
+      "deleteRpc": 0
+    },
+    "second": {
+      "open": true,
+      "visible": "visible/0.260331",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [214, 345, 363, 209],
+      "vw": 800,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "afterConfirm": {
+      "open": false,
+      "rows": 12,
+      "deleteRpc": 1
+    }
+  },
+  "anubis-light-360": {
+    "dialogBefore": 0,
+    "openMs": 73,
+    "first": {
+      "open": true,
+      "visible": "visible/1",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [15, 329, 321, 242],
+      "vw": 360,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "dialogAfterOpen": 1,
+    "afterEscape": {
+      "open": true,
+      "visible": "visible/1",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [15, 329, 321, 242],
+      "vw": 360,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "afterCancel": {
+      "open": false,
+      "active": "BODY",
+      "rows": 12,
+      "deleteRpc": 0
+    },
+    "second": {
+      "open": true,
+      "visible": "visible/0.259616",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [24, 336, 303, 229],
+      "vw": 360,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "afterConfirm": {
+      "open": false,
+      "rows": 12,
+      "deleteRpc": 1
+    }
+  },
+  "anubis-light-800": {
+    "dialogBefore": 0,
+    "openMs": 71,
+    "first": {
+      "open": true,
+      "visible": "visible/1",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [203, 339, 384, 222],
+      "vw": 800,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "dialogAfterOpen": 1,
+    "afterEscape": {
+      "open": true,
+      "visible": "visible/1",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [203, 339, 384, 222],
+      "vw": 800,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "afterCancel": {
+      "open": false,
+      "active": "BODY",
+      "rows": 12,
+      "deleteRpc": 0
+    },
+    "second": {
+      "open": true,
+      "visible": "visible/0.260331",
+      "focusInside": false,
+      "active": "Delete session",
+      "box": [214, 345, 363, 209],
+      "vw": 800,
+      "vh": 900,
+      "text": "Delete Session Are you sure you want to delete \"Spike: opencode lane messaging\"? This action cannot be undone."
+    },
+    "afterConfirm": {
+      "open": false,
+      "rows": 12,
+      "deleteRpc": 1
+    }
+  }
+}

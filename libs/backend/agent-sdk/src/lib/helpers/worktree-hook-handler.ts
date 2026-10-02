@@ -23,6 +23,8 @@
 import * as path from 'path';
 import { injectable, inject } from 'tsyringe';
 import { AGENT_WORKTREE_DIR } from '@ptah-extension/shared';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { ISessionOrganizationRecorder } from '@ptah-extension/platform-core';
 import type { Logger, GitInfoService } from '@ptah-extension/vscode-core';
 import {
   resolveWorktreePath,
@@ -44,12 +46,14 @@ import {
  * Callback type for notifying when a worktree is created
  * - sessionId: The session that triggered the worktree creation
  * - name: The name/branch of the created worktree
+ * - worktreePath: The absolute path git created the worktree at
  * - cwd: The working directory of the session
  * - timestamp: When the worktree was created
  */
 export type WorktreeCreatedCallback = (data: {
   sessionId: string;
   name: string;
+  worktreePath: string;
   cwd: string;
   timestamp: number;
 }) => void;
@@ -119,6 +123,14 @@ export class WorktreeHookHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.GIT_INFO_SERVICE) private readonly gitInfo: GitInfoService,
+    /**
+     * Session-organization capture port. Registered only where the SQLite
+     * connection is (absent in VS Code today); when absent, nothing is recorded.
+     * Recording lives here rather than in the created-callback wiring because
+     * the hook runs in every host, including the CLI which disables that wiring.
+     */
+    @inject(PLATFORM_TOKENS.SESSION_ORGANIZATION_RECORDER, { isOptional: true })
+    private readonly recorder: ISessionOrganizationRecorder | null = null,
   ) {}
 
   /**
@@ -223,10 +235,19 @@ export class WorktreeHookHandler {
                   name: input.name,
                   worktreePath: result.worktreePath,
                 });
+                // `input.session_id` is the SDK session UUID the hook fired
+                // for, never a webview tab id. The port never throws.
+                this.recorder?.recordWorktree({
+                  sessionId: input.session_id,
+                  worktreePath: result.worktreePath,
+                  branch: input.name,
+                  workspaceRootHint: input.cwd,
+                });
                 if (capturedCreatedCallback) {
                   const worktreeData = {
                     sessionId: input.session_id,
                     name: input.name,
+                    worktreePath: result.worktreePath,
                     cwd: input.cwd,
                     timestamp: Date.now(),
                   };

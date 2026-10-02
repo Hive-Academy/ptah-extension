@@ -1133,6 +1133,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
         `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`,
       );
 
+      // Read BEFORE the bind below: a `'rebound'` outcome overwrites the
+      // record's id, so a later read would see `realSessionId` itself. When the
+      // bind is then accepted, a defined value can only mean `'rebound'` —
+      // `'bound'` needs a null prior id and `'already-bound'` the same id.
+      const previousSessionId = tabId
+        ? this.readReboundSource(tabId, realSessionId)
+        : undefined;
+
       if (tabId && this.bindRefused(tabId, realSessionId, sessionToken)) {
         return;
       }
@@ -1177,9 +1185,31 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.sessionIdResolvedRegistry.notifyAll({
         tabId,
         realSessionId,
+        ...(previousSessionId === undefined ? {} : { previousSessionId }),
         timestamp: Date.now(),
       });
     };
+  }
+
+  /**
+   * The id the tab's record is bound to right now, when a bind to
+   * `realSessionId` would move it: non-null and different. Read-only — it never
+   * binds, so `bindRefused` stays the single place the registry is changed.
+   * No record, an unbound record or the same id all answer `undefined`.
+   */
+  private readReboundSource(
+    tabId: string,
+    realSessionId: string,
+  ): string | undefined {
+    const priorId = this.sessionLifecycle.find(tabId)?.realSessionId;
+    if (
+      priorId === null ||
+      priorId === undefined ||
+      priorId === realSessionId
+    ) {
+      return undefined;
+    }
+    return priorId;
   }
 
   /**
