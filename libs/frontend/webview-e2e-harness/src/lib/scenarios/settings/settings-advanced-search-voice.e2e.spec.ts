@@ -11,13 +11,11 @@
  * Kept apart from `settings-visual.e2e.spec.ts` so its smoke run (which rewrites the Providers and
  * Orchestration captures) and this one never overwrite each other's files.
  */
-import { mkdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../../test-fixtures';
 import { rpcError } from '../marketplace/marketplace.fixtures';
 import { bootSettings, gotoSettingsTab, waitForSettled } from './settings.fixtures';
+import { capture } from './settings-capture';
 import { HOST_DETAIL } from './settings-advanced-search-voice.fixtures';
 import {
   asvState, chooseVoiceProvider, dismissToast, expectEscReturnsFocus, expectFailedWrite, openVoiceDrawer, closeDrawers,
@@ -26,16 +24,8 @@ import {
 
 test.use({ useAppBuild: true });
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = resolve(HERE, '../../../../../../../.ptah/specs/TASK_2026_555/screenshots/angular');
 const HOSTS = ['vscode', 'electron'] as const;
 type Host = (typeof HOSTS)[number];
-
-const capturePath = (name: string, host: Host, theme: string): string => join(OUT_DIR, `current-${name}-${host}-${theme}-1024x768.png`);
-
-test.beforeAll(() => {
-  mkdirSync(OUT_DIR, { recursive: true });
-});
 
 /** The fold line (px from the viewport top) every budget of map §2.2 / §3.2 is measured against. */
 const FOLD = 660;
@@ -64,9 +54,6 @@ async function waitForDrawer(page: Page): Promise<void> {
   await waitForSettled(page);
 }
 
-async function shoot(page: Page, name: string, host: Host, theme: string): Promise<void> {
-  await page.screenshot({ path: capturePath(name, host, theme), animations: 'disabled' });
-}
 
 /**
  * Map §2.2: header, tab bar, the Membership card and the Agent behaviour card with all 4 rows end above the
@@ -134,29 +121,29 @@ async function captureAdvanced(page: Page, host: Host, theme: string): Promise<u
   await expect(page.locator('[data-testid="vscode-lm-model-select"]')).toBeVisible();
   await waitForSettled(page);
   const fold = await test.step('fold §2.2', () => assertAdvancedFold(page, host, theme)).then(() => null, (error: unknown) => error);
-  await shoot(page, 'advanced', host, theme);
+  await capture(page, 'advanced', host, theme);
   await (await promptDetailsButton(page)).click();
   await expect(page.locator('[data-testid="system-prompt-generated-at"]')).toBeVisible();
   await waitForDrawer(page);
-  await shoot(page, 'advanced-system-prompt-drawer', host, theme);
+  await capture(page, 'advanced-system-prompt-drawer', host, theme);
   await page.keyboard.press('Escape');
   await page.locator('[data-testid="output-style-card"]').scrollIntoViewIfNeeded();
-  await shoot(page, 'advanced-output-style', host, theme);
+  await capture(page, 'advanced-output-style', host, theme);
   await styleRow(page, 'concise-reviewer').locator('[data-testid="output-style-edit-button"]').click();
   await expect(page.locator('#output-style-name')).toHaveValue('concise-reviewer');
   await waitForDrawer(page);
-  await shoot(page, 'advanced-output-style-drawer', host, theme);
+  await capture(page, 'advanced-output-style-drawer', host, theme);
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-testid="output-style-drawer"]')).toHaveCount(0);
   await page.locator('ptah-mcp-port-config').scrollIntoViewIfNeeded();
-  await shoot(page, 'advanced-mcp', host, theme);
+  await capture(page, 'advanced-mcp', host, theme);
   await page.locator('[data-testid="settings-toggle-browser-allow-localhost"]').click();
   await expect(page.locator('[data-testid="allow-localhost-confirm"]')).toBeVisible();
   await page.locator('[data-testid="allow-localhost-confirm"]').scrollIntoViewIfNeeded();
-  await shoot(page, 'advanced-mcp-localhost-confirm', host, theme);
+  await capture(page, 'advanced-mcp-localhost-confirm', host, theme);
   await page.locator('[data-testid="allow-localhost-cancel-btn"]').click();
   await page.locator('ptah-vscode-lm-config').scrollIntoViewIfNeeded();
-  await shoot(page, 'advanced-vscode-lm', host, theme);
+  await capture(page, 'advanced-vscode-lm', host, theme);
   return fold;
 }
 
@@ -169,29 +156,29 @@ async function captureSearchVoice(page: Page, host: Host, theme: string): Promis
   }
   await waitForSettled(page);
   const fold = await test.step('fold §3.2', () => assertSearchVoiceFold(page, host, theme)).then(() => null, (error: unknown) => error);
-  await shoot(page, 'search-voice', host, theme);
+  await capture(page, 'search-voice', host, theme);
   if (host !== 'electron') return fold;
   await openVoiceDrawer(page, 'stt');
   await expect(page.locator('[data-testid="local-stt-panel-table"]')).toBeVisible();
   await waitForDrawer(page);
-  await shoot(page, 'voice-drawer-local', host, theme);
+  await capture(page, 'voice-drawer-local', host, theme);
   await closeDrawers(page);
   await openVoiceDrawer(page, 'tts');
   await expect(page.locator('[data-testid="elevenlabs-voice-select"]')).toBeVisible();
   await waitForDrawer(page);
-  await shoot(page, 'voice-drawer-elevenlabs', host, theme);
+  await capture(page, 'voice-drawer-elevenlabs', host, theme);
   await closeDrawers(page);
   await chooseVoiceProvider(page, 'tts', 'local');
   await dismissToast(page, 'Saved text-to-speech provider.');
   await openVoiceDrawer(page, 'tts');
   await expect(page.locator('[data-testid="local-tts-voice-select"]')).toBeVisible();
   await waitForDrawer(page);
-  await shoot(page, 'voice-drawer-local-tts', host, theme);
+  await capture(page, 'voice-drawer-local-tts', host, theme);
   await closeDrawers(page);
   await chooseVoiceProvider(page, 'tts', 'elevenlabs');
   await dismissToast(page, 'Saved text-to-speech provider.');
   await page.locator('[data-testid="go-vet-consent-card"]').scrollIntoViewIfNeeded();
-  await shoot(page, 'go-vet', host, theme);
+  await capture(page, 'go-vet', host, theme);
   return fold;
 }
 

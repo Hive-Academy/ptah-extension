@@ -391,8 +391,21 @@ for (const host of HOSTS) {
       await trigger.click();
       const popover = page.locator('[data-testid="cursor-credential-popover"]');
       const key = popover.locator('[data-testid="cursor-credential-key"]');
+      // Batch 51.2: the empty-field Save is aria-disabled with daisyUI's disabled look (base-content at 20%, no
+      // primary fill), and stays focusable.
+      const save = popover.locator('[data-testid="cursor-credential-save"]');
+      await expect(save).toHaveAttribute('aria-disabled', 'true');
+      const look = await save.evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { color: style.color, cursor: style.cursor, events: style.pointerEvents };
+      });
+      expect(look.color).toMatch(/\/ 0\.2\)$|, 0\.2\)$/);
+      expect(look.cursor).toBe('not-allowed');
+      expect(look.events).not.toBe('none');
+      await save.focus();
+      await expect(save).toBeFocused();
       await key.fill('crsr_e2e_secret_value');
-      await popover.locator('[data-testid="cursor-credential-save"]').click();
+      await save.click();
       await expect(popover.locator('[data-testid="cursor-credential-outcome"]')).toContainText('The key was not saved.');
       await expect(key).toBeFocused();
       await expect(key).toHaveValue('crsr_e2e_secret_value');

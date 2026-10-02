@@ -7,44 +7,15 @@
  *
  * Pattern followed: `../marketplace/marketplace-visual.e2e.spec.ts`
  * (`waitForSettled`, `useAppBuild: true`, captures written under
- * `.ptah/specs/<task>/screenshots/angular/`).
+ * `.ptah/specs/<task>/screenshots/angular/`). Every capture goes through the shared `capture()`
+ * (`settings-capture.ts`, Batch 51.6).
  */
-import { mkdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { test, expect } from '../../test-fixtures';
 import { bootSettings, gotoSettingsTab, waitForSettled } from './settings.fixtures';
+import { capture } from './settings-capture';
 
 test.use({ useAppBuild: true });
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = resolve(HERE, '../../../../../../../.ptah/specs/TASK_2026_555/screenshots/angular');
-
-/**
- * Per-batch smoke captures are `current-*`. The `baseline-*` "before" images the visual gates
- * compare against are written only on an explicit `SETTINGS_CAPTURE_BASELINE=1` run.
- */
-const CAPTURE_KIND = process.env['SETTINGS_CAPTURE_BASELINE'] === '1' ? 'baseline' : 'current';
-
-function capturePath(tab: string, host: string, theme: string): string {
-  return join(OUT_DIR, `${CAPTURE_KIND}-${tab}-${host}-${theme}-1024x768.png`);
-}
-
-/**
- * The one capture path: the pointer moves to the page corner first, so no hover state (e.g. the Retry button the tab
- * click left the pointer on, Batch 36b) is captured (Batch 36c.f). Animations are always settled: the tab captures
- * used to run without it, and caught daisyUI's 0.2 s checkmark bounce mid-flight on the freshly built matrix, which
- * drew the On ticks low (Batch 36c.i).
- */
-async function capture(page: Page, name: string, host: string, theme: string): Promise<void> {
-  await page.mouse.move(0, 0);
-  await page.screenshot({ path: capturePath(name, host, theme), animations: 'disabled' });
-}
-
-test.beforeAll(() => {
-  mkdirSync(OUT_DIR, { recursive: true });
-});
 
 const TABS: readonly { readonly label: 'Providers' | 'Agent Orchestration'; readonly name: string }[] = [
   { label: 'Providers', name: 'providers' },
@@ -554,6 +525,12 @@ for (const host of ['vscode', 'electron'] as const) {
       expect(inView(listRect)).toBe(true);
       expect(inView(await mainPopover.boundingBox())).toBe(true);
       await assertPopoverOnTop(page, `[id="${listboxId}"]`, '[role="option"]');
+      // Batch 51.3: the active row is drawn before the capture (the attribute and the row's highlight follow the next
+      // render; 2 of 4 merge-run captures caught the list without it).
+      await expect(modelInput).toHaveAttribute('aria-activedescendant', /.+/);
+      const activeId = await modelInput.getAttribute('aria-activedescendant');
+      await expect(page.locator(`[id="${activeId}"]`)).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator(`[id="${activeId}"]`)).toHaveClass(/\bbg-primary\b/);
       await capture(page, 'main-agent-model-search', host, theme);
       // Esc closes the list only; the popover stays.
       await page.keyboard.press('Escape');
