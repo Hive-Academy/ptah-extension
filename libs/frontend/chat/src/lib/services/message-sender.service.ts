@@ -219,10 +219,11 @@ export class MessageSenderService {
       'abort',
       () => {
         const tab = this.tabManager.tabs().find((t) => t.id === tabId);
-        const sessionId = tab?.claudeSessionId;
-        if (!sessionId) {
-          return;
-        }
+        // During the first turn the real session id is not bound yet. The
+        // backend registers the live record under the tab id (chat:start
+        // passes `tabId`, and its registry `find()` resolves by tab id or real
+        // session id), so the tab id still ends that turn's process.
+        const sessionId = tab?.claudeSessionId ?? (tabId as SessionId);
         this.claudeRpcService
           .call('chat:abort', { sessionId })
           .catch((error) => {

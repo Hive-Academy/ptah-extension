@@ -938,6 +938,46 @@ describe('MessageSenderService', () => {
     });
   });
 
+  // TASK_2026_592 MOD-3: closing a tab aborts its stream through the listener
+  // `wireAbortDispatch` installs. During the first turn no session id is bound
+  // yet; the backend registers that turn's record under the tab id, so the tab
+  // id must be sent instead of nothing (otherwise the process leaks).
+  describe('abort listener (tab close)', () => {
+    function wireAndAbort(tabId: string): void {
+      const controller = new AbortController();
+      tabManager.createAbortController.mockReturnValueOnce(controller.signal);
+      (
+        service as unknown as { wireAbortDispatch(id: string): AbortSignal }
+      ).wireAbortDispatch(tabId);
+      controller.abort();
+    }
+
+    beforeEach(() => {
+      rpcCall.mockImplementation(() => Promise.resolve({ success: true }));
+    });
+
+    it('turn-1 close (no session id yet) sends chat:abort with the tab id', () => {
+      const tabId = '33333333-3333-4333-8333-333333333333';
+      tabsSignal.set([makeTab({ id: tabId, claudeSessionId: null })]);
+
+      wireAndAbort(tabId);
+
+      const aborts = rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort');
+      expect(aborts).toHaveLength(1);
+      expect(aborts[0][1]).toEqual({ sessionId: tabId });
+    });
+
+    it('with a bound session id it still sends the session id', () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+
+      wireAndAbort('tab-1');
+
+      const aborts = rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort');
+      expect(aborts).toHaveLength(1);
+      expect(aborts[0][1]).toEqual({ sessionId: 'sess-X' });
+    });
+  });
+
   describe('continueExistingSessionForQueueFlush', () => {
     // The post-stream queue flush (`MessageDispatchService.sendQueuedMessage`)
     // fires on turn-end while the previous stream's AbortController may still
