@@ -44,6 +44,10 @@ import {
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 const mockRpcCall = jest.fn();
+// The git-ui barrel reaches the Pierre diff renderer, which ships ESM only;
+// nothing here renders a diff.
+jest.mock('@pierre/diffs', () => ({}));
+jest.mock('@pierre/diffs/worker', () => ({}));
 jest.mock('@ptah-extension/core', () => {
   const actual = jest.requireActual<Record<string, unknown>>(
     '@ptah-extension/core',
