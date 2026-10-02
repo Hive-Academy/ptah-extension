@@ -125,3 +125,8 @@ Gate 1.7 (user) → architect → team-leader → batches with cross-side review
   (45-48) run as two file-disjoint streams after 39. In the second worktree only its team-leader builds, runs Gate G
   and captures (single writer). Gate V 50 code review = subagent `code-logic-reviewer` (cross-side of lane authors).
   The second branch merges into this one after Gate V 36, then Gate G runs again.
+- Gate V 50 (2026-10-02, user): (1) resting 'Clear' key buttons are neutral; red only on the inline confirm button
+  (P8). (2) Drawers stay 512 px (same as the Providers drawers and the prototype's 32rem); pattern map §1 drawer width
+  text updated to match. (3) Agent behaviour descriptions clamp to one line with the full text in a tooltip and for
+  screen readers (§2.2 'no row wraps' kept). (4) Raise the shared muted text token in anubis-light to meet 4.5:1; done
+  in track A after the merge, all tabs re-captured at Batch 38.

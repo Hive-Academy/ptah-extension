@@ -38,7 +38,7 @@ Approved pattern vocabulary used in the tables (each resolves to a prototype ele
 | P3 | Policy bar: one dense row with label, slider and badge readout, actions right | `orchestration.html:107-113` (`routing-flow-card py-2 px-3`, `range range-xs range-primary`, readout badge) | §1.2 item 2 |
 | P4 | Matrix table: `table table-xs`, interactive cell = button + chevron, status/permission badges | `.matrix-table`, `.matrix-cell-interactive`, `orchestration.html:187` (`checkbox checkbox-xs checkbox-primary` "On" column) | §3.5 |
 | P5 | Popover for a short choice: save on selection, toast + Undo | `#popoverMainAgent` (`index.html:829-880`, effort buttons `popover-effort-btn`), `NativePopoverComponent hasBackdrop=true` | §3.2, §4.1, §4.2 |
-| P6 | Side drawer for details (right, 460 px); tabs via `NativeTabGroupComponent`; per-tab footer action, no blanket Save | `#drawerConnDetails` (`index.html:426-520`), `.drawer-tab` | §3.4, §6 #3 |
+| P6 | Side drawer for details (right, 512 px); tabs via `NativeTabGroupComponent`; per-tab footer action, no blanket Save | `#drawerConnDetails` (`index.html:426-520`), `.drawer-tab` | §3.4, §6 #3 |
 | P7 | Centered modal (`NativeModalComponent`) for create/choose flows | `#modalPalette`, `#modalAddPtahCli`, `#modalTierMapping` | §2.5, §3.6 |
 | P8 | Inline destructive confirm (no Undo) | shipped `credentials-tab.component.ts:234-249` (`role="group"`, `rounded border border-base-300 p-3`, `btn btn-outline btn-sm border-error text-base-content`) | §4.1 last row |
 | P9 | Collapsed-by-default `<details>` section | `orchestration.html:482` (`details#rolesDetails.card`) | §6 #4 |
