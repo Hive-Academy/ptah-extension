@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 31/69
+Total tasks: 87 | Batches: 69 | Complete: 32/69
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -1454,14 +1454,14 @@ executors at once.
   covers dark/light). Verified by the orchestrator: chat, chat-ui, ptah-electron-e2e typecheck/test/lint green;
   eager guard passes (card in a 9 KB lazy chunk).
 
-## Batch 32: VS Code e2e — card to native diff views — PENDING
+## Batch 32: VS Code e2e — card to native diff views — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 31
 - Verification: `npx nx run-many -t lint,typecheck -p ptah-extension-vscode-e2e` + the suite run command used by `apps/ptah-extension-vscode-e2e/runner.mjs`
 
-### Task 32.1: Req 5.1-5.4 scenario + VSIX listing has no new assets — PENDING
+### Task 32.1: Req 5.1-5.4 scenario + VSIX listing has no new assets — COMPLETE
 
 - Files: CREATE a suite file under D:/projects/ptah-extension/apps/ptah-extension-vscode-e2e/src/suite/ (name per suite convention)
 - Plan reference: implementation-plan.md:890, 939, 1462
@@ -1469,6 +1469,13 @@ executors at once.
 - Quality requirements: "Review all" opens a multi-diff; outside path refused.
 - Validation notes: none.
 - Implementation details: as plan.
+- Outcome: executor senior-tester. `src/suite/review-commands.cjs` (+1 line in `index.cjs` to load it), 7 cases:
+  commands registered; openChanges → multi-diff with `ptah-git-head:` left sides; openDiff → HEAD text left,
+  working tree right; outside relative/absolute/root paths refused with 'Path is outside the workspace.' and no
+  editor opened; openMerge resolves (merge editor or plain-file fallback — the built-in git extension is active,
+  so the fallback is not forced deterministically); openScm runs; dist tree has no codemirror/monaco/spot-editor/
+  review-canvas/review-shell assets (proxy for the VSIX listing, packaging cannot run in the host). Full runner
+  17/17 against the existing dist build. Verified by the orchestrator: lint green.
 
 ### P3 checkpoint
 
