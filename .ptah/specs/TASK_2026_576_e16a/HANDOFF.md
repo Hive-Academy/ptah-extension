@@ -1,6 +1,6 @@
 # Handoff — TASK_2026_576_e16a (git review UI + git reliability)
 
-Written 2026-10-01, end of session. Replaces the 2026-09-30 handoff. Status refreshed 2026-10-02 (P2 complete, P3 complete, P4 next).
+Written 2026-10-01, end of session. Replaces the 2026-09-30 handoff. Status refreshed 2026-10-02 (P2–P4 complete, P5 in progress).
 
 ## 1. Where things stand
 
@@ -13,7 +13,9 @@ Written 2026-10-01, end of session. Replaces the 2026-09-30 handoff. Status refr
 | P2 phase-end review | DONE 2026-10-01 (`reviews/p2-phase-review*.md`, `reviews/p2-visual-review.md`; closed in `ef6f18915`). P2 is complete; PR #619 now only takes review fixes. |
 | P3 | COMPLETE on `feat/task-2026-576-p3` (worktree `.claude-worktrees/task-576-p3`), PR #625 stacked on `feat/task-2026-576-p2`, phase-end review closed 2026-10-02 (see `batches.md` P3 phase-end Outcome). |
 | Then | P4 (33–44) → P5 (45–57) → Cutover (58–69), each a stacked branch + PR |
-| Progress | 32/69 batches complete (P1-P3; batches.md header). |
+| P4 | COMPLETE on `feat/task-2026-576-p4` (worktree `.claude-worktrees/task-576-p4`), PR #627 stacked on P3; review closed 2026-10-02. |
+| P5 | IN PROGRESS on `feat/task-2026-576-p5` (worktree `.claude-worktrees/task-576-p5`), draft PR #629 stacked on P4. |
+| Progress | 44/69 on the P4 branch (P5 progress on the P5 branch). |
 
 Read first: `context.md` (Gate decisions — especially **Auto mode** and **Lanes widened**, 2026-10-01), `batches.md` (per-batch specs, Outcome notes, phase-end checkboxes).
 
@@ -29,8 +31,8 @@ Read first: `context.md` (Gate decisions — especially **Auto mode** and **Lane
 Batches 14 and 17 and the P2 phase-end review are done (see §1). What remains:
 
 1. Any further PR #619 / #625 review fixes land on their own branch; merge each updated base forward (P2 → P3 → P4 …).
-2. **P4** (Batches 33–44): branch `feat/task-2026-576-p4` + worktree `.claude-worktrees/task-576-p4` from P3, draft PR stacked on `feat/task-2026-576-p3`. Decide the Pierre `<style>` vs VS Code CSP gate with an independent lane before Batch 44.
-3. Repeat for P5 and Cutover.
+2. **P5** (Batches 45–57) on PR #629, then the P5 phase-end review.
+3. **Cutover** (58–69): follow the Batch 43 cutover checklist in `batches.md`.
 
 ## 4. Items raised for the P2 phase-end review (that review is done; dispositions in `reviews/p2-phase-review*.md`)
 
