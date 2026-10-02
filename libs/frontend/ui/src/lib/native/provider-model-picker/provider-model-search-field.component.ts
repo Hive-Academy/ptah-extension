@@ -249,10 +249,15 @@ export class ProviderModelSearchFieldComponent {
     ];
   });
 
-  /** What the closed field shows: the current selection's label. */
+  /**
+   * What the closed field shows: the current selection's label. In compact mode it matches the compact rows (the id;
+   * the sentinel keeps its label), so a saved id the catalogue lacks shows the id, not the host's hint name.
+   */
   protected readonly selectedLabel = computed<string>(() => {
     const id = this.selectedId();
-    return this.allOptions().find((o) => o.id === id)?.name ?? id;
+    const option = this.allOptions().find((o) => o.id === id);
+    if (!option) return id;
+    return this.compact() ? this.compactLabel(option) : option.name;
   });
 
   protected readonly displayValue = computed<string>(() =>

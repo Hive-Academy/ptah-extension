@@ -98,6 +98,14 @@ describe('CliTierMappingModalComponent', () => {
     expect(field('haiku')?.options()[0]).toEqual({ id: 'glm-old', name: 'saved, not in the current list', supportsToolUse: null });
   });
 
+  it('shows the saved model id in the closed tier field, also when the catalogue lacks it (Batch 32b)', () => {
+    const closedValue = (tier: string) =>
+      q(`cli-tier-picker-${tier}`)?.querySelector<HTMLInputElement>('[data-testid="provider-model-picker-search"]')?.value;
+    expect(closedValue('sonnet')).toBe('glm-5.3');
+    expect(closedValue('haiku')).toBe('glm-old');
+    expect(closedValue('opus')).toBe('Inherited: provider default');
+  });
+
   it('names what each tier inherits from the provider-level cliAgent tier (D5)', () => {
     expect(state.refreshTiers).toHaveBeenCalledWith({ providerId: 'ollama-cloud', scope: 'cliAgent' });
     expect(field('sonnet')?.defaultLabel()).toBe('Inherited: kimi-k2.5');

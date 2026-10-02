@@ -407,6 +407,23 @@ describe('ProviderModelSearchFieldComponent', () => {
       expect(rows[1].className).toContain('!py-1');
     });
 
+    // Batch 32b: a saved id the catalogue lacks is pinned by the host with a hint as its name; the closed compact
+    // field shows the id, like the compact rows. The default (non-compact) field keeps showing the name.
+    it('shows the selected id while closed in compact mode, and the name otherwise', () => {
+      const saved: ProviderModelSearchOption = { id: 'glm-5.3:cloud', name: 'saved, not in the current list', supportsToolUse: null };
+      create({ options: [saved, ...OPTIONS], selectedId: 'glm-5.3:cloud', compact: true });
+      expect(input().value).toBe('glm-5.3:cloud');
+      fixture.componentRef.setInput('selectedId', 'kimi-k2');
+      fixture.detectChanges();
+      expect(input().value).toBe('kimi-k2');
+      fixture.componentRef.setInput('selectedId', '');
+      fixture.detectChanges();
+      expect(input().value).toBe('Default (haiku tier)');
+
+      create({ options: [saved, ...OPTIONS], selectedId: 'glm-5.3:cloud' });
+      expect(input().value).toBe('saved, not in the current list');
+    });
+
     it('sizes the compact list to the field', async () => {
       create({ compact: true });
       jest.spyOn(root().querySelector('.autocomplete-input') as HTMLElement, 'getBoundingClientRect')
