@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 57/69 (P5 closed)
+Total tasks: 87 | Batches: 69 | Complete: 58/69 (P5 closed)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2366,14 +2366,14 @@ source-control-panel; in `review-navigation.service.ts` drop the `tab !== curren
 a tab-only switch; disable the tabs' primary actions while a conflict is open (design-spec §11); wire the canvas Edit
 button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 
-## Batch 58: Mount switch and file-link routing — PENDING
+## Batch 58: Mount switch and file-link routing — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope; visual-reviewer on every new surface against `prototype/` (dark + light)
 - Tasks: 2 | Depends on: Batches 44, 48, 50, 54, 56
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-extension-webview`
 
-### Task 58.1: `electron-shell.component.ts` mounts `ReviewShellComponent` — PENDING
+### Task 58.1: `electron-shell.component.ts` mounts `ReviewShellComponent` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/git-dock-arming-identity.spec.ts
 - Plan reference: implementation-plan.md:969-994
@@ -2382,7 +2382,7 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Validation notes: V3; Task 37.2 routing activates here if it was deferred.
 - Implementation details: `m.ReviewShellComponent`.
 
-### Task 58.2: Links and card actions to `ReviewNavigationService` — PENDING
+### Task 58.2: Links and card actions to `ReviewNavigationService` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/file-link-router.service.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/change-set/change-set-actions.service.ts (+ spec)
 - Plan reference: implementation-plan.md:870, 1122, 1141
@@ -2390,6 +2390,19 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 - Quality requirements: dynamic import of git-ui only.
 - Validation notes: Task 30.1 validation note.
 - Implementation details: `openFile(path, line?)`, `openChangeSet(...)`.
+- Outcome (`81fb6f5f6`): executor frontend-developer. Dock effect loads `m.ReviewShellComponent`; Retry on chunk
+  failure kept (new `electron-shell.review-dock.spec.ts`); arming-identity spec retargeted. Checklist: (1)
+  `FileContentChangesService` + `GitOperationOutputService` under `MESSAGE_HANDLERS` via `@ptah-extension/git-ui/services`
+  (spec `review-shell-message-handlers.spec.ts`, real router round-trip); (2) `AGENT_FEEDBACK_SENDER` already bound at
+  the root (`app.config.ts:210`), now pinned by the spec; (3) `statusUnavailableLabel` → `services/git-status-unavailable-label.ts`;
+  (4) tab-only switch keeps the file target, no prompt; (5) Commit and worktree Create disabled while an operation is
+  open (spot-editor Save and draft-bar Send stay enabled — resolving needs them); (6) canvas Edit on working-tree/staged
+  text files → `openFile(path, firstHunkLine?, { editable: true, workspaceRoot })`. 58.2: `openInDock` →
+  `ReviewNavigationService.openFile` by dynamic import (reveal undone on failure); Electron card actions → `openChangeSet`,
+  `openFile`, `selectComparison('worktree')`; VS Code path unchanged. Deviations: `openFile` options gain `column`,
+  `workspaceRoot`, `documentPath` (background sessions, markdown previews); `workspace-coordinator.service.spec.ts`
+  mocks `@pierre/diffs` (was failing since Batch 43). Verified: git-ui 1140, chat 1737, webview 313 tests,
+  typecheck/lint green; eager guard `main.js` 370,866 B gz (+251 B, the two relays).
 
 ## Batch 59: E2E successors I — PENDING
 
