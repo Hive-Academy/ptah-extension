@@ -38,38 +38,40 @@ section; the batch sections below hold each batch's full task text and review no
 
 ### Status and commits
 
-| Batch                                                                     | Status          | Commit    |
-| ------------------------------------------------------------------------- | --------------- | --------- |
-| A1.1 shared contracts (vocabulary, list params, row fields)               | COMPLETE        | beb938cd2 |
-| A1.2 shared contracts (push message, git notification, worktree callback) | COMPLETE        | 56f37fb5b |
-| A2.1 migration 0050 + 12 version bumps                                    | COMPLETE        | bb6b35beb |
-| A2.2 recorder port (platform-core)                                        | COMPLETE        | 1671012e9 |
-| A2.3 session id rotation signal (agent-sdk)                               | COMPLETE        | ec1364697 |
-| A3.1 new lib + SessionOrganizationStore                                   | COMPLETE        | 2789094b7 |
-| A3.2 SessionOrganizationService + PR URL parser + tokens                  | COMPLETE        | 7f6372a40 |
-| A3.3 capture service (delete cascade, rekey)                              | COMPLETE        | b6ac36321 |
-| A3.4 DI register + start                                                  | COMPLETE        | fae183675 |
-| A3.4b branch hook-clean (audit markers, commitlint scope, prettier)       | COMPLETE        | efa997ca5 |
-| A4.1 `session:list` query + AC1 perf spec                                 | COMPLETE        | eb67d86f3 |
-| A4.2 organization RPC handlers + manifest + registry entries              | COMPLETE        | e2105f1cc |
-| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | COMPLETE        | 883d1a422 |
-| A5.2 VS Code unavailable proof                                            | COMPLETE        | 9c1f69870 |
-| B1 SDK worktree hook + fork lineage                                       | COMPLETE        | 3961f4322 |
-| B2 PR capture subscriber (+ B2.3 hardening)                               | COMPLETE        | a98c1dd2c |
-| B3.1 runtime capture (cli-agent-runtime)                                  | COMPLETE        | 8f16da0ed |
-| B3.2 MCP worktree capture (git namespace)                                 | COMPLETE        | b45af4490 |
-| B3.3 `PtahAPI.sessionOrganization` namespace                              | COMPLETE        | 4bbeb40f9 |
-| B3.4 namespace hardening + builder tests                                  | COMPLETE        | f39b2d2ce |
-| B3.5 `ptah_session_link_task` MCP tool                                    | COMPLETE        | bd5c5d98f |
-| C0.1 board start carries `taskId`                                         | COMPLETE        | a83ca9b6e |
-| C0.2 board-start link capture + push handling                             | COMPLETE        | b968cb66a |
-| C1.1 chips, filter bar, editor                                            | COMPLETE        | eb80449b4 |
-| C1.2 loader + app-shell sidebar (visual)                                  | COMPLETE        | 790030342 |
-| C2.1 open-session bridge                                                  | COMPLETE        | 418952d2a |
-| C2.2 task links service + card (visual)                                   | COMPLETE        | 976854b74 |
-| C2.3 task detail sessions list (visual)                                   | COMPLETE        | bd1254eb4 |
-| T1 AC evidence, smoke S1-S8, test-report.md                               | READY (PENDING) | —         |
-| T2 V0 before shots (card, detail) from base                               | READY (PENDING) | —         |
+| Batch                                                                     | Status   | Commit    |
+| ------------------------------------------------------------------------- | -------- | --------- |
+| A1.1 shared contracts (vocabulary, list params, row fields)               | COMPLETE | beb938cd2 |
+| A1.2 shared contracts (push message, git notification, worktree callback) | COMPLETE | 56f37fb5b |
+| A2.1 migration 0050 + 12 version bumps                                    | COMPLETE | bb6b35beb |
+| A2.2 recorder port (platform-core)                                        | COMPLETE | 1671012e9 |
+| A2.3 session id rotation signal (agent-sdk)                               | COMPLETE | ec1364697 |
+| A3.1 new lib + SessionOrganizationStore                                   | COMPLETE | 2789094b7 |
+| A3.2 SessionOrganizationService + PR URL parser + tokens                  | COMPLETE | 7f6372a40 |
+| A3.3 capture service (delete cascade, rekey)                              | COMPLETE | b6ac36321 |
+| A3.4 DI register + start                                                  | COMPLETE | fae183675 |
+| A3.4b branch hook-clean (audit markers, commitlint scope, prettier)       | COMPLETE | efa997ca5 |
+| A4.1 `session:list` query + AC1 perf spec                                 | COMPLETE | eb67d86f3 |
+| A4.2 organization RPC handlers + manifest + registry entries              | COMPLETE | e2105f1cc |
+| A5.1 Electron + CLI host wiring (+ R-TL11 check)                          | COMPLETE | 883d1a422 |
+| A5.2 VS Code unavailable proof                                            | COMPLETE | 9c1f69870 |
+| B1 SDK worktree hook + fork lineage                                       | COMPLETE | 3961f4322 |
+| B2 PR capture subscriber (+ B2.3 hardening)                               | COMPLETE | a98c1dd2c |
+| B3.1 runtime capture (cli-agent-runtime)                                  | COMPLETE | 8f16da0ed |
+| B3.2 MCP worktree capture (git namespace)                                 | COMPLETE | b45af4490 |
+| B3.3 `PtahAPI.sessionOrganization` namespace                              | COMPLETE | 4bbeb40f9 |
+| B3.4 namespace hardening + builder tests                                  | COMPLETE | f39b2d2ce |
+| B3.5 `ptah_session_link_task` MCP tool                                    | COMPLETE | bd5c5d98f |
+| C0.1 board start carries `taskId`                                         | COMPLETE | a83ca9b6e |
+| C0.2 board-start link capture + push handling                             | COMPLETE | b968cb66a |
+| C1.1 chips, filter bar, editor                                            | COMPLETE | eb80449b4 |
+| C1.2 loader + app-shell sidebar (visual)                                  | COMPLETE | 790030342 |
+| C2.1 open-session bridge                                                  | COMPLETE | 418952d2a |
+| C2.2 task links service + card (visual)                                   | COMPLETE | 976854b74 |
+| C2.3 task detail sessions list (visual)                                   | COMPLETE | bd1254eb4 |
+| T1 AC evidence, smoke S1-S8, test-report.md                               | COMPLETE | 54b3eb2ba |
+| T2 V0 before shots (card, detail) from base                               | COMPLETE | 8880011f5 |
+| F1 fix: migrated-ready store + held deletes (from T1 S6)                  | COMPLETE | 2aca89b97 |
+| CI fixes for PR #623 (bundle budget, Sonar)                               | COMPLETE | 46a5020da |
 
 ### Branch checks at handoff (all must stay green)
 
@@ -81,22 +83,14 @@ section; the batch sections below hold each batch's full task text and review no
 
 ### Next READY batches (wave 6: four file-disjoint batches in four projects)
 
-Every implementation batch (A, B, C) is COMPLETE; the last was C2.3 (`bd1254eb4`).
+Every batch (A, B, C, T1, T2) is COMPLETE, plus the F1 fix and the PR #623 CI fixes
+(see the T1, T2, F1 and CI-fix sections).
 
-**Next READY (can run in parallel, disjoint files):**
-
-- **T1 — AC evidence, real-host smoke, test report** (senior-tester, sequential, 2
-  tasks). Owns `test-report.md`, `task-start.service.spec.ts` (C0.1 nit) and
-  `libs/backend/session-organization/src/index.ts` (B2 follow-up export). See the T1
-  section.
-- **T2 — V0 before shots from base `a90c086d7`** (visual-reviewer, 1 task). Owns only
-  `visual-v0/` and `visual-review-V0.md`. Captures the Electron task board card and task
-  detail in dark and light from a temporary worktree at the base, so Mode 3 can compare
-  the C2.2 and C2.3 after shots against true base-commit before shots. The sidebar is
-  already covered: C1.2 built its before at `59bd15bd1` (sidebar identical to base) and
-  pixel-diffed the VS Code shape.
-
-After T1 and T2: team-leader Mode 3.
+**Next (coordinator-run, before Mode 3):** merge `origin/main` into the branch (brings
+#622, #624 `1095a8f20` and #626, and TASK_2026_584), then the R-TL8 wiring (the
+`recordAgentStartedSession` call in 584's `SessionIdResolved` handler plus its spawner
+spec), which also closes the AC8 "584 start" row. Re-check the R-TL5/R-TL6/R-TL7 merge
+points during the merge. Then team-leader Mode 3.
 
 Wave 6 launch notes, kept for reference (A5.1, A5.2 and C0.2 are done):
 
@@ -173,9 +167,10 @@ After wave 6: C1.1 (after C0.2), then C1.2, C2.1 and C2.3, then T1.
   - Also shared: `protocol-dispatcher.ts`, `types.ts`, `ptah-api-builder.service.ts`,
     `tool-result-budget.ts`; in shared `message-constants.ts`, `payload-map.ts`,
     `rpc.types.ts`; in chat `chat-message-handler.service.ts`.
-- **R-TL8 (open, no code yet):** the `recordAgentStartedSession` call in 584's
+- **R-TL8 (open, owed by 580):** the `recordAgentStartedSession` call in 584's
   `session-spawner.service.ts` `SessionIdResolved` handler, plus its spawner spec, is
-  added by whichever of 580/584 merges second. 584 code is not on main yet.
+  added by whichever of 580/584 merges second. 584 is now merged to main (T1), so 580
+  owes it: it lands right after the `origin/main` merge.
 - **R-TL11 (resolved in A5.1, `883d1a422`; smoke assertions in both hosts):** `WorktreeHookHandler`, `SessionForkService`
   and `PtahAPIBuilder` are singletons that take the recorder through their
   constructors. The host order is safe today (B1 and B3.2 reviews).
@@ -2155,7 +2150,31 @@ dropped` line and returns.
 - Validation notes: the spec checks that "Open session" calls `requestOpenSession`.
 - Implementation details: see plan.
 
-## Batch T1: AC evidence, real-host smoke, test report — PENDING
+## Batch T1: AC evidence, real-host smoke, test report — COMPLETE (commit 54b3eb2ba; evidence 90851bd68)
+
+- Code: `54b3eb2ba` (T1.2 barrel export; T1.1 C0.1 nit `taskId` asserts). Evidence:
+  `90851bd68` (`test-report.md`, `smoke/` scripts, results JSON and Playwright error
+  context). The `smoke/logs/*.log` files that `test-report.md` cites stay local:
+  `.gitignore:253` excludes `.ptah/specs/**/*.log`. No secrets in the committed files.
+- Results:
+  - AC1: p95 42-45 ms on a real Electron build with 500 sessions (limit 200 ms); `total`
+    correct. PASS.
+  - AC8: every reachability row proven by a named passing spec, except "584 start"
+    (owed by R-TL8 after the main merge).
+  - Smoke: S1 PASS (RPC level); S5 partial; S2-S4 and the CLI steps BLOCKED (no
+    credentialed provider in this environment); the VS Code step NOT RUN on a host (the
+    unit spec `session-organization-unavailable.spec.ts` passes); S6 FAIL → finding F1,
+    fixed in `2aca89b97` (see the F1 section).
+  - Write-path trace done; orphan hiding (R-TL12) proven by code reading only, not on a
+    real host.
+  - Known failures unrelated to this task: harness-skill-selection "never writes
+    state.json" and platform-core `file-settings-manager.bench.spec.ts`, both red on main
+    (the bench one verified on main by the coordinator).
+- Review: no separate `code-logic-review-T1.md`; the coordinator accepted the report,
+  and its F1 finding went through its own gated fix.
+- Follow-ups: re-run S6 on an idle machine with an exclusive `dist` after the main
+  merge; run S2-S4 and the CLI/VS Code host steps with a credentialed profile; add an
+  orphan-row spec to the `session:list` handler suite.
 
 - Recommended executor: senior-tester (sub-agent)
 - Fallback executor: none
@@ -2172,7 +2191,7 @@ dropped` line and returns.
   runs.
 - Review: code-logic lane on `test-report.md` → `code-logic-review-T1.md`
 
-### Task T1.1: AC1 perf run, smoke S1-S8, write-path trace, `test-report.md` — PENDING
+### Task T1.1: AC1 perf run, smoke S1-S8, write-path trace, `test-report.md` — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\.ptah\specs\TASK_2026_580_9f77\test-report.md` (CREATE)
 - Plan reference: implementation-plan.md:1284-1363, write-path table :1196-1213
@@ -2193,7 +2212,7 @@ dropped` line and returns.
     is still owed (a follow-up batch adds it). If it has not, record that 584 owes it.
 - Implementation details: none.
 
-### Task T1.2: export `SessionOrganizationPostToolUseSource` from the lib barrel — PENDING
+### Task T1.2: export `SessionOrganizationPostToolUseSource` from the lib barrel — COMPLETE
 
 - File: `D:\projects\ptah-extension\.claude-worktrees\task-580\libs\backend\session-organization\src\index.ts` (MODIFY)
 - Source: B2 follow-up (`SessionOrganizationPostToolUseSource` is a type at
@@ -2203,7 +2222,13 @@ dropped` line and returns.
   stays ≤ 150 lines; `nx run-many -t typecheck,lint -p @ptah-extension/session-organization`
   passes.
 
-## Batch T2: V0 before shots from the base commit — PENDING
+## Batch T2: V0 before shots from the base commit — COMPLETE (commit 8880011f5)
+
+- Visual review: `visual-review-V0.md` APPROVED 9/10 (one minor evidence note). Base
+  `a90c086d7` and the current build differ only by the new task-card sessions row and
+  the task-detail Sessions section. Evidence: `visual-v0/` (base and after, Electron and
+  VS Code, dark and light; scripts `v0.mjs`, `diff.mjs`, `bbox.mjs`, `xcheck.mjs`;
+  `diff-results.json`), 13 MB, no file over 500 KB, no byte-identical duplicates.
 
 - Recommended executor: visual-reviewer (sub-agent)
 - Fallback executor: none
@@ -2215,7 +2240,7 @@ dropped` line and returns.
 - Owned files: `D:\projects\ptah-extension\.claude-worktrees\task-580\.ptah\specs\TASK_2026_580_9f77\visual-v0\` (CREATE) and `...\visual-review-V0.md` (CREATE).
   Never edits code; never switches this worktree's branch.
 
-### Task T2.1: base-commit before shots of the task card and task detail — PENDING
+### Task T2.1: base-commit before shots of the task card and task detail — COMPLETE
 
 - Capture from a temporary worktree at `a90c086d7` (removed afterwards), with the same
   mocks and harness as `visual-c22/run2.mjs` and `visual-c23/c23.mjs`: task board card
@@ -2223,3 +2248,51 @@ dropped` line and returns.
 - Compare them with `visual-c22/round1/` and `visual-c23/`: confirm that the only
   differences are the new sessions row and section, and record any other change as a
   regression.
+
+## Batch F1: migrated-ready store + held deletes (finding F1 from T1 S6) — COMPLETE (commit 2aca89b97)
+
+- Finding: on real Electron boots `session:list` answered `organizationAvailable: false`
+  for 5-45 s; a `session:delete` in that window logged `removeSession dropped ...:
+store not open` and left organization, task-link and PR-link rows that nothing
+  removed later (AC6). The root cause of the long window (the CLI probe holding boot) is
+  already fixed on main by `1095a8f20` (#624) and arrives with the main merge.
+- Fix (`libs/backend/session-organization/**` plus the `session-list.perf.spec.ts`
+  fake, which now sets `lastMigrationVersion: 50`):
+  - the store reports ready only once a migration run has finished
+    (`lastMigrationVersion > 0`) and reacts to `onDidOpen`;
+  - the service holds deletes that arrive while the store is closed (capped at 1000)
+    and applies them on open, skipping any session that was recreated meanwhile.
+- Review: `code-logic-review-F1.md` APPROVED 9.8/10. The coordinator verified that
+  `migration-runner.ts:139-140` sets `lastAppliedVersion` even when the DB is already
+  current; the early return at `:70-71` only fires with zero bundled migrations.
+- **Rule L8, bounded exception (recorded):** plan L8 (`implementation-plan.md:1525`)
+  says captures while SQLite is closed are dropped and logged, not buffered. Deletes
+  are now the one exception: they are held in memory, capped at 1000, applied once on
+  open, and skipped if the session was recreated. Every other capture still follows L8.
+- Follow-ups (open):
+  - held deletes are lost if the app quits before the store opens;
+  - orphan rows left by earlier boots (before this fix) are not swept;
+  - the sidebar is not notified when organization becomes available after the first
+    `session:list`.
+- Verification at commit: `nx run-many -t typecheck,lint -p
+@ptah-extension/session-organization @ptah-extension/rpc-handlers` passes;
+  degradation-audit at or under baseline.
+
+## PR #623 CI fixes (bundle budget, Sonar) — COMPLETE (commit 46a5020da)
+
+- Scope: `libs/frontend/chat/**`.
+  - `@defer` for the organization editor, filter bar, chips, confirmation dialog,
+    transcript overlay and the provider setup wizard. The webview initial bundle went
+    from 3.54 MB to 3,423 kB, under the 3.5 MB budget with about 77 kB headroom.
+  - New `components/atoms/session-organization-chips/session-organization-labels.ts`
+    (the labels, so the deferred chips are not pulled into the initial chunk).
+  - A `compareCodeUnits` comparator (Sonar S2871); redundant list roles removed (Sonar
+    S6822).
+- **Deviation (approved by the coordinator as a CI fix):**
+  `libs/frontend/chat/src/lib/settings/providers/providers-settings.component.ts` is
+  outside task 580's scope; its provider setup wizard is deferred to meet the budget.
+- Review: `code-logic-review-ci-fixes.md` APPROVED 10/10.
+- Commit note: the subject is 76 characters (repo commitlint accepted it; the
+  coordinator's ≤72 guideline was exceeded and the commit was not amended).
+- Verification at commit: `nx run-many -t typecheck,lint -p @ptah-extension/chat`
+  passes; degradation-audit chat 10 (baseline 11).
