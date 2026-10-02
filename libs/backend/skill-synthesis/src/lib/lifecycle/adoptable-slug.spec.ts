@@ -7,6 +7,9 @@
  * private `sanitizeSlug`; if the two drift, the reconcile fails closed but
  * silently strands legacy skills. These cases drive the REAL generator, so a
  * change to either side fails here.
+ *
+ * Also the proof rules (body match; diverged non-plugin row with SKILL.md)
+ * and the slug-holder decision added for the two real-data shapes (Batch 15).
  */
 import 'reflect-metadata';
 import * as fs from 'node:fs';
@@ -14,7 +17,21 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { SkillMdGenerator, SKILLS_ROOT_KEY } from '../skill-md-generator';
-import { materializedBaseSlug } from './adoptable-slug';
+import type {
+  SkillRegistryEntry,
+  SkillRegistryStore,
+} from '../skill-registry.store';
+import {
+  MERGED_INTO_PREFIX,
+  RETIRED_UNUSED_REASON,
+  type SkillCandidateRow,
+  type SkillSuggestionRow,
+} from '../types';
+import {
+  findAdoptableSlug,
+  materializedBaseSlug,
+  slugHolderDecision,
+} from './adoptable-slug';
 
 function workspaceAt(root: string): IWorkspaceProvider {
   return {
@@ -81,4 +98,147 @@ describe('materializedBaseSlug pinned to SkillMdGenerator.promoteToActive', () =
       expect(materialize(name)).toMatch(/^skill-[0-9a-z]+$/);
     },
   );
+});
+
+describe('findAdoptableSlug proofs', () => {
+  let root: string;
+  const body = '# Deploy\n\nSteps.';
+  const suggestion = { name: 'deploy-flow', body } as SkillSuggestionRow;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-adoptable-proof-'));
+    logger.warn.mockClear();
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  function registryOf(
+    entries: Record<string, Partial<SkillRegistryEntry>>,
+  ): SkillRegistryStore {
+    return {
+      getBySlug: (_kind: string, slug: string) =>
+        entries[slug]
+          ? ({
+              slug,
+              kind: 'skill',
+              originPluginId: null,
+              diverged: false,
+              ...entries[slug],
+            } as SkillRegistryEntry)
+          : null,
+    } as unknown as SkillRegistryStore;
+  }
+
+  function writeSkill(slug: string, content: string): void {
+    fs.mkdirSync(path.join(root, slug), { recursive: true });
+    fs.writeFileSync(path.join(root, slug, 'SKILL.md'), content);
+  }
+
+  const find = (entries: Record<string, Partial<SkillRegistryEntry>>) =>
+    findAdoptableSlug(suggestion, registryOf(entries), root, logger as never);
+
+  it.each(['synth', 'authored'] as const)(
+    'a %s row proves its slug by body equality',
+    (cloneStatus) => {
+      writeSkill('deploy-flow', `---\nname: x\n---\n\n${body}\n`);
+      expect(find({ 'deploy-flow': { cloneStatus } })).toEqual({
+        kind: 'found',
+        slug: 'deploy-flow',
+        filePath: path.join(root, 'deploy-flow', 'SKILL.md'),
+        proof: 'body-match',
+      });
+    },
+  );
+
+  it('a synth row with a different body proves nothing', () => {
+    writeSkill('deploy-flow', 'Edited.\n');
+    expect(find({ 'deploy-flow': { cloneStatus: 'synth' } })).toEqual({
+      kind: 'missing',
+    });
+  });
+
+  it('a diverged non-plugin row proves a suffixed slug by SKILL.md alone', () => {
+    writeSkill('deploy-flow-3', 'Edited by the user.\n');
+    expect(find({ 'deploy-flow-3': { cloneStatus: 'diverged' } })).toEqual({
+      kind: 'found',
+      slug: 'deploy-flow-3',
+      filePath: path.join(root, 'deploy-flow-3', 'SKILL.md'),
+      proof: 'diverged',
+    });
+  });
+
+  it('a diverged row with no SKILL.md (directory only) proves nothing', () => {
+    fs.mkdirSync(path.join(root, 'deploy-flow'), { recursive: true });
+    expect(find({ 'deploy-flow': { cloneStatus: 'diverged' } })).toEqual({
+      kind: 'missing',
+    });
+  });
+
+  it.each([
+    ['a diverged row with an originPluginId', 'diverged', 'plugin-x'],
+    ['a clone row', 'clone', null],
+  ] as const)('%s proves nothing', (_label, cloneStatus, originPluginId) => {
+    writeSkill('deploy-flow', `${body}\n`);
+    expect(find({ 'deploy-flow': { cloneStatus, originPluginId } })).toEqual({
+      kind: 'missing',
+    });
+  });
+
+  it('a slug outside the base and -2..-5 suffixes is never considered', () => {
+    writeSkill('deploy-flow-6', 'Edited.\n');
+    expect(find({ 'deploy-flow-6': { cloneStatus: 'diverged' } })).toEqual({
+      kind: 'missing',
+    });
+  });
+
+  it('a body-proven and a diverged slug together are ambiguous', () => {
+    writeSkill('deploy-flow', `${body}\n`);
+    writeSkill('deploy-flow-2', 'Edited.\n');
+    expect(
+      find({
+        'deploy-flow': { cloneStatus: 'synth' },
+        'deploy-flow-2': { cloneStatus: 'diverged' },
+      }),
+    ).toEqual({ kind: 'ambiguous', slugs: ['deploy-flow', 'deploy-flow-2'] });
+  });
+});
+
+describe('slugHolderDecision', () => {
+  const row = (overrides: Partial<SkillCandidateRow>): SkillCandidateRow =>
+    ({
+      id: 'c1',
+      name: 'deploy-flow',
+      rejectedReason: null,
+      ...overrides,
+    }) as SkillCandidateRow;
+
+  it.each([
+    ['no row', null, 'new-row'],
+    ['a promoted row', row({ status: 'promoted' }), 'link-promoted'],
+    [
+      'a judge-rejected row',
+      row({ status: 'rejected', rejectedReason: 'judge-below-threshold' }),
+      'repromote-rejected',
+    ],
+    [
+      'a rejected row with no reason',
+      row({ status: 'rejected' }),
+      'repromote-rejected',
+    ],
+    ['a live candidate', row({ status: 'candidate' }), 'blocked'],
+    [
+      'a retired row',
+      row({ status: 'rejected', rejectedReason: RETIRED_UNUSED_REASON }),
+      'blocked',
+    ],
+    [
+      'a merged row',
+      row({ status: 'rejected', rejectedReason: `${MERGED_INTO_PREFIX}s1` }),
+      'blocked',
+    ],
+  ] as const)('%s → %s', (_label, holder, expected) => {
+    expect(slugHolderDecision(holder)).toBe(expected);
+  });
 });

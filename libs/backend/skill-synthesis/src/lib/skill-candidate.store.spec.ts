@@ -1413,6 +1413,131 @@ describe('SkillCandidateStore', () => {
         expect.objectContaining({ lastUsedAt: 7 }),
       ]);
     });
+
+    maybe(
+      'a (re-)promotion later than every event for the slug restarts the idle clock',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        const { candidate } = store.registerCandidate({
+          ...candidateInput('revived'),
+          createdAt: 1,
+        });
+        store.updateStatus(candidate.id, 'promoted', { promotedAt: 5_000 });
+        recordEvent(store, 'skill-revived', 100);
+        recordEvent(store, 'skill-revived', 200);
+
+        expect(store.listPromotedLastUse()).toEqual([
+          expect.objectContaining({ lastUsedAt: 5_000 }),
+        ]);
+      },
+    );
+  });
+
+  describe('promoteAtomically fromStatus rejected + resetRevivedContent', () => {
+    function rejectedRow(store: SkillCandidateStore, suffix: string) {
+      const { candidate } = store.registerCandidate(candidateInput(suffix));
+      store.rejectIfStatus(candidate.id, 'candidate', 'judge-below-threshold');
+      return candidate;
+    }
+
+    maybe('revives only a row that is still rejected (compare-and-set)', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const row = rejectedRow(store, 'rev');
+
+      const promoted = store.promoteAtomically(row.id, {
+        promotedAt: 10,
+        bodyPath: '/new/SKILL.md',
+        fromStatus: 'rejected',
+      });
+
+      expect(promoted).toMatchObject({
+        status: 'promoted',
+        promotedAt: 10,
+        rejectedAt: null,
+        rejectedReason: null,
+        residency: 'resident',
+      });
+      expect(() =>
+        store.promoteAtomically(row.id, {
+          promotedAt: 11,
+          bodyPath: '/new/SKILL.md',
+          fromStatus: 'rejected',
+        }),
+      ).toThrow(/was not promotable/);
+      // The default path still refuses a rejected row.
+      const other = rejectedRow(store, 'other');
+      expect(() =>
+        store.promoteAtomically(other.id, {
+          promotedAt: 12,
+          bodyPath: '/x',
+        }),
+      ).toThrow(/illegal status transition rejected → promoted/);
+    });
+
+    maybe(
+      'resetRevivedContent writes the embedding exactly as registerCandidate would',
+      () => {
+        const db = createInMemoryDb();
+        db.exec(`CREATE TABLE skill_candidates_vec (embedding BLOB)`);
+        const withVec = new SkillCandidateStore(
+          noopLogger as never,
+          makeConnection(db) as never,
+          makeVecStatus(true) as never,
+        );
+        const withoutVec = makeStore(db);
+        const a = rejectedRow(withVec, 'vec-a');
+        const b = rejectedRow(withVec, 'vec-b');
+        for (const id of [a.id, b.id]) {
+          db.prepare(
+            `UPDATE skill_candidates SET embedding_rowid = 999 WHERE id = ?`,
+          ).run(id);
+          withVec.promoteAtomically(id, {
+            promotedAt: 1,
+            bodyPath: '/x',
+            fromStatus: 'rejected',
+          });
+        }
+        const vec = new Float32Array([0.25, 0.5, 0.75]);
+        const input = {
+          description: 'd',
+          sourceSessionIds: [],
+          embedding: vec,
+        };
+
+        const revived = withVec.resetRevivedContent(a.id, input);
+        const unavailable = withoutVec.resetRevivedContent(b.id, input);
+
+        expect(revived.embeddingRowid).not.toBeNull();
+        expect(revived.embeddingRowid).not.toBe(999);
+        expect(
+          Array.from(
+            withVec.getEmbedding(revived.embeddingRowid as number) ?? [],
+          ),
+        ).toEqual([0.25, 0.5, 0.75]);
+        expect(unavailable.embeddingRowid).toBeNull();
+        expect(
+          withVec.resetRevivedContent(a.id, { ...input, embedding: null })
+            .embeddingRowid,
+        ).toBeNull();
+      },
+    );
+
+    maybe('resetRevivedContent throws for a row that is not promoted', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const row = rejectedRow(store, 'still-rejected');
+
+      expect(() =>
+        store.resetRevivedContent(row.id, {
+          description: 'd',
+          sourceSessionIds: [],
+          embedding: null,
+        }),
+      ).toThrow(/is not a promoted row/);
+      expect(store.findById(row.id)?.description).toBe('desc still-rejected');
+    });
   });
 
   describe('getStats — lifecycle counts', () => {

@@ -63,6 +63,7 @@ import {
 } from './lifecycle/curator-report';
 import {
   findAdoptableSlug,
+  slugHolderDecision,
   type AdoptableSlug,
 } from './lifecycle/adoptable-slug';
 import {
@@ -126,7 +127,7 @@ export interface ReconcileResult {
   readonly missing: number;
   /** More than one provable directory; retried next start. */
   readonly ambiguous: number;
-  /** The slug is held by a non-promoted candidate row (UNIQUE on name). */
+  /** The slug is held by a live candidate or a merged row (UNIQUE on name). */
   readonly blockedByCandidateRow: number;
   /** The adopt call threw (rolled back); retried next start. */
   readonly failed: number;
@@ -525,16 +526,18 @@ export class SkillCuratorService {
    * rows with no `promoted_candidate_id` are read, and the link is written in
    * the adopt transaction.
    *
-   * A directory is adopted only when it is PROVEN to be the suggestion's: its
-   * slug is the suggestion's materialized slug or its `-2`…`-5` suffix, a
-   * `kind='skill'` registry row of `authored` or `synth` holds it,
-   * `<activeRoot>/<slug>/SKILL.md` exists, and that file's body is the
-   * suggestion's body. A name match alone never adopts a hand-written skill.
+   * A directory is adopted only when it is PROVEN to be the suggestion's
+   * ({@link findAdoptableSlug}): a `-2`…`-5`-aware slug match plus either a
+   * body-equal SKILL.md under an `authored`/`synth` registry row, or any
+   * SKILL.md under a `diverged`, non-plugin row (the user edited it; the row
+   * stays `diverged`, so retirement keeps exempting it). A name match alone
+   * never adopts a hand-written skill.
    *
-   * A slug held by a NON-promoted candidate row (UNIQUE on `name`) is skipped
-   * with a warn and counted: adopting would register a second row with that
-   * name and fail on every start. Missing, ambiguous and failed rows are left
-   * for the next start.
+   * The row already named after the slug (UNIQUE on `name`) decides the path
+   * ({@link slugHolderDecision}): a `rejected` one (not merged) is re-promoted
+   * in place; a live `candidate` or a `merged-into:` row is skipped with a
+   * warn and counted. Missing, ambiguous and failed rows are left for the next
+   * start.
    */
   private async reconcileAcceptedSuggestions(
     settings: SkillSynthesisSettings,
@@ -581,7 +584,8 @@ export class SkillCuratorService {
       return found.kind;
     }
     const holder = this.store.findByName(found.slug);
-    if (holder && holder.status !== 'promoted') {
+    const holderPath = slugHolderDecision(holder);
+    if (holder && holderPath === 'blocked') {
       this.logger.warn(
         '[skill-curator] accepted suggestion slug is held by a non-promoted candidate; not adopted',
         {
@@ -603,6 +607,8 @@ export class SkillCuratorService {
           sourceSessionIds: [...suggestion.memberSessionIds],
           embedding: this.memberCentroid(suggestion),
           trajectoryKey: `${SUGGESTION_TRAJECTORY_PREFIX}${suggestion.id}`,
+          repromoteRejectedId:
+            holderPath === 'repromote-rejected' ? holder?.id : undefined,
         },
         settings,
         (row) => this.commitReconcile(suggestion, row, exempt),
@@ -619,6 +625,13 @@ export class SkillCuratorService {
       );
     }
     if (!adopted) return 'failed';
+    this.logger.info('[skill-curator] accepted suggestion adopted', {
+      suggestionId: suggestion.id,
+      slug: found.slug,
+      candidateId: adopted.candidate.id,
+      path: holderPath,
+      proof: found.proof,
+    });
     await this.afterMerge(suggestion.id, adopted.outcome, {});
     return 'adopted';
   }

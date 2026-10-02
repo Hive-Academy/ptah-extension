@@ -495,6 +495,11 @@ export class SkillPromotionService {
    * reconcile rule). An `authored` registry row becomes `synth` here, exactly
    * as the catalog sync does once a candidate holds the name; a plugin clone
    * throws {@link RegistrySlugOwnedByPluginError} and nothing is written.
+   *
+   * `repromoteRejectedId` names the `rejected` row holding `slug` that the
+   * caller decided may come back: it is re-promoted in place (a
+   * compare-and-set on `rejected`) instead of inserting a second row with the
+   * UNIQUE name. Any other rejected holder still fails on that UNIQUE name.
    */
   async adoptMaterializedSkill<T>(
     input: {
@@ -504,6 +509,7 @@ export class SkillPromotionService {
       sourceSessionIds: string[];
       embedding: Float32Array | null;
       trajectoryKey: string;
+      repromoteRejectedId?: CandidateId;
     },
     settings: SkillSynthesisSettings,
     onCommit: (row: SkillCandidateRow) => T,
@@ -534,6 +540,11 @@ export class SkillPromotionService {
         embedding: input.embedding,
         demotedResidentId: demotion.weakest?.id,
         now: nowFn(),
+        rejectedId:
+          existing?.status === 'rejected' &&
+          existing.id === input.repromoteRejectedId
+            ? existing.id
+            : undefined,
       },
       onCommit,
     );
@@ -552,7 +563,10 @@ export class SkillPromotionService {
   /**
    * The shared transactional tail of {@link promoteSuggestion} and
    * {@link adoptMaterializedSkill}: register → promote (re-entrant, demotes
-   * the cap victim) → registry link → `onCommit`, as one unit.
+   * the cap victim) → registry link → `onCommit`, as one unit. With
+   * `rejectedId` nothing is registered: that row is re-promoted from
+   * `rejected` (compare-and-set) and its content reset to the adopt input
+   * (`resetRevivedContent`), under the same tail.
    *
    * Every call inside the callback is a plain statement or the re-entrant
    * `promoteAtomically`, and nothing here catches: a throw anywhere rolls the
@@ -568,26 +582,34 @@ export class SkillPromotionService {
       embedding: Float32Array | null;
       demotedResidentId: CandidateId | undefined;
       now: number;
+      rejectedId?: CandidateId;
     },
     onCommit: (row: SkillCandidateRow) => T,
   ): { row: SkillCandidateRow; outcome: T } {
     return this.store.inImmediateTransaction(() => {
-      const { candidate } = this.store.registerCandidate({
-        name: args.slug,
-        description: args.description,
-        bodyPath: args.filePath,
-        sourceSessionIds: args.sourceSessionIds,
-        trajectoryHash: args.trajectoryHash,
-        embedding: args.embedding,
-        createdAt: args.now,
-        workspaceRoot: null,
-      });
-      const row = this.store.promoteAtomically(candidate.id, {
+      const candidateId =
+        args.rejectedId ??
+        this.store.registerCandidate({
+          name: args.slug,
+          description: args.description,
+          bodyPath: args.filePath,
+          sourceSessionIds: args.sourceSessionIds,
+          trajectoryHash: args.trajectoryHash,
+          embedding: args.embedding,
+          createdAt: args.now,
+          workspaceRoot: null,
+        }).candidate.id;
+      const promoted = this.store.promoteAtomically(candidateId, {
         promotedAt: args.now,
         bodyPath: args.filePath,
         name: args.slug,
         demotedResidentId: args.demotedResidentId,
+        fromStatus: args.rejectedId ? 'rejected' : 'candidate',
       });
+      // A revived row gets the content a freshly registered row would carry.
+      const row = args.rejectedId
+        ? this.store.resetRevivedContent(promoted.id, args)
+        : promoted;
       this.linkRegistryRow(args.slug, args.filePath, row.id);
       return { row, outcome: onCommit(row) };
     });

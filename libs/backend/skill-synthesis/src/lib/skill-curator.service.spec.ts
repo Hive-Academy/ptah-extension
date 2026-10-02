@@ -29,9 +29,9 @@ import {
   SkillPromotionService,
   SUGGESTION_TRAJECTORY_PREFIX,
 } from './skill-promotion.service';
-import type {
-  SkillRetirementResult,
+import {
   SkillRetirementService,
+  type SkillRetirementResult,
 } from './lifecycle/skill-retirement.service';
 import type {
   SkillUmbrellaMergeService,
@@ -39,6 +39,7 @@ import type {
 } from './lifecycle/skill-umbrella-merge.service';
 import {
   MERGED_INTO_PREFIX,
+  RETIRED_UNUSED_REASON,
   unjudgedVerdictFields,
   unmeasuredGateFields,
   type CandidateId,
@@ -1258,6 +1259,397 @@ describeDb('SkillCuratorService — accept and reconcile on a real store', () =>
       expect(origin).toEqual({});
       expect(committedAtRemoval).toBe(true);
       expect(memberStatusAtRemoval).toBe('rejected');
+    });
+
+    // ── Batch 15: the two legacy shapes found on real data ──────────────────
+
+    const countRows = (): number =>
+      (
+        db.prepare(`SELECT COUNT(*) AS n FROM skill_candidates`).get() as {
+          n: number;
+        }
+      ).n;
+
+    /** The `path`/`proof` the reconcile logged for an adopted suggestion. */
+    function adoptedLog(suggestionId: string): unknown {
+      return logger.info.mock.calls.find(
+        ([message, meta]) =>
+          message === '[skill-curator] accepted suggestion adopted' &&
+          (meta as { suggestionId?: string }).suggestionId === suggestionId,
+      )?.[1];
+    }
+
+    /** The slug held by a candidate row the judge rejected (real data, shape 1). */
+    function rejectedHolder(
+      slug: string,
+      reason = 'judge-below-threshold',
+    ): SkillCandidateRow {
+      const holder = addCandidate(slug);
+      store.rejectIfStatus(holder.id, 'candidate', reason, 5);
+      db.prepare(
+        `UPDATE skill_candidates SET residency = 'dormant' WHERE id = ?`,
+      ).run(holder.id);
+      registry.upsert(registryEntry(slug, 'synth', { candidateId: holder.id }));
+      return store.findById(holder.id) as SkillCandidateRow;
+    }
+
+    /** A legacy accepted suggestion whose SKILL.md the user edited (real data, shape 2). */
+    function divergedLegacy(
+      memberIds: string[] = [],
+      overrides: Partial<SkillRegistryEntry> = {},
+    ): { suggestion: SkillSuggestionRow; slug: string } {
+      const legacy = legacyAccepted('synth', memberIds);
+      fs.writeFileSync(
+        path.join(root, legacy.slug, 'SKILL.md'),
+        `---\nname: ${legacy.slug}\ndescription: edited\n---\n\nMy edited steps.\n`,
+      );
+      registry.upsert(
+        registryEntry(legacy.slug, 'diverged', {
+          diverged: true,
+          ...overrides,
+        }),
+      );
+      return legacy;
+    }
+
+    it('(a) a slug held by a rejected row re-promotes that row in place, links it, and inserts no second row', async () => {
+      const member = addCandidate('member-cand');
+      const { suggestion, slug } = legacyAccepted('synth', [member.id]);
+      const holder = rejectedHolder(slug);
+      const before = countRows();
+
+      await startAndSettle();
+
+      expect(store.findById(holder.id)).toMatchObject({
+        status: 'promoted',
+        residency: 'resident',
+        rejectedAt: null,
+        rejectedReason: null,
+        name: slug,
+        bodyPath: path.join(root, slug, 'SKILL.md'),
+      });
+      expect(store.findById(holder.id)?.promotedAt).toEqual(expect.any(Number));
+      expect(countRows()).toBe(before);
+      expect(
+        rowsWithHash(`${SUGGESTION_TRAJECTORY_PREFIX}${suggestion.id}`),
+      ).toBe(0);
+      expect(suggestions.findById(suggestion.id)?.promotedCandidateId).toBe(
+        holder.id,
+      );
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'synth',
+        candidateId: holder.id,
+      });
+      // Same merge flow as a normal adopt.
+      expect(store.findById(member.id)?.rejectedReason).toBe(
+        MERGED_INTO_PREFIX + suggestion.id,
+      );
+      expect(lastReconcileCounts()).toMatchObject({
+        adopted: 1,
+        blockedByCandidateRow: 0,
+      });
+      expect(adoptedLog(suggestion.id)).toMatchObject({
+        slug,
+        candidateId: holder.id,
+        path: 'repromote-rejected',
+        proof: 'body-match',
+      });
+    });
+
+    it('(b) the guarded update rolls the whole adopt back when the row is no longer rejected', async () => {
+      const member = addCandidate('member-cand');
+      const { suggestion, slug } = legacyAccepted('synth', [member.id]);
+      const holder = rejectedHolder(slug);
+      const original = store.inImmediateTransaction.bind(store);
+      // Another writer promotes the row after the reconcile read it as
+      // rejected, just before the adopt's transaction begins.
+      jest
+        .spyOn(store, 'inImmediateTransaction')
+        .mockImplementationOnce((fn) => {
+          db.prepare(
+            `UPDATE skill_candidates SET status = 'promoted', promoted_at = 9 WHERE id = ?`,
+          ).run(holder.id);
+          return original(fn);
+        });
+
+      await expect(startAndSettle()).resolves.toBeUndefined();
+
+      // Only the other writer's change is left; nothing of the adopt.
+      expect(store.findById(holder.id)).toMatchObject({
+        status: 'promoted',
+        promotedAt: 9,
+        residency: 'dormant',
+        rejectedReason: 'judge-below-threshold',
+      });
+      expect(
+        suggestions.findById(suggestion.id)?.promotedCandidateId,
+      ).toBeNull();
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'synth',
+        candidateId: holder.id,
+      });
+      expect(store.findById(member.id)?.status).toBe('candidate');
+      expect(outsideTransaction()).toBe(true);
+      expect(fs.existsSync(path.join(root, slug, 'SKILL.md'))).toBe(true);
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 0, failed: 1 });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] adopting an accepted suggestion failed (rolled back; retried next start)',
+        expect.objectContaining({
+          slug,
+          error: expect.stringContaining('was not promotable'),
+        }),
+      );
+    });
+
+    it('(c) a diverged registry row adopts without the body proof; the row stays diverged with candidateId set', async () => {
+      const member = addCandidate('member-cand');
+      const { suggestion, slug } = divergedLegacy([member.id]);
+
+      await startAndSettle();
+
+      const adopted = store.findByName(slug);
+      expect(adopted).toMatchObject({
+        status: 'promoted',
+        residency: 'resident',
+      });
+      expect(suggestions.findById(suggestion.id)?.promotedCandidateId).toBe(
+        adopted?.id,
+      );
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'diverged',
+        diverged: true,
+        candidateId: adopted?.id,
+      });
+      // The user's edit is kept.
+      expect(
+        fs.readFileSync(path.join(root, slug, 'SKILL.md'), 'utf8'),
+      ).toContain('My edited steps.');
+      expect(store.findById(member.id)?.rejectedReason).toBe(
+        MERGED_INTO_PREFIX + suggestion.id,
+      );
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 1, missing: 0 });
+      expect(adoptedLog(suggestion.id)).toMatchObject({
+        slug,
+        path: 'new-row',
+        proof: 'diverged',
+      });
+    });
+
+    it('(d) a diverged registry row whose SKILL.md is missing is not adopted', async () => {
+      const { suggestion, slug } = divergedLegacy();
+      fs.rmSync(path.join(root, slug, 'SKILL.md'));
+      expect(fs.existsSync(path.join(root, slug))).toBe(true);
+
+      await startAndSettle();
+
+      expect(store.findByName(slug)).toBeNull();
+      expect(
+        suggestions.findById(suggestion.id)?.promotedCandidateId,
+      ).toBeNull();
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'diverged',
+        candidateId: null,
+      });
+      expect(lastReconcileCounts()).toMatchObject({ adopted: 0, missing: 1 });
+    });
+
+    it.each([
+      ['a live candidate', null],
+      ['a row merged into a suggestion', `${MERGED_INTO_PREFIX}other-sug`],
+      ['a row retired on purpose', RETIRED_UNUSED_REASON],
+    ])(
+      '(e) a slug held by %s still blocks: nothing is adopted or rewritten',
+      async (_label, mergedReason) => {
+        const { suggestion, slug } = legacyAccepted('synth');
+        const holder = mergedReason
+          ? rejectedHolder(slug, mergedReason)
+          : addCandidate(slug);
+        const adopt = jest.spyOn(promotion, 'adoptMaterializedSkill');
+
+        await startAndSettle();
+
+        expect(adopt).not.toHaveBeenCalled();
+        expect(store.findById(holder.id)).toEqual(holder);
+        expect(
+          suggestions.findById(suggestion.id)?.promotedCandidateId,
+        ).toBeNull();
+        expect(lastReconcileCounts()).toMatchObject({
+          adopted: 0,
+          blockedByCandidateRow: 1,
+        });
+      },
+    );
+
+    it('(f) plugin-owned rows still refuse: a diverged plugin row is not proven, and a rejected holder under a plugin row rolls back', async () => {
+      const diverged = divergedLegacy([], { originPluginId: 'plugin-x' });
+      const other = addSuggestion([], 'release-flow');
+      const materialized = md.promoteToActive({
+        slug: other.name,
+        description: other.description,
+        body: other.body,
+      });
+      suggestions.accept(other.id, null);
+      const holder = rejectedHolder(materialized.slug);
+      registry.upsert(
+        registryEntry(materialized.slug, 'synth', {
+          originPluginId: 'plugin-y',
+          candidateId: holder.id,
+        }),
+      );
+
+      await startAndSettle();
+
+      // The diverged plugin row proves nothing.
+      expect(store.findByName(diverged.slug)).toBeNull();
+      expect(registry.getBySlug('skill', diverged.slug)).toMatchObject({
+        cloneStatus: 'diverged',
+        originPluginId: 'plugin-x',
+        candidateId: null,
+      });
+      // The re-promote reached linkRegistryRow, threw, and rolled back.
+      expect(store.findById(holder.id)).toEqual(holder);
+      expect(suggestions.findById(other.id)?.promotedCandidateId).toBeNull();
+      expect(lastReconcileCounts()).toMatchObject({
+        adopted: 0,
+        missing: 1,
+        failed: 1,
+      });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[skill-curator] adopting an accepted suggestion failed (rolled back; retried next start)',
+        expect.objectContaining({
+          slug: materialized.slug,
+          errorName: 'RegistrySlugOwnedByPluginError',
+        }),
+      );
+    });
+
+    it('(g) after a diverged adopt, a retirement pass neither retires nor removes the diverged skill', async () => {
+      const { slug } = divergedLegacy();
+      await startAndSettle();
+      const adopted = store.findByName(slug) as SkillCandidateRow;
+      expect(adopted.status).toBe('promoted');
+      // Control: an idle synthesized skill the same pass does retire.
+      const idle = addPromoted('idle-synth');
+      const realRetirement = new SkillRetirementService(
+        logger as never,
+        store,
+        registry,
+        md,
+        null,
+        null,
+      );
+
+      const result = await realRetirement.run({}, Date.now() + 365 * 86400000);
+
+      expect(result.retiredSlugs).toEqual(['idle-synth']);
+      expect(result.skippedExempt).toBe(1);
+      expect(store.findById(idle.id)?.status).toBe('rejected');
+      expect(store.findById(adopted.id)).toMatchObject({
+        status: 'promoted',
+        residency: 'resident',
+      });
+      expect(fs.existsSync(path.join(root, slug, 'SKILL.md'))).toBe(true);
+      expect(registry.getBySlug('skill', slug)).toMatchObject({
+        cloneStatus: 'diverged',
+        candidateId: adopted.id,
+      });
+    });
+
+    it('(h) a revived row carries the adopt content: every stale descriptive, source, embedding and judge column is overwritten', async () => {
+      const { suggestion, slug } = legacyAccepted('synth');
+      const holder = rejectedHolder(slug);
+      db.prepare(
+        `UPDATE skill_candidates
+            SET description = 'stale description', display_name = 'Stale Label',
+                workspace_root = '/stale/project',
+                source_session_ids = '["stale-session"]', embedding_rowid = 999,
+                judge_score = 2.5, judge_status = 'scored',
+                judge_reason = 'too narrow', judge_novelty = 1,
+                judge_actionability = 2, judge_scope = 3,
+                judge_generalization = 4, judge_trigger_clarity = 5,
+                judge_panel_rationales = '[{"role":"x"}]', judged_at = 77,
+                replay_confidence = 0.1, replay_holdout_session_id = 'stale-h',
+                replay_at = 78, trigger_score = 0.2, trigger_precision = 0.3,
+                trigger_recall = 0.4, trigger_eval_at = 79
+          WHERE id = ?`,
+      ).run(holder.id);
+      const stale = store.findById(holder.id) as SkillCandidateRow;
+
+      await startAndSettle();
+
+      const revived = store.findById(holder.id) as SkillCandidateRow;
+      expect(revived).toMatchObject({
+        status: 'promoted',
+        description: suggestion.description,
+        displayName: null,
+        workspaceRoot: null,
+        sourceSessionIds: [...suggestion.memberSessionIds],
+        // The spec store has no sqlite-vec: a fresh adopt row gets NULL too.
+        embeddingRowid: null,
+        judgeScore: null,
+        judgeStatus: null,
+        judgeReason: null,
+        judgeCriteria: {
+          novelty: null,
+          actionability: null,
+          scope: null,
+          generalization: null,
+          triggerClarity: null,
+        },
+        judgePanelRationales: null,
+        judgedAt: null,
+        replayConfidence: null,
+        replayHoldoutSessionId: null,
+        replayAt: null,
+        triggerScore: null,
+        triggerPrecision: null,
+        triggerRecall: null,
+        triggerEvalAt: null,
+      });
+      // Identity is kept.
+      expect(revived.id).toBe(stale.id);
+      expect(revived.name).toBe(stale.name);
+      expect(revived.createdAt).toBe(stale.createdAt);
+      expect(revived.trajectoryHash).toBe(stale.trajectoryHash);
+      expect(suggestions.findById(suggestion.id)?.promotedCandidateId).toBe(
+        holder.id,
+      );
+    });
+
+    it('(i) a revived row whose slug has only old events is not idle at the next retirement sweep', async () => {
+      const { slug } = legacyAccepted('synth');
+      const holder = rejectedHolder(slug);
+      const dayMs = 86400000;
+      const longAgo = Date.now() - 400 * dayMs;
+      store.recordSkillEvent({
+        skillSlug: slug,
+        sessionId: 'old-session',
+        contextId: null,
+        source: 'tool-use',
+        succeeded: true,
+        isError: false,
+        invokedAt: longAgo,
+      });
+
+      await startAndSettle();
+      expect(store.findById(holder.id)?.status).toBe('promoted');
+      const realRetirement = new SkillRetirementService(
+        logger as never,
+        store,
+        registry,
+        md,
+        null,
+        null,
+      );
+
+      const result = await realRetirement.run({}, Date.now() + dayMs);
+
+      expect(result).toMatchObject({ dormant: 0, retired: 0 });
+      expect(store.findById(holder.id)).toMatchObject({
+        status: 'promoted',
+        residency: 'resident',
+      });
+      expect(fs.existsSync(path.join(root, slug, 'SKILL.md'))).toBe(true);
     });
   });
 });

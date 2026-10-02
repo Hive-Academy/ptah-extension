@@ -8,7 +8,8 @@
  * job. Here we only handle CRUD + vec0 writes.
  *
  * Status transitions are validated to fail loudly if the caller tries to
- * walk an illegal edge (e.g. `rejected` → `promoted`).
+ * walk an illegal edge (e.g. `rejected` → `promoted`). The one exception is
+ * `promoteAtomically`'s compare-and-set `fromStatus: 'rejected'`.
  */
 import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
@@ -27,7 +28,6 @@ import {
   RETIRED_UNUSED_REASON,
   type CandidateId,
   type JudgePanelRationale,
-  type JudgeStatus,
   type JudgeVerdict,
   type NewCandidateInput,
   type RegisterCandidateResult,
@@ -43,62 +43,10 @@ import {
   type GradedInvocationRow,
 } from './types';
 import { cosineSimilarity } from './cosine-similarity';
-
-interface RawCandidateRow {
-  id: string;
-  name: string;
-  description: string;
-  body_path: string;
-  source_session_ids: string;
-  trajectory_hash: string;
-  embedding_rowid: number | null;
-  status: SkillStatus;
-  success_count: number;
-  failure_count: number;
-  created_at: number;
-  promoted_at: number | null;
-  rejected_at: number | null;
-  rejected_reason: string | null;
-  pinned: number;
-  residency: string;
-  // ── 0040 ──────────────────────────────────────────────────────────────────
-  // Same `SELECT *` trap as the two blocks below. `NULL` here means UNKNOWN
-  // origin and is INCLUDED by a workspace-scoped read; a column missing from
-  // this interface reads back `undefined`, becomes `null`, and every candidate
-  // silently reverts to appearing in every workspace — the defect `0040`
-  // exists to fix, looking exactly like the fix working.
-  workspace_root: string | null;
-  // ── 0033 ──────────────────────────────────────────────────────────────────
-  // Reads are `SELECT *`, so a column that is missing from this interface is
-  // silently invisible to the store no matter what the DDL says. Adding a
-  // column to `0033` without adding it here is a silent-data-loss bug, not a
-  // compile error.
-  judge_score: number | null;
-  judge_status: string | null;
-  judge_reason: string | null;
-  judge_novelty: number | null;
-  judge_actionability: number | null;
-  judge_scope: number | null;
-  judge_generalization: number | null;
-  judge_trigger_clarity: number | null;
-  judge_panel_rationales: string | null;
-  judged_at: number | null;
-  display_name: string | null;
-  // ── 0036 ──────────────────────────────────────────────────────────────────
-  // Same `SELECT *` trap as the 0033 block above, and it bites harder here: a
-  // column missing from this interface reads back `undefined`, which
-  // `toCandidateRow`'s `?? null` then turns into `null` — indistinguishable
-  // from a gate that genuinely has not run. The failure looks exactly like the
-  // feature working. Adding a column to `0036` without adding it here is a
-  // silent-data-loss bug, not a compile error.
-  replay_confidence: number | null;
-  replay_holdout_session_id: string | null;
-  replay_at: number | null;
-  trigger_score: number | null;
-  trigger_precision: number | null;
-  trigger_recall: number | null;
-  trigger_eval_at: number | null;
-}
+import {
+  toCandidateRow,
+  type RawCandidateRow,
+} from './skill-candidate.row-mappers';
 
 interface RawInvocationEventRow {
   id: string;
@@ -485,6 +433,13 @@ export class SkillCandidateStore {
    * `name`, when given, is the materialized directory slug (e.g. `foo-2`) and
    * is written with the promotion. A UNIQUE violation on `name` throws, and the
    * transaction rolls back the demotion with it.
+   *
+   * `fromStatus: 'rejected'` is the ONE way back from `rejected`, outside
+   * `LEGAL_TRANSITIONS`: the startup reconcile re-promotes the rejected row
+   * holding an accepted suggestion's slug (`name` is UNIQUE, so a second row
+   * cannot be inserted). The write is a compare-and-set on that status; it
+   * clears the rejection and makes the row resident. A row no longer
+   * `rejected` throws, rolling back the caller's whole unit.
    */
   promoteAtomically(
     id: CandidateId,
@@ -493,13 +448,18 @@ export class SkillCandidateStore {
       bodyPath: string;
       demotedResidentId?: CandidateId;
       name?: string;
+      fromStatus?: 'candidate' | 'rejected';
     },
   ): SkillCandidateRow {
+    const fromStatus = options.fromStatus ?? 'candidate';
     const current = this.findById(id);
     if (!current) {
       throw new Error(`[skill-synthesis] promoteAtomically: ${id} not found`);
     }
-    if (!LEGAL_TRANSITIONS[current.status].includes('promoted')) {
+    if (
+      fromStatus === 'candidate' &&
+      !LEGAL_TRANSITIONS[current.status].includes('promoted')
+    ) {
       throw new Error(
         `[skill-synthesis] illegal status transition ${current.status} → promoted for ${id}`,
       );
@@ -544,8 +504,9 @@ export class SkillCandidateStore {
            SET status = @promotedStatus,
                promoted_at = @promotedAt,
                body_path = @bodyPath,
-               name = COALESCE(@name, name)
-           WHERE id = @candidateId AND status = @candidateStatus`,
+               name = COALESCE(@name, name),
+               residency = 'resident', rejected_at = NULL, rejected_reason = NULL
+           WHERE id = @candidateId AND status = @fromStatus`,
         )
         .run({
           promotedStatus: 'promoted',
@@ -553,7 +514,7 @@ export class SkillCandidateStore {
           bodyPath: options.bodyPath,
           name: options.name ?? null,
           candidateId: id,
-          candidateStatus: 'candidate',
+          fromStatus,
         });
       if (promotion.changes !== 1) {
         throw new Error(
@@ -587,15 +548,77 @@ export class SkillCandidateStore {
   }
 
   /**
-   * Every promoted row with the time it was last used, oldest use first:
-   * the newest `skill_invocation_events` row for its slug, else `promoted_at`,
-   * else `created_at`. One statement; the retirement sweep's input.
+   * Overwrite a just re-promoted row's content with what a freshly registered
+   * adopt row would carry (the `fromStatus: 'rejected'` path of
+   * {@link promoteAtomically}): description, sources and embedding from the
+   * adopt input; display name, workspace root and every judge, replay and
+   * trigger measurement reset to NULL. `id`, `name`, `created_at`,
+   * `trajectory_hash`, counters and `pinned` are kept.
+   *
+   * The embedding follows `registerCandidate`: a vec row only when one is
+   * given and sqlite-vec is available, else `embedding_rowid` NULL.
+   *
+   * Plain statements only (it runs inside the adopt transaction, R-f); a row
+   * that is not `promoted` throws so the caller's unit rolls back.
+   */
+  resetRevivedContent(
+    id: CandidateId,
+    input: {
+      description: string;
+      sourceSessionIds: string[];
+      embedding: Float32Array | null;
+    },
+  ): SkillCandidateRow {
+    const embeddingRowid =
+      input.embedding && this.vecStatus.available
+        ? this.insertEmbedding(input.embedding)
+        : null;
+    const result = this.db
+      .prepare(
+        `UPDATE skill_candidates
+            SET description = ?, source_session_ids = ?, embedding_rowid = ?,
+                display_name = NULL, workspace_root = NULL,
+                judge_score = NULL, judge_status = NULL, judge_reason = NULL,
+                judge_novelty = NULL, judge_actionability = NULL,
+                judge_scope = NULL, judge_generalization = NULL,
+                judge_trigger_clarity = NULL, judge_panel_rationales = NULL,
+                judged_at = NULL,
+                replay_confidence = NULL, replay_holdout_session_id = NULL,
+                replay_at = NULL, trigger_score = NULL,
+                trigger_precision = NULL, trigger_recall = NULL,
+                trigger_eval_at = NULL
+          WHERE id = ? AND status = 'promoted'`,
+      )
+      .run(
+        input.description,
+        JSON.stringify(input.sourceSessionIds),
+        embeddingRowid,
+        id,
+      );
+    const row = result.changes === 1 ? this.findById(id) : null;
+    if (!row) {
+      throw new Error(
+        `[skill-synthesis] resetRevivedContent: ${id} is not a promoted row`,
+      );
+    }
+    return row;
+  }
+
+  /**
+   * Every promoted row with the time it was last used, oldest use first: the
+   * later of the newest `skill_invocation_events` row for its slug and
+   * `promoted_at`, else `created_at`. A row promoted (or re-promoted) within
+   * the window is never idle, whatever events its slug had before. One
+   * statement; the retirement sweep's input.
    */
   listPromotedLastUse(): Array<{ row: SkillCandidateRow; lastUsedAt: number }> {
     const rows = this.db
       .prepare(
         `SELECT c.*,
-                COALESCE(e.max_invoked_at, c.promoted_at, c.created_at) AS last_used_at
+                MAX(
+                  COALESCE(e.max_invoked_at, c.promoted_at, c.created_at),
+                  COALESCE(c.promoted_at, c.created_at)
+                ) AS last_used_at
            FROM skill_candidates c
            LEFT JOIN (
              SELECT skill_slug, MAX(invoked_at) AS max_invoked_at
@@ -1700,86 +1723,8 @@ export class SkillCandidateStore {
     }
   }
 
-  /**
-   * Read edge of the `judge_status` union. `null` and `''` mean "never judged".
-   * Anything else that is not a union member is downgraded to `'unscored'` —
-   * the value that means "no trustworthy verdict" — and logged. There is no DB
-   * `CHECK` to have caught it, and the alternative (passing the raw string
-   * through a field typed as the union) would lie to every consumer.
-   */
-  private toJudgeStatus(raw: string | null): JudgeStatus | null {
-    if (raw === null || raw === '') return null;
-    if ((JUDGE_STATUSES as readonly string[]).includes(raw)) {
-      return raw as JudgeStatus;
-    }
-    this.logger.warn(
-      '[skill-synthesis] unknown judge_status read from skill_candidates; treating as unscored',
-      { judgeStatus: raw },
-    );
-    return 'unscored';
-  }
-
   private toCandidateRow(raw: RawCandidateRow): SkillCandidateRow {
-    let sources: string[] = [];
-    try {
-      const parsed = JSON.parse(raw.source_session_ids) as unknown;
-      if (Array.isArray(parsed)) {
-        sources = parsed.filter((x): x is string => typeof x === 'string');
-      }
-    } catch {
-      sources = [];
-    }
-    return {
-      id: raw.id as CandidateId,
-      name: raw.name,
-      description: raw.description,
-      bodyPath: raw.body_path,
-      sourceSessionIds: sources,
-      trajectoryHash: raw.trajectory_hash,
-      embeddingRowid: raw.embedding_rowid,
-      status: raw.status,
-      successCount: raw.success_count,
-      failureCount: raw.failure_count,
-      createdAt: raw.created_at,
-      promotedAt: raw.promoted_at,
-      rejectedAt: raw.rejected_at,
-      rejectedReason: raw.rejected_reason,
-      pinned: raw.pinned === 1,
-      residency: raw.residency === 'dormant' ? 'dormant' : 'resident',
-      // `?? null` normalizes a driver's `undefined` for an absent column. It
-      // does NOT coalesce to `''` — `null` is "origin unknown" and `''` is
-      // "deliberately cross-project", and only the second is a claim.
-      workspaceRoot: raw.workspace_root ?? null,
-      judgeStatus: this.toJudgeStatus(raw.judge_status),
-      // `?? null` normalizes a driver's `undefined` for an absent column. It
-      // does NOT coalesce a stored NULL to 0 — that would resurrect the exact
-      // fabricated-score defect this column exists to kill.
-      judgeScore: raw.judge_score ?? null,
-      judgeReason: raw.judge_reason ?? null,
-      judgeCriteria: {
-        novelty: raw.judge_novelty ?? null,
-        actionability: raw.judge_actionability ?? null,
-        scope: raw.judge_scope ?? null,
-        generalization: raw.judge_generalization ?? null,
-        triggerClarity: raw.judge_trigger_clarity ?? null,
-      },
-      judgePanelRationales: raw.judge_panel_rationales ?? null,
-      judgedAt: raw.judged_at ?? null,
-      displayName: raw.display_name ?? null,
-      // `?? null` normalizes a driver's `undefined` for an absent column, and
-      // NOTHING here may coalesce to 0. A measured `0` — a replay that aligned
-      // with nothing, a description that retrieved nothing — is evidence
-      // against promotion; `null` is "this gate has not spoken" and leaves the
-      // candidate retry-eligible. Collapsing the two would silently reject
-      // every candidate the weekly drain has not reached yet.
-      replayConfidence: raw.replay_confidence ?? null,
-      replayHoldoutSessionId: raw.replay_holdout_session_id ?? null,
-      replayAt: raw.replay_at ?? null,
-      triggerScore: raw.trigger_score ?? null,
-      triggerPrecision: raw.trigger_precision ?? null,
-      triggerRecall: raw.trigger_recall ?? null,
-      triggerEvalAt: raw.trigger_eval_at ?? null,
-    };
+    return toCandidateRow(raw, this.logger);
   }
 
   private generateCandidateId(): string {
