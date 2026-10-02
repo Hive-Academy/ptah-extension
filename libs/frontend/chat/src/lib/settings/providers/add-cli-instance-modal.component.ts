@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { Eye, EyeOff, LucideAngularModule, X } from 'lucide-angular';
-import { ProvidersSettingsStateService, type ProvidersConnection, type ProvidersEditContext } from '@ptah-extension/core';
+import {
+  ProvidersSettingsStateService, type ProvidersConnection, type ProvidersEditContext, type ProvidersSettingsCommit,
+} from '@ptah-extension/core';
 import { NativeModalComponent } from '@ptah-extension/ui';
 import { getAnthropicProvider } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
@@ -12,7 +14,6 @@ export interface CliInstanceEditTarget {
   readonly name: string;
   readonly providerId: string;
   readonly providerName: string;
-  readonly hasStoredKey: boolean;
 }
 
 /** Connections a Ptah CLI instance cannot use (the rule of the instance manager retired in Batch 34). */
@@ -24,6 +25,12 @@ const MODALITY: Readonly<Record<string, string>> = {
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const FIELD = `input input-bordered input-sm w-full text-xs text-base-content ${FOCUS}`;
 const SAVE_SCOPE = 'global';
+/** Gate V 36 M4: a stored key is not a checked key (the create then runs the instance's Test). */
+const KEY_NOT_VERIFIED = 'Key stored, not verified.';
+/** M7: the rename and the key are separate host writes; a partial result says which one landed. */
+const NAME_SAVED_KEY_NOT = 'Name saved. The key was not saved.';
+const NAME_SAVED_KEY_UNKNOWN = 'Name saved. Could not confirm whether the key was saved; check it before retrying.';
+const DUPLICATE_NAME = 'Another Ptah CLI instance already uses this name.';
 
 /** How a provider takes credentials in this form (#48). */
 type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
@@ -31,15 +38,17 @@ type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
 /**
  * Add / Edit Ptah CLI instance (plan :750-758, prototype `#modalAddPtahCli`, interactions/orchestration-1), on the
  * shared `NativeModalComponent` (centered `<dialog>`, design-spec §6 decision).
- * - **Create:** name, provider connection (the existing rule: every connection except Claude API and OpenAI Codex),
- *   and the key the provider needs, masked with show/hide (#49). Keyless and optional-key providers say so (#48).
- *   GitHub Copilot signs in inline (`state.performExternalAuth('github-copilot','sign-in')`, #47); Create stays
- *   disabled until that reports `signed-in`. Submit → `saveSettings({cli:[{action:'create', …}]})`.
- * - **Edit (#50):** name and a replacement key → `saveSettings({cli:[{action:'update', params:{id, name?, apiKey?}}]})`
- *   (`PtahCliUpdateParams` carries both). The provider is shown, not editable: the update contract has no provider.
- * Saves go through `SettingsSaveFeedbackService`; a second `<ptah-settings-toast>` in the footer is the one assistive
- * tech hears while `showModal()` makes the page inert (plan :542-544). Closing mid-save is allowed: the write
- * continues and the page toast reports it. The typed key lives only here and is cleared on every open and close.
+ * - **Create:** name (unique, case-insensitive), provider connection (every connection except Claude API and OpenAI
+ *   Codex), and the key the provider needs, masked with show/hide (#49). Switching provider drops the typed key, and a
+ *   hidden key field is never sent (S2). GitHub Copilot re-reads its sign-in when chosen and signs in inline (#47, M6);
+ *   Create stays disabled until this open's check or login reports `signed-in`. A created instance is reported through
+ *   `created` so the matrix runs its Test (M4).
+ * - **Edit (#50):** name and a replacement key, as two `ptahCli:update` writes so a partial result names what saved
+ *   (M7). The provider is shown, not editable. A Copilot instance shows its sign-in only while Copilot is signed out.
+ * Saves go through `SettingsSaveFeedbackService` and close on that save's own result (M2); a second
+ * `<ptah-settings-toast>` in the footer is the one assistive tech hears while `showModal()` makes the page inert
+ * (plan :542-544). Closing mid-save is allowed: the write continues and the page toast reports it. The typed key lives
+ * only here and is cleared on every open, close and provider change.
  */
 @Component({
   selector: 'ptah-add-cli-instance-modal',
@@ -60,7 +69,11 @@ type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
         <div class="space-y-1">
           <label for="add-cli-instance-name" class="block font-semibold text-base-content">Instance name</label>
           <input id="add-cli-instance-name" type="text" [class]="field" [value]="name()" (input)="name.set(value($event))"
-            placeholder="e.g. Glm-Secondary, Llama-Local" autocomplete="off" data-testid="add-cli-instance-name" />
+            placeholder="e.g. Glm-Secondary, Llama-Local" autocomplete="off" maxlength="80" data-testid="add-cli-instance-name"
+            [attr.aria-invalid]="duplicateName()" [attr.aria-describedby]="duplicateName() ? 'add-cli-instance-name-error' : null" />
+          @if (duplicateName()) {
+            <p id="add-cli-instance-name-error" role="alert" class="text-base-content" data-testid="add-cli-instance-name-error">{{ duplicateMessage }}</p>
+          }
         </div>
 
         <div class="space-y-1">
@@ -69,7 +82,7 @@ type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
             <p class="text-base-content" aria-labelledby="add-cli-instance-provider-label" data-testid="add-cli-instance-provider-fixed">{{ target.providerName }}</p>
           } @else {
             <select [class]="'select select-bordered select-sm w-full text-xs text-base-content ' + focusRing"
-              aria-labelledby="add-cli-instance-provider-label" (change)="providerId.set(value($event))" data-testid="add-cli-instance-provider">
+              aria-labelledby="add-cli-instance-provider-label" (change)="selectProvider(value($event))" data-testid="add-cli-instance-provider">
               <option value="" [selected]="!providerId()">Choose a provider connection…</option>
               @for (option of providerOptions(); track option.id) {
                 <option [value]="option.id" [selected]="option.id === providerId()">{{ option.label }}</option>
@@ -81,19 +94,19 @@ type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
           }
         </div>
 
-        @if (keyMode() === 'sign-in') {
+        @if (showSignIn()) {
           <div class="space-y-2 rounded border border-base-300 bg-base-200 p-3" data-testid="add-cli-instance-copilot">
             <div class="flex items-center justify-between gap-2">
               <span class="font-semibold text-base-content">GitHub sign-in</span>
               <span [class]="'badge badge-outline badge-xs h-auto py-0.5 font-medium text-base-content ' + (signedIn() ? 'border-success/40 bg-success/10' : 'border-warning/40 bg-warning/10')"
                 data-testid="add-cli-instance-copilot-state">{{ signInLabel() }}</span>
             </div>
-            <p class="text-base-content-muted">Sign in with GitHub to use Copilot for this CLI instance. Create is available once sign-in is confirmed.</p>
+            <p class="text-base-content-muted">{{ editing() ? 'GitHub Copilot is signed out. Sign in so this instance can run.' : 'Sign in with GitHub to use Copilot for this CLI instance. Create is available once sign-in is confirmed.' }}</p>
             @if (signInMessage(); as message) {
               <p [attr.role]="signInFailed() ? 'alert' : 'status'" class="text-base-content" data-testid="add-cli-instance-copilot-message">{{ message }}</p>
             }
             <button type="button" [class]="'btn btn-primary btn-xs min-h-7 ' + focusRing" [disabled]="signingIn() || signedIn()"
-              (click)="signIn()" data-testid="add-cli-instance-copilot-login">{{ signingIn() ? 'Signing in…' : signInFailed() ? 'Retry login with GitHub' : 'Login with GitHub' }}</button>
+              (click)="signIn()" data-testid="add-cli-instance-copilot-login">{{ signingIn() ? signInBusyLabel() : signInFailed() ? 'Retry login with GitHub' : 'Login with GitHub' }}</button>
           </div>
         }
 
@@ -113,7 +126,7 @@ type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
           </div>
         }
         @if (keyHint(); as hint) {
-          <p id="add-cli-instance-key-help" class="text-[11px] text-base-content-muted" data-testid="add-cli-instance-key-help">{{ hint }}</p>
+          <p id="add-cli-instance-key-help" class="text-xs text-base-content-muted" data-testid="add-cli-instance-key-help">{{ hint }}</p>
         }
         <!-- Submitting with Enter from a field. The visible submit is in the footer. -->
         <button type="submit" class="hidden" tabindex="-1" aria-hidden="true"></button>
@@ -138,6 +151,7 @@ export class AddCliInstanceModalComponent {
   protected readonly EyeOffIcon = EyeOff;
   protected readonly focusRing = FOCUS;
   protected readonly field = FIELD;
+  protected readonly duplicateMessage = DUPLICATE_NAME;
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
 
@@ -145,6 +159,8 @@ export class AddCliInstanceModalComponent {
   /** The instance to edit; `null` creates a new one. */
   readonly editing = input<CliInstanceEditTarget | null>(null);
   readonly closed = output<void>();
+  /** A create saved (emitted before `closed`), with the trimmed name it was created under (unique). */
+  readonly created = output<string>();
 
   protected readonly name = signal('');
   protected readonly providerId = signal('');
@@ -195,24 +211,39 @@ export class AddCliInstanceModalComponent {
     }
   });
 
-  /** This open started a Copilot sign-in: a failed read (which carries no provider) is then this form's. */
-  private readonly signInAttempted = signal(false);
+  /** M9: case-insensitive, against every other instance (an edit may keep its own name). */
+  protected readonly duplicateName = computed(() => {
+    const name = this.name().trim().toLowerCase(), self = this.editing()?.id;
+    return !!name && (this.state.cliAgents().data ?? []).some((agent) => agent.id !== self && agent.name.trim().toLowerCase() === name);
+  });
+
+  /**
+   * M6: only this open's own sign-in check or login counts: an earlier sign-in in the shared store (Providers tab, an
+   * earlier open, then a sign-out) never reads as signed in.
+   */
+  private readonly signInAction = signal<'check' | 'login' | null>(null);
   protected readonly signInSection = computed(() => {
     const section = this.state.externalAuth();
-    const ours = section.data?.providerId === COPILOT
-      || ((section.status === 'loading' || section.status === 'error') && this.signInAttempted());
+    const ours = this.signInAction() !== null
+      && (section.data?.providerId === COPILOT || section.status === 'loading' || section.status === 'error');
     return ours ? section : null;
   });
   protected readonly signingIn = computed(() => this.signInSection()?.status === 'loading');
   protected readonly signedIn = computed(() => this.signInSection()?.data?.signInState === 'signed-in');
   protected readonly signInFailed = computed(() => this.signInSection()?.status === 'error');
-  protected readonly signInLabel = computed(() => this.signedIn() ? 'Signed in' : this.signingIn() ? 'Signing in…' : 'Awaiting sign-in');
+  protected readonly signInBusyLabel = computed(() => this.signInAction() === 'check' ? 'Checking sign-in…' : 'Signing in…');
+  protected readonly signInLabel = computed(() => this.signedIn() ? 'Signed in' : this.signingIn() ? this.signInBusyLabel() : 'Awaiting sign-in');
   protected readonly signInMessage = computed(() => this.signInFailed()
-    ? 'Sign-in did not complete. Complete the GitHub login, then retry.'
+    ? this.signInAction() === 'check' ? 'Could not check the GitHub sign-in. Retry login with GitHub.' : 'Sign-in did not complete. Complete the GitHub login, then retry.'
     : this.signInSection()?.data?.message ?? null);
+  /** Edit shows the sign-in only while Copilot reads as signed out (the connection row, M6); create always does. */
+  protected readonly showSignIn = computed(() => {
+    if (this.keyMode() !== 'sign-in') return false;
+    return !this.editing() || this.provider()?.configured === false;
+  });
 
   protected readonly canSubmit = computed(() => {
-    if (this.busy() || !this.name().trim() || !this.state.reviewContext()) return false;
+    if (this.busy() || !this.name().trim() || this.duplicateName() || !this.state.reviewContext()) return false;
     const target = this.editing();
     if (target) return this.name().trim() !== target.name || !!this.key().trim();
     const provider = this.provider();
@@ -231,7 +262,7 @@ export class AddCliInstanceModalComponent {
         this.context = this.state.reviewContext();
         this.name.set(target?.name ?? '');
         this.providerId.set('');
-        this.signInAttempted.set(false);
+        this.signInAction.set(null);
         this.clearKey();
       });
     });
@@ -241,8 +272,19 @@ export class AddCliInstanceModalComponent {
     return (event.target as HTMLInputElement | HTMLSelectElement).value;
   }
 
+  /** S2: a provider change drops the typed key (it was for the other vendor); Copilot re-reads its sign-in (M6). */
+  protected selectProvider(id: string): void {
+    this.providerId.set(id);
+    this.clearKey();
+    this.signInAction.set(null);
+    if (id === COPILOT) {
+      this.signInAction.set('check');
+      void this.state.performExternalAuth(COPILOT, 'cli-check');
+    }
+  }
+
   protected signIn(): Promise<void> {
-    this.signInAttempted.set(true);
+    this.signInAction.set('login');
     return this.state.performExternalAuth(COPILOT, 'sign-in');
   }
 
@@ -257,34 +299,57 @@ export class AddCliInstanceModalComponent {
     // The context taken on open; if the scopes were still loading then, the current one.
     const context = this.context ?? this.state.reviewContext();
     if (!context) return;
-    const session = this.session, target = this.editing(), name = this.name().trim(), key = this.key();
-    if (target) {
-      const nameChanged = name !== target.name;
-      const params = { id: target.id, ...(nameChanged ? { name } : {}), ...(key.trim() ? { apiKey: key } : {}) };
-      await this.feedback.save({
-        label: `${target.name} instance`, scope: SAVE_SCOPE,
-        write: () => this.state.saveSettings({ cli: [{ action: 'update', params }] }, context),
-        // A replaced key cannot be written back; a rename alone can.
-        undo: nameChanged && !key.trim()
-          ? () => this.state.saveSettings({ cli: [{ action: 'update', params: { id: target.id, name: target.name } }] }, context)
-          : null,
-      });
-    } else {
-      const providerId = this.providerId();
-      await this.feedback.save({
-        label: `Ptah CLI instance ${name}`, scope: SAVE_SCOPE,
-        write: () => this.state.saveSettings({ cli: [{ action: 'create', params: { name, providerId, apiKey: key } }] }, context),
-        undo: null,
-      });
-    }
-    const commit = this.state.commit().status;
-    if (commit === 'blocked') this.context = this.state.reviewContext();
-    // Closes only when this open's save landed; a failure keeps the form (and the key) for a retry (D15).
-    if (commit === 'saved' && session === this.session && this.open()) this.requestClose();
+    const session = this.session, target = this.editing(), name = this.name().trim();
+    // S2: a key field that is not shown is never sent.
+    const key = this.showKey() ? this.key() : '';
+    const result = target ? await this.saveEdit(target, name, key, context) : await this.saveCreate(name, key, context);
+    if (result === 'failed' && this.state.commit().status === 'blocked') this.context = this.state.reviewContext();
+    // M2: closes only on this save's own result, and only for the open it started in (D15).
+    if (result !== 'saved' || session !== this.session || !this.open()) return;
+    if (!target) this.created.emit(name);
+    this.requestClose();
+  }
+
+  private saveCreate(name: string, key: string, context: ProvidersEditContext) {
+    const providerId = this.providerId();
+    return this.feedback.save({
+      label: `Ptah CLI instance ${name}`, scope: SAVE_SCOPE,
+      write: () => this.state.saveSettings({ cli: [{ action: 'create', params: { name, providerId, apiKey: key } }] }, context),
+      undo: null,
+      ...(key.trim() ? { successMessage: `Created ${name}. ${KEY_NOT_VERIFIED} Testing the connection.` } : {}),
+    });
+  }
+
+  /** Name and key are two writes (M7); either one drops the instance's last Test (M8). */
+  private saveEdit(target: CliInstanceEditTarget, name: string, key: string, context: ProvidersEditContext) {
+    const nameChanged = name !== target.name, keyChanged = !!key.trim();
+    const write = (params: { readonly name?: string; readonly apiKey?: string }) => () => {
+      this.state.clearCliTest(target.id);
+      return this.state.saveSettings({ cli: [
+        ...(params.name !== undefined ? [{ action: 'update' as const, params: { id: target.id, name: params.name } }] : []),
+        ...(params.apiKey !== undefined ? [{ action: 'update' as const, params: { id: target.id, apiKey: params.apiKey } }] : []),
+      ] }, context);
+    };
+    return this.feedback.save({
+      label: `${target.name} instance`, scope: SAVE_SCOPE,
+      write: write({ ...(nameChanged ? { name } : {}), ...(keyChanged ? { apiKey: key } : {}) }),
+      // A replaced key cannot be written back; a rename alone can.
+      undo: nameChanged && !keyChanged ? write({ name: target.name }) : null,
+      ...(keyChanged ? { successMessage: `Saved ${target.name} instance. ${KEY_NOT_VERIFIED}` } : {}),
+      failureMessage: (commit) => partialEditMessage(commit, target.id),
+    });
   }
 
   private clearKey(): void {
     this.key.set('');
     this.keyVisible.set(false);
   }
+}
+
+/** M7: "Name saved. The key was not saved." when the rename landed and the key write did not. */
+function partialEditMessage(commit: ProvidersSettingsCommit, id: string): string | null {
+  const nameField = `ptahCliAgents.${id}.name`, keyField = `ptahCliAgents.${id}.apiKey`;
+  if (!commit.saved.includes(nameField)) return null;
+  if (commit.unsaved.includes(keyField)) return NAME_SAVED_KEY_NOT;
+  return commit.unconfirmed.includes(keyField) ? NAME_SAVED_KEY_UNKNOWN : null;
 }

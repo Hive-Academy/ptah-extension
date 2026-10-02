@@ -60,14 +60,14 @@ interface OrderChip {
         </div>
 
         <div class="flex min-w-0 flex-1 items-center gap-1.5">
-          <span class="shrink-0 whitespace-nowrap text-[11px] font-semibold text-base-content-muted" aria-hidden="true">Order:</span>
+          <span class="shrink-0 whitespace-nowrap text-xs font-semibold text-base-content-muted" aria-hidden="true">Order:</span>
           @if (chips().length) {
             <!-- Read-only chips (the prototype's row); they fade out at the end in a narrow box. The Edit button names the
                  whole order for screen readers. -->
-            <span class="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-[11px] [mask-image:linear-gradient(to_right,black_calc(100%_-_0.75rem),transparent)]"
+            <span class="flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs [mask-image:linear-gradient(to_right,black_calc(100%_-_0.75rem),transparent)]"
               aria-hidden="true" data-testid="policy-order">
               @for (chip of chips(); track chip.id; let i = $index, first = $first) {
-                @if (!first) { <span class="shrink-0 text-[10px] text-base-content-muted">→</span> }
+                @if (!first) { <span class="shrink-0 text-xs text-base-content-muted">→</span> }
                 <span class="shrink-0 whitespace-nowrap rounded border border-base-300 bg-base-100 px-1.5 py-0.5 font-bold"
                   [class.text-base-content]="chip.enabled" [class.text-base-content-muted]="!chip.enabled"
                   [attr.data-testid]="'policy-order-chip-' + chip.id">{{ i + 1 }}. {{ chip.name }}</span>
@@ -83,7 +83,8 @@ interface OrderChip {
                 <div content role="dialog" aria-labelledby="policy-order-title" class="w-[16rem] max-w-[calc(100vw-2rem)] space-y-2 p-3"
                   data-testid="policy-order-popover">
                   <div class="flex items-center justify-between gap-2 border-b border-base-300 pb-1.5">
-                    <h3 id="policy-order-title" class="text-xs font-bold text-base-content">Preferred order</h3>
+                    <!-- A plain title, not a heading: the popover sits in the page outline below the tab heading (axe heading-order). -->
+                    <p id="policy-order-title" class="text-xs font-bold text-base-content">Preferred order</p>
                     <button type="button" [class]="moveClass" aria-label="Close" (click)="closeOrder()">
                       <lucide-angular [img]="CloseIcon" class="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -93,7 +94,7 @@ interface OrderChip {
                       <li class="flex items-center gap-1 text-xs" [attr.data-testid]="'policy-order-row-' + chip.id">
                         <span class="min-w-0 flex-1 truncate font-bold" [class.text-base-content]="chip.enabled"
                           [class.text-base-content-muted]="!chip.enabled">{{ i + 1 }}. {{ chip.name }}</span>
-                        @if (!chip.enabled) { <span class="text-[10px] text-base-content-muted">off</span> }
+                        @if (!chip.enabled) { <span class="text-xs text-base-content-muted">off</span> }
                         <!-- Native disabled only at the ends; while a move cannot run (saving, not read) the buttons are
                              aria-disabled and ignore clicks, so the focused one keeps focus and Esc closes the popover. -->
                         <button type="button" [class]="moveClass" [disabled]="first" [attr.aria-disabled]="canReorder() ? null : 'true'"
@@ -110,14 +111,14 @@ interface OrderChip {
                     }
                   </ol>
                   @if (orderError(); as message) {
-                    <p class="text-[11px] text-base-content" role="alert" data-testid="policy-order-error">{{ message }}</p>
+                    <p class="text-xs text-base-content" role="alert" data-testid="policy-order-error">{{ message }}</p>
                   }
-                  <p class="text-[10px] text-base-content-muted">The first available agent is used when no CLI is specified.</p>
+                  <p class="text-xs text-base-content-muted">The first available agent is used when no CLI is specified.</p>
                 </div>
               }
             </ptah-native-popover>
           } @else {
-            <span class="text-[11px] text-base-content-muted" data-testid="policy-order-empty">
+            <span class="text-xs text-base-content-muted" data-testid="policy-order-empty">
               {{ loaded() ? 'No CLI agent installed yet.' : 'Loading…' }}
             </span>
           }
@@ -133,7 +134,7 @@ interface OrderChip {
         </button>
       </div>
       @if (detectFailed()) {
-        <p class="mt-1 text-[11px] text-base-content" role="alert" data-testid="policy-redetect-error">{{ detectFailedMessage }}</p>
+        <p class="mt-1 text-xs text-base-content" role="alert" data-testid="policy-redetect-error">{{ detectFailedMessage }}</p>
       }
       <span class="sr-only" role="status" aria-live="polite">{{ detectDone() ? 'CLI agents re-detected.' : '' }}</span>
     </section>
@@ -263,20 +264,26 @@ export class AgentOrchestrationConfigComponent {
   }
 
   /**
-   * One move = one write of the whole order, with Undo. The rows show the read-back order (D15); when the commit did
-   * not save, a fixed sentence says so in the popover (the toast carries the details).
+   * One move = one write of the whole order, with Undo. The rows show the read-back order (D15); when this move's own
+   * write did not save (refused, failed or threw), a fixed sentence says so in the popover (the toast carries the
+   * details). `commit()` alone is not enough: a refused move leaves an earlier save's `saved` there (Gate V 36, m-1).
    */
   private async savePreferredOrder(order: string[], movedId: string, direction: 'up' | 'down'): Promise<void> {
     const context = this.state.reviewContext();
     if (!context || !this.canReorder()) return;
     const previous = [...(this.state.orchestration().data?.preferredAgentOrder ?? [])];
     this.orderError.set(null);
+    let saved = false;
     await this.feedback.save({
       label: 'preferred agent order', scope: SAVE_SCOPE,
-      write: () => this.state.saveSettings({ orchestration: { preferredAgentOrder: order } }, context),
+      write: async () => {
+        const accepted = await this.state.saveSettings({ orchestration: { preferredAgentOrder: order } }, context);
+        saved = accepted && this.state.commit().status === 'saved';
+        return accepted;
+      },
       undo: () => this.state.saveSettings({ orchestration: { preferredAgentOrder: previous } }, context),
     });
-    if (this.state.commit().status !== 'saved') this.orderError.set(ORDER_NOT_SAVED);
+    if (!saved) this.orderError.set(ORDER_NOT_SAVED);
     this.refocus(movedId, direction);
   }
 

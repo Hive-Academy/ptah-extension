@@ -17,9 +17,10 @@ import {
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium text-base-content underline underline-offset-2 ${FOCUS}`;
 /** Reassignment cell: an own provider shows as a value with a chevron, "Follows main agent →" as a link-styled chip. */
-const CELL = `inline-flex max-w-[15rem] items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline disabled:cursor-not-allowed ${FOCUS}`;
+const CELL = `inline-flex max-w-[15rem] items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline aria-disabled:cursor-not-allowed aria-disabled:opacity-60 ${FOCUS}`;
 /** Background roles are settings for every Ptah app (`supportedTargets: ['global']`). */
 const SAVE_SCOPE = 'global';
+const TIMEOUT_NOT_SAVED = 'Could not save the enhancement time limit. The limit shown is the saved one.';
 
 /**
  * Background model roles (design-spec §1.2 item 4, plan :765-774, prototype `orchestration.html` section 3): the six
@@ -29,9 +30,12 @@ const SAVE_SCOPE = 'global';
  *   popover says why, with its "Set up" link (fixed sentences only). A role without its own provider shows the
  *   "Follows main agent →" chip, which opens the same popover.
  * - `initialEditingConsumerId` (a role deep link) opens that row's popover. Esc, the backdrop and Close return focus
- *   to the row's cell.
+ *   to the row's cell, also while a save runs: the cell is then `aria-disabled`, never natively disabled (Gate V 36,
+ *   M-2), so it can take focus back.
+ * - Scope badges sit inline after the cell, only for a role with a non-inherited value (D16; no Scope column, V36-6).
  * - The Enhancement time limit sits under Judging & enhancement; it is rendered only from the backend's
- *   `enhanceTimeoutMs` (never invented bounds).
+ *   `enhanceTimeoutMs` (never invented bounds). It saves with Undo through the same feedback path; a write that did
+ *   not save puts the input back on the saved limit and says so (D15, Gate V 36 S-1).
  * Row derivation is pure, in `provider-consumer-rows.ts`.
  */
 @Component({
@@ -43,7 +47,7 @@ const SAVE_SCOPE = 'global';
     <section class="space-y-2" data-testid="provider-consumer-assignments">
       <header class="space-y-0.5">
         <h2 class="text-xs font-semibold text-base-content" data-testid="assignments-heading">Background models</h2>
-        <p class="text-[11px] text-base-content-muted" data-testid="assignments-copy">
+        <p class="text-xs text-base-content-muted" data-testid="assignments-copy">
           These assignments run background work. They do not select the main agent.
         </p>
       </header>
@@ -54,7 +58,7 @@ const SAVE_SCOPE = 'global';
           <caption id="background-roles-table-label" class="sr-only">Background model roles</caption>
           <thead>
             <tr class="text-[11px] uppercase tracking-wide text-base-content-muted">
-              <th scope="col">Role</th><th scope="col">Provider &amp; model</th><th scope="col">Tier</th><th scope="col">Scope</th>
+              <th scope="col">Role</th><th scope="col">Provider &amp; model</th><th scope="col">Tier</th>
             </tr>
           </thead>
           <tbody>
@@ -63,12 +67,12 @@ const SAVE_SCOPE = 'global';
                 <th scope="row" class="min-w-[8rem] font-normal">
                   <span class="text-xs font-bold text-base-content" [attr.data-testid]="'consumer-name-' + row.id">{{ row.name }}</span>
                   @if (row.helperCopy) {
-                    <p class="mt-0.5 max-w-[16rem] text-[10px] leading-snug text-base-content-muted" [attr.data-testid]="'consumer-helper-' + row.id">{{ row.helperCopy }}</p>
+                    <p class="mt-0.5 max-w-[16rem] text-xs leading-snug text-base-content-muted" [attr.data-testid]="'consumer-helper-' + row.id">{{ row.helperCopy }}</p>
                   }
                 </th>
                 @if (!row.loaded) {
                   <!-- Not loaded: no effective value renders, only the section's state and its own Retry. -->
-                  <td colspan="3" [attr.data-testid]="'consumer-notloaded-' + row.id">
+                  <td colspan="2" [attr.data-testid]="'consumer-notloaded-' + row.id">
                     <span class="text-xs text-base-content" [attr.data-testid]="'consumer-notloaded-copy-' + row.id">
                       {{ row.sectionStatus === 'loading' ? 'Loading…' : 'Could not load this section. Retry.' }}
                     </span>
@@ -78,12 +82,13 @@ const SAVE_SCOPE = 'global';
                     }
                   </td>
                 } @else {
-                  <td class="whitespace-nowrap">
+                  <td>
+                    <div class="flex flex-wrap items-center gap-1">
                     <ptah-native-popover [isOpen]="activeEditId() === row.id" placement="bottom-start" [hasBackdrop]="true"
                       backdropClass="transparent" (closed)="cancelEdit()">
                       <!-- One line in both hosts: the label truncates (full text in the title and the accessible name),
                            the icon stays right after it, and the row never grows (Batch 35 revise, R1). -->
-                      <button trigger type="button" [class]="cell + (row.followsMain ? ' font-medium' : ' font-mono')" [disabled]="busy()"
+                      <button trigger type="button" [class]="cell + (row.followsMain ? ' font-medium' : ' font-mono')" [attr.aria-disabled]="busy() ? 'true' : null"
                         [attr.aria-label]="row.name + ': ' + row.resolvedSummary + '. Reassign'" [attr.aria-expanded]="activeEditId() === row.id"
                         [title]="row.resolvedSummary" aria-haspopup="dialog" (click)="toggleEdit(row.id)" [attr.data-testid]="'consumer-edit-' + row.id">
                         <span class="min-w-0 truncate" [attr.data-testid]="'consumer-summary-' + row.id">{{ row.cellLabel }}</span>
@@ -115,36 +120,35 @@ const SAVE_SCOPE = 'global';
                               }
                             </div>
                           }
-                          <p class="px-1 text-[11px] text-base-content-muted">Each choice saves at once, with Undo. No provider follows the main agent.</p>
+                          <p class="px-1 text-xs text-base-content-muted">Each choice saves at once, with Undo. No provider follows the main agent.</p>
                         </div>
                       }
                     </ptah-native-popover>
+                    @if (row.scopeShown) {
+                      <ptah-setting-scope-row [fieldName]="row.providerFieldName" [scope]="row.providerScope" [hasOverride]="row.providerOverride"
+                        [supportedTargets]="['global']" [disabled]="disabled()" [attr.data-testid]="'scope-row-provider-' + row.id" />
+                      <ptah-setting-scope-row [fieldName]="row.modelFieldName" [scope]="row.modelScope" [hasOverride]="row.modelOverride"
+                        [supportedTargets]="['global']" [disabled]="disabled()" [attr.data-testid]="'scope-row-model-' + row.id" />
+                    }
+                    @if (row.sectionStatus === 'error') {
+                      <!-- Loaded earlier; the latest refresh failed, so the values may be stale. -->
+                      <span class="text-xs text-base-content" [attr.data-testid]="'consumer-reload-' + row.id">
+                        <span [attr.data-testid]="'consumer-reload-copy-' + row.id">Could not load this section. Retry.</span>
+                        <button type="button" [class]="action" [attr.aria-label]="'Retry loading ' + row.name" [disabled]="busy()"
+                          (click)="retrySection(row.retryKey)" [attr.data-testid]="'consumer-retry-' + row.id">Retry</button>
+                      </span>
+                    }
+                    </div>
                   </td>
                   <td class="whitespace-nowrap">
                     <span [class]="'badge badge-outline badge-xs whitespace-nowrap font-mono text-base-content ' + (row.model ? 'border-base-300 bg-base-300' : 'border-info/30 bg-info/10')"
                       [attr.data-testid]="'consumer-tier-' + row.id">{{ row.tierLabel }}</span>
                   </td>
-                  <td>
-                    <div class="flex flex-wrap items-center gap-1">
-                      <ptah-setting-scope-row [fieldName]="row.providerFieldName" [scope]="row.providerScope" [supportedTargets]="['global']"
-                        [disabled]="disabled()" [attr.data-testid]="'scope-row-provider-' + row.id" />
-                      <ptah-setting-scope-row [fieldName]="row.modelFieldName" [scope]="row.modelScope" [supportedTargets]="['global']"
-                        [disabled]="disabled()" [attr.data-testid]="'scope-row-model-' + row.id" />
-                      @if (row.sectionStatus === 'error') {
-                        <!-- Loaded earlier; the latest refresh failed, so the values may be stale. -->
-                        <span class="text-[11px] text-base-content" [attr.data-testid]="'consumer-reload-' + row.id">
-                          <span [attr.data-testid]="'consumer-reload-copy-' + row.id">Could not load this section. Retry.</span>
-                          <button type="button" [class]="action" [attr.aria-label]="'Retry loading ' + row.name" [disabled]="busy()"
-                            (click)="retrySection(row.retryKey)" [attr.data-testid]="'consumer-retry-' + row.id">Retry</button>
-                        </span>
-                      }
-                    </div>
-                  </td>
                 }
               </tr>
               @if (row.id === 'judging-enhancement' && timeoutMeta()) {
                 <tr data-testid="enhancement-timeout-section">
-                  <td colspan="4" class="bg-base-200/40">
+                  <td colspan="3" class="bg-base-200/40">
                     <div class="space-y-1.5">
                       @if (timeoutNotice(); as notice) {
                         <div class="flex flex-wrap items-center gap-1.5 rounded border border-base-300 bg-base-100 p-1.5" role="alert" data-testid="timeout-notice-alert">
@@ -156,14 +160,14 @@ const SAVE_SCOPE = 'global';
                       }
                       <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span class="text-xs font-semibold text-base-content">Enhancement time limit</span>
-                        <span class="text-[11px] text-base-content-muted">Maximum time allowed for one enhancement attempt.</span>
+                        <span class="text-xs text-base-content-muted">Maximum time allowed for one enhancement attempt.</span>
                         <span class="badge badge-outline badge-xs whitespace-nowrap border-warning/30 bg-warning/10 font-mono text-base-content"
                           data-testid="timeout-effective-display">Time limit: {{ timeoutEffectiveSec() }} seconds</span>
                         @if (!isEditingTimeout()) {
                           <button type="button" [class]="action" [disabled]="busy() || disabled()" aria-label="Edit Enhancement time limit"
                             (click)="editTimeout()" data-testid="timeout-edit-button">Edit limit</button>
                         }
-                        <ptah-setting-scope-row [fieldName]="'Enhancement time limit'" [scope]="timeoutScope()" [supportedTargets]="['global']"
+                        <ptah-setting-scope-row [fieldName]="'Enhancement time limit'" [scope]="timeoutScope()" [hasOverride]="timeoutOverride()" [supportedTargets]="['global']"
                           [disabled]="disabled()" data-testid="scope-row-timeout" />
                       </div>
                       @if (isEditingTimeout()) {
@@ -180,11 +184,14 @@ const SAVE_SCOPE = 'global';
                             <button type="button" [class]="action" [disabled]="busy() || disabled()" aria-label="Cancel editing Enhancement time limit"
                               (click)="cancelTimeoutEdit()" data-testid="timeout-cancel-button">Cancel</button>
                           </div>
-                          <p class="text-[11px] text-base-content-muted" data-testid="timeout-range-helper">
+                          <p class="text-xs text-base-content-muted" data-testid="timeout-range-helper">
                             Allowed: {{ timeoutMinSec() }}–{{ timeoutMaxSec() }} seconds (default {{ timeoutDefaultSec() }} seconds). Maximum time allowed for one enhancement attempt.
                           </p>
                           @if (timeoutValidationError(); as err) {
                             <p class="text-xs text-base-content" role="alert" data-testid="timeout-validation-error">{{ err }}</p>
+                          }
+                          @if (timeoutSaveError(); as message) {
+                            <p class="text-xs text-base-content" role="alert" data-testid="timeout-save-error">{{ message }}</p>
                           }
                         </div>
                       }
@@ -219,6 +226,8 @@ export class ProviderConsumerAssignmentsComponent {
   readonly initialEditingConsumerId = input<BackgroundConsumerId | null>(null);
 
   readonly setupProviderRequested = output<string>();
+  /** The `initialEditingConsumerId` deep link was applied: that row's popover is open. */
+  readonly deepLinkOpened = output<BackgroundConsumerId>();
   readonly retryEnhancementRequested = output<void>();
   readonly assignmentSaved = output<{ id: BackgroundConsumerId; provider: string; model: string }>();
   readonly timeoutSaved = output<number>();
@@ -230,6 +239,8 @@ export class ProviderConsumerAssignmentsComponent {
   protected readonly isEditingTimeout = signal<boolean>(false);
   /** Draft seed only; editTimeout() seeds it from the backend value. */
   protected readonly timeoutDraftSec = signal<number>(0);
+  /** Set only by this editor's own save when its write did not save (a fixed sentence, never host text). */
+  protected readonly timeoutSaveError = signal<string | null>(null);
 
   private readonly timeoutInputRef = viewChild<ElementRef<HTMLInputElement>>('timeoutInput');
   private appliedDeepLinkId: BackgroundConsumerId | null = null;
@@ -244,9 +255,12 @@ export class ProviderConsumerAssignmentsComponent {
       // Cleared (the visit that applied it ended): the same role may be deep-linked again later.
       if (!deepLinkId) { this.appliedDeepLinkId = null; return; }
       if (deepLinkId !== this.appliedDeepLinkId) {
-        if (!this.rows().find((row) => row.id === deepLinkId)?.loaded) return;
+        // Waits for the row's data and for a running save to end (no popover opens while a save runs).
+        if (!this.rows().find((row) => row.id === deepLinkId)?.loaded || this.busy()) return;
         this.appliedDeepLinkId = deepLinkId;
-        this.toggleEdit(deepLinkId);
+        // Opens it (a toggle would close a popover the user already opened on this row).
+        if (this.activeEditId() !== deepLinkId) this.toggleEdit(deepLinkId);
+        this.deepLinkOpened.emit(deepLinkId);
       }
     });
   }
@@ -269,6 +283,8 @@ export class ProviderConsumerAssignmentsComponent {
   protected readonly timeoutEffectiveSec = computed<number>(() => Math.round((this.timeoutMeta()?.value ?? 0) / 1000));
   protected readonly timeoutScope = computed<SettingScopeDisplay>(() =>
     this.state.scopeEntry('skillSynthesis.enhanceTimeoutMs')?.scope ?? 'mixed');
+  protected readonly timeoutOverride = computed<boolean>(() =>
+    this.state.scopeEntry('skillSynthesis.enhanceTimeoutMs')?.hasOverride === true);
   protected readonly timeoutValidationError = computed<string | null>(() => {
     if (!this.timeoutMeta()) return null;
     const sec = this.timeoutDraftSec(), min = this.timeoutMinSec(), max = this.timeoutMaxSec();
@@ -280,7 +296,7 @@ export class ProviderConsumerAssignmentsComponent {
   protected readonly rows = computed<readonly BackgroundConsumerRow[]>(() => buildConsumerRows(
     { memory: this.state.memory(), lanes: this.state.lanes(), judging: this.state.judging() },
     this.state.route().data,
-    (key) => this.state.scopeEntry(key)?.scope,
+    (key) => this.state.scopeEntry(key),
   ));
 
   /** `blocking: false` is an advisory note: the choice still saves. */
@@ -294,7 +310,8 @@ export class ProviderConsumerAssignmentsComponent {
       return;
     }
     const row = this.rows().find((r) => r.id === id);
-    if (!row || !row.loaded) return;
+    // While a save runs the cell is only aria-disabled (so it can keep and take focus): the click is refused here (D3).
+    if (!row || !row.loaded || this.busy()) return;
     this.context = this.state.reviewContext();
     this.currentDraft.set({ provider: row.provider, model: row.model });
     this.activeEditId.set(id);
@@ -357,6 +374,7 @@ export class ProviderConsumerAssignmentsComponent {
 
   protected editTimeout(): void {
     if (!this.timeoutMeta()) return;
+    this.timeoutSaveError.set(null);
     this.timeoutDraftSec.set(this.timeoutEffectiveSec());
     this.isEditingTimeout.set(true);
     afterNextRender(() => this.timeoutInputRef()?.nativeElement.focus(), { injector: this.injector });
@@ -364,22 +382,53 @@ export class ProviderConsumerAssignmentsComponent {
 
   protected cancelTimeoutEdit(): void {
     this.isEditingTimeout.set(false);
+    this.timeoutSaveError.set(null);
     this.timeoutDraftSec.set(this.timeoutEffectiveSec());
   }
 
   protected onTimeoutInput(event: Event): void {
+    this.timeoutSaveError.set(null);
     this.timeoutDraftSec.set((event.target as HTMLInputElement).valueAsNumber);
   }
 
+  /**
+   * Saves the limit with Undo through `SettingsSaveFeedbackService` (D2; the toast names a failure). "Saved" comes from
+   * this write's own result (accepted and its commit `saved`), never from an earlier commit (D15). A write that was
+   * refused, failed or threw keeps the editor open on the saved limit with a fixed sentence (Gate V 36, S-1).
+   */
   protected async saveTimeout(): Promise<void> {
     if (this.isTimeoutSaveDisabled()) return;
-    const sec = this.timeoutDraftSec();
+    const sec = this.timeoutDraftSec(), previousSec = this.timeoutEffectiveSec();
     const context: ProvidersEditContext = this.state.reviewContext() ?? { scopeKey: '', activePath: null };
-    const patch: ProvidersSettingsPatch = { judging: { enhanceTimeoutMs: sec * 1000 } };
-    const accepted = await this.state.saveSettings(patch, context);
-    if (accepted && this.state.commit().status === 'saved') {
-      this.timeoutSaved.emit(sec);
+    this.timeoutSaveError.set(null);
+    let saved = false;
+    await this.feedback.save({
+      label: 'enhancement time limit', scope: SAVE_SCOPE,
+      write: async () => {
+        const accepted = await this.writeTimeout(sec, context);
+        saved = accepted && this.state.commit().status === 'saved';
+        return accepted;
+      },
+      undo: () => this.writeTimeout(previousSec, context),
+    });
+    if (saved) {
       this.isEditingTimeout.set(false);
+      return;
     }
+    if (!this.isEditingTimeout()) return;
+    const savedSec = this.timeoutEffectiveSec();
+    this.timeoutDraftSec.set(savedSec);
+    // The binding may not change (the same value as before the edit), so the input is reset directly.
+    const input = this.timeoutInputRef()?.nativeElement;
+    if (input) input.value = String(savedSec);
+    this.timeoutSaveError.set(TIMEOUT_NOT_SAVED);
+  }
+
+  /** One limit write; `timeoutSaved` (the host re-reads judging) follows only this write's own confirmed save. */
+  private async writeTimeout(sec: number, context: ProvidersEditContext): Promise<boolean> {
+    const patch: ProvidersSettingsPatch = { judging: { enhanceTimeoutMs: Math.round(sec * 1000) } };
+    const accepted = await this.state.saveSettings(patch, context);
+    if (accepted && this.state.commit().status === 'saved') this.timeoutSaved.emit(sec);
+    return accepted;
   }
 }

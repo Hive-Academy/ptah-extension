@@ -148,7 +148,7 @@
     <!-- Tab 2: Agent Orchestration                  -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'orchestration') {
-      <ptah-orchestration-settings [focusTarget]="orchestrationTarget()" />
+      <ptah-orchestration-settings [focusTarget]="orchestrationTarget()" (focusTargetConsumed)="orchestrationTarget.set(null)" />
     }
 
     <!-- ============================================ -->

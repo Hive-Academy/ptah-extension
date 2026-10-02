@@ -62,8 +62,16 @@ export interface BackgroundConsumerRow {
   readonly tierLabel: string;
   readonly providerFieldName: string;
   readonly modelFieldName: string;
-  readonly providerScope: SettingScopeDisplay | null;
-  readonly modelScope: SettingScopeDisplay | null;
+  readonly providerScope: SettingScopeDisplay;
+  readonly modelScope: SettingScopeDisplay;
+  /** True when a narrower layer than the default holds this key's value (the scope badge renders, D16). */
+  readonly providerOverride: boolean;
+  readonly modelOverride: boolean;
+  /**
+   * True when either key is not inherited (an override, or Mixed sources when the source is not known). Only then does
+   * the row show its scope badges, inline after the Provider & model cell (D16; Gate V 36, V36-6: no Scope column).
+   */
+  readonly scopeShown: boolean;
   /** Status of the section this row reads from, as the state service reports it. */
   readonly sectionStatus: 'unloaded' | 'loading' | 'ready' | 'error';
   /**
@@ -85,8 +93,14 @@ export interface ConsumerRouteInfo {
   readonly resolvedAuthModality?: string | null;
 }
 
+/** A setting key's source as `ProvidersSettingsStateService.scopeEntry` reports it. */
+export interface ScopeSource {
+  readonly scope: SettingScopeDisplay;
+  readonly hasOverride: boolean;
+}
+
 /** The scope source of a setting key, or `null` when unknown (`ProvidersSettingsStateService.scopeEntry`). */
-export type ScopeLookup = (key: string) => SettingScopeDisplay | null | undefined;
+export type ScopeLookup = (key: string) => ScopeSource | null | undefined;
 
 /** One row's identity and where its values live. */
 export interface ConsumerRowSpec {
@@ -120,6 +134,10 @@ export function formatResolvedSummary(
 
 export function makeRow(spec: ConsumerRowSpec, route: ConsumerRouteInfo | null, scopeOf: ScopeLookup): BackgroundConsumerRow {
   const { id, name, provider, model, tier } = spec;
+  // Provenance not known renders as Mixed sources (Decision 6); never a guessed 'global' source badge.
+  const providerSource = scopeOf(spec.providerKey), modelSource = scopeOf(spec.modelKey);
+  const providerScope = providerSource?.scope ?? 'mixed', modelScope = modelSource?.scope ?? 'mixed';
+  const providerOverride = providerSource?.hasOverride === true, modelOverride = modelSource?.hasOverride === true;
   return {
     id,
     name,
@@ -136,9 +154,11 @@ export function makeRow(spec: ConsumerRowSpec, route: ConsumerRouteInfo | null, 
     tierLabel: model ? 'direct model' : `${tier} tier`,
     providerFieldName: `${name} provider`,
     modelFieldName: `${name} model`,
-    // Provenance not known renders as Mixed sources (Decision 6); never a guessed 'global' source badge.
-    providerScope: scopeOf(spec.providerKey) ?? 'mixed',
-    modelScope: scopeOf(spec.modelKey) ?? 'mixed',
+    providerScope,
+    modelScope,
+    providerOverride,
+    modelOverride,
+    scopeShown: providerOverride || modelOverride || providerScope === 'mixed' || modelScope === 'mixed',
     sectionStatus: spec.section.status,
     loaded: spec.section.data !== null,
     retryKey: spec.retryKey,

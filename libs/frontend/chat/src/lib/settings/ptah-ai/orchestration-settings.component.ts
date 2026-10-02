@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, ElementRef, OnInit, afterRenderEffect, computed, inject, input, viewChild,
+  ChangeDetectionStrategy, Component, ElementRef, OnInit, afterRenderEffect, computed, inject, input, output, viewChild,
 } from '@angular/core';
 import { ChevronRight, LucideAngularModule } from 'lucide-angular';
 import { AppStateManager, ProvidersSettingsStateService } from '@ptah-extension/core';
@@ -26,6 +26,9 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
  * closed by default (deviation 4: the §1.2 fold budget) and opened by the background-role deep links. The `cli-agents`
  * deep link focuses the matrix table (`[data-testid="cli-matrix"]`); Batch 34 retired the old Ptah CLI instance manager,
  * whose capabilities live in the matrix, its add-instance and tier modals, and its popovers (D14).
+ *
+ * A deep link is consumed once applied (the section focused and, for a role, its popover open): `focusTargetConsumed`
+ * lets Settings clear the target, so the same link raised again while on this tab applies again (Gate V 36, M-1).
  */
 @Component({
   selector: 'ptah-orchestration-settings',
@@ -67,12 +70,13 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
           </span>
           <span class="text-xs font-bold uppercase tracking-wider text-base-content">Background Model Roles</span>
           <span class="badge badge-outline badge-xs whitespace-nowrap border-info/30 bg-info/10 font-medium text-base-content">{{ roleCount }} roles</span>
-          <!-- text-base-content: at 10 px the light theme's rose-tinted muted grey read as coloured words (deviation 6). -->
-          <span class="ml-auto hidden min-w-0 truncate text-[10px] text-base-content sm:block">Memory curator, archaeologist, synthesis, judge, replay, judging</span>
+          <!-- text-base-content: the light theme's rose-tinted muted grey read as coloured words (deviation 6). 12 px helper
+               text (Gate V 36, V36-2). -->
+          <span class="ml-auto hidden min-w-0 truncate text-xs text-base-content sm:block" data-testid="background-roles-list">Memory curator, archaeologist, synthesis, judge, replay, judging</span>
         </summary>
         <section data-focus="background-models" tabindex="-1" aria-label="Background models" class="scroll-mt-4 border-t border-base-300 p-3">
           <ptah-provider-consumer-assignments [disabled]="saving()" [initialEditingConsumerId]="consumerTarget()"
-            (setupProviderRequested)="openProviderSetup($event)" (assignmentSaved)="state.refresh()"
+            (setupProviderRequested)="openProviderSetup($event)" (deepLinkOpened)="onRoleOpened($event)" (assignmentSaved)="state.refresh()"
             (timeoutSaved)="state.refreshJudging()" />
         </section>
       </details>
@@ -91,6 +95,8 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
 })
 export class OrchestrationSettingsComponent implements OnInit {
   readonly focusTarget = input<OrchestrationSettingsFocusTarget | null>(null);
+  /** The current `focusTarget` has been applied; the host clears it (Settings' `orchestrationTarget`). */
+  readonly focusTargetConsumed = output<void>();
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly appState = inject(AppStateManager);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -114,15 +120,32 @@ export class OrchestrationSettingsComponent implements OnInit {
    */
   private readonly cliMatrix = viewChild<string, ElementRef<HTMLElement>>('cliMatrix', { read: ElementRef });
   private focusedTarget: OrchestrationSettingsFocusTarget | null = null;
+  /** The role whose popover the roles table opened for the current deep link. */
+  private openedRole: BackgroundConsumerId | null = null;
 
   constructor() {
     afterRenderEffect(() => {
       const target = this.focusTarget();
-      if (!target) { this.focusedTarget = null; return; }
+      if (!target) { this.focusedTarget = null; this.openedRole = null; return; }
       if (target === this.focusedTarget) return;
       const node = target === 'cli-agents' ? this.matrixTable() : this.openBackgroundRoles();
-      if (node) { node.focus(); this.focusedTarget = target; }
+      if (node) { node.focus(); this.focusedTarget = target; this.consumeWhenApplied(); }
     });
+  }
+
+  /** The roles table opened the deep-linked role's popover (it may land before or after the section focus). */
+  protected onRoleOpened(id: BackgroundConsumerId): void {
+    this.openedRole = id;
+    this.consumeWhenApplied();
+  }
+
+  /** Done once the section is focused and, for a role, its popover is open; a later normal visit has no target. */
+  private consumeWhenApplied(): void {
+    const target = this.focusTarget();
+    if (!target || this.focusedTarget !== target) return;
+    const role = this.consumerTarget();
+    if (role !== null && this.openedRole !== role) return;
+    this.focusTargetConsumed.emit();
   }
 
   ngOnInit(): void { void this.state.open(); }

@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { ApplicationRef, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   ProvidersSettingsStateService, type ProvidersCliModels, type ProvidersCliTest, type ProvidersOrchestration,
@@ -59,6 +59,7 @@ class StateStub {
   /** Resolves with the result `ptahCli:testConnection` would have produced. */
   testResult: ProvidersCliTest = { id: 'glm-1', success: true, latencyMs: 112, reason: null };
   readonly testCliConnection = jest.fn(async (_id: string) => { this.cliTest.set(ready(this.testResult)); });
+  readonly clearCliTest = jest.fn((_id: string) => undefined);
 }
 
 describe('CliOrchestrationMatrixComponent', () => {
@@ -77,6 +78,21 @@ describe('CliOrchestrationMatrixComponent', () => {
     if (!input) throw new Error(`No toggle for ${id}`);
     input.checked = checked;
     input.dispatchEvent(new Event('change'));
+  }
+  /** Decision 1: the Uninstalled group starts collapsed; most cases look inside it. */
+  function expandUninstalled() {
+    q<HTMLButtonElement>('[data-testid="cli-matrix-uninstalled-toggle"]')?.click();
+    fixture.detectChanges();
+  }
+  /** V36-7: Edit and Delete live in the row's "More actions" popover. */
+  function more(id: string) {
+    q<HTMLButtonElement>(`[data-testid="cli-matrix-more-${id}"]`)?.click();
+    fixture.detectChanges();
+  }
+  /** Runs afterNextRender callbacks (focus moves). */
+  function render() {
+    TestBed.inject(ApplicationRef).tick();
+    fixture.detectChanges();
   }
 
   beforeAll(() => {
@@ -99,6 +115,7 @@ describe('CliOrchestrationMatrixComponent', () => {
     feedback = TestBed.inject(SettingsSaveFeedbackService);
     fixture = TestBed.createComponent(CliOrchestrationMatrixComponent);
     fixture.detectChanges();
+    expandUninstalled();
   });
   afterEach(() => { feedback.dismiss(); TestBed.resetTestingModule(); });
 
@@ -151,11 +168,13 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(row('glm-1')?.className).not.toContain('bg-primary/5');
     });
 
-    it('has one Add, and Tiers / Edit on instance rows only (Batch 32); Credentials only on Cursor (Batch 31)', () => {
+    it('has one Add, and Tiers / More (Edit, Delete) on instance rows only (Batch 32, V36-7); Credentials only on Cursor', () => {
       const labels = Array.from(element().querySelectorAll('button')).map((button) => button.textContent?.trim() ?? '');
       expect(labels.filter((label) => label === 'Add Ptah CLI Instance')).toHaveLength(1);
       expect(labels.filter((label) => label === 'Tiers')).toHaveLength(1);
-      expect(labels.filter((label) => label === 'Edit')).toHaveLength(1);
+      expect(q('[data-testid="cli-matrix-edit-glm-1"]')).toBeNull();
+      more('glm-1');
+      expect(q('[data-testid="cli-matrix-edit-glm-1"]')?.textContent?.trim()).toBe('Edit name or key');
       expect(row('glm-1')?.querySelector('[data-testid="cli-matrix-tiers-glm-1"]')).not.toBeNull();
       expect(row('codex')?.querySelector('[data-testid^="cli-matrix-tiers-"]')).toBeNull();
       expect(labels.filter((label) => label === 'Credentials')).toHaveLength(1);
@@ -170,6 +189,7 @@ describe('CliOrchestrationMatrixComponent', () => {
       q<HTMLButtonElement>('[data-testid="add-cli-instance-modal"] button[aria-label="Close"]')?.click();
       fixture.detectChanges();
       expect(dialogOpen('add-cli-instance-modal')).toBe(false);
+      more('glm-1');
       q<HTMLButtonElement>('[data-testid="cli-matrix-edit-glm-1"]')?.click();
       fixture.detectChanges();
       expect(q('[data-testid="add-cli-instance-modal"]')?.textContent).toContain('Edit Glm');
@@ -366,6 +386,7 @@ describe('CliOrchestrationMatrixComponent', () => {
     });
 
     it('deletes an instance after the inline confirm, with no Undo', async () => {
+      more('glm-1');
       q<HTMLButtonElement>('[data-testid="cli-matrix-delete-glm-1"]')?.click();
       fixture.detectChanges();
       expect(state.saveSettings).not.toHaveBeenCalled();
@@ -376,13 +397,131 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(feedback.toast()?.canUndo).toBe(false);
     });
 
-    it('cancels a delete without writing', () => {
+    it('cancels a delete without writing; focus moves to the confirm, then back to More', () => {
+      more('glm-1');
+      q<HTMLButtonElement>('[data-testid="cli-matrix-delete-glm-1"]')?.click();
+      render();
+      const cancel = Array.from(row('glm-1')?.querySelectorAll('button') ?? []).find((button) => button.textContent?.trim() === 'Cancel');
+      expect(document.activeElement).toBe(cancel);
+      cancel?.click();
+      render();
+      expect(q('[data-testid="cli-matrix-more-glm-1"]')).not.toBeNull();
+      expect(document.activeElement).toBe(q('[data-testid="cli-matrix-more-glm-1"]'));
+      expect(state.saveSettings).not.toHaveBeenCalled();
+    });
+
+    it('M2: a refused delete keeps the confirm even when commit() still says an earlier save landed', async () => {
+      state.commit.set({ ...idle, status: 'saved' });
+      state.saveSettings.mockImplementationOnce(async () => false);
+      more('glm-1');
       q<HTMLButtonElement>('[data-testid="cli-matrix-delete-glm-1"]')?.click();
       fixture.detectChanges();
-      Array.from(row('glm-1')?.querySelectorAll('button') ?? []).find((button) => button.textContent?.trim() === 'Cancel')?.click();
+      q<HTMLButtonElement>('button[aria-label="Confirm delete Glm"]')?.click();
+      await flush();
+      expect(row('glm-1')?.textContent).toContain('Delete Glm?');
+    });
+
+    it('Minor 4: Undo of a system on/off restores only that CLI, against the list as it is at Undo time', async () => {
+      check('codex', false);
+      await flush();
+      // Another path disables opencode meanwhile; Undo must keep that change.
+      state.orchestration.set(ready({ ...ORCHESTRATION, disabledClis: ['copilot', 'codex', 'opencode'] }));
+      await feedback.undo();
+      expect(state.saveSettings).toHaveBeenLastCalledWith({ orchestration: { disabledClis: ['copilot', 'opencode'] } }, CONTEXT);
+    });
+  });
+
+  describe('Gate V 36 layout (V36-1/-2/-7, decision 1)', () => {
+    it('decision 1: the Uninstalled group starts collapsed behind a keyboard disclosure with its count', () => {
+      const fresh = TestBed.createComponent(CliOrchestrationMatrixComponent);
+      fresh.detectChanges();
+      const host = fresh.nativeElement as HTMLElement;
+      const toggle = host.querySelector<HTMLButtonElement>('[data-testid="cli-matrix-uninstalled-toggle"]');
+      expect(toggle?.tagName).toBe('BUTTON');
+      expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+      expect(toggle?.textContent?.trim()).toBe('Uninstalled CLI agents (2)');
+      expect(host.querySelectorAll('[data-testid="cli-matrix-uninstalled"] tr[data-testid^="cli-matrix-row-"]')).toHaveLength(0);
+      toggle?.click();
+      fresh.detectChanges();
+      expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+      expect(host.querySelectorAll('[data-testid="cli-matrix-uninstalled"] tr[data-testid^="cli-matrix-row-"]')).toHaveLength(2);
+      toggle?.click();
+      fresh.detectChanges();
+      expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+      fresh.destroy();
+    });
+
+    it('decision 1: a popover whose row moves into the collapsed group keeps that group open', () => {
+      expandUninstalled();
+      expect(q('[data-testid="cli-matrix-uninstalled-toggle"]')?.getAttribute('aria-expanded')).toBe('false');
+      state.orchestration.set(ready({ ...ORCHESTRATION, detectedClis: [...ORCHESTRATION.detectedClis.filter((cli) => cli.cli !== 'cursor'),
+        detected('cursor', true, { version: 'sdk' })], cursorApiKeyStored: true, cursorApiKeyConfigured: true }));
       fixture.detectChanges();
-      expect(q('[data-testid="cli-matrix-delete-glm-1"]')).not.toBeNull();
-      expect(state.saveSettings).not.toHaveBeenCalled();
+      q<HTMLButtonElement>('[data-testid="cli-matrix-credentials-cursor"]')?.click();
+      fixture.detectChanges();
+      // The key is removed: Cursor moves back into the (collapsed) Uninstalled group with its popover open.
+      state.orchestration.set(ready(ORCHESTRATION));
+      fixture.detectChanges();
+      expect(q('[data-testid="cli-matrix-uninstalled"] [data-testid="cursor-credential-popover"]')).not.toBeNull();
+    });
+
+    it('M3: after the Cursor row moves groups, closing its credentials returns focus to the moved row\'s trigger', () => {
+      q<HTMLButtonElement>('[data-testid="cli-matrix-credentials-cursor"]')?.click();
+      fixture.detectChanges();
+      state.orchestration.set(ready({ ...ORCHESTRATION, detectedClis: [...ORCHESTRATION.detectedClis.filter((cli) => cli.cli !== 'cursor'),
+        detected('cursor', true, { version: 'sdk' })], cursorApiKeyStored: true, cursorApiKeyConfigured: true }));
+      fixture.detectChanges();
+      const moved = q<HTMLButtonElement>('tbody:not([data-testid="cli-matrix-uninstalled"]) [data-testid="cli-matrix-credentials-cursor"]');
+      expect(moved).not.toBeNull();
+      q<HTMLButtonElement>('[data-testid="cursor-credential-popover"] button[aria-label="Close"]')?.click();
+      render();
+      expect(document.activeElement).toBe(moved);
+    });
+
+    it('V36-7: instance actions stay on one line: Tiers and Test inline, Edit and Delete behind "More actions for {name}"', () => {
+      const actions = q<HTMLButtonElement>('[data-testid="cli-matrix-tiers-glm-1"]')?.parentElement;
+      expect(actions?.className).toContain('flex-nowrap');
+      expect(actions?.className).toContain('whitespace-nowrap');
+      expect(actions?.querySelector('[data-testid="cli-matrix-test-glm-1"]')).not.toBeNull();
+      const trigger = q<HTMLButtonElement>('[data-testid="cli-matrix-more-glm-1"]');
+      expect(trigger?.getAttribute('aria-label')).toBe('More actions for Glm');
+      expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+      more('glm-1');
+      expect(trigger?.getAttribute('aria-expanded')).toBe('true');
+      expect(q('[data-testid="cli-matrix-more-menu"]')?.getAttribute('aria-label')).toBe('More actions for Glm');
+      q<HTMLButtonElement>('[data-testid="cli-matrix-edit-glm-1"]')?.click();
+      fixture.detectChanges();
+      expect(q('[data-testid="cli-matrix-more-menu"]')).toBeNull();
+      expect(q('[data-testid="add-cli-instance-modal"]')?.closest('dialog')?.hasAttribute('open')).toBe(true);
+    });
+
+    it('fold round 2: narrow layout shows one tier summary badge with the full list as title and spoken text', () => {
+      const summary = row('glm-1')?.querySelector('[data-testid="cli-matrix-tier-summary"]') as HTMLElement;
+      expect(summary.className).toContain('cli-narrow-only');
+      expect(summary.getAttribute('title')).toBe('Sonnet: glm-5.3, Opus: glm-4.7, Haiku: glm-4.5');
+      expect(summary.textContent?.trim()).toBe('3 tier models: Sonnet: glm-5.3, Opus: glm-4.7, Haiku: glm-4.5');
+      expect(summary.querySelector('.sr-only')).not.toBeNull();
+      for (const badge of Array.from(row('glm-1')?.querySelectorAll('[data-tier]') ?? [])) expect(badge.className).toContain('cli-wide-only');
+      state.cliModels.set(ready({ 'glm-1': { selectedModel: '', tierMappings: { sonnet: 'glm-5.3' } } }));
+      fixture.detectChanges();
+      expect(row('glm-1')?.querySelector('[data-testid="cli-matrix-tier-summary"]')?.firstChild?.textContent).toBe('1 tier model');
+    });
+
+    it('fold round 2: the narrow status and provider stay on one line; the provider truncates with its full title', () => {
+      const inline = row('codex')?.querySelector('[data-testid="cli-matrix-narrow-inline"]') as HTMLElement;
+      expect(inline.className).toContain('flex-nowrap');
+      const provider = inline.querySelector(':scope > span:last-child') as HTMLElement;
+      expect(provider.className).toContain('truncate');
+      expect(provider.getAttribute('title')).toBe('OpenAI Codex');
+    });
+
+    it('V36-2: helper text is 12 px: subtitle, version, provider subline', () => {
+      expect(Array.from(element().querySelectorAll('[data-testid="cli-matrix-section"] span'))
+        .find((span) => span.textContent?.includes('Click model or effort cells'))?.className).toContain('text-xs');
+      const version = Array.from(row('codex')?.querySelectorAll('span') ?? []).find((span) => span.textContent?.trim() === 'v1.4.0');
+      expect(version?.className).toContain('text-xs');
+      expect(row('codex')?.querySelector('[data-testid="cli-matrix-narrow-inline"] > span:last-child')?.className).toContain('text-xs');
+      expect(element().innerHTML).not.toContain('text-[10px]');
     });
   });
 
@@ -394,14 +533,45 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]')?.textContent?.trim()).toBe('Test passed in 112ms.');
     });
 
-    it('shows the host\'s failure reason inline as an alert', async () => {
-      state.testResult = { id: 'glm-1', success: false, latencyMs: null, reason: 'Invalid API key.' };
+    it('M1: a failure is a fixed sentence, followed only by the state\'s own fixed reason', async () => {
+      state.testResult = { id: 'glm-1', success: false, latencyMs: null, reason: null };
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
-      const result = row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]');
-      expect(result?.textContent?.trim()).toBe('Test failed: Invalid API key.');
-      expect(result?.getAttribute('role')).toBe('alert');
+      const result = () => row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]');
+      expect(result()?.textContent?.trim()).toBe('The connection test failed.');
+      expect(result()?.getAttribute('role')).toBe('alert');
       expect(statusOf('glm-1')).toBe('Ready');
+      state.testResult = { id: 'glm-1', success: false, latencyMs: null, reason: 'The provider did not respond.' };
+      q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
+      await flush();
+      expect(result()?.textContent?.trim()).toBe('The connection test failed. The provider did not respond.');
+    });
+
+    it('S1: a failed or timed-out run never shows the earlier pass, and nothing shows while it runs', async () => {
+      q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
+      await flush();
+      expect(row('glm-1')?.textContent).toContain('Test passed in 112ms.');
+      let fail: () => void = () => undefined;
+      state.testCliConnection.mockImplementationOnce(async () => {
+        // The real state drops the previous result when a run starts.
+        state.cliTest.set({ status: 'loading', data: null, error: null });
+        await new Promise<void>((resolve) => { fail = resolve; });
+        state.cliTest.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
+      });
+      q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
+      fixture.detectChanges();
+      expect(row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]')).toBeNull();
+      expect(statusOf('glm-1')).toBe('Ready');
+      fail();
+      await flush();
+      expect(row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]')?.textContent?.trim()).toBe('The test could not run. Try again.');
+      expect(row('glm-1')?.textContent).not.toContain('Test passed');
+    });
+
+    it('V36-2: the Test result line is 12 px (text-xs)', async () => {
+      q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
+      await flush();
+      expect(row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]')?.className).toContain('text-xs');
     });
 
     it('says when the test itself could not run', async () => {
@@ -411,6 +581,21 @@ describe('CliOrchestrationMatrixComponent', () => {
       q<HTMLButtonElement>('[data-testid="cli-matrix-test-glm-1"]')?.click();
       await flush();
       expect(row('glm-1')?.querySelector('[data-testid="cli-matrix-test-result"]')?.textContent).toContain('could not run');
+    });
+
+    it('M4 / Minor 2: a create runs the new instance\'s Test; from the empty-state button focus moves to its first action', async () => {
+      state.cliAgents.set(ready([]));
+      fixture.detectChanges();
+      Array.from(q('[data-testid="cli-matrix-no-instances"]')?.querySelectorAll('button') ?? [])[0]?.click();
+      fixture.detectChanges();
+      state.cliAgents.set(ready([{ ...GLM, id: 'kimi-9', name: 'Kimi' }]));
+      state.cliModels.set(ready({ 'kimi-9': { selectedModel: '', tierMappings: {} } }));
+      fixture.debugElement.query((node) => node.name === 'ptah-add-cli-instance-modal')
+        ?.triggerEventHandler('created', 'kimi');
+      fixture.debugElement.query((node) => node.name === 'ptah-add-cli-instance-modal')?.triggerEventHandler('closed');
+      render();
+      expect(state.testCliConnection).toHaveBeenCalledWith('kimi-9');
+      expect(document.activeElement).toBe(q('[data-testid="cli-matrix-tiers-kimi-9"]'));
     });
 
     it('renders no Test for system CLIs (D11)', () => {

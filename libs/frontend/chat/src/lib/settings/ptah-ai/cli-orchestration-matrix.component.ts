@@ -1,5 +1,7 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, inject, signal } from '@angular/core';
-import { ChevronDown, Info, LucideAngularModule, Plus, ShieldAlert, Terminal, X } from 'lucide-angular';
+import {
+  ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, computed, inject, signal,
+} from '@angular/core';
+import { ChevronDown, ChevronRight, Ellipsis, Info, LucideAngularModule, Plus, ShieldAlert, Terminal, X } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import type { SystemCliType } from '@ptah-extension/shared';
@@ -15,7 +17,7 @@ import { AddCliInstanceModalComponent, type CliInstanceEditTarget } from '../pro
 import { CliTierMappingModalComponent, type CliTierMappingTarget } from '../providers/cli-tier-mapping-modal.component';
 
 /** Which popover of which row is open; one at a time. */
-type OpenCell = { readonly rowId: string; readonly kind: CliMatrixCellField | 'permission' | 'install' | 'credentials' };
+type OpenCell = { readonly rowId: string; readonly kind: CliMatrixCellField | 'permission' | 'install' | 'credentials' | 'more' };
 interface MatrixGroup { readonly id: 'installed' | 'uninstalled'; readonly rows: readonly CliMatrixRow[] }
 
 /**
@@ -38,6 +40,10 @@ export const CLI_INSTALL_GUIDES: Readonly<Record<SystemCliType, { readonly comma
   },
 };
 
+/** M1: the failed-Test sentence is fixed; only the state's own fixed reasons may follow it. */
+export const CLI_TEST_FAILED = 'The connection test failed.';
+export const CLI_TEST_NOT_RUN = 'The test could not run. Try again.';
+
 /** Tone → colour slot. Colour sits on dots, badge borders and backgrounds; text stays `text-base-content` (deviation 6). */
 const DOT: Readonly<Record<CliMatrixStatus['tone'], string>> = {
   success: 'bg-success', neutral: 'bg-base-content-muted', warning: 'bg-warning', error: 'bg-error', info: 'bg-info',
@@ -52,21 +58,24 @@ const KEY_TONE: Readonly<Record<CliKeyStatus['kind'], CliPermissionTone | 'succe
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const CELL = `link link-hover inline-flex max-w-[13rem] items-center gap-1 rounded px-1 text-left font-mono text-xs text-base-content no-underline hover:bg-base-200 disabled:cursor-not-allowed ${FOCUS}`;
 const ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium text-base-content underline underline-offset-2 ${FOCUS}`;
+const MENU_ITEM = `btn btn-ghost btn-xs h-7 min-h-7 w-full justify-start px-2 text-xs font-medium text-base-content ${FOCUS}`;
 const SAVE_SCOPE = 'global';
 
 /**
  * CLI Agents & Custom Instances matrix (plan :710-742, design-spec §3.5, prototype `orchestration.html` section 2).
  * One `table-xs` row per installed system CLI and Ptah CLI instance (ranked by the preferred order), then an
- * "Uninstalled" group with install guides (#71, #77). Rows come from `cliMatrixRows` (Batch 29).
+ * "Uninstalled" group with install guides (#71, #77), collapsed by default behind a disclosure row (Gate V 36
+ * decision 1, the Electron fold). Rows come from `cliMatrixRows` (Batch 29).
  * - On/off: system → `disabledClis`; instance → `ptahCli:update.enabled`. Model and Effort cells open
  *   `CliModelEffortPopoverComponent`. Every write is `state.saveSettings` through `SettingsSaveFeedbackService`
- *   (Undo except Delete; Batch 17 constraint).
+ *   (Undo except Delete; Batch 17 constraint), and each caller acts on that save's own result (M2).
  * - Status shows only what detection reports for system CLIs (D11); instances show their status, key status,
- *   tier badges and the last Test with its latency or failure reason (#43, #44, #54, #52, RUX-11).
+ *   tier badges and their last Test: latency, or a fixed failure sentence (#43, #44, #54, #52, RUX-11; S1, M1).
  * - Permissions & Safety: badge + ℹ popover (#70). A disabled or not-installed row renders its cells as plain text.
+ * - Instance actions stay on one line (V36-7): Tiers and Test inline, Edit and Delete in a "More actions" popover.
  * Since Batch 31: Cursor's Credentials popover (#64, 551) on both its rows, and Copilot's auto-approve toggle inside its
  * permission popover. Since Batch 32: "Add Ptah CLI Instance" (header, and the no-instance row) and each instance's
- * Tiers and Edit open their centered modals (`AddCliInstanceModalComponent`, `CliTierMappingModalComponent`).
+ * Tiers and Edit open their centered modals; a create runs the new instance's Test (M4).
  */
 @Component({
   selector: 'ptah-cli-orchestration-matrix',
@@ -83,10 +92,10 @@ const SAVE_SCOPE = 'global';
           <lucide-angular [img]="TerminalIcon" class="h-3.5 w-3.5 text-primary" aria-hidden="true" />
           CLI Agents &amp; Custom Instances Matrix
         </h2>
-        <span class="text-[10px] text-base-content-muted">Click model or effort cells to reassign in place</span>
+        <span class="text-xs text-base-content-muted">Click model or effort cells to reassign in place</span>
         <!-- Batch 32: opens the add-instance modal (#46-#49); focus returns here when it closes. -->
         <button type="button" [class]="'btn btn-primary btn-xs ml-auto h-6 min-h-6 gap-1 text-[11px] ' + focusRing"
-          [disabled]="busy() || !canWrite()" (click)="openAdd()" data-testid="cli-matrix-add">
+          [disabled]="busy() || !canWrite()" (click)="openAdd('header')" data-testid="cli-matrix-add">
           <lucide-angular [img]="PlusIcon" class="h-3 w-3" aria-hidden="true" />
           Add Ptah CLI Instance
         </button>
@@ -106,13 +115,18 @@ const SAVE_SCOPE = 'global';
           @for (group of groups(); track group.id) {
           <tbody [attr.data-testid]="group.id === 'uninstalled' ? 'cli-matrix-uninstalled' : null">
             @if (group.id === 'uninstalled') {
+              <!-- Decision 1 (Gate V 36): collapsed by default; the disclosure expands the rows in place. -->
               <tr class="bg-base-300">
-                <th colspan="8" scope="colgroup" class="py-1 text-[10px] font-bold uppercase tracking-wider text-base-content-muted">
-                  Uninstalled CLI agents (kept visible with install guides)
+                <th colspan="8" scope="colgroup" class="py-0.5">
+                  <button type="button" [class]="'btn btn-ghost btn-xs h-6 min-h-6 gap-1 px-1 text-xs font-bold uppercase tracking-wider text-base-content ' + focusRing"
+                    [attr.aria-expanded]="uninstalledShown()" (click)="toggleUninstalled()" data-testid="cli-matrix-uninstalled-toggle">
+                    <lucide-angular [img]="uninstalledShown() ? ChevronIcon : ChevronRightIcon" class="h-3 w-3" aria-hidden="true" />
+                    Uninstalled CLI agents ({{ group.rows.length }})
+                  </button>
                 </th>
               </tr>
             }
-            @for (row of group.rows; track row.id) {
+            @for (row of group.id === 'uninstalled' && !uninstalledShown() ? [] : group.rows; track row.id) {
       <tr [attr.data-testid]="'cli-matrix-row-' + row.id" [attr.data-kind]="row.kind"
         [class.bg-primary/5]="row.kind === 'instance' && row.interactive" [class.bg-base-300/50]="!row.interactive"
         [attr.data-dimmed]="row.interactive ? null : 'true'">
@@ -126,28 +140,34 @@ const SAVE_SCOPE = 'global';
           <div class="flex flex-wrap items-center gap-1.5 font-bold" [class.text-base-content-muted]="!row.interactive">
             {{ row.name }}
             @if (row.kind === 'system' && row.version) {
-              <span class="text-[10px] font-normal text-base-content-muted">v{{ row.version }}</span>
+              <span class="text-xs font-normal text-base-content-muted">v{{ row.version }}</span>
             }
             @if (row.kind === 'instance') {
               <span [class]="'badge badge-outline badge-xs whitespace-nowrap font-medium text-base-content border-primary/40 bg-primary/10'">Ptah CLI</span>
             }
           </div>
           <!-- Narrow containers (Electron beside the shell sidebar) show the provider and status here instead of their columns. -->
-          <div class="cli-narrow-inline mt-0.5 flex-wrap items-center gap-1" data-testid="cli-matrix-narrow-inline">
-            <span class="badge badge-outline badge-xs h-auto gap-1 whitespace-nowrap py-0.5 font-medium text-base-content border-base-300"
+          <!-- One line in the narrow layout (Electron fold): the badge keeps its size; the provider truncates, full in its title. -->
+          <div class="cli-narrow-inline mt-0.5 min-w-0 flex-nowrap items-center gap-1" data-testid="cli-matrix-narrow-inline">
+            <span class="badge badge-outline badge-xs h-auto shrink-0 gap-1 whitespace-nowrap py-0.5 font-medium text-base-content border-base-300"
               data-testid="cli-matrix-status-inline">
               <span [class]="'h-1.5 w-1.5 shrink-0 rounded-full ' + dot[row.status.tone]" aria-hidden="true"></span>
               {{ statusLabel(row) }}
             </span>
-            <span class="text-[10px] text-base-content-muted">{{ providerLabel(row) }}</span>
+            <span class="w-0 min-w-0 flex-1 truncate text-xs text-base-content-muted" [title]="providerLabel(row)">{{ providerLabel(row) }}</span>
           </div>
           @if (row.kind === 'instance') {
             <div class="mt-0.5 flex flex-wrap items-center gap-1" data-testid="cli-matrix-instance-subline">
               <span [class]="'badge badge-outline badge-xs whitespace-nowrap text-[9px] text-base-content ' + badge[keyTone[row.keyStatus.kind]]"
                 data-testid="cli-matrix-key-status">{{ row.keyStatus.label }}</span>
               @for (tier of row.tiers ?? []; track tier.tier) {
-                <span class="badge badge-xs whitespace-nowrap border-base-300 bg-base-300 text-[9px] text-base-content"
+                <span class="cli-wide-only badge badge-xs whitespace-nowrap border-base-300 bg-base-300 text-[9px] text-base-content"
                   [attr.data-tier]="tier.tier">{{ tier.label }}: {{ tier.model }}</span>
+              }
+              @if (row.tiers) {
+                <!-- Narrow layout only (Electron fold): one summary badge; the full list is its title and its spoken text. -->
+                <span class="cli-narrow-only badge badge-xs whitespace-nowrap border-base-300 bg-base-300 text-[9px] text-base-content"
+                  [title]="tierList(row)" data-testid="cli-matrix-tier-summary">{{ tierSummary(row) }}<span class="sr-only">: {{ tierList(row) }}</span></span>
               }
             </div>
           }
@@ -232,7 +252,7 @@ const SAVE_SCOPE = 'global';
                       <lucide-angular [img]="CloseIcon" class="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                   </div>
-                  <p class="text-[11px] leading-relaxed text-base-content">{{ row.permission.detail }}</p>
+                  <p class="text-xs leading-relaxed text-base-content">{{ row.permission.detail }}</p>
                   <!-- Batch 31: Copilot's auto-approve lives in its permission popover (moved from the old policy section). -->
                   @if (row.kind === 'system' && row.cli === 'copilot') {
                     <ptah-copilot-auto-approve-toggle />
@@ -245,29 +265,43 @@ const SAVE_SCOPE = 'global';
         <td class="text-right">
           @if (row.kind === 'instance') {
             @if (confirmDelete() === row.id) {
-              <div class="inline-flex flex-wrap items-center justify-end gap-1" role="group" [attr.aria-label]="'Delete ' + row.name">
-                <span class="text-[11px] text-base-content">Delete {{ row.name }}?</span>
+              <div class="inline-flex flex-wrap items-center justify-end gap-1" role="group" [attr.aria-label]="'Delete ' + row.name"
+                [attr.data-testid]="'cli-matrix-delete-confirm-' + row.id">
+                <span class="text-xs text-base-content">Delete {{ row.name }}?</span>
                 <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="remove(row)"
                   [attr.aria-label]="'Confirm delete ' + row.name">Delete</button>
-                <button type="button" [class]="ACTION" (click)="confirmDelete.set(null)">Cancel</button>
+                <button type="button" [class]="ACTION" (click)="cancelDelete(row.id)" data-cancel-delete>Cancel</button>
               </div>
             } @else {
-              <!-- Two by two, so four actions never widen the column past the VS Code box. -->
-              <div class="ml-auto inline-flex max-w-[7.5rem] flex-wrap items-center justify-end gap-1">
+              <!-- V36-7: one line in both hosts; Edit and Delete live in the "More actions" popover. -->
+              <div class="ml-auto inline-flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap">
                 <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="openTiers(row)"
                   [attr.aria-label]="'Tiers for ' + row.name" [attr.data-testid]="'cli-matrix-tiers-' + row.id">Tiers</button>
-                <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="openEdit(row)"
-                  [attr.aria-label]="'Edit ' + row.name + ' name or key'" [attr.data-testid]="'cli-matrix-edit-' + row.id">Edit</button>
-                <button type="button" [class]="ACTION" [disabled]="testing()" (click)="test(row)"
+                <button type="button" [class]="ACTION" [disabled]="testing()" (click)="test(row.id)"
                   [attr.aria-label]="'Test ' + row.name" [attr.data-testid]="'cli-matrix-test-' + row.id">
                   {{ testingId() === row.id ? 'Testing…' : 'Test' }}
                 </button>
-                <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="confirmDelete.set(row.id)"
-                  [attr.aria-label]="'Delete ' + row.name" [attr.data-testid]="'cli-matrix-delete-' + row.id">Delete</button>
+                <ptah-native-popover [isOpen]="isOpen(row.id, 'more')" placement="bottom-end" [hasBackdrop]="true"
+                  backdropClass="transparent" (closed)="close()" (opened)="focusFirstIn('cli-matrix-more-menu')">
+                  <button trigger type="button" [class]="'btn btn-ghost btn-xs btn-square h-6 min-h-6 w-6 ' + focusRing"
+                    [attr.aria-label]="'More actions for ' + row.name" [attr.aria-expanded]="isOpen(row.id, 'more')"
+                    (click)="openCell(row.id, 'more')" [attr.data-testid]="'cli-matrix-more-' + row.id">
+                    <lucide-angular [img]="MoreIcon" class="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                  @if (isOpen(row.id, 'more')) {
+                    <div content role="group" [attr.aria-label]="'More actions for ' + row.name" class="w-40 p-1 text-left"
+                      data-testid="cli-matrix-more-menu">
+                      <button type="button" [class]="MENU_ITEM" [disabled]="busy() || !canWrite()" (click)="openEdit(row)"
+                        [attr.aria-label]="'Edit ' + row.name + ' name or key'" [attr.data-testid]="'cli-matrix-edit-' + row.id">Edit name or key</button>
+                      <button type="button" [class]="MENU_ITEM" [disabled]="busy() || !canWrite()" (click)="askDelete(row.id)"
+                        [attr.aria-label]="'Delete ' + row.name" [attr.data-testid]="'cli-matrix-delete-' + row.id">Delete</button>
+                    </div>
+                  }
+                </ptah-native-popover>
               </div>
             }
             @if (testResult(row); as result) {
-              <p [attr.role]="result.ok ? 'status' : 'alert'" class="mt-0.5 text-[10px] text-base-content" data-testid="cli-matrix-test-result">
+              <p [attr.role]="result.ok ? 'status' : 'alert'" class="mt-0.5 whitespace-normal text-xs text-base-content" data-testid="cli-matrix-test-result">
                 {{ result.text }}
               </p>
             }
@@ -276,12 +310,12 @@ const SAVE_SCOPE = 'global';
             <!-- Batch 31: Cursor's Credentials, on its installed and its Uninstalled row alike (it installs once a key resolves). -->
             @if (row.credentialAction) {
               <ptah-native-popover [isOpen]="isOpen(row.id, 'credentials')" placement="bottom-end" [hasBackdrop]="true"
-                backdropClass="transparent" (closed)="close()" (opened)="focusCredentialKey()">
+                backdropClass="transparent" (closed)="closeCredentials(row.id)" (opened)="focusCredentialKey()">
                 <button trigger type="button" [class]="ACTION" (click)="openCell(row.id, 'credentials')"
                   [attr.aria-label]="'Credentials for ' + row.name" [attr.aria-expanded]="isOpen(row.id, 'credentials')"
                   [attr.data-testid]="'cli-matrix-credentials-' + row.id">Credentials</button>
                 @if (isOpen(row.id, 'credentials')) {
-                  <ptah-cursor-credential-popover content (closed)="close()" />
+                  <ptah-cursor-credential-popover content (closed)="closeCredentials(row.id)" />
                 }
               </ptah-native-popover>
             }
@@ -301,9 +335,9 @@ const SAVE_SCOPE = 'global';
                     </button>
                   </div>
                   @if (installGuide(row).command; as command) {
-                    <code class="block select-all break-all rounded bg-base-300 px-2 py-1 font-mono text-[11px] text-base-content">{{ command }}</code>
+                    <code class="block select-all break-all rounded bg-base-300 px-2 py-1 font-mono text-xs text-base-content">{{ command }}</code>
                   }
-                  <p class="text-[11px] leading-relaxed text-base-content">{{ installGuide(row).note }}</p>
+                  <p class="text-xs leading-relaxed text-base-content">{{ installGuide(row).note }}</p>
                 </div>
               }
             </ptah-native-popover>
@@ -313,18 +347,20 @@ const SAVE_SCOPE = 'global';
         </td>
       </tr>
             } @empty {
-              <tr>
-                <td colspan="8" class="text-base-content-muted" data-testid="cli-matrix-empty">
-                  {{ loading() ? 'Loading CLI agents…' : 'No CLI agent is installed. Install one from the list below, then Re-detect.' }}
-                </td>
-              </tr>
+              @if (group.id === 'installed') {
+                <tr>
+                  <td colspan="8" class="text-base-content-muted" data-testid="cli-matrix-empty">
+                    {{ loading() ? 'Loading CLI agents…' : 'No CLI agent is installed. Install one from the list below, then Re-detect.' }}
+                  </td>
+                </tr>
+              }
             }
             <!-- Plan §5 empty state: no Ptah CLI instances yet. -->
             @if (group.id === 'installed' && noInstances()) {
               <tr data-testid="cli-matrix-no-instances">
                 <td colspan="8" class="text-base-content-muted">
                   No Ptah CLI instance yet.
-                  <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="openAdd()">Add Ptah CLI Instance</button>
+                  <button type="button" [class]="ACTION" [disabled]="busy() || !canWrite()" (click)="openAdd('empty')">Add Ptah CLI Instance</button>
                 </td>
               </tr>
             }
@@ -335,7 +371,7 @@ const SAVE_SCOPE = 'global';
     </section>
 
     <!-- Batch 32: centered modals on the shared native <dialog> (design-spec §6), in this lazy chunk. -->
-    <ptah-add-cli-instance-modal [open]="addOpen()" [editing]="editTarget()" (closed)="closeAdd()" />
+    <ptah-add-cli-instance-modal [open]="addOpen()" [editing]="editTarget()" (created)="onCreated($event)" (closed)="closeAdd()" />
     <ptah-cli-tier-mapping-modal [open]="tierTarget() !== null" [target]="tierTarget()" (closed)="tierTarget.set(null)" />
   `,
   // Container-width layout (the routing map's Q-extra-1 rule): every column in a wide box (VS Code at 1024 px, as in the
@@ -343,16 +379,19 @@ const SAVE_SCOPE = 'global';
   // name, so no column is cut off and nothing scrolls sideways.
   styles: `
     :host { display: block; container-type: inline-size; }
-    .cli-narrow-inline { display: none; }
+    .cli-narrow-inline, .cli-narrow-only { display: none; }
     @container (max-width: 47.99rem) {
-      .cli-col-narrow-hidden { display: none; }
+      .cli-col-narrow-hidden, .cli-wide-only { display: none; }
       .cli-narrow-inline { display: flex; }
+      .cli-narrow-only { display: inline-flex; }
     }
   `,
 })
 export class CliOrchestrationMatrixComponent {
   protected readonly TerminalIcon = Terminal;
   protected readonly ChevronIcon = ChevronDown;
+  protected readonly ChevronRightIcon = ChevronRight;
+  protected readonly MoreIcon = Ellipsis;
   protected readonly InfoIcon = Info;
   protected readonly ShieldIcon = ShieldAlert;
   protected readonly CloseIcon = X;
@@ -360,6 +399,7 @@ export class CliOrchestrationMatrixComponent {
   protected readonly focusRing = FOCUS;
   protected readonly cell = CELL;
   protected readonly ACTION = ACTION;
+  protected readonly MENU_ITEM = MENU_ITEM;
   protected readonly dot = DOT;
   protected readonly badge = BADGE;
   protected readonly keyTone = KEY_TONE;
@@ -367,6 +407,7 @@ export class CliOrchestrationMatrixComponent {
   protected readonly state = inject(ProvidersSettingsStateService);
   private readonly feedback = inject(SettingsSaveFeedbackService);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
 
   protected readonly rows = computed(() => cliMatrixRows({
     orchestration: this.state.orchestration().data,
@@ -388,6 +429,13 @@ export class CliOrchestrationMatrixComponent {
   protected readonly canWrite = computed(() => this.state.scopes().status === 'ready' && this.state.reviewContext() !== null);
 
   private readonly openState = signal<OpenCell | null>(null);
+  /** Decision 1: the Uninstalled group starts collapsed. */
+  private readonly uninstalledOpen = signal(false);
+  /** Expanded by the user, or holding the open popover (a Cursor key removal moves its row into this group). */
+  protected readonly uninstalledShown = computed(() => {
+    const open = this.openState();
+    return this.uninstalledOpen() || (!!open && this.rows().uninstalled.some((row) => row.id === open.rowId));
+  });
   protected readonly confirmDelete = signal<string | null>(null);
   protected readonly testingId = signal<string | null>(null);
   /** Batch 32 modals: the add/edit form (with the instance it edits, or `null` to create) and the tier mapping. */
@@ -395,23 +443,40 @@ export class CliOrchestrationMatrixComponent {
   protected readonly editTarget = signal<CliInstanceEditTarget | null>(null);
   protected readonly tierTarget = signal<CliTierMappingTarget | null>(null);
   protected readonly noInstances = computed(() => this.state.cliAgents().status === 'ready' && !this.state.cliAgents().data?.length);
+  /** Which Add button opened the form: the empty-state one disappears once an instance exists (Minor 2). */
+  private addOrigin: 'header' | 'empty' = 'header';
 
-  protected openAdd(): void {
+  protected toggleUninstalled(): void {
+    this.uninstalledOpen.set(!this.uninstalledShown());
+  }
+
+  protected openAdd(origin: 'header' | 'empty'): void {
     this.close();
+    this.addOrigin = origin;
     this.editTarget.set(null);
     this.addOpen.set(true);
   }
 
   protected openEdit(row: InstanceCliMatrixRow): void {
     this.close();
-    const agent = this.state.cliAgents().data?.find((entry) => entry.id === row.id);
-    this.editTarget.set({ id: row.id, name: row.name, providerId: row.providerId, providerName: row.provider, hasStoredKey: agent?.hasStoredKey ?? false });
+    this.editTarget.set({ id: row.id, name: row.name, providerId: row.providerId, providerName: row.provider });
     this.addOpen.set(true);
   }
 
   protected closeAdd(): void {
     this.addOpen.set(false);
     this.editTarget.set(null);
+  }
+
+  /**
+   * M4: a created instance's key is stored, not verified, so its Test runs at once and shows inline. Minor 2: from the
+   * empty-state button, focus moves to the new row's first action (that button is gone).
+   */
+  protected onCreated(name: string): void {
+    const created = this.state.cliAgents().data?.find((agent) => agent.name.trim().toLowerCase() === name.toLowerCase());
+    if (!created) return;
+    if (this.addOrigin === 'empty') this.focusAfterRender(`[data-testid="cli-matrix-tiers-${created.id}"]`);
+    void this.test(created.id);
   }
 
   protected openTiers(row: InstanceCliMatrixRow): void {
@@ -433,11 +498,36 @@ export class CliOrchestrationMatrixComponent {
 
   protected close(): void { this.openState.set(null); }
 
+  /**
+   * M3: a saved or removed Cursor key moves its row between groups, which re-creates the popover with focus on `body`;
+   * closing returns focus to the row's Credentials trigger wherever the row now is.
+   */
+  protected closeCredentials(rowId: string): void {
+    this.close();
+    this.focusAfterRender(`[data-testid="cli-matrix-credentials-${rowId}"]`);
+  }
+
+  /** The "More actions" Delete: the inline confirm replaces the actions, so focus moves to its Cancel. */
+  protected askDelete(rowId: string): void {
+    this.close();
+    this.confirmDelete.set(rowId);
+    this.focusAfterRender(`[data-testid="cli-matrix-delete-confirm-${rowId}"] [data-cancel-delete]`);
+  }
+
+  protected cancelDelete(rowId: string): void {
+    this.confirmDelete.set(null);
+    this.focusAfterRender(`[data-testid="cli-matrix-more-${rowId}"]`);
+  }
+
   /** The panel takes focus when positioned; then its first control does (the model search opens its list). */
   protected focusOpened(): void {
     this.element.nativeElement.querySelector<HTMLElement>(
       '[data-testid="cli-matrix-popover"] input:not([disabled]), [data-testid="cli-matrix-popover"] button[aria-pressed="true"]',
     )?.focus();
+  }
+
+  protected focusFirstIn(testid: string): void {
+    this.element.nativeElement.querySelector<HTMLElement>(`[data-testid="${testid}"] button:not([disabled])`)?.focus();
   }
 
   /** The Credentials popover's key field takes focus once the panel is positioned. */
@@ -464,30 +554,43 @@ export class CliOrchestrationMatrixComponent {
     return row.selectedModel === null ? null : row.selectedModel || 'provider default';
   }
 
+  /** Narrow layout: "3 tier models" (or "No tier models") in place of the three tier badges. */
+  protected tierSummary(row: InstanceCliMatrixRow): string {
+    const count = row.tiers?.length ?? 0;
+    return count ? `${count} tier ${count === 1 ? 'model' : 'models'}` : 'No tier models';
+  }
+
+  protected tierList(row: InstanceCliMatrixRow): string {
+    return (row.tiers ?? []).map((tier) => `${tier.label}: ${tier.model}`).join(', ') || 'No tier models';
+  }
+
   protected installGuide(row: SystemCliMatrixRow): (typeof CLI_INSTALL_GUIDES)[SystemCliType] {
     return CLI_INSTALL_GUIDES[row.cli];
   }
 
-  /** RUX-11: the last Test of this instance, inline, with its latency or the host's sanitized reason. */
+  /**
+   * RUX-11: this instance's last Test, inline. Only this run's result counts (S1: the state drops the previous one when
+   * a run starts and on any failure), nothing shows while it runs, and a failure is a fixed sentence (M1) followed by
+   * the state's own fixed reason when it has one.
+   */
   protected testResult(row: InstanceCliMatrixRow): { readonly ok: boolean; readonly text: string } | null {
+    if (this.testingId() === row.id) return null;
     if (row.lastTest) {
       if (row.lastTest.success) {
         return { ok: true, text: row.lastTest.latencyMs === null ? 'Test passed.' : `Test passed in ${row.lastTest.latencyMs}ms.` };
       }
-      return { ok: false, text: `Test failed: ${row.lastTest.reason ?? 'the host gave no reason.'}` };
+      return { ok: false, text: [CLI_TEST_FAILED, row.lastTest.reason].filter(Boolean).join(' ') };
     }
-    if (this.lastTestedId() === row.id && this.testingId() === null && this.state.cliTest().status === 'error') {
-      return { ok: false, text: 'The test could not run. Try again.' };
-    }
+    if (this.lastTestedId() === row.id && this.state.cliTest().status === 'error') return { ok: false, text: CLI_TEST_NOT_RUN };
     return null;
   }
 
-  protected async test(row: InstanceCliMatrixRow): Promise<void> {
+  protected async test(id: string): Promise<void> {
     if (this.testing()) return;
-    this.testingId.set(row.id);
-    this.lastTestedId.set(row.id);
+    this.testingId.set(id);
+    this.lastTestedId.set(id);
     try {
-      await this.state.testCliConnection(row.id);
+      await this.state.testCliConnection(id);
     } finally {
       this.testingId.set(null);
     }
@@ -495,7 +598,8 @@ export class CliOrchestrationMatrixComponent {
 
   /**
    * On/off. The checkbox keeps showing the saved value; the read-back after the write moves it. System rows write
-   * `disabledClis`, instances `ptahCli:update.enabled`; Undo writes the previous value back the same way.
+   * `disabledClis`, instances `ptahCli:update.enabled`. Undo restores only this CLI's entry, against the list as it is
+   * when Undo runs (Minor 4), so it never overwrites another CLI's change made in between.
    */
   protected async toggle(row: CliMatrixRow, event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
@@ -505,13 +609,11 @@ export class CliOrchestrationMatrixComponent {
     if (!context || this.busy()) return;
     const label = `${row.name} ${enabled ? 'on' : 'off'}`;
     if (row.kind === 'system') {
-      const previous = [...(this.state.orchestration().data?.disabledClis ?? [])];
-      const next = enabled ? previous.filter((cli) => cli !== row.cli) : [...previous.filter((cli) => cli !== row.cli), row.cli];
-      await this.feedback.save({
-        label, scope: SAVE_SCOPE,
-        write: () => this.state.saveSettings({ orchestration: { disabledClis: next } }, context),
-        undo: () => this.state.saveSettings({ orchestration: { disabledClis: previous } }, context),
-      });
+      const set = (on: boolean) => () => {
+        const others = (this.state.orchestration().data?.disabledClis ?? []).filter((cli) => cli !== row.cli);
+        return this.state.saveSettings({ orchestration: { disabledClis: on ? others : [...others, row.cli] } }, context);
+      };
+      await this.feedback.save({ label, scope: SAVE_SCOPE, write: set(enabled), undo: set(row.enabled) });
       return;
     }
     const write = (value: boolean) => () =>
@@ -523,11 +625,16 @@ export class CliOrchestrationMatrixComponent {
   protected async remove(row: InstanceCliMatrixRow): Promise<void> {
     const context = this.state.reviewContext();
     if (!context || this.busy()) return;
-    await this.feedback.save({
+    const result = await this.feedback.save({
       label: `removal of ${row.name}`, scope: SAVE_SCOPE,
       write: () => this.state.saveSettings({ cli: [{ action: 'delete', params: { id: row.id } }] }, context),
       undo: null,
     });
-    if (this.state.commit().status === 'saved') this.confirmDelete.set(null);
+    // M2: this save's own result, never an earlier commit.
+    if (result === 'saved') this.confirmDelete.set(null);
+  }
+
+  private focusAfterRender(selector: string): void {
+    afterNextRender(() => this.element.nativeElement.querySelector<HTMLElement>(selector)?.focus(), { injector: this.injector });
   }
 }

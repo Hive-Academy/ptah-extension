@@ -105,9 +105,10 @@ describe('CliModelEffortPopoverComponent', () => {
       expect(field.defaultLabel()).toBe('Provider default');
       // Visual round 1 (V30-1/-2): compact id rows, opened empty with a search placeholder.
       expect(field.compact()).toBe(true);
-      expect(field.placeholder()).toBe('Search models (e.g. gpt-5, sonnet)...');
+      // V36-9: short enough for the 17rem panel, never clipped.
+      expect(field.placeholder()).toBe('Search models');
       expect((fixture.nativeElement.querySelector('input[role="combobox"]') as HTMLInputElement).placeholder)
-        .toBe('Search models (e.g. gpt-5, sonnet)...');
+        .toBe('Search models');
       expect(state.refreshDelegatedModelOptions).not.toHaveBeenCalled();
     });
 
@@ -271,6 +272,15 @@ describe('CliModelEffortPopoverComponent', () => {
       effortButtons().find((button) => button.dataset['effort'] === 'low')?.click();
       await flush();
       expect(feedback.toast()).toEqual({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false });
+      expect(fixture.componentInstance.closed).toBe(0);
+    });
+
+    it('M2: a refused write stays open even when commit() still says an earlier save landed', async () => {
+      state.commit.set({ ...idle, status: 'saved' });
+      state.outcome = 'refused';
+      create(system(), 'effort');
+      effortButtons().find((button) => button.dataset['effort'] === 'low')?.click();
+      await flush();
       expect(fixture.componentInstance.closed).toBe(0);
     });
 

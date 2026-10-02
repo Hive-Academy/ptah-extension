@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, output
 import { Eye, EyeOff, LucideAngularModule, X } from 'lucide-angular';
 import { ProvidersSettingsStateService } from '@ptah-extension/core';
 import { runDrawerWrite, type DrawerWriteOutcome } from '../providers/connection-drawer/drawer-write';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ${FOCUS}`;
@@ -17,6 +18,9 @@ const ACTION = `btn btn-outline btn-xs min-h-7 border-base-content-muted text-ba
  * - The key lives only in this component's signal, cleared after a save and on destroy (as in the Ptah CLI
  *   instance manager retired in Batch 34).
  * The secret is per machine (secrets store), so there is no Save-to target and no Undo.
+ * Gate V 36: a saved key reads "Key stored, not verified." (M4; Ptah has no Cursor check yet, an accepted deviation),
+ * and every outcome is also announced through the page toast (M3): a saved key moves the Cursor row between the
+ * Uninstalled and installed groups, which re-creates this popover and would drop its inline line.
  */
 @Component({
   selector: 'ptah-cursor-credential-popover',
@@ -101,6 +105,7 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
   protected readonly focusRing = FOCUS;
   protected readonly ACTION = ACTION;
   private readonly state = inject(ProvidersSettingsStateService);
+  private readonly feedback = inject(SettingsSaveFeedbackService);
 
   readonly closed = output<void>();
 
@@ -120,7 +125,7 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
   protected readonly outcomeText = computed(() => {
     const outcome = this.outcome(), action = this.action();
     if (!outcome || outcome.status === 'saving' || outcome.status === 'idle') return null;
-    if (outcome.status === 'saved') return { text: action === 'remove' ? 'Stored key removed.' : 'Key saved.', alert: false };
+    if (outcome.status === 'saved') return { text: action === 'remove' ? 'Stored key removed.' : 'Key stored, not verified.', alert: false };
     const lead = outcome.status === 'unconfirmed'
       ? 'Could not confirm the change. Check the "Set" status before retrying.'
       : action === 'remove' ? 'The stored key was not removed.' : 'The key was not saved.';
@@ -140,6 +145,7 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
     if (!key.trim() || this.busy()) return;
     this.action.set('save');
     await runDrawerWrite(this.state, (context) => this.state.saveCursorCredential(key, context), (outcome) => this.outcome.set(outcome));
+    this.announce();
     // D15: the typed key is dropped only once the store confirms it; a failed save keeps it for a retry.
     if (this.outcome()?.status === 'saved') {
       this.key.set('');
@@ -147,10 +153,17 @@ export class CursorCredentialPopoverComponent implements OnDestroy {
     }
   }
 
+  /** M3: the outcome also goes to the page toast, which outlives this popover (it may be re-created meanwhile). */
+  private announce(): void {
+    const text = this.outcomeText();
+    if (text) this.feedback.announce(text.text, text.alert ? 'alert' : 'status');
+  }
+
   protected async remove(): Promise<void> {
     if (this.busy()) return;
     this.action.set('remove');
     await runDrawerWrite(this.state, (context) => this.state.saveCursorCredential('', context), (outcome) => this.outcome.set(outcome));
+    this.announce();
     if (this.outcome()?.status === 'saved') this.confirmRemove.set(false);
   }
 }

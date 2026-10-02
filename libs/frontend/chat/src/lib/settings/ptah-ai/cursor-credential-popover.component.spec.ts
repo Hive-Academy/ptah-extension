@@ -3,6 +3,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   ProvidersSettingsStateService, type ProvidersOrchestration, type ProvidersSettingsCommit, type ProvidersSettingsSection,
 } from '@ptah-extension/core';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { CursorCredentialPopoverComponent } from './cursor-credential-popover.component';
 
 type Flags = Pick<ProvidersOrchestration, 'cursorApiKeyStored' | 'cursorApiKeyEnvSet' | 'cursorApiKeyConfigured'>;
@@ -32,6 +33,7 @@ class StateStub {
 describe('CursorCredentialPopoverComponent', () => {
   let fixture: ComponentFixture<CursorCredentialPopoverComponent>;
   let state: StateStub;
+  let feedback: SettingsSaveFeedbackService;
   const el = () => fixture.nativeElement as HTMLElement;
   const q = <T extends HTMLElement = HTMLElement>(id: string) => el().querySelector(`[data-testid="${id}"]`) as T | null;
   const keyInput = () => q<HTMLInputElement>('cursor-credential-key');
@@ -48,12 +50,13 @@ describe('CursorCredentialPopoverComponent', () => {
     state = new StateStub();
     TestBed.configureTestingModule({
       imports: [CursorCredentialPopoverComponent],
-      providers: [{ provide: ProvidersSettingsStateService, useValue: state }],
+      providers: [{ provide: ProvidersSettingsStateService, useValue: state }, SettingsSaveFeedbackService],
     });
+    feedback = TestBed.inject(SettingsSaveFeedbackService);
     fixture = TestBed.createComponent(CursorCredentialPopoverComponent);
     fixture.detectChanges();
   });
-  afterEach(() => TestBed.resetTestingModule());
+  afterEach(() => { feedback.dismiss(); TestBed.resetTestingModule(); });
 
   it('is a titled dialog with the help copy and the stored-key status from cursorApiKeyStored (#64)', () => {
     expect(q('cursor-credential-popover')?.getAttribute('role')).toBe('dialog');
@@ -104,7 +107,10 @@ describe('CursorCredentialPopoverComponent', () => {
     q<HTMLButtonElement>('cursor-credential-save')?.click();
     await flush();
     expect(state.saveCursorCredential).toHaveBeenCalledWith(KEY, CONTEXT);
-    expect(q('cursor-credential-outcome')?.textContent?.trim()).toBe('Key saved.');
+    // M4: stored is not verified (no Cursor check exists; accepted deviation, Gate V 36 decision 3).
+    expect(q('cursor-credential-outcome')?.textContent?.trim()).toBe('Key stored, not verified.');
+    // M3: also announced through the page toast, which outlives this popover.
+    expect(feedback.toast()).toEqual({ tone: 'status', message: 'Key stored, not verified.', canUndo: false });
     expect(q('cursor-credential-status')?.textContent?.trim()).toBe('Set');
     expect(keyInput()?.value).toBe('');
     expect(keyInput()?.type).toBe('password');
@@ -118,7 +124,9 @@ describe('CursorCredentialPopoverComponent', () => {
     const outcome = q('cursor-credential-outcome');
     expect(outcome?.getAttribute('role')).toBe('alert');
     expect(outcome?.textContent).toContain('The key was not saved.');
-    expect(outcome?.textContent).not.toContain('Key saved');
+    expect(outcome?.textContent).not.toContain('Key stored');
+    expect(feedback.toast()?.tone).toBe('alert');
+    expect(feedback.toast()?.message).toContain('The key was not saved.');
     expect(keyInput()?.value).toBe(KEY);
     state.outcome = 'unconfirmed';
     q<HTMLButtonElement>('cursor-credential-save')?.click();
@@ -139,6 +147,24 @@ describe('CursorCredentialPopoverComponent', () => {
     expect(q('cursor-credential-outcome')?.textContent?.trim()).toBe('Stored key removed.');
     expect(q('cursor-credential-status')?.textContent?.trim()).toBe('Not set');
     expect(q('cursor-credential-remove-confirm')).toBeNull();
+  });
+
+  it('M3: the confirmation survives the popover being destroyed mid-save (the row moved groups)', async () => {
+    let release: (value: boolean) => void = () => undefined;
+    state.saveCursorCredential.mockImplementationOnce(async () => {
+      state.commit.set({ ...idle, status: 'saving' });
+      const done = await new Promise<boolean>((resolve) => { release = resolve; });
+      state.orchestration.update((section) => ready({ ...(section.data as Flags), cursorApiKeyStored: true, cursorApiKeyConfigured: true }));
+      state.commit.set({ ...idle, status: 'saved' });
+      return done;
+    });
+    typeKey(KEY);
+    q<HTMLButtonElement>('cursor-credential-save')?.click();
+    fixture.detectChanges();
+    fixture.destroy();
+    release(true);
+    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    expect(feedback.toast()).toEqual({ tone: 'status', message: 'Key stored, not verified.', canUndo: false });
   });
 
   it('writes nothing while the settings scopes are not loaded', async () => {

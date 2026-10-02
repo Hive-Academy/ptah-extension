@@ -359,6 +359,42 @@ describe('SettingsComponent Orchestration landing', () => {
     expect(document.activeElement).not.toBe(element.querySelector('[data-focus="background-models"]'));
   });
 
+  // Gate V 36 M-1: a consumed target is cleared, so the same role deep-linked again while on the tab applies again.
+  it('clears the Orchestration target once the tab consumed it, so a repeated deep link to the same role applies again', async () => {
+    @Component({ selector: 'ptah-orchestration-settings', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush, template: '' })
+    class OrchestrationStub {
+      readonly focusTarget = input<string | null>(null);
+      readonly focusTargetConsumed = output<void>();
+    }
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideSurfaceRouterTesting(),
+        AppStateManager,
+        { provide: AuthStateService, useValue: authStateFake() },
+        { provide: VSCodeService, useValue: { isElectron: false } },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ProvidersSettingsStateService, useValue: providersStateFake() },
+      ],
+    });
+    TestBed.overrideComponent(SettingsComponent, { set: { imports: [OrchestrationStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] } });
+    const appState = TestBed.inject(AppStateManager);
+    appState.requestSettingsTab({ tab: 'providers', section: 'judge' });
+    const fixture = TestBed.createComponent(SettingsComponent);
+    await fixture.componentInstance.ngOnInit();
+    fixture.detectChanges();
+    const stub = () => fixture.debugElement.query((node) => node.componentInstance instanceof OrchestrationStub)
+      .componentInstance as OrchestrationStub;
+    expect(stub().focusTarget()).toBe('judge');
+    stub().focusTargetConsumed.emit();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.orchestrationTarget()).toBeNull();
+    expect(stub().focusTarget()).toBeNull();
+    appState.requestSettingsTab({ tab: 'providers', section: 'judge' });
+    TestBed.tick();
+    expect(fixture.componentInstance.activeSettingsTab()).toBe('orchestration');
+    expect(stub().focusTarget()).toBe('judge');
+  });
+
   it.each([{ tab: 'orchestration' }, { tab: 'providers', section: 'cli-agents' }] as const)(
     'leaves the background roles closed for %o', async (request) => {
       const element = await land(request);

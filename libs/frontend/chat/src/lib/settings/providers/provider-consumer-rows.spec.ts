@@ -65,12 +65,25 @@ describe('provider-consumer-rows (Batch 35: pure row derivation)', () => {
   });
 
   it('takes each key\'s scope source, and shows Mixed sources when it is unknown (Decision 6)', () => {
-    const scopeOf = (key: string) => (key === 'memory.curatorProvider' ? 'workspace' as const : null);
+    const scopeOf = (key: string) => (key === 'memory.curatorProvider' ? { scope: 'workspace' as const, hasOverride: true } : null);
     const [memory, lane] = buildConsumerRows(sources(), ROUTE, scopeOf);
     expect(memory.providerScope).toBe('workspace');
+    expect(memory.providerOverride).toBe(true);
     expect(memory.modelScope).toBe('mixed');
+    expect(memory.modelOverride).toBe(false);
     expect(lane.providerFieldName).toBe('Archaeologist lane provider');
     expect(lane.modelFieldName).toBe('Archaeologist lane model');
+  });
+
+  it('V36-6 / D16: shows the scope only for a role with a non-inherited value', () => {
+    const inherited = () => ({ scope: 'global' as const, hasOverride: false });
+    expect(buildConsumerRows(sources(), ROUTE, inherited).map((row) => row.scopeShown)).toEqual([false, false, false, false, false, false]);
+    const judgeOverride = (key: string) => (key === 'skillSynthesis.judge.model'
+      ? { scope: 'app' as const, hasOverride: true } : inherited());
+    expect(buildConsumerRows(sources(), ROUTE, judgeOverride).map((row) => row.scopeShown))
+      .toEqual([false, false, false, true, false, false]);
+    // Unknown provenance is Mixed sources, which is shown (never a guessed scope).
+    expect(buildConsumerRows(sources(), ROUTE, noScope).every((row) => row.scopeShown)).toBe(true);
   });
 
   it('makeRow passes the setting keys to the scope lookup', () => {

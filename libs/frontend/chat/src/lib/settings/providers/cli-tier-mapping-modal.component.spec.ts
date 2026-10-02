@@ -35,6 +35,10 @@ class StateStub {
     this.commit.set({ ...idle, status: 'saved' });
     return true;
   });
+  readonly clearCliTest = jest.fn((_id: string) => undefined);
+  readonly refreshCliModels = jest.fn(async () => {
+    this.cliModels.set(ready({ 'glm-1': { selectedModel: '', tierMappings: { sonnet: 'glm-5.3' } } }));
+  });
 }
 
 @Component({
@@ -192,10 +196,80 @@ describe('CliTierMappingModalComponent', () => {
     state.tiers.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
     fixture.detectChanges();
     expect(q('cli-tier-source-opus')?.textContent?.trim()).toBe('Inherited: not loaded.');
-    state.cliModels.set(ready({}));
+    state.cliModels.set({ status: 'loading', data: null, error: null });
     fixture.detectChanges();
     expect(q('cli-tier-mapping-loading')).not.toBeNull();
     expect(field('sonnet')).toBeUndefined();
+  });
+
+  it('M5: a failed mapping read shows a fixed error with Retry (never an endless loading line)', async () => {
+    state.cliModels.set({ status: 'error', data: null, error: 'Could not load this section. Retry.' });
+    fixture.detectChanges();
+    expect(q('cli-tier-mapping-loading')).toBeNull();
+    expect(q('cli-tier-mapping-error')?.getAttribute('role')).toBe('alert');
+    expect(q('cli-tier-mapping-error')?.textContent).toContain("This instance's tier mapping could not be loaded.");
+    q<HTMLButtonElement>('cli-tier-mapping-retry')?.click();
+    await flush();
+    expect(state.refreshCliModels).toHaveBeenCalledTimes(1);
+    expect(q('cli-tier-mapping-error')).toBeNull();
+    expect(field('sonnet')?.selectedId()).toBe('glm-5.3');
+  });
+
+  it('M5: a read that finished without this instance is an error too', () => {
+    state.cliModels.set(ready({}));
+    fixture.detectChanges();
+    expect(q('cli-tier-mapping-error')).not.toBeNull();
+  });
+
+  it('M2: a refused manual save keeps the model-ID field open even when an earlier commit says saved', async () => {
+    state.commit.set({ ...idle, status: 'saved' });
+    state.setCliInstanceTiers.mockImplementationOnce(async () => false);
+    field('opus')?.modelSelected.emit('__manual__');
+    fixture.detectChanges();
+    const input = q<HTMLInputElement>('cli-tier-manual-opus');
+    if (!input) throw new Error('no manual field');
+    input.value = 'vendor/glm-x';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    q<HTMLButtonElement>('cli-tier-manual-apply-opus')?.click();
+    await flush();
+    expect(q('cli-tier-manual-opus')).not.toBeNull();
+  });
+
+  it('M9: rejects a manual id with spaces or over 200 characters, with a fixed message', () => {
+    field('opus')?.modelSelected.emit('__manual__');
+    fixture.detectChanges();
+    const input = q<HTMLInputElement>('cli-tier-manual-opus');
+    if (!input) throw new Error('no manual field');
+    for (const bad of ['vendor/glm x', 'x'.repeat(201)]) {
+      input.value = bad;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(q<HTMLButtonElement>('cli-tier-manual-apply-opus')?.disabled).toBe(true);
+      expect(q('cli-tier-manual-error')?.textContent?.trim()).toBe('Enter a model ID without spaces, up to 200 characters.');
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+    }
+    input.value = '  vendor/glm-x  ';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(q('cli-tier-manual-error')).toBeNull();
+    expect(q<HTMLButtonElement>('cli-tier-manual-apply-opus')?.disabled).toBe(false);
+  });
+
+  it('M8: every tier write (and its Undo) drops the last Test result of the instance', async () => {
+    field('opus')?.modelSelected.emit('glm-4.7');
+    await flush();
+    expect(state.clearCliTest).toHaveBeenCalledWith('glm-1');
+    await feedback.undo();
+    expect(state.clearCliTest).toHaveBeenCalledTimes(2);
+  });
+
+  it('decision 2: the tier fields do not open their list on focus (one Esc leaves the modal)', () => {
+    for (const tier of ['sonnet', 'opus', 'haiku']) expect(field(tier)?.openOnFocus()).toBe(false);
+    const search = q('cli-tier-picker-sonnet')?.querySelector<HTMLInputElement>('[data-testid="provider-model-picker-search"]');
+    search?.dispatchEvent(new Event('focus'));
+    fixture.detectChanges();
+    expect(search?.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('closes from Done', () => {

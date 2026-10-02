@@ -29,16 +29,16 @@ const NOT_CONFIRMED = 'Could not confirm whether Copilot auto-approve was saved.
   template: `
     <div class="space-y-1.5 border-t border-base-300 pt-2" data-testid="copilot-auto-approve-section">
       <label class="flex items-center justify-between gap-2">
-        <span class="text-[11px] font-semibold text-base-content">Auto-approve Copilot tool calls</span>
+        <span class="text-xs font-semibold text-base-content">Auto-approve Copilot tool calls</span>
         <input type="checkbox" [class]="'toggle toggle-xs toggle-success ' + focusRing"
           [checked]="saved() ?? false" [indeterminate]="needsRecheck()"
           [disabled]="saving() || needsRecheck() || feedback.saving()"
           (change)="toggle($event)" aria-label="Auto-approve Copilot tool calls" data-testid="copilot-auto-approve" />
       </label>
       @if (error(); as message) {
-        <p class="text-[11px] text-base-content" role="alert" data-testid="copilot-auto-approve-error">{{ message }}</p>
+        <p class="text-xs text-base-content" role="alert" data-testid="copilot-auto-approve-error">{{ message }}</p>
       } @else if (saved() === null) {
-        <p class="text-[11px] text-base-content-muted" role="status" data-testid="copilot-auto-approve-unloaded">The saved setting could not be read.</p>
+        <p class="text-xs text-base-content-muted" role="status" data-testid="copilot-auto-approve-unloaded">The saved setting could not be read.</p>
       }
       @if (needsRecheck()) {
         <button type="button" [class]="'btn btn-outline btn-xs min-h-7 border-base-content-muted text-base-content ' + focusRing"

@@ -281,6 +281,47 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       expect(feedback.toast()?.tone).toBe('alert');
     });
 
+    it('m-1: a refused move shows its own sentence even when commit() still says an earlier save was "saved"', async () => {
+      state.commit.set({ ...idle, status: 'saved', saved: ['Orchestration policy'] });
+      state.saveSettings.mockImplementationOnce(async () => false);
+      await openOrder();
+      button('policy-order-down-codex')?.click();
+      await flush();
+      expect(state.commit().status).toBe('saved');
+      expect(rows()).toEqual(['codex', 'antigravity', 'glm-1', 'copilot', 'opencode']);
+      expect(q('[data-testid="policy-order-error"]')?.textContent?.trim())
+        .toBe('Could not save the preferred order. The order shown is the saved one.');
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Another change is still saving.', canUndo: false });
+    });
+
+    it('m-1: a write that throws shows the popover sentence too', async () => {
+      state.commit.set({ ...idle, status: 'saved', saved: ['Orchestration policy'] });
+      state.saveSettings.mockImplementationOnce(async () => { throw new Error(HOST_ERROR); });
+      await openOrder();
+      button('policy-order-down-codex')?.click();
+      await flush();
+      expect(q('[data-testid="policy-order-error"]')?.textContent?.trim())
+        .toBe('Could not save the preferred order. The order shown is the saved one.');
+      expect(popover()?.textContent).not.toContain('EACCES');
+    });
+
+    it('V36-8: the popover is titled by a non-heading element (no skipped heading level)', async () => {
+      await openOrder();
+      const title = q('#policy-order-title');
+      expect(title?.tagName).toBe('P');
+      expect(title?.textContent?.trim()).toBe('Preferred order');
+      expect(popover()?.getAttribute('aria-labelledby')).toBe('policy-order-title');
+      expect(popover()?.querySelector('h1, h2, h3, h4, h5, h6')).toBeNull();
+    });
+
+    it('V36-2: helper text is at least 12 px (text-xs); no 10 or 11 px text outside the btn-xs label', async () => {
+      await openOrder();
+      const small = Array.from(element().querySelectorAll<HTMLElement>('[class*="text-[10px]"], [class*="text-[11px]"]'))
+        .filter((node) => !node.classList.contains('btn'));
+      expect(small).toHaveLength(0);
+      expect(q('[data-testid="policy-order"]')?.className).toContain('text-xs');
+    });
+
     it('closes on Escape and returns focus to the trigger', async () => {
       const trigger = button('policy-order-edit');
       trigger?.focus();

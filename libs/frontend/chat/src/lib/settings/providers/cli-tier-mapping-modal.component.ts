@@ -7,7 +7,7 @@ import {
   NativeModalComponent, PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent, type ProviderModelSearchOption,
 } from '@ptah-extension/ui';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
-import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
 import { SettingsToastComponent } from '../feedback/settings-toast.component';
 
 /** The instance whose tiers the modal edits. */
@@ -27,6 +27,9 @@ const TIERS: readonly { readonly tier: Tier; readonly label: string }[] = [
 const MANUAL = '__manual__';
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const SAVE_SCOPE = 'global';
+/** M9: a model id has no whitespace and a sane length. */
+const MODEL_ID_MAX_LENGTH = 200;
+const MODEL_ID_PATTERN = /^\S+$/;
 
 interface Catalogue {
   readonly status: 'loading' | 'ready' | 'error';
@@ -74,7 +77,14 @@ interface Catalogue {
               <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-base-content ' + focusRing" (click)="loadModels()">Retry</button>
             </p>
           }
-          @if (mappings() === null) {
+          @if (mappings() === null && mappingsFailed()) {
+            <!-- M5: a failed (or missing) read ends in a fixed error with its own Retry, never an endless loading line. -->
+            <p role="alert" class="flex flex-wrap items-center gap-1.5 text-base-content" data-testid="cli-tier-mapping-error">
+              This instance's tier mapping could not be loaded.
+              <button type="button" [class]="'btn btn-link btn-xs h-auto min-h-6 px-0 text-base-content ' + focusRing"
+                [disabled]="retryingMappings()" (click)="retryMappings()" data-testid="cli-tier-mapping-retry">Retry</button>
+            </p>
+          } @else if (mappings() === null) {
             <p role="status" class="text-base-content-muted" data-testid="cli-tier-mapping-loading">Loading this instance's tier mapping…</p>
           } @else {
             <ul class="space-y-3">
@@ -91,19 +101,23 @@ interface Catalogue {
                     <div class="flex items-center gap-1.5">
                       <input [id]="'cli-tier-' + row.tier" type="text" [class]="'input input-bordered input-sm min-w-0 flex-1 font-mono text-xs ' + focusRing"
                         placeholder="Model ID, e.g. vendor/model-name" [value]="manualDraft()" (input)="manualDraft.set(value($event))"
-                        [attr.aria-label]="row.label + ' tier model ID'" [attr.data-testid]="'cli-tier-manual-' + row.tier" />
+                        [attr.aria-label]="row.label + ' tier model ID'" [attr.aria-invalid]="manualInvalid()"
+                        [attr.aria-describedby]="manualInvalid() ? 'cli-tier-manual-error' : null" [attr.data-testid]="'cli-tier-manual-' + row.tier" />
                       <button type="button" [class]="'btn btn-outline btn-xs min-h-8 border-base-content-muted text-base-content ' + focusRing"
-                        [disabled]="busy() || !manualDraft().trim()" (click)="applyManual(row.tier)" [attr.data-testid]="'cli-tier-manual-apply-' + row.tier">Use</button>
+                        [disabled]="busy() || !manualDraft().trim() || manualInvalid()" (click)="applyManual(row.tier)" [attr.data-testid]="'cli-tier-manual-apply-' + row.tier">Use</button>
                       <button type="button" [class]="'btn btn-ghost btn-xs min-h-8 text-base-content ' + focusRing" (click)="closeManual(row.tier)">Cancel</button>
                     </div>
+                    @if (manualInvalid()) {
+                      <p id="cli-tier-manual-error" role="alert" class="text-xs text-base-content" data-testid="cli-tier-manual-error">{{ manualIdError }}</p>
+                    }
                   } @else {
                     <ptah-provider-model-search-field [inputId]="'cli-tier-' + row.tier" [ariaLabel]="row.label + ' tier model'"
                       [options]="options(row.tier)" [selectedId]="own(row.tier) ?? ''" [includeDefault]="true"
                       [defaultLabel]="'Inherited: ' + inheritedLabel(row.tier)" [placeholder]="'Inherited: ' + inheritedLabel(row.tier)"
-                      [pinnedOption]="manualOption" [compact]="true" [disabled]="busy() || catalogue().status === 'loading'"
+                      [pinnedOption]="manualOption" [compact]="true" [openOnFocus]="false" [disabled]="busy() || catalogue().status === 'loading'"
                       (modelSelected)="onPick(row.tier, $event)" [attr.data-testid]="'cli-tier-picker-' + row.tier" />
                   }
-                  <p class="text-[11px] text-base-content-muted" [attr.data-testid]="'cli-tier-source-' + row.tier">
+                  <p class="text-xs text-base-content-muted" [attr.data-testid]="'cli-tier-source-' + row.tier">
                     @if (own(row.tier); as model) {
                       This instance: <span class="font-mono text-base-content">{{ model }}</span>. Inherited otherwise: {{ inheritedLabel(row.tier) }}.
                     } @else {
@@ -149,6 +163,18 @@ export class CliTierMappingModalComponent {
   /** The tier whose search is swapped for a model-ID field, if any. */
   protected readonly manualTier = signal<Tier | null>(null);
   protected readonly manualDraft = signal('');
+  protected readonly manualIdError = `Enter a model ID without spaces, up to ${MODEL_ID_MAX_LENGTH} characters.`;
+  /** A typed id that cannot be a model id (M9); an empty draft is just not ready yet. */
+  protected readonly manualInvalid = computed(() => {
+    const draft = this.manualDraft().trim();
+    return draft !== '' && (!MODEL_ID_PATTERN.test(draft) || draft.length > MODEL_ID_MAX_LENGTH);
+  });
+  protected readonly retryingMappings = signal(false);
+  /** The mapping read failed, or finished without this instance (deleted meanwhile): waiting will not load it. */
+  protected readonly mappingsFailed = computed(() => {
+    const status = this.state.cliModels().status;
+    return !this.retryingMappings() && (status === 'error' || status === 'ready');
+  });
 
   /** The instance's own mapping as last read (`cliModels`); `null` while it is not loaded. */
   protected readonly mappings = computed<TierMappings | null>(() => {
@@ -214,21 +240,30 @@ export class CliTierMappingModalComponent {
     }
   }
 
-  protected onPick(tier: Tier, model: string): Promise<void> {
+  protected async onPick(tier: Tier, model: string): Promise<void> {
     if (model === MANUAL) {
       this.manualDraft.set('');
       this.manualTier.set(tier);
       this.focusAfterRender(`[data-testid="cli-tier-manual-${tier}"]`);
-      return Promise.resolve();
+      return;
     }
-    return this.saveTier(tier, model.trim());
+    await this.saveTier(tier, model.trim());
   }
 
   protected async applyManual(tier: Tier): Promise<void> {
     const model = this.manualDraft().trim();
-    if (!model) return;
-    await this.saveTier(tier, model);
-    if (this.state.commit().status === 'saved') this.closeManual(tier);
+    if (!model || this.manualInvalid()) return;
+    // M2: closes on this save's own result, never on an earlier commit.
+    if (await this.saveTier(tier, model) === 'saved') this.closeManual(tier);
+  }
+
+  protected async retryMappings(): Promise<void> {
+    this.retryingMappings.set(true);
+    try {
+      await this.state.refreshCliModels();
+    } finally {
+      this.retryingMappings.set(false);
+    }
   }
 
   protected closeManual(tier: Tier): void {
@@ -236,25 +271,30 @@ export class CliTierMappingModalComponent {
     this.focusAfterRender(`#cli-tier-${tier}`);
   }
 
-  protected useInherited(tier: Tier): Promise<void> {
-    return this.saveTier(tier, '');
+  protected async useInherited(tier: Tier): Promise<void> {
+    await this.saveTier(tier, '');
   }
 
-  /** One tier changes; the full object is sent (a blank tier is left out and inherits). */
-  private async saveTier(tier: Tier, model: string): Promise<void> {
+  /** One tier changes; the full object is sent (a blank tier is left out and inherits). `null`: nothing to save. */
+  private async saveTier(tier: Tier, model: string): Promise<SettingsSaveResult | null> {
     const target = this.target(), previous = this.mappings();
     const context = this.context ?? this.state.reviewContext();
-    if (!target || !previous || !context || (previous[tier] ?? '') === model) return;
+    if (!target || !previous || !context || (previous[tier] ?? '') === model) return null;
     const next: TierMappings = { ...previous };
     if (model) next[tier] = model;
     else delete next[tier];
     const label = TIERS.find((row) => row.tier === tier)?.label ?? tier;
-    await this.feedback.save({
-      label: `${target.name} ${label} tier`, scope: SAVE_SCOPE,
-      write: () => this.state.setCliInstanceTiers(target.id, next, context),
-      undo: () => this.state.setCliInstanceTiers(target.id, previous, context),
+    // M8: the instance's last Test described the previous mapping; every tier write (and its Undo) drops it.
+    const write = (tiers: TierMappings) => () => {
+      this.state.clearCliTest(target.id);
+      return this.state.setCliInstanceTiers(target.id, tiers, context);
+    };
+    const result = await this.feedback.save({
+      label: `${target.name} ${label} tier`, scope: SAVE_SCOPE, write: write(next), undo: write(previous),
     });
-    if (this.state.commit().status === 'blocked') this.context = this.state.reviewContext();
+    // `failed` means this save ran, so `commit()` is its own: a blocked context is replaced for the next try.
+    if (result === 'failed' && this.state.commit().status === 'blocked') this.context = this.state.reviewContext();
+    return result;
   }
 
   /** The swapped-in control takes focus once rendered, so focus (and Esc) stay in the dialog. */

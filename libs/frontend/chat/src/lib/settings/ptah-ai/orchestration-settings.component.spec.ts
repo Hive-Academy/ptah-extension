@@ -20,6 +20,7 @@ class ConsumerStub {
   readonly disabled = input(false);
   readonly initialEditingConsumerId = input<BackgroundConsumerId | null>(null);
   readonly setupProviderRequested = output<string>();
+  readonly deepLinkOpened = output<BackgroundConsumerId>();
   readonly assignmentSaved = output<{ id: BackgroundConsumerId; provider: string; model: string }>();
   readonly timeoutSaved = output<number>();
 }
@@ -148,6 +149,59 @@ describe('OrchestrationSettingsComponent', () => {
     expect(matrixTable()).not.toBeNull();
     expect(document.activeElement).toBe(matrixTable());
     expect(rolesDetails()?.open).toBe(false);
+  });
+
+  describe('deep-link consumption (Gate V 36, M-1)', () => {
+    let consumed: jest.Mock;
+    beforeEach(() => {
+      consumed = jest.fn();
+      fixture.componentInstance.focusTargetConsumed.subscribe(consumed);
+    });
+
+    it('consumes a role link only once the roles are focused and the role popover has opened', async () => {
+      fixture.componentRef.setInput('focusTarget', 'judge'); await render();
+      expect(consumed).not.toHaveBeenCalled();
+      consumer().deepLinkOpened.emit('judge');
+      expect(consumed).toHaveBeenCalledTimes(1);
+    });
+
+    it('consumes when the popover opened first (rows loaded before the section focus ran)', async () => {
+      await render();
+      fixture.componentRef.setInput('focusTarget', 'replay');
+      consumer().deepLinkOpened.emit('replay');
+      expect(consumed).not.toHaveBeenCalled();
+      await render();
+      expect(consumed).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['cli-agents', 'background-models'] as const)('consumes the %s link once its section is focused', async (target) => {
+      fixture.componentRef.setInput('focusTarget', target); await render();
+      expect(consumed).toHaveBeenCalledTimes(1);
+    });
+
+    it('applies the same role again after the target was consumed and cleared: roles re-open and take focus', async () => {
+      fixture.componentRef.setInput('focusTarget', 'judge'); await render();
+      consumer().deepLinkOpened.emit('judge');
+      fixture.componentRef.setInput('focusTarget', null); await render();
+      expect(consumer().initialEditingConsumerId()).toBeNull();
+      // The user closes the roles and moves on, still on this tab.
+      const details = rolesDetails();
+      if (details) details.open = false;
+      (document.activeElement as HTMLElement | null)?.blur();
+      fixture.componentRef.setInput('focusTarget', 'judge'); await render();
+      expect(rolesDetails()?.open).toBe(true);
+      expect(consumer().initialEditingConsumerId()).toBe('judge');
+      expect(document.activeElement).toBe(element.querySelector('[data-focus="background-models"]'));
+      consumer().deepLinkOpened.emit('judge');
+      expect(consumed).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('V36-2: the roles summary list is 12 px helper text', async () => {
+    await render();
+    const list = element.querySelector('[data-testid="background-roles-list"]');
+    expect(list?.className).toContain('text-xs');
+    expect(list?.className).not.toMatch(/text-\[1[01]px\]/);
   });
 
   it('re-focuses a target requested again after being cleared', async () => {

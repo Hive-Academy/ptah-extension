@@ -1,5 +1,5 @@
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
-import { ProvidersSettingsStateService } from '@ptah-extension/core';
+import { ProvidersSettingsStateService, type ProvidersSettingsCommit } from '@ptah-extension/core';
 import type { SettingScope } from '@ptah-extension/shared';
 import { injectAppScopeName } from '../providers/app-scope-label';
 
@@ -12,7 +12,25 @@ export interface SettingsSaveRequest {
   readonly write: () => Promise<boolean>;
   /** Saves the pre-change value back through the same state-service path. `null` offers no Undo. */
   readonly undo: (() => Promise<boolean>) | null;
+  /**
+   * Fixed copy for a failure of this save, given its own commit (e.g. a partial edit: "Name saved. The key was not
+   * saved."). `null` falls back to the default text.
+   */
+  readonly failureMessage?: (commit: ProvidersSettingsCommit) => string | null;
+  /** Fixed copy replacing "Saved {label} to {scope}." (e.g. a stored credential: "… Key stored, not verified."). */
+  readonly successMessage?: string;
 }
+
+/**
+ * This call's own outcome (Gate V 36 M2): `saved` only when its write resolved `true` and the commit it produced is
+ * `saved`; `refused` when nothing was written (another save in flight); `failed` for every other end, including a
+ * write that threw. Callers close or confirm from this, never from `commit()`.
+ */
+export type SettingsSaveResult = 'saved' | 'failed' | 'refused';
+
+/** A raw settings key (`agentOrchestration.copilotAutoApprove`, `ptahCliAgents.<id>.tierMappings`): never shown (Minor 3). */
+const RAW_FIELD_KEY = /^[A-Za-z][\w-]*(\.[^\s.]+)+$/;
+const shownFields = (fields: readonly string[]): readonly string[] => fields.filter((field) => !RAW_FIELD_KEY.test(field));
 
 export interface SettingsToast {
   /** `status` renders `role="status"` (polite); `alert` renders `role="alert"`. */
@@ -55,10 +73,10 @@ export class SettingsSaveFeedbackService {
     inject(DestroyRef).onDestroy(() => this.clearTimer());
   }
 
-  async save(request: SettingsSaveRequest): Promise<void> {
+  async save(request: SettingsSaveRequest): Promise<SettingsSaveResult> {
     if (this.saving()) {
       this.show({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false }, null);
-      return;
+      return 'refused';
     }
     let accepted: boolean;
     try {
@@ -70,11 +88,11 @@ export class SettingsSaveFeedbackService {
         { tone: 'alert', message: `Could not confirm whether ${request.label} was saved.`, canUndo: false },
         null,
       );
-      return;
+      return 'failed';
     }
     if (!accepted) {
       this.show({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: false }, null);
-      return;
+      return 'refused';
     }
     const commit = this.state.commit();
     if (commit.status === 'saved') {
@@ -82,18 +100,23 @@ export class SettingsSaveFeedbackService {
       this.show(
         {
           tone: 'status',
-          message: `Saved ${request.label} to ${this.scopeLabels[request.scope]}.`,
+          message: request.successMessage ?? `Saved ${request.label} to ${this.scopeLabels[request.scope]}.`,
           canUndo: undo !== null,
         },
-        undo ? { ...request, write: undo, undo: null } : null,
+        // The Undo is its own save: it reports with the default copy, never this request's fixed copy.
+        undo ? { label: request.label, scope: request.scope, write: undo, undo: null } : null,
       );
-      return;
+      return 'saved';
     }
-    const parts = [`Could not save ${request.label}.`];
-    if (commit.unsaved.length) parts.push(`Not saved: ${commit.unsaved.join(', ')}.`);
-    if (commit.unconfirmed.length) parts.push(`Not confirmed: ${commit.unconfirmed.join(', ')}.`);
+    const fixed = request.failureMessage?.(commit) ?? null;
+    const parts = [fixed ?? `Could not save ${request.label}.`];
+    const unsaved = shownFields(commit.unsaved), unconfirmed = shownFields(commit.unconfirmed);
+    if (!fixed && unsaved.length) parts.push(`Not saved: ${unsaved.join(', ')}.`);
+    if (!fixed && unconfirmed.length) parts.push(`Not confirmed: ${unconfirmed.join(', ')}.`);
+    else if (!fixed && commit.unconfirmed.length) parts.push('It may have been saved; check the current value before retrying.');
     if (commit.message) parts.push(commit.message);
     this.show({ tone: 'alert', message: parts.join(' '), canUndo: false }, null);
+    return 'failed';
   }
 
   /**
@@ -110,6 +133,14 @@ export class SettingsSaveFeedbackService {
     }
     this.dismiss();
     await this.save(request);
+  }
+
+  /**
+   * A fixed confirmation or failure from a write outside `save()` (the Cursor credential, Gate V 36 M3): the page toast
+   * outlives the control that wrote, so the announcement survives that control being re-created. No Undo.
+   */
+  announce(message: string, tone: SettingsToast['tone']): void {
+    this.show({ tone, message, canUndo: false }, null);
   }
 
   dismiss(): void {

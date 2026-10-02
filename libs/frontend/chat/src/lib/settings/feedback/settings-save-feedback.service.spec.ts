@@ -182,6 +182,49 @@ describe('SettingsSaveFeedbackService', () => {
     });
   });
 
+  // Gate V 36 M2: callers close or confirm from this save's own result, never from a shared earlier commit.
+  it('M2: resolves this call\'s own outcome, also when commit() still says an earlier save landed', async () => {
+    expect(await service.save(request())).toBe('saved');
+    // commit() is now `saved`; a refused write must not read as saved.
+    expect(await service.save(request({ write: jest.fn().mockResolvedValue(false) }))).toBe('refused');
+    expect(await service.save(request({ write: jest.fn().mockRejectedValue(new Error('broken')) }))).toBe('failed');
+    expect(await service.save(request({ write: writeResolving({ status: 'failed', unsaved: ['model'] }) }))).toBe('failed');
+    commit.set({ ...EMPTY, status: 'saving' });
+    expect(await service.save(request())).toBe('refused');
+  });
+
+  it('Minor 3: raw settings keys never appear in a failure toast; human field labels still do', async () => {
+    await service.save(request({
+      label: 'Glm Opus tier',
+      write: writeResolving({ status: 'failed', unsaved: ['ptahCliAgents.glm-1.tierMappings', 'Main agent opus model'] }),
+    }));
+    expect(service.toast()?.message).toBe('Could not save Glm Opus tier. Not saved: Main agent opus model.');
+    await service.save(request({
+      label: 'Copilot auto-approve',
+      write: writeResolving({ status: 'unconfirmed', unconfirmed: ['agentOrchestration.copilotAutoApprove'] }),
+    }));
+    expect(service.toast()?.message).toBe(
+      'Could not save Copilot auto-approve. It may have been saved; check the current value before retrying.');
+  });
+
+  it('uses the request\'s fixed failure and success copy, and the Undo reports with the default copy', async () => {
+    await service.save(request({
+      write: writeResolving({ status: 'partial', saved: ['ptahCliAgents.a.name'], unsaved: ['ptahCliAgents.a.apiKey'] }),
+      failureMessage: (result) => result.saved.length ? 'Name saved. The key was not saved.' : null,
+    }));
+    expect(service.toast()?.message).toBe('Name saved. The key was not saved.');
+    const undo = writeResolving({ status: 'saved', saved: ['model'] });
+    await service.save(request({ undo, successMessage: 'Created Glm. Key stored, not verified.' }));
+    expect(service.toast()?.message).toBe('Created Glm. Key stored, not verified.');
+    await service.undo();
+    expect(service.toast()?.message).toBe('Saved main agent model to This workspace.');
+  });
+
+  it('announce shows a fixed toast with no Undo (M3)', () => {
+    service.announce('Key stored, not verified.', 'status');
+    expect(service.toast()).toEqual({ tone: 'status', message: 'Key stored, not verified.', canUndo: false });
+  });
+
   it('refuses re-entry while a save is in flight without calling write', async () => {
     commit.set({ ...EMPTY, status: 'saving' });
     const write = jest.fn().mockResolvedValue(true);

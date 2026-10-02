@@ -7,7 +7,7 @@ import {
   ProviderModelPickerComponent, ProviderModelSearchFieldComponent, type ProviderModelSearchOption,
 } from '@ptah-extension/ui';
 import { CLI_REASONING_EFFORT_VALUES, PI_REASONING_EFFORT_VALUES } from '@ptah-extension/shared';
-import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
+import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
 import type { CliEffortSettingKey, CliMatrixRow, CliModelSettingKey, SystemCliMatrixRow } from './cli-matrix-rows';
 
 export type CliMatrixCellField = 'model' | 'effort';
@@ -86,7 +86,7 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
         }
         <ptah-provider-model-search-field [inputId]="titleId() + '-model'" [ariaLabel]="cell.name + ' model'"
           [options]="modelOptions()" [selectedId]="cell.model.value" [includeDefault]="true" [compact]="true"
-          placeholder="Search models (e.g. gpt-5, sonnet)..."
+          placeholder="Search models"
           [defaultLabel]="catalogueStatus() === 'loading' ? 'Loading models…' : 'Provider default'"
           [disabled]="busy() || !context || catalogueStatus() === 'loading'" (modelSelected)="saveSystemModel(cell, $event)" />
       }
@@ -223,8 +223,7 @@ export class CliModelEffortPopoverComponent implements OnInit {
     if (model === previous || !context) return;
     const write = (selectedModel: string) => () =>
       this.state.saveSettings({ cli: [{ action: 'update', params: { id: row.id, selectedModel } }] }, context);
-    await this.feedback.save({ label: `${row.name} model`, scope: SAVE_SCOPE, write: write(model), undo: write(previous) });
-    this.afterSave();
+    this.afterSave(await this.feedback.save({ label: `${row.name} model`, scope: SAVE_SCOPE, write: write(model), undo: write(previous) }));
   }
 
   private async saveSetting(row: SystemCliMatrixRow, key: CliModelSettingKey | CliEffortSettingKey, value: string,
@@ -232,14 +231,13 @@ export class CliModelEffortPopoverComponent implements OnInit {
     const context = this.context;
     if (value === previous || !context || !row.interactive) return;
     const write = (next: string) => () => this.state.saveSettings(orchestrationPatch(key, next), context);
-    await this.feedback.save({ label, scope: SAVE_SCOPE, write: write(value), undo: write(previous) });
-    this.afterSave();
+    this.afterSave(await this.feedback.save({ label, scope: SAVE_SCOPE, write: write(value), undo: write(previous) }));
   }
 
-  private afterSave(): void {
-    const status = this.state.commit().status;
-    if (status === 'saved') this.closed.emit();
-    else if (status === 'blocked') this.context = this.state.reviewContext();
+  /** M2: closes on this save's own result; `failed` means this save ran, so `commit()` is its own. */
+  private afterSave(result: SettingsSaveResult): void {
+    if (result === 'saved') this.closed.emit();
+    else if (result === 'failed' && this.state.commit().status === 'blocked') this.context = this.state.reviewContext();
   }
 }
 

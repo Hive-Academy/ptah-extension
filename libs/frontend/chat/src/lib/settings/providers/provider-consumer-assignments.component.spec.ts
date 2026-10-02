@@ -263,6 +263,26 @@ describe('ProviderConsumerAssignmentsComponent', () => {
    * A picker choice, as the user makes it; the popover saves on it. Microtasks only: a saved choice starts the
    * toast's dismiss timer, which `whenStable()` would wait out.
    */
+  /** Microtasks only (a save starts the toast's dismiss timer, which `whenStable()` would wait out). */
+  async function flushSave(): Promise<void> {
+    for (let i = 0; i < 3; i += 1) {
+      fixture.detectChanges();
+      for (let j = 0; j < 8; j += 1) await Promise.resolve();
+    }
+    fixture.detectChanges();
+  }
+  /** Opens the time-limit editor and types a value. */
+  function typeTimeout(value: string): HTMLInputElement | null {
+    button(fixture, 'timeout-edit-button')?.click();
+    fixture.detectChanges();
+    const input = inputEl(fixture, 'timeout-input');
+    if (input) {
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    }
+    fixture.detectChanges();
+    return input;
+  }
   async function choose(select: HTMLSelectElement, value: string): Promise<void> {
     select.value = value;
     select.dispatchEvent(new Event('change'));
@@ -481,10 +501,45 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       expect(feedback.toast()?.message).toBe('Another change is still saving.');
     });
 
-    it('writes nothing while another save runs (D3): the cells are disabled', async () => {
+    it('writes nothing while another save runs (D3): the cells are aria-disabled (still focusable) and do not open', async () => {
       mockState.commitState.set({ status: 'saving', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
       await settle();
-      expect(button(fixture, 'consumer-edit-judge')?.disabled).toBe(true);
+      const cell = button(fixture, 'consumer-edit-judge');
+      expect(cell?.getAttribute('aria-disabled')).toBe('true');
+      expect(cell?.disabled).toBe(false);
+      cell?.click();
+      await settle();
+      expect(query(fixture, 'consumer-editor-judge')).toBeNull();
+      mockState.commitState.set({ status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      await settle();
+      expect(button(fixture, 'consumer-edit-judge')?.hasAttribute('aria-disabled')).toBe(false);
+    });
+
+    it('M-2: Esc while the choice saves closes the popover and returns focus to the row cell, not the page', async () => {
+      let finish: () => void = () => undefined;
+      mockState.saveSettings.mockImplementationOnce(() => {
+        mockState.commitState.set({ status: 'saving', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+        return new Promise<boolean>((resolve) => {
+          finish = () => {
+            mockState.commitState.set({ status: 'saved', saved: ['test'], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+            resolve(true);
+          };
+        });
+      });
+      await openRow('archaeologist');
+      await choose(providerSelect('archaeologist'), 'anthropic');
+      const cell = button(fixture, 'consumer-edit-archaeologist');
+      expect(cell?.getAttribute('aria-disabled')).toBe('true');
+      query(fixture, 'consumer-editor-archaeologist')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flushSave();
+      TestBed.tick();
+      expect(query(fixture, 'consumer-editor-archaeologist')).toBeNull();
+      expect(document.activeElement).toBe(cell);
+      finish();
+      await flushSave();
+      TestBed.tick();
+      expect(query(fixture, 'consumer-editor-archaeologist')).toBeNull();
+      expect(document.activeElement).toBe(cell);
     });
   });
 
@@ -562,39 +617,71 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       expect(button(fixture, 'timeout-save-button')?.disabled).toBe(true);
     });
 
-    it('saves timeout converted to milliseconds and emits timeoutSaved', async () => {
+    it('saves timeout converted to milliseconds, emits timeoutSaved, closes the editor and offers Undo', async () => {
       const timeoutSavedSpy = jest.fn();
       component.timeoutSaved.subscribe(timeoutSavedSpy);
-      button(fixture, 'timeout-edit-button')?.click();
-      fixture.detectChanges();
-      const input = inputEl(fixture, 'timeout-input');
-      if (input) {
-        input.value = '180';
-        input.dispatchEvent(new Event('input'));
-      }
-      fixture.detectChanges();
+      typeTimeout('180');
       button(fixture, 'timeout-save-button')?.click();
-      await settle();
+      await flushSave();
       expect(mockState.saveSettings).toHaveBeenCalledWith({ judging: { enhanceTimeoutMs: 180000 } }, expect.any(Object));
       expect(timeoutSavedSpy).toHaveBeenCalledWith(180);
+      expect(query(fixture, 'timeout-editor')).toBeNull();
+      expect(feedback.toast()).toEqual({ tone: 'status', message: 'Saved enhancement time limit to All Ptah apps.', canUndo: true });
+      await feedback.undo();
+      expect(mockState.saveSettings).toHaveBeenLastCalledWith({ judging: { enhanceTimeoutMs: 120000 } }, expect.any(Object));
+      expect(timeoutSavedSpy).toHaveBeenLastCalledWith(120);
     });
 
-    it('a refused timeout save emits nothing', async () => {
+    it('S-1: a refused timeout save emits nothing, puts the saved limit back and says so', async () => {
       const timeoutSavedSpy = jest.fn();
       component.timeoutSaved.subscribe(timeoutSavedSpy);
       mockState.saveSettings.mockResolvedValueOnce(false);
-      button(fixture, 'timeout-edit-button')?.click();
-      fixture.detectChanges();
-      const input = inputEl(fixture, 'timeout-input');
+      typeTimeout('180');
+      button(fixture, 'timeout-save-button')?.click();
+      await flushSave();
+      expect(timeoutSavedSpy).not.toHaveBeenCalled();
+      expect(query(fixture, 'timeout-editor')).toBeTruthy();
+      expect(inputEl(fixture, 'timeout-input')?.value).toBe('120');
+      expect(query(fixture, 'timeout-save-error')?.getAttribute('role')).toBe('alert');
+      expect(query(fixture, 'timeout-save-error')?.textContent?.trim())
+        .toBe('Could not save the enhancement time limit. The limit shown is the saved one.');
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Another change is still saving.', canUndo: false });
+    });
+
+    it('S-1 / D15: a write that did not save (failed commit, after an earlier saved one) is never shown as saved', async () => {
+      const timeoutSavedSpy = jest.fn();
+      component.timeoutSaved.subscribe(timeoutSavedSpy);
+      mockState.commitState.set({ status: 'saved', saved: ['earlier'], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      mockState.saveSettings.mockImplementationOnce(async () => {
+        mockState.commitState.set({ status: 'failed', saved: [], unsaved: ['Enhancement time limit'], unconfirmed: [], refreshFailed: false, message: 'EACCES: /home/user/.config' });
+        return true;
+      });
+      typeTimeout('180');
+      button(fixture, 'timeout-save-button')?.click();
+      await flushSave();
+      expect(timeoutSavedSpy).not.toHaveBeenCalled();
+      expect(inputEl(fixture, 'timeout-input')?.value).toBe('120');
+      expect(query(fixture, 'timeout-save-error')?.textContent?.trim())
+        .toBe('Could not save the enhancement time limit. The limit shown is the saved one.');
+      expect(query(fixture, 'timeout-editor')?.textContent).not.toContain('EACCES');
+      expect(feedback.toast()?.tone).toBe('alert');
+      expect(feedback.toast()?.message).toContain('Could not save enhancement time limit.');
+    });
+
+    it('S-1: a write that throws shows the same fixed sentence; typing again clears it', async () => {
+      mockState.saveSettings.mockImplementationOnce(async () => { throw new Error('host broke'); });
+      const input = typeTimeout('180');
+      button(fixture, 'timeout-save-button')?.click();
+      await flushSave();
+      expect(query(fixture, 'timeout-save-error')?.textContent?.trim())
+        .toBe('Could not save the enhancement time limit. The limit shown is the saved one.');
+      expect(query(fixture, 'timeout-editor')?.textContent).not.toContain('host broke');
       if (input) {
-        input.value = '180';
+        input.value = '200';
         input.dispatchEvent(new Event('input'));
       }
       fixture.detectChanges();
-      button(fixture, 'timeout-save-button')?.click();
-      await settle();
-      expect(timeoutSavedSpy).not.toHaveBeenCalled();
-      expect(query(fixture, 'timeout-editor')).toBeTruthy();
+      expect(query(fixture, 'timeout-save-error')).toBeNull();
     });
 
     it('handles timeoutNotice by showing alert and Retry/Change time limit links', () => {
@@ -613,12 +700,14 @@ describe('ProviderConsumerAssignmentsComponent', () => {
   });
 
   describe('6. Table Density, Chips and Accessibility', () => {
-    it('renders the roles as a table-xs with Role, Provider & model, Tier and Scope columns', () => {
+    it('renders the roles as a table-xs with Role, Provider & model and Tier columns (no Scope column, V36-6)', () => {
       const table = query(fixture, 'consumer-table');
       expect(table?.tagName).toBe('TABLE');
       expect(table?.className).toContain('table-xs');
       const headers = Array.from(table?.querySelectorAll('thead th') ?? []).map((th) => th.textContent?.trim());
-      expect(headers).toEqual(['Role', 'Provider & model', 'Tier', 'Scope']);
+      expect(headers).toEqual(['Role', 'Provider & model', 'Tier']);
+      expect(query(fixture, 'consumer-row-judge')?.querySelectorAll('td')).toHaveLength(2);
+      expect(query(fixture, 'enhancement-timeout-section')?.querySelector('td')?.getAttribute('colspan')).toBe('3');
       expect(table?.querySelector('caption')?.textContent?.trim()).toBe('Background model roles');
     });
 
@@ -648,10 +737,32 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       expect(button(fixture, 'consumer-edit-synthesis')?.getAttribute('title')).toBe('anthropic · claude-3-5-sonnet');
     });
 
-    it('renders scope row for provider, model, and timeout', () => {
-      expect(query(fixture, 'scope-row-provider-memory-curator')).toBeTruthy();
-      expect(query(fixture, 'scope-row-model-memory-curator')).toBeTruthy();
+    it('V36-6 / D16: an inherited role shows no scope; an overridden one shows its badge inline after the cell', () => {
+      // memory keys are inherited (global, no override): nothing renders for that row.
+      expect(query(fixture, 'scope-row-provider-memory-curator')).toBeNull();
+      expect(query(fixture, 'scope-row-model-memory-curator')).toBeNull();
       expect(query(fixture, 'scope-row-timeout')).toBeTruthy();
+      mockState.scopesStore.update((section) => ({
+        ...section,
+        data: section.data && { ...section.data, entries: section.data.entries.map((entry) => entry.key === 'memory.curatorModel'
+          ? { ...entry, scope: 'app' as const, hasOverride: true } : entry) },
+      }));
+      fixture.detectChanges();
+      const cell = button(fixture, 'consumer-edit-memory-curator')?.closest('td');
+      const badge = cell?.querySelector('[data-testid="scope-row-model-memory-curator"] [data-testid="scope-badge"]');
+      expect(badge?.textContent).toContain('· App');
+      expect(cell?.querySelector('[data-testid="scope-row-provider-memory-curator"] [data-testid="scope-badge"]')).toBeNull();
+    });
+
+    it('V36-2: helper text is at least 12 px (text-xs); 11 px stays only on btn-xs labels and the table headings', () => {
+      button(fixture, 'timeout-edit-button')?.click();
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      const small = Array.from(host.querySelectorAll<HTMLElement>('[class*="text-[10px]"], [class*="text-[11px]"]'))
+        .filter((node) => !node.classList.contains('btn') && node.tagName !== 'TR');
+      expect(small).toHaveLength(0);
+      expect(query(fixture, 'consumer-helper-judging-enhancement')?.className).toContain('text-xs');
+      expect(query(fixture, 'assignments-copy')?.className).toContain('text-xs');
     });
 
     it('names the popover dialog "Reassign {role}"; the picker header (the role name) is its only visible title', async () => {
@@ -729,7 +840,7 @@ describe('ProviderConsumerAssignmentsComponent', () => {
 
     it('renders Mixed sources when the scope source is unknown, and nothing for an inherited global value (D16)', () => {
       // memory keys have scope entries (global, inherited); the lane and timeout keys do not.
-      expect(query(fixture, 'scope-row-provider-memory-curator')?.querySelector('[data-testid="scope-badge"]')).toBeNull();
+      expect(query(fixture, 'scope-row-provider-memory-curator')).toBeNull();
       const laneBadge = query(fixture, 'scope-row-provider-archaeologist')?.querySelector('[data-testid="scope-badge"]');
       expect(laneBadge?.textContent).toContain('· Mixed sources');
       expect(laneBadge?.getAttribute('data-field')).toBeTruthy();
@@ -760,6 +871,37 @@ describe('ProviderConsumerAssignmentsComponent', () => {
       fixture.componentRef.setInput('initialEditingConsumerId', 'judge');
       await settle();
       expect(query(fixture, 'consumer-editor-judge')).toBeTruthy();
+    });
+
+    it('M-1: reports each applied deep link (deepLinkOpened) so the host can clear it, and never toggles an open popover shut', async () => {
+      const opened = jest.fn();
+      component.deepLinkOpened.subscribe(opened);
+      await openRow('judge');
+      fixture.componentRef.setInput('initialEditingConsumerId', 'judge');
+      await settle();
+      expect(query(fixture, 'consumer-editor-judge')).toBeTruthy();
+      expect(opened).toHaveBeenCalledWith('judge');
+      button(fixture, 'consumer-close-judge')?.click();
+      fixture.componentRef.setInput('initialEditingConsumerId', null);
+      await settle();
+      fixture.componentRef.setInput('initialEditingConsumerId', 'judge');
+      await settle();
+      expect(query(fixture, 'consumer-editor-judge')).toBeTruthy();
+      expect(opened).toHaveBeenCalledTimes(2);
+    });
+
+    it('a deep link that lands while a save runs waits for it to end, then opens the popover', async () => {
+      const opened = jest.fn();
+      component.deepLinkOpened.subscribe(opened);
+      mockState.commitState.set({ status: 'saving', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      fixture.componentRef.setInput('initialEditingConsumerId', 'replay');
+      await settle();
+      expect(query(fixture, 'consumer-editor-replay')).toBeNull();
+      expect(opened).not.toHaveBeenCalled();
+      mockState.commitState.set({ status: 'saved', saved: ['test'], unsaved: [], unconfirmed: [], refreshFailed: false, message: null });
+      await settle();
+      expect(query(fixture, 'consumer-editor-replay')).toBeTruthy();
+      expect(opened).toHaveBeenCalledWith('replay');
     });
 
     it('a deep-linked popover closed with Esc returns focus to its row cell', async () => {
