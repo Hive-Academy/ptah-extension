@@ -373,7 +373,27 @@ Edge cases:
   removal is a follow-up. M1 (a staying workspace not visited this run is not checked) left as is, with a
   code comment: no live process can exist for such a workspace.
 
+- From the whole-diff review (MIN-3, accepted): after the Batch 4 `hadLiveRecord` guard, resume records
+  past the TTL can stay in the durable list after an idle abort. `restoreResumableBySession` already
+  refuses expired records, so the user sees no difference.
+- From the correction review (moderate, needs a backend change): a registration race. A turn-1 close
+  sends `chat:abort` with the tab id; if that arrives before the backend has registered the record for
+  that tab, `endSession` returns 'already-ended' and the process that registers next is left running.
+- Ptah lane issue (not this repo's code): a shared antigravity CLI session id delivered another
+  session's report to this task's lane. Ptah should keep lane session ids per task/session.
+- Open item, accepted by the orchestrator, NOT a pass: the claude.exe runtime check (visual-review.md
+  Part B) could not be isolated from the user's running app (shared credentials and `~/.ptah`). It is
+  deferred to a manual check by the user, with the steps from visual-review.md:110-128 going into the
+  PR test plan.
+
 ## Batch log
+
+- Whole-diff correction — whole-diff cross-side review (antigravity lane) APPROVED 8/10. Fixed: MOD-3
+  (closing a tab during its first turn leaked the process; the `MessageSenderService` abort listener now
+  falls back to the tab id, which the backend registry `find()` resolves) and MIN-2 (the workspace-removal
+  confirm counts only the streaming sessions it will actually abort). An independent antigravity review
+  of the correction was APPROVED 8/10. MOD-1, MOD-2, MIN-1 and MIN-3 went to the follow-ups and the PR
+  note. Commits 573f0fa54 (chat) and 3ad63f714 (core); nx typecheck, lint and test for core and chat re-run by team-leader: all pass.
 
 - Batch 3 — COMPLETE cc1c0e1f2. Code-logic review APPROVED 7/10, 1 serious + 3 moderate, in-process
   same-side (disclosed). Fixed: S1 (a streaming session also open in a staying workspace is no longer
