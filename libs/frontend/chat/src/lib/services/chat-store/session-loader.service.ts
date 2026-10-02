@@ -124,6 +124,42 @@ interface CliOutputLoadState {
   abortController: AbortController | null;
 }
 
+/**
+ * A `session:list` result as the loader stores it. The reply crosses the RPC
+ * boundary, so its declared shape is not a runtime guarantee: a host (or a
+ * test harness) that answers `success: true` without rows must leave the
+ * sidebar empty, never `undefined` — an `undefined` list throws in every
+ * reader and takes the shell's change detection down with it.
+ */
+interface SessionListPage {
+  sessions: ChatSessionSummary[];
+  total: number;
+  hasMore: boolean;
+  organizationAvailable: boolean;
+}
+
+function readSessionListPage(
+  data: {
+    sessions?: ChatSessionSummary[] | null;
+    total?: number | null;
+    hasMore?: boolean | null;
+    organizationAvailable?: boolean;
+  },
+  /** Rows already loaded before this page (load-more); 0 for a full read. */
+  offset = 0,
+): SessionListPage {
+  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  return {
+    sessions,
+    // Without a total, the rows loaded so far are all there is.
+    total:
+      typeof data.total === 'number' ? data.total : offset + sessions.length,
+    hasMore: data.hasMore === true,
+    // Only an explicit `true` counts (R-TL2).
+    organizationAvailable: data.organizationAvailable === true,
+  };
+}
+
 @Injectable({ providedIn: 'root' })
 export class SessionLoaderService {
   private readonly claudeRpcService = inject(ClaudeRpcService);
@@ -433,13 +469,12 @@ export class SessionLoaderService {
       }
 
       if (result.success && result.data) {
-        this._organizationAvailable.set(
-          result.data.organizationAvailable === true,
-        );
-        this._sessions.set(result.data.sessions);
-        this._totalSessions.set(result.data.total);
-        this._hasMoreSessions.set(result.data.hasMore);
-        this._sessionsOffset.set(result.data.sessions.length);
+        const page = readSessionListPage(result.data);
+        this._organizationAvailable.set(page.organizationAvailable);
+        this._sessions.set(page.sessions);
+        this._totalSessions.set(page.total);
+        this._hasMoreSessions.set(page.hasMore);
+        this._sessionsOffset.set(page.sessions.length);
         this.updateCache(workspacePath);
       } else {
         console.error(
@@ -488,11 +523,12 @@ export class SessionLoaderService {
       }
 
       if (success && data) {
-        this._organizationAvailable.set(data.organizationAvailable === true);
-        this._sessions.update((current) => [...current, ...data.sessions]);
-        this._totalSessions.set(data.total);
-        this._hasMoreSessions.set(data.hasMore);
-        this._sessionsOffset.set(currentOffset + data.sessions.length);
+        const page = readSessionListPage(data, currentOffset);
+        this._organizationAvailable.set(page.organizationAvailable);
+        this._sessions.update((current) => [...current, ...page.sessions]);
+        this._totalSessions.set(page.total);
+        this._hasMoreSessions.set(page.hasMore);
+        this._sessionsOffset.set(currentOffset + page.sessions.length);
         this.updateCache(workspacePath);
       } else {
         console.error(
@@ -685,13 +721,12 @@ export class SessionLoaderService {
       if (generation !== this.listQueryGeneration) return;
 
       if (result.success && result.data) {
-        this._organizationAvailable.set(
-          result.data.organizationAvailable === true,
-        );
-        this._sessions.set(result.data.sessions);
-        this._totalSessions.set(result.data.total);
-        this._hasMoreSessions.set(result.data.hasMore);
-        this._sessionsOffset.set(result.data.sessions.length);
+        const page = readSessionListPage(result.data);
+        this._organizationAvailable.set(page.organizationAvailable);
+        this._sessions.set(page.sessions);
+        this._totalSessions.set(page.total);
+        this._hasMoreSessions.set(page.hasMore);
+        this._sessionsOffset.set(page.sessions.length);
         this.updateCache(workspacePath);
       } else {
         console.error(

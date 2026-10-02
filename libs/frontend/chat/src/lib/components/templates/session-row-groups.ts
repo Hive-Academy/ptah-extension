@@ -34,11 +34,13 @@ export const MAX_SESSION_ROW_DEPTH = 3;
  * whose parent is not loaded stays a top-level row.
  */
 export function groupSessionRows(
-  sessions: readonly ChatSessionSummary[],
+  sessions: readonly ChatSessionSummary[] | null | undefined,
   groupBy: SessionListGroup,
 ): SessionRowGroup[] {
-  // No rows, no groups: the sidebar's empty state needs an empty list.
-  if (sessions.length === 0) return [];
+  // No rows, no groups: the sidebar's empty state needs an empty list. A
+  // missing list is read as empty: this runs in change detection, and a throw
+  // here would abort the whole shell render.
+  if (!sessions || sessions.length === 0) return [];
   switch (groupBy) {
     case 'none':
       return [{ key: 'all', label: null, rows: flat(sessions) }];

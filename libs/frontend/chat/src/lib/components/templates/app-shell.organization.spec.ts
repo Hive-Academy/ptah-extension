@@ -414,6 +414,17 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
       expect(meta?.classList).toContain('pr-20');
     });
 
+    it('still renders the sidebar when the store holds no list at all', async () => {
+      // Regression (PR #623 E2E): an undefined list threw inside change
+      // detection and aborted the whole shell render.
+      const fixture = await available(
+        undefined as unknown as ChatSessionSummary[],
+      );
+
+      expect(query(fixture, 'ptah-session-filter-bar')).not.toBe(null);
+      expect(fixture.nativeElement.textContent).toContain('No sessions yet');
+    });
+
     it('offers no Organize action for a row without an organization record', async () => {
       const fixture = await available([session('fork', 'Fresh fork')]);
       expect(query(fixture, '[data-testid="session-organize"]')).toBe(null);
@@ -536,6 +547,11 @@ describe('groupSessionRows', () => {
   it('returns no group for no rows', () => {
     expect(groupSessionRows([], 'status')).toEqual([]);
     expect(groupSessionRows([], 'none')).toEqual([]);
+  });
+
+  it('reads a missing list as empty instead of throwing (runs in change detection)', () => {
+    expect(groupSessionRows(undefined, 'none')).toEqual([]);
+    expect(groupSessionRows(null, 'parent')).toEqual([]);
   });
 
   it('groups by primary task, then first task, then "No task", in arrival order', () => {

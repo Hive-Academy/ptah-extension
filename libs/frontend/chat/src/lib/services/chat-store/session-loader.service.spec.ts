@@ -3199,6 +3199,47 @@ describe('SessionLoaderService', () => {
       expect(service.sessions().map((s) => s.id)).toEqual(['filtered']);
     }, 10000);
 
+    describe('a success reply without rows (E2E harness shape)', () => {
+      it('leaves an empty list after the immediate load', async () => {
+        rpcCall.mockResolvedValueOnce({ success: true, data: {} });
+        await expect(service.loadSessions()).resolves.toBeUndefined();
+
+        expect(service.sessions()).toEqual([]);
+        expect(service.totalSessions()).toBe(0);
+        expect(service.hasMoreSessions()).toBe(false);
+        expect(service.organizationAvailable()).toBe(false);
+      }, 10000);
+
+      it('appends nothing on a load-more page', async () => {
+        rpcCall.mockResolvedValueOnce({
+          success: true,
+          data: {
+            sessions: [makeSummary({ id: 'first' })],
+            total: 2,
+            hasMore: true,
+          },
+        });
+        await service.loadSessions();
+
+        rpcCall.mockResolvedValueOnce({ success: true, data: {} });
+        await expect(service.loadMoreSessions()).resolves.toBeUndefined();
+
+        expect(service.sessions().map((s) => s.id)).toEqual(['first']);
+        expect(service.totalSessions()).toBe(1);
+        expect(service.hasMoreSessions()).toBe(false);
+      }, 10000);
+
+      it('leaves an empty list after the workspace-switch read', async () => {
+        rpcCall.mockResolvedValue({ success: true, data: {} });
+        service.switchWorkspace('D:/repo-empty');
+        await drain();
+
+        expect(service.sessions()).toEqual([]);
+        expect(service.totalSessions()).toBe(0);
+        expect(service.hasMoreSessions()).toBe(false);
+      });
+    });
+
     it('sends the query on the workspace-switch read and skips a cache filled under another query', async () => {
       rpcCall.mockResolvedValue(
         listResult(['row'], { organizationAvailable: true }),
