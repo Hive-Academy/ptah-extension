@@ -699,6 +699,7 @@ export interface GitCheckoutParams extends GitWorkspaceScopedParams {
   /**
    * `branch` names a remote-tracking ref (`origin/x`): switch to local `x`
    * when it exists, otherwise create it tracking the remote. Never detaches.
+   * A `branch` that is not a remote-tracking ref fails the checkout.
    */
   track?: boolean;
 }

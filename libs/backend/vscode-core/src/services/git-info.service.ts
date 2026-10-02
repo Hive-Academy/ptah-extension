@@ -2528,7 +2528,8 @@ export class GitInfoService {
    *   the entry is popped back, and if that pop fails too both errors are
    *   reported and the entry is kept.
    * - `options.track` with a remote-tracking ref `origin/x`: switch to local
-   *   `x` when it exists, else `switch --track origin/x`. `git switch` never
+   *   `x` when it exists, else `switch --track origin/x`. A `branch` that is
+   *   not a remote-tracking ref is refused with an error. `git switch` never
    *   detaches HEAD without `--detach`, which is never passed.
    *
    * Security: `assertSafeRef(branch)` runs before any git operation, and the
@@ -2555,6 +2556,12 @@ export class GitInfoService {
         const target = options.track
           ? await this.resolveTrackTarget(workspacePath, branch)
           : ['--end-of-options', branch];
+        if (target === null) {
+          return {
+            success: false,
+            error: `'${branch}' is not a remote-tracking branch`,
+          };
+        }
         if (force) {
           return this.runSwitch(
             workspacePath,
@@ -2612,21 +2619,21 @@ export class GitInfoService {
   /**
    * The `switch` arguments for `track`: a remote-tracking ref `origin/x`
    * becomes local `x` when that branch exists, otherwise `--track origin/x`
-   * (git names the new branch `x`). Anything else is switched to as given,
-   * which `git switch` refuses for a remote ref rather than detaching.
+   * (git names the new branch `x`). `null` when `branch` is not a
+   * remote-tracking ref: `track` is then refused rather than switching to a
+   * local branch that happens to carry the same name.
    */
   private async resolveTrackTarget(
     workspacePath: string,
     branch: string,
-  ): Promise<string[]> {
+  ): Promise<string[] | null> {
     const slash = branch.indexOf('/');
+    if (slash <= 0) return null;
     const remote = await this.execGit(
       ['rev-parse', '--verify', '--quiet', `refs/remotes/${branch}`],
       workspacePath,
     );
-    if (slash <= 0 || remote.exitCode !== 0) {
-      return ['--end-of-options', branch];
-    }
+    if (remote.exitCode !== 0) return null;
     const local = branch.slice(slash + 1);
     const existing = await this.execGit(
       ['rev-parse', '--verify', '--quiet', `refs/heads/${local}`],
