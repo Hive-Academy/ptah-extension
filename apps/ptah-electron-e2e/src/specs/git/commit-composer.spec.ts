@@ -157,7 +157,11 @@ test.describe('commit composer, end to end in Electron (TASK_2026_576 Requiremen
 
     const log = page.getByRole('log', { name: 'Commit hook output' });
     await expect(log).toBeVisible({ timeout: COMMIT_ROUND_TRIP_MS });
-    for (const line of LINES) {
+    // Poll only the lines that stay on screen for a second. The last line is
+    // printed right before the hook exits, and a successful commit closes the
+    // log in the same moment, so a poll can miss it; the observer recorded
+    // below proves it appeared before the success line.
+    for (const line of LINES.slice(0, -1)) {
       await expect(log).toContainText(line, { timeout: COMMIT_ROUND_TRIP_MS });
     }
 
