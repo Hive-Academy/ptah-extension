@@ -286,3 +286,40 @@ The unrendered states listed in Gate V 50 item 6 (key-not-active alert as a fixt
 - Recommendation: APPROVE WITH NOTES (PASS WITH NOTES, 8/10)
 - Confidence: HIGH on folds, axe, focus, overlays, coloured text and the carry-forward facts; MEDIUM on the 800 px trigger (not reproduced); LOW on unrendered error states and the look of real OS dialogs.
 - Key concern: B38-1 and B38-2. The connection card can say "Connected" after a failed check, and its own Check/Retry do not check that connection.
+
+
+## Batch 38 re-check 1 (2026-10-02, visual-reviewer subagent — same-side, disclosed)
+
+Same-side, disclosed (in-process subagent, no image-capable CLI lane). Head `eeaa94951` (Batch 53). Build: `dist/apps/ptah-extension-webview/browser/main.js` 21:43:27; no non-spec source under `libs/frontend` or `apps/ptah-extension-webview` is newer. No source edited, no git writes; the three throwaway probe specs were deleted. Evidence: `screenshots/gate-v38r1/` (PNG + `recheck-*.json`, `esc-after-check-*.json`).
+
+**Committed folder run** (`--reporter=list --workers=2`): **121 passed, 2 skipped, 1 failed (8.1 min)**. The failure was "baseline smoke — connection drawers, Models & Tiers and Advanced (electron, anubis)" at 42 s: a 30 s timeout clicking the drawer's "Advanced" tab while the machine was loaded. Re-run alone, `--repeat-each=3 --workers=1`: 3/3 passed (3-5 s each). Treated as load flake, not a regression; the 8-test split also leaves the 800 px fold test green in all four combinations (`B53 ...` lines in the log: order strip, list-vs-field).
+
+**Captures rewritten:** 74 `current-*` PNGs (no new names, no `baseline-*`), compared with HEAD by pixel (summed channel difference > 24). Over-threshold counts: 3 files with 2 px at (114-115, 159) (`current-live-orchestration-vscode-anubis-light`, `current-orchestration-popover-model-vscode-anubis-light`, `current-orchestration-vscode-anubis`) and 1 file with 11 px along y 137-143 (`current-orchestration-popover-model-electron-anubis-light`, the edge of the Re-detect button). All are anti-aliasing noise; the other 70 have no pixel over the threshold. So **no capture has a visible change vs HEAD**. Nothing restored.
+
+### B38 status
+
+| Id | Status | Evidence |
+| --- | --- | --- |
+| B38-1 card shows the failed check | **Fixed** | 4 combos: card `data-state` goes `connected` -> `check-failed`, text "Check failed", with a red spine and Retry (`card-failed-vscode-anubis-light.png`, `card-failed-*.png`). After the card's own Retry with a verified result it returns to `connected` / "Connected". |
+| B38-2 card Check/Retry check only their connection | **Fixed** | 4 combos: Retry on the sovereigneg card sent exactly one `auth:checkConnection` with that provider (`recheck-*.json` `afterRetry.calls: ["sovereigneg"]`). Ollama Cloud (not checkable): Retry sent 0 checks, card stays "Unreachable". Focus after Retry is on the card (`div` named "sovereigneg: Connected...", `role=button`), not `body`. |
+| B38-3 list at least the field width | **Fixed** | 4 combos: Main Agent popover list 280/278 px = field 280/278 (was 214); drawer tier picker 209.5 = 209.5 (was 190 vs 210); Orchestration matrix popover 248 = 248; list x equals field x (`list-main-*.png`, `list-tier-*.png`, `list-matrix-*.png`). The shared ui change reaches only `provider-model-search-field` (the only user of `NativeAutocompleteComponent` outside ui); all three users read correctly, nothing clipped. Not checked: the setup wizard's picker (not opened). |
+| B38-4 whole chips + "+N" | **Fixed** | VS Code both themes: "1. Codex -> 2. Antigravity -> 3. Glm -> 4. Copilot -> +1" (5 elements, none clipped, last chip right edge 731 < strip right edge 768-770). Electron: "1. Codex -> 2. Antigravity -> +3" (`orchestration-electron-anubis.png`). |
+| B38-5 fold assertion without jitter | **Fixed** | Folder run: all 800 px fold tests green in 4 combos; the new `B53` logs show 0 overflow. |
+| B38-6 shell sidebar contrast (outside) | Unchanged, out of scope | Not re-measured. |
+
+### Pass line re-check
+
+- **axe** (scoped to `ptah-settings`, 4 tabs x 4 combos): `color-contrast` 0 everywhere; `nested-interactive` only the known card, Providers only.
+- **Focus**: Tab walk 13-26 stops per tab, 0 stops without a ring in all 16.
+- **Esc/backdrop on the drawer after a check**: backdrop click closes it and focus returns to the card in all 4 combos. Esc closed it in the main probe (focus on the card), **but see N1**.
+- **Retry focus**: returns to the card, as above.
+
+### New finding
+
+| Id | Severity | Where | Evidence | Cause / fix |
+| --- | --- | --- | --- | --- |
+| N1 | Moderate | Providers drawer, Overview "Check connection", VS Code dark (not run in other combos) | `esc-after-check-*.json`: after a check (mouse click and keyboard Enter, failed and verified), focus is on `body` in 5 of 12 runs, and Esc then leaves the drawer open for 4+ seconds (`drawer: 1`, `active: BODY`). In the other 7 runs focus stayed on the button and Esc closed the drawer and returned focus to the card. A parallel 12-run stress showed the same state repeatedly (the next card click was blocked by the still-open drawer's backdrop). | The button is natively disabled while the check runs (`overview-tab.component.ts:175`, `[disabled]="loading() \|\| checking() \|\| saving()"`); a focused disabled button drops focus to `body`, and nothing restores it. Same family as the earlier Cursor popover N3. The file is not in Batch 53 (last change 28d), so it is **not a regression**, but the pass line "Esc closes every overlay" does not hold for this path. Fix: `aria-disabled` plus a guard in the handler (as the Cursor popover and order popover do), or refocus the Check button when the check ends. Tab and the Close button still work, so keyboard users are not trapped. |
+
+### Verdict
+
+**PASS WITH NOTES, 9/10 for the Batch 53 fixes; overall 8/10.** All five Batch 38 findings are fixed in both hosts and both themes, with no regression in axe, focus rings, backdrop close or card focus return. One new Moderate (N1, pre-existing, intermittent focus loss after the drawer's Check) keeps the overall score at 8. Open: N1, B38-6 (shell sidebar, outside this task), the setup wizard picker not re-checked after the shared list-width change, and the unstubbed OS dialogs / light-theme live pass from the first review.
