@@ -286,6 +286,12 @@ export class WebviewHtmlGenerator {
    * nonce is deliberately absent from `style-src`: under CSP Level 3 a nonce
    * makes Chromium ignore 'unsafe-inline'. The `nonce` attributes left on
    * `<style>`/`<link>` tags are inert under this policy.
+   *
+   * `worker-src blob:` lets `@pierre/diffs` start its highlighting workers. A
+   * webview cannot start a worker from a file URL, so the renderer fetches the
+   * worker script and creates each worker from a Blob URL (TASK_2026_576
+   * gate-p4-a9-pierre-perf Q1). Without the directive workers fall back to
+   * `default-src 'none'` and are blocked.
    */
   private getImprovedCSP(webview: vscode.Webview, nonce: string): string {
     return `default-src 'none';
@@ -294,6 +300,7 @@ export class WebviewHtmlGenerator {
             style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com;
             font-src ${webview.cspSource} https://fonts.gstatic.com https://fonts.googleapis.com data:;
             connect-src 'self' ${webview.cspSource};
+            worker-src blob:;
             frame-src 'none';
             object-src 'none';
             base-uri 'self' ${webview.cspSource};`;

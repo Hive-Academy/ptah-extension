@@ -5,6 +5,7 @@ import {
   Component,
   CUSTOM_ELEMENTS_SCHEMA,
   type ElementRef,
+  inject,
   input,
   signal,
   type TemplateRef,
@@ -20,6 +21,7 @@ import {
   type DiffLineAnnotation,
   type FileDiffMetadata,
 } from '@pierre/diffs';
+import type { WorkerPoolManager } from '@pierre/diffs/worker';
 import type { GitHunkRef } from '@ptah-extension/shared';
 import {
   createPierreDiffOptions,
@@ -35,6 +37,7 @@ import {
   type PierreHunkHost,
   type PierreHunkMappingError,
 } from './pierre-hunk-mapping';
+import { PierreWorkerPoolService } from './pierre-worker-pool';
 
 /** Template context for the per-hunk toolbar a consumer projects. */
 export interface PierreHunkToolbarContext {
@@ -67,6 +70,9 @@ type ParsedDiff =
  * - The patch is handed to Pierre verbatim: CR bytes are never stripped.
  * - A hunk-mapping mismatch leaves the diff readable with no hunk hosts and a
  *   visible note; it never guesses an index.
+ * - Highlighting runs in the shared Pierre worker pool. Nothing mounts until
+ *   the pool has settled (once per page); when it is unavailable the
+ *   `FileDiff` gets no pool and highlights on the main thread.
  */
 @Component({
   selector: 'ptah-pierre-diff-host',
@@ -149,14 +155,19 @@ export class PierreDiffHostComponent {
 
   private readonly container =
     viewChild.required<ElementRef<HTMLElement>>('container');
+  private readonly workerPool = inject(PierreWorkerPoolService);
   private instance: FileDiff | null = null;
 
   constructor() {
     registerPierreLanguages();
+    this.workerPool.start();
 
     // Content inputs: a fresh FileDiff per change; the cleanup disposes the
     // previous one first and runs again on destroy.
     afterRenderEffect((onCleanup) => {
+      const poolState = this.workerPool.state();
+      if (poolState.status === 'loading') return;
+      const pool = poolState.status === 'ready' ? poolState.pool : undefined;
       const container = this.container().nativeElement;
       const patch = this.patch();
       const oldText = this.oldText();
@@ -171,6 +182,7 @@ export class PierreDiffHostComponent {
           { patch, oldText, newText, fileName },
           hunks,
           diffStyle,
+          pool,
         ),
       );
       onCleanup(() => this.dispose(container));
@@ -193,6 +205,7 @@ export class PierreDiffHostComponent {
     },
     hunks: readonly GitHunkRef[],
     diffStyle: PierreDiffStyle,
+    pool: WorkerPoolManager | undefined,
   ): void {
     const parsed = this.parse(source);
     if (parsed.fileDiff === null) {
@@ -240,7 +253,7 @@ export class PierreDiffHostComponent {
           this.publish(result.hosts, result.error, hunks);
         },
       },
-      undefined,
+      pool,
       true,
     );
     this.instance = instance;

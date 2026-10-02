@@ -108,26 +108,35 @@ export function readDocumentThemeMode(): PierreThemeMode {
 }
 
 /**
- * Options for one `FileDiff` instance.
+ * Highlighting options shared by every `FileDiff` and by the worker pool. With
+ * a working pool Pierre takes `theme` and `lineDiffType` from the pool, not the
+ * instance, so both must carry the same values.
  *
  * - `lineDiffType: 'word'` marks only the changed word regions. `'word-alt'`
  *   (Pierre's default) joins regions across a single character and
  *   `'word-line'` highlights whole lines (Gate 1.7 open item 2).
  * - `preferredHighlighter: 'shiki-js'`: the JavaScript regex engine. The WASM
  *   engine is the configuration the research measured at ~377 KB gz.
- * - `hunkSeparators: 'line-info'` with `expandUnchanged: false`: collapsed
- *   context is shown as a line count, never expanded by default.
+ */
+export const PIERRE_HIGHLIGHT_OPTIONS = {
+  preferredHighlighter: 'shiki-js',
+  theme: DEFAULT_THEMES,
+  lineDiffType: 'word',
+} as const;
+
+/**
+ * Options for one `FileDiff` instance: {@link PIERRE_HIGHLIGHT_OPTIONS} plus
+ * `hunkSeparators: 'line-info'` with `expandUnchanged: false`, so collapsed
+ * context is shown as a line count, never expanded by default.
  */
 export function createPierreDiffOptions(
   diffStyle: PierreDiffStyle,
   themeType: PierreThemeMode,
 ): FileDiffOptions<undefined, undefined> {
   return {
-    preferredHighlighter: 'shiki-js',
-    theme: DEFAULT_THEMES,
+    ...PIERRE_HIGHLIGHT_OPTIONS,
     themeType,
     diffStyle,
-    lineDiffType: 'word',
     hunkSeparators: 'line-info',
     expandUnchanged: false,
   };

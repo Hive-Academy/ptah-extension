@@ -1727,6 +1727,15 @@ executors at once.
   round: `review-diff.service.ts` `toDiffState`/`toHistoricalState` turn `too-large`/`lfs-pointer` reads into empty
   `fresh` text (Req 6.2/6.10). For 43: pass `stacked`, call `GitStashService.registerReviewCanvas()`. Verified:
   git-ui typecheck/test/lint green, 802 tests; eager guard passes (`main.js` 370,305 B gz).
+- A9 gate (2026-10-02, `reviews/gate-p4-a9-pierre-perf.md`, independent antigravity lane; API and CSP claims checked
+  by the orchestrator): Q1 use Pierre's worker pool (Blob-URL worker from `worker-portable.js`; VS Code needs
+  `worker-src blob:`, Electron already has `worker-src 'self' blob:`); Q2 cap at 3,000 changed lines with the
+  labelled row (VirtualizedFileDiff rejected). Implemented in a P4 follow-up: `PierreWorkerPoolService`
+  (fetch asset once, 10 s abort, outside the zone, pool size max(2, min(cores, 6)), fallback to main thread with one
+  warning), host waits for the pool before mounting, `PIERRE_HIGHLIGHT_OPTIONS` shared so word diff stays on, asset
+  `assets/pierre/worker-portable.js` (442,777 B, lazy only), VS Code `worker-src blob:` + spec,
+  `MAX_RENDERABLE_CHANGED_LINES = 3000` (over the cap: labelled row, no read). Too-large/LFS fix `8b9466240`.
+  Noted: webview initial-bundle budget warning 3.36 MB vs 2.5 MB; `lru_map` CommonJS warning. Batch 60 re-measures.
 
 ## Batch 39: `file:viewContent` sha256/bom and save contract types — COMPLETE
 

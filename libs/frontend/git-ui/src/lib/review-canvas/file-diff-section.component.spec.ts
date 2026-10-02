@@ -350,6 +350,47 @@ describe('FileDiffSectionComponent', () => {
       );
     });
 
+    it('renders a file at exactly the changed-line cap (3,000)', async () => {
+      await create({
+        near: true,
+        file: makeFile({ additions: 2000, deletions: 1000 }),
+      });
+      expect(reviewDiff.mount).toHaveBeenCalledTimes(1);
+      setDiff(makeDiff());
+      await settle();
+      expect(byTestId('file-label-row')).toBeNull();
+      expect(pierre()).not.toBeNull();
+    });
+
+    it('labels a file one line over the cap (3,001) with Open-in and never reads it', async () => {
+      await create({
+        near: true,
+        draftOwner: owner,
+        editorTargets: [{ id: 'vscode', displayName: 'VS Code' }],
+        file: makeFile({ additions: 2001, deletions: 1000 }),
+      });
+      expect(reviewDiff.mount).not.toHaveBeenCalled();
+      const row = byTestId('file-label-row');
+      expect(row?.textContent).toContain(
+        'Too large to display (3,001 changed lines)',
+      );
+      expect(row?.querySelector('.text-base-content-muted')).not.toBeNull();
+      expect(pierre()).toBeNull();
+      expect(byTestId('file-section-comment')).toBeNull();
+      expect(host().querySelector('ptah-open-in-button')).not.toBeNull();
+    });
+
+    it('counts a missing side as zero against the cap', async () => {
+      await create({
+        near: true,
+        file: makeFile({ additions: 3001, deletions: null }),
+      });
+      expect(reviewDiff.mount).not.toHaveBeenCalled();
+      expect(byTestId('file-label-row')?.textContent).toContain(
+        '3,001 changed lines',
+      );
+    });
+
     it('keeps the error row when a failed read also carries an unshipped side', async () => {
       await create({ near: true });
       setDiff(

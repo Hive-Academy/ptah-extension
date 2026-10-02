@@ -120,6 +120,21 @@ const LABEL_ROW: Readonly<Record<LabelKind, LabelRow>> = {
   },
 };
 
+/**
+ * Above this many changed lines (additions + deletions) a file is shown as the
+ * too-large row with Open-in instead of mounting Pierre, and is never read
+ * (gate-p4-a9-pierre-perf Q2: a 10,000-line file blocked the main thread for
+ * 0.5-2 s in every renderer variant).
+ */
+export const MAX_RENDERABLE_CHANGED_LINES = 3000;
+
+/** Changed lines from the file list, or `null` when the list has no counts. */
+function changedLines(file: ReviewCanvasFile): number | null {
+  return file.additions === null && file.deletions === null
+    ? null
+    : (file.additions ?? 0) + (file.deletions ?? 0);
+}
+
 /** `1.5 MB` style size, or `null` for a size not worth showing. */
 function formatSize(bytes: number): string | null {
   if (!Number.isFinite(bytes) || bytes <= 0) return null;
@@ -151,7 +166,9 @@ function splitLines(text: string): string[] {
  *   height so the scrollbar stays accurate.
  * - Labelled rows (binary, submodule, conflicted) never read or render text;
  *   a read that reports a binary, too-large or LFS-pointer side becomes a
- *   labelled row too, so Pierre never mounts empty text for it.
+ *   labelled row too, so Pierre never mounts empty text for it. A file with
+ *   more than {@link MAX_RENDERABLE_CHANGED_LINES} changed lines is a
+ *   too-large row from the list alone, and is never read either.
  * - A failed read shows its sanitized message with Retry, never as content.
  * - Each hunk carries a `HunkToolbarComponent` through Pierre's slot. While a
  *   refusal chip shows, the diff body is dimmed to 85% until the re-read.
@@ -461,12 +478,19 @@ export class FileDiffSectionComponent {
   private readonly mountRequest = computed<ReviewDiffRequest | null>(
     () => {
       const file = this.file();
-      return this.near() && file.label === null ? file.request : null;
+      return this.near() && file.label === null && !this.overLineCap()
+        ? file.request
+        : null;
     },
     {
       equal: (a, b) =>
         a === b || (!!a && !!b && reviewDiffKey(a) === reviewDiffKey(b)),
     },
+  );
+
+  /** The list's changed-line count is over the render cap. */
+  private readonly overLineCap = computed(
+    () => (changedLines(this.file()) ?? 0) > MAX_RENDERABLE_CHANGED_LINES,
   );
 
   protected readonly diff = computed(() => {
@@ -481,6 +505,7 @@ export class FileDiffSectionComponent {
   protected readonly labelKind = computed<LabelKind | null>(() => {
     const listed = this.file().label;
     if (listed) return listed;
+    if (this.overLineCap()) return 'too-large';
     const diff = this.diff();
     // A failed read keeps its error row and Retry; a label must not hide it.
     if (!diff || diff.status === 'error') return null;
@@ -491,6 +516,13 @@ export class FileDiffSectionComponent {
     const kind = this.labelKind();
     if (!kind) return null;
     const row = LABEL_ROW[kind];
+    if (kind === 'too-large' && this.overLineCap()) {
+      const lines = changedLines(this.file()) ?? 0;
+      return {
+        ...row,
+        text: `${row.text} (${lines.toLocaleString('en-US')} changed lines)`,
+      };
+    }
     const unrenderable = this.diff()?.unrenderable;
     const size =
       unrenderable?.reason === kind ? formatSize(unrenderable.size) : null;

@@ -196,6 +196,12 @@ describe('WebviewHtmlGenerator content security policy', () => {
     ]);
   });
 
+  it('allows Blob URL workers only, as the @pierre/diffs worker pool needs', () => {
+    // The webview fetches worker-portable.js and starts each worker from a
+    // Blob URL; without worker-src, workers fall back to default-src 'none'.
+    expect(directive(generate(), 'worker-src')).toEqual(['blob:']);
+  });
+
   it('keeps script-src nonce-only, with no unsafe-inline or unsafe-eval', () => {
     const scriptSrc = directive(generate(), 'script-src');
 
