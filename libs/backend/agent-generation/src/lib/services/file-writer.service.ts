@@ -195,15 +195,13 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         ),
       );
     }
-    const absolutePath = this.resolveAbsolutePath(agent.filePath);
-    if (absolutePath.isErr()) {
-      return absolutePath;
-    }
+    // Security checks first, so a traversal or non-.claude path keeps its
+    // `securityViolation` flag even when it is also relative.
     const pathValidation = this.validateFilePath(agent.filePath);
     if (pathValidation.isErr()) {
       return Result.err(pathValidation.error!);
     }
-    return absolutePath;
+    return this.resolveAbsolutePath(agent.filePath);
   }
 
   /**

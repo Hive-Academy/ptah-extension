@@ -69,6 +69,7 @@ jest.mock('@ptah-extension/settings-core', () => ({
 }));
 
 import { existsSync } from 'fs';
+import * as path from 'path';
 import type { AgentModelSettings } from '@ptah-extension/settings-core';
 import type { AgentModelLayers } from '@ptah-extension/shared';
 import { Result } from '@ptah-extension/shared';
@@ -1594,7 +1595,56 @@ describe('AgentGenerationOrchestratorService', () => {
       const { frontmatter } = await frontmatterFor(settings);
       expect(frontmatter).toContain('model: haiku');
       expect(frontmatter).not.toContain('model: opus');
-      expect(settings.layersForPath).toHaveBeenCalledWith(WS);
+      // No `.ptah`/`.git` marker exists (fs is mocked), so the harness root is
+      // the resolved workspace path itself.
+      expect(settings.layersForPath).toHaveBeenCalledWith(path.resolve(WS));
+    });
+
+    it('reads the override saved for the .git root when opened in a subfolder', async () => {
+      const root = path.resolve('/workspace/mono');
+      const sub = path.join(root, 'apps', 'web');
+      existsSyncMock.mockImplementation((p) => p === path.join(root, '.git'));
+      const settings = settingsReturning({
+        workspace: { 'backend-developer': { claude: 'haiku' } },
+      });
+      const { service, mocks } = createOrchestrator(
+        settings as unknown as AgentModelSettings,
+      );
+      wireHappyPath(
+        mocks,
+        createMockTemplate({
+          id: 'backend-developer',
+          name: 'backend-developer',
+          model: 'opus',
+        }),
+      );
+
+      await service.generateAgents({ workspacePath: sub });
+
+      expect(settings.layersForPath).toHaveBeenCalledWith(root);
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content.split('\n---\n')[0]).toContain(
+        'model: haiku',
+      );
+    });
+
+    it('looks the override up by the agent file slug (template id), not its name', async () => {
+      const settings = settingsReturning({
+        workspace: {
+          'backend-developer': { claude: 'haiku' },
+          'Backend Developer': { claude: 'sonnet' },
+        },
+      });
+      const { frontmatter } = await frontmatterFor(
+        settings,
+        createMockTemplate({
+          id: 'backend-developer',
+          name: 'Backend Developer',
+          model: 'opus',
+        }),
+      );
+      expect(frontmatter).toContain('model: haiku');
+      expect(frontmatter).not.toContain('model: sonnet');
     });
 
     it("uses the workspace '*' value for an agent with no entry of its own", async () => {

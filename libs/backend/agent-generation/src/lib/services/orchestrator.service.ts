@@ -29,6 +29,7 @@ import type {
 } from '@ptah-extension/shared';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { AgentModelSettings } from '@ptah-extension/settings-core';
+import { resolveHarnessWorkspaceRoot } from '@ptah-extension/harness-sync';
 import {
   ProjectType,
   WorkspaceAnalyzerService,
@@ -1086,11 +1087,17 @@ export class AgentGenerationOrchestratorService {
    * when they cannot be read. A missing repository, an empty path (which
    * `layersForPath` refuses) or a failing store must never cost an agent, so
    * every such case degrades to the templates' own models.
+   *
+   * The path is resolved to the harness workspace root first, because that is
+   * the root `skillSynthesis:setAgentModel` saves the workspace layer under; a
+   * folder opened below a `.ptah`/`.git` root would otherwise miss it.
    */
   private readAgentModelLayers(workspacePath: string): AgentModelLayers | null {
     if (!this.agentModelSettings) return null;
     try {
-      return this.agentModelSettings.layersForPath(workspacePath);
+      return this.agentModelSettings.layersForPath(
+        resolveHarnessWorkspaceRoot(workspacePath),
+      );
     } catch (error: unknown) {
       // degradation-audit: optional-capability - model overrides are optional;
       // the warn below records the read failure and every agent keeps its
@@ -1118,8 +1125,10 @@ export class AgentGenerationOrchestratorService {
     template: AgentTemplate,
   ): string | undefined {
     const templateModel = template.model?.trim() || undefined;
+    // Keyed by the agent file slug (`<id>.md`), which is what the editor saves
+    // under; a template's display `name` can differ from it.
     const override = layers
-      ? resolveAgentModel(layers, template.name, 'claude')?.value
+      ? resolveAgentModel(layers, template.id, 'claude')?.value
       : undefined;
     if (override === undefined) return templateModel;
 
@@ -1131,7 +1140,7 @@ export class AgentGenerationOrchestratorService {
       return candidate;
     }
     this.logger.warn(
-      `Ignoring the Claude model override for ${template.name}: expected opus, sonnet, haiku or inherit; using the template model`,
+      `Ignoring the Claude model override for ${template.id}: expected opus, sonnet, haiku or inherit; using the template model`,
       { value: JSON.stringify(override), templateModel },
     );
     return templateModel;

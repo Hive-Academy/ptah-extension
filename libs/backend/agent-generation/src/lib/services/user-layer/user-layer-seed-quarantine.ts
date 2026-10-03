@@ -54,7 +54,7 @@
  * whose workspace ships no source for it. The next mirror pass re-creates the
  * clone from that source, which is what takes the item off the list.
  */
-import { basename, join, resolve } from 'path';
+import { basename, dirname, join, resolve } from 'path';
 import { randomBytes } from 'crypto';
 import { constants as fsConstants } from 'fs';
 import {
@@ -833,6 +833,9 @@ export class UserLayerSeedQuarantine {
         };
       }
 
+      const linked = await this.refuseLinkedSourceDir(agentSourceDir);
+      if (linked !== null) return linked;
+
       const bytes = await readFile(snapshot.file);
       const existing = await this.compareExisting(dest, bytes);
       if (existing !== null) return existing;
@@ -847,6 +850,45 @@ export class UserLayerSeedQuarantine {
     } catch (error: unknown) {
       return { outcome: 'copy-failed', path: dest, reason: errorText(error) };
     }
+  }
+
+  /**
+   * `null` when `{ws}/.claude` and `{ws}/.claude/agents` are each absent or a
+   * real directory. A symbolic link or junction at either (CWE-59) would make
+   * the `mkdir` and temp write below follow it out of the workspace, so it is
+   * refused as a `conflict` before anything is created. Anything else at that
+   * path (a file) is refused the same way. A lookup failure other than
+   * `ENOENT` propagates to the caller's `copy-failed`.
+   */
+  private async refuseLinkedSourceDir(
+    agentSourceDir: string,
+  ): Promise<QuarantineRestoreResult | null> {
+    for (const dir of [dirname(agentSourceDir), agentSourceDir]) {
+      let dirStat;
+      try {
+        dirStat = await lstat(dir);
+      } catch (error: unknown) {
+        // An absent component is created as a real directory by `mkdir`; the
+        // one below it cannot exist either.
+        if (isErrnoCode(error, 'ENOENT')) return null;
+        throw error;
+      }
+      if (dirStat.isSymbolicLink()) {
+        return {
+          outcome: 'conflict',
+          path: dir,
+          reason: `${dir} is a symbolic link or junction; restore only writes into a real directory inside the workspace`,
+        };
+      }
+      if (!dirStat.isDirectory()) {
+        return {
+          outcome: 'conflict',
+          path: dir,
+          reason: `${dir} exists and is not a directory`,
+        };
+      }
+    }
+    return null;
   }
 
   /**

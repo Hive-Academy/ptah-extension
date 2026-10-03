@@ -8,6 +8,7 @@ import {
   rm,
   stat,
   chmod,
+  symlink,
 } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -1275,6 +1276,34 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
       expect.objectContaining({ slug: 'video-director', outcome: 'restored' }),
     );
   });
+
+  // CWE-59: a linked `.claude` or `.claude/agents` would let mkdir and the
+  // temp write follow it out of the workspace. A junction needs no privilege
+  // on Windows, and the type argument is ignored elsewhere.
+  it.each([
+    ['.claude', () => join(ws, '.claude')],
+    ['.claude/agents', () => sourceDir],
+  ])(
+    'refuses a symlinked %s as a conflict and writes nothing through it',
+    async (_label, linkPathOf) => {
+      await quarantineForeignAgents();
+      const linkPath = linkPathOf();
+      const outside = join(workRoot, 'outside');
+      await mkdir(outside, { recursive: true });
+      await rm(linkPath, { recursive: true, force: true });
+      await symlink(outside, linkPath, 'junction');
+
+      const result = await service.restoreQuarantinedAgent(
+        ws,
+        'video-director',
+      );
+
+      expect(result.outcome).toBe('conflict');
+      expect(result.path).toBe(linkPath);
+      expect(result.reason).toContain('symbolic link or junction');
+      expect(await readdir(outside)).toEqual([]);
+    },
+  );
 
   it('stays listed as source-restored until propagation re-creates the clone, then leaves the list', async () => {
     await quarantineForeignAgents();

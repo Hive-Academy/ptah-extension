@@ -156,7 +156,12 @@ describe('AgentFileWriterService', () => {
 
       expect(result.isErr()).toBe(true);
       expect(result.error).toBeInstanceOf(FileWriteError);
-      expect(result.error?.message).toContain('An absolute path is required');
+      // Relative AND traversing: the security error wins over the
+      // absolute-path one, so the violation flag is not lost.
+      expect(result.error?.message).toContain('Path traversal detected');
+      expect((result.error as FileWriteError).context).toMatchObject({
+        securityViolation: true,
+      });
       expect(fs.writeFile).not.toHaveBeenCalled();
     });
 
@@ -280,7 +285,7 @@ describe('AgentFileWriterService', () => {
       ]);
 
       expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('An absolute path is required');
+      expect(result.error?.message).toContain('Path traversal detected');
       expect(fs.writeFile).not.toHaveBeenCalled();
     });
 
@@ -366,7 +371,7 @@ describe('AgentFileWriterService', () => {
   });
 
   describe('path security', () => {
-    it.each(['.claude/agents/x.md', 'C:foo', 'C:.claude/agents/x.md'])(
+    it.each(['.claude/agents/x.md', 'C:.claude/agents/x.md'])(
       'rejects non-absolute path %s without filesystem access',
       async (filePath) => {
         const result = await service.writeAgent({ ...sampleAgent, filePath });
@@ -429,8 +434,30 @@ describe('AgentFileWriterService', () => {
         filePath: '.claude/agents/../../../passwd',
       });
       expect(result.isErr()).toBe(true);
-      expect(result.error?.message).toContain('An absolute path is required');
+      expect(result.error?.message).toContain('Path traversal detected');
     });
+
+    it.each([
+      ['a relative path outside .claude', 'C:foo'],
+      ['a relative path outside .claude', 'agents/x.md'],
+      ['a relative traversal', '.claude/../x.md'],
+    ])(
+      'flags %s (%s) as a security violation before the absolute-path check',
+      async (_label, filePath) => {
+        const result = await service.writeAgent({ ...sampleAgent, filePath });
+
+        expect(result.isErr()).toBe(true);
+        expect(result.error).toBeInstanceOf(FileWriteError);
+        expect(result.error?.message).not.toContain(
+          'An absolute path is required',
+        );
+        expect((result.error as FileWriteError).context).toMatchObject({
+          securityViolation: true,
+        });
+        expect(fs.createDirectory).not.toHaveBeenCalled();
+        expect(fs.writeFile).not.toHaveBeenCalled();
+      },
+    );
 
     it('rejects absolute paths outside .claude/', async () => {
       const result = await service.writeAgent({
