@@ -64,7 +64,7 @@ export function loadCustomProviders(container: DependencyContainer): void {
     console.log(
       `[Ptah VS Code] Custom providers published (${entries.length} custom providers)`,
     );
-  } catch (loadError) {
+  } catch (loadError: unknown) {
     console.warn(
       '[Ptah VS Code] Custom provider load failed (non-fatal); only built-in providers are available:',
       loadError instanceof Error ? loadError.message : String(loadError),
