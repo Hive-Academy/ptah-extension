@@ -178,6 +178,53 @@ export class WorkspaceScopeResolver {
     return false;
   }
 
+  /**
+   * The physical workspace key for `globalKey` under an EXPLICIT workspace
+   * path, and the raw value stored there — no app, global or default fallback.
+   * Read-modify-write callers need exactly this: the bytes they are about to
+   * replace, not a merged view.
+   *
+   * @throws {Error} when `workspacePath` is empty or cannot be normalized.
+   */
+  inspectForPath<T = unknown>(
+    globalKey: string,
+    workspacePath: string,
+  ): { key: string; value: T | undefined } {
+    const key = this.requireWorkspaceKey(globalKey, workspacePath);
+    return { key, value: this.store.readGlobal<T>(key) };
+  }
+
+  /**
+   * Write `value` to the workspace key of an EXPLICIT workspace path. Writing
+   * `undefined` drops the key. Unlike `write(…, 'workspace')`, a missing or
+   * unresolvable path is an error: falling back to the global key would turn
+   * a one-workspace change into a machine-wide one.
+   *
+   * @throws {Error} when `workspacePath` is empty or cannot be normalized; the
+   *   store is not touched.
+   */
+  async writeForPath<T>(
+    globalKey: string,
+    workspacePath: string,
+    value: T,
+  ): Promise<void> {
+    const key = this.requireWorkspaceKey(globalKey, workspacePath);
+    await this.store.writeGlobal(key, value);
+  }
+
+  private requireWorkspaceKey(
+    globalKey: string,
+    workspacePath: string,
+  ): string {
+    const norm = normalizeActivePath(workspacePath);
+    if (!norm) {
+      throw new Error(
+        `A workspace path is required for the workspace value of '${globalKey}'.`,
+      );
+    }
+    return workspaceKeyFor(globalKey, norm);
+  }
+
   async write<T>(
     globalKey: string,
     value: T,
