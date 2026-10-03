@@ -42,6 +42,12 @@ const CROSS_PROCESS_WATCH_DEBOUNCE_MS = 50;
  * any in-flight write (including the bounded rename retries).
  */
 const STALE_TEMP_FILE_AGE_MS = 10 * 60 * 1000;
+/**
+ * Process-wide counter that keeps each persist()'s temp file name unique. It is
+ * shared by every instance: two managers on one file in one process would
+ * otherwise both write `<pid>.1.tmp`, and the second rename would fail.
+ */
+let persistTempSequence = 0;
 
 /** Whether the active cross-process watcher is on the file or the directory. */
 type CrossProcessWatchMode = 'file' | 'directory' | null;
@@ -54,8 +60,6 @@ export class PtahFileSettingsManager {
   private readonly defaults: FileSettingsDefaults;
   /** Write serialization — prevents concurrent persist() calls from corrupting the file */
   private writePromise: Promise<void> = Promise.resolve();
-  /** Per-instance counter that keeps each persist()'s temp file name unique. */
-  private tmpSequence = 0;
   /**
    * Latest set() generation per key. A failed set() rolls the key back only
    * while its generation is still the latest one (write ownership).
@@ -574,7 +578,7 @@ export class PtahFileSettingsManager {
    *   carries only the filesystem code, never a settings value.
    */
   private async persist(): Promise<void> {
-    const tmpPath = `${this.filePath}.${process.pid}.${++this.tmpSequence}.tmp`;
+    const tmpPath = `${this.filePath}.${process.pid}.${++persistTempSequence}.tmp`;
     try {
       await fsPromises.mkdir(this.dirPath, { recursive: true });
       const nested = unflattenObject(this.settings);
@@ -624,7 +628,10 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
       return;
     } catch (error: unknown) {
       const delay = RENAME_RETRY_DELAYS_MS[attempt];
-      if (delay === undefined || !TRANSIENT_RENAME_CODES.has(fsErrorCode(error))) {
+      if (
+        delay === undefined ||
+        !TRANSIENT_RENAME_CODES.has(fsErrorCode(error))
+      ) {
         throw error;
       }
       await new Promise<void>((resolve) => setTimeout(resolve, delay));
