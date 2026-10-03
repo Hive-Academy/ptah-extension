@@ -1,6 +1,7 @@
 import {
   registerCustomLanguage,
   registerCustomTheme,
+  resolveTheme,
   type FileDiffOptions,
   type ThemeRegistration,
 } from '@pierre/diffs';
@@ -90,7 +91,7 @@ const LANGUAGES: ReadonlyArray<{
  * their word highlights, except comments (#66707b: 4.1:1 on a deleted row,
  * 3.2:1 under a word highlight). `ptah-light` is that theme with the comment
  * ink deepened to {@link LIGHT_COMMENT_INK} (6.4:1 and 4.9:1). The dark theme
- * stays `pierre-dark`.
+ * is {@link PIERRE_DARK_THEME}.
  */
 export const PIERRE_LIGHT_THEME = 'ptah-light';
 const LIGHT_COMMENT_INK = '#4b535d';
@@ -115,10 +116,107 @@ export function createPtahLightTheme(
   };
 }
 
+/**
+ * The dark diff theme: Pierre's own `pierre-dark` with the comment ink lifted.
+ * Its `#737373` comments measure 4.2:1 on the context rows but 2.1:1 on an
+ * added row (`#154b35`, the axe failure in the cutover visual review N-1) and
+ * 2.7:1 on a deleted row. {@link DARK_COMMENT_INK} measures 10.5:1 on context,
+ * 5.4:1 on added and 6.8:1 on deleted rows, still a step below the body text
+ * (`#fafafa`) so comments keep reading as secondary. Every other colour,
+ * including the addition and deletion bases Pierre mixes its row tints from,
+ * is pierre-dark's.
+ */
+export const PIERRE_DARK_THEME = 'ptah-dark';
+const DARK_COMMENT_INK = '#bdbdbd';
+
+/** A theme rule's scopes target comments (`comment`, `comment.*`, `comment x`). */
+function isCommentRule(scope: string | readonly string[] | undefined): boolean {
+  const scopes = Array.isArray(scope) ? scope : [scope];
+  return scopes.some((selector) => {
+    const head = (selector ?? '').trim().split(/\s+/)[0] ?? '';
+    return (
+      head === 'comment' ||
+      head.startsWith('comment.') ||
+      head === 'punctuation.definition.comment'
+    );
+  });
+}
+
+type ThemeRule = NonNullable<ThemeRegistration['tokenColors']>[number];
+
+function liftCommentRules(
+  rules: readonly ThemeRule[] | undefined,
+): ThemeRule[] | undefined {
+  return rules?.map((rule) =>
+    isCommentRule(rule.scope) && rule.settings.foreground
+      ? {
+          ...rule,
+          settings: { ...rule.settings, foreground: DARK_COMMENT_INK },
+        }
+      : rule,
+  );
+}
+
+/**
+ * `base` (resolved `pierre-dark`) renamed to {@link PIERRE_DARK_THEME}, with
+ * every comment rule's foreground, in `tokenColors` and in the resolved
+ * `settings`, and the semantic `comment` colour set to {@link DARK_COMMENT_INK}.
+ */
+export function createPtahDarkTheme(
+  base: ThemeRegistration,
+): ThemeRegistration {
+  const withSettings = base as ThemeRegistration & {
+    settings?: readonly ThemeRule[];
+  };
+  const semantic = base.semanticTokenColors;
+  return {
+    ...base,
+    name: PIERRE_DARK_THEME,
+    displayName: 'Ptah Dark',
+    tokenColors: liftCommentRules(base.tokenColors),
+    ...(withSettings.settings
+      ? { settings: liftCommentRules(withSettings.settings) }
+      : {}),
+    ...(semantic && 'comment' in semantic
+      ? { semanticTokenColors: { ...semantic, comment: DARK_COMMENT_INK } }
+      : {}),
+  } as ThemeRegistration;
+}
+
+/**
+ * Plain light-on-near-black text, used when `pierre-dark` cannot resolve: the
+ * diff stays readable without token colours instead of failing to highlight.
+ */
+const PTAH_DARK_FALLBACK: ThemeRegistration = {
+  name: PIERRE_DARK_THEME,
+  displayName: 'Ptah Dark',
+  type: 'dark',
+  colors: { 'editor.background': '#0a0a0a', 'editor.foreground': '#fafafa' },
+  tokenColors: [],
+};
+
+/**
+ * `ptah-dark` from the theme `loadBase` resolves (Pierre's `pierre-dark`), or
+ * the plain {@link PTAH_DARK_FALLBACK} (logged) when that fails.
+ */
+export async function loadPtahDarkTheme(
+  loadBase: () => Promise<ThemeRegistration>,
+): Promise<ThemeRegistration> {
+  try {
+    return createPtahDarkTheme(await loadBase());
+  } catch (error: unknown) {
+    console.error(
+      '[pierre-config] Could not load the dark diff theme; showing plain text colours.',
+      error,
+    );
+    return PTAH_DARK_FALLBACK;
+  }
+}
+
 let resourcesRegistered = false;
 
 /**
- * Register the grammar loaders and the `ptah-light` theme with Pierre once per
+ * Register the grammar loaders and the `ptah-light` and `ptah-dark` themes with Pierre once per
  * page. Pierre logs an error for a second registration of the same name, so
  * this is guarded. The theme must be registered before anything resolves
  * {@link PIERRE_HIGHLIGHT_OPTIONS}: the worker pool resolves themes on the main
@@ -137,6 +235,12 @@ export function registerPierreResources(): void {
   registerCustomTheme(PIERRE_LIGHT_THEME, () =>
     loadPtahLightTheme(
       () => import('shiki/themes/github-light-high-contrast.mjs'),
+    ),
+  );
+  // Resolved on the main thread, like every theme the worker pool hands on.
+  registerCustomTheme(PIERRE_DARK_THEME, () =>
+    loadPtahDarkTheme(
+      async () => (await resolveTheme('pierre-dark')) as ThemeRegistration,
     ),
   );
 }
@@ -195,14 +299,13 @@ export function readDocumentThemeMode(): PierreThemeMode {
  *   `'word-line'` highlights whole lines (Gate 1.7 open item 2).
  * - `preferredHighlighter: 'shiki-js'`: the JavaScript regex engine. The WASM
  *   engine is the configuration the research measured at ~377 KB gz.
- * - `theme`: Pierre's own `pierre-dark` (its default dark theme, passing in
- *   the Batch 68 sweep) and {@link PIERRE_LIGHT_THEME}, which
+ * - `theme`: {@link PIERRE_DARK_THEME} and {@link PIERRE_LIGHT_THEME}, which
  *   {@link registerPierreResources} registers. Literal names, so loading this
  *   module reads nothing from `@pierre/diffs`.
  */
 export const PIERRE_HIGHLIGHT_OPTIONS = {
   preferredHighlighter: 'shiki-js',
-  theme: { dark: 'pierre-dark', light: PIERRE_LIGHT_THEME },
+  theme: { dark: PIERRE_DARK_THEME, light: PIERRE_LIGHT_THEME },
   lineDiffType: 'word',
 } as const;
 

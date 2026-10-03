@@ -244,8 +244,13 @@ interface DialogCopy {
       </div>
     }
 
+    <!-- min-w-0 + overflow-hidden (N-4): the editor box never exceeds the
+         shell. A line longer than the pane (e.g. 41 mono characters at
+         300 px) makes CodeMirror's content box wider than the pane; that is
+         scroll content of .cm-scroller, which scrolls it horizontally. -->
     <div
-      class="relative min-h-0 flex-1"
+      class="relative min-h-0 min-w-0 flex-1 overflow-hidden"
+      data-testid="spot-editor-pane"
       data-ptah-file-links
       [attr.data-ptah-link-root]="file()?.workspaceRoot"
       [attr.data-ptah-link-document]="file()?.absolutePath"

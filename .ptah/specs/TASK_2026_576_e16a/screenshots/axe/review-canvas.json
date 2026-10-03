@@ -1,27 +1,7 @@
 [
   {
     "theme": "dark",
-    "blocking": [
-      {
-        "id": "color-contrast",
-        "impact": "serious",
-        "targets": [
-          "diffs-container,div[data-line=\"10\"][data-line-index=\"10,9\"][data-line-type=\"change-addition\"] > span[data-diff-span=\"\"]:nth-child(8) > span",
-          "diffs-container,div[data-line=\"55\"][data-line-index=\"56,54\"][data-line-type=\"change-addition\"] > span[data-diff-span=\"\"]:nth-child(8) > span"
-        ],
-        "summary": "Fix any of the following:\n  Element has insufficient color contrast of 2.11 (foreground color: #737373, background color: #154b35, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1",
-        "nodes": [
-          {
-            "target": "diffs-container,div[data-line=\"10\"][data-line-index=\"10,9\"][data-line-type=\"change-addition\"] > span[data-diff-span=\"\"]:nth-child(8) > span",
-            "summary": "Fix any of the following: Element has insufficient color contrast of 2.11 (foreground color: #737373, background color: #154b35, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
-          },
-          {
-            "target": "diffs-container,div[data-line=\"55\"][data-line-index=\"56,54\"][data-line-type=\"change-addition\"] > span[data-diff-span=\"\"]:nth-child(8) > span",
-            "summary": "Fix any of the following: Element has insufficient color contrast of 2.11 (foreground color: #737373, background color: #154b35, font size: 9.8pt (13px), font weight: normal). Expected contrast ratio of 4.5:1"
-          }
-        ]
-      }
-    ],
+    "blocking": [],
     "reported": []
   },
   {

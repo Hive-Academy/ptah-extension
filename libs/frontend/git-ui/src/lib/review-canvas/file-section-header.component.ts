@@ -89,16 +89,25 @@ const FOCUS_RING =
   },
   // One row at every width (V-6): the path truncates from the left, the
   // badges and actions never wrap. The host is its own size container (CSS
-  // only, no observer per section). Below 480 px Comment and Edit go
-  // icon-only (their aria-labels already name them) and the chips collapse
-  // into one "+N" summary chip whose title and accessible name list them all,
-  // so any number of chips costs one small badge. Below 360 px the per-file
-  // totals step aside (the comparison bar keeps the sums), the gaps tighten
-  // and the side badge is capped (full name in its title).
+  // only, no observer per section), and it clips its own horizontal overflow
+  // so it never widens the scrollport (N-3; `overflow-x: clip` leaves the
+  // open-in menu free to drop below the row). The path keeps at least
+  // min(8rem, 33% of the row) (N-2); the secondary metadata gives way first:
+  // - below 480 px Comment and Edit go icon-only (their aria-labels already
+  //   name them), the chips fold into one "+N" summary chip whose title and
+  //   accessible name list them all, and "renamed from" becomes screen-reader
+  //   text (the path's title still names the old path);
+  // - below 360 px the per-file totals step aside (the comparison bar keeps
+  //   the sums), the gaps tighten and the side badge shows "WT" / "S" (its
+  //   full name stays in the title and as screen-reader text).
   styles: [
     `
       :host {
         container-type: inline-size;
+        overflow-x: clip;
+      }
+      .fsh-path {
+        min-width: min(8rem, 33cqi);
       }
       .fsh-chip-summary {
         display: none;
@@ -114,6 +123,14 @@ const FOCUS_RING =
         .fsh-actions {
           gap: 0.25rem;
         }
+        .fsh-renamed {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+        }
       }
       @container (max-width: 360px) {
         :host {
@@ -122,11 +139,16 @@ const FOCUS_RING =
         .fsh-totals {
           display: none;
         }
-        .fsh-side {
-          display: inline-block;
-          max-width: 4.5rem;
+        .fsh-side-text {
+          position: absolute;
+          width: 1px;
+          height: 1px;
           overflow: hidden;
-          text-overflow: ellipsis;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+        }
+        .fsh-side::before {
+          content: attr(data-short) / '';
         }
       }
     `,
@@ -157,16 +179,16 @@ const FOCUS_RING =
     <!-- Left-truncated (dir=rtl around an ltr bdi), so the file name stays
          in view; the title keeps the full path. -->
     <h3
-      class="m-0 min-w-0 flex-auto truncate text-left font-mono font-medium text-base-content"
+      class="fsh-path m-0 min-w-0 flex-auto truncate text-left font-mono font-medium text-base-content"
       dir="rtl"
-      [attr.title]="file().path"
+      [attr.title]="pathTitle()"
       data-testid="file-section-path"
     >
       <bdi dir="ltr">{{ file().path }}</bdi>
     </h3>
     @if (file().originalPath; as from) {
       <span
-        class="min-w-0 max-w-[40%] truncate text-[11px] text-base-content-muted"
+        class="fsh-renamed min-w-0 max-w-[40%] truncate text-[11px] text-base-content-muted"
         data-testid="file-section-renamed"
         [attr.title]="'renamed from ' + from"
       >
@@ -178,7 +200,8 @@ const FOCUS_RING =
         class="fsh-side badge badge-outline badge-xs shrink-0 whitespace-nowrap text-base-content"
         data-testid="file-section-side"
         [attr.title]="side"
-        >{{ side }}</span
+        [attr.data-short]="side === 'Staged' ? 'S' : 'WT'"
+        ><span class="fsh-side-text">{{ side }}</span></span
       >
     }
     @for (chip of chips(); track chip) {
@@ -289,6 +312,12 @@ export class FileSectionHeaderComponent {
     return chips.length === 0
       ? null
       : { count: chips.length, full: `File details: ${chips.join(', ')}` };
+  });
+
+  /** The full path, and the old one for a rename (its line can fold away). */
+  protected readonly pathTitle = computed(() => {
+    const { path, originalPath } = this.file();
+    return originalPath ? `${path} (renamed from ${originalPath})` : path;
   });
 
   protected readonly sideLabel = computed(

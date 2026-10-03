@@ -406,6 +406,16 @@ describe('SpotEditorComponent', () => {
       expect(byTestId(fixture, 'spot-editor-dirty')).toBeNull();
     });
 
+    it('keeps the editor pane within the shell width (N-4)', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      const pane = byTestId(fixture, 'spot-editor-pane');
+      expect(pane?.classList).toContain('overflow-hidden');
+      expect(pane?.classList).toContain('min-w-0');
+      // The editor fills the pane; long lines scroll inside .cm-scroller.
+      expect(pane?.querySelector('.cm-editor .cm-scroller')).not.toBeNull();
+    });
+
     it('A12: saves CRLF files with CRLF, including new lines the user adds', async () => {
       routeRpc([viewResult({ content: 'a\r\nb\r\n' })]);
       const fixture = await render(undefined, true);

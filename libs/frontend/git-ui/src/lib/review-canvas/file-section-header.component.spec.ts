@@ -110,7 +110,16 @@ describe('FileSectionHeaderComponent (layout, V-6)', () => {
     expect(narrow).toMatch(/\.fsh-chip\s*\{\s*display:\s*none/);
     expect(narrow).toMatch(/\.fsh-chip-summary\s*\{\s*display:\s*inline-flex/);
     const narrowest = css.slice(css.indexOf('@container (max-width: 360px)'));
-    expect(narrowest).toMatch(/\.fsh-side\s*\{[^}]*max-width:\s*4\.5rem/);
+    // The side badge folds to "WT" / "S"; its full name stays readable.
+    expect(narrowest).toMatch(
+      /\.fsh-side-text\s*\{[^}]*clip:\s*rect\(0, 0, 0, 0\)/,
+    );
+    expect(narrowest).toMatch(
+      /\.fsh-side::before\s*\{\s*content:\s*attr\(data-short\)\s*\/\s*''/,
+    );
+    const side = byTestId(host, 'file-section-side');
+    expect(side?.getAttribute('data-short')).toBe('WT');
+    expect(side?.textContent?.trim()).toBe('Working tree');
   });
 
   it('renders no summary chip without chips', () => {
@@ -141,5 +150,31 @@ describe('FileSectionHeaderComponent (layout, V-6)', () => {
       /@container \(max-width: 480px\)\s*\{\s*\.fsh-label,\s*\.fsh-chip\s*\{\s*display:\s*none/,
     );
     expect(source).not.toMatch(/new ResizeObserver/);
+  });
+
+  it('keeps the path at least min(8rem, 33% of the row) and clips its own overflow (N-2, N-3)', () => {
+    const host = render();
+    expect(byTestId(host, 'file-section-path')?.classList).toContain(
+      'fsh-path',
+    );
+    const source = readFileSync(
+      join(__dirname, 'file-section-header.component.ts'),
+      'utf8',
+    );
+    const css = source.slice(source.indexOf('styles: ['));
+    expect(css).toMatch(/\.fsh-path\s*\{\s*min-width:\s*min\(8rem, 33cqi\)/);
+    // Clip, not hidden: the open-in menu still drops below the row.
+    expect(css).toMatch(/:host\s*\{[^}]*overflow-x:\s*clip/);
+    expect(css).not.toMatch(/overflow:\s*hidden;\s*\}\s*\.fsh-path/);
+  });
+
+  it('names the old path in the path title, since "renamed from" folds away below 480 px', () => {
+    const host = render({ originalPath: 'old/name.ts' });
+    expect(byTestId(host, 'file-section-path')?.getAttribute('title')).toBe(
+      `${LONG_PATH} (renamed from old/name.ts)`,
+    );
+    expect(byTestId(host, 'file-section-renamed')?.classList).toContain(
+      'fsh-renamed',
+    );
   });
 });
