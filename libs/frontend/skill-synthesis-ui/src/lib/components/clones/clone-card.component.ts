@@ -15,10 +15,12 @@
  *
  * Agent cards on the desktop host also carry one chip per provider copy
  * (`syncChips`, TASK_2026_609) and a note when the agent is not owned by this
- * workspace (`notOwned`). Both default to empty, which renders nothing.
+ * workspace (`notOwned`). Both default to empty, which renders nothing. Given
+ * `modelGuard`, an agent card also hosts the model section; that child owns its
+ * own RPC and state.
  *
- * Pure presentational: `input()` signals in, `output()` events out, no service
- * injection and no RPC. `OnPush`.
+ * Presentational: `input()` signals in, `output()` events out, no service
+ * injection and no RPC in the card itself. `OnPush`.
  */
 import {
   ChangeDetectionStrategy,
@@ -44,6 +46,8 @@ import {
   formatSuccessRate,
 } from './clone-action-gating';
 import type { AgentSyncChip, AgentSyncChipState } from './agent-sync-chips';
+import { AgentModelEditorComponent } from './agent-model-editor.component';
+import type { ReconcileGuardComponent } from './reconcile-guard';
 
 interface CloneMetric {
   readonly label: string;
@@ -102,7 +106,11 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
   selector: 'ptah-clone-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NativeCardComponent, ScorecardBadgeComponent],
+  imports: [
+    NativeCardComponent,
+    ScorecardBadgeComponent,
+    AgentModelEditorComponent,
+  ],
   template: `
     <ptah-native-card
       [tone]="tone()"
@@ -216,6 +224,14 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
         }
       }
 
+      @if (clone().kind === 'agent' && modelGuard(); as guard) {
+        <ptah-agent-model-editor
+          [slug]="clone().slug"
+          [guard]="guard"
+          [locked]="busy()"
+        />
+      }
+
       @if (notOwned()) {
         <p
           class="text-[11px] text-base-content-muted"
@@ -303,6 +319,12 @@ export class CloneCardComponent {
    * for it (it may hold local work). `false` renders nothing.
    */
   public readonly notOwned = input<boolean>(false);
+  /**
+   * The view's reconcile guard. When set on an agent card, the card shows the
+   * per-provider model section ({@link AgentModelEditorComponent}), whose saves
+   * confirm through it. `null` renders nothing (other tabs, VS Code host).
+   */
+  public readonly modelGuard = input<ReconcileGuardComponent | null>(null);
 
   public readonly opened = output<CloneSummary>();
   public readonly enhance = output<CloneSummary>();

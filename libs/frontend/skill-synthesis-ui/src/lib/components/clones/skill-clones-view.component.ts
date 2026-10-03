@@ -23,7 +23,9 @@
  * the Monaco diff and the judge's verdict, and only writes on Apply.
  *
  * On the desktop Agents tab only (TASK_2026_609): one chip per provider copy
- * on each agent card, a Sync action, and the quarantined-agents panel. Every
+ * on each agent card, each card's per-provider model section (loaded once per
+ * tab entry, Refresh and workspace switch), a Sync action, and the
+ * quarantined-agents panel. Every
  * mutation there confirms through the single {@link ReconcileGuardComponent}
  * placed in this template. The harness is verified once per tab entry, per
  * Refresh and per guarded mutation; there is no polling, and the other tabs
@@ -76,6 +78,7 @@ import {
 } from './clone-action-gating';
 import { agentSyncChips, type AgentSyncChip } from './agent-sync-chips';
 import { ReconcileGuardComponent } from './reconcile-guard';
+import { AgentModelsStore } from './agent-model-editor.component';
 import {
   QuarantinedAgentsPanelComponent,
   type QuarantineNotice,
@@ -139,7 +142,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
   ],
   // Per-surface, deliberately not root: a finished batch's outcomes must die
   // with the surface rather than reappear on the next visit.
-  providers: [CloneBulkRebaseService],
+  providers: [CloneBulkRebaseService, AgentModelsStore],
   template: `
     @if (!isElectron()) {
       <div
@@ -288,6 +291,9 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
                       [busy]="busySlug() === c.slug || bulk.running()"
                       [syncChips]="chipsFor(c)"
                       [notOwned]="isNotOwned(c)"
+                      [modelGuard]="
+                        onAgentTab() ? (reconcileGuard() ?? null) : null
+                      "
                       (opened)="onOpenDetail($event)"
                       (enhance)="onEnhance($event)"
                       (revert)="onOpenDetail($event)"
@@ -421,7 +427,10 @@ export class SkillClonesViewComponent implements OnInit {
    */
   protected readonly harness = inject(HarnessHealthStore);
 
-  private readonly reconcileGuard = viewChild(ReconcileGuardComponent);
+  /** Per-agent model settings for the agent cards' model section. */
+  private readonly agentModels = inject(AgentModelsStore);
+
+  protected readonly reconcileGuard = viewChild(ReconcileGuardComponent);
   private readonly quarantinePanel = viewChild(QuarantinedAgentsPanelComponent);
 
   /**
@@ -451,7 +460,10 @@ export class SkillClonesViewComponent implements OnInit {
     effect(() => {
       const onAgentTab = this.onAgentTab();
       if (onAgentTab && !this.wasOnAgentTab) {
-        untracked(() => void this.harness.refresh({ refresh: true }));
+        untracked(() => {
+          void this.harness.refresh({ refresh: true });
+          void this.agentModels.load();
+        });
       }
       this.wasOnAgentTab = onAgentTab;
     });
@@ -602,6 +614,7 @@ export class SkillClonesViewComponent implements OnInit {
     if (!this.onAgentTab()) return;
     void this.harness.refresh({ refresh: true });
     void this.quarantinePanel()?.load();
+    void this.agentModels.load();
   }
 
   // ── Provider copies (Agents tab) ─────────────────────────────────────────
