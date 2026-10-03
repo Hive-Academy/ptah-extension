@@ -34,7 +34,6 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type {
   IWorkspaceProvider,
   IStateStorage,
-  IModelDiscovery,
 } from '@ptah-extension/platform-core';
 import {
   PTAH_CLI_ROLE_DELIVERY,
@@ -43,7 +42,7 @@ import {
   type PtahCliRegistry,
 } from '@ptah-extension/cli-agent-runtime';
 import type { SessionMetadataStore } from '@ptah-extension/agent-sdk';
-import type { CodexAuthService } from '@ptah-extension/auth-providers';
+import type { CliModelListService } from '../services/cli-model-list.service';
 import type { CliDetectionResult } from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
 
@@ -90,8 +89,7 @@ function makeHarness(): Harness {
     {} as unknown as SessionMetadataStore,
     workspace as unknown as IWorkspaceProvider,
     stateStorage as unknown as IStateStorage,
-    {} as unknown as IModelDiscovery,
-    {} as unknown as CodexAuthService,
+    {} as unknown as CliModelListService,
     {
       isRegistered: jest.fn().mockReturnValue(false),
       resolve: jest.fn(),

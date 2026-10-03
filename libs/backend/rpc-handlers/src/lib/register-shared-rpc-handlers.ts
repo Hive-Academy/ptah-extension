@@ -20,6 +20,7 @@ import {
   SessionLifecycleNotifier,
   GitChangeSetRpcHandlers,
 } from './handlers';
+import { CliModelListService } from './services/cli-model-list.service';
 import { ConnectionCheckRecorder } from './utils/connection-check-recorder';
 import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorder.service';
 import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
@@ -48,6 +49,7 @@ import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
 export function registerSharedRpcHandlers(
   container: DependencyContainer,
 ): void {
+  container.registerSingleton(CliModelListService);
   container.registerSingleton(SetupRpcHandlers);
   container.registerSingleton(WizardGenerationRpcHandlers);
   container.registerSingleton(EnhancedPromptsRpcHandlers);
