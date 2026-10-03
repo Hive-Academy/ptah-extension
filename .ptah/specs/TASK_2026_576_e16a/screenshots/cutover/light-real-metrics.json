@@ -12,7 +12,9 @@
         "width": 567,
         "height": 695
       },
-      "clipped": []
+      "clipped": [
+        "bdi[-26..989]"
+      ]
     },
     {
       "name": "changes-narrow",
@@ -26,8 +28,33 @@
         "height": 695
       },
       "clipped": [
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
+        "bdi[896..975]",
+        "bdi[846..983]",
+        "bdi[-26..989]",
+        "bdi[894..1066]"
+      ]
+    },
+    {
+      "name": "changes-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[916..995]",
+        "span[1170..1237]",
+        "ptah-open-in-button[1196..1237]",
+        "open-in-button[1196..1237]",
+        "div[1215..1237]",
+        "open-in-caret[1215..1237]",
+        "bdi[858..995]",
+        "bdi[-20..995]",
+        "bdi[894..1066]"
       ]
     },
     {
@@ -41,7 +68,9 @@
         "width": 567,
         "height": 695
       },
-      "clipped": []
+      "clipped": [
+        "bdi[88..1103]"
+      ]
     },
     {
       "name": "branch-review-narrow",
@@ -55,9 +84,22 @@
         "height": 695
       },
       "clipped": [
-        "git-push-button[1204..1256]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
+        "bdi[150..1165]"
+      ]
+    },
+    {
+      "name": "branch-review-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[150..1165]"
       ]
     },
     {
@@ -84,14 +126,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "spot-editor-readonly-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "spot-editor-dirty-wide",
@@ -117,13 +165,32 @@
         "width": 319,
         "height": 695
       },
+      "clipped": []
+    },
+    {
+      "name": "spot-editor-dirty-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
       "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
+        "Contents of src/calc.ts[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]"
       ]
     },
     {
@@ -160,18 +227,41 @@
         "height": 695
       },
       "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]",
         "git-confirm-dialog[0..1254]",
         "div[435..819]",
         "h3[459..795]",
         "p[459..795]",
         "div[459..795]",
-        "git-confirm-cancel[549..642]"
+        "git-confirm-cancel[549..642]",
+        "git-confirm-secondary[650..710]",
+        "git-confirm-confirm[718..795]",
+        "div[0..1254]"
+      ]
+    },
+    {
+      "name": "spot-editor-conflict-dialog-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1254,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "Contents of src/calc.ts[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]"
       ]
     },
     {
@@ -198,14 +288,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "commit-idle-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "commit-message-filled-wide",
@@ -231,14 +327,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "commit-message-filled-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "commit-failure-wide",
@@ -264,14 +366,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "commit-failure-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "commit-success-wide",
@@ -297,14 +405,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "commit-success-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "history-commits-wide",
@@ -330,14 +444,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1199..1271]",
-        "span[1211..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "history-commits-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "history-stashes-wide",
@@ -363,14 +483,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1199..1271]",
-        "span[1211..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "history-stashes-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "changes-empty-wide",
@@ -396,14 +522,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "changes-empty-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "task-wide",
@@ -432,13 +564,26 @@
         "height": 695
       },
       "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1199..1271]",
-        "span[1211..1259]",
-        "span[1807..1864]"
+        "span[1807..1864]",
+        "bdi[830..1212]",
+        "bdi[725..1186]"
+      ]
+    },
+    {
+      "name": "task-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "span[1827..1884]",
+        "bdi[830..1212]",
+        "bdi[725..1186]"
       ]
     },
     {
@@ -468,13 +613,26 @@
         "height": 695
       },
       "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1199..1271]",
-        "span[1211..1259]",
-        "span[1807..1864]"
+        "span[1807..1864]",
+        "bdi[830..1212]",
+        "bdi[725..1186]"
+      ]
+    },
+    {
+      "name": "task-add-form-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "span[1827..1884]",
+        "bdi[830..1212]",
+        "bdi[725..1186]"
       ]
     },
     {
@@ -501,14 +659,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "conflict-banner-changes-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "conflict-commit-blocked-wide",
@@ -534,14 +698,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "git-push-button[1230..1282]",
-        "lucide-angular[1235..1247]",
-        "svg[1235..1247]",
-        "path[1238..1244]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "conflict-commit-blocked-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     }
   ],
   "focus": [
@@ -555,7 +725,7 @@
       "boxShadow": "none",
       "rect": [
         673,
-        101,
+        73,
         110,
         38
       ]
@@ -570,9 +740,9 @@
       "boxShadow": "none",
       "rect": [
         665,
-        139,
+        111,
         567,
-        596
+        624
       ]
     },
     {
@@ -585,7 +755,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         674,
-        149,
+        121,
         94,
         24
       ]
@@ -596,11 +766,11 @@
       "tag": "input",
       "label": "Filter changed files",
       "focusVisible": true,
-      "outline": "solid 2px oklch(0.23574 0.066 313.189 / 0.2)",
+      "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "none",
       "rect": [
         777,
-        145,
+        117,
         192,
         32
       ]
@@ -615,7 +785,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         977,
-        149,
+        121,
         53,
         24
       ]
@@ -630,7 +800,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1032,
-        149,
+        121,
         66,
         24
       ]
@@ -645,7 +815,7 @@
       "boxShadow": "none",
       "rect": [
         665,
-        276,
+        248,
         255,
         28
       ]
@@ -660,7 +830,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         819,
-        280,
+        252,
         24,
         20
       ]
@@ -675,7 +845,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         845,
-        280,
+        252,
         24,
         20
       ]
@@ -690,7 +860,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         871,
-        278,
+        250,
         20,
         20
       ]
@@ -701,11 +871,11 @@
       "tag": "button",
       "label": "Choose where to open",
       "focusVisible": true,
-      "outline": "solid 2px rgba(0, 0, 0, 0)",
+      "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         890,
-        278,
+        250,
         22,
         24
       ]
@@ -720,9 +890,9 @@
       "boxShadow": "none",
       "rect": [
         921,
-        184,
+        156,
         4,
-        551
+        579
       ]
     },
     {
@@ -735,7 +905,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         673,
-        143,
+        144,
         104,
         24
       ]
@@ -750,7 +920,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
         1186,
-        143,
+        144,
         38,
         24
       ]
@@ -765,7 +935,7 @@
       "boxShadow": "none",
       "rect": [
         693,
-        -1305,
+        -1302,
         529,
         2040
       ]
@@ -806,11 +976,11 @@
       "tag": "textarea",
       "label": "commit-message",
       "focusVisible": true,
-      "outline": "solid 2px oklch(0.23574 0.066 313.189 / 0.2)",
+      "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "none",
       "rect": [
         677,
-        154,
+        155,
         543,
         98
       ]
@@ -825,7 +995,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
         1155,
-        260,
+        261,
         65,
         32
       ]
@@ -885,7 +1055,7 @@
       "boxShadow": "none",
       "rect": [
         951,
-        72,
+        73,
         72,
         38
       ]
@@ -900,9 +1070,9 @@
       "boxShadow": "none",
       "rect": [
         665,
-        110,
+        111,
         567,
-        625
+        624
       ]
     },
     {
@@ -915,7 +1085,7 @@
       "boxShadow": "none",
       "rect": [
         677,
-        122,
+        123,
         93,
         20
       ]
@@ -930,7 +1100,7 @@
       "boxShadow": "none",
       "rect": [
         681,
-        150,
+        151,
         429,
         20
       ]
@@ -945,7 +1115,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1114,
-        148,
+        149,
         41,
         24
       ]
@@ -960,7 +1130,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1159,
-        148,
+        149,
         31,
         24
       ]
@@ -975,7 +1145,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1198,
-        122,
+        123,
         22,
         24
       ]
@@ -990,7 +1160,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         677,
-        212,
+        213,
         77,
         24
       ]
@@ -1001,11 +1171,11 @@
       "tag": "button",
       "label": "Choose where to open",
       "focusVisible": true,
-      "outline": "solid 2px rgba(0, 0, 0, 0)",
+      "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         753,
-        212,
+        213,
         22,
         24
       ]
@@ -1020,7 +1190,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1170,
-        314,
+        315,
         50,
         24
       ]
@@ -1035,7 +1205,7 @@
       "boxShadow": "none",
       "rect": [
         677,
-        342,
+        343,
         543,
         24
       ]
@@ -1050,7 +1220,7 @@
       "boxShadow": "none",
       "rect": [
         677,
-        368,
+        369,
         517,
         24
       ]
@@ -1065,7 +1235,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1198,
-        368,
+        369,
         22,
         24
       ]
@@ -1095,7 +1265,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1125,
-        116,
+        117,
         87,
         24
       ]
@@ -1110,7 +1280,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1125,
-        142,
+        143,
         87,
         24
       ]
@@ -1125,7 +1295,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
         717,
-        174,
+        175,
         120,
         24
       ]
@@ -1140,7 +1310,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
         843,
-        174,
+        175,
         42,
         24
       ]
@@ -1155,7 +1325,7 @@
       "boxShadow": "none",
       "rect": [
         673,
-        226,
+        227,
         110,
         38
       ]
@@ -1170,9 +1340,9 @@
       "boxShadow": "none",
       "rect": [
         665,
-        264,
+        265,
         567,
-        471
+        470
       ]
     }
   ]

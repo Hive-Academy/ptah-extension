@@ -25,16 +25,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "current-branch-button[947..1339]",
-        "Branch details[1339..1361]",
-        "lucide-angular[1344..1356]",
-        "svg[1344..1356]",
-        "circle[1345..1355]",
-        "git-push-button[1183..1233]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "mock-changes-empty-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "task-pr-ok-wide",
@@ -47,7 +51,9 @@
         "width": 567,
         "height": 695
       },
-      "clipped": []
+      "clipped": [
+        "bdi[408..1186]"
+      ]
     },
     {
       "name": "task-pr-ok-narrow",
@@ -61,14 +67,24 @@
         "height": 695
       },
       "clipped": [
-        "current-branch-button[947..1339]",
-        "Branch details[1339..1361]",
-        "lucide-angular[1344..1356]",
-        "svg[1344..1356]",
-        "circle[1345..1355]",
-        "git-push-button[1183..1233]",
-        "native-tab[1199..1271]",
-        "span[1211..1259]"
+        "bdi[408..1186]",
+        "bdi[891..1186]"
+      ]
+    },
+    {
+      "name": "task-pr-ok-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[408..1186]",
+        "bdi[891..1186]"
       ]
     },
     {
@@ -82,7 +98,9 @@
         "width": 567,
         "height": 695
       },
-      "clipped": []
+      "clipped": [
+        "bdi[408..1186]"
+      ]
     },
     {
       "name": "task-pr-quiet-narrow",
@@ -96,14 +114,24 @@
         "height": 695
       },
       "clipped": [
-        "current-branch-button[947..1339]",
-        "Branch details[1339..1361]",
-        "lucide-angular[1344..1356]",
-        "svg[1344..1356]",
-        "circle[1345..1355]",
-        "git-push-button[1183..1233]",
-        "native-tab[1199..1271]",
-        "span[1211..1259]"
+        "bdi[408..1186]",
+        "bdi[891..1186]"
+      ]
+    },
+    {
+      "name": "task-pr-quiet-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[408..1186]",
+        "bdi[891..1186]"
       ]
     },
     {
@@ -130,16 +158,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "current-branch-button[947..1339]",
-        "Branch details[1339..1361]",
-        "lucide-angular[1344..1356]",
-        "svg[1344..1356]",
-        "circle[1345..1355]",
-        "git-push-button[1183..1233]",
-        "native-tab[1199..1271]",
-        "span[1211..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "history-unavailable-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "history-empty-wide",
@@ -165,16 +197,20 @@
         "width": 319,
         "height": 695
       },
-      "clipped": [
-        "current-branch-button[947..1339]",
-        "Branch details[1339..1361]",
-        "lucide-angular[1344..1356]",
-        "svg[1344..1356]",
-        "circle[1345..1355]",
-        "git-push-button[1183..1233]",
-        "native-tab[1199..1271]",
-        "span[1211..1259]"
-      ]
+      "clipped": []
+    },
+    {
+      "name": "history-empty-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
     },
     {
       "name": "changes-diff-error-wide",
@@ -201,14 +237,22 @@
         "height": 695
       },
       "clipped": [
-        "current-branch-button[947..1339]",
-        "Branch details[1339..1361]",
-        "lucide-angular[1344..1356]",
-        "svg[1344..1356]",
-        "circle[1345..1355]",
-        "git-push-button[1183..1233]",
-        "native-tab[1200..1271]",
-        "span[1212..1259]"
+        "bdi[906..1000]"
+      ]
+    },
+    {
+      "name": "changes-diff-error-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[906..1000]"
       ]
     }
   ],
@@ -223,7 +267,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1198,
-        122,
+        123,
         22,
         24
       ]
@@ -238,7 +282,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1146,
-        321,
+        322,
         74,
         24
       ]
@@ -253,7 +297,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1170,
-        366,
+        367,
         50,
         24
       ]
@@ -268,7 +312,7 @@
       "boxShadow": "none",
       "rect": [
         677,
-        394,
+        395,
         543,
         24
       ]
@@ -283,7 +327,7 @@
       "boxShadow": "none",
       "rect": [
         677,
-        420,
+        421,
         517,
         24
       ]
@@ -298,7 +342,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1198,
-        420,
+        421,
         22,
         24
       ]
@@ -313,7 +357,7 @@
       "boxShadow": "none",
       "rect": [
         677,
-        446,
+        447,
         517,
         24
       ]
@@ -328,7 +372,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         1198,
-        446,
+        447,
         22,
         24
       ]

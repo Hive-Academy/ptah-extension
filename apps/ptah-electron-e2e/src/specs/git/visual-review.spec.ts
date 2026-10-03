@@ -136,6 +136,7 @@ class Capture {
     for (const [label, width] of [
       ['wide', 640],
       ['narrow', 320],
+      ['min', 300],
     ] as const) {
       await this.dock(width);
       await this.shot(`${name}-${label}`);
