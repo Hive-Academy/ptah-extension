@@ -116,8 +116,8 @@ Every tool call in any agent or lane resends its whole thread, so cost is reques
 
 ## Lean orchestration rules
 
-1. **Fresh team-leader per Mode 2/3 call.** Give it only the batch report path and the review
-   path. Never resume a long-lived team-leader.
+1. **Fresh team-leader per Mode 2/3 call.** Give it only the batch report path, plus the
+   review path when you return with a phase review verdict. Never resume a long-lived team-leader.
 2. **Resume only inside the cache window.** Resume a developer or reviewer only when its last
    activity was under 5 minutes ago. Otherwise start a fresh one with the batch section and the
    report paths.
