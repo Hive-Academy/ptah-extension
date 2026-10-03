@@ -7,12 +7,29 @@
  * Source-under-test: `HarnessManifestBuilder`.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { HarnessManifestBuilder } from './harness-manifest.builder';
+import type { AgentModelLayers } from '@ptah-extension/shared';
+import {
+  desiredAgentModel,
+  desiredAgentSourceHash,
+  HarnessManifestBuilder,
+} from './harness-manifest.builder';
 import type { HarnessSourceState } from '../sources/harness-source.port';
-import { hashDir } from '../hash/content-hash';
+import { hashContent, hashDir, hashFile } from '../hash/content-hash';
+import { ManagedManifestStore } from '../manifest-store/managed-manifest';
+import { WorkspaceHarnessTarget } from '../targets/workspace-target';
+import type {
+  HarnessAgentSource,
+  IHarnessAgentTransformer,
+} from '../targets/transformers/agent-transformer.port';
 
 function writeSkill(
   skillsRoot: string,
@@ -240,5 +257,181 @@ describe('HarnessManifestBuilder', () => {
     const desired = await builder.build(state, { downloadPending: true });
 
     expect(desired.sources).toBe('pending-download');
+  });
+});
+
+describe('HarnessManifestBuilder agent models (C6)', () => {
+  let root: string;
+  let warn: jest.Mock;
+  let builder: HarnessManifestBuilder;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'harness-sync-agent-models-'));
+    warn = jest.fn();
+    builder = new HarnessManifestBuilder(warn);
+    writeAgent(root, 'backend-developer');
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  async function buildAgent(agentModels?: AgentModelLayers) {
+    const desired = await builder.build({
+      ...emptyState(root),
+      ...(agentModels === undefined ? {} : { agentModels }),
+    });
+    expect(desired.agents).toHaveLength(1);
+    return desired.agents[0];
+  }
+
+  it('[AC4] a Claude-only setting gives a rival agent no models field', async () => {
+    const agent = await buildAgent({
+      workspace: { 'backend-developer': { claude: 'opus' } },
+      machine: { '*': { claude: 'sonnet' } },
+    });
+
+    expect('models' in agent).toBe(false);
+    for (const target of ['codex', 'copilot', 'cursor', 'opencode'] as const) {
+      expect(desiredAgentModel(agent, target)).toBeUndefined();
+    }
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('[AC8] without models the agent and every target source hash are unchanged', async () => {
+    const sourceFile = join(root, 'agents', 'backend-developer.md');
+    const fileHash = await hashFile(sourceFile);
+    const withoutLayers = await buildAgent();
+    const withEmptyLayers = await buildAgent({ workspace: {}, machine: null });
+
+    expect(withoutLayers).toEqual({
+      slug: 'backend-developer',
+      sourceFile,
+      contentHash: fileHash,
+    });
+    expect(withEmptyLayers).toEqual(withoutLayers);
+    for (const target of ['codex', 'copilot', 'cursor', 'opencode'] as const) {
+      expect(desiredAgentSourceHash(withoutLayers, target)).toBe(fileHash);
+    }
+  });
+
+  it('a present model changes only that target source hash', async () => {
+    const agent = await buildAgent({
+      workspace: { 'backend-developer': { codex: 'gpt-5-codex' } },
+    });
+
+    expect(agent.models).toEqual({ codex: 'gpt-5-codex' });
+    expect(agent.contentHash).toBe(
+      await hashFile(join(root, 'agents', 'backend-developer.md')),
+    );
+    expect(desiredAgentSourceHash(agent, 'codex')).not.toBe(agent.contentHash);
+    expect(desiredAgentSourceHash(agent, 'cursor')).toBe(agent.contentHash);
+
+    const other = await buildAgent({
+      workspace: { 'backend-developer': { codex: 'gpt-5' } },
+    });
+    expect(desiredAgentSourceHash(other, 'codex')).not.toBe(
+      desiredAgentSourceHash(agent, 'codex'),
+    );
+  });
+
+  it('skips a non-emittable value with a warning and keeps the others', async () => {
+    const agent = await buildAgent({
+      workspace: {
+        'backend-developer': {
+          opencode: 'no-provider-prefix',
+          copilot: 'gpt\n5',
+          cursor: 'sonnet-4',
+        },
+      },
+    });
+
+    expect(agent.models).toEqual({ cursor: 'sonnet-4' });
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('not emittable'),
+      expect.objectContaining({
+        slug: 'backend-developer',
+        provider: 'opencode',
+      }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('not emittable'),
+      expect.objectContaining({
+        slug: 'backend-developer',
+        provider: 'copilot',
+      }),
+    );
+  });
+
+  it('the workspace layer beats the machine layer, per provider', async () => {
+    const agent = await buildAgent({
+      workspace: {
+        'backend-developer': { codex: 'ws-codex' },
+        '*': { opencode: 'anthropic/ws-wildcard' },
+      },
+      machine: {
+        'backend-developer': { codex: 'machine-codex', opencode: 'x/machine' },
+        '*': { cursor: 'machine-cursor' },
+      },
+    });
+
+    expect(agent.models).toEqual({
+      codex: 'ws-codex',
+      opencode: 'anthropic/ws-wildcard',
+      cursor: 'machine-cursor',
+    });
+  });
+
+  it('a target writes the bytes it planned, model included', async () => {
+    const workspace = join(root, 'ws');
+    mkdirSync(workspace, { recursive: true });
+    const seen: HarnessAgentSource[] = [];
+    const transformer: IHarnessAgentTransformer = {
+      target: 'codex',
+      dirRel: '.codex/agents',
+      relPathFor: (agentId) => `.codex/agents/${agentId}.toml`,
+      transform: (source) => {
+        seen.push(source);
+        return `id = "${source.agentId}"\nmodel = "${source.model ?? ''}"\n`;
+      },
+      isPtahOutput: () => false,
+    };
+    const manifestStore = new ManagedManifestStore();
+    const target = new WorkspaceHarnessTarget({
+      id: 'codex',
+      facets: {
+        skills: 'unsupported',
+        commands: 'unsupported',
+        agents: 'supported',
+        mcp: 'unsupported',
+      },
+      manifestStore,
+      detector: { isInstalled: () => Promise.resolve(true) },
+      agentTransformer: transformer,
+    });
+    const desired = await builder.build({
+      ...emptyState(root),
+      agentModels: { workspace: { '*': { codex: 'gpt-5-codex' } } },
+    });
+
+    const plan = await target.plan(
+      desired,
+      workspace,
+      manifestStore.load(workspace, 'codex'),
+    );
+    expect(plan.writes).toHaveLength(1);
+    expect(plan.writes[0].sourceHash).toBe(
+      desiredAgentSourceHash(desired.agents[0], 'codex'),
+    );
+
+    const result = await target.apply(plan, workspace);
+    const relPath = '.codex/agents/backend-developer.toml';
+    const written = readFileSync(join(workspace, relPath), 'utf-8');
+
+    expect(written).toContain('model = "gpt-5-codex"');
+    expect(hashContent(written)).toBe(plan.writes[0].hash);
+    expect(result.written[relPath]?.hash).toBe(plan.writes[0].hash);
+    expect(seen.every((source) => source.model === 'gpt-5-codex')).toBe(true);
   });
 });

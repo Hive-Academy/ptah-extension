@@ -123,6 +123,9 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'skillSynthesis:digest',
   'skillSynthesis:dismissSuggestion',
   'skillSynthesis:enhanceNow',
+  // Per-agent model editor (TASK_2026_609) — served only to the desktop
+  // Thoth Library Agents tab, like the rest of the namespace.
+  'skillSynthesis:getAgentModels',
   'skillSynthesis:getCandidate',
   'skillSynthesis:getClone',
   'skillSynthesis:getHistoryBody',
@@ -140,6 +143,8 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'skillSynthesis:keepClone',
   'skillSynthesis:listCandidates',
   'skillSynthesis:listClones',
+  // Quarantined-agent listing (TASK_2026_609) — desktop Agents tab only.
+  'skillSynthesis:listQuarantinedAgents',
   'skillSynthesis:listSpecs',
   'skillSynthesis:listSuggestions',
   'skillSynthesis:pin',
@@ -152,11 +157,15 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'skillSynthesis:reject',
   'skillSynthesis:rejectBulk',
   'skillSynthesis:rejectByPattern',
+  // Quarantine restore — counterpart of `listQuarantinedAgents`, same reason.
+  'skillSynthesis:restoreQuarantinedAgent',
   'skillSynthesis:revertEnhancement',
   'skillSynthesis:runCurator',
   // Clone body save — writes into `~/.ptah/user` through
   // `UserLayerMirrorService`, which this host does not bind.
   'skillSynthesis:saveCloneBody',
+  // Per-agent model write — counterpart of `getAgentModels`, same reason.
+  'skillSynthesis:setAgentModel',
   // Lane config write — counterpart of `getLanes`, same reason.
   'skillSynthesis:setLanes',
   'skillSynthesis:setTriggers',

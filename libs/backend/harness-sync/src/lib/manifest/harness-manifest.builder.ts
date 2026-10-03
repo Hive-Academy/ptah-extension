@@ -41,13 +41,19 @@
 
 import { readdirSync, lstatSync, accessSync, constants } from 'fs';
 import { basename, join, resolve } from 'path';
-import type {
-  HarnessCollision,
-  HarnessSourcesStatus,
-  HarnessTargetId,
+import {
+  AGENT_MODEL_PROVIDERS,
+  isAgentModelEmittable,
+  resolveAgentModel,
+  type AgentModelLayers,
+  type AgentModelProvider,
+  type HarnessCollision,
+  type HarnessSourcesStatus,
+  type HarnessTargetId,
 } from '@ptah-extension/shared';
 import { throwIfPassAborted } from '../abort/pass-abort';
 import {
+  hashContent,
   hashDir,
   hashFile,
   isIgnoredEntry,
@@ -79,6 +85,45 @@ const HARNESS_TARGET_IDS: ReadonlySet<string> = new Set<HarnessTargetId>([
 
 function isHarnessTargetId(value: string): value is HarnessTargetId {
   return HARNESS_TARGET_IDS.has(value);
+}
+
+/**
+ * Providers whose agent copies harness-sync writes. Claude is excluded: the
+ * Claude target writes no agents, and the Claude model is applied where the
+ * Claude agent file is generated.
+ */
+const EMITTED_MODEL_PROVIDERS: readonly AgentModelProvider[] =
+  AGENT_MODEL_PROVIDERS.filter((provider) => provider !== 'claude');
+
+function isAgentModelProvider(value: string): value is AgentModelProvider {
+  return (AGENT_MODEL_PROVIDERS as readonly string[]).includes(value);
+}
+
+/** The model `target` should write for `agent`, or `undefined` for none. */
+export function desiredAgentModel(
+  agent: HarnessDesiredAgent,
+  target: HarnessTargetId,
+): string | undefined {
+  if (agent.models === undefined || !isAgentModelProvider(target)) {
+    return undefined;
+  }
+  return agent.models[target];
+}
+
+/**
+ * The source hash `target` records for `agent`: the file hash, with the
+ * target's own model folded in only when it has one. Without a model this is
+ * `contentHash` itself, byte-identical to the hash recorded before models
+ * existed (AC8), so no existing copy is rewritten. Per target, so changing the
+ * Codex model rewrites only the Codex copy.
+ */
+export function desiredAgentSourceHash(
+  agent: HarnessDesiredAgent,
+  target: HarnessTargetId,
+): string {
+  const model = desiredAgentModel(agent, target);
+  if (model === undefined) return agent.contentHash;
+  return hashContent(`${agent.contentHash}\nmodel:${model}`);
 }
 
 /** Options that only tests and the preflight path need to vary. */
@@ -126,7 +171,34 @@ export interface HarnessManifestBuildOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Shared agent selection for the manifest and generation preview. An absent
+ * consent flag preserves the builder's enabled default; migration belongs to
+ * AgentSyncGate. Disabled ids match raw slugs, without canonicalisation.
+ */
+export function isAgentSelectedForSync(
+  {
+    agentSyncEnabled,
+    disabledAgentIds,
+  }: {
+    readonly agentSyncEnabled?: boolean;
+    readonly disabledAgentIds?: readonly string[];
+  },
+  slug: string,
+): boolean {
+  return agentSyncEnabled !== false && !(disabledAgentIds ?? []).includes(slug);
+}
+
 export class HarnessManifestBuilder {
+  /**
+   * @param warn Receives a skipped agent model, which only a hand-edited
+   *   settings file can produce. Defaults to silent, like the manifest store.
+   */
+  constructor(
+    private readonly warn: (message: string, detail?: unknown) => void = () =>
+      undefined,
+  ) {}
+
   async build(
     sources: HarnessSourceState,
     options: HarnessManifestBuildOptions = {},
@@ -500,11 +572,14 @@ export class HarnessManifestBuilder {
   ): Promise<HarnessDesiredAgent[]> {
     if (!syncEnabled) return [];
 
-    const disabled = new Set(sources.disabledAgentIds ?? []);
+    const selection = {
+      agentSyncEnabled: syncEnabled,
+      disabledAgentIds: sources.disabledAgentIds,
+    };
     const claimed = new Map<string, HarnessDesiredAgent>();
     for (const file of this.listMarkdownFiles(sources.layout.agentsRoot)) {
       const slug = file.replace(/\.md$/i, '');
-      if (disabled.has(slug)) continue;
+      if (!isAgentSelectedForSync(selection, slug)) continue;
       const collision = this.rejectSlug(
         claimed,
         slug,
@@ -519,9 +594,47 @@ export class HarnessManifestBuilder {
       throwIfPassAborted(hashOptions.signal);
       const contentHash = await hashFile(sourceFile);
       if (contentHash === null) continue;
-      claimed.set(canonicalSlug(slug), { slug, sourceFile, contentHash });
+      const models = this.resolveAgentModels(sources.agentModels, slug);
+      claimed.set(canonicalSlug(slug), {
+        slug,
+        sourceFile,
+        contentHash,
+        ...(models === undefined ? {} : { models }),
+      });
     }
     return [...claimed.values()].sort((a, b) => a.slug.localeCompare(b.slug));
+  }
+
+  /**
+   * The effective model per rival provider for one agent, or `undefined` when
+   * none applies. Emission writes any value `isAgentModelEmittable` accepts and
+   * never classifies against a CLI model list; the save handler does that. A
+   * value it rejects can only come from a hand-edited settings file, and is
+   * skipped with a warning rather than written into a copy.
+   */
+  private resolveAgentModels(
+    layers: AgentModelLayers | undefined,
+    slug: string,
+  ): Partial<Record<AgentModelProvider, string>> | undefined {
+    if (layers === undefined) return undefined;
+    const models: Partial<Record<AgentModelProvider, string>> = {};
+    let found = false;
+    for (const provider of EMITTED_MODEL_PROVIDERS) {
+      const resolved = resolveAgentModel(layers, slug, provider);
+      if (resolved === undefined) continue;
+      if (!isAgentModelEmittable(provider, resolved.value)) {
+        this.warn('[harness-sync] agent model not written: not emittable', {
+          slug,
+          provider,
+          scope: resolved.scope,
+          wildcard: resolved.wildcard,
+        });
+        continue;
+      }
+      models[provider] = resolved.value;
+      found = true;
+    }
+    return found ? models : undefined;
   }
 
   private listMarkdownFiles(root: string): string[] {

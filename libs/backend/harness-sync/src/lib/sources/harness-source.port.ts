@@ -10,7 +10,7 @@
  * small structural port keeps the reconciler a leaf.
  */
 
-import type { HarnessTargetId } from '@ptah-extension/shared';
+import type { AgentModelLayers, HarnessTargetId } from '@ptah-extension/shared';
 import type { HarnessMcpIntent } from './mcp-intent-store';
 
 /** Absolute roots of the user layer (`~/.ptah/user/` by default). */
@@ -132,6 +132,15 @@ export interface HarnessSourceState {
    * Absent when the reader has no effective config or the policy is unknown.
    */
   policyFingerprint?: string;
+  /**
+   * The raw per-agent model settings for the reconciled workspace: the
+   * workspace layer and the machine layer, unmerged. The builder resolves them
+   * per agent and provider with `resolveAgentModel`.
+   *
+   * Optional, and absent means "no model anywhere", so a host that does not
+   * read agent models builds byte-identical desired state (AC8).
+   */
+  agentModels?: AgentModelLayers;
 }
 
 /** Resolves the current source state. Must never throw — degrade to empty. */

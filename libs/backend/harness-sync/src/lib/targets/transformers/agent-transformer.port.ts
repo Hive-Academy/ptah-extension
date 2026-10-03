@@ -24,6 +24,12 @@ export interface HarnessAgentSource {
   agentId: string;
   /** Full markdown of `~/.ptah/user/agents/<agentId>.md`, frontmatter included. */
   content: string;
+  /**
+   * The model to write into this target's copy, already resolved and checked
+   * by `isAgentModelEmittable`. Absent means "write no model field", which is
+   * the output every transformer produced before models existed.
+   */
+  model?: string;
 }
 
 export interface IHarnessAgentTransformer {

@@ -21,6 +21,15 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('agent generation model keys (TASK_2026_609)', () => {
+    it.each([
+      'agentGeneration.models',
+      'workspace.abc123.agentGeneration.models',
+    ])('routes %s to file-based storage', (key) => {
+      expect(isFileBasedSettingKey(key)).toBe(true);
+    });
+  });
+
   describe('PROVIDER_BASE_URL_PATTERN (dynamic keys)', () => {
     it('returns true for provider.<id>.baseUrl patterns with lower-case id', () => {
       expect(isFileBasedSettingKey('provider.openrouter.baseUrl')).toBe(true);

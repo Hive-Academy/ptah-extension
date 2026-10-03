@@ -25,10 +25,9 @@
  *    loading one except for `model: opus` did not appear in the agent list at
  *    all — not degraded, not defaulted, absent. Claude's model tiers (`opus`,
  *    `sonnet`) are not OpenCode model ids, and OpenCode wants a
- *    `provider/model` pair it can resolve. So `model` is NEVER emitted and the
- *    subagent inherits the session's model, exactly as
- *    `CodexAgentTransformer` decided for the same reason. Mapping a tier here
- *    would silently delete every synced agent.
+ *    `provider/model` pair it can resolve. Only an explicit target model is
+ *    emitted; without one the subagent inherits the session's model. Mapping
+ *    a Claude tier here would silently delete every synced agent.
  *
  * Frontmatter is rewritten rather than passed through, because `mode: subagent`
  * is structural — it is what makes OpenCode treat the file as a delegate
@@ -74,6 +73,7 @@ export class OpencodeAgentTransformer implements IHarnessAgentTransformer {
       '---',
       `description: ${yamlDoubleQuoted(description)}`,
       'mode: subagent',
+      ...(source.model ? [`model: ${yamlDoubleQuoted(source.model)}`] : []),
       'source: ptah',
       `target-cli: ${this.target}`,
       '---',

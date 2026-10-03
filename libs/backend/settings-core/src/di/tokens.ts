@@ -32,6 +32,9 @@ export const SETTINGS_TOKENS = {
   /** SkillSynthesisSettings repository. */
   SKILL_SYNTHESIS_SETTINGS: Symbol.for('SkillSynthesisSettings'),
 
+  /** AgentModelSettings repository (`agentGeneration.models`, TASK_2026_609). */
+  AGENT_MODEL_SETTINGS: Symbol.for('AgentModelSettings'),
+
   /** CronSettings repository. */
   CRON_SETTINGS: Symbol.for('CronSettings'),
 

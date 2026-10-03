@@ -131,7 +131,9 @@ export function registerHarnessSyncServices(
   const manifestStore = new ManagedManifestStore((message, detail) =>
     logger.warn(message, toDetail(detail)),
   );
-  const builder = new HarnessManifestBuilder();
+  const builder = new HarnessManifestBuilder((message, detail) =>
+    logger.warn(message, toDetail(detail)),
+  );
   const detector = options.cliDetector ?? NO_CLI_DETECTOR;
   const targets = (options.targets ?? ALL_HARNESS_TARGET_FACTORIES).map(
     (factory) => factory({ manifestStore, detector }),

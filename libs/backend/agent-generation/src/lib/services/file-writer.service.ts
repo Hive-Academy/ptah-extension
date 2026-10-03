@@ -13,8 +13,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { homedir } from 'os';
-import { dirname, join, normalize } from 'path';
+import { dirname, isAbsolute, normalize } from 'path';
 import {
   PLATFORM_TOKENS,
   type IFileSystemProvider,
@@ -196,11 +195,13 @@ export class AgentFileWriterService implements IAgentFileWriterService {
         ),
       );
     }
+    // Security checks first, so a traversal or non-.claude path keeps its
+    // `securityViolation` flag even when it is also relative.
     const pathValidation = this.validateFilePath(agent.filePath);
     if (pathValidation.isErr()) {
       return Result.err(pathValidation.error!);
     }
-    return Result.ok(this.resolveAbsolutePath(agent.filePath));
+    return this.resolveAbsolutePath(agent.filePath);
   }
 
   /**
@@ -312,17 +313,20 @@ export class AgentFileWriterService implements IAgentFileWriterService {
   }
 
   /**
-   * Resolve file path to absolute path.
-   * If path is relative, assumes it's relative to the home directory.
+   * Require an absolute target path and normalize it.
+   * Relative paths are rejected without resolving against the home directory.
    */
-  private resolveAbsolutePath(filePath: string): string {
-    if (filePath.startsWith('/') || /^[A-Za-z]:/.test(filePath)) {
-      return normalize(filePath);
+  private resolveAbsolutePath(filePath: string): Result<string, Error> {
+    if (!isAbsolute(filePath)) {
+      return Result.err(
+        new FileWriteError(
+          `An absolute path is required: "${filePath}"`,
+          filePath,
+          'write',
+        ),
+      );
     }
-    this.logger.warn(
-      `[FileWriter] Relative path "${filePath}" — resolving against homedir. Caller should provide absolute path.`,
-    );
-    return normalize(join(homedir(), filePath));
+    return Result.ok(normalize(filePath));
   }
 
   /**

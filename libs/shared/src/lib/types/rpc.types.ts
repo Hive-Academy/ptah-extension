@@ -247,6 +247,8 @@ import type {
   WizardCancelResponse,
   WizardRetryItemParams,
   WizardRetryItemResponse,
+  WizardPreviewGenerationParams,
+  WizardPreviewGenerationResponse,
   MultiPhaseAnalysisResponse,
   EnhancedPromptsGetStatusParams,
   EnhancedPromptsGetStatusResponse,
@@ -504,6 +506,14 @@ import type {
   SkillSynthesisGetScorecardsResult,
   SkillSynthesisGetScorecardDetailParams,
   SkillSynthesisGetScorecardDetailResult,
+  SkillSynthesisListQuarantinedAgentsParams,
+  SkillSynthesisListQuarantinedAgentsResult,
+  SkillSynthesisRestoreQuarantinedAgentParams,
+  SkillSynthesisRestoreQuarantinedAgentResult,
+  SkillSynthesisGetAgentModelsParams,
+  SkillSynthesisGetAgentModelsResult,
+  SkillSynthesisSetAgentModelParams,
+  SkillSynthesisSetAgentModelResult,
 } from './rpc/rpc-skill-clone.types';
 
 import type {
@@ -1000,6 +1010,10 @@ export interface RpcMethodRegistry {
   'wizard:retry-item': {
     params: WizardRetryItemParams;
     result: WizardRetryItemResponse;
+  };
+  'wizard:preview-generation': {
+    params: WizardPreviewGenerationParams;
+    result: WizardPreviewGenerationResponse;
   };
   'wizard:list-analyses': {
     params: Record<string, never>;
@@ -1992,6 +2006,22 @@ export interface RpcMethodRegistry {
   'skillSynthesis:saveCloneBody': {
     params: SkillSynthesisSaveCloneBodyParams;
     result: SkillSynthesisSaveCloneBodyResult;
+  };
+  'skillSynthesis:listQuarantinedAgents': {
+    params: SkillSynthesisListQuarantinedAgentsParams;
+    result: SkillSynthesisListQuarantinedAgentsResult;
+  };
+  'skillSynthesis:restoreQuarantinedAgent': {
+    params: SkillSynthesisRestoreQuarantinedAgentParams;
+    result: SkillSynthesisRestoreQuarantinedAgentResult;
+  };
+  'skillSynthesis:getAgentModels': {
+    params: SkillSynthesisGetAgentModelsParams;
+    result: SkillSynthesisGetAgentModelsResult;
+  };
+  'skillSynthesis:setAgentModel': {
+    params: SkillSynthesisSetAgentModelParams;
+    result: SkillSynthesisSetAgentModelResult;
   };
   'skillSynthesis:invocationStats': {
     params: SkillSynthesisInvocationStatsParams;
@@ -3734,6 +3764,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'wizard:submit-selection': true,
   'wizard:cancel': true,
   'wizard:retry-item': true,
+  'wizard:preview-generation': true,
   'wizard:list-analyses': true,
   'wizard:load-analysis': true,
   'wizard:list-agent-packs': true,
@@ -3979,6 +4010,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,
   'skillSynthesis:saveCloneBody': true,
+  'skillSynthesis:listQuarantinedAgents': true,
+  'skillSynthesis:restoreQuarantinedAgent': true,
+  'skillSynthesis:getAgentModels': true,
+  'skillSynthesis:setAgentModel': true,
   'skillSynthesis:invocationStats': true,
   'skillSynthesis:getScorecards': true,
   'skillSynthesis:getScorecardDetail': true,

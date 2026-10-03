@@ -16,6 +16,10 @@ import {
   SkillKeepCloneParamsSchema,
   SkillSaveCloneBodyParamsSchema,
   SkillInvocationStatsParamsSchema,
+  SkillListQuarantinedAgentsParamsSchema,
+  SkillRestoreQuarantinedAgentParamsSchema,
+  SkillGetAgentModelsParamsSchema,
+  SkillSetAgentModelParamsSchema,
   getScorecardsParamsSchema,
   getScorecardDetailParamsSchema,
   SkillQueueParamsSchema,
@@ -1353,6 +1357,138 @@ describe('SkillSetLanesParamsSchema', () => {
   it('rejects an id field — lane identity is the map key, not writable', () => {
     expect(() =>
       SkillSetLanesParamsSchema.parse({ lanes: { judge: { id: 'judge' } } }),
+    ).toThrow();
+  });
+});
+
+describe('SkillListQuarantinedAgentsParamsSchema', () => {
+  it.each([
+    ['undefined', undefined],
+    ['an empty object', {}],
+  ])('accepts %s', (_label, params) => {
+    expect(() =>
+      SkillListQuarantinedAgentsParamsSchema.parse(params),
+    ).not.toThrow();
+  });
+
+  it('rejects an unknown key (the listing takes no input)', () => {
+    expect(() =>
+      SkillListQuarantinedAgentsParamsSchema.parse({ workspaceRoot: '/x' }),
+    ).toThrow();
+  });
+});
+
+describe('SkillRestoreQuarantinedAgentParamsSchema', () => {
+  it('accepts a plain agent slug', () => {
+    expect(
+      SkillRestoreQuarantinedAgentParamsSchema.parse({
+        slug: 'backend-developer',
+      }),
+    ).toEqual({ slug: 'backend-developer' });
+  });
+
+  // PR4: the slug becomes a path segment under `{ws}/.claude/agents`.
+  it.each([
+    ['parent traversal', '../evil'],
+    ['embedded traversal', 'a..b'],
+    ['bare dot', '.'],
+    ['bare dot-dot', '..'],
+    ['forward slash', 'a/b'],
+    ['backslash', 'a\\b'],
+    ['absolute posix path', '/etc/passwd'],
+    ['windows drive path', 'C:\\x'],
+    ['empty', ''],
+    ['over 128 chars', 'a'.repeat(129)],
+  ])('rejects a %s slug', (_label, slug) => {
+    expect(() =>
+      SkillRestoreQuarantinedAgentParamsSchema.parse({ slug }),
+    ).toThrow();
+  });
+
+  it('rejects a missing slug and unknown keys', () => {
+    expect(() => SkillRestoreQuarantinedAgentParamsSchema.parse({})).toThrow();
+    expect(() =>
+      SkillRestoreQuarantinedAgentParamsSchema.parse({
+        slug: 'ok',
+        workspaceRoot: '/other',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('SkillGetAgentModelsParamsSchema', () => {
+  it.each([
+    ['undefined', undefined],
+    ['an empty object', {}],
+    ['a workspace root', { workspaceRoot: '/ws/project' }],
+  ])('accepts %s', (_label, params) => {
+    expect(() => SkillGetAgentModelsParamsSchema.parse(params)).not.toThrow();
+  });
+
+  it.each([
+    ['a blank workspace root', { workspaceRoot: '  ' }],
+    ['a non-string workspace root', { workspaceRoot: 42 }],
+    ['an unknown key', { slug: 'x' }],
+  ])('rejects %s', (_label, params) => {
+    expect(() => SkillGetAgentModelsParamsSchema.parse(params)).toThrow();
+  });
+});
+
+describe('SkillSetAgentModelParamsSchema', () => {
+  const valid = {
+    workspaceRoot: '/ws/project',
+    slug: 'backend-developer',
+    provider: 'codex',
+    scope: 'workspace',
+    value: 'gpt-5-codex',
+  };
+
+  it('accepts an agent slug, the wildcard, a null value and confirmUnlisted', () => {
+    expect(SkillSetAgentModelParamsSchema.parse(valid)).toEqual(valid);
+    expect(
+      SkillSetAgentModelParamsSchema.parse({
+        ...valid,
+        slug: '*',
+        scope: 'machine',
+        value: null,
+        confirmUnlisted: true,
+      }),
+    ).toMatchObject({ slug: '*', value: null, confirmUnlisted: true });
+  });
+
+  it.each(['claude', 'codex', 'copilot', 'cursor', 'opencode'])(
+    'accepts provider %s',
+    (provider) => {
+      expect(() =>
+        SkillSetAgentModelParamsSchema.parse({ ...valid, provider }),
+      ).not.toThrow();
+    },
+  );
+
+  it('keeps the value untrimmed (classification decides, not the schema)', () => {
+    expect(
+      SkillSetAgentModelParamsSchema.parse({ ...valid, value: ' gpt-5 ' })
+        .value,
+    ).toBe(' gpt-5 ');
+  });
+
+  it.each([
+    ['a missing workspaceRoot', { workspaceRoot: undefined }],
+    ['an empty workspaceRoot', { workspaceRoot: '' }],
+    ['a blank workspaceRoot', { workspaceRoot: '   ' }],
+    ['a traversal slug', { slug: '../evil' }],
+    ['a separator slug', { slug: 'a/b' }],
+    ['a double wildcard slug', { slug: '**' }],
+    ['a __proto__ slug', { slug: '__proto__' }],
+    ['an unknown provider', { provider: 'antigravity' }],
+    ['an unknown scope', { scope: 'global' }],
+    ['a missing value', { value: undefined }],
+    ['an over-long value', { value: 'm'.repeat(257) }],
+    ['a non-boolean confirmUnlisted', { confirmUnlisted: 'yes' }],
+    ['an unknown key', { reconcile: true }],
+  ])('rejects %s', (_label, overrides) => {
+    expect(() =>
+      SkillSetAgentModelParamsSchema.parse({ ...valid, ...overrides }),
     ).toThrow();
   });
 });

@@ -39,6 +39,7 @@ import type {
   HarnessTargetId,
 } from '@ptah-extension/shared';
 import { throwIfPassAborted } from '../abort/pass-abort';
+import { errorCode } from '../fs/windows-retry';
 import {
   hashContent,
   hashDir,
@@ -50,6 +51,10 @@ import type {
   HarnessDesiredMcpServer,
   HarnessDesiredState,
 } from '../manifest/desired-state.types';
+import {
+  desiredAgentModel,
+  desiredAgentSourceHash,
+} from '../manifest/harness-manifest.builder';
 import {
   entrySourceHash,
   managedEntry,
@@ -64,9 +69,9 @@ import {
   copySingleFile,
   describeError,
   hashTransformedDir,
-  removeManaged,
   withWindowsRetry,
 } from './copy-engine';
+import { detachForOverwrite, retireOwnedArtifact } from './artifact-retirement';
 import type {
   HarnessApplyResult,
   HarnessMigration,
@@ -169,6 +174,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     const writes: HarnessPlanWrite[] = [];
     const foreign: string[] = [];
     const blocked: string[] = [];
+    const unchangedAgents: string[] = [];
     let unchanged = 0;
 
     for (const [relPath, entry] of desiredEntries) {
@@ -201,6 +207,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
           entry.sourceHash,
         );
         unchanged++;
+        if (entry.kind === 'agent') unchangedAgents.push(relPath);
         continue;
       }
       if (outcome.adopted) adopted.push(relPath);
@@ -213,6 +220,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         isDirectory: entry.isDirectory,
         reason: outcome.reason,
         overwritesLocalEdit: outcome.overwritesLocalEdit,
+        ...(entry.model === undefined ? {} : { model: entry.model }),
       });
     }
 
@@ -231,6 +239,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       adopted,
       baseEntries,
       unchanged: unchanged + mcpPlan.unchanged,
+      unchangedAgents,
       expected: desiredEntries.size + mcpPlan.expected,
     };
   }
@@ -239,32 +248,31 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     plan: HarnessPlan,
     workspaceRoot: string,
   ): Promise<HarnessApplyResult> {
+    const removedLocalEdit: string[] = [];
     const result: HarnessApplyResult = {
       written: {},
       removed: [],
       writeFailed: [],
       overwrittenLocalEdit: [],
+      removedLocalEdit,
     };
 
     await this.applyMigrations(plan.migrations, result);
 
     for (const removal of plan.removals) {
       if (removal.kind === 'mcp') continue;
-      const absolute = toAbsolute(workspaceRoot, removal.relPath);
-      try {
-        await removeManaged(absolute, removal.isDirectory);
-        result.removed.push(removal.relPath);
-      } catch (error: unknown) {
-        result.writeFailed.push({
-          relPath: removal.relPath,
-          reason: `failed to remove: ${describeError(error)}`,
-        });
-      }
+      await this.retireOwned(
+        removal,
+        workspaceRoot,
+        plan.baseEntries,
+        result,
+        removedLocalEdit,
+      );
     }
 
     for (const write of plan.writes) {
       if (write.kind === 'mcp') continue;
-      await this.applyWrite(write, workspaceRoot, result);
+      await this.applyWrite(write, workspaceRoot, plan.baseEntries, result);
     }
 
     const facet = this.options.mcpFacet;
@@ -379,19 +387,22 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     const transformer = this.options.agentTransformer;
     if (transformer !== undefined) {
       for (const agent of desired.agents) {
+        const model = desiredAgentModel(agent, this.id);
         const rendered = this.renderAgent(
           transformer,
           agent.slug,
           agent.sourceFile,
+          model,
         );
         if (rendered === null) continue;
         entries.set(transformer.relPathFor(agent.slug), {
           kind: 'agent',
           source: agent.sourceFile,
-          sourceHash: agent.contentHash,
+          sourceHash: desiredAgentSourceHash(agent, this.id),
           outputHash: hashContent(rendered),
           isDirectory: false,
           transformed: true,
+          ...(model === undefined ? {} : { model }),
         });
       }
     }
@@ -404,11 +415,13 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     transformer: IHarnessAgentTransformer,
     agentId: string,
     sourceFile: string,
+    model: string | undefined,
   ): string | null {
     try {
       return transformer.transform({
         agentId,
         content: readFileSync(sourceFile, 'utf-8'),
+        ...(model === undefined ? {} : { model }),
       });
     } catch {
       return null;
@@ -511,21 +524,17 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         : { kind: 'foreign' };
     }
 
-    if (entrySourceHash(owned) !== entry.sourceHash) {
-      return {
-        kind: 'write',
-        reason: 'update',
-        overwritesLocalEdit: false,
-        adopted: false,
-      };
+    // Drift is judged on the copy alone: an edited copy is an edit whether or
+    // not its source (or model) also changed, so a source change must not hide
+    // it from the snapshot and the report (Part B review finding 3).
+    const edited = actual !== owned.hash;
+    if (!edited && entrySourceHash(owned) === entry.sourceHash) {
+      return { kind: 'unchanged', recordHash: owned.hash };
     }
-
-    if (actual === owned.hash) return { kind: 'unchanged', recordHash: actual };
-
     return {
       kind: 'write',
       reason: 'update',
-      overwritesLocalEdit: true,
+      overwritesLocalEdit: edited,
       adopted: false,
     };
   }
@@ -838,6 +847,40 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
 
   // ------------------------------------------------------------------- apply
 
+  /**
+   * Retire one manifest-owned copy without losing a byte the user put there
+   * (TASK_2026_609). Every retirement funnels through here — a deleted source,
+   * an agent that left the desired set or was disabled, and the explicit
+   * uninstall pass (`HarnessReconcilerService.remove`, E22).
+   *
+   * The rule (detach first, decide on the detached object) lives in
+   * `artifact-retirement.ts`. This maps its outcome: a kept local edit is in
+   * BOTH `removed` and `removedLocalEdit`; a failure lands in `writeFailed` and
+   * stays out of `removed`, which keeps its manifest entry alive for the next
+   * pass — the reconciler prunes only `result.removed`.
+   */
+  private async retireOwned(
+    removal: HarnessPlanRemove,
+    workspaceRoot: string,
+    baseEntries: ManagedEntries,
+    result: HarnessApplyResult,
+    removedLocalEdit: string[],
+  ): Promise<void> {
+    const { relPath, isDirectory } = removal;
+    const outcome = await retireOwnedArtifact({
+      workspaceRoot,
+      relPath,
+      isDirectory,
+      ownedHash: baseEntries[relPath]?.hash,
+    });
+    if (outcome.kind === 'failed') {
+      result.writeFailed.push({ relPath, reason: outcome.reason });
+      return;
+    }
+    result.removed.push(relPath);
+    if (outcome.kind === 'removed-local-edit') removedLocalEdit.push(relPath);
+  }
+
   private async applyMigrations(
     migrations: HarnessMigration[],
     result: HarnessApplyResult,
@@ -866,14 +909,50 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     }
   }
 
+  /**
+   * Write one artifact (TASK_2026_609, Part B review finding 1).
+   *
+   * An owned copy is never overwritten in place. It is first detached into the
+   * history store (`detachForOverwrite`) and decided on there — Ptah's own bytes
+   * are discarded, anything else stays as the snapshot — whatever the plan
+   * believed, so an edit saved between plan and apply is kept too. The
+   * replacement is then published with an exclusive create, so a save landing
+   * after the detach survives as a conflict instead of being overwritten.
+   * Either failure lands in `writeFailed` and keeps the manifest entry for the
+   * next pass. Only an adopted copy (unowned, carrying a Ptah writer signature)
+   * is still replaced in place: its path is occupied by design.
+   */
   private async applyWrite(
     write: HarnessPlanWrite,
     workspaceRoot: string,
+    baseEntries: ManagedEntries,
     result: HarnessApplyResult,
   ): Promise<void> {
-    const absolute = toAbsolute(workspaceRoot, write.relPath);
+    const owned = baseEntries[write.relPath];
+    const adopted = write.reason === 'update' && owned === undefined;
+    let snapshotPath: string | undefined;
+    if (write.reason === 'update' && owned !== undefined) {
+      const detached = await detachForOverwrite({
+        workspaceRoot,
+        relPath: write.relPath,
+        isDirectory: write.isDirectory,
+        ownedHash: owned.hash,
+      });
+      if (detached.kind === 'failed') {
+        result.writeFailed.push({
+          relPath: write.relPath,
+          reason: detached.reason,
+        });
+        return;
+      }
+      if (detached.kind === 'local-edit') snapshotPath = detached.snapshotPath;
+    }
     try {
-      const outputHash = await this.writeArtifact(write, absolute);
+      const outputHash = await this.writeArtifact(
+        write,
+        toAbsolute(workspaceRoot, write.relPath),
+        !adopted,
+      );
       // Recorded ONLY after the write succeeded: a manifest entry for a file
       // that is not on disk is exactly the record corruption E21 forbids.
       result.written[write.relPath] = managedEntry(
@@ -882,25 +961,30 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         write.kind,
         write.sourceHash,
       );
-      if (write.overwritesLocalEdit) {
+      if (snapshotPath !== undefined) {
         result.overwrittenLocalEdit.push(write.relPath);
       }
     } catch (error: unknown) {
       result.writeFailed.push({
         relPath: write.relPath,
-        reason: describeError(error),
+        reason: publishFailureReason(write.relPath, error, snapshotPath),
       });
     }
   }
 
-  /** Perform one write and answer the hash of what actually landed on disk. */
+  /**
+   * Perform one write and answer the hash of what actually landed on disk.
+   * `exclusive` creates rather than replaces, failing with EEXIST when
+   * something already occupies the path.
+   */
   private async writeArtifact(
     write: HarnessPlanWrite,
     absolute: string,
+    exclusive: boolean,
   ): Promise<string> {
     if (write.kind === 'skill') {
       const slug = write.relPath.slice(write.relPath.lastIndexOf('/') + 1);
-      await copyDirectoryTransformed(write.source, absolute, slug);
+      await copyDirectoryTransformed(write.source, absolute, slug, exclusive);
       // Re-hashed rather than trusted: the copy was rewritten on the way out,
       // so only the result knows its own hash.
       // No signal: this is the APPLY phase, past the pass's commit point. A
@@ -914,18 +998,25 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       if (transformer === undefined) {
         throw new Error(`Target "${this.id}" has no agent transformer`);
       }
+      const model = write.model;
       const content = transformer.transform({
         agentId: basenameWithoutSuffix(write.relPath, transformer),
         content: readFileSync(write.source, 'utf-8'),
+        ...(model === undefined ? {} : { model }),
       });
       await withWindowsRetry(() =>
         mkdir(dirname(absolute), { recursive: true }),
       );
-      await withWindowsRetry(() => writeFile(absolute, content, 'utf-8'));
+      await withWindowsRetry(() =>
+        writeFile(absolute, content, {
+          encoding: 'utf-8',
+          flag: exclusive ? 'wx' : 'w',
+        }),
+      );
       return hashContent(content);
     }
 
-    await copySingleFile(write.source, absolute, dirname(absolute));
+    await copySingleFile(write.source, absolute, dirname(absolute), exclusive);
     return write.hash;
   }
 }
@@ -960,6 +1051,8 @@ interface DesiredEntry {
   outputHash: string;
   isDirectory: boolean;
   transformed: boolean;
+  /** Agents only: the model the copy carries. Absent writes no model field. */
+  model?: string;
 }
 
 interface OwnershipOracle {
@@ -990,6 +1083,26 @@ function basenameWithoutSuffix(
   const prefix = probe.slice(0, marker);
   const suffix = probe.slice(marker + 1);
   return relPath.slice(prefix.length, relPath.length - suffix.length);
+}
+
+/**
+ * Why a publish failed. EEXIST is the exclusive create refusing a save that
+ * landed after the detach: that copy is kept, not an error to retry blindly.
+ * A detached local edit is named either way, because it is no longer at its
+ * original path.
+ */
+function publishFailureReason(
+  relPath: string,
+  error: unknown,
+  snapshotPath: string | undefined,
+): string {
+  const reason =
+    errorCode(error) === 'EEXIST'
+      ? `a new copy appeared at ${relPath} while it was being replaced; kept it`
+      : describeError(error);
+  return snapshotPath === undefined
+    ? reason
+    : `${reason}; the earlier local edit is saved at ${snapshotPath}`;
 }
 
 function lstatSyncOrNull(path: string): Stats | null {

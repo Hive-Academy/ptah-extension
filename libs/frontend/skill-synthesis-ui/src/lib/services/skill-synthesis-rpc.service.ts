@@ -39,12 +39,33 @@ import type {
   SkillSynthesisQueueResult,
   SkillSynthesisDigestParams,
   SkillSynthesisDigestResult,
+  SkillSynthesisListQuarantinedAgentsResult,
+  SkillSynthesisRestoreQuarantinedAgentResult,
+  AgentListCliModelsResult,
+  AgentOrchestrationConfig,
+  RpcUserErrorCode,
+  SkillSynthesisGetAgentModelsResult,
+  SkillSynthesisSetAgentModelParams,
+  SkillSynthesisSetAgentModelResult,
 } from '@ptah-extension/shared';
 
 export interface SkillAcceptSuggestionResult {
   readonly accepted: boolean;
   readonly filePath: string;
 }
+
+/**
+ * A `setAgentModel` answer. A refusal is data, not a throw, because the caller
+ * acts on its code: `MODEL_NOT_AVAILABLE` asks for confirmation,
+ * `UNAUTHORIZED_WORKSPACE` reloads the models, the rest show `message`.
+ */
+export type AgentModelSaveOutcome =
+  | { readonly ok: true; readonly result: SkillSynthesisSetAgentModelResult }
+  | {
+      readonly ok: false;
+      readonly code: RpcUserErrorCode | null;
+      readonly message: string;
+    };
 
 /**
  * Per-method RPC timeout budget for the skill-synthesis surface.
@@ -587,6 +608,115 @@ export class SkillSynthesisRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to load scorecard detail');
+  }
+
+  /**
+   * Agents the seed quarantine moved out of this workspace, plus the kept
+   * clones Ptah does not own.
+   *
+   * `workspaceRoot: null` is the backend's "no folder open" answer and is
+   * returned as-is: it is NOT the same as an empty quarantine, and the caller
+   * must tell the two apart. Handler failures (e.g. `PERSISTENCE_UNAVAILABLE`)
+   * throw; they never come back as an empty listing.
+   */
+  public async listQuarantinedAgents(): Promise<SkillSynthesisListQuarantinedAgentsResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:listQuarantinedAgents',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to list quarantined agents');
+  }
+
+  /**
+   * Copy a quarantined agent's snapshot back to `.claude/agents/<slug>.md`.
+   *
+   * Every outcome the handler returns (`restored`, `conflict`, `copy-failed`,
+   * …) is data for the caller to present. An RPC error (`INVALID_PARAMS` for a
+   * bad slug or no open folder, `PERSISTENCE_UNAVAILABLE`) throws, so a refused
+   * restore is never mistaken for one that ran. The handler never turns agent
+   * sync on; `agentSync` only reports it.
+   */
+  public async restoreQuarantinedAgent(
+    slug: string,
+  ): Promise<SkillSynthesisRestoreQuarantinedAgentResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:restoreQuarantinedAgent',
+      { slug },
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to restore quarantined agent');
+  }
+
+  /**
+   * Both per-agent model layers, the server's classification of every stored
+   * value, its classification lists and the providers that cannot carry a
+   * model. `workspaceRoot` is what {@link setAgentModel} must send back.
+   */
+  public async getAgentModels(): Promise<SkillSynthesisGetAgentModelsResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:getAgentModels',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to read agent models');
+  }
+
+  /** Save or clear one agent's model for one provider in one scope. */
+  public async setAgentModel(
+    params: SkillSynthesisSetAgentModelParams,
+  ): Promise<AgentModelSaveOutcome> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:setAgentModel',
+      params,
+      { timeout: SKILL_RPC_TIMEOUTS.SETTINGS_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return { ok: true, result: result.data };
+    }
+    return {
+      ok: false,
+      code: result.errorCode ?? null,
+      message: result.error || 'Failed to save the agent model',
+    };
+  }
+
+  /**
+   * The CLI model lists (`agent:listCliModels`). Suggestions for the model
+   * input only: classification comes from {@link getAgentModels}.
+   */
+  public async listCliModels(): Promise<AgentListCliModelsResult> {
+    const result = await this.rpcService.call(
+      'agent:listCliModels',
+      undefined,
+      {
+        timeout: SKILL_RPC_TIMEOUTS.LIST_MS,
+      },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to list CLI models');
+  }
+
+  /** Agent lane settings (`agent:getConfig`), for each lane's default model. */
+  public async getAgentLaneConfig(): Promise<AgentOrchestrationConfig> {
+    const result = await this.rpcService.call('agent:getConfig', undefined, {
+      timeout: SKILL_RPC_TIMEOUTS.SETTINGS_MS,
+    });
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to read agent lane settings');
   }
 
   /** List cluster-derived skill suggestions awaiting human decision. */

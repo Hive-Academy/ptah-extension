@@ -57,6 +57,8 @@ export interface HarnessPlanWrite {
    * changed source from a hand-edited copy. Omitted by byte-copy targets.
    */
   sourceHash?: string;
+  /** Agents only: the model the transformed copy carries. */
+  model?: string;
   isDirectory: boolean;
   reason: 'create' | 'update';
   /**
@@ -145,6 +147,15 @@ export interface HarnessPlan {
   baseEntries: ManagedEntries;
   /** Desired entries already correct on disk. */
   unchanged: number;
+  /**
+   * The `kind: 'agent'` subset of {@link unchanged}, as workspace-relative
+   * paths. Feeds `agentsInSync` in health (TASK_2026_609).
+   *
+   * Optional because only `WorkspaceHarnessTarget` writes agent copies; the
+   * Claude target's agents directory is the source itself, and every other
+   * producer of this type keeps compiling unchanged.
+   */
+  unchangedAgents?: string[];
   /** Total desired entries this target is responsible for. */
   expected: number;
 }
@@ -156,6 +167,16 @@ export interface HarnessApplyResult {
   removed: string[];
   writeFailed: Array<{ relPath: string; reason: string }>;
   overwrittenLocalEdit: string[];
+  /**
+   * Manifest-owned paths that had been hand-edited, were snapshotted to
+   * `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>`, and only then removed
+   * (TASK_2026_609). Every path here ALSO appears in {@link removed}, so manifest
+   * pruning and removal counts need no second list.
+   *
+   * Optional because only `WorkspaceHarnessTarget` retires hand-editable copies;
+   * every other producer of this type keeps compiling unchanged.
+   */
+  removedLocalEdit?: string[];
 }
 
 export interface IHarnessTarget {

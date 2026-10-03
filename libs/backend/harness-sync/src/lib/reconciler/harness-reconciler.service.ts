@@ -328,6 +328,7 @@ export class HarnessReconcilerService {
             writeFailed: result.writeFailed,
             overwrittenLocalEdit: [],
             removed: result.removed,
+            removedLocalEdit: result.removedLocalEdit ?? [],
             durationMs: Date.now() - startedAt,
           });
         } catch (error: unknown) {

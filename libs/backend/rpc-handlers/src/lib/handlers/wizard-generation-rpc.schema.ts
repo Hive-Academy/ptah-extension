@@ -1,8 +1,8 @@
 /**
  * Zod schemas for {@link WizardGenerationRpcHandlers}.
  *
- * Every `wizard:submit-selection` / `wizard:cancel` / `wizard:retry-item`
- * request is parsed here before the handler touches the orchestrator or the
+ * Every `wizard:submit-selection` / `wizard:preview-generation` /
+ * `wizard:cancel` / `wizard:retry-item` request is parsed here before the handler touches the orchestrator or the
  * generation checkpoint. Agent identifiers become checkpoint record keys and
  * `<outputDirectory>/<agentId>.md` file names, so they are restricted to one
  * safe path token.
@@ -49,6 +49,15 @@ export const WizardSubmitSelectionParamsSchema = z.object({
 export type WizardSubmitSelectionParsedParams = z.infer<
   typeof WizardSubmitSelectionParamsSchema
 >;
+
+/**
+ * `wizard:preview-generation`. The ids become `.claude/agents/<id>.md` and
+ * rival-CLI file names exactly as they do for a submit, so they pass the same
+ * {@link WizardAgentIdSchema} under the same cap.
+ */
+export const WizardPreviewGenerationParamsSchema = z.object({
+  selectedAgentIds: z.array(WizardAgentIdSchema).min(1).max(200),
+});
 
 export const WizardCancelParamsSchema = z.object({
   saveProgress: z.boolean().optional(),

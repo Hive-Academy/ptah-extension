@@ -7,8 +7,8 @@
  * YAML frontmatter instead of rewriting it — the metadata is carried by TOML,
  * and leaving `---` blocks in the instructions would just feed Codex noise.
  *
- * `model` is deliberately never emitted: Claude model hints (`opus`, `sonnet`)
- * are not valid Codex models, so a subagent inherits the parent session's.
+ * Only an explicit target model is emitted. Claude frontmatter model hints
+ * are discarded; without an override the subagent inherits the parent's model.
  */
 
 import type { HarnessTargetId } from '@ptah-extension/shared';
@@ -19,13 +19,17 @@ import type {
 import { resolveAgentDescription, transformAgentBody } from './transform-rules';
 
 /** Escape a value for a single-line TOML basic string. */
-function tomlBasicString(value: string): string {
-  const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\r/g, '')
-    .replace(/\n/g, '\\n')
-    .replace(/\t/g, '\\t');
+function tomlBasicString(value: string, escapeControls = false): string {
+  let escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  // Preserve legacy name/description bytes; models must round-trip all controls.
+  escaped = escapeControls
+    ? Array.from(escaped, (character) => {
+        const code = character.charCodeAt(0);
+        return code < 32 || code === 127
+          ? `\\u${code.toString(16).padStart(4, '0')}`
+          : character;
+      }).join('')
+    : escaped.replace(/\r/g, '').replace(/\n/g, '\\n').replace(/\t/g, '\\t');
   return `"${escaped}"`;
 }
 
@@ -81,6 +85,9 @@ export class CodexAgentTransformer implements IHarnessAgentTransformer {
       `name = ${tomlBasicString(source.agentId)}`,
       `description = ${tomlBasicString(description)}`,
     ];
+    if (source.model) {
+      lines.push(`model = ${tomlBasicString(source.model, true)}`);
+    }
     if (isReadOnlyAgent(source.agentId)) {
       lines.push('sandbox_mode = "read-only"');
     }

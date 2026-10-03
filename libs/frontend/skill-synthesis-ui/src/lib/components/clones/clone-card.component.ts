@@ -13,8 +13,14 @@
  *    so an action the backend would reject is either disabled with the reason
  *    on it, or not rendered at all (Rebase on an entry with no upstream).
  *
- * Pure presentational: `input()` signals in, `output()` events out, no service
- * injection and no RPC. `OnPush`.
+ * Agent cards on the desktop host also carry one chip per provider copy
+ * (`syncChips`, TASK_2026_609) and a note when the agent is not owned by this
+ * workspace (`notOwned`). Both default to empty, which renders nothing. Given
+ * `modelGuard`, an agent card also hosts the model section; that child owns its
+ * own RPC and state.
+ *
+ * Presentational: `input()` signals in, `output()` events out, no service
+ * injection and no RPC in the card itself. `OnPush`.
  */
 import {
   ChangeDetectionStrategy,
@@ -39,11 +45,40 @@ import {
   formatRelative,
   formatSuccessRate,
 } from './clone-action-gating';
+import type { AgentSyncChip, AgentSyncChipState } from './agent-sync-chips';
+import { AgentModelEditorComponent } from './agent-model-editor.component';
+import type { ReconcileGuardComponent } from './reconcile-guard';
 
 interface CloneMetric {
   readonly label: string;
   readonly value: string;
   readonly testId: string;
+}
+
+interface SyncChipView extends AgentSyncChip {
+  readonly toneClass: string;
+  readonly title: string;
+}
+
+const CHIP_TONE: Record<AgentSyncChipState, string> = {
+  unknown: 'badge-ghost',
+  'not-detected': 'badge-ghost',
+  source: 'badge-info',
+  unsupported: 'badge-ghost',
+  failed: 'badge-error',
+  edited: 'badge-warning',
+  missing: 'badge-warning',
+  'in-sync': 'badge-success',
+  'not-synced': 'badge-ghost',
+};
+
+const NOT_OWNED_NOTE =
+  'This workspace has no source file for this agent. It was kept because it may hold your own changes.';
+
+function chipTitle(chip: AgentSyncChip): string {
+  const where = chip.path === null ? '' : ` — ${chip.path}`;
+  const why = chip.reason === undefined ? '' : `: ${chip.reason}`;
+  return `${chip.target}: ${chip.label}${where}${why}`;
 }
 
 const STATUS_TONE: Record<SkillCloneStatus, NativeCardTone> = {
@@ -71,7 +106,11 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
   selector: 'ptah-clone-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NativeCardComponent, ScorecardBadgeComponent],
+  imports: [
+    NativeCardComponent,
+    ScorecardBadgeComponent,
+    AgentModelEditorComponent,
+  ],
   template: `
     <ptah-native-card
       [tone]="tone()"
@@ -155,6 +194,53 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
         <ptah-scorecard-badge [scorecard]="scorecard()" />
       }
 
+      @if (chipViews().length > 0) {
+        <ul
+          class="flex flex-wrap gap-1"
+          aria-label="Provider copies of this agent"
+          data-testid="clone-card-sync-chips"
+        >
+          @for (chip of chipViews(); track chip.target) {
+            <li
+              class="badge badge-sm gap-1"
+              [class]="chip.toneClass"
+              [title]="chip.title"
+              [attr.data-state]="chip.state"
+              data-testid="clone-card-sync-chip"
+            >
+              <span class="font-medium">{{ chip.target }}</span>
+              {{ chip.label }}
+            </li>
+          }
+        </ul>
+        @for (chip of failedChips(); track chip.target) {
+          <p
+            class="break-all text-[11px] text-error"
+            data-testid="clone-card-sync-failed"
+          >
+            {{ chip.target }}: could not write {{ chip.path }} —
+            {{ chip.reason }}
+          </p>
+        }
+      }
+
+      @if (clone().kind === 'agent' && modelGuard(); as guard) {
+        <ptah-agent-model-editor
+          [slug]="clone().slug"
+          [guard]="guard"
+          [locked]="busy()"
+        />
+      }
+
+      @if (notOwned()) {
+        <p
+          class="text-[11px] text-base-content-muted"
+          data-testid="clone-card-not-owned"
+        >
+          {{ notOwnedNote }}
+        </p>
+      }
+
       @if (actions().upstreamNote; as note) {
         <p
           class="rounded-lg bg-base-300/40 px-2 py-1.5 text-[11px] text-base-content-muted"
@@ -223,6 +309,22 @@ export class CloneCardComponent {
   public readonly scorecard = input<AgentScorecard | null>(null);
   /** An action for this entry is in flight. */
   public readonly busy = input<boolean>(false);
+  /**
+   * One chip per provider copy of this agent (from {@link agentSyncChips}).
+   * Empty renders nothing: skills, commands, and the VS Code host pass none.
+   */
+  public readonly syncChips = input<readonly AgentSyncChip[]>([]);
+  /**
+   * The seed quarantine kept this agent although the workspace has no source
+   * for it (it may hold local work). `false` renders nothing.
+   */
+  public readonly notOwned = input<boolean>(false);
+  /**
+   * The view's reconcile guard. When set on an agent card, the card shows the
+   * per-provider model section ({@link AgentModelEditorComponent}), whose saves
+   * confirm through it. `null` renders nothing (other tabs, VS Code host).
+   */
+  public readonly modelGuard = input<ReconcileGuardComponent | null>(null);
 
   public readonly opened = output<CloneSummary>();
   public readonly enhance = output<CloneSummary>();
@@ -233,6 +335,21 @@ export class CloneCardComponent {
   protected readonly keepMineExplanation = KEEP_MINE_EXPLANATION;
   protected readonly enhanceEnabledTitle =
     'Propose an improvement from recorded usage. You review the diff before anything is written.';
+
+  protected readonly notOwnedNote = NOT_OWNED_NOTE;
+
+  protected readonly chipViews = computed<SyncChipView[]>(() =>
+    this.syncChips().map((chip) => ({
+      ...chip,
+      toneClass: CHIP_TONE[chip.state],
+      title: chipTitle(chip),
+    })),
+  );
+
+  /** `failed` chips, whose path and reason are spelled out under the row. */
+  protected readonly failedChips = computed<AgentSyncChip[]>(() =>
+    this.syncChips().filter((chip) => chip.state === 'failed'),
+  );
 
   protected readonly actions = computed<CloneActionModel>(() =>
     cloneActionModel(this.clone()),

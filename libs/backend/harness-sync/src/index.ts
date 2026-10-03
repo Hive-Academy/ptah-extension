@@ -61,6 +61,7 @@ export {
 // Desired state.
 export {
   HarnessManifestBuilder,
+  isAgentSelectedForSync,
   type HarnessManifestBuildOptions,
 } from './lib/manifest/harness-manifest.builder';
 export type {
@@ -239,6 +240,7 @@ export {
   createPluginConfigSourceResolver,
   createStaticSourceResolver,
   defaultHarnessSourceLayout,
+  type AgentModelsFactory,
   type HarnessPluginConfigReader,
 } from './lib/sources/plugin-config-source-resolver';
 

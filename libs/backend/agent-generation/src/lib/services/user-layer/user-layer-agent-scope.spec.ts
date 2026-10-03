@@ -170,10 +170,11 @@ describe('user layer — the agent clone is keyed by workspace', () => {
   });
 });
 
-describe('user layer — the legacy flat clones are seeded, never reaped', () => {
+describe('user layer — the legacy flat clones are seeded for owned slugs only, never reaped', () => {
   let workRoot: string;
   let wsA: string;
   let legacyRoot: string;
+  let logger: MockLogger;
   let service: UserLayerMirrorService;
 
   beforeEach(async () => {
@@ -182,7 +183,8 @@ describe('user layer — the legacy flat clones are seeded, never reaped', () =>
     wsA = join(workRoot, 'alpha');
     legacyRoot = join(fakeHome, '.ptah', 'user', 'agents');
     await mkdir(legacyRoot, { recursive: true });
-    service = new UserLayerMirrorService(makeLogger() as never);
+    logger = makeLogger();
+    service = new UserLayerMirrorService(logger as never);
   });
 
   afterEach(async () => {
@@ -193,18 +195,86 @@ describe('user layer — the legacy flat clones are seeded, never reaped', () =>
     }
   });
 
-  it('seeds a workspace that has no `.claude/agents` of its own', async () => {
-    // Agents are manifest-owned downstream, so an empty desired state DELETES
-    // every propagated copy. A workspace with nothing to mirror from must keep
-    // exactly what it has today, now private to it.
+  it('seeds only the slugs this workspace’s source owns (TASK_2026_609)', async () => {
+    // The flat base holds every project's agents. Seeding all of it is how
+    // `video-director` from one project reached the `.codex/agents` of another.
+    await writeFile(
+      join(legacyRoot, 'team-leader.md'),
+      'LEGACY TEAM LEADER',
+      'utf-8',
+    );
+    await writeFile(
+      join(legacyRoot, 'team-leader.ptah-origin.json'),
+      JSON.stringify({
+        kind: 'agent',
+        slug: 'team-leader',
+        pluginId: null,
+        version: null,
+        sourceHash: 'sha256:legacy',
+        clonedAt: 1,
+        diverged: false,
+        lastEnhancedAt: null,
+        historyDir: '.history',
+        currentContentHash: 'sha256:legacy',
+      }),
+      'utf-8',
+    );
+    await writeFile(
+      join(legacyRoot, 'video-director.md'),
+      'ANOTHER PROJECT',
+      'utf-8',
+    );
+    await writeAgent(wsA, 'team-leader', 'THIS PROJECT');
+
+    await service.mirrorAll(sourcesFor(wsA));
+
+    const scoped = service.getUserLayerRoots(wsA).agents;
+    // Seeded, so the flat clone's content (and its sidecar) carried over for
+    // the reconcile to converge — not overwritten by the mirror's create step.
+    expect(await readFile(join(scoped, 'team-leader.md'), 'utf-8')).toBe(
+      'LEGACY TEAM LEADER',
+    );
+    expect(
+      JSON.parse(
+        await readFile(join(scoped, 'team-leader.ptah-origin.json'), 'utf-8'),
+      ).sourceHash,
+    ).toBe('sha256:legacy');
+    expect(await exists(join(scoped, 'video-director.md'))).toBe(false);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[UserLayerMirror] seeded agent clones from legacy root',
+      expect.objectContaining({ seeded: 1, flatClonesNotSeeded: 1 }),
+    );
+  });
+
+  it('seeds nothing when the workspace’s source directory is ABSENT, and says so', async () => {
+    await writeFile(join(legacyRoot, 'team-leader.md'), 'LEGACY BODY', 'utf-8');
+    await writeFile(join(legacyRoot, 'figma-designer.md'), 'OTHER', 'utf-8');
+
+    await service.mirrorAll(sourcesFor(wsA));
+
+    const scoped = service.getUserLayerRoots(wsA).agents;
+    expect(await exists(scoped)).toBe(false);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[UserLayerMirror] legacy agent seed skipped: agent source not readable',
+      expect.objectContaining({
+        workspaceRoot: wsA,
+        sourceStatus: 'absent',
+        flatClonesNotSeeded: 2,
+      }),
+    );
+  });
+
+  it('seeds nothing when the workspace’s source directory is EMPTY', async () => {
     await writeFile(join(legacyRoot, 'team-leader.md'), 'LEGACY BODY', 'utf-8');
     await mkdir(join(wsA, '.claude', 'agents'), { recursive: true });
 
     await service.mirrorAll(sourcesFor(wsA));
 
     const scoped = service.getUserLayerRoots(wsA).agents;
-    expect(await readFile(join(scoped, 'team-leader.md'), 'utf-8')).toBe(
-      'LEGACY BODY',
+    expect(await exists(join(scoped, 'team-leader.md'))).toBe(false);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[UserLayerMirror] legacy agent seed skipped: no flat clone is owned by this workspace',
+      expect.objectContaining({ workspaceRoot: wsA, flatClonesNotSeeded: 1 }),
     );
   });
 
@@ -260,11 +330,14 @@ describe('user layer — the legacy flat clones are seeded, never reaped', () =>
       'SOMEONE ELSE',
       'utf-8',
     );
-    await mkdir(join(wsA, '.claude', 'agents'), { recursive: true });
+    await writeAgent(wsA, 'team-leader', 'THIS PROJECT');
 
     await service.mirrorAll(sourcesFor(wsA));
 
     const scoped = service.getUserLayerRoots(wsA).agents;
+    expect(await readFile(join(scoped, 'team-leader.md'), 'utf-8')).toBe(
+      'LEGACY BODY',
+    );
     expect(await exists(join(scoped, '.history'))).toBe(false);
   });
 });

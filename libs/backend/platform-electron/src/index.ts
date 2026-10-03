@@ -1,6 +1,7 @@
 export { registerPlatformElectronServices } from './registration';
 export type { ElectronPlatformOptions } from './registration';
 export { registerElectronSettings } from './settings/electron-settings-registration';
+export { createAgentModelSettingsGetter } from './settings/agent-model-settings-getter';
 export { FileSettingsStore } from './settings/file-settings-store';
 export { ElectronFileSystemProvider } from './implementations/electron-file-system-provider';
 export { ElectronFileDialog } from './implementations/electron-file-dialog';

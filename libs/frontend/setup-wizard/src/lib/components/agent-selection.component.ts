@@ -30,7 +30,12 @@ import {
   Palette,
   Package,
 } from 'lucide-angular';
-import type { AgentPackInfoDto } from '@ptah-extension/shared';
+import type {
+  AgentPackInfoDto,
+  GenerationPreviewFile,
+  WizardPreviewGenerationResponse,
+} from '@ptah-extension/shared';
+import { NativeModalComponent } from '@ptah-extension/ui';
 
 /**
  * AgentSelectionComponent - Agent selection with relevance scores and recommendations
@@ -61,7 +66,7 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-agent-selection',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, NativeModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="px-3 py-4">
@@ -465,8 +470,10 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
 
         <button
           class="btn btn-primary btn-sm"
-          [class.btn-disabled]="isGenerating() || noneSelected()"
-          [disabled]="isGenerating() || noneSelected()"
+          [class.btn-disabled]="
+            isGenerating() || previewLoading() || noneSelected()
+          "
+          [disabled]="isGenerating() || previewLoading() || noneSelected()"
           [attr.aria-busy]="isGenerating()"
           [attr.aria-label]="
             isGenerating()
@@ -487,6 +494,109 @@ import type { AgentPackInfoDto } from '@ptah-extension/shared';
         </button>
       </div>
     </div>
+    <!-- Warning copy in this modal uses a solid warning fill with
+         warning-content text (5.67:1 light, 6.61:1 dark): bare text-warning
+         on base-100 is 2.46:1 in the light theme. -->
+    <ptah-native-modal
+      [isOpen]="previewOpen()"
+      ariaLabel="Preview agent generation"
+      size="lg"
+      (closed)="cancelPreview()"
+    >
+      <h3 modal-header class="text-sm font-semibold mb-2">
+        Preview agent generation
+      </h3>
+      @if (previewLoading()) {
+        <p role="status" class="text-xs text-base-content-muted">
+          Checking generation targets...
+        </p>
+      }
+      @if (targetsChanged()) {
+        <p
+          role="alert"
+          class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
+        >
+          Targets changed since preview. Review the new list and confirm again.
+        </p>
+      }
+      @if (previewError(); as error) {
+        <p
+          role="alert"
+          class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
+        >
+          Preview unavailable: {{ error }}. You can still generate without a
+          preview.
+        </p>
+      }
+      @if (generationPreview(); as preview) {
+        @if (preview.warning) {
+          <p
+            role="alert"
+            class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
+          >
+            {{ preview.warning }}
+          </p>
+        }
+        @for (agent of preview.agents; track agent.agentId) {
+          <section class="mb-4">
+            <h4 class="text-xs font-medium mb-2">{{ agent.agentId }}</h4>
+            <ul class="text-xs">
+              @for (
+                file of previewFiles(agent.files, 'definite');
+                track file.relPath
+              ) {
+                <li class="mb-2">
+                  <code>{{ file.relPath }}</code>
+                  @if (file.willOverwrite) {
+                    <span class="badge badge-warning badge-sm ml-1"
+                      >will overwrite</span
+                    >
+                  }
+                </li>
+              }
+            </ul>
+            @if (previewFiles(agent.files, 'conditional').length) {
+              <div
+                class="border-t border-base-300 pt-3 mt-4"
+                data-testid="conditional-files"
+              >
+                <ul class="text-xs">
+                  @for (
+                    file of previewFiles(agent.files, 'conditional');
+                    track file.relPath
+                  ) {
+                    <li class="mb-2">
+                      <p class="text-base-content-muted">
+                        May also write, if {{ file.condition }}
+                      </p>
+                      <code>{{ file.relPath }}</code>
+                      @if (file.willOverwrite) {
+                        <span class="badge badge-warning badge-sm ml-1"
+                          >will overwrite if written</span
+                        >
+                      }
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+          </section>
+        }
+      }
+      <div modal-footer class="flex gap-2 justify-end mt-4">
+        <button class="btn btn-ghost btn-sm" (click)="cancelPreview()">
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary btn-sm"
+          [disabled]="previewLoading() || isGenerating()"
+          [attr.aria-busy]="previewLoading()"
+          (click)="onConfirmPreview()"
+        >
+          {{ previewError() ? 'Generate without preview' : 'Confirm Generate' }}
+        </button>
+      </div>
+    </ptah-native-modal>
   `,
 })
 export class AgentSelectionComponent {
@@ -542,6 +652,13 @@ export class AgentSelectionComponent {
   ];
   protected readonly isGenerating = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
+  protected readonly previewOpen = signal(false);
+  protected readonly previewLoading = signal(false);
+  protected readonly generationPreview =
+    signal<WizardPreviewGenerationResponse | null>(null);
+  protected readonly previewError = signal<string | null>(null);
+  protected readonly targetsChanged = signal(false);
+  private previewRequest = 0;
 
   /**
    * Agent recommendations from deep analysis.
@@ -688,6 +805,7 @@ export class AgentSelectionComponent {
    * Toggle individual agent selection.
    */
   protected onToggleAgent(agentId: string): void {
+    if (this.previewOpen() || this.isGenerating()) return;
     this.wizardState.toggleAgentRecommendationSelection(agentId);
   }
 
@@ -695,6 +813,7 @@ export class AgentSelectionComponent {
    * Select all recommended agents.
    */
   protected onSelectAllRecommended(): void {
+    if (this.previewOpen() || this.isGenerating()) return;
     this.wizardState.selectAllRecommended();
   }
 
@@ -702,6 +821,7 @@ export class AgentSelectionComponent {
    * Deselect all agents.
    */
   protected onDeselectAll(): void {
+    if (this.previewOpen() || this.isGenerating()) return;
     this.wizardState.deselectAllAgents();
   }
 
@@ -709,6 +829,7 @@ export class AgentSelectionComponent {
    * Go back to analysis step.
    */
   protected onBack(): void {
+    if (this.previewOpen() || this.isGenerating()) return;
     this.wizardState.setCurrentStep('analysis');
   }
 
@@ -872,6 +993,85 @@ export class AgentSelectionComponent {
     });
   }
 
+  protected previewFiles(
+    files: GenerationPreviewFile[],
+    certainty: GenerationPreviewFile['certainty'],
+  ): GenerationPreviewFile[] {
+    return files.filter((file) => file.certainty === certainty);
+  }
+
+  protected async onGenerateAgents(): Promise<void> {
+    if (this.isGenerating() || this.previewOpen() || this.noneSelected())
+      return;
+    this.generationPreview.set(null);
+    this.previewError.set(null);
+    this.targetsChanged.set(false);
+    this.previewOpen.set(true);
+    await this.loadGenerationPreview(false);
+  }
+
+  protected cancelPreview(): void {
+    this.previewRequest++;
+    this.previewOpen.set(false);
+    this.previewLoading.set(false);
+  }
+
+  protected async onConfirmPreview(): Promise<void> {
+    if (!this.previewOpen() || this.previewLoading() || this.isGenerating())
+      return;
+    if (this.previewError()) {
+      this.cancelPreview();
+      await this.confirmGenerate();
+      return;
+    }
+    await this.loadGenerationPreview(true);
+  }
+
+  private async loadGenerationPreview(confirm: boolean): Promise<void> {
+    const request = ++this.previewRequest;
+    const previous = this.generationPreview();
+    this.previewLoading.set(true);
+    try {
+      const preview = await this.wizardRpc.previewGeneration(
+        this.buildSelectedAgents().map((agent) => agent.id),
+      );
+      if (request !== this.previewRequest) return;
+      this.generationPreview.set(preview);
+      const paths = (value: WizardPreviewGenerationResponse) =>
+        new Set(
+          value.agents.flatMap((agent) =>
+            this.previewFiles(agent.files, 'definite').map(
+              (file) => file.relPath,
+            ),
+          ),
+        );
+      if (confirm && previous) {
+        const before = paths(previous);
+        const after = paths(preview);
+        if (
+          before.size !== after.size ||
+          [...before].some((path) => !after.has(path))
+        ) {
+          this.targetsChanged.set(true);
+          return;
+        }
+        this.cancelPreview();
+        await this.confirmGenerate();
+      }
+    } catch (error: unknown) {
+      // degradation-audit: reported - the failure is shown via previewError;
+      // the early return only drops a reply a newer preview request superseded.
+      if (request !== this.previewRequest) return;
+      this.generationPreview.set(null);
+      this.previewError.set(
+        error instanceof Error ? error.message : String(error),
+      );
+      this.targetsChanged.set(false);
+    } finally {
+      if (request === this.previewRequest) this.previewLoading.set(false);
+    }
+  }
+
   /**
    * Submit selected agents and transition to generation step.
    * - Uses standardized error handling utility for consistent error messages
@@ -880,7 +1080,7 @@ export class AgentSelectionComponent {
    * - Display user-facing error message on failure
    * - Always reset loading state in finally block
    */
-  protected async onGenerateAgents(): Promise<void> {
+  protected async confirmGenerate(): Promise<void> {
     if (this.isGenerating() || this.noneSelected()) {
       return; // Prevent double-click
     }
