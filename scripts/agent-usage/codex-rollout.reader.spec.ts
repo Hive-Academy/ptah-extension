@@ -133,11 +133,25 @@ describe('readCodexRollout on synthetic rollouts', () => {
     expect(summary.requestInputs).toEqual([100, 300]);
     expect(lane.totalInput).toBe(400);
     expect(lane.peakInput).toBe(300);
-    expect(lane.compactions).toBe(2);
+    // The checkpoint and its legacy event are one compaction.
+    expect(lane.compactions).toBe(1);
     expect(lane.largestToolOutput).toEqual({ tool: 'exec', chars: 500 });
     expect(summary.toolCalls).toEqual({ exec: 1, mcp__ptah__read: 1 });
     expect(summary.badLines).toBe(1);
     expect(lane.isPtahLane).toBe(true);
+  });
+
+  it('counts a legacy compaction event that has no checkpoint before it', () => {
+    const file = writeRollout('rollout-2026-10-03T10-00-02-x.jsonl', [
+      line('event_msg', { type: 'task_started' }),
+      line('compacted', { message: '' }),
+      line('event_msg', { type: 'context_compacted' }),
+      line('event_msg', { type: 'task_started' }),
+      line('event_msg', { type: 'context_compacted' }),
+      line('compacted', { message: '' }),
+    ]);
+
+    expect(readCodexRollout(file).compactions).toBe(3);
   });
 
   it('does not take a marker that first appears after the first request', () => {

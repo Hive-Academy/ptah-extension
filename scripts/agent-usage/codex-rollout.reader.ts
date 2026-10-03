@@ -19,7 +19,7 @@
  *   history from then on, so M checks whether the role survived in it; a
  *   compaction without it is a summary, which drops the role;
  * - tool call / output pairs (by `call_id`) for the largest single output;
- * - `compacted` records and `context_compacted` events for compactions.
+ * - `compacted` records and `context_compacted` events for compactions; a checkpoint followed by its legacy event counts once.
  *
  * Read-only: nothing here writes to the user's store. Message text is tested
  * and hashed while parsing and never kept.
@@ -158,6 +158,9 @@ export function readCodexRollout(file: string): CodexRolloutSummary {
   let turns = 0;
   let turnContexts = 0;
   let compactions = 0;
+  // Legacy history mode writes a `compacted` checkpoint and then a
+  // `context_compacted` event for the same compaction; count the pair once.
+  let checkpointAwaitingEvent = false;
   let totals: CodexTokenTotals | null = null;
   let previousTotalTokens = -1;
   let largestToolOutput: ToolOutputSize | null = null;
@@ -198,6 +201,7 @@ export function readCodexRollout(file: string): CodexRolloutSummary {
     }
     if (type === 'compacted') {
       compactions++;
+      checkpointAwaitingEvent = true;
       const history = payload['replacement_history'];
       roleInHistory = Array.isArray(history) && historyHoldsRole(history);
       continue;
@@ -205,9 +209,13 @@ export function readCodexRollout(file: string): CodexRolloutSummary {
     if (type === 'event_msg') {
       if (payloadType === 'task_started') {
         turns++;
+        checkpointAwaitingEvent = false;
         if (turns >= 2 && !roleInHistory) resumesWithoutRole++;
       }
-      if (payloadType === 'context_compacted') compactions++;
+      if (payloadType === 'context_compacted') {
+        if (!checkpointAwaitingEvent) compactions++;
+        checkpointAwaitingEvent = false;
+      }
       if (payloadType === 'token_count') {
         const used = asObject(asObject(payload['rate_limits'])['primary'])[
           'used_percent'
