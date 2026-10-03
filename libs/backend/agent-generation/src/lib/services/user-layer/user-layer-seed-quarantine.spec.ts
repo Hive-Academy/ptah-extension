@@ -39,9 +39,10 @@ jest.mock('fs/promises', () => {
   };
 });
 
-import { link, copyFile } from 'fs/promises';
+import { link, copyFile, rename } from 'fs/promises';
 import { UserLayerMirrorService } from './user-layer-mirror.service';
 import { UserLayerFsOps } from './user-layer-fs-ops';
+import { SEED_QUARANTINE_JOURNAL } from './user-layer-seed-quarantine-journal';
 import {
   SEED_QUARANTINE_MARKER,
   UserLayerSeedQuarantine,
@@ -438,6 +439,11 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
   let logger: MockLogger;
   let fsOps: UserLayerFsOps;
   let quarantine: UserLayerSeedQuarantine;
+  /**
+   * The detach seam: `null` is the real rename. A test sets it to interleave
+   * an editor save with the rename, or to make the rename fail.
+   */
+  let renameHook: ((from: string, to: string) => Promise<void>) | null;
   const lock: AgentSlugLock = (_slug, fn) => fn();
 
   beforeEach(async () => {
@@ -450,8 +456,16 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
     await mkdir(sourceDir, { recursive: true });
     logger = makeLogger();
     fsOps = new UserLayerFsOps(logger as never);
-    quarantine = new UserLayerSeedQuarantine(logger as never, fsOps);
+    renameHook = null;
+    quarantine = new UserLayerSeedQuarantine(
+      logger as never,
+      fsOps,
+      (from, to) => (renameHook ?? rename)(from, to),
+    );
   });
+
+  const ebusy = () =>
+    Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' });
 
   afterEach(async () => {
     jest.restoreAllMocks();
@@ -467,6 +481,33 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
     await writeFile(join(scoped, `${slug}.md`), body, 'utf-8');
   }
 
+  /** `<ts>` dir names under `.history/<slug>/`, `[]` when there are none. */
+  async function historyEntries(slug: string): Promise<string[]> {
+    const dir = join(scoped, '.history', slug);
+    return (await exists(dir)) ? readdir(dir) : [];
+  }
+
+  async function readMarker(): Promise<{
+    quarantined: string[];
+    keptWithLocalWork: string[];
+    keptUnprovable: string[];
+  }> {
+    return JSON.parse(
+      await readFile(join(scoped, SEED_QUARANTINE_MARKER), 'utf-8'),
+    );
+  }
+
+  async function readJournal(): Promise<{ quarantined: string[] } | null> {
+    const path = join(scoped, SEED_QUARANTINE_JOURNAL);
+    return (await exists(path))
+      ? JSON.parse(await readFile(path, 'utf-8'))
+      : null;
+  }
+
+  function location() {
+    return { scopedAgentsRoot: scoped, agentSourceDir: sourceDir };
+  }
+
   async function run(withSlugLock: AgentSlugLock = lock) {
     return quarantine.run({
       workspaceRoot: join(workRoot, 'ws'),
@@ -480,17 +521,10 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
   it('a failed move (Windows EBUSY) keeps that clone, lets the others proceed, and withholds the marker', async () => {
     await leak('figma-designer', 'FIGMA');
     await leak('video-director', 'VIDEO');
-    const realSnapshot = fsOps.snapshotFileToHistory.bind(fsOps);
-    jest
-      .spyOn(fsOps, 'snapshotFileToHistory')
-      .mockImplementation(async (rootDir, slug, cloneFile) => {
-        if (slug === 'figma-designer') {
-          throw Object.assign(new Error('EBUSY: resource busy'), {
-            code: 'EBUSY',
-          });
-        }
-        return realSnapshot(rootDir, slug, cloneFile);
-      });
+    renameHook = async (from, to) => {
+      if (from === join(scoped, 'figma-designer.md')) throw ebusy();
+      await rename(from, to);
+    };
 
     const first = await run();
 
@@ -500,28 +534,118 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
     expect(await exists(join(scoped, 'figma-designer.md'))).toBe(true);
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
 
+    // The failed rename left the clone where it was and no empty <ts> dir.
+    expect(await historyEntries('figma-designer')).toEqual([]);
+
     // Next pass retries and, clean this time, writes the marker.
-    jest.restoreAllMocks();
+    renameHook = null;
     const second = await run();
 
     expect(second.quarantined).toEqual(['figma-designer']);
     expect(second.failed).toEqual([]);
     expect(second.markerWritten).toBe(true);
     expect(await exists(join(scoped, 'figma-designer.md'))).toBe(false);
+
+    // F3: the marker is cumulative, so the first pass's move is still in the
+    // record that the Agents tab lists and Restore reads.
+    expect((await readMarker()).quarantined.sort()).toEqual([
+      'figma-designer',
+      'video-director',
+    ]);
+    const listing = await quarantine.listQuarantined(location());
+    expect(listing.quarantined.map((i) => i.slug).sort()).toEqual([
+      'figma-designer',
+      'video-director',
+    ]);
+    for (const slug of ['figma-designer', 'video-director']) {
+      const restored = await quarantine.restore({
+        ...location(),
+        slug,
+        withSlugLock: lock,
+      });
+      expect(restored.outcome).toBe('restored');
+    }
+    expect(await readFile(join(sourceDir, 'video-director.md'), 'utf-8')).toBe(
+      'VIDEO',
+    );
   });
 
-  it('does not remove the clone when the snapshot does not hold its bytes', async () => {
+  it('F2: a save between classification and detach is put back as user work, not quarantined', async () => {
     await leak('video-director', 'VIDEO');
-    jest
-      .spyOn(fsOps, 'snapshotFileToHistory')
-      .mockImplementation(async (rootDir, slug) => {
-        // A snapshot dir that exists but is empty: the copy "succeeded" and
-        // proved nothing.
-        return fsOps.makeUniqueHistoryDir(
-          join(rootDir, '.history', slug),
-          String(Date.now()),
-        );
-      });
+    await writeFile(join(scoped, 'video-director.ptah-origin.json'), 'SIDE');
+    const clone = join(scoped, 'video-director.md');
+    renameHook = async (from, to) => {
+      if (from === clone) await writeFile(clone, 'USER SAVE', 'utf-8');
+      await rename(from, to);
+    };
+
+    const result = await run();
+
+    expect(result.failed).toEqual(['video-director']);
+    expect(result.quarantined).toEqual([]);
+    expect(await readFile(clone, 'utf-8')).toBe('USER SAVE');
+    expect(
+      await readFile(join(scoped, 'video-director.ptah-origin.json'), 'utf-8'),
+    ).toBe('SIDE');
+    expect(await historyEntries('video-director')).toEqual([]);
+    expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
+    expect(await readJournal()).toBeNull();
+  });
+
+  it('F2: a changed clone whose path is taken again stays in history with a warning', async () => {
+    await leak('video-director', 'VIDEO');
+    const clone = join(scoped, 'video-director.md');
+    renameHook = async (from, to) => {
+      if (from !== clone) return rename(from, to);
+      await writeFile(clone, 'FIRST SAVE', 'utf-8');
+      await rename(from, to);
+      await writeFile(clone, 'SECOND SAVE', 'utf-8');
+    };
+
+    const result = await run();
+
+    expect(result.failed).toEqual(['video-director']);
+    expect(await readFile(clone, 'utf-8')).toBe('SECOND SAVE');
+    const [ts] = await historyEntries('video-director');
+    const kept = join(scoped, '.history', 'video-director', ts, 'video-director.md');
+    expect(await readFile(kept, 'utf-8')).toBe('FIRST SAVE');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('changed during seed quarantine'),
+      expect.objectContaining({ historyFile: kept }),
+    );
+    expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
+  });
+
+  it('F2: a save after the detach is a new file that survives; the detached seed is recorded', async () => {
+    await leak('video-director', 'VIDEO');
+    const clone = join(scoped, 'video-director.md');
+    renameHook = async (from, to) => {
+      await rename(from, to);
+      if (from === clone) await writeFile(clone, 'NEW FILE', 'utf-8');
+    };
+
+    const result = await run();
+
+    expect(result.quarantined).toEqual(['video-director']);
+    expect(await readFile(clone, 'utf-8')).toBe('NEW FILE');
+    const [ts] = await historyEntries('video-director');
+    expect(
+      await readFile(
+        join(scoped, '.history', 'video-director', ts, 'video-director.md'),
+        'utf-8',
+      ),
+    ).toBe('VIDEO');
+    expect((await readMarker()).quarantined).toEqual(['video-director']);
+  });
+
+  it('a failed clone rename (EBUSY) leaves clone and sidecar in place and no <ts> dir', async () => {
+    await leak('video-director', 'VIDEO');
+    const sidecar = join(scoped, 'video-director.ptah-origin.json');
+    await writeFile(sidecar, 'SIDE');
+    renameHook = async (from, to) => {
+      if (from === join(scoped, 'video-director.md')) throw ebusy();
+      await rename(from, to);
+    };
 
     const result = await run();
 
@@ -529,6 +653,115 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
     expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
       'VIDEO',
     );
+    expect(await readFile(sidecar, 'utf-8')).toBe('SIDE');
+    expect(await historyEntries('video-director')).toEqual([]);
+    expect(result.markerWritten).toBe(false);
+    expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
+  });
+
+  it('a failed journal write puts the clone back; the next pass moves and records it', async () => {
+    await leak('video-director', 'VIDEO');
+    const realWrite = fsOps.writeTextAtomic.bind(fsOps);
+    jest
+      .spyOn(fsOps, 'writeTextAtomic')
+      .mockImplementation(async (target, content) => {
+        if (target.endsWith(SEED_QUARANTINE_JOURNAL)) throw ebusy();
+        return realWrite(target, content);
+      });
+
+    const first = await run();
+
+    expect(first.failed).toEqual(['video-director']);
+    expect(first.markerWritten).toBe(false);
+    expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
+      'VIDEO',
+    );
+    expect(await historyEntries('video-director')).toEqual([]);
+    expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
+
+    jest.restoreAllMocks();
+    const second = await run();
+
+    expect(second.quarantined).toEqual(['video-director']);
+    expect(await exists(join(scoped, 'video-director.md'))).toBe(false);
+    expect((await readJournal())?.quarantined).toEqual(['video-director']);
+    expect((await readMarker()).quarantined).toEqual(['video-director']);
+  });
+
+  it('an interrupted pass: the next clean pass writes the journal slugs into the marker', async () => {
+    await writeFile(
+      join(scoped, SEED_QUARANTINE_JOURNAL),
+      JSON.stringify({
+        version: 1,
+        quarantined: ['figma-designer'],
+        keptWithLocalWork: ['old-local'],
+        keptUnprovable: [],
+      }),
+    );
+    await leak('video-director', 'VIDEO');
+
+    const result = await run();
+
+    expect(result.quarantined).toEqual(['video-director']);
+    expect(await readMarker()).toMatchObject({
+      version: 1,
+      quarantined: ['figma-designer', 'video-director'],
+      keptWithLocalWork: ['old-local'],
+      keptUnprovable: [],
+    });
+  });
+
+  it('two concurrent passes on one scoped root: one moves, the other no-ops, the marker has every move', async () => {
+    await leak('video-director', 'VIDEO');
+    await leak('figma-designer', 'FIGMA');
+
+    const [a, b] = await Promise.all([run(), run()]);
+
+    const moved = [...a.quarantined, ...b.quarantined].sort();
+    expect(moved).toEqual(['figma-designer', 'video-director']);
+    expect([a.ran, b.ran].sort()).toEqual([false, true]);
+    expect((await readMarker()).quarantined.sort()).toEqual([
+      'figma-designer',
+      'video-director',
+    ]);
+  });
+
+  it('a malformed journal stops the pass: nothing moves, no marker, a warning', async () => {
+    await writeFile(join(scoped, SEED_QUARANTINE_JOURNAL), '{not json');
+    await leak('video-director', 'VIDEO');
+
+    const result = await run();
+
+    expect(result.ran).toBe(false);
+    expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
+      'VIDEO',
+    );
+    expect(await historyEntries('video-director')).toEqual([]);
+    expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[UserLayerMirror] seed quarantine journal unreadable; nothing moved',
+      expect.objectContaining({ scopedAgentsRoot: scoped }),
+    );
+  });
+
+  it('a slug moved now leaves the kept lists of the journal', async () => {
+    await writeFile(
+      join(scoped, SEED_QUARANTINE_JOURNAL),
+      JSON.stringify({
+        version: 1,
+        quarantined: [],
+        keptWithLocalWork: ['video-director'],
+        keptUnprovable: [],
+      }),
+    );
+    await leak('video-director', 'VIDEO');
+
+    await run();
+
+    expect(await readMarker()).toMatchObject({
+      quarantined: ['video-director'],
+      keptWithLocalWork: [],
+    });
   });
 
   it('takes the slug lock once per foreign slug and never for an owned one', async () => {

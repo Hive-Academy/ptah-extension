@@ -26,15 +26,26 @@
  * 3. its bytes equal the flat-base file of the same name, which proves it came
  *    out of the seed and that nobody has worked on it in this workspace since.
  *
- * Anything else is kept and reported. Quarantine is a MOVE: clone and sidecar
- * are copied into the scoped root's `.history/<slug>/<ts>/` — the store
- * `revertFileClone` restores from — the copy is verified, and only then are the
- * originals removed. The flat base is never written.
+ * Anything else is kept and reported. Quarantine is a MOVE by rename: sidecar
+ * and clone are renamed into the scoped root's `.history/<slug>/<ts>/` — the
+ * store `revertFileClone` restores from — and the DETACHED clone is then
+ * checked against the bytes that were classified. Nothing is ever unlinked at
+ * the live paths, so an editor save that lands after the rename is a new file
+ * that stays, and one that lands before it is caught by the check and put back
+ * (TASK_2026_609 review F2). The flat base is never written.
  *
- * It runs once per workspace. A marker file in the scoped root records a pass
- * with zero failures; a pass with any failure writes no marker and the next
- * mirror pass retries. The marker name starts with `.` and is not `*.md`, so no
- * clone listing, reaper walk or harness source resolver reads it as a clone.
+ * It runs once per workspace. Every verified move is first merged into a
+ * journal (`user-layer-seed-quarantine-journal.ts`); a marker file in the
+ * scoped root records a pass with zero failures, as the union of the journal
+ * and that pass, so a clone moved by an earlier failed pass stays in the record
+ * (review F3). A pass with any failure writes no marker and the next mirror
+ * pass retries. Whole passes are serialised per scoped root. Neither file name
+ * is `*.md`, and both start with `.`, so no clone listing, reaper walk or
+ * harness source resolver reads them as clones.
+ *
+ * Accepted residual risk: a process exit between a clone's rename and its
+ * journal write leaves the clone's bytes in `.history/<slug>/<ts>/` but not in
+ * the record. The window is one atomic write; no bytes are lost.
  *
  * The marker is also the record the Agents tab lists from, and Restore puts a
  * quarantined agent back as a SOURCE file the workspace owns
@@ -43,7 +54,7 @@
  * whose workspace ships no source for it. The next mirror pass re-creates the
  * clone from that source, which is what takes the item off the list.
  */
-import { join, resolve } from 'path';
+import { basename, join, resolve } from 'path';
 import { randomBytes } from 'crypto';
 import { constants as fsConstants } from 'fs';
 import {
@@ -53,6 +64,8 @@ import {
   mkdir,
   readdir,
   readFile,
+  rename,
+  rmdir,
   unlink,
   writeFile,
 } from 'fs/promises';
@@ -60,35 +73,26 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { DEFAULT_HISTORY_DIR } from './origin-sidecar.types';
 import { isErrnoCode } from './source-hash';
 import type { UserLayerFsOps } from './user-layer-fs-ops';
+import {
+  SeedQuarantineJournal,
+  SeedQuarantinePassLock,
+  isSafeAgentSlug,
+  mergeSeedQuarantineLists,
+} from './user-layer-seed-quarantine-journal';
+import type { SeedQuarantineLists } from './user-layer-seed-quarantine-journal';
+
+export { isSafeAgentSlug };
 
 const ORIGIN_SIDECAR_SUFFIX = '.ptah-origin.json';
 
 /** Written into the scoped agents root after a pass with zero failures. */
 export const SEED_QUARANTINE_MARKER = '.ptah-seed-quarantine.json';
 
-/**
- * The clone slug rule of `skills-synthesis-rpc.schema.ts` (`SlugSchema`),
- * duplicated here because agent-generation does not import rpc-handlers. A
- * marker slug becomes a path segment, so anything else is dropped.
- */
-const AGENT_SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
-const AGENT_SLUG_MAX_LENGTH = 128;
-
 /** `<ms>` or `<ms>-<n>`, the names `makeUniqueHistoryDir` mints. */
 const HISTORY_TS_PATTERN = /^(\d+)(?:-(\d+))?$/;
 
 /** `link` errors that mean "this filesystem cannot hard-link here". */
 const LINK_UNSUPPORTED_CODES = ['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV'];
-
-export function isSafeAgentSlug(slug: string): boolean {
-  return (
-    slug.length <= AGENT_SLUG_MAX_LENGTH &&
-    slug !== '.' &&
-    slug !== '..' &&
-    !slug.includes('..') &&
-    AGENT_SLUG_PATTERN.test(slug)
-  );
-}
 
 /** A marker that passed {@link validateSeedQuarantineMarker}. */
 export interface SeedQuarantineMarker {
@@ -335,28 +339,70 @@ export interface SeedQuarantineArgs {
 
 type SlugOutcome = Exclude<SeededCloneVerdict, 'owned'> | 'failed' | 'gone';
 
+/** `rename(from, to)`; injectable so specs can interleave a save with it. */
+export type RenamePath = (from: string, to: string) => Promise<void>;
+
+/** A clone (and its sidecar) renamed into `.history/<slug>/<ts>/`. */
+interface DetachedClone {
+  readonly historyDir: string;
+  readonly clone: DetachedFile;
+  sidecar: DetachedFile | null;
+}
+
+interface DetachedFile {
+  readonly original: string;
+  readonly staged: string;
+}
+
 export class UserLayerSeedQuarantine {
+  private readonly passLock = new SeedQuarantinePassLock();
+
   constructor(
     private readonly logger: Logger,
     private readonly fs: UserLayerFsOps,
+    /** Test seam for the detach step; production always uses `fs.rename`. */
+    private readonly renamePath: RenamePath = rename,
   ) {}
 
   async run(args: SeedQuarantineArgs): Promise<SeedQuarantineResult> {
-    const result = emptySeedQuarantineResult();
     const { workspaceRoot, scopedAgentsRoot, legacyAgentsRoot, source } = args;
 
-    if (workspaceRoot === undefined) return result;
-    if (resolve(scopedAgentsRoot) === resolve(legacyAgentsRoot)) return result;
+    if (workspaceRoot === undefined) return emptySeedQuarantineResult();
+    if (resolve(scopedAgentsRoot) === resolve(legacyAgentsRoot)) {
+      return emptySeedQuarantineResult();
+    }
     if (source.status !== 'ok') {
       this.logger.debug(
         '[UserLayerMirror] seed quarantine skipped: agent source not read',
         { workspaceRoot, agentSourceDir: source.dir, status: source.status },
       );
-      return result;
+      return emptySeedQuarantineResult();
     }
+    const ownedSlugs = source.slugs;
+    return this.passLock.run(scopedAgentsRoot, () =>
+      this.runPass(args, ownedSlugs),
+    );
+  }
 
+  /**
+   * One pass, from the marker check to the marker write, under the pass lock:
+   * an overlapping second pass starts after this one and sees its marker.
+   */
+  private async runPass(
+    args: SeedQuarantineArgs,
+    ownedSlugs: ReadonlySet<string>,
+  ): Promise<SeedQuarantineResult> {
+    const result = emptySeedQuarantineResult();
+    const { workspaceRoot, scopedAgentsRoot, legacyAgentsRoot } = args;
     const markerPath = join(scopedAgentsRoot, SEED_QUARANTINE_MARKER);
     if (await this.fs.fileExists(markerPath)) return result;
+
+    const journal = await SeedQuarantineJournal.open(
+      this.fs,
+      this.logger,
+      scopedAgentsRoot,
+    );
+    if (journal === null) return result;
 
     let files: string[];
     try {
@@ -381,9 +427,15 @@ export class UserLayerSeedQuarantine {
     result.ran = true;
     for (const fileName of files) {
       const slug = fileName.replace(/\.md$/, '');
-      if (source.slugs.has(slug)) continue;
+      if (ownedSlugs.has(slug)) continue;
       const outcome = await args.withSlugLock(slug, () =>
-        this.handleSlug(slug, scopedAgentsRoot, legacyAgentsRoot, source.slugs),
+        this.handleSlug(
+          slug,
+          scopedAgentsRoot,
+          legacyAgentsRoot,
+          ownedSlugs,
+          journal,
+        ),
       );
       if (outcome === 'quarantine') result.quarantined.push(slug);
       else if (outcome === 'kept-local-work')
@@ -392,8 +444,12 @@ export class UserLayerSeedQuarantine {
       else if (outcome === 'failed') result.failed.push(slug);
     }
 
+    await journal.recordKept(result);
     if (result.failed.length === 0) {
-      result.markerWritten = await this.writeMarker(markerPath, result);
+      result.markerWritten = await this.writeMarker(
+        markerPath,
+        mergeSeedQuarantineLists(journal.lists, result),
+      );
     }
 
     this.logger.info('[UserLayerMirror] seed quarantine pass', {
@@ -412,14 +468,16 @@ export class UserLayerSeedQuarantine {
   }
 
   /**
-   * Classify and, when proven, move ONE clone. Runs under the slug lock, so the
-   * bytes it compares are the bytes it moves.
+   * Classify and, when proven, move ONE clone, under the slug lock. The slug
+   * lock does not stop an editor save, so the move itself re-proves the bytes
+   * on the detached file; a move counts only once it is in the journal.
    */
   private async handleSlug(
     slug: string,
     scopedAgentsRoot: string,
     legacyAgentsRoot: string,
     ownedSlugs: ReadonlySet<string>,
+    journal: SeedQuarantineJournal,
   ): Promise<SlugOutcome> {
     const cloneFile = join(scopedAgentsRoot, `${slug}.md`);
     try {
@@ -438,7 +496,25 @@ export class UserLayerSeedQuarantine {
       if (verdict === 'owned') return 'gone';
       if (verdict !== 'quarantine') return verdict;
 
-      await this.moveToHistory(slug, scopedAgentsRoot, cloneFile, cloneBytes);
+      const detached = await this.detachToHistory(
+        slug,
+        scopedAgentsRoot,
+        cloneFile,
+        cloneBytes,
+      );
+      try {
+        await journal.recordMove(slug);
+      } catch (error: unknown) {
+        // Unrecorded, the move would vanish from the list Restore reads; put
+        // the clone back so the next pass moves and records it again.
+        if (!(await this.undoDetach(detached))) {
+          this.logger.error(
+            '[UserLayerMirror] seed quarantine not recorded and clone not put back; its bytes stay in history',
+            { slug, historyFile: detached.clone.staged },
+          );
+        }
+        throw new Error(`not recorded: ${errorText(error)}`, { cause: error });
+      }
       return 'quarantine';
     } catch (error: unknown) {
       this.logger.warn('[UserLayerMirror] seed quarantine failed for agent', {
@@ -450,52 +526,152 @@ export class UserLayerSeedQuarantine {
   }
 
   /**
-   * Copy clone + sidecar into `.history/<slug>/<ts>/`, prove the copy holds the
-   * clone's bytes, then remove the originals. The sidecar goes first so a
-   * failure between the two removals leaves a sidecar-less clone — which the
-   * next pass quarantines again — rather than a sidecar pointing at nothing.
+   * DETACH the clone, then decide on the detached bytes (TASK_2026_609 review
+   * F2). Sidecar, then clone, are RENAMED into a fresh `.history/<slug>/<ts>/`;
+   * nothing is copied and nothing at the live paths is ever unlinked. The
+   * renamed clone is then compared with the bytes that were classified: a save
+   * that landed before the rename makes them differ, and that file is user
+   * work, so it is put back without clobbering anything and the slug fails
+   * this pass. A save after the rename creates a new file at the live path,
+   * which this code never touches again. A failed rename leaves the clone where
+   * it was, returns the sidecar and removes the empty `<ts>` dir.
    */
-  private async moveToHistory(
+  private async detachToHistory(
     slug: string,
     scopedAgentsRoot: string,
     cloneFile: string,
     cloneBytes: Buffer,
-  ): Promise<void> {
-    const sidecarName = `${slug}${ORIGIN_SIDECAR_SUFFIX}`;
-    const sidecarPath = join(scopedAgentsRoot, sidecarName);
-    const hasSidecar = await this.fs.fileExists(sidecarPath);
-
-    const historyDir = await this.fs.snapshotFileToHistory(
+  ): Promise<DetachedClone> {
+    const sidecarPath = join(
       scopedAgentsRoot,
-      slug,
-      cloneFile,
+      `${slug}${ORIGIN_SIDECAR_SUFFIX}`,
     );
-    if (hasSidecar) {
-      await this.fs.copyFileAtomic(sidecarPath, join(historyDir, sidecarName));
+    const historyDir = await this.fs.makeUniqueHistoryDir(
+      join(scopedAgentsRoot, DEFAULT_HISTORY_DIR, slug),
+      String(Date.now()),
+    );
+    const detached: DetachedClone = {
+      historyDir,
+      clone: { original: cloneFile, staged: join(historyDir, `${slug}.md`) },
+      sidecar: null,
+    };
+    try {
+      if (await this.fs.fileExists(sidecarPath)) {
+        const sidecar = {
+          original: sidecarPath,
+          staged: join(historyDir, basename(sidecarPath)),
+        };
+        await this.move(sidecar.original, sidecar.staged);
+        detached.sidecar = sidecar;
+      }
+      await this.move(detached.clone.original, detached.clone.staged);
+    } catch (error: unknown) {
+      await this.putBack(detached.sidecar);
+      await this.removeEmptyDir(historyDir);
+      throw error;
     }
 
-    const snapshot = await readBytesOrNull(join(historyDir, `${slug}.md`));
-    if (snapshot === null || !snapshot.equals(cloneBytes)) {
+    if (!(await this.stagedMatches(detached.clone.staged, cloneBytes))) {
+      if (!(await this.undoDetach(detached))) {
+        this.logger.warn(
+          '[UserLayerMirror] agent changed during seed quarantine and its path is taken; the changed file is kept in history',
+          { slug, historyFile: detached.clone.staged },
+        );
+      }
       throw new Error(
-        `snapshot of ${slug} in ${historyDir} does not match the clone; clone kept`,
+        `${slug} changed between classification and detach; kept as local work`,
       );
     }
-    if (
-      hasSidecar &&
-      !(await this.fs.fileExists(join(historyDir, sidecarName)))
-    ) {
-      throw new Error(
-        `sidecar snapshot of ${slug} missing in ${historyDir}; clone kept`,
-      );
-    }
+    return detached;
+  }
 
-    await this.fs.removePath(sidecarPath);
-    await this.fs.removePath(cloneFile);
+  /** `false` when the staged file is missing, unreadable or different. */
+  private async stagedMatches(staged: string, bytes: Buffer): Promise<boolean> {
+    try {
+      return (await readFile(staged)).equals(bytes);
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - bytes that cannot be read
+      // back are unproven, which is handled exactly like changed bytes: the
+      // detach is undone and the slug fails this pass.
+      this.logger.warn('[UserLayerMirror] detached agent unreadable', {
+        staged,
+        error: errorText(error),
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Put a detached clone (and then its sidecar) back at the live paths without
+   * replacing anything there. `false` when the clone could not go back; it and
+   * its sidecar then stay together in `historyDir`.
+   */
+  private async undoDetach(detached: DetachedClone): Promise<boolean> {
+    if (!(await this.putBack(detached.clone))) return false;
+    await this.putBack(detached.sidecar);
+    await this.removeEmptyDir(detached.historyDir);
+    return true;
+  }
+
+  /**
+   * No-clobber move back to the live path. `false` (warned) when the path is
+   * taken or the move fails; the file then stays in history. A sidecar left
+   * there makes its clone sidecar-less, which every pass re-proves by bytes.
+   */
+  private async putBack(file: DetachedFile | null): Promise<boolean> {
+    if (file === null) return true;
+    let placed: 'placed' | 'exists' | Error;
+    try {
+      this.fs.assertUnderUserLayer(file.original);
+      placed = await placeExclusive(file.staged, file.original);
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - reported below; the bytes
+      // stay in history, and the caller names that file.
+      placed = error instanceof Error ? error : new Error(String(error));
+    }
+    if (placed !== 'placed') {
+      this.logger.warn('[UserLayerMirror] detached file not put back', {
+        staged: file.staged,
+        reason: placed === 'exists' ? 'live path taken' : placed.message,
+      });
+      return false;
+    }
+    await unlink(file.staged).catch((error: unknown) => {
+      // degradation-audit: optional-capability - the file is back at its live
+      // path; a leftover copy in history is harmless and is never in the
+      // quarantine record, because this slug failed the pass.
+      this.logger.warn('[UserLayerMirror] history copy not removed', {
+        staged: file.staged,
+        error: errorText(error),
+      });
+    });
+    return true;
+  }
+
+  private async move(from: string, to: string): Promise<void> {
+    this.fs.assertUnderUserLayer(from);
+    this.fs.assertUnderUserLayer(to);
+    await this.renamePath(from, to);
+  }
+
+  /** Non-recursive: a `<ts>` dir that still holds anything stays. */
+  private async removeEmptyDir(dir: string): Promise<void> {
+    this.fs.assertUnderUserLayer(dir);
+    await rmdir(dir).catch((error: unknown) => {
+      // degradation-audit: optional-capability - an empty `<ts>` dir left
+      // behind holds no `<slug>.md`, so `selectSnapshot` never picks it.
+      if (!isErrnoCode(error, 'ENOENT') && !isErrnoCode(error, 'ENOTEMPTY')) {
+        this.logger.warn('[UserLayerMirror] empty history dir not removed', {
+          dir,
+          error: errorText(error),
+        });
+      }
+    });
   }
 
   private async writeMarker(
     markerPath: string,
-    result: SeedQuarantineResult,
+    lists: SeedQuarantineLists,
   ): Promise<boolean> {
     try {
       await this.fs.writeTextAtomic(
@@ -504,9 +680,9 @@ export class UserLayerSeedQuarantine {
           {
             version: 1,
             completedAt: new Date().toISOString(),
-            quarantined: result.quarantined,
-            keptWithLocalWork: result.keptWithLocalWork,
-            keptUnprovable: result.keptUnprovable,
+            quarantined: lists.quarantined,
+            keptWithLocalWork: lists.keptWithLocalWork,
+            keptUnprovable: lists.keptUnprovable,
           },
           null,
           2,
@@ -515,8 +691,8 @@ export class UserLayerSeedQuarantine {
       return true;
     } catch (error: unknown) {
       // degradation-audit: optional-capability - without the marker the next
-      // pass runs again; every clone it could move has already moved, so the
-      // rerun only re-reports the kept ones.
+      // pass runs again; every clone it could move has already moved and is
+      // in the journal, so the rerun only re-reports the kept ones.
       this.logger.warn('[UserLayerMirror] seed quarantine marker not written', {
         markerPath,
         error: error instanceof Error ? error.message : String(error),
