@@ -23,6 +23,7 @@ import type {
   GitLastCommitResult,
   GitPrStatusResult,
   GitPrUnavailableReason,
+  GitRepoOperation,
   GitWorktreeInfo,
   RemoteInfo,
 } from '@ptah-extension/shared';
@@ -95,6 +96,7 @@ describe('TaskWorktreeViewComponent', () => {
     activeWorkspacePath: ReturnType<typeof signal<string | null>>;
     branch: ReturnType<typeof signal<GitBranchInfo>>;
     branchName: () => string;
+    operation: ReturnType<typeof signal<GitRepoOperation | null>>;
   };
   let gitBranches: {
     currentBranch: ReturnType<typeof signal<string>>;
@@ -131,6 +133,7 @@ describe('TaskWorktreeViewComponent', () => {
       activeWorkspacePath: signal<string | null>('/ws/a'),
       branch,
       branchName: () => branch().branch,
+      operation: signal<GitRepoOperation | null>(null),
     };
     gitBranches = {
       currentBranch: signal('feat/task-576'),
@@ -327,6 +330,31 @@ describe('TaskWorktreeViewComponent', () => {
     expect(textOf(rows[2])).toContain('prunable');
   });
 
+  it('lets the branch win the row and truncates the path from the left, full values in titles (V-8)', async () => {
+    const branch = 'agent/visual-review-with-a-long-branch-name';
+    worktreeStub.worktrees.set([
+      MAIN,
+      worktree('/r/very/long/parent/folders/wt/576', branch, false),
+    ]);
+    await render();
+
+    const row = switchButtons()[1];
+    const label = row.querySelector(
+      '[data-testid="task-worktree-branch-label"]',
+    );
+    const path = row.querySelector('[data-testid="task-worktree-row-path"]');
+    expect(label?.getAttribute('title')).toBe(branch);
+    // The branch keeps its natural width; only the path grows into what is left.
+    expect(label?.classList).not.toContain('flex-1');
+    expect(path?.classList).toContain('flex-1');
+    expect(path?.classList).toContain('truncate');
+    expect(path?.getAttribute('dir')).toBe('rtl');
+    expect(path?.querySelector('bdi')?.getAttribute('dir')).toBe('ltr');
+    expect(path?.getAttribute('title')).toBe(
+      '/r/very/long/parent/folders/wt/576',
+    );
+  });
+
   it('shows a spinner while the first list loads, and an empty state after (parity §4 row 93)', async () => {
     worktreeStub.worktrees.set([]);
     worktreeStub.isLoading.set(true);
@@ -417,6 +445,25 @@ describe('TaskWorktreeViewComponent', () => {
         query<HTMLButtonElement>('[data-testid="task-worktree-create"]')
           ?.disabled,
       ).toBe(true);
+    });
+
+    it('Create stays disabled while a merge, rebase or cherry-pick is open (design-spec §11)', async () => {
+      gitStatus.operation.set({ kind: 'rebase', conflictedPaths: ['a.ts'] });
+      await openForm();
+      type('[data-testid="task-worktree-branch"]', 'feature/y');
+      await settle();
+
+      const create = query<HTMLButtonElement>(
+        '[data-testid="task-worktree-create"]',
+      );
+      expect(create?.disabled).toBe(true);
+      press('[data-testid="task-worktree-branch"]', 'Enter');
+      await settle();
+      expect(worktreeStub.addWorktree).not.toHaveBeenCalled();
+
+      gitStatus.operation.set(null);
+      await settle();
+      expect(create?.disabled).toBe(false);
     });
 
     it('submits branch, custom path and "Create new branch" on Enter, then closes', async () => {
@@ -631,6 +678,14 @@ describe('TaskWorktreeViewComponent', () => {
     const counts = query('[data-testid="task-ahead-behind"]');
     // Arrows for the eye, words for a screen reader.
     expect(textOf(counts)).toBe('↑2 ahead,↓3 behind');
+    // Full-strength ink: stock info/warning ink fails AA on the light theme
+    // (Batch 68 axe color-contrast); the arrow and the word carry the meaning.
+    for (const id of ['task-ahead-count', 'task-behind-count']) {
+      const count = query(`[data-testid="${id}"]`);
+      expect(count).not.toBeNull();
+      expect(count?.classList.contains('text-info')).toBe(false);
+      expect(count?.classList.contains('text-warning')).toBe(false);
+    }
     const details = query('[data-testid="task-branch-details"]');
     expect(
       [...(details?.querySelectorAll('dt') ?? [])].map((dt) => textOf(dt)),
@@ -750,7 +805,7 @@ describe('TaskWorktreeViewComponent', () => {
     it.each<[GitPrUnavailableReason, string]>([
       ['gh-missing', 'GitHub CLI not available — PR status hidden.'],
       ['not-authenticated', 'GitHub CLI is not signed in — PR status hidden.'],
-      ['not-github', 'This repository is not on GitHub — PR status hidden.'],
+      ['not-github', 'No GitHub remote — PR status hidden.'],
       ['no-pr', 'No pull request found for this branch.'],
       ['timeout', 'GitHub did not answer in time — PR status hidden.'],
       ['failed', 'PR status could not be read.'],

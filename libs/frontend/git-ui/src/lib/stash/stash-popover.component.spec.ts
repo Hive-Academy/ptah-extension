@@ -40,6 +40,8 @@ describe('StashPopoverComponent', () => {
     stash.files.set([]);
     stash.busy.set(false);
     stash.error.set(null);
+    stash.listLoading.set(false);
+    stash.filesLoading.set(false);
     TestBed.configureTestingModule({
       imports: [StashPopoverComponent],
       providers: [
@@ -67,6 +69,50 @@ describe('StashPopoverComponent', () => {
     stash.entries.set([]);
     fixture.detectChanges();
     expect(el('stash-empty')).not.toBeNull();
+  });
+
+  describe('states (parity row 111)', () => {
+    it('shows the error banner as an alert above the list', () => {
+      stash.error.set('Could not read the stash list.');
+      fixture.detectChanges();
+      const alert = fixture.nativeElement.querySelector(
+        '[data-testid="stash-popover"] [role="alert"]',
+      ) as HTMLElement;
+      expect(alert.textContent?.trim()).toBe('Could not read the stash list.');
+      expect(el('stash-entry')).not.toBeNull();
+    });
+
+    it('says it is loading while the first list read is in flight, and keeps a listed stash on screen during a reload', () => {
+      stash.entries.set([]);
+      stash.listLoading.set(true);
+      fixture.detectChanges();
+      const popover = el('stash-popover');
+      expect(popover.textContent).toContain('Loading stashes…');
+      expect(el('stash-empty')).toBeNull();
+
+      stash.entries.set([
+        { index: 0, hash: 'abc', message: 'WIP on main: tidy', branch: 'main' },
+      ]);
+      fixture.detectChanges();
+      expect(popover.textContent).not.toContain('Loading stashes…');
+      expect(el('stash-entry')).not.toBeNull();
+    });
+
+    it("loads a selected stash's files, then says when it has none", () => {
+      stash.selectedIndex.set(0);
+      stash.filesLoading.set(true);
+      fixture.detectChanges();
+      expect(el('stash-popover').textContent).toContain('Loading files…');
+      expect(el('stash-file')).toBeNull();
+
+      stash.filesLoading.set(false);
+      stash.files.set([]);
+      fixture.detectChanges();
+      const files = fixture.nativeElement.querySelector(
+        '[aria-label="Files in stash"]',
+      ) as HTMLElement;
+      expect(files.textContent?.trim()).toBe('No file changes.');
+    });
   });
 
   it('selects an entry and opens a file diff', () => {

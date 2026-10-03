@@ -9,13 +9,18 @@ import {
   inject,
   Injector,
   input,
+  linkedSignal,
   signal,
   untracked,
   viewChild,
   viewChildren,
 } from '@angular/core';
+import { ThemeService } from '@ptah-extension/core';
 import type { GitFileStatus, GitReviewFile } from '@ptah-extension/shared';
-import type { PierreDiffStyle } from '../renderer/pierre-config';
+import type {
+  PierreDiffStyle,
+  PierreThemeMode,
+} from '../renderer/pierre-config';
 import { EditorLauncherService } from '../services/editor-launcher.service';
 import { GitReviewService } from '../services/git-review.service';
 import { GitStatusService } from '../services/git-status.service';
@@ -23,14 +28,17 @@ import {
   ReviewCommentDraftStore,
   type ReviewDraftOwner,
 } from '../services/review-comment-draft.store';
-import type { ReviewDiffComparison } from '../services/review-diff.service';
+import {
+  ReviewDiffService,
+  reviewDiffKey,
+  type ReviewDiffComparison,
+} from '../services/review-diff.service';
 import {
   ReviewNavigationService,
-  type ReviewScope,
   type ReviewTarget,
 } from '../services/review-navigation.service';
 import type { OpenInRequest } from '../open-in/open-in-button.component';
-import { normalizeDiffPath } from '../types/diff-tab.types';
+import { normalizeDiffPath } from '../types/review-diff.types';
 import {
   ChangedFileTreeComponent,
   type ChangedFileSelection,
@@ -43,56 +51,36 @@ import { DraftCommentsBarComponent } from './draft-comments-bar.component';
 import {
   FileDiffSectionComponent,
   type ReviewCanvasFile,
-  type ReviewFileLabel,
+  type ReviewFileEditRequest,
 } from './file-diff-section.component';
+import {
+  type AnchorRestore,
+  collapsedCarrier,
+  rememberAnchor,
+  RESTORE_MAX_FRAMES,
+  RESTORE_PENDING_MAX_FRAMES,
+  RESTORE_STABLE_FRAMES,
+  type ScrollAnchor,
+  scrollAnchors,
+  USER_SCROLL_EVENTS,
+} from './review-canvas-position';
+import {
+  reviewCanvasFile,
+  reviewFileId,
+  reviewScopeId,
+  statusCanvasFile,
+} from './review-canvas-files';
 
 /** Estimated row height and fixed chrome, for placeholders before a measure. */
 const ESTIMATED_ROW_PX = 20;
 const ESTIMATED_CHROME_PX = 72;
 const UNKNOWN_SIZE_PX = 240;
 
-/** Scroll anchors kept for comparisons the canvas is not showing. */
-const MAX_SCROLL_ANCHORS = 16;
-
-interface ScrollAnchor {
-  readonly fileId: string;
-  /** Pixels from the top of that file's section to the viewport top. */
-  readonly offset: number;
-}
-
 /**
- * Where each comparison was scrolled to, so leaving the canvas (spot editor,
- * another tab) and coming back lands on the same file (parity §7 "view
- * state"). Module scope because the canvas itself is destroyed in between;
- * bounded and in memory only.
+ * Below this diff-list width split has under 300 px a side and its hunk
+ * toolbar stacks, so the list shows unified unless the user picks Split.
  */
-const scrollAnchors = new Map<string, ScrollAnchor>();
-
-function rememberAnchor(comparisonId: string, anchor: ScrollAnchor): void {
-  scrollAnchors.delete(comparisonId);
-  scrollAnchors.set(comparisonId, anchor);
-  if (scrollAnchors.size > MAX_SCROLL_ANCHORS) {
-    const oldest = scrollAnchors.keys().next().value;
-    if (oldest !== undefined) scrollAnchors.delete(oldest);
-  }
-}
-
-function scopeId(scope: ReviewScope, branchRange: string | null): string {
-  if (scope.kind === 'historical') {
-    return `historical:${scope.base.sha}..${scope.head.sha}`;
-  }
-  return scope.kind === 'branch' ? `branch:${branchRange ?? ''}` : scope.kind;
-}
-
-function statusLabel(file: GitFileStatus): ReviewFileLabel | null {
-  if (file.status === 'U') return 'conflicted';
-  if (file.submodule) return 'submodule';
-  return file.binary ? 'binary' : null;
-}
-
-function fileId(kind: string, path: string, originalPath?: string): string {
-  return `${kind}\u0000${originalPath ?? path}\u0000${path}`;
-}
+export const SPLIT_MIN_WIDTH_PX = 600;
 
 /**
  * ReviewCanvasComponent — the Changes tab body (implementation-plan
@@ -110,8 +98,20 @@ function fileId(kind: string, path: string, originalPath?: string): string {
  *   read their diff and create a renderer. Off-screen sections hold an
  *   estimated height, replaced by the height measured when they last left the
  *   window. The observer and the scroll listener are released on destroy.
- * - Selecting a file in the tree scrolls its section into view; Alt+Down /
- *   Alt+Up move to the next / previous file.
+ * - Reading position: the top visible file and the offset into it are kept
+ *   per workspace and comparison. They are restored when a comparison shows
+ *   again (also through an empty one) and when the shell shows the Changes
+ *   body again after hiding it (a hidden list loses its `scrollTop`). Because
+ *   sections are estimated until measured, the restore re-anchors frame by
+ *   frame until the anchor file stops moving. Nothing is saved while hidden.
+ * - Selecting a file in the tree scrolls its section into view, expands it
+ *   and re-reads its diff (the old row re-click revalidation, A1 AC4);
+ *   Alt+Down / Alt+Up move to the next / previous file, wrapping at the ends.
+ * - A file collapses to its header from the header toggle, Delete in the
+ *   header, or Delete on its tree row (the old diff tab's close, parity rows
+ *   39, 40). Collapsed files are per comparison and reset when it changes.
+ * - Pierre follows the app theme (`ThemeService`) live, as the old Monaco
+ *   diff followed theme changes.
  * - When the draft bar disappears with focus inside it, focus moves to the
  *   diff list rather than being dropped on the page.
  */
@@ -131,6 +131,8 @@ function fileId(kind: string, path: string, originalPath?: string): string {
       [filter]="filter()"
       [totals]="totals()"
       [(sideBySide)]="sideBySide"
+      [autoUnified]="autoUnified()"
+      (layoutPicked)="splitPicked.set($event)"
       (filterChange)="filter.set($event)"
     />
 
@@ -149,6 +151,7 @@ function fileId(kind: string, path: string, originalPath?: string): string {
         [editorTargets]="launchers.targets()"
         [workspaceRoot]="workspaceRoot()"
         (fileSelected)="onFileSelected($event)"
+        (collapseFile)="setCollapsed(sectionId($event), true)"
         (openFile)="openInEditor($event)"
       />
 
@@ -180,7 +183,11 @@ function fileId(kind: string, path: string, originalPath?: string): string {
             [draftOwner]="draftOwner()"
             [editorTargets]="launchers.targets()"
             [workspaceRoot]="workspaceRoot()"
+            [collapsed]="collapsedIds().has(file.id)"
+            [themeType]="themeType()"
             (openFile)="openInEditor($event)"
+            (edit)="onEdit($event)"
+            (collapsedChange)="setCollapsed(file.id, $event)"
           />
         }
       </div>
@@ -198,6 +205,8 @@ export class ReviewCanvasComponent {
   private readonly gitStatus = inject(GitStatusService);
   private readonly review = inject(GitReviewService);
   private readonly draftStore = inject(ReviewCommentDraftStore);
+  private readonly reviewDiff = inject(ReviewDiffService);
+  private readonly theme = inject(ThemeService);
   private readonly injector = inject(Injector);
   protected readonly launchers = inject(EditorLauncherService);
 
@@ -205,7 +214,22 @@ export class ReviewCanvasComponent {
   readonly stacked = input(false);
 
   protected readonly filter = signal('');
+  /** The stored Split / Unified preference (`diff.renderSideBySide`). */
   protected readonly sideBySide = signal(true);
+  /**
+   * The diff list is narrower than {@link SPLIT_MIN_WIDTH_PX}, measured by the
+   * list's existing `ResizeObserver`; a hidden list keeps the last value.
+   */
+  private readonly narrowList = signal(false);
+  /** The user pressed Split this session: it wins over the narrow default. */
+  protected readonly splitPicked = signal(false);
+  /**
+   * Split preferred, but the list is too narrow for two columns and the user
+   * has not pressed Split: show unified (V-5).
+   */
+  protected readonly autoUnified = computed(
+    () => this.sideBySide() && this.narrowList() && !this.splitPicked(),
+  );
   /** The file in view: its path and whether it is the staged entry. */
   private readonly active = signal<{ path: string; staged: boolean } | null>(
     null,
@@ -231,6 +255,11 @@ export class ReviewCanvasComponent {
   /** Without `IntersectionObserver` every section is treated as near. */
   private readonly windowed = typeof IntersectionObserver !== 'undefined';
   private scrollFrame: number | null = null;
+  /** Watches the list's own box: it measures 0 × 0 while the shell hides it. */
+  private resizeObserver: ResizeObserver | null = null;
+  private shown = true;
+  private restore: AnchorRestore | null = null;
+  private restoreFrame: number | null = null;
   private restoredFor: string | null = null;
   private handledSeq = -1;
 
@@ -255,7 +284,11 @@ export class ReviewCanvasComponent {
   );
 
   protected readonly diffStyle = computed<PierreDiffStyle>(() =>
-    this.sideBySide() ? 'split' : 'unified',
+    this.sideBySide() && !this.autoUnified() ? 'split' : 'unified',
+  );
+
+  protected readonly themeType = computed<PierreThemeMode>(() =>
+    this.theme.isDarkMode() ? 'dark' : 'light',
   );
 
   /** A change-set target owns the drafts; otherwise the workspace does. */
@@ -339,48 +372,15 @@ export class ReviewCanvasComponent {
           (file) =>
             !file.isDirectory && (scope.kind === 'worktree' || file.staged),
         )
-        .map((file) => {
-          const kind = file.staged ? 'staged' : 'worktree';
-          return {
-            id: fileId(kind, file.path, file.origPath),
-            path: file.path,
-            ...(file.origPath ? { originalPath: file.origPath } : {}),
-            status: file.status,
-            ...(file.conflict ? { conflictKind: file.conflict.kind } : {}),
-            additions: file.additions ?? null,
-            deletions: file.deletions ?? null,
-            comparison: kind,
-            request: {
-              comparison: { kind },
-              path: file.path,
-              ...(file.origPath ? { origPath: file.origPath } : {}),
-            },
-            label: statusLabel(file),
-          } satisfies ReviewCanvasFile;
-        });
+        .map(statusCanvasFile);
     }
     const comparison: ReviewDiffComparison | null =
       scope.kind === 'historical'
         ? { kind: 'historical', base: scope.base, head: scope.head }
         : this.branchComparison();
     if (!comparison) return [];
-    return this.treeReviewFiles().map(
-      (file) =>
-        ({
-          id: fileId(scope.kind, file.path, file.originalPath),
-          path: file.path,
-          ...(file.originalPath ? { originalPath: file.originalPath } : {}),
-          status: file.status,
-          additions: file.additions,
-          deletions: file.deletions,
-          comparison: scope.kind,
-          request: {
-            comparison,
-            path: file.path,
-            ...(file.originalPath ? { origPath: file.originalPath } : {}),
-          },
-          label: file.binary ? 'binary' : null,
-        }) satisfies ReviewCanvasFile,
+    return this.treeReviewFiles().map((file) =>
+      reviewCanvasFile(file, scope.kind, comparison),
     );
   });
 
@@ -407,14 +407,22 @@ export class ReviewCanvasComponent {
     return { files: files.length, additions, deletions, binaryFiles };
   });
 
+  /** The workspace and comparison a reading position belongs to. */
   private readonly comparisonId = computed(() => {
     const branch = this.branchComparison();
-    return scopeId(
+    const scope = reviewScopeId(
       this.scope(),
       branch?.kind === 'historical'
         ? `${branch.base.sha}..${branch.head.sha}`
         : null,
     );
+    return `${this.workspaceRoot()}\u0000${scope}`;
+  });
+
+  /** Files collapsed to their header; reset when the comparison changes. */
+  protected readonly collapsedIds = linkedSignal<string, ReadonlySet<string>>({
+    source: this.comparisonId,
+    computation: () => new Set(),
   });
 
   protected readonly listMessageIsError = computed(() => {
@@ -468,6 +476,14 @@ export class ReviewCanvasComponent {
       untracked(() => this.applyNavigation(navigation, files, comparisonId));
     });
 
+    // Staging or unstaging a collapsed file gives it a new id; keep it
+    // collapsed under that id.
+    const carryCollapsed = collapsedCarrier();
+    effect(() => {
+      const next = carryCollapsed(untracked(this.collapsedIds), this.files());
+      if (next) untracked(() => this.collapsedIds.set(next));
+    });
+
     // The draft bar disappears at zero drafts; keep focus inside the canvas.
     let previousDrafts = 0;
     effect(() => {
@@ -507,18 +523,48 @@ export class ReviewCanvasComponent {
     return ESTIMATED_CHROME_PX + rows * ESTIMATED_ROW_PX;
   }
 
+  /**
+   * A tree row was activated: show its section (expanded), re-read its diff
+   * so a re-opened file is never stale (A1 AC4), and mark it active.
+   */
   protected onFileSelected(selection: ChangedFileSelection): void {
-    const kind = this.scope().kind;
-    const sectionKind =
-      kind === 'worktree' || kind === 'staged'
-        ? selection.staged
-          ? 'staged'
-          : 'worktree'
-        : kind;
-    this.scrollToFile(
-      fileId(sectionKind, selection.path, selection.originalPath),
+    const id = this.sectionId(selection);
+    this.setCollapsed(id, false);
+    const file = this.files().find((candidate) => candidate.id === id);
+    if (file?.request) {
+      const key = reviewDiffKey(file.request);
+      // Only a cached entry: a first read happens when the section mounts.
+      if (this.reviewDiff.entry(key)) void this.reviewDiff.retry(key);
+    }
+    this.scrollToFile(id);
+    this.active.set({
+      path: selection.path,
+      staged: this.sectionKind(selection) === 'staged',
+    });
+  }
+
+  /** The section a tree selection stands for. */
+  protected sectionId(selection: ChangedFileSelection): string {
+    return reviewFileId(
+      this.sectionKind(selection),
+      selection.path,
+      selection.originalPath,
     );
-    this.active.set({ path: selection.path, staged: sectionKind === 'staged' });
+  }
+
+  private sectionKind(selection: ChangedFileSelection): string {
+    const kind = this.scope().kind;
+    if (kind !== 'worktree' && kind !== 'staged') return kind;
+    return selection.staged ? 'staged' : 'worktree';
+  }
+
+  protected setCollapsed(id: string, collapsed: boolean): void {
+    const current = this.collapsedIds();
+    if (current.has(id) === collapsed) return;
+    const next = new Set(current);
+    if (collapsed) next.add(id);
+    else next.delete(id);
+    this.collapsedIds.set(next);
   }
 
   protected onListKeydown(event: KeyboardEvent): void {
@@ -534,6 +580,15 @@ export class ReviewCanvasComponent {
     }
     event.preventDefault();
     this.tree().selectAdjacentFile(event.key === 'ArrowDown' ? 1 : -1);
+  }
+
+  /** A section's "Edit": the spot editor, editable, in the active workspace. */
+  protected onEdit(request: ReviewFileEditRequest): void {
+    const root = this.workspaceRoot();
+    this.navigation.openFile(request.path, request.line, {
+      editable: true,
+      ...(root ? { workspaceRoot: root } : {}),
+    });
   }
 
   protected openInEditor(request: OpenInRequest): void {
@@ -556,6 +611,15 @@ export class ReviewCanvasComponent {
     const root = this.scroller().nativeElement;
     this.root = root;
     root.addEventListener('scroll', this.onScroll, { passive: true });
+    for (const type of USER_SCROLL_EVENTS) {
+      root.addEventListener(type, this.stopRestore, { passive: true });
+    }
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver((entries) =>
+        this.onResize(entries),
+      );
+      this.resizeObserver.observe(root);
+    }
     if (!this.windowed) return;
     this.observer = new IntersectionObserver(
       (entries) => this.onIntersect(entries),
@@ -567,9 +631,15 @@ export class ReviewCanvasComponent {
 
   private detach(): void {
     this.root?.removeEventListener('scroll', this.onScroll);
+    for (const type of USER_SCROLL_EVENTS) {
+      this.root?.removeEventListener(type, this.stopRestore);
+    }
     this.root = null;
     if (this.scrollFrame !== null) cancelAnimationFrame(this.scrollFrame);
     this.scrollFrame = null;
+    this.stopRestore();
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     this.observer?.disconnect();
     this.observer = null;
     this.observed.clear();
@@ -610,9 +680,12 @@ export class ReviewCanvasComponent {
         }
       } else if (near.delete(id)) {
         // Leaving the window with its diff still rendered: the exact height
-        // its placeholder should hold from now on.
+        // its placeholder should hold from now on. A collapsed file shows
+        // only its header, which says nothing about its expanded height.
         const height = entry.boundingClientRect.height;
-        if (height > 0) this.measuredHeights.set(this.heightKey(id), height);
+        if (height > 0 && !this.collapsedIds().has(id)) {
+          this.measuredHeights.set(this.heightKey(id), height);
+        }
         changed = true;
       }
     }
@@ -627,8 +700,25 @@ export class ReviewCanvasComponent {
     });
   };
 
+  /**
+   * The shell hides an inactive tab body (`display: none`), which resets the
+   * list's `scrollTop`; showing it again restores the saved anchor.
+   */
+  private onResize(entries: readonly ResizeObserverEntry[]): void {
+    const box = entries.at(-1)?.contentRect;
+    if (!box) return;
+    if (box.width > 0) this.narrowList.set(box.width < SPLIT_MIN_WIDTH_PX);
+    const shown = box.width > 0 || box.height > 0;
+    if (shown === this.shown) return;
+    this.shown = shown;
+    if (shown) this.startRestore(this.comparisonId());
+    else this.stopRestore();
+  }
+
   /** The file at the top of the viewport is the active one. */
   private trackActiveFile(): void {
+    // Hidden, the list reads `scrollTop` 0: not where the user is reading.
+    if (!this.shown) return;
     const root = this.scroller().nativeElement;
     const top = root.getBoundingClientRect().top;
     const element = this.sectionElements()
@@ -639,8 +729,11 @@ export class ReviewCanvasComponent {
     const file = this.visibleFiles().find((candidate) => candidate.id === id);
     if (!file) return;
     this.setActive(file);
+    // A running restore owns the position until the anchor settles.
+    if (this.restore) return;
     rememberAnchor(this.comparisonId(), {
       fileId: id,
+      path: file.path,
       offset: top - element.getBoundingClientRect().top,
     });
   }
@@ -650,7 +743,12 @@ export class ReviewCanvasComponent {
     files: readonly ReviewCanvasFile[],
     comparisonId: string,
   ): void {
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      // Nothing to anchor to. Forget which comparison was restored, so the
+      // next listed one (also the one shown before this) restores its anchor.
+      this.restoredFor = null;
+      return;
+    }
     const target = navigation.target;
     if (navigation.seq !== this.handledSeq && target.kind === 'diff') {
       const path = normalizeDiffPath(target.path);
@@ -668,21 +766,68 @@ export class ReviewCanvasComponent {
     // An unmatched diff target stays pending: its file may not be listed yet.
     if (this.restoredFor === comparisonId) return;
     this.restoredFor = comparisonId;
-    const anchor = scrollAnchors.get(comparisonId);
-    afterNextRender(
-      () => {
-        const root = this.scroller().nativeElement;
-        const section = anchor ? this.sectionFor(anchor.fileId) : null;
-        if (anchor && section) {
-          // The list is the sections' offset parent (`relative`).
-          root.scrollTop = section.offsetTop + Math.max(0, anchor.offset);
-        } else {
-          root.scrollTop = 0;
-        }
-      },
-      { injector: this.injector },
-    );
+    afterNextRender(() => this.startRestore(comparisonId), {
+      injector: this.injector,
+    });
   }
+
+  /** Bring the comparison's saved anchor back, or start at the top. */
+  private startRestore(comparisonId: string): void {
+    this.stopRestore();
+    // Hidden, nothing can be scrolled; showing the body restores then.
+    if (!this.shown || comparisonId !== this.comparisonId()) return;
+    const anchor = scrollAnchors.get(comparisonId);
+    if (!anchor || !this.anchorSection(anchor)) {
+      this.scroller().nativeElement.scrollTop = 0;
+      return;
+    }
+    this.restore = { anchor, frames: 0, stable: 0 };
+    this.reanchor();
+  }
+
+  /**
+   * Put the anchor file's top back at its saved offset. Sections above it
+   * hold estimated heights until they render and are measured, so repeat on
+   * the next frame until it stays put (bounded).
+   */
+  private reanchor(): void {
+    this.restoreFrame = null;
+    const restore = this.restore;
+    if (!restore) return;
+    const section = this.anchorSection(restore.anchor);
+    if (!section) {
+      this.stopRestore();
+      return;
+    }
+    const root = this.scroller().nativeElement;
+    const offset =
+      root.getBoundingClientRect().top - section.getBoundingClientRect().top;
+    const drift = Math.max(0, restore.anchor.offset) - offset;
+    if (Math.abs(drift) > 1) {
+      root.scrollTop += drift;
+      restore.stable = 0;
+    } else {
+      restore.stable++;
+    }
+    restore.frames++;
+    const pending = this.hasPendingRead();
+    if (
+      (restore.stable >= RESTORE_STABLE_FRAMES && !pending) ||
+      restore.frames >=
+        (pending ? RESTORE_PENDING_MAX_FRAMES : RESTORE_MAX_FRAMES)
+    ) {
+      this.stopRestore();
+      return;
+    }
+    this.restoreFrame = requestAnimationFrame(() => this.reanchor());
+  }
+
+  /** Also the listener for user scroll input: the user's scroll wins. */
+  private readonly stopRestore = (): void => {
+    if (this.restoreFrame !== null) cancelAnimationFrame(this.restoreFrame);
+    this.restoreFrame = null;
+    this.restore = null;
+  };
 
   private setActive(file: ReviewCanvasFile): void {
     const current = this.active();
@@ -693,10 +838,30 @@ export class ReviewCanvasComponent {
   }
 
   private scrollToFile(id: string): void {
+    this.stopRestore();
     const section = this.sectionFor(id);
     if (section && typeof section.scrollIntoView === 'function') {
       section.scrollIntoView({ block: 'start' });
     }
+  }
+
+  /** The anchor's section, or the same path's section after a (un)stage. */
+  private anchorSection(anchor: ScrollAnchor): HTMLElement | null {
+    const moved = this.visibleFiles().find((file) => file.path === anchor.path);
+    return this.sectionFor(anchor.fileId) ?? this.sectionFor(moved?.id ?? '');
+  }
+
+  /**
+   * A section in the window still holds its placeholder height: its first
+   * read has not landed, so the layout below it is not final yet.
+   */
+  private hasPendingRead(): boolean {
+    const near = this.nearIds();
+    return this.sectionElements().some(
+      ({ nativeElement: el }) =>
+        el.style.minHeight !== '' &&
+        (!this.windowed || near.has(this.idOf(el))),
+    );
   }
 
   private sectionFor(id: string): HTMLElement | null {

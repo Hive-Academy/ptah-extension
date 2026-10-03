@@ -29,8 +29,11 @@ const DEST = path.resolve(
   '../../../dist/apps/ptah-electron/renderer',
 );
 
+// The renderer keeps EVERY chunk, including the Electron-only ones listed in
+// dist/apps/ptah-extension-webview/electron-only-chunks.json (scripts/copy-webview.js
+// skips those for the VSIX only).
 // Walk SOURCE manually so broken symlinks (occasionally produced by npm's
-// _cacache for monaco-editor's min/vs/basic-languages on Linux runners) are
+// _cacache on Linux runners) are
 // skipped rather than aborting the whole copy with a C++ filesystem_error.
 function copyRecursive(src, dst) {
   let entries;
@@ -134,10 +137,10 @@ function secureRendererHtml(html) {
   // file: responses cannot deliver HTTP headers. Meta is parsed BEFORE any
   // resource or script. frame-ancestors is ignored in meta and intentionally
   // absent; frame-src blocks shell children, and the navigation guard stays.
-  // Source inventory: local Angular/Monaco scripts, styles and fonts; Angular
+  // Source inventory: local Angular scripts, styles and fonts; Angular
   // component styles and UI style attributes need inline CSS. styles.css imports
   // fonts.googleapis.com, whose fonts come from fonts.gstatic.com. Attachments
-  // use data/blob images; local-tts-panel uses blob audio; Monaco uses workers.
+  // use data/blob images; local-tts-panel uses blob audio.
   // Renderer network calls go over preload RPC: connect-src needs only local
   // resources, never backend provider URLs.
   //

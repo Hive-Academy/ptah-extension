@@ -3,28 +3,20 @@ import * as path from 'path';
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
 import type { ScratchRepo } from '../../support/git-scratch-repo';
-import { sourceControlFileButton } from '../../support/source-control';
 
 /**
- * A git hook that rejects a commit, end to end in Electron — TASK_2026_576
- * RC1, Requirement 1.2.
+ * A git hook that rejects a commit, on the Commit tab (`ptah-commit-composer`)
+ * - TASK_2026_576 RC1, Requirement 1.2.
  *
- * Nothing is mocked. The real renderer drives the real `git:commit` handler
- * over the real `rpc` IPC channel against a real repository whose
- * `pre-commit` hook fails. The spec asserts what the user must see — the
- * message still in the box, the hook's own output on screen, no success — and
- * reads the outcome back from git on disk, never from a value the harness
- * supplied.
+ * Nothing is mocked: the real renderer drives the real `git:commit` handler
+ * over the real `rpc` channel against a real repository whose `pre-commit`
+ * hook fails. Outcomes are read back from git on disk.
  *
- * It then swaps the hook for a passing one and commits again from the same
- * screen. That second half is the causation control: it proves the failure
- * above came from the hook and not from a panel that cannot commit at all,
- * and it pins the success line to the hash git actually wrote.
- *
- * Depends on TASK_2026_576 Batch 5 (Task 5.2): the backend must return the
- * hook's stdout + stderr as `hookOutput` on `HOOK_FAILED`. Before Batch 5 the
- * backend returns only `error: stderr`, so the `role="log"` region never
- * renders and the hook-output assertion fails by design.
+ * `commit-composer.spec.ts` already proves the failing-then-passing round trip
+ * and the kept message. This spec pins what that one does not: BOTH of the
+ * hook's streams (stdout and stderr) reach the log, the log can take keyboard
+ * focus, and the failure is announced in a `role="alert"` inside
+ * `commit-failure`.
  */
 
 /** A marker only the failing hook prints, so the log assertion cannot pass by accident. */
@@ -75,7 +67,7 @@ test.describe('commit rejected by a git hook, end to end in Electron (TASK_2026_
   // before the window is created (see `real-rpc-fixtures.ts`).
   test.setTimeout(240_000);
 
-  test('keeps the message and shows the hook output; a passing hook then commits', async ({
+  test('shows both hook streams in a focusable log and announces the failure; the message is kept', async ({
     ui,
     rpcBridge,
     repo,
@@ -101,56 +93,35 @@ test.describe('commit rejected by a git hook, end to end in Electron (TASK_2026_
     expect(repo.stagedDiff()).not.toBe('');
 
     await ui.goto('git');
+    await ui.reviewTab(/^Commit/).click();
+    await expect(page.locator('[data-testid="commit-composer"]')).toBeVisible({
+      timeout: 30_000,
+    });
 
-    const stagedRow = await sourceControlFileButton(
-      page,
-      THREE_HUNK_FILE,
-      'Staged files',
-    );
-    await expect(stagedRow).toBeVisible({ timeout: 30_000 });
-
-    const messageBox = page.getByRole('textbox', { name: 'Commit message' });
-    const commitButton = page.getByRole('button', { name: /^Commit \(1\)$/ });
+    const messageBox = page.locator('[data-testid="commit-message"]');
+    const submit = page.locator('[data-testid="commit-submit"]');
     await messageBox.fill(COMMIT_MESSAGE);
-    await expect(commitButton).toBeEnabled();
-    await commitButton.click();
+    await expect(submit).toBeEnabled();
+    await submit.click();
 
-    // The hook's own output is on screen, in a keyboard-reachable log.
+    // The hook's own output (stdout and stderr) is on screen, in a
+    // keyboard-reachable log.
     const hookLog = page.getByRole('log', { name: 'Commit hook output' });
     await expect(hookLog).toBeVisible({ timeout: COMMIT_ROUND_TRIP_MS });
     await expect(hookLog).toContainText(HOOK_MARKER);
+    await expect(hookLog).toContainText('ptah-e2e-hook: 1 problem');
     await expect(hookLog).toHaveAttribute('tabindex', '0');
     await hookLog.focus();
     await expect(hookLog).toBeFocused();
 
     await expect(
-      page.locator('[data-testid="git-commit-failure"] [role="alert"]'),
-    ).toContainText('Commit failed');
-    await expect(
-      page.locator('[data-testid="git-commit-success"]'),
-    ).toHaveCount(0);
-    // The message survives the failure.
+      page.locator('[data-testid="commit-failure"][role="alert"]'),
+    ).toContainText('Your message was kept.');
+    await expect(page.locator('[data-testid="commit-success"]')).toHaveCount(0);
     await expect(messageBox).toHaveValue(COMMIT_MESSAGE);
 
     // Git agrees: nothing was committed and the index is intact.
     expect(repo.git('rev-list', '--count', 'HEAD')).toBe('1');
     expect(repo.stagedDiff()).not.toBe('');
-
-    // Causation control: same screen, same message, passing hook.
-    installPreCommitHook(repo, 0);
-    await expect(commitButton).toBeEnabled();
-    await commitButton.click();
-
-    const success = page.locator('[data-testid="git-commit-success"]');
-    await expect(success).toBeVisible({ timeout: COMMIT_ROUND_TRIP_MS });
-    expect(repo.git('rev-list', '--count', 'HEAD')).toBe('2');
-    expect(repo.git('log', '-1', '--format=%s')).toBe(COMMIT_MESSAGE);
-    await expect(success).toContainText(
-      repo.git('rev-parse', '--short', 'HEAD'),
-    );
-    await expect(messageBox).toHaveValue('');
-    await expect(
-      page.getByRole('log', { name: 'Commit hook output' }),
-    ).toHaveCount(0);
   });
 });

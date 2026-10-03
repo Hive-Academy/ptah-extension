@@ -22,7 +22,8 @@ import type {
 const PR_UNAVAILABLE_TEXT: Record<GitPrUnavailableReason, string> = {
   'gh-missing': 'GitHub CLI not available — PR status hidden.',
   'not-authenticated': 'GitHub CLI is not signed in — PR status hidden.',
-  'not-github': 'This repository is not on GitHub — PR status hidden.',
+  // No remote at all, or none on GitHub (the backend maps both here).
+  'not-github': 'No GitHub remote — PR status hidden.',
   'no-pr': 'No pull request found for this branch.',
   timeout: 'GitHub did not answer in time — PR status hidden.',
   failed: 'PR status could not be read.',

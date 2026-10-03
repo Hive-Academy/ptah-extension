@@ -38,6 +38,7 @@ interface FakeHunk {
 }
 
 const pierre = {
+  parseFromFileCalls: [] as unknown[][],
   instances: [] as FakeFileDiff[],
   parsedPatches: [] as string[],
   separatorSlots: false,
@@ -77,6 +78,19 @@ class FakeFileDiff {
     const root =
       container.shadowRoot ?? container.attachShadow({ mode: 'open' });
     const pre = document.createElement('pre');
+    // Pierre 1.5.1 renders its scrolling panes as unlabelled
+    // `<code data-code data-deletions|data-additions>` (split) or
+    // `<code data-code data-unified>` (unified).
+    const columns =
+      this.options['diffStyle'] === 'unified'
+        ? ['unified']
+        : ['deletions', 'additions'];
+    for (const column of columns) {
+      const code = document.createElement('code');
+      code.setAttribute('data-code', '');
+      code.setAttribute(`data-${column}`, '');
+      pre.appendChild(code);
+    }
     props.fileDiff.hunks.forEach((hunk, index) => {
       if (hunk.collapsedBefore > 0) {
         const separator = document.createElement('div');
@@ -129,11 +143,15 @@ jest.mock('@pierre/diffs', () => ({
   DEFAULT_THEMES: { dark: 'pierre-dark', light: 'pierre-light' },
   FileDiff: FakeFileDiff,
   registerCustomLanguage: jest.fn(),
+  registerCustomTheme: jest.fn(),
   getLineAnnotationName: (a: { side?: string; lineNumber: number }) =>
     `annotation-${a.side ? `${a.side}-` : ''}${a.lineNumber}`,
   getHunkSeparatorSlotName: (type: string, index: number) =>
     `hunk-separator-${type}-${index}`,
-  parseDiffFromFile: () => ({ hunks: [] }),
+  parseDiffFromFile: (...args: unknown[]) => {
+    pierre.parseFromFileCalls.push(args);
+    return { hunks: [] };
+  },
   parsePatchFiles: (patch: string) => {
     pierre.parsedPatches.push(patch);
     if (pierre.parseThrows) throw new Error('parsePatchContent: broken');
@@ -207,6 +225,8 @@ const LINE_ONE_AND_ADJACENT: GitHunkRef[] = [
 
 interface HostShape {
   readonly patch: ReturnType<typeof signal<string | null>>;
+  readonly oldText: ReturnType<typeof signal<string | null>>;
+  readonly newText: ReturnType<typeof signal<string | null>>;
   readonly hunks: ReturnType<typeof signal<readonly GitHunkRef[]>>;
   readonly diffStyle: ReturnType<typeof signal<'unified' | 'split'>>;
   readonly theme: ReturnType<typeof signal<'light' | 'dark'>>;
@@ -233,6 +253,9 @@ async function createHostComponent(): Promise<Type<HostShape>> {
       </ng-template>
       <ptah-pierre-diff-host
         [patch]="patch()"
+        [oldText]="oldText()"
+        [newText]="newText()"
+        fileName="a.ts"
         [hunks]="hunks()"
         [diffStyle]="diffStyle()"
         [themeType]="theme()"
@@ -242,6 +265,8 @@ async function createHostComponent(): Promise<Type<HostShape>> {
   })
   class HostComponent implements HostShape {
     readonly patch = signal<string | null>(patchOf(LINE_ONE_AND_ADJACENT));
+    readonly oldText = signal<string | null>(null);
+    readonly newText = signal<string | null>(null);
     readonly hunks = signal<readonly GitHunkRef[]>(LINE_ONE_AND_ADJACENT);
     readonly diffStyle = signal<'unified' | 'split'>('split');
     readonly theme = signal<'light' | 'dark'>('dark');
@@ -281,6 +306,7 @@ describe('PierreDiffHostComponent', () => {
   beforeEach(async () => {
     pierre.instances = [];
     pierre.parsedPatches = [];
+    pierre.parseFromFileCalls = [];
     pierre.separatorSlots = false;
     pierre.parseThrows = false;
     pierre.constructorThrows = false;
@@ -295,6 +321,20 @@ describe('PierreDiffHostComponent', () => {
     }).compileComponents();
     fixture = TestBed.createComponent(HostComponent);
     await settle();
+  });
+
+  it('diffs two texts with the 3 context lines git uses, so the hunks match', async () => {
+    const before = 'a\nb\n';
+    const after = 'a\nc\n';
+    fixture.componentInstance.patch.set(null);
+    fixture.componentInstance.oldText.set(before);
+    fixture.componentInstance.newText.set(after);
+    await settle();
+    expect(pierre.parseFromFileCalls).toHaveLength(1);
+    const [oldFile, newFile, options] = pierre.parseFromFileCalls[0];
+    expect(oldFile).toEqual({ name: 'a.ts', contents: before });
+    expect(newFile).toEqual({ name: 'a.ts', contents: after });
+    expect(options).toEqual({ context: 3 });
   });
 
   it('configures one host-managed FileDiff with word-level inline diff', () => {
@@ -312,6 +352,46 @@ describe('PierreDiffHostComponent', () => {
     expect(instance.rendered?.fileContainer.tagName.toLowerCase()).toBe(
       'diffs-container',
     );
+  });
+
+  describe('scrollable code panes', () => {
+    function panes(): Element[] {
+      const container: HTMLElement =
+        fixture.nativeElement.querySelector('diffs-container');
+      return Array.from(
+        container.shadowRoot?.querySelectorAll('code[data-code]') ?? [],
+      );
+    }
+
+    it('gives each split pane a tab stop, a group role and a side-specific name', () => {
+      const [deletions, additions] = panes();
+      for (const pane of [deletions, additions]) {
+        expect(pane.getAttribute('tabindex')).toBe('0');
+        expect(pane.getAttribute('role')).toBe('group');
+      }
+      expect(deletions.getAttribute('aria-label')).toBe(
+        'Original lines of a.ts',
+      );
+      expect(additions.getAttribute('aria-label')).toBe(
+        'Changed lines of a.ts',
+      );
+    });
+
+    it('names the unified pane, and labels panes even when the file is read-only', async () => {
+      fixture.componentInstance.diffStyle.set('unified');
+      fixture.componentInstance.hunks.set([]);
+      await settle();
+      const [unified] = panes();
+      expect(panes()).toHaveLength(1);
+      expect(unified.getAttribute('tabindex')).toBe('0');
+      expect(unified.getAttribute('aria-label')).toBe('Diff of a.ts');
+    });
+
+    it('injects a focus-visible ring for the panes through unsafeCSS', () => {
+      expect(pierre.instances[0].options['unsafeCSS']).toContain(
+        'code[data-code]:focus-visible',
+      );
+    });
   });
 
   it('renders exactly one toolbar host per hunk for a hunk at line 1 and adjacent hunks', () => {

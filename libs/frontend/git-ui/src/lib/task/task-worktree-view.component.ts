@@ -139,11 +139,14 @@ let instanceCount = 0;
               class="flex flex-shrink-0 gap-1"
               data-testid="task-ahead-behind"
             >
-              <span class="text-info"
+              <!-- Full-strength ink, not text-info/text-warning: stock info and
+                   warning ink fail AA on the light theme, and the arrow plus
+                   the sr-only word carry the meaning. -->
+              <span class="tabular-nums" data-testid="task-ahead-count"
                 >↑{{ gitStatus.branch().ahead
                 }}<span class="sr-only"> ahead,</span></span
               >
-              <span class="text-warning"
+              <span class="tabular-nums" data-testid="task-behind-count"
                 >↓{{ gitStatus.branch().behind
                 }}<span class="sr-only"> behind</span></span
               >
@@ -229,7 +232,7 @@ let instanceCount = 0;
             <input
               #branchInput
               type="text"
-              class="input input-bordered input-xs w-full"
+              class="input input-bordered input-xs w-full focus-visible:outline-[oklch(var(--s))]"
               aria-label="Branch name"
               placeholder="Branch name"
               data-testid="task-worktree-branch"
@@ -240,7 +243,7 @@ let instanceCount = 0;
             />
             <input
               type="text"
-              class="input input-bordered input-xs w-full"
+              class="input input-bordered input-xs w-full focus-visible:outline-[oklch(var(--s))]"
               aria-label="Custom path (optional)"
               placeholder="Custom path (optional)"
               data-testid="task-worktree-path"
@@ -278,7 +281,9 @@ let instanceCount = 0;
                 type="button"
                 class="btn btn-primary btn-xs flex-1"
                 data-testid="task-worktree-create"
-                [disabled]="!newBranch().trim() || isAdding()"
+                [disabled]="
+                  !newBranch().trim() || isAdding() || operationOpen()
+                "
                 (click)="onAddWorktree()"
               >
                 @if (isAdding()) {
@@ -367,9 +372,15 @@ let instanceCount = 0;
                     [class.text-primary]="isActiveWorktree(wt)"
                     aria-hidden="true"
                   />
-                  <span class="truncate font-medium">{{
-                    branchLabel(wt)
-                  }}</span>
+                  <!-- Truncation priority (V-8): the branch keeps its full
+                       width first; the path (flex-1, basis 0) takes only what
+                       is left and truncates from the left. -->
+                  <span
+                    class="min-w-0 truncate font-medium"
+                    data-testid="task-worktree-branch-label"
+                    [title]="branchLabel(wt)"
+                    >{{ branchLabel(wt) }}</span
+                  >
                   @if (wt.isMain) {
                     <span class="badge badge-xs badge-ghost flex-shrink-0"
                       >main</span
@@ -395,8 +406,11 @@ let instanceCount = 0;
                     >
                   }
                   <span
-                    class="ml-auto min-w-0 truncate font-mono text-base-content-muted"
-                    >{{ wt.path }}</span
+                    class="min-w-0 flex-1 truncate text-right font-mono text-base-content-muted"
+                    dir="rtl"
+                    data-testid="task-worktree-row-path"
+                    [title]="wt.path"
+                    ><bdi dir="ltr">{{ wt.path }}</bdi></span
                   >
                 </button>
                 @if (!wt.isMain) {
@@ -483,6 +497,13 @@ export class TaskWorktreeViewComponent {
   protected readonly newPath = signal('');
   protected readonly newCreateBranch = signal(false);
   protected readonly isAdding = signal(false);
+  /**
+   * A merge, rebase or cherry-pick is open: the conflict banner's actions are
+   * the only primary ones (design-spec §11), so Create is disabled.
+   */
+  protected readonly operationOpen = computed(
+    () => this.gitStatus.operation() !== null,
+  );
   protected readonly addError = signal('');
   protected readonly removeTarget = signal<GitWorktreeInfo | null>(null);
   protected readonly isRemoving = signal(false);
@@ -637,7 +658,7 @@ export class TaskWorktreeViewComponent {
 
   protected async onAddWorktree(): Promise<void> {
     const branch = this.newBranch().trim();
-    if (!branch || this.isAdding()) return;
+    if (!branch || this.isAdding() || this.operationOpen()) return;
 
     this.isAdding.set(true);
     this.addError.set('');

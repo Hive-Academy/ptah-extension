@@ -18,6 +18,7 @@ const pierreWorker = {
 jest.mock('@pierre/diffs', () => ({
   DEFAULT_THEMES: { dark: 'pierre-dark', light: 'pierre-light' },
   registerCustomLanguage: jest.fn(),
+  registerCustomTheme: jest.fn(),
 }));
 
 jest.mock('@pierre/diffs/worker', () => ({

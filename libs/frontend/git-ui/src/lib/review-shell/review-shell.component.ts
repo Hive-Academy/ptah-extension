@@ -19,18 +19,23 @@ import { ReviewCanvasComponent } from '../review-canvas/review-canvas.component'
 import { EditorLauncherService } from '../services/editor-launcher.service';
 import { FileContentChangesService } from '../services/file-content-changes.service';
 import { GitBranchesService } from '../services/git-branches.service';
-import { GitStashService } from '../services/git-stash.service';
 import { GitStatusService } from '../services/git-status.service';
 import {
   ReviewNavigationService,
   type ReviewTab,
 } from '../services/review-navigation.service';
-import { statusUnavailableLabel } from '../source-control/source-control-panel.component';
+import { statusUnavailableLabel } from '../services/git-status-unavailable-label';
 import { SpotEditorComponent } from '../spot-editor/spot-editor.component';
 import { TaskWorktreeViewComponent } from '../task/task-worktree-view.component';
 
 /** Below this shell width the file tree stacks above the diff (design-spec §6.1a). */
 const STACK_BELOW_PX = 520;
+
+/**
+ * Below this shell width the header's Open in goes icon-only and the tab strip
+ * tightens, so no tab label clips at the 300 px dock minimum (V-1).
+ */
+const COMPACT_BELOW_PX = 400;
 
 /** The tabs this shell shows (design-spec §3). */
 const SHELL_TABS: readonly ReviewTab[] = [
@@ -59,16 +64,13 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
 /**
  * ReviewShellComponent — the Electron dock body (implementation-plan
  * Component 23, design-spec §3): the git header, the conflict-banner slot and
- * the review tabs. It replaces `GitDockComponent` at cutover (Batch 58), which
- * keeps the lazy-mount contract of `electron-shell.component.ts`.
+ * the review tabs. `electron-shell.component.ts` loads it by dynamic import
+ * when the dock opens.
  *
  * - **Arming.** The constructor arms `GitStatusService` and
  *   `GitBranchesService` (with a branch read) and detects editor targets;
  *   destroy disarms both. Re-arming after a dock close is idempotent because
  *   `startListening()` fetches eagerly.
- * - **Stash routing.** While mounted it registers with
- *   `GitStashService.registerReviewCanvas()`, so a stash file opens here as a
- *   historical comparison; destroy releases the registration.
  * - **Conflict banner.** Above the tabs, `ConflictBannerComponent` shows
  *   while a merge, rebase or cherry-pick is in progress (design-spec §11).
  * - **States (RC3).** "Loading repository…" only before anything was read; a
@@ -91,7 +93,8 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
  * - Every body stays mounted once rendered and is hidden while another tab
  *   shows.
  * - **Width.** One `ResizeObserver` on the host decides `stacked` (< 520 px)
- *   for the canvas; it is disconnected on destroy.
+ *   for the canvas and `compact` (< 400 px) for the header and the tab strip;
+ *   it is disconnected on destroy.
  * - **Disk changes.** `file:content-changed` batches reach the open spot
  *   editor through {@link FileContentChangesService}.
  * - **Unsaved edits.** While mounted it registers the spot editor's
@@ -114,9 +117,35 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full w-full' },
+  // Compact tab strip (V-1): tighter tabs, and a horizontal scroll as the
+  // last resort instead of a clipped label. The tabs drop their -1px overlap
+  // of the strip border here, or the scroll box would clip it.
+  // `::ng-deep` because the strip is NativeTabGroupComponent's own view.
+  styles: [
+    `
+      :host ::ng-deep .review-shell-tabs-compact > [role='tablist'] {
+        gap: 0;
+        padding-inline: 0.25rem;
+        overflow-x: auto;
+        scrollbar-width: thin;
+      }
+      :host
+        ::ng-deep
+        .review-shell-tabs-compact
+        > [role='tablist']
+        > [role='tab'] {
+        flex-shrink: 0;
+        gap: 0.25rem;
+        margin-bottom: 0;
+        padding-inline: 0.5rem;
+        font-size: 0.75rem;
+        line-height: 1rem;
+      }
+    `,
+  ],
   template: `
     <div class="flex h-full min-h-0 flex-col" data-testid="review-shell">
-      <ptah-git-dock-header />
+      <ptah-git-dock-header [compact]="compact()" />
 
       <!-- Cross-cutting notices sit above the tabs (design-spec §3.2). -->
       @if (staleLabel(); as label) {
@@ -161,8 +190,9 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
         </div>
       } @else {
         <ptah-native-tab-group
-          class="!flex min-h-0 flex-1 flex-col [&>div:first-child>button:focus-visible]:outline [&>div:first-child>button:focus-visible]:outline-2 [&>div:first-child>button:focus-visible]:outline-offset-[-2px] [&>div:first-child>button:focus-visible]:outline-[oklch(var(--s))] [&>div:first-child]:flex-shrink-0 [&>div:first-child]:bg-base-100 [&>div:first-child]:px-2 [&>div:last-child:focus-visible]:outline [&>div:last-child:focus-visible]:outline-2 [&>div:last-child:focus-visible]:outline-offset-[-2px] [&>div:last-child:focus-visible]:outline-[oklch(var(--s))] [&>div:last-child]:flex [&>div:last-child]:min-h-0 [&>div:last-child]:flex-1 [&>div:last-child]:flex-col"
+          class="review-shell-tabs !flex min-h-0 flex-1 flex-col [&>div:first-child>button:focus-visible]:outline [&>div:first-child>button:focus-visible]:outline-2 [&>div:first-child>button:focus-visible]:outline-offset-[-2px] [&>div:first-child>button:focus-visible]:outline-[oklch(var(--s))] [&>div:first-child]:flex-shrink-0 [&>div:first-child]:bg-base-100 [&>div:first-child]:px-2 [&>div:last-child:focus-visible]:outline [&>div:last-child:focus-visible]:outline-2 [&>div:last-child:focus-visible]:outline-offset-[-2px] [&>div:last-child:focus-visible]:outline-[oklch(var(--s))] [&>div:last-child]:flex [&>div:last-child]:min-h-0 [&>div:last-child]:flex-1 [&>div:last-child]:flex-col"
           ariaLabel="Review"
+          [class.review-shell-tabs-compact]="compact()"
           [tabs]="tabs()"
           [activeId]="shownTab()"
           (tabSelected)="onTabSelected($event)"
@@ -337,6 +367,8 @@ export class ReviewShellComponent {
 
   /** The shell is narrower than {@link STACK_BELOW_PX}. */
   protected readonly stacked = signal(false);
+  /** The shell is narrower than {@link COMPACT_BELOW_PX}. */
+  protected readonly compact = signal(false);
   private resizeObserver: ResizeObserver | null = null;
 
   /** The spot editor target, or `null` while the canvas shows. */
@@ -411,7 +443,6 @@ export class ReviewShellComponent {
     void this.gitBranches.refreshBranches();
     void this.launchers.detect();
 
-    const releaseStash = inject(GitStashService).registerReviewCanvas();
     const releaseDiskChanges = inject(FileContentChangesService).listen(
       (change) =>
         this.spotEditor()?.notifyDiskChange(change.filePaths, change.truncated),
@@ -428,7 +459,6 @@ export class ReviewShellComponent {
     destroyRef.onDestroy(() => {
       this.gitStatus.stopListening();
       this.gitBranches.stopListening();
-      releaseStash();
       releaseDiskChanges();
       releaseLeaveGuard();
       this.resizeObserver?.disconnect();
@@ -464,7 +494,10 @@ export class ReviewShellComponent {
     this.resizeObserver = new ResizeObserver((entries) => {
       const width = entries.at(-1)?.contentRect.width ?? 0;
       // A hidden dock measures 0: keep the last real layout.
-      if (width > 0) this.stacked.set(width < STACK_BELOW_PX);
+      if (width > 0) {
+        this.stacked.set(width < STACK_BELOW_PX);
+        this.compact.set(width < COMPACT_BELOW_PX);
+      }
     });
     this.resizeObserver.observe(this.host.nativeElement);
   }

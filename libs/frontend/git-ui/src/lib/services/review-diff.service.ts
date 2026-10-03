@@ -23,8 +23,8 @@ import type {
   DiffUnrenderable,
   HunkApplyFn,
   HunkApplyRequest,
-} from '../types/diff-tab.types';
-import { normalizeDiffPath } from '../types/diff-tab.types';
+} from '../types/review-diff.types';
+import { normalizeDiffPath } from '../types/review-diff.types';
 import {
   describeGitReadError,
   firstReadError,

@@ -27,9 +27,7 @@ import type {
   GitRemotesResult,
   GitStashListResult,
   GitStatusUpdatePayload,
-  GitTagsResult,
   RemoteInfo,
-  TagRef,
 } from '@ptah-extension/shared';
 
 /**
@@ -94,8 +92,8 @@ const EMPTY_BRANCHES: GitBranchesResult = {
  * - Event-driven refresh: reacts to `git:status-update` pushes routed by
  *   `MessageRouterService` while {@link startListening} has armed the gate.
  *   There is NO polling and no raw `window` listener.
- * - On-demand refresh via `refreshBranches()`, `refreshTags()`,
- *   `refreshRemotes()`. Tags and remotes are split out so they can be
+ * - On-demand refresh via `refreshBranches()` and `refreshRemotes()`.
+ *   Remotes are split out so they can be
  *   lazily fetched (the branch picker doesn't need them on first paint).
  * - Refresh requests are COALESCED, not serialised: everything asked for
  *   within {@link REFRESH_COALESCE_MS}, or while a pass is running, merges
@@ -115,7 +113,6 @@ export class GitBranchesService implements MessageHandler {
   private readonly _stashCount = signal<number>(0);
   private readonly _lastCommit = signal<GitLastCommitResult | null>(null);
   private readonly _remotes = signal<RemoteInfo[]>([]);
-  private readonly _tags = signal<TagRef[]>([]);
   private readonly _isLoading = signal<boolean>(false);
   private readonly _recentBranches = signal<string[]>([]);
   private readonly _pushCompletions = signal<number>(0);
@@ -134,8 +131,6 @@ export class GitBranchesService implements MessageHandler {
   readonly lastCommit = this._lastCommit.asReadonly();
   /** Configured remotes (lazy — populated by `refreshRemotes()`). */
   readonly remotes = this._remotes.asReadonly();
-  /** Recent tags (lazy — populated by `refreshTags()`). */
-  readonly tags = this._tags.asReadonly();
   /** Whether a refresh RPC is currently in flight. */
   readonly isLoading = this._isLoading.asReadonly();
   /** Recently visited branch names (most-recent first, max 5). */
@@ -260,7 +255,6 @@ export class GitBranchesService implements MessageHandler {
     this._stashCount.set(0);
     this._lastCommit.set(null);
     this._remotes.set([]);
-    this._tags.set([]);
     this._recentBranches.set([]);
   }
 
@@ -442,15 +436,6 @@ export class GitBranchesService implements MessageHandler {
     );
     if (result && !this.isStale(workspaceAtRequest))
       this._lastCommit.set(result);
-  }
-
-  /** Lazy fetch of recent tags — call when the branch details popover opens. */
-  async refreshTags(limit = 20): Promise<void> {
-    const result = await this.safeRpc<GitTagsResult>('git:tags', {
-      limit,
-      ...this.scopeParams(),
-    });
-    if (result) this._tags.set(result.tags);
   }
 
   /**

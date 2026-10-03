@@ -43,7 +43,7 @@ const SURFACE_HOSTS: Record<
 const GOTO_TIMEOUT_MS = 30_000;
 const GOTO_RETRY_MS = 2_000;
 
-export type ThothTab ='memory' | 'skills' | 'cron' | 'gateway';
+export type ThothTab = 'memory' | 'skills' | 'cron' | 'gateway';
 
 export type RpcResolver = unknown | string;
 
@@ -152,10 +152,8 @@ export class UiDriver {
             // boundary, and nothing here is user- or network-supplied: only
             // e2e specs in this repo populate __uiMockFns, and only e2e runs
             // this file.
-            resolver = new Function( // NOSONAR typescript:S1523 — test-authored source, see above
-              'params',
-              `return (${source})(params);`,
-            ) as (p: unknown) => unknown;
+            const body = `return (${source})(params);`;
+            resolver = new Function('params', body) as typeof resolver; // NOSONAR typescript:S1523 — test-authored source, see above
             compiled.set(source, resolver);
             g.__uiCompiledFns = compiled;
           }
@@ -382,7 +380,9 @@ export class UiDriver {
       return;
     }
     if (view === 'git') {
-      const dock = this.page.locator('ptah-git-dock');
+      // TASK_2026_576 Batch 58/59: the dock body is `ptah-review-shell`
+      // (ReviewShellComponent), lazy-loaded when the Git rail opens.
+      const dock = this.page.locator('ptah-review-shell');
       if (!(await dock.count())) {
         const gitTab = this.page
           .getByRole('button', { name: 'Toggle Git panel' })
@@ -479,9 +479,55 @@ export class UiDriver {
       return this.page.locator('[id^="thoth-panel-"]');
     }
     if (view === 'git') {
-      return this.page.locator('ptah-git-dock');
+      return this.page.locator('ptah-review-shell');
     }
     return this.page.locator('body');
+  }
+
+  /** The Electron dock body: git header, conflict banner and the review tabs. */
+  public reviewShell(): Locator {
+    return this.page.locator('ptah-review-shell');
+  }
+
+  /** A tab of the review shell (`Changes`, `Commit`, `Task`, `History`). */
+  public reviewTab(name: RegExp | string): Locator {
+    return this.reviewShell()
+      .locator('ptah-native-tab-group')
+      .getByRole('tab', { name });
+  }
+
+  /** The canvas section of one changed file, found by its header path. */
+  public reviewFileSection(filePath: string): Locator {
+    return this.page.locator('ptah-file-diff-section').filter({
+      has: this.page.locator('[data-testid="file-section-path"]', {
+        hasText: filePath,
+      }),
+    });
+  }
+
+  /**
+   * The projected hunk toolbar host of hunk `index` (0-based) inside `scope`
+   * (a file section, defaulting to the whole page). The host is a light-DOM
+   * child slotted into Pierre's shadow tree, so ordinary CSS reaches it.
+   */
+  public hunkHost(index: number, scope?: Locator): Locator {
+    return (scope ?? this.page).locator(
+      `[data-testid="pierre-hunk-host"][data-hunk-index="${index}"]`,
+    );
+  }
+
+  /**
+   * A hunk's action button: `stage` (Accept), `revert` (Reject), `unstage`,
+   * `next` or `prev`. The hunk's own toolbar, never another hunk's.
+   */
+  public hunkAction(
+    index: number,
+    action: 'stage' | 'revert' | 'unstage' | 'next' | 'prev',
+    scope?: Locator,
+  ): Locator {
+    return this.hunkHost(index, scope).locator(
+      `[data-testid="hunk-${action}"]`,
+    );
   }
 
   private async syncWorkspace(): Promise<void> {

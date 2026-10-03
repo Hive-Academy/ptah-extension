@@ -9,7 +9,7 @@
  * no longer exists, and three of the four editor message types it handled
  * (`EDITOR_TAB_CONTENT_REVERTED`, `FILE_TREE_CHANGED`, `EDITOR_REREAD_OPEN_TABS`)
  * were deleted from `MESSAGE_TYPES` entirely in Batch 4.4 — they have no
- * surface left to reach. `FILE_CONTENT_CHANGED` survives: `DiffTabsService`
+ * surface left to reach. `FILE_CONTENT_CHANGED` survives: `ReviewDiffService`
  * still revalidates on it. The git half survives unchanged.
  *
  * This is the composition-root half of C1: it wires the REAL

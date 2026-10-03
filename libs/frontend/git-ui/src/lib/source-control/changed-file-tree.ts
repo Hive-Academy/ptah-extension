@@ -16,25 +16,28 @@ export type ChangedFileTreeNode<T = { path: string }> =
       file: T;
     });
 
+/**
+ * Nest changed entries under their folders. Every entry is a leaf, including
+ * an untracked directory (`git status` lists it once, as `dir/`): it is one
+ * changed entry with nothing listed under it, not a folder to expand.
+ */
 export function buildChangedFileTree<
   T extends {
     path: string;
     additions?: number | null;
     deletions?: number | null;
-    isDirectory?: boolean;
   },
 >(files: readonly T[], query = ''): ChangedFileTreeNode<T>[] {
   const needle = query.trim().toLowerCase();
   const roots: ChangedFileTreeNode<T>[] = [];
   for (const file of files) {
     if (needle && !file.path.toLowerCase().includes(needle)) continue;
-    const parts = file.path.replace(/\\/g, '/').split('/');
+    const parts = file.path.replace(/\\/g, '/').split('/').filter(Boolean);
     let level = roots;
     let current = '';
     parts.forEach((name, index) => {
       current = current ? `${current}/${name}` : name;
-      const kind =
-        index === parts.length - 1 && !file.isDirectory ? 'file' : 'folder';
+      const kind = index === parts.length - 1 ? 'file' : 'folder';
       let node = level.find((item) => item.name === name && item.kind === kind);
       if (!node) {
         node =

@@ -61,7 +61,10 @@ describe('GitDockHeaderComponent', () => {
   };
   const launchers = {
     targets: signal<readonly EditorTarget[]>([kiro]),
-    launchStatus: signal(null),
+    launchStatus: signal<{
+      kind: 'success' | 'error';
+      message: string;
+    } | null>(null),
     openWorkspace: jest.fn(async () => false),
   };
   const reviewMode = signal<'working-tree' | 'branch-review'>('working-tree');
@@ -77,6 +80,7 @@ describe('GitDockHeaderComponent', () => {
     gitBranches.stashCount.set(0);
     reviewMode.set('working-tree');
     railCollapsed.set(false);
+    launchers.launchStatus.set(null);
     gitStatus.branch.set({
       branch: 'main',
       upstream: 'origin/main',
@@ -114,6 +118,76 @@ describe('GitDockHeaderComponent', () => {
     expect(layout.toggleGitRail).toHaveBeenCalledTimes(1);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(toggle.getAttribute('aria-label')).toBe('Show source control');
+  });
+
+  it('announces the current branch through a screen-reader status region (parity §2 row 53)', () => {
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const status = fixture.nativeElement.querySelector(
+      '[role="status"][aria-label="Git status"]',
+    ) as HTMLElement;
+    expect(status.className).toContain('sr-only');
+    expect(status.textContent?.trim()).toBe('main');
+  });
+
+  it('truncates a long branch name and keeps the full name in the title (V-2)', () => {
+    const long =
+      'feat/task-2026-576-with-a-rather-long-branch-name-for-truncation';
+    gitBranches.currentBranch.set(long);
+    try {
+      const fixture = TestBed.createComponent(GitDockHeaderComponent);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      const trigger = root.querySelector<HTMLButtonElement>(
+        '[data-testid="current-branch-button"]',
+      );
+      const label = root.querySelector('[data-testid="current-branch-label"]');
+      expect(trigger?.title).toBe(long);
+      expect(trigger?.className).toMatch(/\bmin-w-0\b/);
+      expect(trigger?.className).toMatch(/\bmax-w-\[14rem\]/);
+      expect(label?.className).toMatch(/\btruncate\b/);
+      expect(label?.textContent?.trim()).toBe(long);
+    } finally {
+      gitBranches.currentBranch.set('main');
+    }
+  });
+
+  it('wraps the sync group under the branch group instead of clipping it (V-1)', () => {
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const row = root.querySelector('[data-testid="git-dock-header"]');
+    const branchGroup = root.querySelector(
+      '[data-testid="git-dock-header-branch-group"]',
+    );
+    const syncGroup = root.querySelector(
+      '[data-testid="git-dock-header-sync-group"]',
+    );
+    expect(row?.className).toMatch(/\bflex-wrap\b/);
+    expect(branchGroup?.className).toMatch(/\bmin-w-0\b/);
+    expect(syncGroup?.className).toMatch(/\bflex-shrink-0\b/);
+    for (const id of [
+      'git-fetch-button',
+      'git-pull-button',
+      'git-push-button',
+    ]) {
+      expect(syncGroup?.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
+    }
+  });
+
+  it('shows Open in icon-only when compact, keeping its accessible name (V-1)', () => {
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const primary = (): HTMLButtonElement | null =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="open-in-primary"]',
+      );
+    expect(primary()?.textContent).toContain('Open in Kiro');
+
+    fixture.componentRef.setInput('compact', true);
+    fixture.detectChanges();
+    expect(primary()?.textContent?.trim()).toBe('');
+    expect(primary()?.getAttribute('aria-label')).toBe('Open in Kiro');
   });
 
   it('hides the rail toggle in historical review mode', () => {
@@ -192,6 +266,13 @@ describe('GitDockHeaderComponent', () => {
     fixture.detectChanges();
     expect(query(fixture, 'git-pull-button').textContent).toContain('↓3');
     expect(query(fixture, 'git-push-button').textContent).toContain('↑2');
+    // The counts use the button's own ink: stock warning/info ink fails AA
+    // contrast on the light theme (Batch 59 axe color-contrast).
+    for (const id of ['git-behind-count', 'git-ahead-count']) {
+      const count = query(fixture, id);
+      expect(count.classList.contains('text-warning')).toBe(false);
+      expect(count.classList.contains('text-info')).toBe(false);
+    }
     expect(query(fixture, 'current-branch-button').textContent).not.toMatch(
       /[↑↓]/,
     );
@@ -239,6 +320,56 @@ describe('GitDockHeaderComponent', () => {
     query(fixture, 'git-fetch-button').click();
     await fixture.whenStable();
     expect(gitBranches.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('spins the fetch icon while the fetch runs, and stops when it settles (parity row 56)', async () => {
+    let finish: (value: { success: boolean }) => void = () => undefined;
+    gitBranches.fetch.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const icon = (): Element | null =>
+      query(fixture, 'git-fetch-button').querySelector('lucide-angular');
+    expect(icon()?.classList.contains('animate-spin')).toBe(false);
+
+    query(fixture, 'git-fetch-button').click();
+    fixture.detectChanges();
+    expect(icon()?.classList.contains('animate-spin')).toBe(true);
+    expect(query(fixture, 'git-fetch-button').disabled).toBe(true);
+
+    finish({ success: true });
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(icon()?.classList.contains('animate-spin')).toBe(false);
+    expect(query(fixture, 'git-fetch-button').disabled).toBe(false);
+  });
+
+  it("shows the editor launcher's status line, red for a failure (parity row 60)", () => {
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const statusLine = (): HTMLElement | undefined =>
+      [
+        ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>(
+          '[role="status"]',
+        ),
+      ].find((node) => node.textContent?.includes('Kiro'));
+    expect(statusLine()).toBeUndefined();
+
+    launchers.launchStatus.set({ kind: 'success', message: 'Opened in Kiro.' });
+    fixture.detectChanges();
+    expect(statusLine()?.textContent?.trim()).toBe('Opened in Kiro.');
+    expect(statusLine()?.classList.contains('text-error')).toBe(false);
+
+    launchers.launchStatus.set({
+      kind: 'error',
+      message: 'Kiro could not be started.',
+    });
+    fixture.detectChanges();
+    expect(statusLine()?.textContent?.trim()).toBe(
+      'Kiro could not be started.',
+    );
+    expect(statusLine()?.classList.contains('text-error')).toBe(true);
   });
 
   it('does not publish or refresh a sync result after the workspace changes', async () => {

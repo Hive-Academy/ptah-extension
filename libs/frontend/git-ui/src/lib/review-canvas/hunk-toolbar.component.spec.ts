@@ -1,14 +1,14 @@
 import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import type {
-  GitApplyHunksResult,
-  GitHunkRef,
-} from '@ptah-extension/shared';
+import type { GitApplyHunksResult, GitHunkRef } from '@ptah-extension/shared';
 import {
   ReviewDiffService,
   type ReviewDiffEntry,
 } from '../services/review-diff.service';
-import type { DiffTabState, HunkApplyRequest } from '../types/diff-tab.types';
+import type {
+  DiffTabState,
+  HunkApplyRequest,
+} from '../types/review-diff.types';
 import {
   HunkToolbarComponent,
   type HunkToolbarComparison,
@@ -125,6 +125,18 @@ describe('HunkToolbarComponent', () => {
       );
     });
 
+    it('keeps the toolbar on one row: the @@ header truncates first, the buttons never wrap (V-5)', () => {
+      const header = q('hunk-header');
+      expect(header?.getAttribute('title')).toBe(
+        '@@ -12,6 +12,9 @@ function run()',
+      );
+      expect(header?.classList).toContain('truncate');
+      expect(header?.classList).toContain('w-0');
+      const toolbar = q('hunk-toolbar');
+      expect(toolbar?.classList).toContain('flex-nowrap');
+      expect(toolbar?.classList).toContain('flex-shrink-0');
+    });
+
     it('worktree offers Accept and Reject', () => {
       expect(q('hunk-stage')?.textContent?.trim()).toBe('Accept');
       expect(q('hunk-revert')?.textContent?.trim()).toBe('Reject');
@@ -236,7 +248,10 @@ describe('HunkToolbarComponent', () => {
       await settle();
 
       expect(applyHunks).toHaveBeenCalledWith(
-        expect.objectContaining({ operation: 'revert', snapshotToken: 'tok-1' }),
+        expect.objectContaining({
+          operation: 'revert',
+          snapshotToken: 'tok-1',
+        }),
       );
       // The refusal is still shown even though the token moved on.
       expect(q('hunk-refused')?.textContent).toContain(
@@ -246,33 +261,94 @@ describe('HunkToolbarComponent', () => {
   });
 
   describe('refused state', () => {
-    it('replaces the buttons with the sanitized reason until the re-read completes', async () => {
-      applyHunks.mockImplementation(async () => {
-        setEntryDiff(diffState('tok-1', 'refreshing'));
-        return {
-          success: false,
-          code: 'APPLY_FAILED',
-          message: 'git refused the patch.',
-        };
+    async function refuse(message = 'git refused the patch.'): Promise<void> {
+      applyHunks.mockImplementationOnce(async () => {
+        setEntryDiff(diffState(host.token(), 'refreshing'));
+        return { success: false, code: 'APPLY_FAILED', message };
       });
-
       (q('hunk-stage') as HTMLButtonElement).click();
       await settle();
       await settle();
+    }
+
+    function landReread(token: string): void {
+      setEntryDiff(diffState(token));
+      host.token.set(token);
+      fixture.detectChanges();
+    }
+
+    it('replaces the buttons with the sanitized reason until the re-read completes', async () => {
+      await refuse();
 
       const chip = q('hunk-refused');
       expect(chip?.getAttribute('role')).toBe('alert');
       expect(chip?.textContent).toContain('git refused the patch.');
       expect(chip?.className).toContain('animate-glow-urgent');
+      expect(chip?.hasAttribute('data-awaiting-reread')).toBe(true);
       expect(q('hunk-toolbar')).toBeNull();
       expect(q('hunk-position')?.textContent?.trim()).toBe('Hunk 1 of 3');
       expect(document.activeElement).toBe(chip);
 
-      setEntryDiff(diffState('tok-2'));
-      host.token.set('tok-2');
+      landReread('tok-2');
+      expect(q('hunk-stage')?.getAttribute('aria-disabled')).toBeNull();
+    });
+
+    it('keeps the reason after the forced re-read, static, beside the buttons, until dismissed (parity row 146)', async () => {
+      await refuse();
+      landReread('tok-2');
+
+      const chip = q('hunk-refused');
+      expect(chip?.textContent).toContain('git refused the patch.');
+      expect(chip?.className).not.toContain('animate-glow-urgent');
+      expect(chip?.hasAttribute('data-awaiting-reread')).toBe(false);
+      expect(q('hunk-toolbar')).not.toBeNull();
+
+      // A later push re-reads again: still there.
+      landReread('tok-3');
+      expect(q('hunk-refused')?.textContent).toContain(
+        'git refused the patch.',
+      );
+
+      const dismiss = q('hunk-refused-dismiss') as HTMLButtonElement;
+      expect(dismiss.getAttribute('aria-label')).toBe('Dismiss error');
+      dismiss.click();
+      await settle();
+      expect(q('hunk-refused')).toBeNull();
+      expect(document.activeElement).toBe(
+        el().querySelector('[role="toolbar"] [tabindex="0"]'),
+      );
+    });
+
+    it('brings the buttons back on dismiss when the forced re-read never lands', async () => {
+      await refuse();
+      expect(q('hunk-toolbar')).toBeNull();
+
+      (q('hunk-refused-dismiss') as HTMLButtonElement).click();
+      await settle();
+
+      expect(q('hunk-refused')).toBeNull();
+      expect(q('hunk-toolbar')).not.toBeNull();
+      expect(document.activeElement).toBe(
+        el().querySelector('[role="toolbar"] [tabindex="0"]'),
+      );
+    });
+
+    it('is superseded by the next apply', async () => {
+      await refuse('first reason.');
+      landReread('tok-2');
+      expect(q('hunk-refused')?.textContent).toContain('first reason.');
+
+      applyHunks.mockResolvedValueOnce({ success: true });
+      (q('hunk-stage') as HTMLButtonElement).click();
       fixture.detectChanges();
       expect(q('hunk-refused')).toBeNull();
-      expect(q('hunk-stage')?.getAttribute('aria-disabled')).toBeNull();
+      await settle();
+      expect(q('hunk-refused')).toBeNull();
+
+      landReread('tok-3');
+      await refuse('second reason.');
+      expect(q('hunk-refused')?.textContent).toContain('second reason.');
+      expect(q('hunk-refused')?.textContent).not.toContain('first reason.');
     });
 
     it('falls back to a generic sentence when the result has no message', async () => {

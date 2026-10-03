@@ -20,11 +20,6 @@
             "input": "apps/ptah-extension-webview/public"
           },
           {
-            "glob": "**/*",
-            "input": "node_modules/monaco-editor/min",
-            "output": "/assets/monaco"
-          },
-          {
             "glob": "worker-portable.js",
             "input": "node_modules/@pierre/diffs/dist/worker",
             "output": "/assets/pierre"
@@ -73,6 +68,7 @@
           ],
           "outputHashing": "none",
           "namedChunks": false,
+          "statsJson": true,
           "optimization": {
             "scripts": true,
             "styles": {

@@ -55,9 +55,28 @@ let instanceCount = 0;
   standalone: true,
   imports: [LucideAngularModule, GitConfirmDialogComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Truncation priority (V-8): below 400 px the "on <branch>" note steps
+  // aside so the stash message keeps the row; visually hidden, still read.
+  styles: [
+    `
+      .history-stashes {
+        container-type: inline-size;
+      }
+      @container (max-width: 400px) {
+        .stash-branch {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+        }
+      }
+    `,
+  ],
   template: `
     <section
-      class="flex flex-col gap-1 text-xs"
+      class="history-stashes flex flex-col gap-1 text-xs"
       [attr.aria-labelledby]="headingId"
       data-testid="history-stashes"
     >
@@ -135,20 +154,25 @@ let instanceCount = 0;
                     [disabled]="stash.busy()"
                     (click)="stash.select(entry)"
                   >
-                    <span class="font-mono">{{ stashRef(entry) }}</span>
+                    <span class="flex-shrink-0 font-mono">{{
+                      stashRef(entry)
+                    }}</span>
                     <span
                       class="min-w-0 flex-1 truncate"
                       [title]="entry.message"
                       >{{ entry.message }}</span
                     >
                     @if (entry.branch) {
-                      <span class="text-base-content-muted"
+                      <span
+                        class="stash-branch min-w-0 max-w-[40%] truncate text-base-content-muted"
+                        data-testid="history-stash-branch"
                         >on {{ entry.branch }}</span
                       >
                     }
-                    <span class="text-base-content-muted">{{
-                      age(entry)
-                    }}</span>
+                    <span
+                      class="flex-shrink-0 whitespace-nowrap text-base-content-muted"
+                      >{{ age(entry) }}</span
+                    >
                   </button>
                   <button
                     type="button"

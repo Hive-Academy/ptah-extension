@@ -3,7 +3,7 @@
  * Batch 43). Ports the `git-dock.component.spec.ts` cases that still apply to
  * the shell (arming, RC3 status states, re-read keeps the body mounted, Open
  * In through the launcher) and covers what is new: the tablist, the spot
- * editor mode, stash-canvas registration, disk-change forwarding and the one
+ * editor mode, disk-change forwarding and the one
  * width observer.
  *
  * The header, the canvas and the spot editor are replaced at the module
@@ -32,7 +32,7 @@ import { GitBranchesService } from '../services/git-branches.service';
 import { GitStashService } from '../services/git-stash.service';
 import { GitStatusService } from '../services/git-status.service';
 import { ReviewNavigationService } from '../services/review-navigation.service';
-import type { FileViewOpenRequest } from '../types/diff-tab.types';
+import type { FileViewOpenRequest } from '../types/file-view.types';
 import type { ReviewShellComponent as ShellType } from './review-shell.component';
 
 /** Loaded after the module mocks below are registered. */
@@ -44,7 +44,9 @@ let ReviewShellComponent: typeof ShellType;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: '',
 })
-class MockGitDockHeader {}
+class MockGitDockHeader {
+  readonly compact = input(false);
+}
 
 @Component({
   selector: 'ptah-review-canvas',
@@ -190,8 +192,6 @@ describe('ReviewShellComponent', () => {
     detect: jest.Mock;
     openLinkedFile: jest.Mock;
   };
-  let releaseStash: jest.Mock;
-  let stash: { registerReviewCanvas: jest.Mock };
   let navigation: ReviewNavigationService;
 
   beforeEach(() => {
@@ -210,8 +210,6 @@ describe('ReviewShellComponent', () => {
       detect: jest.fn(async () => undefined),
       openLinkedFile: jest.fn(async () => true),
     };
-    releaseStash = jest.fn();
-    stash = { registerReviewCanvas: jest.fn(() => releaseStash) };
 
     TestBed.configureTestingModule({
       imports: [ReviewShellComponent],
@@ -220,7 +218,7 @@ describe('ReviewShellComponent', () => {
         { provide: GitStatusService, useValue: gitStatus },
         { provide: GitBranchesService, useValue: gitBranches },
         { provide: EditorLauncherService, useValue: launchers },
-        { provide: GitStashService, useValue: stash },
+        { provide: GitStashService, useValue: {} },
       ],
     });
     navigation = TestBed.inject(ReviewNavigationService);
@@ -300,18 +298,6 @@ describe('ReviewShellComponent', () => {
 
     expect(gitStatus.startListening).toHaveBeenCalledTimes(2);
     expect(gitBranches.startListening).toHaveBeenCalledTimes(2);
-  });
-
-  // -- Stash routing (Batch 37) ---------------------------------------------
-
-  it('registers as the stash review canvas while mounted and releases on destroy', () => {
-    const fixture = TestBed.createComponent(ReviewShellComponent);
-    expect(stash.registerReviewCanvas).toHaveBeenCalledTimes(1);
-    expect(releaseStash).not.toHaveBeenCalled();
-
-    fixture.destroy();
-
-    expect(releaseStash).toHaveBeenCalledTimes(1);
   });
 
   // -- RC3 states (ported) ---------------------------------------------------
@@ -896,6 +882,36 @@ describe('ReviewShellComponent', () => {
     observer.resize(520);
     await settle(fixture);
     expect(canvas(fixture)?.stacked()).toBe(false);
+  });
+
+  it('turns the header and tab strip compact below 400 px from the same observer (V-1)', async () => {
+    const fixture = await render();
+    const observer = FakeResizeObserver.instances[0];
+    const header = (): MockGitDockHeader =>
+      fixture.debugElement.query(By.directive(MockGitDockHeader))
+        .componentInstance as MockGitDockHeader;
+    const strip = (): Element | null =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        'ptah-native-tab-group',
+      );
+    expect(header().compact()).toBe(false);
+    expect(strip()?.classList.contains('review-shell-tabs-compact')).toBe(
+      false,
+    );
+
+    observer.resize(319);
+    await settle(fixture);
+    expect(header().compact()).toBe(true);
+    expect(strip()?.classList.contains('review-shell-tabs-compact')).toBe(true);
+    expect(FakeResizeObserver.instances).toHaveLength(1);
+
+    observer.resize(0);
+    await settle(fixture);
+    expect(header().compact()).toBe(true);
+
+    observer.resize(400);
+    await settle(fixture);
+    expect(header().compact()).toBe(false);
   });
 
   it('keeps one observer across body swaps and disconnects it on destroy', async () => {

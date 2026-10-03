@@ -25,8 +25,9 @@ import type { WorkerPoolManager } from '@pierre/diffs/worker';
 import type { GitHunkRef } from '@ptah-extension/shared';
 import {
   createPierreDiffOptions,
+  labelPierreDiff,
   readDocumentThemeMode,
-  registerPierreLanguages,
+  registerPierreResources,
   type PierreDiffStyle,
   type PierreThemeMode,
 } from './pierre-config';
@@ -38,6 +39,9 @@ import {
   type PierreHunkMappingError,
 } from './pierre-hunk-mapping';
 import { PierreWorkerPoolService } from './pierre-worker-pool';
+
+/** Context lines git uses for its hunks (`-U3`); the renderer must match them. */
+const GIT_DIFF_CONTEXT_LINES = 3;
 
 /** Template context for the per-hunk toolbar a consumer projects. */
 export interface PierreHunkToolbarContext {
@@ -159,7 +163,7 @@ export class PierreDiffHostComponent {
   private instance: FileDiff | null = null;
 
   constructor() {
-    registerPierreLanguages();
+    registerPierreResources();
     this.workerPool.start();
 
     // Content inputs: a fresh FileDiff per change; the cleanup disposes the
@@ -233,6 +237,10 @@ export class PierreDiffHostComponent {
           ...createPierreDiffOptions(diffStyle, untracked(this.themeType)),
           onPostRender: (node, _instance, phase) => {
             if (phase === 'unmount') return;
+            labelPierreDiff(
+              node.shadowRoot,
+              fileDiff.name || source.fileName,
+            );
             if (!offerHunkHosts) {
               this.publish([], mappingError, []);
               return;
@@ -316,7 +324,9 @@ export class PierreDiffHostComponent {
         fileDiff: parseDiffFromFile(
           source.oldText === null ? null : { name, contents: source.oldText },
           source.newText === null ? null : { name, contents: source.newText },
-          undefined,
+          // jsdiff defaults to 4 context lines; git's hunks (and so the hunk
+          // mapping for accept/reject) use 3.
+          { context: GIT_DIFF_CONTEXT_LINES },
           true,
         ),
         error: null,

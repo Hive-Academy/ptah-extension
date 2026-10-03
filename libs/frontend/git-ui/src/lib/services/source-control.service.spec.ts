@@ -150,16 +150,6 @@ describe('SourceControlService', () => {
     );
   });
 
-  it('getOriginalContent calls git:showFile without mutation timeout', async () => {
-    await service.getOriginalContent('src/app.ts');
-
-    expect(mockRpcCall).toHaveBeenCalledWith(
-      expect.anything(),
-      'git:showFile',
-      { path: 'src/app.ts', workspaceRoot: '/test/workspace' },
-    );
-  });
-
   describe('operation abort/continue (TASK_2026_576 Batch 54)', () => {
     const FAILED = {
       status: 'failed',

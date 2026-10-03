@@ -9,7 +9,11 @@ import {
 } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
+import {
+  ElectronLayoutService,
+  ThemeService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import type {
   GitFileStatus,
   GitHunkRef,
@@ -50,6 +54,7 @@ class MockPierreDiffHost {
   readonly fileName = input('');
   readonly hunks = input<readonly GitHunkRef[]>([]);
   readonly diffStyle = input<'split' | 'unified'>('split');
+  readonly themeType = input<'light' | 'dark'>('dark');
   readonly hunkToolbar = input<TemplateRef<PierreHunkToolbarContext> | null>(
     null,
   );
@@ -109,6 +114,39 @@ class FakeIntersectionObserver {
           }) as IntersectionObserverEntry,
       ),
       this as unknown as IntersectionObserver,
+    );
+  }
+}
+
+/** A deterministic `ResizeObserver`: tests report the list's box by hand. */
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = [];
+  readonly observed = new Set<Element>();
+  disconnected = false;
+  constructor(readonly callback: ResizeObserverCallback) {
+    FakeResizeObserver.instances.push(this);
+  }
+  observe(element: Element): void {
+    this.observed.add(element);
+  }
+  unobserve(element: Element): void {
+    this.observed.delete(element);
+  }
+  disconnect(): void {
+    this.disconnected = true;
+    this.observed.clear();
+  }
+  /** Report every observed element at `height` (0 = hidden). */
+  emit(height: number): void {
+    this.callback(
+      [...this.observed].map(
+        (target) =>
+          ({
+            target,
+            contentRect: { width: height > 0 ? 600 : 0, height },
+          }) as ResizeObserverEntry,
+      ),
+      this as unknown as ResizeObserver,
     );
   }
 }
@@ -182,6 +220,7 @@ describe('ReviewCanvasComponent', () => {
   const navigationService = {
     current: navigation.asReadonly(),
     selectComparison: jest.fn(),
+    openFile: jest.fn(),
   };
 
   const statusFiles = signal<GitFileStatus[]>(STATUS);
@@ -215,6 +254,7 @@ describe('ReviewCanvasComponent', () => {
     entries: entries.asReadonly(),
     mount: jest.fn((request: ReviewDiffRequest) => reviewDiffKey(request)),
     unmount: jest.fn(),
+    entry: jest.fn((key: string) => entries().get(key)),
     retry: jest.fn(async () => undefined),
     applyHunks: jest.fn(),
   };
@@ -231,6 +271,8 @@ describe('ReviewCanvasComponent', () => {
     setGitRailWidth: jest.fn(),
     commitGitRailWidth: jest.fn(),
   };
+
+  const isDarkMode = signal(true);
 
   const host = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const byTestId = <T extends HTMLElement = HTMLElement>(
@@ -307,6 +349,7 @@ describe('ReviewCanvasComponent', () => {
     reviewError.set(null);
     reviewLoading.set(false);
     entries.set(new Map());
+    isDarkMode.set(true);
     TestBed.configureTestingModule({
       imports: [Canvas],
       providers: [
@@ -322,6 +365,7 @@ describe('ReviewCanvasComponent', () => {
         { provide: SourceControlService, useValue: {} },
         { provide: ReviewDiffService, useValue: reviewDiff },
         { provide: EditorLauncherService, useValue: launchers },
+        { provide: ThemeService, useValue: { isDarkMode } },
       ],
     });
   });
@@ -482,6 +526,49 @@ describe('ReviewCanvasComponent', () => {
         ),
       ).toBe(true);
     });
+
+    it('shows unified while the list is under 600 px, and keeps Split once the user presses it (V-5)', async () => {
+      FakeResizeObserver.instances = [];
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver =
+        FakeResizeObserver;
+      try {
+        await create();
+        const observerOfList = FakeResizeObserver.instances.at(-1);
+        const list = byTestId('review-canvas-list');
+        if (!observerOfList || !list) throw new Error('list not observed');
+        const reportWidth = async (width: number): Promise<void> => {
+          observerOfList.callback(
+            [{ target: list, contentRect: { width, height: 400 } }] as never,
+            observerOfList as unknown as ResizeObserver,
+          );
+          await settle();
+        };
+        const layouts = (): string[] =>
+          sectionInstances().map((section) => section.diffStyle());
+        const pressed = (id: string): string | null | undefined =>
+          byTestId(id)?.getAttribute('aria-pressed');
+
+        await reportWidth(420);
+        expect(new Set(layouts())).toEqual(new Set(['unified']));
+        expect(pressed('layout-unified')).toBe('true');
+        expect(pressed('layout-split')).toBe('false');
+
+        await reportWidth(800);
+        expect(new Set(layouts())).toEqual(new Set(['split']));
+
+        // Hidden (0 wide) keeps the last real layout.
+        await reportWidth(420);
+        await reportWidth(0);
+        expect(new Set(layouts())).toEqual(new Set(['unified']));
+
+        byTestId<HTMLButtonElement>('layout-split')?.click();
+        await settle();
+        expect(new Set(layouts())).toEqual(new Set(['split']));
+        expect(pressed('layout-split')).toBe('true');
+      } finally {
+        delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+      }
+    });
   });
 
   describe('window (A9)', () => {
@@ -600,6 +687,172 @@ describe('ReviewCanvasComponent', () => {
       expect(scrolled[1]).not.toBe(scrolled[0]);
     });
 
+    it('Alt+ArrowUp from the first file wraps to the last (parity row 40)', async () => {
+      await create();
+      const list = byTestId('review-canvas-list');
+      const altKey = (key: string): void => {
+        list?.dispatchEvent(
+          new KeyboardEvent('keydown', { key, altKey: true, bubbles: true }),
+        );
+      };
+      altKey('ArrowDown');
+      await settle();
+      expect(scrolled).toEqual(['src/app.ts']);
+      altKey('ArrowUp');
+      await settle();
+      // Tree order ends with logo.png; the untracked directory is skipped.
+      expect(scrolled[1]).toBe('logo.png');
+    });
+
+    describe('collapsing a file (parity rows 39, 40)', () => {
+      const treeRow = (name: string): HTMLElement => {
+        const found = Array.from(
+          host().querySelectorAll<HTMLElement>('[role="treeitem"]'),
+        ).find(
+          (item) =>
+            item.querySelector('[id$="-name"]')?.textContent?.trim() === name,
+        );
+        if (!found) throw new Error(`no row ${name}`);
+        return found;
+      };
+      const section = (path: string): SectionType => {
+        const found = sectionInstances().find((s) => s.file().path === path);
+        if (!found) throw new Error(`no section ${path}`);
+        return found;
+      };
+
+      it("from a section's header toggle, and back", async () => {
+        await create();
+        const toggle = sectionFor(
+          'src/util.ts',
+        ).querySelector<HTMLButtonElement>(
+          '[data-testid="file-section-toggle"]',
+        );
+        toggle?.click();
+        await settle();
+        expect(section('src/util.ts').collapsed()).toBe(true);
+        expect(section('src/app.ts').collapsed()).toBe(false);
+        toggle?.click();
+        await settle();
+        expect(section('src/util.ts').collapsed()).toBe(false);
+      });
+
+      it('Delete on a tree row collapses that section; selecting the row shows it again', async () => {
+        await create();
+        const row = treeRow('util.ts');
+        row.focus();
+        row.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }),
+        );
+        await settle();
+        expect(section('src/util.ts').collapsed()).toBe(true);
+        expect(
+          sectionFor('src/util.ts').querySelector(
+            '[data-testid="file-section-header"]',
+          ),
+        ).not.toBeNull();
+
+        treeRow('util.ts').click();
+        await settle();
+        expect(section('src/util.ts').collapsed()).toBe(false);
+        expect(scrolled).toContain('src/util.ts');
+      });
+
+      it('forgets collapsed files when the comparison changes', async () => {
+        await create();
+        sectionFor('src/app.ts')
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="file-section-toggle"]',
+          )
+          ?.click();
+        await settle();
+        expect(section('src/app.ts').collapsed()).toBe(true);
+        navigate({ scope: { kind: 'staged' }, target: { kind: 'none' } });
+        await settle();
+        expect(section('src/app.ts').collapsed()).toBe(false);
+      });
+    });
+
+    it('re-reads a cached diff when its tree row is selected again (A1 AC4 re-click revalidation)', async () => {
+      await create();
+      const key = reviewDiffKey({
+        comparison: { kind: 'worktree' },
+        path: 'src/util.ts',
+      });
+      const row = (): HTMLElement | undefined =>
+        Array.from(
+          host().querySelectorAll<HTMLElement>('[role="treeitem"]'),
+        ).find((item) => item.textContent?.includes('util.ts'));
+
+      // Never read yet: the section's mount reads it, nothing to revalidate.
+      row()?.click();
+      await settle();
+      expect(reviewDiff.retry).not.toHaveBeenCalled();
+
+      entries.set(new Map([[key, { key } as unknown as ReviewDiffEntry]]));
+      row()?.click();
+      await settle();
+      expect(reviewDiff.retry).toHaveBeenCalledWith(key);
+    });
+
+    it('hands every section the app theme and follows a switch', async () => {
+      await create();
+      expect(sectionInstances().every((s) => s.themeType() === 'dark')).toBe(
+        true,
+      );
+      isDarkMode.set(false);
+      await settle();
+      expect(sectionInstances().every((s) => s.themeType() === 'light')).toBe(
+        true,
+      );
+    });
+
+    // N-6: a canvas mounted after the app switched to light (the dock closed
+    // and reopened) starts light; nothing from the earlier dark mount sticks.
+    it('mounts light when the app theme is already light', async () => {
+      isDarkMode.set(false);
+      await create();
+      expect(sectionInstances().length).toBeGreaterThan(0);
+      expect(sectionInstances().every((s) => s.themeType() === 'light')).toBe(
+        true,
+      );
+    });
+
+    it("a section's Edit opens the spot editor, editable, in the active workspace", async () => {
+      await create();
+
+      sectionFor('src/app.ts')
+        .querySelector<HTMLButtonElement>('[data-testid="file-section-edit"]')
+        ?.click();
+
+      expect(navigationService.openFile).toHaveBeenCalledWith(
+        'src/app.ts',
+        undefined,
+        { editable: true, workspaceRoot: '/ws' },
+      );
+    });
+
+    it("a tree row's Open-in launches the external editor at that file in the active workspace (parity §1 row 41)", async () => {
+      await create();
+      const { ChangedFileTreeComponent } =
+        await import('./changed-file-tree.component');
+      const tree = fixture.debugElement.query(
+        By.directive(ChangedFileTreeComponent),
+      );
+      expect(tree).not.toBeNull();
+
+      (
+        tree.componentInstance as InstanceType<typeof ChangedFileTreeComponent>
+      ).openFile.emit({ target: 'vscode', path: 'src/app.ts', line: 7 });
+
+      expect(launchers.openFile).toHaveBeenCalledWith(
+        'vscode',
+        '/ws',
+        'src/app.ts',
+        7,
+      );
+    });
+
     it('brings a navigation target into view', async () => {
       await create();
       navigate({
@@ -633,6 +886,337 @@ describe('ReviewCanvasComponent', () => {
       await settle();
       expect(byTestId('draft-comments-bar')).toBeNull();
       expect(document.activeElement).toBe(byTestId('review-canvas-list'));
+    });
+  });
+
+  describe('reading position', () => {
+    const SECTION_PX = 100;
+    const VIEWPORT_PX = 400;
+    /** Section heights by path; unlisted sections are SECTION_PX tall. */
+    let heights: Map<string, number>;
+    let scrollTop: number;
+    let frames: Map<number, FrameRequestCallback>;
+    let nextFrame: number;
+    let spies: jest.SpyInstance[];
+
+    const pathOf = (section: Element): string =>
+      section
+        .querySelector('[data-testid="file-section-path"]')
+        ?.textContent?.trim() ?? '';
+    const heightOf = (section: Element): number => {
+      const path = pathOf(section);
+      for (const [prefix, height] of heights) {
+        if (path.startsWith(prefix)) return height;
+      }
+      return SECTION_PX;
+    };
+    const list = (): HTMLElement => {
+      const found = byTestId('review-canvas-list');
+      if (!found) throw new Error('no list');
+      return found;
+    };
+    const resizeObserver = (): FakeResizeObserver => {
+      const last = FakeResizeObserver.instances.at(-1);
+      if (!last) throw new Error('no resize observer');
+      return last;
+    };
+    /** Run queued animation frames (and the ones they queue), bounded. */
+    const flushFrames = (limit = 200): void => {
+      for (let i = 0; i < limit && frames.size > 0; i++) {
+        const batch = [...frames.values()];
+        frames.clear();
+        for (const callback of batch) callback(0);
+      }
+    };
+    /** The user scrolls the list to `top`; the canvas records its anchor. */
+    const userScroll = (top: number): void => {
+      list().dispatchEvent(new Event('wheel'));
+      scrollTop = top;
+      list().dispatchEvent(new Event('scroll'));
+      flushFrames();
+    };
+    /** The first section reaching into the viewport, and how far past it. */
+    const readingPosition = (): { path: string; offset: number } => {
+      for (const section of sections()) {
+        const rect = section.getBoundingClientRect();
+        if (rect.bottom > 1)
+          return { path: pathOf(section), offset: -rect.top };
+      }
+      return { path: '', offset: 0 };
+    };
+
+    beforeEach(() => {
+      heights = new Map();
+      scrollTop = 0;
+      frames = new Map();
+      nextFrame = 0;
+      FakeResizeObserver.instances = [];
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver =
+        FakeResizeObserver;
+      spies = [
+        jest
+          .spyOn(window, 'requestAnimationFrame')
+          .mockImplementation((callback) => {
+            frames.set(++nextFrame, callback);
+            return nextFrame;
+          }),
+        jest
+          .spyOn(window, 'cancelAnimationFrame')
+          .mockImplementation((id) => void frames.delete(id)),
+        // Stacked layout: the list's top is at 0, each section below the last.
+        jest
+          .spyOn(Element.prototype, 'getBoundingClientRect')
+          .mockImplementation(function (this: Element) {
+            if (this.getAttribute('data-testid') === 'review-canvas-list') {
+              return {
+                top: 0,
+                bottom: VIEWPORT_PX,
+                height: VIEWPORT_PX,
+              } as DOMRect;
+            }
+            if (this.tagName.toLowerCase() !== 'ptah-file-diff-section') {
+              return { top: 0, bottom: 0, height: 0 } as DOMRect;
+            }
+            let top = -scrollTop;
+            for (const section of sections()) {
+              if (section === this) break;
+              top += heightOf(section);
+            }
+            const height = heightOf(this);
+            return { top, bottom: top + height, height } as DOMRect;
+          }),
+      ];
+    });
+
+    afterEach(() => {
+      for (const spy of spies) spy.mockRestore();
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    });
+
+    async function createWithLayout(): Promise<void> {
+      await create();
+      Object.defineProperty(list(), 'scrollTop', {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value: number) => {
+          scrollTop = Math.max(0, value);
+        },
+      });
+      flushFrames();
+    }
+
+    /** The shell hides the Changes body: the list loses its scroll offset. */
+    function hide(): void {
+      resizeObserver().emit(0);
+      scrollTop = 0;
+      list().dispatchEvent(new Event('scroll'));
+      flushFrames();
+    }
+
+    function show(): void {
+      resizeObserver().emit(VIEWPORT_PX);
+      flushFrames();
+    }
+
+    it('restores the anchor when the hidden body shows again', async () => {
+      await createWithLayout();
+      userScroll(250);
+      expect(readingPosition()).toEqual({
+        path: 'src/new-name.ts',
+        offset: 50,
+      });
+
+      hide();
+      // Sections above were unmounted while hidden and are estimated taller.
+      heights.set('src/app.ts', 300);
+      show();
+
+      expect(readingPosition()).toEqual({
+        path: 'src/new-name.ts',
+        offset: 50,
+      });
+      expect(scrollTop).toBe(450);
+    });
+
+    it('does not overwrite the anchor while the body is hidden', async () => {
+      await createWithLayout();
+      userScroll(250);
+      hide();
+      // A scroll event while hidden reads offset 0 at the first file.
+      list().dispatchEvent(new Event('scroll'));
+      flushFrames();
+      show();
+      expect(readingPosition()).toEqual({
+        path: 'src/new-name.ts',
+        offset: 50,
+      });
+    });
+
+    it('restores a comparison after switching through an empty one', async () => {
+      await createWithLayout();
+      userScroll(250);
+      expect(readingPosition().path).toBe('src/new-name.ts');
+
+      navigate({
+        scope: {
+          kind: 'historical',
+          base: { name: 'abc^', sha: 'p1' },
+          head: { name: 'abc', sha: 'h1' },
+          label: 'abc1234',
+          files: [],
+        },
+        target: { kind: 'none' },
+      });
+      await settle();
+      // The emptied list clamps to the top.
+      scrollTop = 0;
+      list().dispatchEvent(new Event('scroll'));
+      flushFrames();
+      expect(sections()).toHaveLength(0);
+
+      navigate({ scope: { kind: 'worktree' }, target: { kind: 'none' } });
+      await settle();
+      flushFrames();
+      expect(readingPosition()).toEqual({
+        path: 'src/new-name.ts',
+        offset: 50,
+      });
+    });
+
+    it('re-anchors when a section above is measured after the restore began', async () => {
+      await createWithLayout();
+      userScroll(250);
+      hide();
+      resizeObserver().emit(VIEWPORT_PX);
+      // First frame applied from estimates; then the section above renders.
+      expect(readingPosition()).toEqual({
+        path: 'src/new-name.ts',
+        offset: 50,
+      });
+      heights.set('src/util.ts', 520);
+      flushFrames();
+
+      expect(readingPosition()).toEqual({
+        path: 'src/new-name.ts',
+        offset: 50,
+      });
+      expect(scrollTop).toBe(100 + 520 + 50);
+      // Settled: the loop stopped.
+      expect(frames.size).toBe(0);
+    });
+
+    it('yields to the user scrolling during a restore', async () => {
+      await createWithLayout();
+      userScroll(250);
+      hide();
+      resizeObserver().emit(VIEWPORT_PX);
+      userScroll(20);
+      heights.set('src/app.ts', 600);
+      flushFrames();
+      expect(scrollTop).toBe(20);
+    });
+
+    it('restores to a file that was staged while the body was hidden (its id changed)', async () => {
+      await createWithLayout();
+      userScroll(150);
+      expect(readingPosition()).toEqual({ path: 'src/util.ts', offset: 50 });
+
+      hide();
+      statusFiles.set(
+        STATUS.map((file) =>
+          file.path === 'src/util.ts' ? { ...file, staged: true } : file,
+        ),
+      );
+      await settle();
+      show();
+
+      expect(readingPosition()).toEqual({ path: 'src/util.ts', offset: 50 });
+    });
+
+    it('keeps a collapsed file collapsed when staging changes its id', async () => {
+      await createWithLayout();
+      sectionFor('src/util.ts')
+        .querySelector<HTMLButtonElement>('[data-testid="file-section-toggle"]')
+        ?.click();
+      await settle();
+
+      statusFiles.set(
+        STATUS.map((file) =>
+          file.path === 'src/util.ts' ? { ...file, staged: true } : file,
+        ),
+      );
+      await settle();
+
+      const util = sectionInstances().find(
+        (s) => s.file().path === 'src/util.ts',
+      );
+      expect(util?.file().comparison).toBe('staged');
+      expect(util?.collapsed()).toBe(true);
+    });
+
+    it('keeps re-anchoring past the frame cap while a section in the window waits for its first read', async () => {
+      await createWithLayout();
+      userScroll(250);
+      hide();
+      observer().emit([sectionFor('src/util.ts')], true);
+      await settle();
+      resizeObserver().emit(VIEWPORT_PX);
+
+      // Well past the 60-frame cap: the restore is still running.
+      flushFrames(100);
+      expect(frames.size).toBeGreaterThan(0);
+
+      // The slow read lands and the section above grows.
+      const key = reviewDiffKey({
+        comparison: { kind: 'worktree' },
+        path: 'src/util.ts',
+      });
+      entries.set(
+        new Map([
+          [
+            key,
+            {
+              key,
+              comparison: { kind: 'worktree' },
+              path: 'src/util.ts',
+              originalPath: 'src/util.ts',
+              diff: {
+                provenance: { kind: 'mutable', comparison: 'worktree' },
+                comparison: 'worktree',
+                path: 'src/util.ts',
+                originalPath: 'src/util.ts',
+                original: '',
+                modified: '',
+                originalRef: { kind: 'index' },
+                modifiedRef: { kind: 'worktree' },
+                snapshotToken: 'tok-1',
+                hunks: [],
+                isBinary: false,
+                status: 'error',
+                requestId: 1,
+              },
+              invalidated: false,
+            } as ReviewDiffEntry,
+          ],
+        ]),
+      );
+      heights.set('src/util.ts', 520);
+      await settle();
+      flushFrames();
+
+      expect(readingPosition()).toEqual({
+        path: 'src/new-name.ts',
+        offset: 50,
+      });
+      expect(frames.size).toBe(0);
+    });
+
+    it('observes the list size and disconnects on destroy', async () => {
+      await createWithLayout();
+      const ro = resizeObserver();
+      expect([...ro.observed]).toEqual([list()]);
+      fixture.destroy();
+      expect(ro.disconnected).toBe(true);
     });
   });
 

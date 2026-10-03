@@ -223,6 +223,95 @@ describe('ChangedFileTreeComponent', () => {
       expect(selections[1]).toEqual({ path: 'src/app.ts', staged: true });
     });
 
+    it('never selects an untracked directory row, and offers it no Open-in (parity §3 row 81)', () => {
+      render('worktree', {
+        statusFiles: [
+          ...STATUS,
+          {
+            path: 'build-output/',
+            status: '??',
+            staged: false,
+            isDirectory: true,
+          },
+        ],
+      });
+      const row = item('build-output');
+      row.click();
+      key(row, 'Enter');
+      expect(selections).toEqual([]);
+      expect(row.querySelector('[data-testid="open-in-button"]')).toBeNull();
+    });
+
+    it('gives an untracked directory a folder icon beside its status badge, and files none (parity row 80)', () => {
+      render('worktree', {
+        statusFiles: [
+          ...STATUS,
+          {
+            path: 'build-output/',
+            status: '??',
+            staged: false,
+            isDirectory: true,
+          },
+        ],
+      });
+      const row = item('build-output');
+      // One untracked entry, not a folder to expand.
+      expect(row.dataset['testid']).toBe('tree-row-file');
+      expect(row.getAttribute('aria-expanded')).toBeNull();
+      const icon = row.querySelector('[data-testid="tree-folder-icon"]');
+      expect(icon).not.toBeNull();
+      expect(icon?.getAttribute('aria-hidden')).toBe('true');
+      expect(
+        item('build-output').querySelector('[data-testid="file-status-badge"]'),
+      ).not.toBeNull();
+      expect(
+        item('notes.md').querySelector('[data-testid="tree-folder-icon"]'),
+      ).toBeNull();
+    });
+
+    it('shows "?" for a count git could not give (parity row 78)', () => {
+      render('worktree', {
+        statusFiles: [{ path: 'odd.txt', status: 'M', staged: false }],
+      });
+      const counts = item('odd.txt').querySelector('[id$="-counts"]');
+      expect(counts?.textContent?.replace(/\s+/g, '')).toBe('+?−?');
+    });
+
+    it('says an empty section has nothing in it and offers no bulk action (parity row 72)', () => {
+      render('worktree', {
+        statusFiles: STATUS.filter((file) => !file.staged),
+      });
+      const staged = item('Staged');
+      expect(staged.textContent).toContain('Staged (0)');
+      expect(staged.getAttribute('aria-expanded')).toBe('true');
+      expect(
+        host().querySelector('[data-testid="tree-unstage-all"]'),
+      ).toBeNull();
+      expect(
+        host().querySelector('[data-testid="changed-file-tree-empty"]'),
+      ).toBeNull();
+    });
+
+    it("emits the focused row's Open-in with the file and workspace (parity rows 41, 79, 186)", () => {
+      const opened: unknown[] = [];
+      component.openFile.subscribe((request) => opened.push(request));
+      render('worktree', {
+        editorTargets: [{ id: 'vscode', displayName: 'VS Code' }],
+      });
+      const row = item('util.ts');
+      row.focus();
+      fixture.detectChanges();
+      (
+        row.querySelector(
+          '[data-testid="open-in-primary"]',
+        ) as HTMLButtonElement
+      ).click();
+      expect(opened).toEqual([
+        { target: 'vscode', path: 'src/util.ts', root: '/ws' },
+      ]);
+      expect(selections).toEqual([]);
+    });
+
     it('stages a file without selecting it, awaits the result and re-reads the status', async () => {
       render('worktree');
       const row = item('util.ts');
@@ -425,6 +514,64 @@ describe('ChangedFileTreeComponent', () => {
       ).toBe('true');
     });
 
+    describe.each([
+      ['Stage all', 'tree-stage-all', 'stageAll', 'Changes'],
+      ['Unstage all', 'tree-unstage-all', 'unstageAll', 'Staged'],
+    ] as const)(
+      '%s failure (parity rows 70, 71)',
+      (_name, testId, call, section) => {
+        it.each([
+          [
+            'git refuses',
+            {
+              success: true,
+              data: { success: false, error: 'index.lock exists' },
+            },
+            'index.lock exists',
+          ],
+          [
+            'the repository is locked',
+            { success: true, data: { success: false, code: 'LOCKED' } },
+            GIT_LOCKED_MESSAGE,
+          ],
+          [
+            'the transport fails',
+            { success: false, error: 'timeout' },
+            'Could not reach git: timeout',
+          ],
+        ])(
+          'shows the reason on the section when %s, re-reads, and dismisses',
+          async (_case, result, text) => {
+            sourceControl[call].mockImplementationOnce(
+              async () => result as never,
+            );
+            render('worktree');
+            (
+              host().querySelector(
+                `[data-testid="${testId}"]`,
+              ) as HTMLButtonElement
+            ).click();
+            await settle();
+            const error = item(section).querySelector(
+              '[data-testid="tree-row-error"]',
+            );
+            expect(
+              error?.querySelector('[role="alert"]')?.textContent?.trim(),
+            ).toBe(text);
+            expect(
+              host().querySelectorAll('[data-testid="tree-row-error"]'),
+            ).toHaveLength(1);
+            expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+            (error?.querySelector('button') as HTMLButtonElement).click();
+            fixture.detectChanges();
+            expect(
+              host().querySelector('[data-testid="tree-row-error"]'),
+            ).toBeNull();
+          },
+        );
+      },
+    );
+
     it('marks the file in view as selected for its comparison only', () => {
       render('staged', { activePath: 'src/app.ts' });
       expect(item('app.ts').getAttribute('aria-selected')).toBe('true');
@@ -542,11 +689,68 @@ describe('ChangedFileTreeComponent', () => {
       // Folders sort before files, so the next file is src/util.ts.
       expect(selections).toEqual([{ path: 'src/util.ts', staged: false }]);
       expect(item('util.ts').tabIndex).toBe(0);
+    });
 
-      fixture.componentRef.setInput('activePath', 'src/app.ts');
-      fixture.detectChanges();
+    it('wraps from the first file to the last and back, as the old diff tabs did (parity row 40)', () => {
+      // File order: src/app.ts (Staged), src/util.ts, logo.bin, notes.md.
+      render('staged', { activePath: 'src/app.ts' });
       component.selectAdjacentFile(-1);
-      expect(selections).toHaveLength(1);
+      expect(selections).toEqual([{ path: 'notes.md', staged: false }]);
+
+      render('worktree', { activePath: 'notes.md' });
+      component.selectAdjacentFile(1);
+      expect(selections[1]).toEqual({ path: 'src/app.ts', staged: true });
+    });
+
+    it('Alt+ArrowDown / Alt+ArrowUp on a row step file to file, focused, wrapping', async () => {
+      render('worktree', { activePath: 'notes.md' });
+      const notes = item('notes.md');
+      notes.focus();
+      notes.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'ArrowDown',
+          altKey: true,
+          bubbles: true,
+        }),
+      );
+      fixture.componentRef.setInput('activePath', 'src/app.ts');
+      await settle();
+      expect(selections).toEqual([{ path: 'src/app.ts', staged: true }]);
+      expect(document.activeElement).toBe(item('app.ts'));
+
+      item('app.ts').dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'ArrowUp',
+          altKey: true,
+          bubbles: true,
+        }),
+      );
+      await settle();
+      expect(selections[1]).toEqual({ path: 'notes.md', staged: false });
+      expect(document.activeElement).toBe(item('notes.md'));
+    });
+
+    it('Delete on a file row asks the canvas to collapse that file, and on nothing else (parity row 40)', () => {
+      const collapsed: ChangedFileSelection[] = [];
+      component.collapseFile.subscribe((selection) =>
+        collapsed.push(selection),
+      );
+      render('worktree', {
+        statusFiles: [
+          ...STATUS,
+          { path: 'out/', status: '??', staged: false, isDirectory: true },
+        ],
+      });
+      const util = item('util.ts');
+      util.focus();
+      key(util, 'Delete');
+      expect(collapsed).toEqual([{ path: 'src/util.ts', staged: false }]);
+      expect(selections).toEqual([]);
+
+      key(item('Changes'), 'Delete');
+      key(item('out'), 'Delete');
+      expect(collapsed).toHaveLength(1);
+      expect(item('Changes').getAttribute('aria-expanded')).toBe('true');
     });
   });
 

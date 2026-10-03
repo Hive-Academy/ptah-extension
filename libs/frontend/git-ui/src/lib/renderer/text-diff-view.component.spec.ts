@@ -48,21 +48,33 @@ class FakeFileDiff {
   } | null = null;
 
   constructor(
-    public options: Record<string, unknown>,
+    public options: Record<string, unknown> & {
+      onPostRender?: (
+        node: HTMLElement,
+        instance: unknown,
+        phase: string,
+      ) => void;
+    },
     public workerManager: unknown,
     public isContainerManaged: boolean,
   ) {
     pierre.instances.push(this);
   }
 
+  /** Mirrors Pierre 1.5.1: one unlabelled `<code data-code data-unified>`. */
   render(props: NonNullable<FakeFileDiff['rendered']>): boolean {
     this.rendered = props;
     const container = props.fileContainer;
     const root =
       container.shadowRoot ?? container.attachShadow({ mode: 'open' });
     const pre = document.createElement('pre');
-    pre.textContent = 'unified diff content';
+    const code = document.createElement('code');
+    code.setAttribute('data-code', '');
+    code.setAttribute('data-unified', '');
+    code.textContent = 'unified diff content';
+    pre.appendChild(code);
     root.appendChild(pre);
+    this.options.onPostRender?.(container, this, 'mount');
     return true;
   }
 
@@ -79,6 +91,7 @@ jest.mock('@pierre/diffs', () => ({
   DEFAULT_THEMES: { dark: 'pierre-dark', light: 'pierre-light' },
   FileDiff: FakeFileDiff,
   registerCustomLanguage: jest.fn(),
+  registerCustomTheme: jest.fn(),
   // Mirrors the real 1.5.1 contract: throws when both sides are null, and
   // identical contents produce zero hunks.
   parseDiffFromFile: (
@@ -170,6 +183,21 @@ describe('TextDiffViewComponent', () => {
     });
     expect(instance.rendered?.fileContainer.tagName.toLowerCase()).toBe(
       'diffs-container',
+    );
+  });
+
+  it('makes the scrolling code pane focusable and named, with a focus ring', () => {
+    const container: HTMLElement =
+      fixture.nativeElement.querySelector('diffs-container');
+    const panes = Array.from(
+      container.shadowRoot?.querySelectorAll('code[data-code]') ?? [],
+    );
+    expect(panes).toHaveLength(1);
+    expect(panes[0].getAttribute('tabindex')).toBe('0');
+    expect(panes[0].getAttribute('role')).toBe('group');
+    expect(panes[0].getAttribute('aria-label')).toBe('Diff of test.ts');
+    expect(pierre.instances[0].options['unsafeCSS']).toContain(
+      'code[data-code]:focus-visible',
     );
   });
 

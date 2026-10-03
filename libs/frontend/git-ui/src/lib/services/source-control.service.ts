@@ -12,7 +12,6 @@ import type {
   GitCommitResult,
   GitCancelOperationResult,
   GitGenerateCommitMessageResult,
-  GitShowFileResult,
   GitOperationAbortResult,
   GitOperationContinueResult,
   GitMutationFailureCode,
@@ -280,20 +279,6 @@ export class SourceControlService {
       { ...this.scopeParams() },
       COMMIT_MESSAGE_RPC_TIMEOUT_MS,
     );
-  }
-
-  /**
-   * Get the original content of a file from HEAD revision.
-   * Returns empty content for new/untracked files.
-   * @param relativePath - Relative path from workspace root
-   */
-  async getOriginalContent(
-    relativePath: string,
-  ): Promise<RpcCallResult<GitShowFileResult>> {
-    return rpcCall<GitShowFileResult>(this.vscodeService, 'git:showFile', {
-      path: relativePath,
-      ...this.scopeParams(),
-    });
   }
 
   private async operationAction(

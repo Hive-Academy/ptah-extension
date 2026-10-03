@@ -21,7 +21,8 @@
  * theme sources — `tailwind.config.js` for the two anubis themes and
  * daisyUI's own `themes.js` for the other 32, replicating daisyUI's
  * auto-generation of an absent `base-content` — then recomputes the contrast of
- * the COMMITTED `--bcm` against that theme's `base-100`. A value that was
+ * the COMMITTED `--bcm` against that theme's `base-100`, `base-200` and
+ * `base-300` (daisyUI's auto-generation of absent layers included). A value that was
  * mis-transcribed, or a theme whose upstream daisyUI colours shift on an
  * upgrade, fails here rather than in a user's eyes.
  */
@@ -87,20 +88,37 @@ function committedBcm(): ReadonlyMap<string, string> {
 const isDark = (color: string): boolean =>
   wcagContrast(color, 'black') < wcagContrast(color, 'white');
 
+const darken = (color: unknown, amount: number): unknown =>
+  interpolate([color, 'black'], 'oklch')(amount);
+
+/** The three surfaces muted text sits on. */
+const SURFACES = ['base-100', 'base-200', 'base-300'] as const;
+type Surface = (typeof SURFACES)[number];
+
 /**
- * Resolve a theme's `base-100` and `base-content` exactly the way daisyUI does.
+ * Resolve a theme's base layers and `base-content` exactly the way daisyUI
+ * does (`functions.js: convertColorFormat`).
  *
  * Several built-in themes omit `base-content`; the plugin synthesises it as an
  * 80% OKLCH interpolation of `base-100` toward white or black
- * (`functions.js: generateForegroundColorFrom`). Reading the raw object without
- * replicating that would silently skip those themes.
+ * (`generateForegroundColorFrom`). An absent `base-200` is `base-100` darkened
+ * 7% in OKLCH, an absent `base-300` is `base-200` darkened 7% (or `base-100`
+ * darkened 14%). Reading the raw object without replicating that would
+ * silently skip those themes.
  */
-function resolveTheme(theme: ThemeSource): { b1: string; bc: unknown } {
+function resolveTheme(theme: ThemeSource): {
+  surfaces: Record<Surface, unknown>;
+  bc: unknown;
+} {
   const b1 = theme['base-100'] ?? '#ffffff';
+  const b2 = theme['base-200'] ?? darken(b1, 0.07);
+  const b3 =
+    theme['base-300'] ??
+    (theme['base-200'] ? darken(theme['base-200'], 0.07) : darken(b1, 0.14));
   const bc =
     theme['base-content'] ??
     interpolate([b1, isDark(b1) ? 'white' : 'black'], 'oklch')(0.8);
-  return { b1, bc };
+  return { surfaces: { 'base-100': b1, 'base-200': b2, 'base-300': b3 }, bc };
 }
 
 /** Every theme the picker exposes, paired with its literal colour source. */
@@ -138,7 +156,8 @@ describe('base-content-muted (--bcm)', () => {
   });
 
   describe.each(ALL_THEME_SOURCES)('theme "%s"', (name, source) => {
-    const { b1, bc } = resolveTheme(source);
+    const { surfaces, bc } = resolveTheme(source);
+    const b1 = surfaces['base-100'];
     const value = bcm.get(name);
     const muted = value === undefined ? undefined : oklch(`oklch(${value})`);
 
@@ -149,9 +168,18 @@ describe('base-content-muted (--bcm)', () => {
       expect(Number.isFinite((muted as { l: number }).l)).toBe(true);
     });
 
-    it(`clears ${AA_NORMAL}:1 against this theme's own base-100`, () => {
-      expect(wcagContrast(muted, b1)).toBeGreaterThanOrEqual(AA_NORMAL);
-    });
+    // Muted text sits on all three surfaces: base-200 banners and base-300
+    // cards and rows as well as base-100 (TASK_2026_576 Batch 68 axe found
+    // 4.39:1 on anubis base-300 and 4.45:1 on anubis-light base-200 when only
+    // base-100 was measured).
+    it.each(SURFACES)(
+      `clears ${AA_NORMAL}:1 against this theme's own %s`,
+      (surface) => {
+        expect(wcagContrast(muted, surfaces[surface])).toBeGreaterThanOrEqual(
+          AA_NORMAL,
+        );
+      },
+    );
 
     it('is no more contrasting than base-content — it is a SECONDARY tier', () => {
       // Guards the direction of the change. A "muted" value that out-contrasts

@@ -15,7 +15,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DAISYUI_THEMES } from '@ptah-extension/core';
 
 const { interpolate, parse, wcagContrast } = require('culori/require');
@@ -247,6 +247,44 @@ describe('change-set card colour pairs', () => {
           AA_NORMAL,
         );
       },
+    );
+  });
+});
+
+/**
+ * `btn-primary` draws primary-content on primary at rest and, in daisyUI 4,
+ * on `color-mix(in oklab, primary 90%, black)` while hovered. The hover pair
+ * is the one Batch 68's axe sweep caught (3.87:1 in anubis-light with
+ * Cupcake's 43% primary-content), so both fills are measured here.
+ */
+describe('primary button ink', () => {
+  const hoverFill = (primary: string): unknown =>
+    interpolate([primary, 'black'], 'oklab')(0.1);
+
+  describe.each(ANUBIS_THEMES)('theme "%s"', (theme) => {
+    const source = customThemes[theme];
+
+    it(`primary-content clears ${AA_NORMAL}:1 on primary`, () => {
+      expect(
+        wcagContrast(source['primary-content'], source['primary']),
+      ).toBeGreaterThanOrEqual(AA_NORMAL);
+    });
+
+    it(`primary-content clears ${AA_NORMAL}:1 on the hovered primary fill`, () => {
+      expect(
+        wcagContrast(source['primary-content'], hoverFill(source['primary'])),
+      ).toBeGreaterThanOrEqual(AA_NORMAL);
+    });
+  });
+
+  it('measures the hover fill daisyUI actually compiles', () => {
+    // Through package.json: jest maps a resolved `.css` to identity-obj-proxy.
+    const daisyCss = readFileSync(
+      join(dirname(require.resolve('daisyui/package.json')), 'dist/styled.css'),
+      'utf8',
+    );
+    expect(daisyCss).toContain(
+      'background-color: color-mix(in oklab, var(--fallback-p,oklch(var(--p)/1)) 90%, black)',
     );
   });
 });

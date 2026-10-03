@@ -12,23 +12,36 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { FileLinkRouterService } from './file-link-router.service';
 
 /**
- * `git-ui` is mocked at the module boundary: the real one drags in Monaco and
- * the whole dock, and the router's contract here is only WHICH calls it makes
- * in WHICH order. The classes are declared inside the factory and read back
- * with `requireMock`, so the DI tokens the router resolves and the ones the
- * TestBed provides are the same objects.
+ * `git-ui` is mocked at the module boundary: the real one drags in the whole
+ * review shell, and the router's contract here is only WHICH calls it makes
+ * in WHICH order. The class is declared inside the factory and read back
+ * with `requireMock`, so the DI token the router resolves and the one the
+ * TestBed provides are the same object.
  */
-const mockOpenFileView = jest.fn<Promise<void>, [unknown]>();
-const mockSetMode = jest.fn();
+const mockOpenFile = jest.fn<
+  void,
+  [string, number | undefined, Record<string, unknown> | undefined]
+>();
 jest.mock('@ptah-extension/git-ui', () => {
-  class GitReviewService {
-    setMode = mockSetMode;
+  class ReviewNavigationService {
+    openFile = mockOpenFile;
   }
-  class DiffTabsService {
-    openFileView = mockOpenFileView;
-  }
-  return { GitReviewService, DiffTabsService };
+  return { ReviewNavigationService };
 });
+
+/** The request the router asked `ReviewNavigationService.openFile` for. */
+function openedRequest(): Record<string, unknown> | undefined {
+  const call = mockOpenFile.mock.calls[0];
+  if (!call) return undefined;
+  const [path, line, options] = call;
+  return {
+    path,
+    line,
+    column: options?.['column'],
+    workspaceRoot: options?.['workspaceRoot'],
+    documentPath: options?.['documentPath'],
+  };
+}
 
 /** Same boundary mock as `workspace-coordinator.service.spec.ts`. */
 const mockRpcCall = jest.fn();
@@ -40,8 +53,7 @@ jest.mock('@ptah-extension/core', () => {
 });
 
 const gitUi = jest.requireMock<{
-  GitReviewService: new () => unknown;
-  DiffTabsService: new () => unknown;
+  ReviewNavigationService: new () => unknown;
 }>('@ptah-extension/git-ui');
 
 describe('FileLinkRouterService', () => {
@@ -55,8 +67,7 @@ describe('FileLinkRouterService', () => {
     TestBed.configureTestingModule({
       providers: [
         FileLinkRouterService,
-        gitUi.GitReviewService,
-        gitUi.DiffTabsService,
+        gitUi.ReviewNavigationService,
         {
           provide: VSCodeService,
           useValue: {
@@ -81,11 +92,11 @@ describe('FileLinkRouterService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockOpenFile.mockReset();
     isElectron = true;
     setEditorPanelVisible = jest.fn();
     editorPanelVisible = jest.fn(() => false);
     findTabByIdAcrossWorkspaces = jest.fn(() => null);
-    mockOpenFileView.mockResolvedValue(undefined);
     mockRpcCall.mockResolvedValue({ success: true, data: { success: true } });
   });
 
@@ -127,7 +138,7 @@ describe('FileLinkRouterService', () => {
       await router.open({ path: 'src/a.ts', line: 12, origin: anchor });
 
       expect(findTabByIdAcrossWorkspaces).toHaveBeenCalledWith('tab-bg');
-      expect(mockOpenFileView).toHaveBeenCalledWith({
+      expect(openedRequest()).toEqual({
         path: 'src/a.ts',
         line: 12,
         column: undefined,
@@ -146,7 +157,7 @@ describe('FileLinkRouterService', () => {
       await router.open({ path: 'src/a.ts', origin: anchor });
 
       expect(findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
-      expect(mockOpenFileView).toHaveBeenCalledWith(
+      expect(openedRequest()).toEqual(
         expect.objectContaining({ workspaceRoot: 'D:/active' }),
       );
     });
@@ -160,7 +171,7 @@ describe('FileLinkRouterService', () => {
 
       await router.open({ path: 'src/a.ts', origin: anchor });
 
-      expect(mockOpenFileView).toHaveBeenCalledWith(
+      expect(openedRequest()).toEqual(
         expect.objectContaining({
           documentPath: undefined,
           workspaceRoot: 'D:/active',
@@ -177,7 +188,7 @@ describe('FileLinkRouterService', () => {
 
       await router.open({ path: './sibling.md', origin: anchor });
 
-      expect(mockOpenFileView).toHaveBeenCalledWith({
+      expect(openedRequest()).toEqual({
         path: './sibling.md',
         line: undefined,
         column: undefined,
@@ -191,7 +202,7 @@ describe('FileLinkRouterService', () => {
 
       await router.open({ path: 'src/a.ts' });
 
-      expect(mockOpenFileView).toHaveBeenCalledWith(
+      expect(openedRequest()).toEqual(
         expect.objectContaining({ workspaceRoot: 'D:/active' }),
       );
     });
@@ -201,23 +212,27 @@ describe('FileLinkRouterService', () => {
 
       await router.open({ path: 'D:/abs/a.ts' });
 
-      expect(mockOpenFileView).toHaveBeenCalledWith(
+      expect(openedRequest()).toEqual(
         expect.objectContaining({ workspaceRoot: undefined }),
       );
     });
   });
 
   describe('Electron branch', () => {
-    it('reveals the dock, switches to working-tree mode, then opens the tab', async () => {
+    it('reveals the dock, then opens the file read-only through ReviewNavigationService', async () => {
       const router = configure();
 
       await router.open({ path: 'src/a.ts', line: 12, column: 3 });
 
       expect(setEditorPanelVisible).toHaveBeenCalledWith(true);
-      expect(mockSetMode).toHaveBeenCalledWith('working-tree');
-      expect(mockOpenFileView).toHaveBeenCalledWith(
-        expect.objectContaining({ line: 12, column: 3 }),
-      );
+      expect(mockOpenFile).toHaveBeenCalledTimes(1);
+      expect(mockOpenFile).toHaveBeenCalledWith('src/a.ts', 12, {
+        column: 3,
+        workspaceRoot: 'D:/active',
+        documentPath: undefined,
+      });
+      // Never editable: a chat link opens read-only (design-spec §7).
+      expect(mockOpenFile.mock.calls[0]?.[2]).not.toHaveProperty('editable');
     });
 
     it('logs and rejects when the dock fails to open, leaving the failure visible', async () => {
@@ -225,7 +240,9 @@ describe('FileLinkRouterService', () => {
         .spyOn(console, 'error')
         .mockImplementation(() => undefined);
       const failure = new Error('chunk load failed');
-      mockOpenFileView.mockRejectedValue(failure);
+      mockOpenFile.mockImplementation(() => {
+        throw failure;
+      });
       const router = configure();
 
       await expect(router.open({ path: 'src/a.ts' })).rejects.toThrow(failure);
@@ -244,7 +261,9 @@ describe('FileLinkRouterService', () => {
         .spyOn(console, 'error')
         .mockImplementation(() => undefined);
       editorPanelVisible.mockReturnValue(false);
-      mockOpenFileView.mockRejectedValue(new Error('chunk load failed'));
+      mockOpenFile.mockImplementation(() => {
+        throw new Error('chunk load failed');
+      });
       const router = configure();
 
       await expect(router.open({ path: 'src/a.ts' })).rejects.toThrow();
@@ -258,7 +277,9 @@ describe('FileLinkRouterService', () => {
         .spyOn(console, 'error')
         .mockImplementation(() => undefined);
       editorPanelVisible.mockReturnValue(true);
-      mockOpenFileView.mockRejectedValue(new Error('chunk load failed'));
+      mockOpenFile.mockImplementation(() => {
+        throw new Error('chunk load failed');
+      });
       const router = configure();
 
       await expect(router.open({ path: 'src/a.ts' })).rejects.toThrow();
@@ -294,7 +315,7 @@ describe('FileLinkRouterService', () => {
         column: 3,
         workspaceRoot: 'D:/ws-1',
       });
-      expect(mockOpenFileView).not.toHaveBeenCalled();
+      expect(mockOpenFile).not.toHaveBeenCalled();
     });
 
     it('rejects with the host reason when the RPC refuses the path', async () => {
@@ -366,7 +387,7 @@ describe('FileLinkRouterService', () => {
         anchor,
       );
 
-      expect(mockOpenFileView).toHaveBeenCalledWith({
+      expect(openedRequest()).toEqual({
         path: 'src/a.ts',
         line: 4,
         column: 2,

@@ -3,17 +3,17 @@ import * as path from 'path';
 import type { ElectronApplication } from '@playwright/test';
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
-import { sourceControlFileButton } from '../../support/source-control';
 
 /**
- * A failing ROW stage in the source-control panel, end to end in Electron —
- * TASK_2026_576 RC1 (batches.md Task 7.1, visual-review.md capture note).
+ * A failing ROW stage in the review shell's changed-file tree, end to end in
+ * Electron — TASK_2026_576 RC1 (batches.md Task 7.1, visual-review.md capture
+ * note; retargeted from the retired source-control panel in Batch 62).
  *
  * One capture run showed the row error appear only seconds after a confirmed
- * `git:stage` failure, or not within 8 s. Batch 5 stopped unmounting the panel
- * while `gitStatus.isLoading()` is true, which used to destroy the per-row
- * error state on the post-mutation refresh. This spec proves the row error is
- * now shown promptly and stays usable.
+ * `git:stage` failure, or not within 8 s: the post-mutation status refresh
+ * used to destroy the per-row error state. The tree
+ * (`ChangedFileTreeComponent`) keeps that state across the refresh; this spec
+ * proves the row error is shown promptly and stays usable.
  *
  * HOW THE FAILURE IS FORCED (deterministic, real git, nothing mocked): a
  * `.git/index.lock` file held by the spec makes the app's real
@@ -144,7 +144,7 @@ function stageOutcome(observation: StageObservation): {
   return env?.data ?? env?.result ?? env?.payload?.data ?? {};
 }
 
-test.describe('failing row stage in the source-control panel, end to end in Electron (TASK_2026_576 RC1)', () => {
+test.describe('failing row stage in the changed-file tree, end to end in Electron (TASK_2026_576 RC1)', () => {
   // A real boot into an empty home runs every SQLite migration from zero
   // before the window is created (see `real-rpc-fixtures.ts`).
   test.setTimeout(240_000);
@@ -159,36 +159,36 @@ test.describe('failing row stage in the source-control panel, end to end in Elec
     void rpcBridge;
     const page = ui.page;
     const lockPath = path.join(repo.root, '.git', 'index.lock');
+    const fileName = path.posix.basename(THREE_HUNK_FILE);
 
     await ui.goto('git');
-
-    const changedRow = await sourceControlFileButton(
-      page,
-      THREE_HUNK_FILE,
-      'Changed files',
+    await expect(ui.reviewShell()).toBeVisible();
+    await expect(ui.reviewTab(/^Changes/)).toHaveAttribute(
+      'aria-selected',
+      'true',
     );
-    await expect(changedRow).toBeVisible({ timeout: 30_000 });
 
-    // Scoped to the row's own folder list: the app can add an untracked
-    // `.mcp.json` to this workspace, which gets its own Stage button.
-    const changedList = page
-      .getByRole('list', { name: 'Changed files', exact: true })
-      .getByRole('list', { name: 'src folder', exact: true });
-    const stageButton = changedList.getByRole('button', {
-      name: 'Stage file',
+    // The file's row in the Changes section: the only row with a Stage action
+    // for it (the app can add an untracked `.mcp.json`, which gets its own).
+    const tree = page.getByRole('tree', { name: 'Changed files' });
+    const stageName = { name: `Stage ${fileName}`, exact: true };
+    // `has` resolves relative to each row, so it starts from the page.
+    const changedRow = tree
+      .getByTestId('tree-row-file')
+      .filter({ has: page.getByRole('button', stageName) });
+    const stageButton = changedRow.getByRole('button', stageName);
+    const rowError = changedRow.getByTestId('tree-row-error');
+    const dismissButton = rowError.getByRole('button', {
+      name: 'Dismiss error',
       exact: true,
     });
-    const rowError = page.getByTestId('git-row-error');
-    const dismissButton = page.getByRole('button', {
-      name: 'Dismiss error for calc.ts in changes',
-      exact: true,
-    });
+    await expect(changedRow).toBeVisible({ timeout: 30_000 });
 
     await installStageObserver(electronApp);
 
     // Precondition read from real git: nothing staged, the file is modified.
     expect(repo.stagedDiff()).toBe('');
-    await expect(rowError).toHaveCount(0);
+    await expect(tree.getByTestId('tree-row-error')).toHaveCount(0);
     await expect(stageButton).toBeEnabled();
 
     // Force the failure: git cannot take the index lock.
@@ -214,24 +214,23 @@ test.describe('failing row stage in the source-control panel, end to end in Elec
       // 2) UI: with the RPC failure already confirmed, the row error must be
       // on screen within Playwright's DEFAULT expect timeout. No sleep.
       await expect(rowError).toBeVisible();
-      await expect(rowError).toHaveCount(1);
+      await expect(tree.getByTestId('tree-row-error')).toHaveCount(1);
       const alert = rowError.getByRole('alert');
       await expect(alert).toHaveText(GIT_LOCKED_MESSAGE);
       await expect(rowError).not.toContainText('index.lock');
       await expect(rowError).not.toContainText('fatal:');
 
-      // The error survives the post-mutation status refresh (the Batch 5
-      // regression: the refresh used to unmount the panel and its row state).
-      // Wait for the refresh to settle by observing the row still present
-      // and the panel still mounted, then re-check the error.
+      // The error survives the post-mutation status refresh (the regression:
+      // the refresh used to tear down the row state). The row is still the
+      // unstaged one and still carries the error.
       await expect(changedRow).toBeVisible();
       await expect(rowError).toBeVisible();
 
-      // The row's Stage button is usable again: not disabled, not busy.
+      // The row's Stage button is usable again: not disabled, row not busy.
       await expect(stageButton).toBeEnabled();
-      await expect(stageButton).not.toHaveAttribute('aria-busy', /.*/);
+      await expect(changedRow).not.toHaveAttribute('aria-busy', /.*/);
 
-      // The dismiss control is a 24x24 target with a section-unique name.
+      // The dismiss control is a 24x24 target.
       await expect(dismissButton).toBeVisible();
       const box = await dismissButton.boundingBox();
       expect(box?.width).toBeGreaterThanOrEqual(24);
@@ -239,7 +238,7 @@ test.describe('failing row stage in the source-control panel, end to end in Elec
 
       // Dismissing removes the error and leaves the row intact.
       await dismissButton.click();
-      await expect(rowError).toHaveCount(0);
+      await expect(tree.getByTestId('tree-row-error')).toHaveCount(0);
       await expect(changedRow).toBeVisible();
       await expect(stageButton).toBeEnabled();
     } finally {
@@ -253,9 +252,9 @@ test.describe('failing row stage in the source-control panel, end to end in Elec
     const second = await waitForStageResponse(electronApp, 1);
     expect(stageOutcome(second)).toMatchObject({ success: true });
     await expect(
-      await sourceControlFileButton(page, THREE_HUNK_FILE, 'Staged files'),
-    ).toBeVisible();
-    await expect(rowError).toHaveCount(0);
+      tree.getByRole('button', { name: `Unstage ${fileName}`, exact: true }),
+    ).toBeAttached();
+    await expect(tree.getByTestId('tree-row-error')).toHaveCount(0);
     expect(repo.stagedDiff()).not.toBe('');
   });
 });

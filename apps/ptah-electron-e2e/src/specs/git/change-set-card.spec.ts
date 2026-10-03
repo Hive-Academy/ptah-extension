@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import type { Locator, Page } from '@playwright/test';
 import type { TurnChangeSet } from '@ptah-extension/shared';
 import { test, expect } from '../../support/fixtures';
+import { expectNoBlockingViolationsInBothThemes } from '../../support/axe';
 import {
   prepareCanvasWithSessions,
   sessionRowButton,
@@ -244,5 +245,35 @@ test.describe('change-set card', () => {
       TOKENS.user1,
       TOKENS.assistant1,
     ]);
+  });
+
+  test('the change-set card has no critical or serious a11y violations in dark and light', async ({
+    mainWindow,
+    ui,
+  }, testInfo) => {
+    const { session, changeSet } = makeChangeSetSession();
+    await ui.mockRpc({
+      'git:turnChangeSets': { changeSets: [changeSet] },
+      'git:info': {
+        isGitRepo: true,
+        branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
+        files: [
+          { path: 'src/helpers.ts', status: 'M', staged: false },
+          { path: 'src/helpers.spec.ts', status: '??', staged: false },
+        ],
+      },
+    });
+    await prepareCanvasWithSessions(ui, [session], { supportsPaging: false });
+    const tile = await openSession(mainWindow, session);
+    const card = tile.locator(CARD);
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId('change-set-review')).toBeVisible();
+    await ui.page.mouse.move(2, 2);
+    await expectNoBlockingViolationsInBothThemes(
+      ui.page,
+      'change-set-card',
+      testInfo,
+      { include: CARD, evidence: true },
+    );
   });
 });

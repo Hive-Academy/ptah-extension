@@ -14,16 +14,16 @@ import {
 } from './change-set-actions.service';
 import { ChangeSetStore, type ChangeSetMarks } from './change-set.store';
 
-const mockOpenFileView = jest.fn<Promise<void>, [unknown]>();
-const mockSetMode = jest.fn();
+const mockOpenChangeSet = jest.fn();
+const mockOpenFile = jest.fn();
+const mockSelectComparison = jest.fn();
 jest.mock('@ptah-extension/git-ui', () => {
-  class GitReviewService {
-    setMode = mockSetMode;
+  class ReviewNavigationService {
+    openChangeSet = mockOpenChangeSet;
+    openFile = mockOpenFile;
+    selectComparison = mockSelectComparison;
   }
-  class DiffTabsService {
-    openFileView = mockOpenFileView;
-  }
-  return { GitReviewService, DiffTabsService };
+  return { ReviewNavigationService };
 });
 
 const mockRpcCall = jest.fn();
@@ -35,8 +35,7 @@ jest.mock('@ptah-extension/core', () => {
 });
 
 const gitUi = jest.requireMock<{
-  GitReviewService: new () => unknown;
-  DiffTabsService: new () => unknown;
+  ReviewNavigationService: new () => unknown;
 }>('@ptah-extension/git-ui');
 
 const CHANGE_SET: TurnChangeSet = {
@@ -76,8 +75,7 @@ describe('ChangeSetActionsService', () => {
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
-        gitUi.GitReviewService,
-        gitUi.DiffTabsService,
+        gitUi.ReviewNavigationService,
         {
           provide: VSCodeService,
           useValue: {
@@ -102,12 +100,14 @@ describe('ChangeSetActionsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockOpenChangeSet.mockReset();
+    mockOpenFile.mockReset();
+    mockSelectComparison.mockReset();
     error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     isElectron = false;
     marks = NO_MARKS;
     setEditorPanelVisible = jest.fn();
     editorPanelVisible = jest.fn(() => false);
-    mockOpenFileView.mockResolvedValue(undefined);
     mockRpcCall.mockResolvedValue({ success: true, data: { success: true } });
   });
 
@@ -238,28 +238,45 @@ describe('ChangeSetActionsService', () => {
       isElectron = true;
     });
 
-    it('reveals the dock in working-tree mode to review a set', async () => {
+    it('reveals the dock on the Changes tab narrowed to the turn, drafts owned by its session', async () => {
       await create().review(CHANGE_SET);
 
       expect(setEditorPanelVisible).toHaveBeenCalledWith(true);
-      expect(mockSetMode).toHaveBeenCalledWith('working-tree');
-      expect(mockOpenFileView).not.toHaveBeenCalled();
+      expect(mockOpenChangeSet).toHaveBeenCalledWith({
+        workspaceRoot: 'D:/repo',
+        files: [
+          { path: 'src/a.ts' },
+          { path: 'src/new-name.ts', origPath: 'src/old-name.ts' },
+          { path: 'src/conflict.ts' },
+        ],
+        ownerSessionId: 's1',
+      });
+      expect(mockOpenFile).not.toHaveBeenCalled();
       expect(mockRpcCall).not.toHaveBeenCalled();
     });
 
-    it('opens one file in the dock rooted at the set working directory', async () => {
+    it('opens one file in the spot editor rooted at the set working directory', async () => {
       await create().openFile(CHANGE_SET, 'src/a.ts');
 
       expect(setEditorPanelVisible).toHaveBeenCalledWith(true);
-      expect(mockSetMode).toHaveBeenCalledWith('working-tree');
-      expect(mockOpenFileView).toHaveBeenCalledWith({
-        path: 'src/a.ts',
+      expect(mockOpenFile).toHaveBeenCalledWith('src/a.ts', undefined, {
         workspaceRoot: 'D:/repo',
       });
+      expect(mockRpcCall).not.toHaveBeenCalled();
+    });
+
+    it('opens Source Control as the working-tree comparison', async () => {
+      await create().openScm();
+
+      expect(setEditorPanelVisible).toHaveBeenCalledWith(true);
+      expect(mockSelectComparison).toHaveBeenCalledWith('worktree');
+      expect(mockRpcCall).not.toHaveBeenCalled();
     });
 
     it('hides a dock it revealed when the open fails', async () => {
-      mockOpenFileView.mockRejectedValue(new Error('boom'));
+      mockOpenFile.mockImplementation(() => {
+        throw new Error('boom');
+      });
 
       await expect(create().openFile(CHANGE_SET, 'src/a.ts')).rejects.toThrow(
         'Could not open src/a.ts.',
@@ -267,11 +284,15 @@ describe('ChangeSetActionsService', () => {
       expect(setEditorPanelVisible).toHaveBeenLastCalledWith(false);
     });
 
-    it('leaves an already visible dock visible when the open fails', async () => {
+    it('leaves an already visible dock visible when the review fails', async () => {
       editorPanelVisible.mockReturnValue(true);
-      mockOpenFileView.mockRejectedValue(new Error('boom'));
+      mockOpenChangeSet.mockImplementation(() => {
+        throw new Error('boom');
+      });
 
-      await expect(create().openFile(CHANGE_SET, 'src/a.ts')).rejects.toThrow();
+      await expect(create().review(CHANGE_SET)).rejects.toThrow(
+        'Could not open the review.',
+      );
       expect(setEditorPanelVisible).not.toHaveBeenCalledWith(false);
     });
   });

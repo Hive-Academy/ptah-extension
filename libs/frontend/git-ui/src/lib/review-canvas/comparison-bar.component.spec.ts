@@ -2,7 +2,7 @@ import axe from 'axe-core';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture } from '@angular/core/testing';
-import { VSCodeService } from '@ptah-extension/core';
+import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitReviewService } from '../services/git-review.service';
 import {
@@ -54,6 +54,12 @@ describe('ComparisonBarComponent', () => {
     ]).asReadonly(),
   };
 
+  const railCollapsed = signal(false);
+  const layout = {
+    gitRailCollapsed: railCollapsed.asReadonly(),
+    toggleGitRail: jest.fn(() => railCollapsed.update((value) => !value)),
+  };
+
   const host = (): HTMLElement => fixture.nativeElement as HTMLElement;
   const byTestId = <T extends HTMLElement = HTMLElement>(
     id: string,
@@ -80,6 +86,7 @@ describe('ComparisonBarComponent', () => {
     scope.set({ kind: 'worktree' });
     base.set('main');
     head.set('HEAD');
+    railCollapsed.set(false);
     TestBed.configureTestingModule({
       imports: [ComparisonBarComponent],
       providers: [
@@ -87,7 +94,24 @@ describe('ComparisonBarComponent', () => {
         { provide: ReviewNavigationService, useValue: navigation },
         { provide: GitReviewService, useValue: review },
         { provide: GitBranchesService, useValue: branches },
+        { provide: ElectronLayoutService, useValue: layout },
       ],
+    });
+  });
+
+  describe('collapsed file tree (parity row 36, L-13)', () => {
+    it('offers "Show changed files" only while the tree is collapsed, and it brings the tree back', () => {
+      create();
+      expect(byTestId('comparison-show-files')).toBeNull();
+
+      railCollapsed.set(true);
+      fixture.detectChanges();
+      const show = byTestId<HTMLButtonElement>('comparison-show-files');
+      expect(show?.textContent?.trim()).toBe('Show changed files');
+      show?.click();
+      fixture.detectChanges();
+      expect(layout.toggleGitRail).toHaveBeenCalledTimes(1);
+      expect(byTestId('comparison-show-files')).toBeNull();
     });
   });
 
@@ -231,6 +255,58 @@ describe('ComparisonBarComponent', () => {
       expect(fixture.componentInstance.sideBySide()).toBe(false);
     });
 
+    it('keeps a Split press made before a late read of a stored Unified, and stores it once (V-5 round 2)', async () => {
+      let finish: (value: unknown) => void = () => undefined;
+      mockRpcCall.mockImplementation((_v: unknown, method: string) =>
+        method === 'settings:get'
+          ? new Promise((resolve) => (finish = resolve))
+          : Promise.resolve({ success: true, data: {} }),
+      );
+      fixture = TestBed.createComponent(ComparisonBarComponent);
+      // The narrow canvas shows unified while the model is still true.
+      fixture.componentRef.setInput('autoUnified', true);
+      fixture.detectChanges();
+      const picked: boolean[] = [];
+      fixture.componentInstance.layoutPicked.subscribe((value) =>
+        picked.push(value),
+      );
+
+      byTestId<HTMLButtonElement>('layout-split')?.click();
+      expect(picked).toEqual([true]);
+      finish({ success: true, data: { value: false } });
+      await settle();
+
+      expect(fixture.componentInstance.sideBySide()).toBe(true);
+      const writes = mockRpcCall.mock.calls.filter(
+        (call) => call[1] === 'settings:set',
+      );
+      expect(writes).toEqual([
+        [
+          expect.anything(),
+          'settings:set',
+          { key: 'diff.renderSideBySide', value: true },
+        ],
+      ]);
+    });
+
+    it('writes nothing more when the late read already agrees with the press', async () => {
+      let finish: (value: unknown) => void = () => undefined;
+      mockRpcCall.mockImplementation((_v: unknown, method: string) =>
+        method === 'settings:get'
+          ? new Promise((resolve) => (finish = resolve))
+          : Promise.resolve({ success: true, data: {} }),
+      );
+      fixture = TestBed.createComponent(ComparisonBarComponent);
+      fixture.detectChanges();
+      byTestId<HTMLButtonElement>('layout-unified')?.click();
+      finish({ success: true, data: { value: false } });
+      await settle();
+      expect(fixture.componentInstance.sideBySide()).toBe(false);
+      expect(
+        mockRpcCall.mock.calls.filter((call) => call[1] === 'settings:set'),
+      ).toHaveLength(1);
+    });
+
     it('keeps the new layout when persisting it fails', async () => {
       create();
       await settle();
@@ -243,6 +319,37 @@ describe('ComparisonBarComponent', () => {
       expect(fixture.componentInstance.sideBySide()).toBe(false);
       expect(warn).toHaveBeenCalled();
       warn.mockRestore();
+    });
+
+    it('reads as Unified while the canvas is auto-unified, and reports a Split press without re-persisting (V-5)', async () => {
+      create();
+      await settle();
+      fixture.componentRef.setInput('autoUnified', true);
+      fixture.detectChanges();
+      expect(byTestId('layout-unified')?.getAttribute('aria-pressed')).toBe(
+        'true',
+      );
+      expect(byTestId('layout-split')?.getAttribute('aria-pressed')).toBe(
+        'false',
+      );
+      expect(byTestId('layout-split')?.getAttribute('title')).toContain(
+        'narrow',
+      );
+
+      const picked: boolean[] = [];
+      fixture.componentInstance.layoutPicked.subscribe((value) =>
+        picked.push(value),
+      );
+      mockRpcCall.mockClear();
+      byTestId<HTMLButtonElement>('layout-split')?.click();
+      await settle();
+      expect(picked).toEqual([true]);
+      // The stored preference is already split: nothing to write.
+      expect(mockRpcCall).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'settings:set',
+        expect.anything(),
+      );
     });
   });
 
@@ -269,6 +376,10 @@ describe('ComparisonBarComponent', () => {
         '−',
       );
       expect(totals?.textContent).toContain('2 binary');
+      // Full ink on the base-200 bar: the muted tier is under 4.5:1 there on
+      // the light theme (Batch 59 axe color-contrast).
+      expect(totals?.classList.contains('text-base-content')).toBe(true);
+      expect(totals?.querySelector('.text-base-content-muted')).toBeNull();
       expect(totals?.querySelector('.sr-only')?.textContent?.trim()).toBe(
         '142 files changed, 1204 additions, 318 deletions, 2 binary',
       );

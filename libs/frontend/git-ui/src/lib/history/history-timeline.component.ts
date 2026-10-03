@@ -93,8 +93,32 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
     HistoryStashSectionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Truncation priority (V-8): the author is capped at 30% of the row and
+  // truncates (full name in its title and text), and below 400 px it steps
+  // aside so the subject keeps the row. Visually hidden, not removed, so a screen reader
+  // still reads it. A CSS container query, no observer.
+  styles: [
+    `
+      .history-timeline {
+        container-type: inline-size;
+      }
+      @container (max-width: 400px) {
+        .history-author {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+        }
+      }
+    `,
+  ],
   template: `
-    <div class="flex flex-col gap-3 p-3 text-xs" data-testid="history-timeline">
+    <div
+      class="history-timeline flex flex-col gap-3 p-3 text-xs"
+      data-testid="history-timeline"
+    >
       <ptah-history-stash-section [shown]="shown()" />
 
       <section
@@ -211,11 +235,13 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
                           >Initial commit — open in editor</span
                         >
                       </span>
-                      <span class="text-base-content-muted">{{
-                        row.commit.authorName
-                      }}</span>
+                      <span
+                        class="history-author max-w-[30%] flex-shrink-0 truncate text-base-content-muted"
+                        [title]="row.commit.authorName"
+                        >{{ row.commit.authorName }}</span
+                      >
                       <time
-                        class="text-[11px] text-base-content-muted"
+                        class="flex-shrink-0 whitespace-nowrap text-[11px] text-base-content-muted"
                         [attr.datetime]="row.commit.authorDate"
                         [title]="row.absolute"
                         >{{ row.relative
@@ -239,9 +265,10 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
                       [attr.aria-busy]="openingSha() === row.commit.sha"
                       (click)="select(row.commit)"
                     >
-                      <span class="font-mono text-base-content-muted">{{
-                        row.commit.shortSha
-                      }}</span>
+                      <span
+                        class="flex-shrink-0 font-mono text-base-content-muted"
+                        >{{ row.commit.shortSha }}</span
+                      >
                       @if (row.isMerge) {
                         <span
                           class="flex items-center gap-0.5 text-base-content-muted"
@@ -258,14 +285,20 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
                           >
                         </span>
                       }
-                      <span class="min-w-0 flex-1 truncate text-sm">{{
-                        row.commit.subject
-                      }}</span>
-                      <span class="text-base-content-muted">{{
-                        row.commit.authorName
-                      }}</span>
+                      <span
+                        class="min-w-0 flex-1 truncate text-sm"
+                        data-testid="history-commit-subject"
+                        [title]="row.commit.subject"
+                        >{{ row.commit.subject }}</span
+                      >
+                      <span
+                        class="history-author max-w-[30%] flex-shrink-0 truncate text-base-content-muted"
+                        [title]="row.commit.authorName"
+                        data-testid="history-commit-author"
+                        >{{ row.commit.authorName }}</span
+                      >
                       <time
-                        class="text-[11px] text-base-content-muted"
+                        class="flex-shrink-0 whitespace-nowrap text-[11px] text-base-content-muted"
                         [attr.datetime]="row.commit.authorDate"
                         [title]="row.absolute"
                         >{{ row.relative

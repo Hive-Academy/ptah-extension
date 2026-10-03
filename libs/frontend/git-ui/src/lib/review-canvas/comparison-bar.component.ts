@@ -10,8 +10,12 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { ChevronDown, LucideAngularModule } from 'lucide-angular';
-import { rpcCall, VSCodeService } from '@ptah-extension/core';
+import { ChevronDown, LucideAngularModule, PanelLeft } from 'lucide-angular';
+import {
+  ElectronLayoutService,
+  rpcCall,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitReviewService } from '../services/git-review.service';
@@ -51,8 +55,14 @@ const FOCUS_RING =
  * - The path filter, owned by the canvas (`filter` in, `filterChange` out).
  * - Split / Unified (`aria-pressed`), two-way bound as `sideBySide` and
  *   persisted as `diff.renderSideBySide` through `settings:get/set`, the key the
- *   existing diff view uses, so the choice carries over.
+ *   existing diff view uses, so the choice carries over. While the canvas
+ *   shows unified only because its list is narrow (`autoUnified`), Unified
+ *   reads as pressed; every press is reported as `layoutPicked`, so pressing
+ *   Split there overrides the narrow default (V-5).
  * - The totals. The row wraps rather than clipping at narrow dock widths.
+ * - While the changed-file tree is collapsed, "Show changed files" brings it
+ *   back from beside the list, not only from the dock header (the old
+ *   collapsed-pane button, L-13; parity row 36).
  */
 @Component({
   selector: 'ptah-comparison-bar',
@@ -64,6 +74,21 @@ const FOCUS_RING =
       class="flex flex-wrap items-center gap-2 border-b border-base-content/10 bg-base-200 px-2 py-1.5 text-xs"
       data-testid="comparison-bar"
     >
+      @if (layout.gitRailCollapsed()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs gap-1 {{ focusRing }}"
+          data-testid="comparison-show-files"
+          (click)="layout.toggleGitRail()"
+        >
+          <lucide-angular
+            [img]="PanelLeftIcon"
+            class="h-3 w-3"
+            aria-hidden="true"
+          />
+          Show changed files
+        </button>
+      }
       <ptah-native-popover
         [isOpen]="pickerOpen()"
         placement="bottom-start"
@@ -163,7 +188,7 @@ const FOCUS_RING =
 
       <input
         type="text"
-        class="input input-bordered input-xs w-32 min-w-[6rem] max-w-[12rem] flex-1"
+        class="input input-bordered input-xs w-32 min-w-[6rem] max-w-[12rem] flex-1 focus-visible:outline-[oklch(var(--s))]"
         placeholder="Filter files…"
         aria-label="Filter changed files"
         data-testid="comparison-filter"
@@ -179,8 +204,13 @@ const FOCUS_RING =
         <button
           type="button"
           class="btn btn-ghost btn-xs {{ focusRing }}"
-          [class.btn-active]="sideBySide()"
-          [attr.aria-pressed]="sideBySide()"
+          [class.btn-active]="showsSplit()"
+          [attr.aria-pressed]="showsSplit()"
+          [attr.title]="
+            autoUnified()
+              ? 'The diff list is narrow, so it shows unified. Choose Split to use it anyway.'
+              : null
+          "
           data-testid="layout-split"
           (click)="setSideBySide(true)"
         >
@@ -189,8 +219,8 @@ const FOCUS_RING =
         <button
           type="button"
           class="btn btn-ghost btn-xs {{ focusRing }}"
-          [class.btn-active]="!sideBySide()"
-          [attr.aria-pressed]="!sideBySide()"
+          [class.btn-active]="!showsSplit()"
+          [attr.aria-pressed]="!showsSplit()"
           data-testid="layout-unified"
           (click)="setSideBySide(false)"
         >
@@ -199,8 +229,10 @@ const FOCUS_RING =
       </div>
 
       @if (totals(); as t) {
+        <!-- Full base-content ink: --bcm is measured against base-100, and on
+             this row's base-200 the light theme falls just under 4.5:1. -->
         <span
-          class="ml-auto whitespace-nowrap text-base-content-muted"
+          class="ml-auto whitespace-nowrap text-base-content"
           data-testid="comparison-totals"
         >
           <span class="sr-only">{{ totalsLabel() }}</span>
@@ -222,6 +254,7 @@ export class ComparisonBarComponent implements OnInit {
   private readonly navigation = inject(ReviewNavigationService);
   protected readonly review = inject(GitReviewService);
   protected readonly branches = inject(GitBranchesService);
+  protected readonly layout = inject(ElectronLayoutService);
 
   /** The filter text the canvas applies to the tree and the diff list. */
   readonly filter = input('');
@@ -229,10 +262,15 @@ export class ComparisonBarComponent implements OnInit {
   readonly totals = input<ComparisonTotals | null>(null);
   /** Split (true) or unified (false); loaded from and saved to settings. */
   readonly sideBySide = model(true);
+  /** The canvas shows unified despite `sideBySide`, because its list is narrow. */
+  readonly autoUnified = input(false);
 
   readonly filterChange = output<string>();
+  /** The user pressed Split (true) or Unified (false). */
+  readonly layoutPicked = output<boolean>();
 
   protected readonly ChevronDownIcon = ChevronDown;
+  protected readonly PanelLeftIcon = PanelLeft;
   protected readonly focusRing = FOCUS_RING;
   protected readonly simpleKinds: readonly ReviewComparisonKind[] = [
     'worktree',
@@ -241,12 +279,22 @@ export class ComparisonBarComponent implements OnInit {
 
   protected readonly pickerOpen = signal(false);
 
-  /** Set by a toggle: a late settings read must not override the user. */
+  /**
+   * Set by every Split / Unified press, including one that matches the model
+   * (a press of Split while the canvas is auto-unified): a late settings read
+   * must not override the user.
+   */
   private layoutChangedByUser = false;
+  /** The last value written to settings, so a reconcile never writes twice. */
+  private persistedLayout: boolean | null = null;
   private destroyed = false;
 
   private readonly scope = computed(() => this.navigation.current().scope);
   protected readonly scopeKind = computed(() => this.scope().kind);
+  /** The layout on screen, which the pressed state follows. */
+  protected readonly showsSplit = computed(
+    () => this.sideBySide() && !this.autoUnified(),
+  );
 
   protected readonly currentLabel = computed(() => {
     const scope = this.scope();
@@ -294,8 +342,11 @@ export class ComparisonBarComponent implements OnInit {
   }
 
   protected setSideBySide(sideBySide: boolean): void {
-    if (this.sideBySide() === sideBySide) return;
+    this.layoutPicked.emit(sideBySide);
+    // Recorded before the equality return: a same-value press is still an
+    // explicit choice that a pending settings read must not undo.
     this.layoutChangedByUser = true;
+    if (this.sideBySide() === sideBySide) return;
     this.sideBySide.set(sideBySide);
     void this.persistLayoutPreference(sideBySide);
   }
@@ -316,12 +367,22 @@ export class ComparisonBarComponent implements OnInit {
         { key: DIFF_LAYOUT_SETTING_KEY },
       );
       if (
-        !this.destroyed &&
-        !this.layoutChangedByUser &&
-        result.success &&
-        typeof result.data?.value === 'boolean'
+        this.destroyed ||
+        !result.success ||
+        typeof result.data?.value !== 'boolean'
       ) {
-        this.sideBySide.set(result.data.value);
+        return;
+      }
+      const stored = result.data.value;
+      if (!this.layoutChangedByUser) {
+        this.sideBySide.set(stored);
+        return;
+      }
+      // A choice made before the read landed wins; store it if the stored
+      // value disagrees and it was not written already.
+      const chosen = this.sideBySide();
+      if (stored !== chosen && this.persistedLayout !== chosen) {
+        void this.persistLayoutPreference(chosen);
       }
     } catch (error: unknown) {
       // A missing or unreadable preference keeps the default; the toggle
@@ -331,6 +392,7 @@ export class ComparisonBarComponent implements OnInit {
   }
 
   private async persistLayoutPreference(sideBySide: boolean): Promise<void> {
+    this.persistedLayout = sideBySide;
     try {
       await rpcCall(this.vscode, 'settings:set', {
         key: DIFF_LAYOUT_SETTING_KEY,

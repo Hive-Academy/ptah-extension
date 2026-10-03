@@ -390,6 +390,112 @@ describe('BranchPickerDropdownComponent', () => {
     expect(alert?.closest('.text-base-content')).not.toBeNull();
   });
 
+  it('disables the current branch and shows ahead/behind counts (parity row 121)', async () => {
+    const { fixture, branches } = await setup({
+      local: [
+        { ...localBranch('main'), isCurrent: true },
+        { ...localBranch('feature'), ahead: 2, behind: 3 },
+        localBranch('quiet'),
+      ],
+    });
+    const rows = [
+      ...fixture.nativeElement.querySelectorAll('.max-h-72 > button'),
+    ] as HTMLButtonElement[];
+    const row = (name: string): HTMLButtonElement => {
+      const found = rows.find((button) =>
+        button.textContent?.trim().startsWith(name),
+      );
+      if (!found) throw new Error(`no row ${name}`);
+      return found;
+    };
+
+    expect(row('main').disabled).toBe(true);
+    expect(row('feature').disabled).toBe(false);
+    expect(row('feature').textContent?.replace(/\s+/g, '')).toBe('feature↑2↓3');
+    expect(row('quiet').textContent?.trim()).toBe('quiet');
+
+    row('main').click();
+    await fixture.whenStable();
+    expect(branches.checkout).not.toHaveBeenCalled();
+  });
+
+  it('lists recent branches under Recent until a search, and switches from there (parity row 120)', async () => {
+    const { fixture, branches } = await setup({
+      local: [localBranch('feature'), localBranch('main')],
+    });
+    branches.recentBranches.set(['feature']);
+    fixture.detectChanges();
+    const list = query(fixture, '.max-h-72') as HTMLElement;
+    const headings = [...list.querySelectorAll('p')].map((p) =>
+      p.textContent?.trim(),
+    );
+    expect(headings).toEqual(['Recent', 'Local', 'Remote']);
+    // The first button under Recent is the recent entry.
+    const recentRow = list.querySelector('p + button') as HTMLButtonElement;
+    expect(recentRow.textContent?.trim()).toBe('feature');
+
+    await click(fixture, '.max-h-72 > p + button');
+    expect(branches.checkout).toHaveBeenCalledWith({ branch: 'feature' });
+
+    const search = query(
+      fixture,
+      '[aria-label="Search branches"]',
+    ) as HTMLInputElement;
+    search.value = 'zzz';
+    search.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(
+      [...list.querySelectorAll('p')].map((p) => p.textContent?.trim()),
+    ).toEqual(['Local', 'Remote']);
+  });
+
+  it('creates the typed branch on Enter (parity row 125)', async () => {
+    const { fixture, branches, checkedOut } = await setup({});
+    const input = query(
+      fixture,
+      '[aria-label="New branch name"]',
+    ) as HTMLInputElement;
+    input.value = '  topic  ';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(branches.checkout).toHaveBeenCalledWith({
+      branch: 'topic',
+      createNew: true,
+    });
+    expect(checkedOut).toEqual(['topic']);
+  });
+
+  it('closes on an outside click and on Escape, not on a click inside (parity row 127)', async () => {
+    const { fixture } = await setup({ local: [localBranch('feature')] });
+    const closed = jest.fn();
+    fixture.componentInstance.closed.subscribe(closed);
+
+    (query(fixture, '[aria-label="Search branches"]') as HTMLElement).click();
+    expect(closed).not.toHaveBeenCalled();
+
+    document.body.click();
+    expect(closed).toHaveBeenCalledTimes(1);
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    expect(closed).toHaveBeenCalledTimes(2);
+
+    fixture.componentRef.setInput('isOpen', false);
+    fixture.detectChanges();
+    document.body.click();
+    expect(closed).toHaveBeenCalledTimes(2);
+  });
+
   it('renders the ten most recent branches per group until search is used', async () => {
     const makeBranches = (prefix: string, isRemote: boolean) =>
       Array.from({ length: 12 }, (_, index) => ({

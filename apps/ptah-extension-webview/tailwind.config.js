@@ -93,11 +93,11 @@ module.exports = {
           'base-200': '#1a1a20',
           'base-300': '#242430',
           'base-content': '#e8e6e1',
-          // Secondary text tier. 38.25% toward base-100 in OKLCH: 5.56:1 on
-          // base-100, 5.20:1 on base-200, 4.60:1 on base-300 (TASK_2026_555
-          // Batch 51: muted text also sits on base-200/300 headers). See the
-          // `colors` block above and base-content-muted.spec.ts.
-          '--bcm': '64.337084% 0.007433 26.281219',
+          // Secondary text tier. 35.3% toward base-100 in OKLCH → 6.06:1 on
+          // base-100, 5.66:1 on base-200, 5.01:1 on base-300 (the 40% value
+          // was 4.37:1 on base-300). See the `colors` block above and
+          // base-content-muted.spec.ts.
+          '--bcm': '66.509856% 0.007403 31.090978',
 
           // SEMANTIC COLORS
           info: '#3b82f6',
@@ -134,7 +134,11 @@ module.exports = {
           // PRIMARY: Cupcake teal (exact match)
           primary: 'oklch(85% 0.138 181.071)',
           'primary-focus': 'oklch(80% 0.15 181)',
-          'primary-content': 'oklch(43% 0.078 188.216)', // Dark text on light primary
+          // Dark text on light primary. 36% lightness, not Cupcake's 43%:
+          // daisyUI 4's `btn-primary:hover` fill is primary mixed 10% toward
+          // black in OKLab (#3accb7), where 43% measured 3.87:1 (Batch 68
+          // axe). 36% is 5.23:1 on that hover fill and 6.99:1 on primary.
+          'primary-content': 'oklch(36% 0.078 188.216)',
 
           // SECONDARY: Anubis gold — darkened for readable contrast on the
           // cream base (brand anchor). The dark theme keeps bright #d4af37;
@@ -158,11 +162,11 @@ module.exports = {
           'base-200': 'oklch(93.982% 0.007 61.449)', // Slightly darker cream
           'base-300': 'oklch(91.586% 0.006 53.44)', // Card/panel background
           'base-content': 'oklch(23.574% 0.066 313.189)', // Dark purple-gray text
-          // Secondary text tier. 36.75% toward base-100 in OKLCH: 5.56:1 on
-          // base-100, 4.96:1 on base-200, 4.61:1 on base-300 (TASK_2026_555
-          // Batch 51: muted text also sits on base-200/300 headers). See the
-          // `colors` block above and base-content-muted.spec.ts.
-          '--bcm': '50.847645% 0.043215 351.109855',
+          // Secondary text tier. 34.2% toward base-100 in OKLCH → 6.03:1 on
+          // base-100, 5.39:1 on base-200, 5.01:1 on base-300 (the 40% value
+          // was 4.47:1 on base-200). See the `colors` block above and
+          // base-content-muted.spec.ts.
+          '--bcm': '48.955188% 0.044796 348.478612',
 
           // SEMANTIC COLORS (cupcake exact match)
           info: 'oklch(68% 0.169 237.323)',

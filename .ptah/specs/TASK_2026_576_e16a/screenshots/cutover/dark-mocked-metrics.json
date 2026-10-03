@@ -1,0 +1,381 @@
+{
+  "issues": [],
+  "metrics": [
+    {
+      "name": "mock-changes-empty-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "mock-changes-empty-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "mock-changes-empty-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "task-pr-ok-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[408..1186]"
+      ]
+    },
+    {
+      "name": "task-pr-ok-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[408..1186]",
+        "bdi[891..1186]"
+      ]
+    },
+    {
+      "name": "task-pr-ok-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[408..1186]",
+        "bdi[891..1186]"
+      ]
+    },
+    {
+      "name": "task-pr-quiet-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[408..1186]"
+      ]
+    },
+    {
+      "name": "task-pr-quiet-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[408..1186]",
+        "bdi[891..1186]"
+      ]
+    },
+    {
+      "name": "task-pr-quiet-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[408..1186]",
+        "bdi[891..1186]"
+      ]
+    },
+    {
+      "name": "history-unavailable-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "history-unavailable-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "history-unavailable-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "history-empty-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "history-empty-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "history-empty-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "changes-diff-error-wide",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 665,
+        "y": 40,
+        "width": 567,
+        "height": 695
+      },
+      "clipped": []
+    },
+    {
+      "name": "changes-diff-error-narrow",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 913,
+        "y": 40,
+        "width": 319,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[906..1000]"
+      ]
+    },
+    {
+      "name": "changes-diff-error-min",
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
+      "shellRect": {
+        "x": 933,
+        "y": 40,
+        "width": 299,
+        "height": 695
+      },
+      "clipped": [
+        "bdi[906..1000]"
+      ]
+    }
+  ],
+  "focus": [
+    {
+      "surface": "mtask",
+      "stop": 0,
+      "tag": "button",
+      "label": "Refresh task view",
+      "focusVisible": false,
+      "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1198,
+        123,
+        22,
+        24
+      ]
+    },
+    {
+      "surface": "mtask",
+      "stop": 1,
+      "tag": "a",
+      "label": "task-pr-open",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1148,
+        322,
+        72,
+        24
+      ]
+    },
+    {
+      "surface": "mtask",
+      "stop": 2,
+      "tag": "button",
+      "label": "task-worktree-add-toggle",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1172,
+        367,
+        48,
+        24
+      ]
+    },
+    {
+      "surface": "mtask",
+      "stop": 3,
+      "tag": "button",
+      "label": "Switch to feat/task-2026-576-with-a-rather-long-br",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "none",
+      "rect": [
+        677,
+        395,
+        543,
+        24
+      ]
+    },
+    {
+      "surface": "mtask",
+      "stop": 4,
+      "tag": "button",
+      "label": "Switch to agent/task, C:\\ptah-e2e-ws\\.claude-workt",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "none",
+      "rect": [
+        677,
+        421,
+        517,
+        24
+      ]
+    },
+    {
+      "surface": "mtask",
+      "stop": 5,
+      "tag": "button",
+      "label": "Remove worktree agent/task",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1198,
+        421,
+        22,
+        24
+      ]
+    },
+    {
+      "surface": "mtask",
+      "stop": 6,
+      "tag": "button",
+      "label": "Switch to (detached), C:\\ptah-e2e-ws\\.claude-workt",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "none",
+      "rect": [
+        677,
+        447,
+        517,
+        24
+      ]
+    },
+    {
+      "surface": "mtask",
+      "stop": 7,
+      "tag": "button",
+      "label": "Remove worktree (detached)",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "rect": [
+        1198,
+        447,
+        22,
+        24
+      ]
+    }
+  ]
+}

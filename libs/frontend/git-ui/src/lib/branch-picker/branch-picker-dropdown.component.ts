@@ -65,7 +65,7 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
         class="absolute top-full left-0 z-50 mt-1 min-w-72 rounded border border-base-content/10 bg-base-200 shadow-lg"
       >
         <input
-          class="input input-xs m-2 w-[calc(100%-1rem)]"
+          class="input input-xs m-2 w-[calc(100%-1rem)] focus-visible:outline-[oklch(var(--s))]"
           aria-label="Search branches"
           placeholder="Search branches…"
           [ngModel]="query()"
@@ -286,7 +286,7 @@ type SwitchMode = Pick<GitCheckoutParams, 'stash' | 'force'>;
         </div>
         <div class="flex gap-1 border-t border-base-content/10 p-2">
           <input
-            class="input input-xs flex-1"
+            class="input input-xs flex-1 focus-visible:outline-[oklch(var(--s))]"
             aria-label="New branch name"
             placeholder="New branch"
             [ngModel]="newBranch()"

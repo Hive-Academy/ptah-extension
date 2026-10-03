@@ -68,6 +68,27 @@ describe('buildChangedFileTree', () => {
     });
   });
 
+  it('lists an untracked directory as one leaf entry, not an empty folder (parity row 80)', () => {
+    const dir: GitFileStatus = {
+      path: 'build/out/',
+      status: '??',
+      staged: false,
+      isDirectory: true,
+    };
+    const tree = buildChangedFileTree([dir]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]).toMatchObject({ kind: 'folder', name: 'build' });
+    expect(tree[0].children).toHaveLength(1);
+    const [leaf] = tree[0].children;
+    expect(leaf).toMatchObject({
+      kind: 'file',
+      name: 'out',
+      path: 'build/out',
+      children: [],
+    });
+    expect(leaf.kind === 'file' && leaf.file).toBe(dir);
+  });
+
   it('keeps every file that shares a folder', () => {
     const tree = buildChangedFileTree([
       { path: 'src/a.ts', isDirectory: false },

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 57/69 (P5 closed)
+Total tasks: 87 | Batches: 69 | Complete: 69/69 (P5 closed; P2-P5 merged into main; Cutover phase-end review closed, PR #630 ready)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2345,14 +2345,35 @@ executors at once.
 
 # Cutover — mount, parity, deletion, Monaco removal (runs after P5; V3)
 
-## Batch 58: Mount switch and file-link routing — PENDING
+## Cutover waves (branch `feat/task-2026-576-cutover`, worktree `.claude-worktrees/task-576-cutover`, PR stacked on P5)
+
+| Wave | Batches | Notes |
+|---|---|---|
+| C1 | 58 | mount + Batch 43/48/54 cutover checklist + Task 58.2 |
+| C2 | 59 → 60 → 61 | e2e successors; single specs with their own user-data folder (never the full Electron suite locally); Batch 60 re-measures A9 |
+| C3 | 62 | parity matrix; any row without a green test blocks 63-66 |
+| C4 | 63 → 64 | coordinator swap, then old-surface deletion (approved removals only) |
+| C5 | 65 → 66 | Monaco removal, packaging |
+| C6 | 67 ∥ 68 | bundle/TTI/VSIX evidence; axe sweep |
+| C7 | 69 | task-wide scoped verification, then the cutover phase-end review (logic + visual, dark and light) |
+
+Cutover checklist carried from P3-P5 (Batch 58 owns it): load `ReviewShellComponent` in `electron-shell.component.ts`
+(~372) with Retry on chunk failure; register `FileContentChangesService` and `GitOperationOutputService` under
+`MESSAGE_HANDLERS` (with a spec that asserts it); bind `AGENT_FEEDBACK_SENDER` for the shell; point
+`FileLinkRouterService.openInDock` at `ReviewNavigationService.openFile`; Task 58.2 (`ChangeSetActionsService` Electron
+path → `ReviewNavigationService`); retarget the git-dock specs/e2e; move `statusUnavailableLabel` out of
+source-control-panel; in `review-navigation.service.ts` drop the `tab !== current.tab` unsaved-changes condition for
+a tab-only switch; disable the tabs' primary actions while a conflict is open (design-spec §11); wire the canvas Edit
+button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
+
+## Batch 58: Mount switch and file-link routing — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope; visual-reviewer on every new surface against `prototype/` (dark + light)
 - Tasks: 2 | Depends on: Batches 44, 48, 50, 54, 56
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat ptah-extension-webview`
 
-### Task 58.1: `electron-shell.component.ts` mounts `ReviewShellComponent` — PENDING
+### Task 58.1: `electron-shell.component.ts` mounts `ReviewShellComponent` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/git-dock-arming-identity.spec.ts
 - Plan reference: implementation-plan.md:969-994
@@ -2361,7 +2382,7 @@ executors at once.
 - Validation notes: V3; Task 37.2 routing activates here if it was deferred.
 - Implementation details: `m.ReviewShellComponent`.
 
-### Task 58.2: Links and card actions to `ReviewNavigationService` — PENDING
+### Task 58.2: Links and card actions to `ReviewNavigationService` — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/file-link-router.service.ts (+ spec); MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/change-set/change-set-actions.service.ts (+ spec)
 - Plan reference: implementation-plan.md:870, 1122, 1141
@@ -2369,15 +2390,28 @@ executors at once.
 - Quality requirements: dynamic import of git-ui only.
 - Validation notes: Task 30.1 validation note.
 - Implementation details: `openFile(path, line?)`, `openChangeSet(...)`.
+- Outcome (`81fb6f5f6`): executor frontend-developer. Dock effect loads `m.ReviewShellComponent`; Retry on chunk
+  failure kept (new `electron-shell.review-dock.spec.ts`); arming-identity spec retargeted. Checklist: (1)
+  `FileContentChangesService` + `GitOperationOutputService` under `MESSAGE_HANDLERS` via `@ptah-extension/git-ui/services`
+  (spec `review-shell-message-handlers.spec.ts`, real router round-trip); (2) `AGENT_FEEDBACK_SENDER` already bound at
+  the root (`app.config.ts:210`), now pinned by the spec; (3) `statusUnavailableLabel` → `services/git-status-unavailable-label.ts`;
+  (4) tab-only switch keeps the file target, no prompt; (5) Commit and worktree Create disabled while an operation is
+  open (spot-editor Save and draft-bar Send stay enabled — resolving needs them); (6) canvas Edit on working-tree/staged
+  text files → `openFile(path, firstHunkLine?, { editable: true, workspaceRoot })`. 58.2: `openInDock` →
+  `ReviewNavigationService.openFile` by dynamic import (reveal undone on failure); Electron card actions → `openChangeSet`,
+  `openFile`, `selectComparison('worktree')`; VS Code path unchanged. Deviations: `openFile` options gain `column`,
+  `workspaceRoot`, `documentPath` (background sessions, markdown previews); `workspace-coordinator.service.spec.ts`
+  mocks `@pierre/diffs` (was failing since Batch 43). Verified: git-ui 1140, chat 1737, webview 313 tests,
+  typecheck/lint green; eager guard `main.js` 370,866 B gz (+251 B, the two relays).
 
-## Batch 59: E2E successors I — PENDING
+## Batch 59: E2E successors I — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 58
 - Verification: `npx nx run-many -t lint,typecheck -p ptah-electron-e2e` + `npx nx e2e ptah-electron-e2e --grep "git"` scoped to these specs (tail)
 
-### Task 59.1: axe helper, dock/shell, hunk specs — PENDING
+### Task 59.1: axe helper, dock/shell, hunk specs — COMPLETE
 
 - Files (under D:/projects/ptah-extension/apps/ptah-electron-e2e/src/): CREATE `support/axe.ts`; MODIFY `specs/git/git-dock.spec.ts`, `specs/git/hunk-apply-real-rpc.spec.ts`, `specs/git/hunk-widget-mouse.spec.ts`, `specs/git/glyph-margin-visual.spec.ts`, `specs/git/hunk-revert-top-layer.spec.ts`
 - Plan reference: implementation-plan.md:1043, 1058
@@ -2385,15 +2419,22 @@ executors at once.
 - Quality requirements: axe dark + light, no critical/serious.
 - Validation notes: successor tests referenced by `parity-tests.md`.
 - Implementation details: as plan.
+- Outcome (`f8d9c2052`): executor senior-tester. `support/axe.ts` (`setTheme`, `runAxe`,
+  `expectNoBlockingViolationsInBothThemes`); ui-driver helpers `reviewShell`, `reviewTab`, `reviewFileSection`, `hunkHost`,
+  `hunkAction`. Retargeted dock, hunk-apply (real RPC), hunk mouse, revert top-layer and theme specs; Monaco glyph margin
+  and floating widget have successors in the hunk rows (VS Code high-contrast case dropped: webview-only). Product
+  defects found and fixed: hunk mapping used jsdiff's 4 context lines (`d9702a514`); axe `scrollable-region-focusable`
+  on Pierre code panes and light `color-contrast` on header counts/comparison totals (`8bb06fccb`). Out of scope: the
+  older "C# AST reaches the packaged app" test fails with `indexing:start not accepted: never-indexed`.
 
-## Batch 60: E2E successors II — PENDING
+## Batch 60: E2E successors II — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 59
 - Verification: as Batch 59
 
-### Task 60.1: state, controls, rail, perf, large canvas, comments — PENDING
+### Task 60.1: state, controls, rail, perf, large canvas, comments — COMPLETE
 
 - Files (under D:/projects/ptah-extension/apps/ptah-electron-e2e/src/specs/git/): MODIFY `diff-view-state.spec.ts`, `git-review-controls.spec.ts`, `git-rail-collapse.spec.ts`, `perf-m1-diff-redisplay.spec.ts`; CREATE `review-canvas-large.spec.ts`, `review-comments.spec.ts`
 - Plan reference: implementation-plan.md:1039, 1043-1044
@@ -2401,15 +2442,21 @@ executors at once.
 - Quality requirements: ≥50 fps, no long task >200 ms on the 200-file/10,000-line fixture (recorded).
 - Validation notes: A9 result confirmed.
 - Implementation details: as plan.
+- Outcome (`370fcd109`): executor senior-tester. Retargeted state, review controls, rail collapse and re-display perf
+  (Changes → Task → Changes, median 129.7 ms / max 191.7 ms); new `review-canvas-large` (200 files / 10,000 lines) and
+  `review-comments` (3/3). Folding has no successor (Pierre has none). Defect found and fixed: reading position lost
+  after tab/comparison round trips (`d2d1928f5`, per-comparison anchor + frame re-anchor). A9 on this loaded machine:
+  41.4-50.0 fps, longest task 104-242 ms (target ≥50 fps, ≤200 ms) — see `bundle-measurements.md`; re-measured after
+  the fix in the verification run.
 
-## Batch 61: E2E successors III — PENDING
+## Batch 61: E2E successors III — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 60
 - Verification: as Batch 59
 
-### Task 61.1: file view, links, spot-editor save, commit composer, worktree view — PENDING
+### Task 61.1: file view, links, spot-editor save, commit composer, worktree view — COMPLETE
 
 - Files (under D:/projects/ptah-extension/apps/ptah-electron-e2e/src/specs/git/): MODIFY `file-view-tab.spec.ts`, `agent-file-links.spec.ts`; CREATE `spot-editor-save.spec.ts`, `commit-composer.spec.ts`, `task-worktree-view.spec.ts`
 - Plan reference: implementation-plan.md:1128-1129, 1235, 1281
@@ -2417,15 +2464,21 @@ executors at once.
 - Quality requirements: hook prints three lines over 2 s, all arrive before completion.
 - Validation notes: none.
 - Implementation details: as plan.
+- Outcome (`83595fa0c`): executor senior-tester. All pass: `file-view-tab` 1/1, `agent-file-links` 3/3 (no background-
+  session successor: the old spec never covered it), `spot-editor-save` 4/4 (disk read-back, CRLF kept, conflict
+  dialog, unsaved Back asks), `commit-composer` 4/4 (three hook lines over 2 s arrive before success; failing hook
+  keeps message and log; Cancel leaves no `index.lock`), `task-worktree-view` 3/3 (switch only on click, confirmed
+  Remove, quiet PR line). New `support/spot-editor.ts`. Stale `commit-hook-failure.spec.ts` retargeted in the
+  verification run.
 
-## Batch 62: Parity matrix — PENDING
+## Batch 62: Parity matrix — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent) — cross-check rows against `parity-inventory.md` and the OLD surface at 722d921ab
 - Tasks: 1 | Depends on: Batch 61
 - Verification: every `keep`/`move` row maps to a passing test (file:line); the 4 approved removals listed
 
-### Task 62.1: `parity-tests.md` — PENDING
+### Task 62.1: `parity-tests.md` — COMPLETE
 
 - File: CREATE D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/parity-tests.md
 - Plan reference: implementation-plan.md:1178-1194
@@ -2433,15 +2486,24 @@ executors at once.
 - Quality requirements: any row without a green test blocks Batches 63-66.
 - Validation notes: R10.
 - Implementation details: run `nx run-many -t test,lint,typecheck -p @ptah-extension/git-ui @ptah-extension/chat @ptah-extension/chat-ui @ptah-extension/skill-synthesis-ui ptah-extension-webview` and the Electron e2e `specs/git/*`; record results.
+- Outcome: executor senior-tester (`5e120df3a`, 4 tests added); independent review by a code-logic-reviewer subagent
+  on Sonnet (`reviews/parity-tests-review.md`, REVISE: P-1..P-14, 47 rows sampled). Blocker row 135 restored
+  (`e6ef69706`, inline layout for added/deleted files in branch review). P-1 (diff-tab close, Delete, wrap) was a
+  fifth removal outside the approved list, so it got a successor instead of a waiver: collapse a file from its
+  header, Delete or a tree row, and wrapping file stepping; P-2..P-13 closed with successors and tests (`60ab360b4`).
+  Matrix: 118 rows (64 keep, 51 move, 4 approved removals), 0 blockers, 438 citations resolve to test lines. Stale
+  e2e `row-stage-failure` and the git docs shots retargeted; `support/source-control.ts` now unused (Batch 64).
+  Runs: git-ui 1208, chat 1737, chat-ui 433, skill-synthesis-ui 428, webview 313 tests; e2e git specs green after
+  rebuild (except the out-of-scope C# AST test).
 
-## Batch 63: WorkspaceCoordinator swap — PENDING
+## Batch 63: WorkspaceCoordinator swap — COMPLETE
 
 - Recommended executor: CLI lane | Fallback: frontend-developer | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 62
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat`
 
-### Task 63.1: Resolve `ReviewDiffService`/`GitReviewService` from the new surface — PENDING
+### Task 63.1: Resolve `ReviewDiffService`/`GitReviewService` from the new surface — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/libs/frontend/chat/src/lib/services/workspace-coordinator.service.ts (+ spec)
 - Plan reference: implementation-plan.md:1190, 1198
@@ -2449,15 +2511,20 @@ executors at once.
 - Quality requirements: must land before Batch 64 deletes `DiffTabsService`.
 - Validation notes: none.
 - Implementation details: as plan.
+- Outcome (`20cd58125`): executor frontend-developer. The coordinator resolves `GitStatusService`,
+  `GitBranchesService`, `ReviewDiffService` (lazy `/services` entry) and `GitReviewService` (main barrel) by dynamic
+  import and switches/clears all four per workspace. No chat reference to the old surface remains. For Batch 64:
+  `app.config.ts:66, 225-226` still provide `DiffTabsService`; if `GitReviewService` leaves the main barrel, add it to
+  `services.ts` and switch the coordinator import. Verified: chat 1737 tests, typecheck/lint, eager guard.
 
-## Batch 64: Old-surface deletion and barrel rewrite — PENDING
+## Batch 64: Old-surface deletion and barrel rewrite — COMPLETE
 
 - Recommended executor: frontend-developer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 63
 - Verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/git-ui ptah-extension-webview @ptah-extension/chat`
 
-### Task 64.1: Delete old git-ui files; rewrite barrel; drop `DiffTabsService` routing (V6) — PENDING
+### Task 64.1: Delete old git-ui files; rewrite barrel; drop `DiffTabsService` routing (V6) — COMPLETE
 
 - Files: DELETE the files listed at implementation-plan.md:1183-1187 under D:/projects/ptah-extension/libs/frontend/git-ui/src/lib/ (exception (b)); REWRITE D:/projects/ptah-extension/libs/frontend/git-ui/src/index.ts; MODIFY D:/projects/ptah-extension/libs/frontend/git-ui/src/services.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts
 - Plan reference: implementation-plan.md:1178-1199
@@ -2465,15 +2532,26 @@ executors at once.
 - Quality requirements: barrel ≤150 lines; doc comment "depends on core, shared, ui and markdown — never on chat"; keep `rail-resize-handle.*`, `git-dock-header.*`, `changed-file-tree.ts`.
 - Validation notes: only the 4 approved removals lack successors.
 - Implementation details: move still-used types out of `types/diff-tab.types.ts` first.
+- Outcome: executor frontend-developer. Deleted 25 git-ui files (old dock, source-control panel and rows, diff-view,
+  file-view, git-review panel/rows/toolbar, worktree section, `DiffTabsService`, Monaco loader/theme, `diff-tab.types`)
+  per implementation-plan.md:1193-1198, and the unused e2e `support/source-control.ts`. Types moved to
+  `types/review-diff.types.ts` and `types/file-view.types.ts`. Barrel 18 lines (`GitReviewService`,
+  `ReviewNavigationService`, `ReviewShellComponent`) with the "never on chat" doc comment; `DiffTabsService` dropped
+  from `services.ts` and `app.config.ts`. Approved removals 2 and 3 (`getOriginalContent`, `refreshTags`) deleted;
+  the stash dock fallback removed (row 110 moved to the canvas). No parity citation pointed into a deleted file;
+  moved citations remapped (438 resolve). Verified: git-ui 918, webview 313, chat 1737, chat-ui 433,
+  skill-synthesis-ui 428 tests; typecheck/lint green; eager guard `main.js` 357.8 KB gz (was ~369.5 KB);
+  `git-dock.spec.ts` 6/6 after rebuild. Left for 65/66: `provideMonacoEditor`, Monaco packages, stale Monaco
+  comments, the `ptah-diff-view` guard marker.
 
-## Batch 65: Monaco dependency and provider removal — PENDING
+## Batch 65: Monaco dependency and provider removal — COMPLETE
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 64
 - Verification: `npx nx run-many -t typecheck,test,lint,build -p ptah-extension-webview` + `verify-eager-bundle`
 
-### Task 65.1: Remove Monaco packages, provider, asset glob; set `statsJson` (A8) — PENDING
+### Task 65.1: Remove Monaco packages, provider, asset glob; set `statsJson` (A8) — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/package.json (+ lockfile); MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/src/app/app.config.ts; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/project.json; MODIFY D:/projects/ptah-extension/apps/ptah-extension-vscode/.vscodeignore
 - Plan reference: implementation-plan.md:1148-1150, 1155
@@ -2481,15 +2559,23 @@ executors at once.
 - Quality requirements: no `assets/monaco` in `dist/apps/ptah-extension-webview`.
 - Validation notes: A8 — inspect `stats.json` for `outputs[].inputs`; record.
 - Implementation details: remove `overrides.monaco-editor`.
+- Outcome: executor devops-engineer. Removed `monaco-editor`, `ngx-monaco-editor-v2` and `overrides.monaco-editor`
+  (`npm uninstall --package-lock-only --ignore-scripts`; shared node_modules untouched), `provideMonacoEditor`, the
+  `/assets/monaco` glob, the `.vscodeignore` Monaco block and the `copy-webview.js` Monaco filter; stale comments in
+  `file-link-router.service.ts` and `skill-synthesis-ui/eslint.config.mjs` corrected. No source imports Monaco.
+  A8: `statsJson: true` (production); `dist/apps/ptah-extension-webview/stats.json` has `outputs[].inputs` (676
+  outputs; `main.js` 283 inputs). Production build has no `assets/monaco` (dist 21.91 MB). Verified: webview 313
+  tests, typecheck/lint, eager guard; typecheck git-ui, chat, skill-synthesis-ui, ptah-electron. Historical Monaco
+  comments left (listed in the report).
 
-## Batch 66: Packaging — PENDING
+## Batch 66: Packaging — COMPLETE
 
 - Recommended executor: devops-engineer | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): CLI lane, logic scope
 - Tasks: 1 | Depends on: Batch 65
 - Verification: `npx nx run-many -t test -p ptah-electron` (packaged-deps spec) + VSIX package listing
 
-### Task 66.1: Electron-only chunk list, VSIX filter, packaged-deps assertions — PENDING
+### Task 66.1: Electron-only chunk list, VSIX filter, packaged-deps assertions — COMPLETE
 
 - Files: MODIFY D:/projects/ptah-extension/apps/ptah-electron/src/config/packaged-deps.spec.ts; MODIFY D:/projects/ptah-extension/apps/ptah-electron/scripts/prune-dist-deps.js; MODIFY D:/projects/ptah-extension/apps/ptah-electron/scripts/copy-renderer.js (comment only); MODIFY D:/projects/ptah-extension/scripts/copy-webview.js; MODIFY D:/projects/ptah-extension/apps/ptah-extension-webview/scripts/assert-eager-bundle.mjs
 - Plan reference: implementation-plan.md:1151-1158, 1162-1165
@@ -2497,15 +2583,25 @@ executors at once.
 - Quality requirements: only chunks whose every input is Electron-only are dropped; Pierre chunks kept.
 - Validation notes: R12.
 - Implementation details: `electron-only-chunks.json`.
+- Outcome: executor devops-engineer. `scripts/electron-only-chunks.js` classifies `stats.json` outputs: Electron-only
+  when every input is git-ui `lib/<dir>` other than `services`/`types`/`renderer`, or the CodeMirror closure; input-less
+  shims dropped only if all importers drop; statically imported chunks rescued. `assert-eager-bundle.mjs` writes
+  `electron-only-chunks.json`, drops the stale `ptah-diff-view` marker and fails on a marker found in no chunk;
+  `copy-webview.js` filters the VSIX copy (Electron renderer copy keeps all). Counts: 592 chunks, 126 Electron-only
+  (~1.6 MB raw), 466 kept, 319 Pierre kept; VSIX copy has 0 CodeMirror/Lezer chunks, 0 monaco paths. `packaged-deps`
+  11/11, ptah-electron 1084 tests. Orchestrator fix: the workspace coordinator imported the main git-ui barrel without
+  an Electron gate, so `GitReviewService` is now exported from `/services` and the coordinator uses only that entry
+  (file-link and change-set imports are Electron-gated). Noted: review shell/canvas/conflict/history code shares
+  chunks with eager services and stays in the VSIX; a pre-existing missing static import `chunk-5JJ6SBZ6.js`.
 
-## Batch 67: Final bundle, TTI and VSIX evidence — PENDING
+## Batch 67: Final bundle, TTI and VSIX evidence — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 66
 - Verification: the rows below recorded
 
-### Task 67.1: `bundle-measurements.md` end rows — PENDING
+### Task 67.1: `bundle-measurements.md` end rows — COMPLETE
 
 - File: MODIFY D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/bundle-measurements.md
 - Plan reference: implementation-plan.md:1473-1479
@@ -2513,15 +2609,20 @@ executors at once.
 - Quality requirements: `main.js` gz ≤ baseline; TTI second boot ≤ baseline; VSIX has no `@codemirror` chunk; skills diff drawer opens in VS Code (R12).
 - Validation notes: R12.
 - Implementation details: n/a
+- Outcome: executor senior-tester. `main.js` 338,714 B gz vs baseline 401,859 B (PASS); eager closure 782,442 B vs
+  817,705 B (PASS); TTI second boot 690/706/977 ms vs 14,557 ms (PASS, dev renderer under load — read as "not slower");
+  packed `.vsix` (offline `vsce package --no-dependencies`, stub host): 0 CodeMirror/Lezer, 0 monaco, 319 Pierre
+  chunks, 0 broken relative chunk imports. R12: unit (`lazy-diff-view` 6/6) + packaging evidence (the drawer's
+  diff-renderer chunks are in the VSIX); no live VS Code run covers the Skills drawer — manual check open.
 
-## Batch 68: Axe sweep on VS Code card and review surfaces — PENDING
+## Batch 68: Axe sweep on VS Code card and review surfaces — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane with image input | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): visual-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 67
 - Verification: axe report dark + light for shell, canvas, spot editor, composer, task view, banner, history, card
 
-### Task 68.1: Axe evidence — PENDING
+### Task 68.1: Axe evidence — COMPLETE
 
 - File: evidence under D:/projects/ptah-extension/.ptah/specs/TASK_2026_576_e16a/screenshots/axe/
 - Plan reference: implementation-plan.md:1437, 1471
@@ -2529,15 +2630,23 @@ executors at once.
 - Quality requirements: no critical/serious.
 - Validation notes: none.
 - Implementation details: n/a
+- Outcome: executor senior-tester (`3d2319052`), fixes by frontend-developer (`8c0fc2c43`). 13 surfaces audited in dark
+  and light (evidence `screenshots/axe/`); 6 failed first: Pierre expand buttons unnamed, Pierre light contrast, read-only
+  CodeMirror not focusable, muted text on base-200/300, light ahead/behind arrows, light primary hover. Fixes: labels in
+  the post-render hook, `ptah-light` (github-light-high-contrast) theme, one tab stop in the spot editor, `--bcm`
+  re-derived for base-100/200/300 in every theme, full-strength arrows, darker light `primary-content`; the helper now
+  switches `ThemeService` and waits for transitions. After: all 0/0. VS Code card: Electron render passes; VS Code e2e
+  cannot render it. Known gaps: `pierre-dark` comment tokens 2.9-3.3, Pierre expand buttons not tab stops. The
+  commit-composer stream test race was in the spec (`ec72d7de6`), not the product.
 
-## Batch 69: Task-wide scoped verification — PENDING
+## Batch 69: Task-wide scoped verification — COMPLETE
 
 - Recommended executor: senior-tester | Fallback: CLI lane | Mode: sequential
 - Reviewer (phase-end scope, see Review cadence): code-logic-reviewer (subagent)
 - Tasks: 1 | Depends on: Batch 68
 - Verification: `npx nx run-many -t typecheck,test,lint -p <projects changed on the branch>` (list from `git diff --name-only main`), tailed
 
-### Task 69.1: Final run and allowlist diff — PENDING
+### Task 69.1: Final run and allowlist diff — COMPLETE
 
 - File: none authored; evidence in the report
 - Plan reference: implementation-plan.md:1586-1596
@@ -2545,7 +2654,36 @@ executors at once.
 - Quality requirements: `command:execute` allowlist unchanged (diff of `command-rpc.handlers.ts:29, 35-40`); manifest invariant green.
 - Validation notes: all risks above have a recorded resolution.
 - Implementation details: n/a
+- Outcome: executor senior-tester (`reviews/batch-69-verification.md`). 15 changed projects typecheck/test/lint green in
+  CI Jest mode (`NODE_OPTIONS=--no-experimental-require-module`), except the known machine-local
+  `harness-skill-selection` spec; test-only fix: `electron-shell.review-dock.spec.ts` lacked `MODEL_REFRESH_CONTROL`.
+  Degradation audit, eager guard, `validate-deps`, real-git (181 passed, 2 skipped) green. `command:execute` allowlist
+  diff empty against `origin/main` and `722d921ab`; manifest invariant green. Open (live checks only): R3 Windows
+  watcher e2e, R7 card-to-turn reopen e2e, R12 live VS Code Skills drawer, A5 which worktree-removal path fires, A10
+  real `gh` ≥2.20.
 
 ### Cutover phase-end review
 
-- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the Cutover phase diff, the full e2e set, visual review of every mounted surface against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
+- [x] Phase-end review checkpoint (Review cadence): one cross-side review lane on the Cutover phase diff, the full e2e set, visual review of every mounted surface against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
+
+Outcome (orchestrator, 2026-10-03):
+
+- Logic review: round 0 by a Sonnet code-logic-reviewer subagent (`reviews/cutover-phase-review.md`, REVISE 7/10) →
+  fix `825a12ab0` → round 1 by a **codex lane** (cross-side, cross-family; the user allowed codex for this session;
+  antigravity at quota, Glm timed out, opencode judged too weak) `reviews/cutover-phase-review-round1.md` REVISE 7/10,
+  5 residual defects → fix `68251d0e4` → round 2 `reviews/cutover-phase-review-round2.md` **APPROVED 9/10**, none open.
+- Visual review: round 0 REVISE 6/10 (V-1..V-9) → fixes `2c7a95130`, `f5594b9c1` → round 1
+  (`reviews/cutover-visual-review-round1.md`) REVISE 8/10 (N-1 dark axe contrast, N-2..N-4) → fix `e0aeab566` →
+  round 2 REVISE 8/10 (N-5 caret clipped, N-6 light Pierre dark) → bounded correction `907a10283` (N-6 was a harness
+  theme-timing artefact; harness fixed) → round 3 (`reviews/cutover-visual-review-round3.md`) **APPROVED 9/10**.
+  Screenshots in `screenshots/cutover/` (dark + light, 567/319/299 px).
+- Code review of the visual fixes, codex lane: `reviews/cutover-visual-fix-code-review.md` REVISE (3 MOD) →
+  `-round1.md` APPROVED → `-round2.md` REVISE (caret clip) → bounded correction → `-round3.md` **APPROVED 9/10**.
+- Axe, singly: git-dock 7/7, commit-composer 7/7 (round 3); spot-editor-save, task-worktree-view,
+  conflict-and-history-axe passed in round 2 — all 0 critical/serious, dark and light. Full e2e set: CI Electron E2E,
+  Webview E2E and CLI E2E green on `e0aeab566`; the final head is checked on PR #630.
+- Accepted minors: `review-canvas.component.ts` 708/700 lines (max-lines warning, V-5 wiring); Split chosen at a 319 px
+  dock clips the hunk toolbar's right edge (scrollable); comments inside a highlighted changed-word span on an added
+  line reach ~3.9:1 in ptah-dark (axe does not flag it); a manual theme switch with the dock open was not captured
+  (the git-dock axe pass switches it and renders correctly). CI flake: `git-watcher.real-git.spec.ts` "remote-tracking
+  ref … pushes a refs change" (3 s window) failed once on `e0aeab566` with no ptah-electron change; re-run.

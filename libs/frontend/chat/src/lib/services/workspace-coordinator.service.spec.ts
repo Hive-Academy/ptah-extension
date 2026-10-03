@@ -1,7 +1,7 @@
 /**
  * WorkspaceCoordinatorService specs — orchestrates workspace switching across
  * TabManager, SessionLoader, ConfirmationDialog and dynamically-resolved git
- * services (`GitStatusService`, `GitBranchesService` from `@ptah-extension/git-ui`).
+ * services (`GitStatusService`, `GitBranchesService` from `@ptah-extension/git-ui/services`).
  *
  * Coverage:
  *   - switchWorkspace delegates to tabManager + sessionLoader
@@ -24,9 +24,10 @@
  *   - The captured switchGeneration is re-checked after the awaited git
  *     resolution, so a superseded switch cannot apply last (TASK_2026_195).
  *   - A workspace switch reaches the REAL `GitStatusService` /
- *     `GitBranchesService` singletons resolved through `@ptah-extension/git-ui`
- *     (regression guard for the `Promise.all` bug above — TASK_2026_385
- *     Batch 4.1).
+ *     `GitBranchesService` / `ReviewDiffService` singletons resolved through
+ *     `@ptah-extension/git-ui/services` and `GitReviewService` through
+ *     `@ptah-extension/git-ui` (regression guard for the `Promise.all` bug
+ *     above — TASK_2026_385 Batch 4.1; review canvas — TASK_2026_576).
  */
 
 import { signal } from '@angular/core';
@@ -57,11 +58,6 @@ import { SessionLivenessReconcilerService } from './chat-store/session-liveness-
 import { FilePickerService } from './file-picker.service';
 import type { TabState } from '@ptah-extension/chat-types';
 
-// The git-ui barrel reaches the Pierre diff renderer, which ships ESM only;
-// nothing here renders a diff.
-jest.mock('@pierre/diffs', () => ({}));
-jest.mock('@pierre/diffs/worker', () => ({}));
-
 /**
  * `rpcCall` mocked at the module boundary so the regression describe block
  * below can resolve the REAL `GitStatusService` / `GitBranchesService`
@@ -79,6 +75,10 @@ jest.mock('@ptah-extension/core', () => {
     rpcCall: (...args: unknown[]) => mockGitRpcCall(...args),
   };
 });
+// The real git-ui barrel reaches the review canvas's Pierre renderer, which
+// ships ESM only; nothing here renders a diff.
+jest.mock('@pierre/diffs', () => ({}));
+jest.mock('@pierre/diffs/worker', () => ({}));
 
 type AuthStateSlice = Pick<AuthStateService, 'refreshAuthStatus'>;
 type ModelStateSlice = Pick<ModelStateService, 'refreshModels'>;
@@ -915,19 +915,26 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
   // guard (the same guard `resolveGitServices` itself respects).
   let service: WorkspaceCoordinatorService;
   let gitStatus: InstanceType<
-    typeof import('@ptah-extension/git-ui').GitStatusService
+    typeof import('@ptah-extension/git-ui/services').GitStatusService
   >;
   let gitBranches: InstanceType<
-    typeof import('@ptah-extension/git-ui').GitBranchesService
+    typeof import('@ptah-extension/git-ui/services').GitBranchesService
   >;
   let gitReview: InstanceType<
     typeof import('@ptah-extension/git-ui').GitReviewService
+  >;
+  let reviewDiff: InstanceType<
+    typeof import('@ptah-extension/git-ui/services').ReviewDiffService
+  >;
+  let reviewNavigation: InstanceType<
+    typeof import('@ptah-extension/git-ui/services').ReviewNavigationService
   >;
 
   beforeEach(async () => {
     mockGitRpcCall.mockReset();
     mockGitRpcCall.mockResolvedValue({ success: true, data: {} });
     const gitUi = await import('@ptah-extension/git-ui');
+    const gitUiServices = await import('@ptah-extension/git-ui/services');
 
     TestBed.configureTestingModule({
       providers: [
@@ -986,37 +993,61 @@ describe('WorkspaceCoordinatorService git regression (TASK_2026_385 Batch 4.1)',
     });
 
     service = TestBed.inject(WorkspaceCoordinatorService);
-    gitStatus = TestBed.inject(gitUi.GitStatusService);
-    gitBranches = TestBed.inject(gitUi.GitBranchesService);
+    gitStatus = TestBed.inject(gitUiServices.GitStatusService);
+    gitBranches = TestBed.inject(gitUiServices.GitBranchesService);
     gitReview = TestBed.inject(gitUi.GitReviewService);
+    reviewDiff = TestBed.inject(gitUiServices.ReviewDiffService);
+    reviewNavigation = TestBed.inject(gitUiServices.ReviewNavigationService);
   });
 
   afterEach(() => {
+    reviewDiff.dispose();
     gitStatus.stopListening();
     TestBed.resetTestingModule();
   });
 
-  it('notifies the REAL GitStatusService, GitBranchesService, and GitReviewService singletons of a workspace switch', async () => {
+  it('notifies the REAL GitStatusService, GitBranchesService, ReviewDiffService, GitReviewService and ReviewNavigationService singletons of a workspace switch', async () => {
     const gitStatusSwitch = jest.spyOn(gitStatus, 'switchWorkspace');
     const gitBranchesSwitch = jest.spyOn(gitBranches, 'switchWorkspace');
+    const reviewDiffSwitch = jest.spyOn(reviewDiff, 'switchWorkspace');
     const gitReviewSwitch = jest.spyOn(gitReview, 'switchWorkspace');
+    const navigationSwitch = jest.spyOn(reviewNavigation, 'switchWorkspace');
 
     await service.switchWorkspace('/ws/regression');
 
     expect(gitStatusSwitch).toHaveBeenCalledWith('/ws/regression');
     expect(gitBranchesSwitch).toHaveBeenCalledWith('/ws/regression');
+    expect(reviewDiffSwitch).toHaveBeenCalledWith('/ws/regression');
     expect(gitReviewSwitch).toHaveBeenCalledWith('/ws/regression');
+    expect(navigationSwitch).toHaveBeenCalledWith('/ws/regression');
   });
 
   it('notifies the REAL git services of a workspace removal', async () => {
     const gitStatusRemove = jest.spyOn(gitStatus, 'removeWorkspaceState');
     const gitBranchesRemove = jest.spyOn(gitBranches, 'removeWorkspaceState');
+    const reviewDiffRemove = jest.spyOn(reviewDiff, 'removeWorkspaceState');
     const gitReviewRemove = jest.spyOn(gitReview, 'removeWorkspaceState');
+    const navigationRemove = jest.spyOn(
+      reviewNavigation,
+      'removeWorkspaceState',
+    );
 
     await service.removeWorkspaceState('/ws/regression');
 
     expect(gitStatusRemove).toHaveBeenCalledWith('/ws/regression');
     expect(gitBranchesRemove).toHaveBeenCalledWith('/ws/regression');
+    expect(reviewDiffRemove).toHaveBeenCalledWith('/ws/regression');
     expect(gitReviewRemove).toHaveBeenCalledWith('/ws/regression');
+    expect(navigationRemove).toHaveBeenCalledWith('/ws/regression');
+  });
+
+  it('drops a spot-editor file opened in the workspace being left (SER-1)', async () => {
+    await service.switchWorkspace('/ws/a');
+    reviewNavigation.openFile('/ws/a/src/x.ts', 3);
+    expect(reviewNavigation.current().target.kind).toBe('file');
+
+    await service.switchWorkspace('/ws/b');
+
+    expect(reviewNavigation.current().target).toEqual({ kind: 'none' });
   });
 });
