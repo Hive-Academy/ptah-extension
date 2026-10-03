@@ -64,6 +64,7 @@ const NO_SELECTION: ActiveOutputStyleState = {
       [parityWrittenPath]="parityWrittenPath()"
       [parityWarning]="parityWarning()"
       [usingFallback]="usingFallback()"
+      [saving]="saving()"
       (activate)="emitted.push($event)"
       (copyToProject)="copies.push($event)"
     />
@@ -71,6 +72,7 @@ const NO_SELECTION: ActiveOutputStyleState = {
 })
 class HostComponent {
   readonly usingFallback = signal(false);
+  readonly saving = signal(false);
   readonly copies: { readonly name: string; readonly overwrite: boolean }[] = [];
   readonly styles = signal<readonly OutputStyleEntry[]>([
     BUILT_IN_DEFAULT,
@@ -385,6 +387,16 @@ describe('OutputStyleListComponent — CLI parity control', () => {
     });
   });
 
+  it('F4 (Batch 55b): the Edit and Delete icons of a built-in row dim to 50% (about 3:1 in light), not 40%', () => {
+    const row = fixture.nativeElement.querySelector('[data-testid="output-style-row-default"]') as HTMLElement;
+    for (const id of ['output-style-edit-button', 'output-style-delete-button']) {
+      const button = row.querySelector('[data-testid="' + id + '"]') as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect(button.className).toContain('disabled:opacity-50');
+      expect(button.className).not.toContain('disabled:opacity-40');
+    }
+  });
+
   describe('copy to this project (review item 16)', () => {
     const PROJECT_TERSE: OutputStyleEntry = { ...USER_STYLE, tier: 'project', relativePath: '.claude/output-styles/terse.md' };
     const copyButton = (): HTMLButtonElement =>
@@ -399,6 +411,18 @@ describe('OutputStyleListComponent — CLI parity control', () => {
       fixture.detectChanges();
     });
     afterEach(() => fixture.nativeElement.remove());
+
+    it('Batch 55b: while a copy saves, the focused Copy button keeps focus (aria-disabled) and refuses a second copy', () => {
+      copyButton().focus();
+      copyButton().click();
+      host.saving.set(true);
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(copyButton());
+      expect(copyButton().disabled).toBe(false);
+      expect(isDisabledControl(copyButton())).toBe(true);
+      copyButton().click();
+      expect(host.copies).toEqual([{ name: 'Terse', overwrite: false }]);
+    });
 
     it('copies straight away, without overwrite, when the project has no style of that name', () => {
       copyButton().click();
@@ -456,6 +480,14 @@ describe('OutputStyleListComponent — CLI parity control', () => {
 
     beforeEach(() => document.body.appendChild(fixture.nativeElement));
     afterEach(() => fixture.nativeElement.remove());
+
+    it('the "Command-line parity" summary has the Settings Tab ring, not the browser default (Batch 55b F5)', () => {
+      const summary = fixture.nativeElement.querySelector('[data-testid="output-style-parity-summary"]') as HTMLElement;
+      expect(summary.textContent?.trim()).toBe('Command-line parity');
+      expect(summary.className.split(/\s+/)).toEqual(expect.arrayContaining([
+        'focus-visible:outline', 'focus-visible:outline-2', 'focus-visible:outline-offset-2', 'focus-visible:outline-base-content',
+      ]));
+    });
 
     it('opens the collapsed section when a confirm is pending, with Cancel focused', () => {
       parityCheckbox().click();

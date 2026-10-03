@@ -40,16 +40,16 @@ export class UltracodeStateService {
    * Idempotent — a second call while already enabled does not overwrite the
    * stored previous effort (which would otherwise trap the user at xhigh).
    *
-   * `EffortStateService.setEffort` returns void and rolls its signal back on a
-   * failed write, so the effort is read back: when the pin did not land the
-   * mode stays off and this resolves `false`.
+   * Decided from the write's own result (`setEffort` resolves `false` when it
+   * failed): when the pin did not land the mode stays off and this resolves
+   * `false`. A read-back could not tell a failed pin from an effort that was
+   * already `xhigh` (m-3).
    */
   async enable(): Promise<boolean> {
     if (this._enabled()) return true;
     this.previousEffort = this.effortState.currentEffort();
     this._enabled.set(true);
-    await this.effortState.setEffort('xhigh');
-    if (this.effortState.currentEffort() === 'xhigh') return true;
+    if (await this.effortState.setEffort('xhigh')) return true;
     this._enabled.set(false);
     return false;
   }
@@ -58,7 +58,7 @@ export class UltracodeStateService {
    * Turn Ultracode OFF and restore the effort that was active before it was
    * enabled (including the SDK default when that was the prior state).
    *
-   * Read back like {@link enable}: when the restore did not land, effort is
+   * Decided from the write's own result like {@link enable}: when the restore did not land, effort is
    * still pinned, so the mode stays on (keeping the remembered effort for the
    * next attempt) and this resolves `false`.
    */
@@ -66,8 +66,7 @@ export class UltracodeStateService {
     if (!this._enabled()) return true;
     const restore = this.previousEffort;
     this._enabled.set(false);
-    await this.effortState.setEffort(restore);
-    if (this.effortState.currentEffort() === restore) return true;
+    if (await this.effortState.setEffort(restore)) return true;
     this._enabled.set(true);
     return false;
   }

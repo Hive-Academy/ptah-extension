@@ -101,6 +101,34 @@ describe('CredentialsTabComponent', () => {
     expect(query('credentials-delete')).toBeNull();
   });
 
+  describe('unreadable stored key (final review M-6)', () => {
+    const unreadable = () => connection({ hasKey: false, keyUnreadable: true });
+
+    it('shows "Could not read the stored key." with Retry and Replace, never "No key stored", "Not set" or "Add key"', () => {
+      render({ connection: unreadable() });
+      const text = query('credentials-key-unreadable');
+      expect(text?.textContent?.trim()).toBe('Could not read the stored key.');
+      expect(text?.className).toContain('text-base-content');
+      expect(text?.querySelector('lucide-angular')?.getAttribute('class')).toContain('text-warning');
+      const retry = query<HTMLButtonElement>('credentials-key-unreadable-retry');
+      expect(retry?.textContent?.trim()).toBe('Retry');
+      expect(retry?.className).toContain('focus-visible:outline-base-content');
+      expect(query('credentials-key-mask')).toBeNull();
+      // The user may overwrite an unreadable key.
+      expect(query('credentials-replace')?.textContent?.trim()).toBe('Replace');
+      const all = element.textContent ?? '';
+      for (const wording of ['No key stored', 'Not set', 'Add API key', 'Add key']) expect(all).not.toContain(wording);
+    });
+
+    it('Retry emits keyRetryRequested', () => {
+      render({ connection: unreadable() });
+      const retried = jest.fn();
+      fixture.componentInstance.keyRetryRequested.subscribe(retried);
+      query<HTMLButtonElement>('credentials-key-unreadable-retry')?.click();
+      expect(retried).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('shows the host\'s masked hint for a stored key, not selectable and with no copy action (Batch 28d)', () => {
     render({ connection: connection({ keyHint: '•••• 8f21' }) });
     const mask = query('credentials-key-mask');

@@ -24,6 +24,7 @@ import {
   connectionStateCopy,
   connectionStateDot,
   connectionStateLabel,
+  KEY_UNREADABLE_TEXT,
   primaryConnectionAction,
   resolveConnectionState,
   type ConnectionCardAction,
@@ -64,7 +65,7 @@ interface InlineAction {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ptah-native-card density="compact" [tone]="cardTone()" [spine]="cardSpine()" [clickable]="true"
-      [ariaLabel]="cardAriaLabel()" (activated)="detailsRequested.emit()" [attr.title]="statusCopy()"
+      [ariaLabel]="cardAriaLabel()" (activated)="detailsRequested.emit()" [attr.title]="keyUnreadable() ? keyUnreadableText : statusCopy()"
       [attr.data-state]="resolvedState()" data-testid="provider-connection-card">
       <div class="flex flex-col gap-0.5">
         <div class="flex min-h-7 items-center justify-between gap-2">
@@ -90,14 +91,23 @@ interface InlineAction {
               @if (isBlockedMain()) {
                 <lucide-angular [img]="AlertTriangleIcon" class="h-3 w-3" aria-hidden="true" />
                 <span data-testid="blocked-main-badge">Main agent · Needs attention ·</span>
+              } @else if (keyUnreadable()) {
+                <lucide-angular [img]="AlertTriangleIcon" class="h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
               } @else {
                 <span [class]="'h-1.5 w-1.5 shrink-0 rounded-full ' + dotClass()" aria-hidden="true"></span>
               }
-              <span data-testid="status-copy">{{ statusLabel() }}</span>
+              @if (keyUnreadable()) {
+                <span data-testid="card-key-unreadable">{{ keyUnreadableText }}</span>
+              } @else {
+                <span data-testid="status-copy">{{ statusLabel() }}</span>
+              }
             </span>
-            @if (inlineAction(); as action) {
-              <button type="button"
-                class="btn btn-link btn-xs h-6 min-h-6 !px-0 text-[11px] text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            @if (keyUnreadable()) {
+              <!-- M-6: the key's state is unknown, so the repair is a re-read, never "Add API key". -->
+              <button type="button" [class]="inlineActionClass" [attr.aria-label]="'Retry reading the stored key for ' + displayName()"
+                (click)="keyRetryRequested.emit()" data-testid="card-key-unreadable-retry">Retry</button>
+            } @else if (inlineAction(); as action) {
+              <button type="button" [class]="inlineActionClass"
                 [attr.aria-label]="action.ariaLabel" (click)="action.emit.emit()" [attr.data-testid]="action.testId">
                 {{ action.label }}
               </button>
@@ -121,6 +131,9 @@ interface InlineAction {
 })
 export class ProviderConnectionCardComponent {
   protected readonly AlertTriangleIcon = AlertTriangle;
+  protected readonly keyUnreadableText = KEY_UNREADABLE_TEXT;
+  protected readonly inlineActionClass =
+    'btn btn-link btn-xs h-6 min-h-6 !px-0 text-[11px] text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
   /** Provider registry or connection identifier (e.g. 'anthropic', 'moonshot', 'claude-cli'). */
   readonly providerId = input<string>('');
@@ -166,6 +179,11 @@ export class ProviderConnectionCardComponent {
   readonly workspaceCrossApp = input<boolean>(false);
   /** Consumers using this connection ("Used by N"); null while unknown (hidden, never a guessed 0). */
   readonly usedByCount = input<number | null>(null);
+  /**
+   * The host could not read this connection's stored key (M-6): the card shows "Could not read the stored key."
+   * with Retry (`keyRetryRequested`) instead of its state label and action, so it never asks to add a key.
+   */
+  readonly keyUnreadable = input<boolean>(false);
 
   // --- Actions ---
   /** The card itself was activated: open this connection's details (the drawer). */
@@ -181,6 +199,8 @@ export class ProviderConnectionCardComponent {
   readonly checkAgainRequested = output<void>();
   readonly setupRequested = output<void>();
   readonly checkConnectionRequested = output<void>();
+  /** Retry on an unreadable stored key: the parent re-reads the connections. */
+  readonly keyRetryRequested = output<void>();
 
   // --- Scope badge intent forwarding ---
   readonly scopeOverrideRequested = output<void>();
@@ -218,8 +238,9 @@ export class ProviderConnectionCardComponent {
   protected readonly statusLabel = computed(() => connectionStateLabel(this.resolvedState(), this.credentialRejected()));
   protected readonly statusCopy = computed(() =>
     connectionStateCopy(this.resolvedState(), this.displayName(), this.cliName() || `${this.displayName()} CLI`));
-  protected readonly cardAriaLabel = computed(() =>
-    `${this.displayName()}: ${this.isBlockedMain() ? 'main agent needs attention, ' : ''}${this.statusLabel()}. ${this.statusCopy()} Open connection details.`);
+  protected readonly cardAriaLabel = computed(() => this.keyUnreadable()
+    ? `${this.displayName()}: ${this.isBlockedMain() ? 'main agent needs attention, ' : ''}${KEY_UNREADABLE_TEXT} Open connection details.`
+    : `${this.displayName()}: ${this.isBlockedMain() ? 'main agent needs attention, ' : ''}${this.statusLabel()}. ${this.statusCopy()} Open connection details.`);
 
   /** Provenance line: the stored credential, else the last connected / failed time, else the full modality. */
   protected readonly subtitle = computed(() => {

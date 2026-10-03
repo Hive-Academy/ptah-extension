@@ -65,13 +65,17 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { OutputStyleDetail } from '@ptah-extension/shared';
+import { By } from '@angular/platform-browser';
 import { OutputStyleEditorComponent } from './output-style-editor.component';
+import { OutputStyleInstructionsFieldComponent } from './output-style-instructions-field.component';
 import { OutputStyleStore } from './output-style.store';
 import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 const COMPONENT_FILES = [
   'output-style-editor.component.ts',
+  'output-style-instructions-field.component.ts',
   'output-style-list.component.ts',
+  'output-style-notices.component.ts',
   'output-style-parity-section.component.ts',
   'output-style-config.component.ts',
 ] as const;
@@ -95,6 +99,9 @@ describe('OutputStyleEditorComponent', () => {
   let load: jest.Mock;
   let fixture: ComponentFixture<OutputStyleEditorComponent>;
   let component: OutputStyleEditorComponent;
+  /** Batch 55b CS-2: the toggle and the Instructions body (Edit | Preview) live in this child of the editor. */
+  const instructionsField = (): OutputStyleInstructionsFieldComponent =>
+    fixture.debugElement.query(By.directive(OutputStyleInstructionsFieldComponent)).componentInstance;
 
   function text(): string {
     return fixture.nativeElement.textContent ?? '';
@@ -151,23 +158,24 @@ describe('OutputStyleEditorComponent', () => {
     });
 
     it('switches between Edit and Preview tabs (Gap G6)', () => {
+      const field = instructionsField();
       const tabGroup = fixture.nativeElement.querySelector(
         'ptah-native-tab-group',
       );
       expect(tabGroup).not.toBeNull();
 
-      component.onTabChange('preview');
+      field.onTabChange('preview');
       fixture.detectChanges();
 
-      expect(component.showPreview()).toBe(true);
+      expect(field.showPreview()).toBe(true);
       expect(
         fixture.nativeElement.querySelector('[data-test="body-preview"]'),
       ).not.toBeNull();
 
-      component.onTabChange('edit');
+      field.onTabChange('edit');
       fixture.detectChanges();
 
-      expect(component.showPreview()).toBe(false);
+      expect(field.showPreview()).toBe(false);
       expect(
         fixture.nativeElement.querySelector('#output-style-body'),
       ).not.toBeNull();
@@ -575,10 +583,26 @@ describe('OutputStyleEditorComponent', () => {
     });
   });
 
+  describe('instructions field (Batch 55b CS-2 split)', () => {
+    it('edits the body and toggle values the editor owns, both ways', () => {
+      const textarea = fixture.nativeElement.querySelector('#output-style-body') as HTMLTextAreaElement;
+      textarea.value = '# Typed';
+      textarea.dispatchEvent(new Event('input'));
+      expect(component.body()).toBe('# Typed');
+      const toggle = fixture.nativeElement.querySelector('input[aria-label="Keep the default coding instructions"]') as HTMLInputElement;
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event('change'));
+      expect(component.keepCodingInstructions()).toBe(false);
+      component.body.set('# From the editor');
+      fixture.detectChanges();
+      expect(instructionsField().body()).toBe('# From the editor');
+    });
+  });
+
   describe('markdown preview', () => {
     it('renders the body through ptah-markdown-block, never raw HTML', () => {
       component.body.set('# Heading');
-      component.showPreview.set(true);
+      instructionsField().showPreview.set(true);
       fixture.detectChanges();
 
       const preview = fixture.nativeElement.querySelector(
@@ -591,7 +615,7 @@ describe('OutputStyleEditorComponent', () => {
     });
 
     it('shows a placeholder instead of an empty renderer', () => {
-      component.showPreview.set(true);
+      instructionsField().showPreview.set(true);
       fixture.detectChanges();
 
       expect(text()).toContain('Nothing to preview yet');

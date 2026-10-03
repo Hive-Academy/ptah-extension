@@ -296,6 +296,40 @@ describe('CliOrchestrationMatrixComponent', () => {
       expect(q('[data-testid="cli-matrix-popover"]')).toBeNull();
     });
 
+    it('Batch 55b F3: while a cell save runs, Esc closes the popover and focus returns to the cell (aria-disabled, not native)', async () => {
+      document.body.appendChild(fixture.nativeElement);
+      try {
+        let release: (saved: boolean) => void = () => undefined;
+        state.saveSettings.mockImplementationOnce(() => {
+          state.commit.set({ ...idle, status: 'saving' });
+          return new Promise<boolean>((resolve) => { release = (saved) => { state.commit.set({ ...idle, status: 'saved' }); resolve(saved); }; });
+        });
+        const trigger = q<HTMLButtonElement>('[data-testid="cli-matrix-effort-codex"]');
+        trigger?.focus();
+        trigger?.click();
+        fixture.detectChanges();
+        await flush();
+        const high = q<HTMLButtonElement>('[data-testid="cli-matrix-popover"] [data-effort="high"]');
+        high?.focus();
+        high?.click();
+        await flush();
+        expect(feedback.saving()).toBe(true);
+        expect(trigger?.disabled).toBe(false);
+        expect(trigger?.getAttribute('aria-disabled')).toBe('true');
+        expect(document.activeElement).toBe(high);
+        high?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        fixture.detectChanges();
+        await flush();
+        expect(q('[data-testid="cli-matrix-popover"]')).toBeNull();
+        expect(document.activeElement).toBe(trigger);
+        release(true);
+        await flush();
+        expect(trigger?.getAttribute('aria-disabled')).toBeNull();
+      } finally {
+        fixture.nativeElement.remove();
+      }
+    });
+
     it('shows each CLI\'s permission note in its ℹ popover (#70)', () => {
       q<HTMLButtonElement>('[data-testid="cli-matrix-permission-info-pi"]')?.click();
       fixture.detectChanges();

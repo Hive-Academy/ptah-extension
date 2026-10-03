@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import {
   ClaudeRpcService, RpcResult, ProvidersSettingsStateService, type ProvidersSettingsSection, type ProvidersEffectiveRoute,
@@ -261,6 +261,22 @@ describe('ProvidersSettingsComponent', () => {
           .toBe('•••• 8f21 (stored on this machine)');
         await openDrawer('first');
         expect(element.querySelector('[data-testid="connection-credential-storage"]')?.textContent?.trim()).toBe('Stored on this machine');
+      });
+
+      it('an unreadable stored key (final review M-6): card and drawer Retry re-read the connections', async () => {
+        state.connections.set(ready([connection('first'), { ...connection('second'), hasKey: false, keyUnreadable: true }]));
+        state.route.set(ready(route)); await render();
+        const retry = element.querySelector<HTMLButtonElement>('[data-connection-id="second"] [data-testid="card-key-unreadable-retry"]');
+        expect(retry).not.toBeNull();
+        expect(element.querySelector('[data-connection-id="first"] [data-testid="card-key-unreadable"]')).toBeNull();
+        state.refreshConnections.mockClear();
+        retry?.click(); await render();
+        expect(state.refreshConnections).toHaveBeenCalledTimes(1);
+        await openDrawer('second');
+        Array.from(element.querySelectorAll<HTMLElement>('[role="tab"]')).find((tab) => tab.textContent?.trim() === 'Credentials')?.click();
+        await render();
+        element.querySelector<HTMLButtonElement>('[data-testid="credentials-key-unreadable-retry"]')?.click(); await render();
+        expect(state.refreshConnections).toHaveBeenCalledTimes(2);
       });
 
       it('counts the enabled Codex CLI under OpenAI Codex, and waits for the CLI read before counting', async () => {
@@ -585,6 +601,23 @@ describe('ProvidersSettingsComponent', () => {
     wizard().providerChanged.emit('second'); await render();
     expect(wizard().existingCredentialPresent()).toBe(false);
   });
+  it('m-2 (Batch 55b): a wizard chunk that fails to load shows a fixed alert whose Close ends the session and the deep link', async () => {
+    const consumed: string[] = [];
+    fixture.componentInstance.requestedProviderConsumed.subscribe((id) => consumed.push(id));
+    fixture.componentRef.setInput('requestedProviderId', 'second'); await render();
+    const blocks = await fixture.getDeferBlocks();
+    // The wizard's block is the page's last @defer, and the only one with an @error.
+    await blocks[blocks.length - 1].render(DeferBlockState.Error);
+    fixture.detectChanges();
+    const alert = element.querySelector('[data-testid="provider-wizard-load-error"]');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert?.textContent).toContain('The setup wizard could not be loaded. Close this message and try again.');
+    (element.querySelector('[data-testid="provider-wizard-load-error-close"]') as HTMLButtonElement).click();
+    await render();
+    expect(element.querySelector('[data-testid="provider-wizard-load-error"]')).toBeNull();
+    expect(consumed).toEqual(['second']);
+  });
+
   it('opens the setup wizard for a deep-linked provider once', async () => {
     const consumed: string[] = [];
     fixture.componentInstance.requestedProviderConsumed.subscribe((id) => consumed.push(id));

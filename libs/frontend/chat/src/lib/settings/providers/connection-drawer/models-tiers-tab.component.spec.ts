@@ -123,13 +123,13 @@ describe('ModelsTiersTabComponent', () => {
       picker('opus').selectionChange.emit({ provider: 'moonshot', model: 'kimi-fast' });
       await flush();
       expect(state.setMainAgentTier).toHaveBeenCalledWith('moonshot', 'opus', 'kimi-fast', CONTEXT);
-      expect(query('models-feedback')?.getAttribute('role')).toBe('status');
-      expect(query('models-feedback')?.textContent).toContain('Saved Moonshot (Kimi) opus tier model to All Ptah apps.');
-      query('models-undo')?.click();
+      expect(query('settings-toast-inline')?.getAttribute('role')).toBe('status');
+      expect(query('settings-toast-inline')?.textContent).toContain('Saved Moonshot (Kimi) opus tier model to All Ptah apps.');
+      query('settings-toast-inline-undo')?.click();
       await flush();
       expect(state.setMainAgentTier).toHaveBeenLastCalledWith('moonshot', 'opus', 'kimi-k2.5', CONTEXT);
       expect(state.setMainAgentTier).toHaveBeenCalledTimes(2);
-      expect(query('models-undo')).toBeNull();
+      expect(query('settings-toast-inline-undo')).toBeNull();
     });
 
     it('Default clears the tier (an empty model) and Undo restores it', async () => {
@@ -137,7 +137,7 @@ describe('ModelsTiersTabComponent', () => {
       await flush();
       expect(state.setMainAgentTier).toHaveBeenCalledWith('moonshot', 'opus', '', CONTEXT);
       expect(query('models-current-opus')?.textContent).toContain('Provider default');
-      query('models-undo')?.click();
+      query('settings-toast-inline-undo')?.click();
       await flush();
       expect(state.setMainAgentTier).toHaveBeenLastCalledWith('moonshot', 'opus', 'kimi-k2.5', CONTEXT);
     });
@@ -155,10 +155,10 @@ describe('ModelsTiersTabComponent', () => {
       });
       picker('opus').selectionChange.emit({ provider: 'moonshot', model: 'kimi-fast' });
       await flush();
-      expect(query('models-feedback')?.getAttribute('role')).toBe('alert');
-      expect(query('models-feedback')?.textContent).toContain('Could not save');
-      expect(query('models-feedback')?.textContent).not.toContain('Saved');
-      expect(query('models-undo')).toBeNull();
+      expect(query('settings-toast-inline')?.getAttribute('role')).toBe('alert');
+      expect(query('settings-toast-inline')?.textContent).toContain('Could not save');
+      expect(query('settings-toast-inline')?.textContent).not.toContain('Saved');
+      expect(query('settings-toast-inline-undo')).toBeNull();
     });
 
     it('pickers and Default are disabled while a save runs or the edit context is not loaded (D3)', () => {

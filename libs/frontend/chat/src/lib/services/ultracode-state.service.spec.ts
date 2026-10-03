@@ -22,7 +22,7 @@ describe('UltracodeStateService', () => {
     current = 'medium';
     setEffort = jest.fn((effort: EffortLevel | undefined) => {
       current = effort;
-      return Promise.resolve();
+      return Promise.resolve(true);
     });
 
     TestBed.configureTestingModule({
@@ -73,9 +73,25 @@ describe('UltracodeStateService', () => {
     expect(setEffort).toHaveBeenLastCalledWith('medium');
   });
 
-  describe('failed effort writes (setEffort swallows failure and rolls back)', () => {
+  describe('failed effort writes (setEffort rolls back and resolves false)', () => {
     /** Simulates EffortStateService on a failed `config:effort-set`: the signal keeps its value. */
-    const failingWrite = () => Promise.resolve();
+    const failingWrite = () => Promise.resolve(false);
+
+    it('m-3 (Batch 55b): enable() stays off when the pin fails although effort was already xhigh', async () => {
+      current = 'xhigh';
+      setEffort.mockImplementationOnce(failingWrite);
+      await expect(service.enable()).resolves.toBe(false);
+      expect(service.enabled()).toBe(false);
+      expect(current).toBe('xhigh');
+    });
+
+    it('m-3: disable() stays on when the restore fails although effort already had the restored value', async () => {
+      current = 'xhigh';
+      await service.enable(); // captured 'xhigh'
+      setEffort.mockImplementationOnce(failingWrite);
+      await expect(service.disable()).resolves.toBe(false);
+      expect(service.enabled()).toBe(true);
+    });
 
     it('enable() stays off and resolves false when the xhigh pin does not land', async () => {
       setEffort.mockImplementationOnce(failingWrite);

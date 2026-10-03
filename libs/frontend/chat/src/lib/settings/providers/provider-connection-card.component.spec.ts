@@ -248,4 +248,45 @@ describe('ProviderConnectionCardComponent', () => {
       expect(query(fixture, 'scope-badge')).toBeNull();
     });
   });
+
+  describe('unreadable stored key (final review M-6)', () => {
+    it('shows "Could not read the stored key." with Retry, never "Not set" or "Add API key", even when the route says needs-key', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'needs-key', keyUnreadable: true });
+      const text = query(fixture, 'card-key-unreadable');
+      expect(text?.textContent?.trim()).toBe('Could not read the stored key.');
+      expect(text?.className ?? '').not.toMatch(/text-(warning|error|success|info)/);
+      const retry = query(fixture, 'card-key-unreadable-retry') as HTMLButtonElement;
+      expect(retry.textContent?.trim()).toBe('Retry');
+      expect(retry.className).toContain('focus-visible:outline-base-content');
+      expect(retry.getAttribute('aria-label')).toBe('Retry reading the stored key for Moonshot (Kimi)');
+      expect(query(fixture, 'btn-add-key')).toBeNull();
+      expect(query(fixture, 'status-copy')).toBeNull();
+      const all = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(all).not.toContain('Not set');
+      expect(all).not.toContain('Add API key');
+      expect(all).not.toContain('Needs API key');
+      expect(surface(fixture).getAttribute('aria-label')).toContain('Could not read the stored key.');
+      expect(surface(fixture).getAttribute('aria-label')).not.toContain('Add an API key');
+      // Colour sits on the icon only.
+      expect(fixture.nativeElement.querySelector('lucide-angular.text-warning')).not.toBeNull();
+    });
+
+    it('Retry emits keyRetryRequested only, never detailsRequested or addKeyRequested', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'needs-key', keyUnreadable: true });
+      const retry = jest.fn(), details = jest.fn(), addKey = jest.fn();
+      fixture.componentInstance.keyRetryRequested.subscribe(retry);
+      fixture.componentInstance.detailsRequested.subscribe(details);
+      fixture.componentInstance.addKeyRequested.subscribe(addKey);
+      (query(fixture, 'card-key-unreadable-retry') as HTMLButtonElement).click();
+      expect(retry).toHaveBeenCalledTimes(1);
+      expect(details).not.toHaveBeenCalled();
+      expect(addKey).not.toHaveBeenCalled();
+    });
+
+    it('a readable connection renders no unreadable state', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'needs-key' });
+      expect(query(fixture, 'card-key-unreadable')).toBeNull();
+      expect(query(fixture, 'btn-add-key')).not.toBeNull();
+    });
+  });
 });

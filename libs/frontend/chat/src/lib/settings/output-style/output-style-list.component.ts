@@ -8,8 +8,8 @@
  *  - **A20**: Status/tier badges in outline form (`badge badge-outline badge-xs text-base-content`),
  *    preserving deviation #6 (colour on dot/border only).
  *  - **A22**: Edit opens drawer D-OS; Delete opens P8 inline confirm in the row.
- *  - **A23**: Inline alert banners for write error, missing-active, collision, fallback,
- *    and unreadable invalid files list with "Rewrite it here".
+ *  - **A23**: Inline alert banners for write error, missing-active, collision and fallback (in
+ *    {@link OutputStyleNoticesComponent}), and the unreadable invalid files list with "Rewrite it here".
  *  - **A24**: Command-line parity in a closed `<details>` (P9); S-confirm before writing
  *    settings file outside Ptah, with exact display path before write and no Undo.
  *
@@ -36,11 +36,9 @@ import {
 } from '@angular/core';
 import {
   LucideAngularModule,
-  AlertCircle,
   AlertTriangle,
   Check,
   Pencil,
-  RotateCcw,
   Trash2,
 } from 'lucide-angular';
 import type {
@@ -59,6 +57,7 @@ import {
 } from './output-style-parity-section.component';
 import type { OutputStyleFailedOperation } from './output-style.store';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { OutputStyleNoticesComponent } from './output-style-notices.component';
 
 export { PARITY_TIERS, type ParityTierOption };
 
@@ -97,152 +96,28 @@ function isActiveStyle(style: OutputStyleEntry, selected: string | null): boolea
   return selected === null ? style.name === 'default' : selected === style.name && style.shadowed !== true;
 }
 
-/** Moderate 4: the banner names the operation the store recorded, never one guessed from host text. */
-const FAILURE_MESSAGES: Readonly<Record<OutputStyleFailedOperation, string>> = {
-  list: 'Could not read the output styles.',
-  activate: 'Could not change the active output style.',
-  save: 'Could not save the output style.',
-  delete: 'Could not delete the output style.',
-  open: 'Could not open that output style.',
-  copy: 'Could not copy the output style to the project.',
-};
-
 const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not change it.';
 
 @Component({
   selector: 'ptah-output-style-list',
   standalone: true,
-  imports: [SettingsBusyDisabledDirective, LucideAngularModule, OutputStyleParitySectionComponent],
+  imports: [SettingsBusyDisabledDirective, LucideAngularModule, OutputStyleNoticesComponent, OutputStyleParitySectionComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- Write / Operation Error Alert -->
-    @if (fixedErrorMessage(); as message) {
-      <div
-        class="flex items-start gap-2 rounded border border-error/40 bg-error/10 p-2 mb-3 text-xs text-base-content"
-        role="alert"
-        data-testid="output-style-error"
-      >
-        <lucide-angular
-          [img]="AlertCircleIcon"
-          class="w-3.5 h-3.5 mt-0.5 shrink-0 text-error"
-          aria-hidden="true"
-        />
-        <span class="flex-1">{{ message }}</span>
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs text-base-content"
-          (click)="dismissError.emit()"
-        >
-          Dismiss
-        </button>
-      </div>
-    }
-
-    <!-- Missing-active banner (E5/N1) -->
-    @if (activeMissing()) {
-      <div
-        class="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 p-2 mb-3 text-xs text-base-content"
-        role="status"
-        data-testid="output-style-missing-banner"
-      >
-        <lucide-angular
-          [img]="AlertTriangleIcon"
-          class="w-3.5 h-3.5 mt-0.5 shrink-0 text-warning"
-          aria-hidden="true"
-        />
-        <div class="flex-1">
-          <p class="text-xs">
-            The selected style
-            <code class="text-base-content-muted">{{ activeName() }}</code>
-            {{ missingActiveExplanation() }}
-          </p>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs mt-1 gap-1 text-base-content"
-            (click)="onSelectNull()"
-            [ptahBusyDisabled]="saving()"
-            data-testid="output-style-clear-selection"
-          >
-            <lucide-angular
-              [img]="RotateCcwIcon"
-              class="w-3 h-3"
-              aria-hidden="true"
-            />
-            Clear the selection
-          </button>
-        </div>
-      </div>
-    }
-
-    <!-- Collision banner (E4) -->
-    @if (hasCollision()) {
-      <div
-        class="rounded border border-warning/40 bg-warning/10 p-2 mb-3 text-xs text-base-content"
-        role="status"
-        data-testid="output-style-collision-banner"
-      >
-        <p class="text-xs">
-          More than one file uses the name
-          {{ collidingNames().join(', ') }}. A style is selected by name, so the
-          higher-priority copy wins: a project file beats a user file, and any
-          file beats a built-in of the same name. Rename one of them to remove
-          the ambiguity.
-        </p>
-      </div>
-    }
-
-    <!-- Fallback injection banner (Req 5.4) -->
-    @if (usingFallback()) {
-      <div
-        class="rounded border border-info/40 bg-info/10 p-2 mb-3 text-xs text-base-content"
-        role="status"
-        data-testid="output-style-fallback-banner"
-      >
-        <p class="text-xs">
-          This provider does not read style files from your home folder, so Ptah
-          adds
-          <code class="text-base-content-muted">{{ activeName() }}</code>
-          to each new session directly instead. Copying it into this project
-          removes the need for that.
-        </p>
-        @if (activeName(); as name) {
-          <button
-            #copyButton
-            type="button"
-            class="btn btn-ghost btn-xs mt-1 text-base-content"
-            (click)="requestCopy(name)"
-            [disabled]="saving()"
-            data-testid="output-style-copy-to-project"
-          >
-            Copy to this project
-          </button>
-          <!-- Item 16 / P8: replacing a project style of the same name is confirmed first; no Undo -->
-          @if (confirmingCopy()) {
-            <div
-              class="flex flex-wrap items-center gap-2 rounded border border-base-300 p-2 mt-1 text-xs text-base-content"
-              role="alertdialog"
-              aria-label="Confirm replacing the project style"
-              data-testid="output-style-copy-confirm"
-              (keydown.escape)="cancelCopy(copyButton, $event)"
-            >
-              <span class="flex-1">This project already has a style with this name. Replace it with your copy?</span>
-              <button
-                type="button"
-                class="btn btn-outline btn-xs border-error text-base-content"
-                [ptahBusyDisabled]="saving()"
-                (click)="confirmCopy(name)"
-                data-testid="output-style-confirm-copy"
-              >
-                Replace it
-              </button>
-              <button #copyCancel type="button" class="btn btn-ghost btn-xs text-base-content" (click)="cancelCopy(copyButton)">
-                Cancel
-              </button>
-            </div>
-          }
-        }
-      </div>
-    }
+    <ptah-output-style-notices
+      [failedOperation]="failedOperation()"
+      [activeName]="activeName()"
+      [activeMissing]="activeMissing()"
+      [invalidCount]="invalid().length"
+      [hasCollision]="hasCollision()"
+      [collidingNames]="collidingNames()"
+      [usingFallback]="usingFallback()"
+      [styles]="styles()"
+      [saving]="saving()"
+      (dismissError)="dismissError.emit()"
+      (clearSelection)="onSelectNull()"
+      (copyToProject)="copyToProject.emit($event)"
+    />
 
     <!-- Matrix Table (A19, A20, A22, G7) -->
     @if (loading()) {
@@ -353,7 +228,7 @@ const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not chang
                   <div class="flex items-center justify-end gap-1">
                     <button
                       type="button"
-                      class="btn btn-ghost btn-xs btn-square disabled:bg-transparent disabled:border-transparent disabled:opacity-40 text-base-content"
+                      class="btn btn-ghost btn-xs btn-square disabled:bg-transparent disabled:border-transparent disabled:opacity-50 text-base-content"
                       [disabled]="!style.editable || saving()"
                       [attr.aria-label]="'Edit ' + style.name"
                       [attr.title]="actionTitle(style, 'Edit')"
@@ -369,7 +244,7 @@ const BUILT_IN_NOTE = 'Built into the agent — Ptah can select it but not chang
                     <button
                       #deleteBtn
                       type="button"
-                      class="btn btn-ghost btn-xs btn-square disabled:bg-transparent disabled:border-transparent disabled:opacity-40 text-base-content"
+                      class="btn btn-ghost btn-xs btn-square disabled:bg-transparent disabled:border-transparent disabled:opacity-50 text-base-content"
                       [disabled]="!style.deletable || saving()"
                       [attr.aria-label]="'Delete ' + style.name"
                       [attr.title]="actionTitle(style, 'Delete')"
@@ -528,19 +403,14 @@ export class OutputStyleListComponent {
   readonly dismissError = output<void>();
   readonly dismissParity = output<void>();
 
-  readonly AlertCircleIcon = AlertCircle;
   readonly AlertTriangleIcon = AlertTriangle;
   readonly CheckIcon = Check;
   readonly PencilIcon = Pencil;
-  readonly RotateCcwIcon = RotateCcw;
   readonly Trash2Icon = Trash2;
   readonly builtInNote = BUILT_IN_NOTE;
 
   /** View state: which row is showing its delete confirmation. */
   readonly pendingDelete = signal<string | null>(null);
-
-  /** View state: the copy-to-project confirm is open (a project style of the same name exists). */
-  readonly confirmingCopy = signal(false);
 
   /** OPT-IN, DEFAULT OFF (R6). Untouched → no settings file is ever written. */
   readonly parityEnabled = signal(false);
@@ -566,31 +436,16 @@ export class OutputStyleListComponent {
   );
   readonly activeMissing = computed(() => this.active()?.missing === true);
 
-  /** The fixed sentence for the failed operation; host error text is never shown (D15). */
-  readonly fixedErrorMessage = computed<string | null>(() => {
-    const operation = this.failedOperation();
-    return operation === null ? null : FAILURE_MESSAGES[operation];
-  });
-
   readonly hasBuiltIn = computed(() => this.styles().some((style) => style.tier === 'builtin'));
 
   private readonly instanceId = `output-style-${listInstanceCounter++}`;
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly deleteCancel = viewChild<ElementRef<HTMLButtonElement>>('deleteCancel');
-  private readonly copyCancel = viewChild<ElementRef<HTMLButtonElement>>('copyCancel');
 
   constructor() {
-    // P8: an opened delete or copy confirm takes focus on Cancel, so Esc reaches it.
+    // P8: an opened delete confirm takes focus on Cancel, so Esc reaches it.
     effect(() => this.deleteCancel()?.nativeElement.focus());
-    effect(() => this.copyCancel()?.nativeElement.focus());
   }
-
-  /** E5/N1 explanation of why the active style stopped resolving. */
-  readonly missingActiveExplanation = computed<string>(() =>
-    this.invalid().length === 0
-      ? 'is no longer available. Its file was removed or renamed outside Ptah, so new sessions run with the default behaviour.'
-      : 'is no longer available. Its file was either removed outside Ptah, or it is one of the files Ptah could not read, listed below — repairing that file brings the style back. Until then, new sessions run with the default behaviour.',
-  );
 
   onSelectStyle(style: OutputStyleEntry): void {
     if (this.saving() || this.isShadowed(style)) return;
@@ -659,27 +514,6 @@ export class OutputStyleListComponent {
    */
   parityActivated(tier: SettingsTier): void {
     this.parityRequestedTier.set(tier);
-  }
-
-  /** Copy to this project: straight away, unless a project style of the same name would be replaced. */
-  requestCopy(name: string): void {
-    if (this.styles().some((style) => style.tier === 'project' && style.name === name)) {
-      this.confirmingCopy.set(true);
-    } else {
-      this.copyToProject.emit({ name, overwrite: false });
-    }
-  }
-
-  confirmCopy(name: string): void {
-    this.confirmingCopy.set(false);
-    this.copyToProject.emit({ name, overwrite: true });
-  }
-
-  /** Cancel and Esc close the copy confirm and return focus to "Copy to this project" (P8). */
-  cancelCopy(opener: HTMLButtonElement, event?: Event): void {
-    event?.stopPropagation();
-    this.confirmingCopy.set(false);
-    opener.focus();
   }
 
   onParityToggled(checked: boolean): void {

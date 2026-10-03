@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, signal,
+  ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, computed, effect, inject, signal,
   untracked, viewChild,
 } from '@angular/core';
 import { ChevronDown, ChevronUp, LucideAngularModule, Pencil, RefreshCw, X } from 'lucide-angular';
@@ -206,18 +206,21 @@ export class AgentOrchestrationConfigComponent {
   private readonly orderMeasure = viewChild<ElementRef<HTMLElement>>('orderMeasure');
 
   constructor() {
-    // One observer for the strip (released on destroy): a resize, or a changed list, recounts the chips that fit.
-    const destroyRef = inject(DestroyRef);
-    let observer: ResizeObserver | null = null;
+    // A changed list recounts the chips that fit.
     effect(() => {
       this.chips();
-      const strip = this.orderStrip()?.nativeElement;
+      this.orderStrip();
       untracked(() => afterNextRender(() => this.measureChips(), { injector: this.injector }));
-      if (!strip || observer || typeof ResizeObserver === 'undefined') return;
-      observer = new ResizeObserver(() => this.measureChips());
-      observer.observe(strip);
     });
-    destroyRef.onDestroy(() => observer?.disconnect());
+    // A resize does too. The strip lives under `@if (chips().length)`, so an order that empties and refills makes a new
+    // element: the observer follows the current strip, and the previous one is disconnected (on re-run and on destroy).
+    effect((onCleanup) => {
+      const strip = this.orderStrip()?.nativeElement;
+      if (!strip || typeof ResizeObserver === 'undefined') return;
+      const observer = new ResizeObserver(() => this.measureChips());
+      observer.observe(strip);
+      onCleanup(() => observer.disconnect());
+    });
   }
 
   /** Whole chips that fit the strip's width; when not all fit, room is kept for "→ +N". */

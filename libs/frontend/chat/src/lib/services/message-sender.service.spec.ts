@@ -264,6 +264,7 @@ describe('MessageSenderService', () => {
               currentEffort: jest.fn(() => effort),
               setEffort: jest.fn(async (next: string | undefined) => {
                 effort = next;
+                return true;
               }),
             };
           })(),

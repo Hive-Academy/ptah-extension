@@ -14,7 +14,7 @@ import {
 import { ModelsTiersTabComponent } from './connection-drawer/models-tiers-tab.component';
 import { AdvancedTabComponent } from './connection-drawer/advanced-tab.component';
 // The card uses the same avatar, so a connection looks the same on the card and in its drawer.
-import { connectionAvatarTone, connectionInitials } from './provider-connection-card.state';
+import { connectionAvatarTone, connectionInitials, KEY_UNREADABLE_TEXT } from './provider-connection-card.state';
 
 const AUTH_MODE_LABELS: Readonly<Record<ConnectionKind, string>> = {
   'claude-cli': 'CLI subscription',
@@ -95,7 +95,7 @@ const CREDENTIALS_COMPLETE: ReadonlySet<ConnectionKind> = new Set(['api-key', 'o
                   [externalAuth]="externalAuth()" [verifyDraftConnection]="verifyDraftConnection()"
                   [cancelDraftVerification]="cancelDraftVerification()" (replaceKeyRequested)="emitReplace(current, $event)"
                   (deleteKeyRequested)="deleteKeyRequested.emit()" (signOutRequested)="signOutRequested.emit()"
-                  (externalActionRequested)="externalActionRequested.emit($event)" />
+                  (externalActionRequested)="externalActionRequested.emit($event)" (keyRetryRequested)="keyRetryRequested.emit()" />
                 @if (setupFallback()) {
                   <p class="mt-4 text-xs text-base-content-muted" data-testid="connection-setup-copy">{{ setupCopy() }}</p>
                 }
@@ -170,6 +170,8 @@ export class ConnectionDetailDrawerComponent {
   readonly externalActionRequested = output<CredentialsExternalAction>();
   readonly checkConnectionRequested = output<void>();
   readonly retryUsageRequested = output<void>();
+  /** Retry on an unreadable stored key (Credentials tab, M-6): the parent re-reads the connections. */
+  readonly keyRetryRequested = output<void>();
   /** Open the setup wizard for this provider (the parent closes the drawer first). */
   readonly setupRequested = output<string>();
 
@@ -202,7 +204,8 @@ export class ConnectionDetailDrawerComponent {
         const label = protocol && Object.hasOwn(PROTOCOL_LABELS, protocol) ? PROTOCOL_LABELS[protocol] : null;
         return label ? `Custom gateway · ${label}` : 'Custom gateway';
       }
-      case 'api-key': return current?.hasKey ? 'API key · Stored locally' : 'API key · No key stored';
+      case 'api-key': return current?.hasKey ? 'API key · Stored locally'
+        : current?.keyUnreadable ? 'API key · Stored key unreadable' : 'API key · No key stored';
       case 'oauth': return current?.accountLabel ? `Provider sign-in · ${current.accountLabel}` : 'Provider sign-in';
       case 'local': return current?.hasKey ? 'Local server · Key stored locally' : 'Local server';
       default: return 'CLI subscription · Claude CLI login';
@@ -214,7 +217,7 @@ export class ConnectionDetailDrawerComponent {
       case 'claude-cli': return 'Claude CLI login session';
       case 'oauth': return current?.accountLabel ? `Signed in as ${current.accountLabel}` : 'Provider sign-in session';
       case 'local': return current?.hasKey ? 'Optional key stored on this machine' : 'No key needed';
-      default: return current?.hasKey ? 'Stored on this machine' : 'No key stored';
+      default: return current?.hasKey ? 'Stored on this machine' : current?.keyUnreadable ? KEY_UNREADABLE_TEXT : 'No key stored';
     }
   });
   /** Overview "Credential storage" shows a stored key's masked hint (prototype "•••• 8f21 (stored on this machine)"). */

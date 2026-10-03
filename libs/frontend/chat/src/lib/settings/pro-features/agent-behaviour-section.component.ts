@@ -80,9 +80,9 @@ interface LoadError {
  * on the saved value and raises an alert toast (D15), and Undo is a real write of the
  * previous value.
  *
- * `EffortStateService.setEffort` returns void and rolls its signal back on failure, so
- * the effort write is decided by reading the signal back after the await (map §9 item 11).
- * Ultracode does the same read-back inside `UltracodeStateService`.
+ * `EffortStateService.setEffort` resolves whether its write landed (it rolls its signal back on
+ * failure); the effort write is decided from that result (map §9 item 11, Batch 55b m-3).
+ * Ultracode decides the same way inside `UltracodeStateService`.
  */
 @Component({
   selector: 'ptah-agent-behaviour-section',
@@ -430,15 +430,10 @@ export class AgentBehaviourSectionComponent implements OnInit {
     return { ok: true };
   }
 
-  /**
-   * Map §9 item 11: `setEffort` returns void and restores its previous value on a failed
-   * write, so the shared signal holding the request after the await is the success test.
-   * `selectEffort` never writes the current value, so a rollback cannot look like success.
-   */
+  /** Map §9 item 11: decided from the write's own result, never from a read-back of the shared signal. */
   private async writeEffort(effort: EffortLevel | undefined): Promise<WriteResult> {
     if (this.ultracode.enabled()) return { ok: false, message: EFFORT_PINNED };
-    await this.effortState.setEffort(effort);
-    return this.effortState.currentEffort() === effort ? { ok: true } : { ok: false, message: EFFORT_SAVE_FAILED };
+    return (await this.effortState.setEffort(effort)) ? { ok: true } : { ok: false, message: EFFORT_SAVE_FAILED };
   }
 
   private async writeWorkflowsDisabled(disabled: boolean): Promise<WriteResult> {

@@ -129,6 +129,7 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
                 [status]="connectionStatus(connection)" [isActive]="activeId() === connection.id" [positiveProbeEvidence]="hasProbeEvidence(connection.id)"
                 [isBlocked]="isBlocked(connection.id)" [lastCheck]="lastCheckOf(connection.id)" [routeProbedAt]="state.route().data?.probedAt ?? null"
                 [usedByCount]="usage().complete ? (usage().byProvider[connection.id]?.length ?? 0) : null"
+                [keyUnreadable]="connection.keyUnreadable === true" (keyRetryRequested)="state.refreshConnections()"
                 (detailsRequested)="openDrawer(connection.id)"
                 (setupRequested)="openWizard(connection.id)" (addKeyRequested)="openWizard(connection.id)"
                 (replaceKeyRequested)="openWizard(connection.id)" (signInRequested)="externalAction(connection.id, 'sign-in')"
@@ -193,7 +194,7 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
           (closed)="closeDrawer()" (checkConnectionRequested)="state.checkProviderConnection(connection.id)" (retryUsageRequested)="state.refresh()"
           (setupRequested)="setupFromDrawer($event)" (replaceKeyRequested)="replaceKey($event)"
           (deleteKeyRequested)="deleteKey(connection.id)" (signOutRequested)="signOutCopilot()"
-          (externalActionRequested)="drawerExternalAction(connection.id, $event)" />
+          (externalActionRequested)="drawerExternalAction(connection.id, $event)" (keyRetryRequested)="state.refreshConnections()" />
         </div>
       }
     }
@@ -210,6 +211,13 @@ const CONTROL = 'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-mute
         (providerChanged)="selectWizardProvider($event)" (reviewContextRequested)="reviewWizardContext()" [commitState]="wizardCommitState()"
         (commitRequested)="commitWizard($event)" (closed)="closeWizard()" (externalActionRequested)="externalAction($event.providerId, $event.action)" />
       }
+      } @error {
+        <!-- The wizard's chunk did not load: say so and let the user close it, which also releases a pending deep link
+             (m-2). Opening setup again creates a new deferred block, which retries the load. -->
+        <div role="alert" [class]="readError" data-testid="provider-wizard-load-error">
+          <p class="min-w-0">The setup wizard could not be loaded. Close this message and try again.</p>
+          <button type="button" [class]="retryControl" (click)="closeWizard()" data-testid="provider-wizard-load-error-close">Close</button>
+        </div>
       }
     }
   `,

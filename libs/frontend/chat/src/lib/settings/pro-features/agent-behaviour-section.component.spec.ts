@@ -33,6 +33,7 @@ describe('AgentBehaviourSectionComponent', () => {
       const previous = effort();
       effort.set(next);
       if (!succeed) effort.set(previous);
+      return succeed;
     });
   }
 

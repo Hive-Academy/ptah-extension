@@ -150,6 +150,26 @@ describe('CursorCredentialPopoverComponent', () => {
     expect(q('cursor-credential-remove-confirm')).toBeNull();
   });
 
+  it('55c (final review M-3): a refused removal says the key was not removed, never "not saved", and the key stays stored', async () => {
+    state.orchestration.set(ready({ cursorApiKeyStored: true, cursorApiKeyEnvSet: false, cursorApiKeyConfigured: true }));
+    state.outcome = 'failed';
+    fixture.detectChanges();
+    const statusBefore = q('cursor-credential-status')?.textContent?.trim();
+    q<HTMLButtonElement>('cursor-credential-remove')?.click();
+    fixture.detectChanges();
+    q<HTMLButtonElement>('cursor-credential-remove-confirm-button')?.click();
+    await flush();
+    const outcome = q('cursor-credential-outcome');
+    expect(outcome?.getAttribute('role')).toBe('alert');
+    expect(outcome?.textContent?.trim()).toBe('The stored key was not removed.');
+    expect(outcome?.textContent).not.toContain('not saved');
+    expect(outcome?.textContent).not.toContain('Could not remove the Cursor API key');
+    expect(feedback.toast()?.message).toBe('The stored key was not removed.');
+    expect(q('cursor-credential-status')?.textContent?.trim()).toBe(statusBefore);
+    expect(state.orchestration().data?.cursorApiKeyStored).toBe(true);
+    expect(q('cursor-credential-remove-confirm')).not.toBeNull();
+  });
+
   it('M3: the confirmation survives the popover being destroyed mid-save (the row moved groups)', async () => {
     let release: (value: boolean) => void = () => undefined;
     state.saveCursorCredential.mockImplementationOnce(async () => {

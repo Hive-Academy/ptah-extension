@@ -194,7 +194,7 @@ const SAVE_SCOPE = 'global';
             @if (row.interactive) {
               <ptah-native-popover [isOpen]="isOpen(row.id, 'model')" placement="bottom-start" [hasBackdrop]="true"
                 backdropClass="transparent" (closed)="close()" (opened)="focusOpened()">
-                <button trigger type="button" [class]="cell" [disabled]="busy()" (click)="openCell(row.id, 'model')"
+                <button trigger type="button" [class]="cell" [ptahBusyDisabled]="busy()" (click)="openCell(row.id, 'model')"
                   [attr.aria-label]="row.name + ' model: ' + value + '. Change'" [attr.aria-expanded]="isOpen(row.id, 'model')"
                   [title]="modelTitle(row)" [attr.data-testid]="'cli-matrix-model-' + row.id">
                   <span class="line-clamp-2 break-words">{{ value }}</span>
@@ -218,7 +218,7 @@ const SAVE_SCOPE = 'global';
             @if (row.interactive) {
               <ptah-native-popover [isOpen]="isOpen(row.id, 'effort')" placement="bottom-start" [hasBackdrop]="true"
                 backdropClass="transparent" (closed)="close()" (opened)="focusOpened()">
-                <button trigger type="button" [class]="cell" [disabled]="busy()" (click)="openCell(row.id, 'effort')"
+                <button trigger type="button" [class]="cell" [ptahBusyDisabled]="busy()" (click)="openCell(row.id, 'effort')"
                   [attr.aria-label]="row.name + ' reasoning effort: ' + (row.effort.value || 'default') + '. Change'"
                   [attr.aria-expanded]="isOpen(row.id, 'effort')" [attr.data-testid]="'cli-matrix-effort-' + row.id">
                   {{ row.effort.value || 'default' }}

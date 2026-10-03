@@ -4,6 +4,7 @@ import { ProviderModelPickerComponent, type ProviderModelSelection } from '@ptah
 import type { ProviderModelTier } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../../feedback/settings-save-feedback.service';
 import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
+import { SettingsToastComponent } from '../../feedback/settings-toast.component';
 
 interface TierRow {
   readonly tier: ProviderModelTier;
@@ -32,14 +33,14 @@ export function tiersApply(connection: Pick<ProvidersConnection, 'id' | 'authMod
  * `ProvidersSettingsStateService.setMainAgentTier` call (Batch 17 review constraint): an empty model
  * clears the tier back to the provider default.
  *
- * The page toast sits outside the drawer's focus trap, so the same feedback (with Undo) also renders
- * inline here, where a keyboard user can reach it.
+ * The page toast sits outside the drawer's focus trap, so the same toast (with Undo) also renders
+ * inline here (`<ptah-settings-toast [inline]>`), where a keyboard user can reach it.
  */
 @Component({
   selector: 'ptah-connection-models-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SettingsBusyDisabledDirective, ProviderModelPickerComponent],
+  imports: [SettingsBusyDisabledDirective, ProviderModelPickerComponent, SettingsToastComponent],
   template: `
     <div class="space-y-4 text-sm" data-testid="connection-models">
       @if (!applies()) {
@@ -93,16 +94,7 @@ export function tiersApply(connection: Pick<ProvidersConnection, 'id' | 'authMod
           }
         }
       }
-      @if (feedback.toast(); as toast) {
-        <div [attr.role]="toast.tone" class="flex items-center gap-2 rounded border border-base-300 p-2.5 text-xs text-base-content"
-          data-testid="models-feedback">
-          <span [class]="toast.tone === 'status' ? 'h-2 w-2 shrink-0 rounded-full bg-success' : 'h-2 w-2 shrink-0 rounded-full bg-error'" aria-hidden="true"></span>
-          <span class="min-w-0 flex-1">{{ toast.message }}</span>
-          @if (toast.canUndo) {
-            <button type="button" class="btn btn-outline btn-xs" [ptahBusyDisabled]="busy()" (click)="feedback.undo()" data-testid="models-undo">Undo</button>
-          }
-        </div>
-      }
+      <ptah-settings-toast [inline]="true" />
     </div>
   `,
 })

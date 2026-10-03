@@ -65,7 +65,9 @@ export const PARITY_TIERS: readonly ParityTierOption[] = [
       data-testid="output-style-parity-details"
       (toggle)="onDetailsToggle()"
     >
-      <summary class="cursor-pointer font-medium select-none text-xs text-base-content">
+      <summary
+        class="cursor-pointer rounded font-medium select-none text-xs text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        data-testid="output-style-parity-summary">
         Command-line parity
       </summary>
 

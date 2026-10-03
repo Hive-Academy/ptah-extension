@@ -67,6 +67,43 @@ describe('SettingsBusyDisabledDirective', () => {
     expect(host.keys).toEqual(['Tab', 'Escape']);
   });
 
+  it('m-4 (Batch 55b): copy and select-all pass on any busy control; caret keys and a mouse press pass only in a text field', () => {
+    const pressed = (id: string, init: KeyboardEventInit) => {
+      const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+      q<HTMLElement>(id).dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    for (const id of ['button', 'checkbox', 'text', 'select']) {
+      expect(pressed(id, { key: 'c', ctrlKey: true })).toBe(false);
+      expect(pressed(id, { key: 'a', metaKey: true })).toBe(false);
+      expect(pressed(id, { key: 'v', ctrlKey: true })).toBe(true);
+    }
+    for (const key of ['ArrowLeft', 'ArrowDown', 'Home', 'End']) {
+      expect(pressed('text', { key })).toBe(false);
+      expect(pressed('select', { key })).toBe(true);
+    }
+    expect(pressed('text', { key: 'Enter' })).toBe(true);
+    const textDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    q<HTMLInputElement>('text').dispatchEvent(textDown);
+    expect(textDown.defaultPrevented).toBe(false);
+    const selectDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    q<HTMLSelectElement>('select').dispatchEvent(selectDown);
+    expect(selectDown.defaultPrevented).toBe(true);
+  });
+
+  it('m-4: a field whose type changes to a non-text type is read as such (type read lazily)', () => {
+    const text = q<HTMLInputElement>('text');
+    text.type = 'color';
+    fixture.componentInstance.busy.set(false);
+    fixture.detectChanges();
+    fixture.componentInstance.busy.set(true);
+    fixture.detectChanges();
+    expect(text.readOnly).toBe(false);
+    const caret = new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true });
+    text.dispatchEvent(caret);
+    expect(caret.defaultPrevented).toBe(true);
+  });
+
   it('not busy: no attribute, and every handler runs', () => {
     fixture.componentInstance.busy.set(false);
     fixture.detectChanges();

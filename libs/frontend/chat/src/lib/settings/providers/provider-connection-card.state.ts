@@ -37,6 +37,12 @@ export type ResolvedConnectionState =
 export type ConnectionCardTone = 'neutral' | 'primary' | 'warning' | 'error';
 
 /**
+ * Fixed copy for a connection whose stored key the host could not read (`ProvidersConnection.keyUnreadable`, M-6).
+ * The card and the drawer show it with a Retry, never "no key" wording: the key's state is unknown.
+ */
+export const KEY_UNREADABLE_TEXT = 'Could not read the stored key.';
+
+/**
  * Only explicit positive probe evidence justifies Connected or Active. `unknown` → Not checked,
  * `skipped` → Check unavailable, `missing` → Not configured.
  */

@@ -51,6 +51,7 @@ export interface SettingsToast {
 
 export const SETTINGS_TOAST_TIMEOUT_MS = 8000;
 export const SAVE_REFUSED_MESSAGE = 'Another change is still saving.';
+export const UNDO_STALE_MESSAGE = 'A newer change replaced this one, so it was not undone.';
 
 /**
  * The one path for save-on-selection feedback and Undo (plan Component 11, D2/D3/D15).
@@ -73,6 +74,12 @@ export class SettingsSaveFeedbackService {
   private readonly toastState = signal<SettingsToast | null>(null);
   private readonly genericSaving = signal(false);
   private undoRequest: SettingsSaveRequest | SettingsGenericSaveRequest | null = null;
+  /**
+   * The Providers commit the Undo was offered after. A later Providers write that bypasses this toast (a drawer tab's
+   * own write) makes a new commit; when that commit wrote one of the same fields, an Undo would overwrite the newer
+   * value, so it is refused (m-1). A later write of other fields leaves the Undo usable (m1).
+   */
+  private undoCommit: ProvidersSettingsCommit | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
   readonly toast = this.toastState.asReadonly();
@@ -179,7 +186,11 @@ export class SettingsSaveFeedbackService {
     const request = this.undoRequest;
     if (!request) return;
     if (this.saving()) {
-      this.show({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: true }, request);
+      this.show({ tone: 'alert', message: SAVE_REFUSED_MESSAGE, canUndo: true }, request, this.undoCommit);
+      return;
+    }
+    if ('scope' in request && this.newerWriteOfSameField()) {
+      this.show({ tone: 'alert', message: UNDO_STALE_MESSAGE, canUndo: false }, null);
       return;
     }
     this.dismiss();
@@ -201,14 +212,26 @@ export class SettingsSaveFeedbackService {
   dismiss(): void {
     this.clearTimer();
     this.undoRequest = null;
+    this.undoCommit = null;
     this.toastState.set(null);
   }
 
-  private show(toast: SettingsToast, undoRequest: SettingsSaveRequest | SettingsGenericSaveRequest | null): void {
+  /** `undoCommit`: the commit the Undo belongs to; by default the current one (the save that offered it just ended). */
+  private show(toast: SettingsToast, undoRequest: SettingsSaveRequest | SettingsGenericSaveRequest | null,
+    undoCommit: ProvidersSettingsCommit | null = this.state.commit()): void {
     this.clearTimer();
     this.undoRequest = undoRequest;
+    this.undoCommit = undoRequest ? undoCommit : null;
     this.toastState.set(toast);
     this.timer = setTimeout(() => this.dismiss(), SETTINGS_TOAST_TIMEOUT_MS);
+  }
+
+  /** A Providers commit after the Undo's own one that wrote, or tried to write, one of the fields it saved. */
+  private newerWriteOfSameField(): boolean {
+    const offered = this.undoCommit, current = this.state.commit();
+    if (!offered || current === offered) return false;
+    const touched = new Set([...current.saved, ...current.unsaved, ...current.unconfirmed]);
+    return offered.saved.some((field) => touched.has(field));
   }
 
   private clearTimer(): void {

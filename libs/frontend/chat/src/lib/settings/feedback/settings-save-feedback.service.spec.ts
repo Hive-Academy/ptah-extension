@@ -7,6 +7,7 @@ import {
 } from '@ptah-extension/core';
 import {
   SAVE_REFUSED_MESSAGE,
+  UNDO_STALE_MESSAGE,
   SETTINGS_TOAST_TIMEOUT_MS,
   SettingsSaveFeedbackService,
   type SettingsGenericSaveRequest,
@@ -130,6 +131,34 @@ describe('SettingsSaveFeedbackService', () => {
     await service.undo();
     expect(undo).toHaveBeenCalledTimes(1);
     expect(service.toast()?.canUndo).toBe(false);
+  });
+
+  it('m-1 (Batch 55b): Undo after a newer write of the same field that bypassed the toast is refused, with a fixed sentence', async () => {
+    const undo = writeResolving({ status: 'saved', saved: ['model'] });
+    await service.save(request({ undo }));
+    // A drawer tab's own write (runDrawerWrite) of the same field: a new commit, no toast.
+    commit.set({ ...EMPTY, status: 'saved', saved: ['model'] });
+
+    await service.undo();
+
+    expect(undo).not.toHaveBeenCalled();
+    expect(service.toast()).toEqual({ tone: 'alert', message: UNDO_STALE_MESSAGE, canUndo: false });
+    await service.undo();
+    expect(undo).not.toHaveBeenCalled();
+  });
+
+  it('m-1: a newer write that failed on the same field also makes the Undo stale; one of other fields does not', async () => {
+    const undo = writeResolving({ status: 'saved', saved: ['model'] });
+    await service.save(request({ undo }));
+    commit.set({ ...EMPTY, status: 'failed', unconfirmed: ['model'] });
+    await service.undo();
+    expect(undo).not.toHaveBeenCalled();
+
+    const second = writeResolving({ status: 'saved', saved: ['model'] });
+    await service.save(request({ undo: second }));
+    commit.set({ ...EMPTY, status: 'saved', saved: ['effort'] });
+    await service.undo();
+    expect(second).toHaveBeenCalledTimes(1);
   });
 
   it('a failed Undo write reports failure and offers no Undo', async () => {

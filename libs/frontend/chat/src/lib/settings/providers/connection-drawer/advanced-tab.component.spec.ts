@@ -214,6 +214,24 @@ describe('AdvancedTabComponent', () => {
       expect(state.removeCustomEntry).toHaveBeenCalledWith('sovereigneg', CONTEXT);
     });
 
+    it('a host refusal (CONNECTION_IN_USE, final review M-5) on a connection the route did not mark as driver shows the same block', async () => {
+      // The state maps the host code to this fixed block (providers-connection-setup.service); no host text reaches it.
+      state.removeCustomEntry.mockImplementationOnce(async () => {
+        state.commit.set({ ...idle, status: 'blocked', unsaved: ['Custom connection'], message: 'Switch the main agent first.' });
+        return true;
+      });
+      expect(query('advanced-delete-blocked')).toBeNull();
+      query('advanced-delete')?.click(); fixture.detectChanges();
+      query('advanced-delete-confirm-button')?.click(); await flush();
+      const feedback = query('advanced-commit');
+      expect(feedback?.getAttribute('role')).toBe('alert');
+      expect(feedback?.textContent?.trim()).toBe('Not saved. Switch the main agent first.');
+      expect(feedback?.textContent).not.toContain('Connection deleted.');
+      expect(feedback?.textContent).not.toContain('runs the main agent');
+      // The connection is still shown, with its Delete action.
+      expect(query('advanced-delete')).not.toBeNull();
+    });
+
     it('a refused or failed write is never reported as done (D15)', async () => {
       state.removeCustomEntry.mockImplementationOnce(async () => {
         state.commit.set({ ...idle, status: 'blocked', unsaved: ['Custom connection'], message: 'Switch the main agent first.' });

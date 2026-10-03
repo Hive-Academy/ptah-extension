@@ -1,7 +1,7 @@
 import {
   ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal, untracked,
 } from '@angular/core';
-import { Copy, Eye, EyeOff, LucideAngularModule } from 'lucide-angular';
+import { AlertTriangle, Copy, Eye, EyeOff, LucideAngularModule } from 'lucide-angular';
 import type { ProvidersConnection, ProvidersConnectionDraft } from '@ptah-extension/core';
 import {
   getAnthropicProvider,
@@ -10,6 +10,7 @@ import {
 } from '@ptah-extension/shared';
 import type { ConnectionKind } from './connection-kind';
 import type { DrawerWriteOutcome } from './drawer-write';
+import { KEY_UNREADABLE_TEXT } from '../provider-connection-card.state';
 import { SettingsBusyDisabledDirective } from '../../feedback/busy-disabled.directive';
 
 export type VerifyDraftFn = (params: AuthVerifyDraftConnectionParams) => Promise<AuthVerifyDraftConnectionResult>;
@@ -182,15 +183,28 @@ let PROBE_COUNTER = 0;
           <div class="space-y-2" data-testid="credentials-key">
             <span class="block font-semibold text-base-content" id="credentials-key-label">Stored API key</span>
             <div class="flex flex-wrap items-center gap-2">
-              <!-- The host's masked hint (bullets + last 4) when it sent one, else a fixed mask. Display only:
-                   not selectable and never offered to a copy action. -->
-              <span class="min-w-0 flex-1 select-none rounded border border-base-300 bg-base-200 px-3 py-1.5 font-mono text-xs text-base-content"
-                aria-labelledby="credentials-key-label" data-testid="credentials-key-mask">
-                {{ connection().hasKey ? (connection().keyHint ?? '••••••••••••••••') : 'No key stored' }}
-              </span>
+              @if (connection().keyUnreadable) {
+                <!-- M-6: the host could not read the key, so whether one is stored is unknown: never "No key stored". -->
+                <span class="flex min-w-0 flex-1 items-center gap-1.5 rounded border border-base-300 bg-base-200 px-3 py-1.5 text-xs text-base-content"
+                  aria-labelledby="credentials-key-label" data-testid="credentials-key-unreadable">
+                  <lucide-angular [img]="AlertTriangleIcon" class="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                  {{ keyUnreadableText }}
+                </span>
+                <button type="button"
+                  class="btn btn-link btn-xs h-6 min-h-6 !px-0 text-xs text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                  aria-label="Retry reading the stored key" (click)="keyRetryRequested.emit()" data-testid="credentials-key-unreadable-retry">Retry</button>
+              } @else {
+                <!-- The host's masked hint (bullets + last 4) when it sent one, else a fixed mask. Display only:
+                     not selectable and never offered to a copy action. -->
+                <span class="min-w-0 flex-1 select-none rounded border border-base-300 bg-base-200 px-3 py-1.5 font-mono text-xs text-base-content"
+                  aria-labelledby="credentials-key-label" data-testid="credentials-key-mask">
+                  {{ connection().hasKey ? (connection().keyHint ?? '••••••••••••••••') : 'No key stored' }}
+                </span>
+              }
               @if (canReplace()) {
+                <!-- An unreadable key can still be overwritten, so it reads Replace, not Add key. -->
                 <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || replacing()"
-                  (click)="startReplace()" data-testid="credentials-replace">{{ connection().hasKey ? 'Replace' : 'Add key' }}</button>
+                  (click)="startReplace()" data-testid="credentials-replace">{{ connection().hasKey || connection().keyUnreadable ? 'Replace' : 'Add key' }}</button>
               }
               @if (connection().hasKey) {
                 <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [disabled]="busy()"
@@ -316,7 +330,11 @@ export class CredentialsTabComponent {
   readonly deleteKeyRequested = output<void>();
   readonly signOutRequested = output<void>();
   readonly externalActionRequested = output<CredentialsExternalAction>();
+  /** Retry on an unreadable stored key (M-6): the page re-reads the connections. */
+  readonly keyRetryRequested = output<void>();
 
+  protected readonly AlertTriangleIcon = AlertTriangle;
+  protected readonly keyUnreadableText = KEY_UNREADABLE_TEXT;
   protected readonly CopyIcon = Copy;
   protected readonly EyeIcon = Eye;
   protected readonly EyeOffIcon = EyeOff;

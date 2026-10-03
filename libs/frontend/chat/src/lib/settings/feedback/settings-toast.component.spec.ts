@@ -6,6 +6,7 @@ import {
 } from '@ptah-extension/core';
 import { SettingsSaveFeedbackService } from './settings-save-feedback.service';
 import { SettingsToastComponent } from './settings-toast.component';
+import { isDisabledControl } from './busy-disabled.testing';
 
 const EMPTY: ProvidersSettingsCommit = {
   status: 'idle',
@@ -91,7 +92,7 @@ describe('SettingsToastComponent', () => {
     expect(query('settings-toast-undo')).toBeNull();
   });
 
-  it('disables Undo while a save is in flight', async () => {
+  it('disables Undo while a save is in flight, keeping it focusable (aria-disabled)', async () => {
     await feedback.save({
       label: 'effort',
       scope: 'global',
@@ -101,7 +102,41 @@ describe('SettingsToastComponent', () => {
     commit.set({ ...EMPTY, status: 'saving' });
     fixture.detectChanges();
 
-    expect((query('settings-toast-undo') as HTMLButtonElement).disabled).toBe(true);
+    expect(isDisabledControl(query('settings-toast-undo'))).toBe(true);
+    expect((query('settings-toast-undo') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  describe('inline (Batch 55b CS-1, the drawer Models & Tiers tab)', () => {
+    beforeEach(() => {
+      fixture.componentRef.setInput('inline', true);
+      fixture.detectChanges();
+    });
+
+    it('renders the same toast in the flow of the panel, with -inline test ids and no page region', async () => {
+      const undo = jest.fn().mockResolvedValue(true);
+      await feedback.save({ label: 'opus tier model', scope: 'global', write: settlesTo({ status: 'saved' }), undo });
+      fixture.detectChanges();
+      expect(query('settings-toast-region')).toBeNull();
+      expect(query('settings-toast')).toBeNull();
+      const toast = query('settings-toast-inline');
+      expect(toast?.getAttribute('role')).toBe('status');
+      expect(toast?.className).not.toContain('shadow-lg');
+      expect(toast?.closest('.fixed')).toBeNull();
+      expect(query('settings-toast-inline-message')?.textContent).toBe('Saved opus tier model to All Ptah apps.');
+      query('settings-toast-inline-undo')?.click();
+      await Promise.resolve();
+      expect(undo).toHaveBeenCalledTimes(1);
+    });
+
+    it('a failure is role="alert" with no Undo, and Dismiss removes it', async () => {
+      await feedback.save({ label: 'opus tier model', scope: 'global', write: settlesTo({ status: 'failed' }), undo: null });
+      fixture.detectChanges();
+      expect(query('settings-toast-inline')?.getAttribute('role')).toBe('alert');
+      expect(query('settings-toast-inline-undo')).toBeNull();
+      query('settings-toast-inline-dismiss')?.click();
+      fixture.detectChanges();
+      expect(query('settings-toast-inline')).toBeNull();
+    });
   });
 
   it('the dismiss button removes the toast', async () => {

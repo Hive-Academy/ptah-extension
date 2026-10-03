@@ -430,12 +430,15 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
 
   describe('order strip: only whole chips, then "+N" (Batch 53.4, B38-4)', () => {
     let resize: (() => void) | null = null;
+    /** Every observer the component made: the element it observes and whether it was disconnected. */
+    const observers: { target: Element | null; disconnected: boolean }[] = [];
     const original = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
     beforeAll(() => {
       (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
-        constructor(callback: () => void) { resize = callback; }
-        observe(): void { /* the test calls the callback */ }
-        disconnect(): void { resize = null; }
+        private readonly record = { target: null as Element | null, disconnected: false };
+        constructor(callback: () => void) { resize = callback; observers.push(this.record); }
+        observe(target: Element): void { this.record.target = target; /* the test calls the callback */ }
+        disconnect(): void { this.record.disconnected = true; }
       };
     });
     afterAll(() => { (globalThis as { ResizeObserver?: unknown }).ResizeObserver = original; });
@@ -461,6 +464,28 @@ describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
       expect(chips()).toEqual(['codex', 'antigravity']);
       expect(q('[data-testid="policy-order-more"]')?.textContent?.trim()).toBe('+3');
       expect(button('policy-order-edit')?.getAttribute('aria-label')).toContain('5. OpenCode. Edit order');
+    });
+
+    it('M-7 (Batch 55b): an order that empties and refills makes a new strip; the observer follows it and lets the old one go', () => {
+      TestBed.tick();
+      const first = q('[data-testid="policy-order"]');
+      expect(observers.filter((o) => !o.disconnected).map((o) => o.target)).toEqual([first]);
+      state.orchestration.set(ready({ ...ORCHESTRATION, detectedClis: [detected('pi', false)] }));
+      state.cliAgents.set(ready([]));
+      TestBed.tick();
+      expect(q('[data-testid="policy-order"]')).toBeNull();
+      expect(observers.every((o) => o.disconnected)).toBe(true);
+      state.orchestration.set(ready(ORCHESTRATION));
+      state.cliAgents.set(ready([GLM]));
+      TestBed.tick();
+      const second = q('[data-testid="policy-order"]');
+      expect(second).not.toBeNull();
+      expect(second).not.toBe(first);
+      expect(observers.filter((o) => !o.disconnected).map((o) => o.target)).toEqual([second]);
+      layOut(200);
+      expect(chips()).toEqual(['codex', 'antigravity']);
+      fixture.destroy();
+      expect(observers.every((o) => o.disconnected)).toBe(true);
     });
 
     it('a wide strip shows every chip and no "+N"', () => {

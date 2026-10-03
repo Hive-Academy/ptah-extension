@@ -105,6 +105,21 @@ describe('ConnectionDetailDrawerComponent', () => {
     expect(byTestId('connection-auth-mode')?.textContent?.trim()).toBe('Custom endpoint');
   });
 
+  it('an unreadable stored key (final review M-6) reads as unknown on Overview and Credentials, never "No key stored", and Retry re-reads', () => {
+    const unreadable = connection({ hasKey: false, keyUnreadable: true });
+    render({ connection: unreadable });
+    expect(byTestId('connection-drawer-subtitle')?.textContent?.trim()).toBe('API key · Stored key unreadable');
+    expect(byTestId('connection-credential-storage')?.textContent?.trim()).toBe('Could not read the stored key.');
+    selectTab('Credentials');
+    expect(byTestId('credentials-key-unreadable')?.textContent?.trim()).toBe('Could not read the stored key.');
+    const all = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    for (const wording of ['No key stored', 'Not set', 'Add API key', 'Add key']) expect(all).not.toContain(wording);
+    const retried = jest.fn();
+    fixture.componentInstance.keyRetryRequested.subscribe(retried);
+    byTestId('credentials-key-unreadable-retry')?.click();
+    expect(retried).toHaveBeenCalledTimes(1);
+  });
+
   it("names a custom endpoint's protocol only when the state knows it", () => {
     render({ connection: SOVEREIGNEG });
     expect(byTestId('connection-drawer-subtitle')?.textContent?.trim()).toBe('Custom gateway');
