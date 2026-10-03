@@ -55,7 +55,7 @@ export interface AuthTestConnectionResponse {
     errorMessage?: string;
     responseTime?: number;
     uptime?: number;
-  };
+  } | null;
   errorMessage?: string;
 }
 
