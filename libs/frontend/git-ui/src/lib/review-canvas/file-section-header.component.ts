@@ -89,26 +89,44 @@ const FOCUS_RING =
   },
   // One row at every width (V-6): the path truncates from the left, the
   // badges and actions never wrap. The host is its own size container (CSS
-  // only, no observer per section): below 480 px Comment and Edit go
-  // icon-only (their aria-labels already name them), below 360 px the
-  // per-file totals step aside for the path (the comparison bar keeps the
-  // sums).
+  // only, no observer per section). Below 480 px Comment and Edit go
+  // icon-only (their aria-labels already name them) and the chips collapse
+  // into one "+N" summary chip whose title and accessible name list them all,
+  // so any number of chips costs one small badge. Below 360 px the per-file
+  // totals step aside (the comparison bar keeps the sums), the gaps tighten
+  // and the side badge is capped (full name in its title).
   styles: [
     `
       :host {
         container-type: inline-size;
       }
+      .fsh-chip-summary {
+        display: none;
+      }
       @container (max-width: 480px) {
-        .fsh-label {
+        .fsh-label,
+        .fsh-chip {
           display: none;
+        }
+        .fsh-chip-summary {
+          display: inline-flex;
         }
         .fsh-actions {
           gap: 0.25rem;
         }
       }
       @container (max-width: 360px) {
+        :host {
+          gap: 0.25rem;
+        }
         .fsh-totals {
           display: none;
+        }
+        .fsh-side {
+          display: inline-block;
+          max-width: 4.5rem;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
       }
     `,
@@ -157,16 +175,27 @@ const FOCUS_RING =
     }
     @if (sideLabel(); as side) {
       <span
-        class="badge badge-outline badge-xs shrink-0 whitespace-nowrap text-base-content"
+        class="fsh-side badge badge-outline badge-xs shrink-0 whitespace-nowrap text-base-content"
         data-testid="file-section-side"
+        [attr.title]="side"
         >{{ side }}</span
       >
     }
     @for (chip of chips(); track chip) {
       <span
-        class="badge badge-ghost badge-xs shrink-0 whitespace-nowrap"
+        class="fsh-chip badge badge-ghost badge-xs shrink-0 whitespace-nowrap"
         data-testid="file-chip"
         >{{ chip }}</span
+      >
+    }
+    @if (chipSummary(); as summary) {
+      <span
+        class="fsh-chip-summary badge badge-ghost badge-xs shrink-0 whitespace-nowrap"
+        role="img"
+        data-testid="file-chip-summary"
+        [attr.title]="summary.full"
+        [attr.aria-label]="summary.full"
+        >+{{ summary.count }}</span
       >
     }
     <span class="fsh-actions ml-auto flex shrink-0 items-center gap-2">
@@ -253,6 +282,14 @@ export class FileSectionHeaderComponent {
   protected readonly CommentIcon = MessageSquarePlus;
   protected readonly EditIcon = Pencil;
   protected readonly focusRing = FOCUS_RING;
+
+  /** The narrow-width stand-in for the chips: their count and full list. */
+  protected readonly chipSummary = computed(() => {
+    const chips = this.chips();
+    return chips.length === 0
+      ? null
+      : { count: chips.length, full: `File details: ${chips.join(', ')}` };
+  });
 
   protected readonly sideLabel = computed(
     () => SIDE_LABEL[this.file().comparison] ?? null,

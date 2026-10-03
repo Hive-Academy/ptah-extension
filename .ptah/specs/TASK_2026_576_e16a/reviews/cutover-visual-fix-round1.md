@@ -160,3 +160,33 @@ All commands were run with `NX_DAEMON=false NODE_OPTIONS=--no-experimental-requi
 
 - V-5 is only half active until the handoff patch lands. Without it, `autoUnified` stays false, so the canvas behaves as before apart from the single-row toolbar.
 - A container query in an ancestor of the header popovers (on the shell or the header row) was considered and rejected. `container-type` adds layout containment, which would trap the fixed-position popover backdrop and the branch-picker z-order below the sticky file headers. Compact mode therefore comes from the shell's existing ResizeObserver.
+
+## Fix round 2
+
+Source: `reviews/cutover-visual-fix-code-review.md` ("New findings"), review of commit 2c7a95130. Changes are in the working tree only. The other writer's commit 68251d0e4 is untouched.
+
+| Finding | Status | file:line | Test |
+| --- | --- | --- | --- |
+| MOD 1: a late `settings:get` can undo a Split press made while auto-unified | FIXED | `review-canvas/comparison-bar.component.ts:348`: every press now sets `layoutChangedByUser` before the same-value return. `:383` (`loadLayoutPreference`): when the user chose before the read landed, the choice wins; it is written only if the stored value differs and was not already written (`persistedLayout`, set at `:395`). With no prior choice, the stored value still applies as before. | `comparison-bar.component.spec.ts`: "keeps a Split press made before a late read of a stored Unified, and stores it once" (deferred read, auto-unified, stored false; result: stays split, exactly one `settings:set` true). "writes nothing more when the late read already agrees with the press" (one write). The existing "does not let a late settings read override…" still passes. |
+| MOD 2: nowrap header overflows at 300-319 px with chips | FIXED | `review-canvas/file-section-header.component.ts:106`: below 480 px the individual chips (`.fsh-chip`) hide and one `+N` summary badge (`:193`, `chipSummary` at `:287`) shows instead. Its `title` and `aria-label` read "File details: 3 hunks, new, comment in progress", so any number of chips costs one ~24 px badge. Below 360 px the row gap tightens to 0.25rem, totals hide, and the side badge is capped at 4.5rem with an ellipsis and a `title`. Budget at 300 px: toggle, status, capped side badge, `+N`, Comment/Edit icon-only and the open-in icon leave the path about 50 px or more; nothing else is unbounded. Above 480 px the chips render as before. | `file-section-header.component.spec.ts`: "folds a populated chip list into one bounded summary chip at narrow widths" (collapsed, status A, worktree, chips `3 hunks`/`new`/`comment in progress`; checks the summary text, title, aria, side title and the CSS tiers) and "renders no summary chip without chips". `file-diff-section.component.spec.ts`: the real collapsed in-progress-comment flow now checks that the summary chip counts the chips and names "comment in progress". |
+| MOD 3: long author outranks the subject above 400 px | FIXED | `history/history-timeline.component.ts:239` (root commit) and `:295` (commit button). The author is now `max-w-[30%] flex-shrink-0 truncate` with the full name in `title`; the full text stays in the DOM, so the accessible name is unchanged. The below-400 px visually-hidden rule is kept. | `history-timeline.component.spec.ts` "lets the subject win the row…" now also checks `max-w-[30%]`, `truncate`, no `whitespace-nowrap`, and the title and text equal to the full name |
+
+Files changed in round 2:
+
+- MODIFIED `libs/frontend/git-ui/src/lib/review-canvas/comparison-bar.component.ts`
+- MODIFIED `libs/frontend/git-ui/src/lib/review-canvas/comparison-bar.component.spec.ts`
+- MODIFIED `libs/frontend/git-ui/src/lib/review-canvas/file-section-header.component.ts`
+- MODIFIED `libs/frontend/git-ui/src/lib/review-canvas/file-section-header.component.spec.ts`
+- MODIFIED `libs/frontend/git-ui/src/lib/review-canvas/file-diff-section.component.spec.ts` (spec only; `file-diff-section.component.ts` unchanged)
+- MODIFIED `libs/frontend/git-ui/src/lib/history/history-timeline.component.ts`
+- MODIFIED `libs/frontend/git-ui/src/lib/history/history-timeline.component.spec.ts`
+
+Verification for round 2 (`NX_DAEMON=false NODE_OPTIONS=--no-experimental-require-module`):
+
+- git-ui test (`npx nx run git-ui:test --maxWorkers=2`): 43 suites, 974 tests passed
+- git-ui typecheck: passed
+- git-ui lint: 0 errors, 2 `max-lines` warnings
+  - `spot-editor.component.ts`: already over the limit before round 1
+  - `review-canvas.component.ts`: 708 of 700, crossed by the V-5 handoff patch committed in 2c7a95130; not touched this round
+- prettier `--list-different` on the round 2 files: clean
+- Electron rebuild and e2e: not run (a visual-reviewer is capturing against dist). `apps/ptah-electron-e2e/**` is untouched.

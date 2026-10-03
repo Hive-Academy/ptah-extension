@@ -324,7 +324,13 @@ describe('HistoryTimelineComponent', () => {
     expect(subject?.getAttribute('title')).toBe('feat: add hunk toolbar');
     expect(subject?.classList).toContain('truncate');
     expect(author?.classList).toContain('history-author');
-    expect(author?.classList).toContain('flex-shrink-0');
+    // Capped and truncating, so a long author never wins over the subject
+    // above 400 px either (round 2); the full name stays readable.
+    expect(author?.classList).toContain('max-w-[30%]');
+    expect(author?.classList).toContain('truncate');
+    expect(author?.classList).not.toContain('whitespace-nowrap');
+    expect(author?.getAttribute('title')).toBe('Ada');
+    expect(author?.textContent?.trim()).toBe('Ada');
 
     const source = readFileSync(
       join(__dirname, 'history-timeline.component.ts'),

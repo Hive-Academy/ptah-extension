@@ -93,8 +93,9 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
     HistoryStashSectionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  // Truncation priority (V-8): below 400 px the author steps aside so the
-  // subject keeps the row. Visually hidden, not removed, so a screen reader
+  // Truncation priority (V-8): the author is capped at 30% of the row and
+  // truncates (full name in its title and text), and below 400 px it steps
+  // aside so the subject keeps the row. Visually hidden, not removed, so a screen reader
   // still reads it. A CSS container query, no observer.
   styles: [
     `
@@ -235,7 +236,8 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
                         >
                       </span>
                       <span
-                        class="history-author flex-shrink-0 whitespace-nowrap text-base-content-muted"
+                        class="history-author max-w-[30%] flex-shrink-0 truncate text-base-content-muted"
+                        [title]="row.commit.authorName"
                         >{{ row.commit.authorName }}</span
                       >
                       <time
@@ -290,7 +292,8 @@ function toRow(commit: GitHistoryCommit, now: number): CommitRow {
                         >{{ row.commit.subject }}</span
                       >
                       <span
-                        class="history-author flex-shrink-0 whitespace-nowrap text-base-content-muted"
+                        class="history-author max-w-[30%] flex-shrink-0 truncate text-base-content-muted"
+                        [title]="row.commit.authorName"
                         data-testid="history-commit-author"
                         >{{ row.commit.authorName }}</span
                       >

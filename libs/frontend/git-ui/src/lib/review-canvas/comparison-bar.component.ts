@@ -279,8 +279,14 @@ export class ComparisonBarComponent implements OnInit {
 
   protected readonly pickerOpen = signal(false);
 
-  /** Set by a toggle: a late settings read must not override the user. */
+  /**
+   * Set by every Split / Unified press, including one that matches the model
+   * (a press of Split while the canvas is auto-unified): a late settings read
+   * must not override the user.
+   */
   private layoutChangedByUser = false;
+  /** The last value written to settings, so a reconcile never writes twice. */
+  private persistedLayout: boolean | null = null;
   private destroyed = false;
 
   private readonly scope = computed(() => this.navigation.current().scope);
@@ -337,8 +343,10 @@ export class ComparisonBarComponent implements OnInit {
 
   protected setSideBySide(sideBySide: boolean): void {
     this.layoutPicked.emit(sideBySide);
-    if (this.sideBySide() === sideBySide) return;
+    // Recorded before the equality return: a same-value press is still an
+    // explicit choice that a pending settings read must not undo.
     this.layoutChangedByUser = true;
+    if (this.sideBySide() === sideBySide) return;
     this.sideBySide.set(sideBySide);
     void this.persistLayoutPreference(sideBySide);
   }
@@ -359,12 +367,22 @@ export class ComparisonBarComponent implements OnInit {
         { key: DIFF_LAYOUT_SETTING_KEY },
       );
       if (
-        !this.destroyed &&
-        !this.layoutChangedByUser &&
-        result.success &&
-        typeof result.data?.value === 'boolean'
+        this.destroyed ||
+        !result.success ||
+        typeof result.data?.value !== 'boolean'
       ) {
-        this.sideBySide.set(result.data.value);
+        return;
+      }
+      const stored = result.data.value;
+      if (!this.layoutChangedByUser) {
+        this.sideBySide.set(stored);
+        return;
+      }
+      // A choice made before the read landed wins; store it if the stored
+      // value disagrees and it was not written already.
+      const chosen = this.sideBySide();
+      if (stored !== chosen && this.persistedLayout !== chosen) {
+        void this.persistLayoutPreference(chosen);
       }
     } catch (error: unknown) {
       // A missing or unreadable preference keeps the default; the toggle
@@ -374,6 +392,7 @@ export class ComparisonBarComponent implements OnInit {
   }
 
   private async persistLayoutPreference(sideBySide: boolean): Promise<void> {
+    this.persistedLayout = sideBySide;
     try {
       await rpcCall(this.vscode, 'settings:set', {
         key: DIFF_LAYOUT_SETTING_KEY,

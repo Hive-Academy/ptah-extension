@@ -255,6 +255,58 @@ describe('ComparisonBarComponent', () => {
       expect(fixture.componentInstance.sideBySide()).toBe(false);
     });
 
+    it('keeps a Split press made before a late read of a stored Unified, and stores it once (V-5 round 2)', async () => {
+      let finish: (value: unknown) => void = () => undefined;
+      mockRpcCall.mockImplementation((_v: unknown, method: string) =>
+        method === 'settings:get'
+          ? new Promise((resolve) => (finish = resolve))
+          : Promise.resolve({ success: true, data: {} }),
+      );
+      fixture = TestBed.createComponent(ComparisonBarComponent);
+      // The narrow canvas shows unified while the model is still true.
+      fixture.componentRef.setInput('autoUnified', true);
+      fixture.detectChanges();
+      const picked: boolean[] = [];
+      fixture.componentInstance.layoutPicked.subscribe((value) =>
+        picked.push(value),
+      );
+
+      byTestId<HTMLButtonElement>('layout-split')?.click();
+      expect(picked).toEqual([true]);
+      finish({ success: true, data: { value: false } });
+      await settle();
+
+      expect(fixture.componentInstance.sideBySide()).toBe(true);
+      const writes = mockRpcCall.mock.calls.filter(
+        (call) => call[1] === 'settings:set',
+      );
+      expect(writes).toEqual([
+        [
+          expect.anything(),
+          'settings:set',
+          { key: 'diff.renderSideBySide', value: true },
+        ],
+      ]);
+    });
+
+    it('writes nothing more when the late read already agrees with the press', async () => {
+      let finish: (value: unknown) => void = () => undefined;
+      mockRpcCall.mockImplementation((_v: unknown, method: string) =>
+        method === 'settings:get'
+          ? new Promise((resolve) => (finish = resolve))
+          : Promise.resolve({ success: true, data: {} }),
+      );
+      fixture = TestBed.createComponent(ComparisonBarComponent);
+      fixture.detectChanges();
+      byTestId<HTMLButtonElement>('layout-unified')?.click();
+      finish({ success: true, data: { value: false } });
+      await settle();
+      expect(fixture.componentInstance.sideBySide()).toBe(false);
+      expect(
+        mockRpcCall.mock.calls.filter((call) => call[1] === 'settings:set'),
+      ).toHaveLength(1);
+    });
+
     it('keeps the new layout when persisting it fails', async () => {
       create();
       await settle();

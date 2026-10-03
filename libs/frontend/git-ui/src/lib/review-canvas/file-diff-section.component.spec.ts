@@ -935,6 +935,19 @@ describe('FileDiffSectionComponent', () => {
       await settle();
       expect(byTestId('comment-composer')).toBeNull();
       expect(host().textContent).toContain('comment in progress');
+      // At narrow widths the chips fold into one "+N" badge that still names
+      // every one of them (round 2, MOD 2).
+      const summary = byTestId('file-chip-summary');
+      const chipCount = host().querySelectorAll(
+        '[data-testid="file-chip"]',
+      ).length;
+      expect(summary?.textContent?.trim()).toBe(`+${chipCount}`);
+      expect(summary?.getAttribute('aria-label')).toContain(
+        'comment in progress',
+      );
+      expect(summary?.getAttribute('title')).toBe(
+        summary?.getAttribute('aria-label'),
+      );
 
       fixture.componentRef.setInput('collapsed', false);
       await settle();
