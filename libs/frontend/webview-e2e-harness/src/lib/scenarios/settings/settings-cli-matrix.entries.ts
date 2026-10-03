@@ -276,7 +276,7 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
         await expect(message).toContainText('Saved Glm off');
         await expect(toggle).not.toBeChecked();
         expect(glmEnabled()).toBe(false);
-      } catch (error) {
+      } catch (error: unknown) {
         failed = true;
         failure = error;
       }
@@ -287,7 +287,7 @@ const INSTANCE_ENTRIES: readonly ReachabilityEntry[] = [
           await expect(message).toContainText('Saved Glm on');
           await expect(toggle).toBeChecked();
         }
-      } catch (restoreError) {
+      } catch (restoreError: unknown) {
         if (!failed) {
           failed = true;
           failure = restoreError;

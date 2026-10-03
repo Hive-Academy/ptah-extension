@@ -120,13 +120,13 @@ async function withWizardClosed(page: Page, body: () => Promise<void>): Promise<
   let failure: unknown;
   try {
     await body();
-  } catch (error) {
+  } catch (error: unknown) {
     failed = true;
     failure = error;
   }
   try {
     await closeWizard(page);
-  } catch (closeError) {
+  } catch (closeError: unknown) {
     if (!failed) {
       failed = true;
       failure = closeError;
@@ -810,7 +810,7 @@ const regressedUx: readonly ReachabilityEntry[] = [
       const before = getFixtureState(page).calls.length;
       await applyManualTierModel(panel, 'opus', 'kimi-k2.5');
       await expectCall(page, before, 'provider:setModelTier', { providerId: 'moonshot', tier: 'opus', modelId: 'kimi-k2.5', scope: 'mainAgent' });
-      const undo = panel.locator('[data-testid="models-undo"]');
+      const undo = panel.locator('[data-testid="settings-toast-inline-undo"]');
       await visibleEnabled(undo);
       await undo.click();
       await expectCall(page, before, 'provider:clearModelTier', { providerId: 'moonshot', tier: 'opus', scope: 'mainAgent' });
