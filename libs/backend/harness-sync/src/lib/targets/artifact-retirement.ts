@@ -43,7 +43,7 @@ import {
   rm,
   rmdir,
 } from 'fs/promises';
-import { basename, dirname, join } from 'path';
+import { basename, dirname, isAbsolute, join, relative } from 'path';
 import {
   hashDir,
   hashFile,
@@ -348,7 +348,11 @@ async function pruneEmptyAncestors(
   historyRoot: string,
 ): Promise<void> {
   let current = start;
-  while (current.startsWith(historyRoot)) {
+  for (;;) {
+    // Segment-wise containment: a prefix check would also admit a sibling
+    // such as `.history-old`.
+    const rel = relative(historyRoot, current);
+    if (rel.startsWith('..') || isAbsolute(rel)) return;
     if (!(await rmdirIfEmpty(current))) return;
     if (current === historyRoot) return;
     current = dirname(current);
