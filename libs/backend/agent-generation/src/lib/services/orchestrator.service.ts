@@ -34,6 +34,7 @@ import {
   type ContentGenerationSdkConfig,
 } from '../interfaces/content-generation.interface';
 import { resolveProjectType } from './wizard/analysis-schema';
+import { formatDisallowedToolsFrontmatter } from './subagent-tool-allowlist';
 import { IAgentFileWriterService } from '../interfaces/agent-file-writer.interface';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
 import {
@@ -1108,6 +1109,10 @@ export class AgentGenerationOrchestratorService {
     ];
     if (template.model && template.model.trim().length > 0) {
       frontmatterLines.push(`model: ${template.model.trim()}`);
+    }
+    const disallowedToolsLine = formatDisallowedToolsFrontmatter(template.name);
+    if (disallowedToolsLine) {
+      frontmatterLines.push(disallowedToolsLine);
     }
     frontmatterLines.push('---', '');
     const frontmatter = frontmatterLines.join('\n');
