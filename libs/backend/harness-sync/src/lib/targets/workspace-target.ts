@@ -174,7 +174,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     const ownership = this.ownershipOracle(workspaceRoot, baseEntries);
     const desiredEntries = this.desiredEntries(desired);
 
-    const writes: AgentModelPlanWrite[] = [];
+    const writes: HarnessPlanWrite[] = [];
     const foreign: string[] = [];
     const blocked: string[] = [];
     const unchangedAgents: string[] = [];
@@ -979,10 +979,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       if (transformer === undefined) {
         throw new Error(`Target "${this.id}" has no agent transformer`);
       }
-      const model =
-        'model' in write && typeof write.model === 'string'
-          ? write.model
-          : undefined;
+      const model = write.model;
       const content = transformer.transform({
         agentId: basenameWithoutSuffix(write.relPath, transformer),
         content: readFileSync(write.source, 'utf-8'),
@@ -1033,12 +1030,6 @@ interface DesiredEntry {
   /** Agents only: the model the copy carries. Absent writes no model field. */
   model?: string;
 }
-
-/**
- * A plan write that also carries the agent model, so `apply` renders the same
- * bytes `plan` hashed. Only this target creates and reads the field.
- */
-type AgentModelPlanWrite = HarnessPlanWrite & { model?: string };
 
 interface OwnershipOracle {
   entryFor(relPath: string): ManagedEntries[string] | undefined;

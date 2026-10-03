@@ -57,6 +57,8 @@ export interface HarnessPlanWrite {
    * changed source from a hand-edited copy. Omitted by byte-copy targets.
    */
   sourceHash?: string;
+  /** Agents only: the model the transformed copy carries. */
+  model?: string;
   isDirectory: boolean;
   reason: 'create' | 'update';
   /**
