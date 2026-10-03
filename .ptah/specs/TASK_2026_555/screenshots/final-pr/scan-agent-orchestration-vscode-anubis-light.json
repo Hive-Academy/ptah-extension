@@ -1,0 +1,64 @@
+{
+ "name": "agent-orchestration-vscode-anubis-light",
+ "axe": [],
+ "coloured": {
+  "tokens": {
+   "primary": [
+    68,
+    235,
+    211,
+    1
+   ],
+   "secondary": [
+    167,
+    108,
+    0,
+    1
+   ],
+   "accent": [
+    255,
+    214,
+    167,
+    1
+   ],
+   "info": [
+    0,
+    164,
+    242,
+    1
+   ],
+   "success": [
+    0,
+    186,
+    123,
+    1
+   ],
+   "warning": [
+    247,
+    127,
+    0,
+    1
+   ],
+   "error": [
+    175,
+    0,
+    25,
+    1
+   ]
+  },
+  "hits": []
+ },
+ "disabled": [],
+ "alerts": [],
+ "stops": 70,
+ "noRing": [],
+ "lowRing": [],
+ "ringCols": [
+  "122,92,105",
+  "41,19,52 (base-content class)",
+  "135,78,0",
+  "41,19,52"
+ ],
+ "minRing": 5.53,
+ "maxRing": 15.92
+}

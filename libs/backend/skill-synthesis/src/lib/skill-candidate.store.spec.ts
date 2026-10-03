@@ -24,7 +24,10 @@ import 'reflect-metadata';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 import { SkillCandidateStore } from './skill-candidate.store';
 import {
+  BACKLOG_PURGE_REASON,
   JUDGE_STATUSES,
+  MERGED_INTO_PREFIX,
+  RETIRED_UNUSED_REASON,
   type CandidateId,
   type JudgeStatus,
   type NewCandidateInput,
@@ -208,6 +211,24 @@ function makeStore(db: SpecDb): SkillCandidateStore {
     connection as never,
     makeVecStatus(false) as never,
   );
+}
+
+/** One tracker event (`skill_invocation_events`) for `slug` at `invokedAt`. */
+function recordEvent(
+  store: SkillCandidateStore,
+  slug: string,
+  invokedAt: number,
+  source = 'tool-use',
+): void {
+  store.recordSkillEvent({
+    skillSlug: slug,
+    sessionId: `sess-${slug}-${invokedAt}`,
+    contextId: null,
+    source,
+    succeeded: true,
+    isError: false,
+    invokedAt,
+  });
 }
 
 function candidateInput(suffix: string): NewCandidateInput {
@@ -1025,12 +1046,7 @@ describe('SkillCandidateStore', () => {
       const now = Date.now();
       const { candidate } = store.registerCandidate(candidateInput('decay-0'));
       store.updateStatus(candidate.id, 'promoted', { promotedAt: now });
-      store.recordInvocation({
-        skillId: candidate.id,
-        sessionId: 's1',
-        succeeded: true,
-        invokedAt: now,
-      });
+      recordEvent(store, candidate.name, now);
       // At 0 days age, 0.95^0 = 1.0 per invocation
       const list = store.listActiveOrderedByDecayScore(now, 0.95);
       const entry = list.find((r) => r.id === candidate.id);
@@ -1050,18 +1066,8 @@ describe('SkillCandidateStore', () => {
       );
       store.updateStatus(fresh.id, 'promoted', { promotedAt: now });
       store.updateStatus(old.id, 'promoted', { promotedAt: thirtyDaysAgo });
-      store.recordInvocation({
-        skillId: fresh.id,
-        sessionId: 'sf',
-        succeeded: true,
-        invokedAt: now,
-      });
-      store.recordInvocation({
-        skillId: old.id,
-        sessionId: 'so',
-        succeeded: true,
-        invokedAt: thirtyDaysAgo,
-      });
+      recordEvent(store, fresh.name, now);
+      recordEvent(store, old.name, thirtyDaysAgo);
       const list = store.listActiveOrderedByDecayScore(now, 0.95);
       const freshIdx = list.findIndex((r) => r.id === fresh.id);
       const oldIdx = list.findIndex((r) => r.id === old.id);
@@ -1093,12 +1099,7 @@ describe('SkillCandidateStore', () => {
           candidateInput('future-inv'),
         );
         store.updateStatus(candidate.id, 'promoted', { promotedAt: now });
-        store.recordInvocation({
-          skillId: candidate.id,
-          sessionId: 'sf',
-          succeeded: true,
-          invokedAt: futureTime,
-        });
+        recordEvent(store, candidate.name, futureTime);
         // With clamping: ageDays = max(0, negative) = 0, score = 0.95^0 = 1.0
         // Without clamping: ageDays = negative, 0.95^negative > 1 — would be a bug
         const list = store.listActiveOrderedByDecayScore(now, 0.95);
@@ -1117,6 +1118,485 @@ describe('SkillCandidateStore', () => {
       store.setResidency(candidate.id, 'dormant');
       const list = store.listActiveOrderedByDecayScore(Date.now(), 0.95);
       expect(list.some((r) => r.id === candidate.id)).toBe(false);
+    });
+
+    maybe('a -2 suffixed slug is scored only by its own events', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const now = Date.now();
+      const { candidate: base } = store.registerCandidate(
+        candidateInput('suffix'),
+      );
+      const { candidate: suffixed } = store.registerCandidate({
+        ...candidateInput('suffix-2-row'),
+        name: 'skill-suffix-2',
+      });
+      store.updateStatus(base.id, 'promoted', { promotedAt: now });
+      store.updateStatus(suffixed.id, 'promoted', { promotedAt: now });
+      // Only the BASE slug is used; the `-2` row has no events of its own.
+      recordEvent(store, 'skill-suffix', now);
+      recordEvent(store, 'skill-suffix', now - 1000);
+
+      const list = store.listActiveOrderedByDecayScore(now, 0.95);
+      expect(list.map((r) => r.id)).toEqual([suffixed.id, base.id]);
+    });
+  });
+
+  describe('promoteAtomically — slug-aware', () => {
+    maybe('writes the given slug into name with the promotion', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('slug'));
+
+      const promoted = store.promoteAtomically(candidate.id, {
+        promotedAt: 5,
+        bodyPath: '/active/skill-slug-2/SKILL.md',
+        name: 'skill-slug-2',
+      });
+
+      expect(promoted.name).toBe('skill-slug-2');
+      expect(promoted.status).toBe('promoted');
+      expect(promoted.bodyPath).toBe('/active/skill-slug-2/SKILL.md');
+    });
+
+    maybe('keeps the existing name when no slug is given', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('keep'));
+
+      const promoted = store.promoteAtomically(candidate.id, {
+        promotedAt: 5,
+        bodyPath: '/active/skill-keep/SKILL.md',
+      });
+
+      expect(promoted.name).toBe('skill-keep');
+    });
+
+    maybe('rejects an empty slug without writing', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('empty'));
+
+      expect(() =>
+        store.promoteAtomically(candidate.id, {
+          promotedAt: 5,
+          bodyPath: '/x/SKILL.md',
+          name: '  ',
+        }),
+      ).toThrow(/empty slug/);
+      expect(store.findById(candidate.id)?.status).toBe('candidate');
+    });
+
+    maybe(
+      'a UNIQUE violation on name throws and rolls back the demotion',
+      () => {
+        const db = createInMemoryDb();
+        // Production `skill_candidates.name` is UNIQUE (0003); the spec's base
+        // table is not, so add the constraint the real schema carries.
+        db.exec(
+          'CREATE UNIQUE INDEX spec_skill_candidates_name ON skill_candidates(name)',
+        );
+        const store = makeStore(db);
+        const { candidate: resident } = store.registerCandidate(
+          candidateInput('taken'),
+        );
+        const { candidate } = store.registerCandidate(
+          candidateInput('newcomer'),
+        );
+        store.updateStatus(resident.id, 'promoted', { promotedAt: 1 });
+
+        expect(() =>
+          store.promoteAtomically(candidate.id, {
+            promotedAt: 2,
+            bodyPath: '/active/skill-taken/SKILL.md',
+            demotedResidentId: resident.id,
+            name: 'skill-taken',
+          }),
+        ).toThrow(/UNIQUE/i);
+        expect(store.findById(resident.id)?.residency).toBe('resident');
+        const after = store.findById(candidate.id);
+        expect(after?.status).toBe('candidate');
+        expect(after?.name).toBe('skill-newcomer');
+      },
+    );
+  });
+
+  describe('inImmediateTransaction — re-entrant', () => {
+    maybe('a nested promoteAtomically commits with the outer call', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate: a } = store.registerCandidate(candidateInput('ta'));
+      const { candidate: b } = store.registerCandidate(candidateInput('tb'));
+
+      store.inImmediateTransaction(() => {
+        store.promoteAtomically(a.id, { promotedAt: 1, bodyPath: '/a' });
+        store.rejectIfStatus(b.id, 'candidate', 'merged-into:skill-ta', 2);
+      });
+
+      expect(store.findById(a.id)?.status).toBe('promoted');
+      expect(store.findById(b.id)?.status).toBe('rejected');
+      // The connection is out of the transaction: a fresh one can open.
+      expect(() => store.inImmediateTransaction(() => undefined)).not.toThrow();
+    });
+
+    maybe('an inner throw rolls back every write of the outer call', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate: a } = store.registerCandidate(candidateInput('ra'));
+      const { candidate: b } = store.registerCandidate(candidateInput('rb'));
+
+      expect(() =>
+        store.inImmediateTransaction(() => {
+          store.rejectIfStatus(b.id, 'candidate', 'merged-into:x', 2);
+          store.inImmediateTransaction(() => {
+            store.promoteAtomically(a.id, { promotedAt: 1, bodyPath: '/a' });
+            throw new Error('inner failure');
+          });
+        }),
+      ).toThrow(/inner failure/);
+
+      expect(store.findById(a.id)?.status).toBe('candidate');
+      expect(store.findById(b.id)?.status).toBe('candidate');
+      // Depth was reset: the next outermost call issues its own BEGIN.
+      store.inImmediateTransaction(() =>
+        store.rejectIfStatus(b.id, 'candidate', 'later', 3),
+      );
+      expect(store.findById(b.id)?.status).toBe('rejected');
+    });
+  });
+
+  describe('rejectIfStatus', () => {
+    maybe('rejects when the status matches and returns true', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('cas-1'));
+      store.updateStatus(candidate.id, 'promoted', { promotedAt: 1 });
+
+      expect(
+        store.rejectIfStatus(
+          candidate.id,
+          'promoted',
+          RETIRED_UNUSED_REASON,
+          9,
+        ),
+      ).toBe(true);
+      const row = store.findById(candidate.id);
+      expect(row?.status).toBe('rejected');
+      expect(row?.rejectedAt).toBe(9);
+      expect(row?.rejectedReason).toBe(RETIRED_UNUSED_REASON);
+    });
+
+    maybe('returns false and writes nothing on a status mismatch', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('cas-2'));
+
+      expect(
+        store.rejectIfStatus(candidate.id, 'promoted', RETIRED_UNUSED_REASON),
+      ).toBe(false);
+      const row = store.findById(candidate.id);
+      expect(row?.status).toBe('candidate');
+      expect(row?.rejectedAt).toBeNull();
+      expect(row?.rejectedReason).toBeNull();
+    });
+
+    maybe('loses the race when another writer decided first', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('cas-3'));
+
+      expect(
+        store.rejectIfStatus(
+          candidate.id,
+          'candidate',
+          BACKLOG_PURGE_REASON,
+          1,
+        ),
+      ).toBe(true);
+      expect(store.rejectIfStatus(candidate.id, 'candidate', 'second', 2)).toBe(
+        false,
+      );
+      expect(store.findById(candidate.id)?.rejectedReason).toBe(
+        BACKLOG_PURGE_REASON,
+      );
+    });
+
+    maybe('returns false for an unknown id', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      expect(
+        store.rejectIfStatus('missing' as CandidateId, 'candidate', 'r'),
+      ).toBe(false);
+    });
+  });
+
+  describe('listInvocationEvents', () => {
+    maybe('maps the slug events onto SkillInvocationRow, newest first', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('ev'));
+      recordEvent(store, 'skill-ev', 100, 'tool-use');
+      recordEvent(store, 'skill-ev', 300, 'subagent');
+      recordEvent(store, 'skill-ev', 200, 'prompt-expansion');
+      recordEvent(store, 'skill-ev-2', 400);
+
+      const rows = store.listInvocationEvents(candidate.id, 2);
+
+      expect(rows.map((r) => r.invokedAt)).toEqual([300, 200]);
+      expect(rows[0]).toEqual(
+        expect.objectContaining({
+          skillId: candidate.id,
+          sessionId: 'sess-skill-ev-300',
+          succeeded: true,
+          notes: 'subagent',
+          contextId: null,
+        }),
+      );
+    });
+
+    maybe('returns [] for an unknown id or a non-positive limit', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate(candidateInput('none'));
+      recordEvent(store, 'skill-none', 100);
+
+      expect(store.listInvocationEvents('nope' as CandidateId, 10)).toEqual([]);
+      expect(store.listInvocationEvents(candidate.id, 0)).toEqual([]);
+    });
+  });
+
+  describe('listPromotedLastUse', () => {
+    maybe(
+      'falls back from last event to promoted_at to created_at, oldest first',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        const { candidate: used } = store.registerCandidate({
+          ...candidateInput('used'),
+          createdAt: 10,
+        });
+        const { candidate: unused } = store.registerCandidate({
+          ...candidateInput('unused'),
+          createdAt: 20,
+        });
+        const { candidate: pending } = store.registerCandidate(
+          candidateInput('pending'),
+        );
+        store.updateStatus(used.id, 'promoted', { promotedAt: 50 });
+        store.updateStatus(unused.id, 'promoted', { promotedAt: 60 });
+        recordEvent(store, 'skill-used', 500);
+        recordEvent(store, 'skill-used', 900);
+        recordEvent(store, 'skill-pending', 1000);
+
+        const list = store.listPromotedLastUse();
+
+        expect(list.map((e) => [e.row.id, e.lastUsedAt])).toEqual([
+          [unused.id, 60],
+          [used.id, 900],
+        ]);
+        expect(list.some((e) => e.row.id === pending.id)).toBe(false);
+      },
+    );
+
+    maybe('uses created_at when promoted_at is NULL', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const { candidate } = store.registerCandidate({
+        ...candidateInput('legacy'),
+        createdAt: 7,
+      });
+      db.prepare(
+        `UPDATE skill_candidates SET status = 'promoted', promoted_at = NULL WHERE id = ?`,
+      ).run(candidate.id);
+
+      expect(store.listPromotedLastUse()).toEqual([
+        expect.objectContaining({ lastUsedAt: 7 }),
+      ]);
+    });
+
+    maybe(
+      'a (re-)promotion later than every event for the slug restarts the idle clock',
+      () => {
+        const db = createInMemoryDb();
+        const store = makeStore(db);
+        const { candidate } = store.registerCandidate({
+          ...candidateInput('revived'),
+          createdAt: 1,
+        });
+        store.updateStatus(candidate.id, 'promoted', { promotedAt: 5_000 });
+        recordEvent(store, 'skill-revived', 100);
+        recordEvent(store, 'skill-revived', 200);
+
+        expect(store.listPromotedLastUse()).toEqual([
+          expect.objectContaining({ lastUsedAt: 5_000 }),
+        ]);
+      },
+    );
+  });
+
+  describe('promoteAtomically fromStatus rejected + resetRevivedContent', () => {
+    function rejectedRow(store: SkillCandidateStore, suffix: string) {
+      const { candidate } = store.registerCandidate(candidateInput(suffix));
+      store.rejectIfStatus(candidate.id, 'candidate', 'judge-below-threshold');
+      return candidate;
+    }
+
+    maybe('revives only a row that is still rejected (compare-and-set)', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const row = rejectedRow(store, 'rev');
+
+      const promoted = store.promoteAtomically(row.id, {
+        promotedAt: 10,
+        bodyPath: '/new/SKILL.md',
+        fromStatus: 'rejected',
+      });
+
+      expect(promoted).toMatchObject({
+        status: 'promoted',
+        promotedAt: 10,
+        rejectedAt: null,
+        rejectedReason: null,
+        residency: 'resident',
+      });
+      expect(() =>
+        store.promoteAtomically(row.id, {
+          promotedAt: 11,
+          bodyPath: '/new/SKILL.md',
+          fromStatus: 'rejected',
+        }),
+      ).toThrow(/was not promotable/);
+      // The default path still refuses a rejected row.
+      const other = rejectedRow(store, 'other');
+      expect(() =>
+        store.promoteAtomically(other.id, {
+          promotedAt: 12,
+          bodyPath: '/x',
+        }),
+      ).toThrow(/illegal status transition rejected → promoted/);
+    });
+
+    maybe(
+      'resetRevivedContent writes the embedding exactly as registerCandidate would',
+      () => {
+        const db = createInMemoryDb();
+        db.exec(`CREATE TABLE skill_candidates_vec (embedding BLOB)`);
+        const withVec = new SkillCandidateStore(
+          noopLogger as never,
+          makeConnection(db) as never,
+          makeVecStatus(true) as never,
+        );
+        const withoutVec = makeStore(db);
+        const a = rejectedRow(withVec, 'vec-a');
+        const b = rejectedRow(withVec, 'vec-b');
+        for (const id of [a.id, b.id]) {
+          db.prepare(
+            `UPDATE skill_candidates SET embedding_rowid = 999 WHERE id = ?`,
+          ).run(id);
+          withVec.promoteAtomically(id, {
+            promotedAt: 1,
+            bodyPath: '/x',
+            fromStatus: 'rejected',
+          });
+        }
+        const vec = new Float32Array([0.25, 0.5, 0.75]);
+        const input = {
+          description: 'd',
+          sourceSessionIds: [],
+          embedding: vec,
+        };
+
+        const revived = withVec.resetRevivedContent(a.id, input);
+        const unavailable = withoutVec.resetRevivedContent(b.id, input);
+
+        expect(revived.embeddingRowid).not.toBeNull();
+        expect(revived.embeddingRowid).not.toBe(999);
+        expect(
+          Array.from(
+            withVec.getEmbedding(revived.embeddingRowid as number) ?? [],
+          ),
+        ).toEqual([0.25, 0.5, 0.75]);
+        expect(unavailable.embeddingRowid).toBeNull();
+        expect(
+          withVec.resetRevivedContent(a.id, { ...input, embedding: null })
+            .embeddingRowid,
+        ).toBeNull();
+      },
+    );
+
+    maybe('resetRevivedContent throws for a row that is not promoted', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const row = rejectedRow(store, 'still-rejected');
+
+      expect(() =>
+        store.resetRevivedContent(row.id, {
+          description: 'd',
+          sourceSessionIds: [],
+          embedding: null,
+        }),
+      ).toThrow(/is not a promoted row/);
+      expect(store.findById(row.id)?.description).toBe('desc still-rejected');
+    });
+  });
+
+  describe('getStats — lifecycle counts', () => {
+    maybe('returns zeros on an empty database', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      expect(store.getStats()).toEqual({
+        candidates: 0,
+        promoted: 0,
+        rejected: 0,
+        active: 0,
+        dormant: 0,
+        merged: 0,
+        retired: 0,
+        invocations: 0,
+      });
+    });
+
+    maybe('counts lifecycle states and only promoted slugs invocations', () => {
+      const db = createInMemoryDb();
+      const store = makeStore(db);
+      const ids: Record<string, CandidateId> = {};
+      for (const key of ['res', 'dor', 'cand', 'merged', 'retired', 'purged']) {
+        ids[key] = store.registerCandidate(candidateInput(key)).candidate.id;
+      }
+      store.updateStatus(ids['res'], 'promoted', { promotedAt: 1 });
+      store.updateStatus(ids['dor'], 'promoted', { promotedAt: 1 });
+      store.setResidency(ids['dor'], 'dormant');
+      store.rejectIfStatus(
+        ids['merged'],
+        'candidate',
+        `${MERGED_INTO_PREFIX}skill-res`,
+      );
+      store.updateStatus(ids['retired'], 'promoted', { promotedAt: 1 });
+      store.rejectIfStatus(ids['retired'], 'promoted', RETIRED_UNUSED_REASON);
+      store.rejectIfStatus(ids['purged'], 'candidate', BACKLOG_PURGE_REASON);
+      recordEvent(store, 'skill-res', 1);
+      recordEvent(store, 'skill-res', 2);
+      recordEvent(store, 'skill-dor', 3);
+      recordEvent(store, 'skill-cand', 4);
+      recordEvent(store, 'skill-retired', 5);
+      // Legacy `skill_invocations` rows no longer count.
+      store.recordInvocation({
+        skillId: ids['res'],
+        sessionId: 'legacy',
+        succeeded: true,
+        invokedAt: 6,
+      });
+
+      expect(store.getStats()).toEqual({
+        candidates: 1,
+        promoted: 2,
+        rejected: 3,
+        active: 1,
+        dormant: 1,
+        merged: 1,
+        retired: 1,
+        invocations: 3,
+      });
     });
   });
 

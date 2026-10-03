@@ -1,21 +1,23 @@
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
-import type {
-  GitBlobRead,
-  GitReadErrorCode,
-  GitReviewChangesResult,
-  GitReviewFile,
-  GitReviewFileResult,
+import {
+  GIT_DIFF_MAX_SIDE_BYTES,
+  type GitBlobRead,
+  type GitReadErrorCode,
+  type GitReviewChangesResult,
+  type GitReviewFile,
+  type GitReviewFileResult,
 } from '@ptah-extension/shared';
 import type { Logger } from '../logging';
 import {
   execGit,
   execGitBuffer,
+  GitOutputLimitError,
   type ExecGitBufferResult,
   type ExecGitOptions,
   type ExecGitResult,
 } from '../utils/exec-git';
+import { classifyBlobBytes } from './git/git-blob-classifier';
 
-const BINARY_SNIFF_BYTES = 8000;
 const DEFAULT_MAX_ISSUED_REVIEWS = 256;
 
 type TextGitRunner = (
@@ -380,17 +382,17 @@ export class GitReviewReaderService {
     this.validatePathSegment(relativePath);
     const spec = `${rev}:${relativePath}`;
     try {
+      // Capped at the per-side limit: a bigger blob is never shipped, so its
+      // bytes are not worth reading. Past the cap git is stopped and the side
+      // becomes `too-large`.
       const show = await this.bufferGitRunner(
         ['show', spec],
         workspacePath,
-        this.withSpawner(),
+        { ...this.withSpawner(), maxOutputBytes: GIT_DIFF_MAX_SIDE_BYTES },
       );
-      if (show.exitCode === 0) {
-        if (show.stdout.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
-          return { outcome: 'binary', byteLength: show.stdout.byteLength };
-        }
-        return { outcome: 'content', content: show.stdout.toString('utf8') };
-      }
+
+      if (show.exitCode === 0) return classifyBlobBytes(show.stdout);
+
       const probe = await this.runGit(
         ['rev-parse', '--verify', '--quiet', spec],
         workspacePath,
@@ -412,11 +414,47 @@ export class GitReviewReaderService {
         relativePath,
       );
     } catch (error: unknown) {
+      if (error instanceof GitOutputLimitError) {
+        return {
+          outcome: 'too-large',
+          byteLength: await this.blobSize(
+            workspacePath,
+            spec,
+            error.limitBytes,
+          ),
+        };
+      }
       this.logger.error(
         '[GitReviewReaderService] readBlob threw',
         error instanceof Error ? error : new Error(String(error)),
       );
       return this.gitReadError(this.classifyExecError(error), relativePath);
+    }
+  }
+
+  /**
+   * Byte size of the blob at `spec`, read only after `git show` passed the
+   * per-side cap. When git cannot say, `atLeast` (the cap that was passed) is
+   * the honest lower bound.
+   */
+  private async blobSize(
+    workspacePath: string,
+    spec: string,
+    atLeast: number,
+  ): Promise<number> {
+    try {
+      const { stdout, exitCode } = await this.runGit(
+        ['cat-file', '-s', spec],
+        workspacePath,
+      );
+      const size = Number(stdout.trim());
+      return exitCode === 0 && Number.isSafeInteger(size) && size > atLeast
+        ? size
+        : atLeast;
+    } catch {
+      // degradation-audit: optional-capability - only the reported size is
+      // less precise; the side is still refused as too large.
+      return atLeast;
     }
   }
 

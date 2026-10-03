@@ -66,7 +66,7 @@ const FOCUSABLE_SELECTOR = [
     @if (isOpen()) {
       <div class="fixed inset-0 z-50 flex" data-testid="native-drawer-root">
         <div
-          class="ptah-drawer-backdrop absolute inset-0 bg-black/50"
+          class="ptah-drawer-backdrop absolute inset-0 bg-black/60 backdrop-blur-[2px]"
           data-testid="native-drawer-backdrop"
           aria-hidden="true"
           (click)="onBackdropClick()"

@@ -54,6 +54,14 @@ export interface SessionIdResolvedPayload {
   readonly tabId: string | undefined;
   /** The canonical SDK session UUID from the system `init` message. */
   readonly realSessionId: string;
+  /**
+   * Set only when the same session record was rebound from this id to
+   * `realSessionId` — the one id-rotation path, the registry's `'rebound'`
+   * outcome on the new-chat path. Subscribers that key state by session id
+   * move it from this id to `realSessionId`. Absent on a first bind, on an
+   * idempotent re-bind and on every resume resolution.
+   */
+  readonly previousSessionId?: string;
   readonly timestamp: number;
 }
 

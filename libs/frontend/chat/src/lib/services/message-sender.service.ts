@@ -32,8 +32,10 @@ import {
   createExecutionChatMessage,
   SessionId,
   EffortLevel,
+  normalizeWorkspaceRoot,
 } from '@ptah-extension/shared';
 import {
+  ABORT_REASON_SUPERSEDED,
   ConversationRegistry,
   deriveSessionTitle,
   TabId,
@@ -218,11 +220,16 @@ export class MessageSenderService {
     signal.addEventListener(
       'abort',
       () => {
+        // A newer send replaced this controller (`createAbortController`): the
+        // old turn is not being closed, and the new turn registers under the
+        // same tab id, so a `chat:abort` here would end the NEW turn.
+        if (signal.reason === ABORT_REASON_SUPERSEDED) return;
         const tab = this.tabManager.tabs().find((t) => t.id === tabId);
-        const sessionId = tab?.claudeSessionId;
-        if (!sessionId) {
-          return;
-        }
+        // During the first turn the real session id is not bound yet. The
+        // backend registers the live record under the tab id (chat:start
+        // passes `tabId`, and its registry `find()` resolves by tab id or real
+        // session id), so the tab id still ends that turn's process.
+        const sessionId = tab?.claudeSessionId ?? (tabId as SessionId);
         this.claudeRpcService
           .call('chat:abort', { sessionId })
           .catch((error) => {
@@ -247,6 +254,26 @@ export class MessageSenderService {
    * @param workspacePath - Workspace path
    * @returns Promise<{ exists: boolean; filePath?: string }>
    */
+  /**
+   * The workspace a tab belongs to when that is NOT the active workspace, else
+   * `null` (the active workspace keeps using the host's configured root).
+   */
+  private backgroundWorkspaceOf(
+    tabId: string | null | undefined,
+  ): string | null {
+    if (!tabId) return null;
+    const lookup = this.tabManager.findTabByIdAcrossWorkspaces(tabId);
+    if (!lookup?.workspacePath) return null;
+    // Two spellings of one folder (separator, trailing slash, drive-letter
+    // case) are the active workspace, not a background one.
+    const active = this.tabManager.activeWorkspacePath;
+    return active !== null &&
+      normalizeWorkspaceRoot(lookup.workspacePath) ===
+        normalizeWorkspaceRoot(active)
+      ? null
+      : lookup.workspacePath;
+  }
+
   private async validateSessionExists(
     sessionId: SessionId,
     workspacePath: string,
@@ -574,7 +601,13 @@ export class MessageSenderService {
         );
         return { success: false, error: 'Services not available' };
       }
-      const cachedWorkspacePath = this.vscodeService.config().workspaceRoot;
+      // A tab parked in a background workspace (review feedback, a queue flush
+      // after its turn ends) owns a session that lives under THAT workspace;
+      // validating it against the active root misses the session file and
+      // detaches the tab into a fresh conversation in the wrong folder.
+      const cachedWorkspacePath =
+        this.backgroundWorkspaceOf(activeTabId) ??
+        this.vscodeService.config().workspaceRoot;
       let resolvedWorkspacePath = cachedWorkspacePath;
 
       if (!resolvedWorkspacePath) {

@@ -1,0 +1,1255 @@
+{
+  "anubis-360": {
+    "TASK_T1_none": {
+      "cardW": 240,
+      "cardH": 140.25,
+      "cardOverflowX": false,
+      "row": false
+    },
+    "TASK_T2_three": {
+      "cardW": 240,
+      "cardH": 189.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "3 linked sessions: Implement service, running; Review pass, idle; Old spike, not open",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 5.04,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "none",
+          "w": 8,
+          "fillContrast": null,
+          "borderContrast": 4.48,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625,
+      "pr": {
+        "w": 41.3125,
+        "h": 24,
+        "text": "#42",
+        "href": "https://github.com/hive/ptah/pull/42",
+        "contrast": 14.86,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T3_prnonum": {
+      "cardW": 240,
+      "cardH": 170.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Hotfix, idle",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· idle",
+      "phaseWidth": 22.5,
+      "pr": {
+        "w": 34.828125,
+        "h": 24,
+        "text": "PR",
+        "href": "https://example.com/merge/abc",
+        "contrast": 14.86,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T4_nopr": {
+      "cardW": 240,
+      "cardH": 162.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 20],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Running agent, running",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 5.04,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625
+    },
+    "TASK_T5_long": {
+      "cardW": 240,
+      "cardH": 185.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "7 linked sessions: A very long session name that goes on and on, background work; b, failed; c, sleeping; d, idle; e, idle; f, idle; g, not open",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "awaiting-background",
+          "w": 8,
+          "fillContrast": 6.61,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "failed",
+          "w": 8,
+          "fillContrast": 3.84,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "sleeping",
+          "w": 8,
+          "fillContrast": 8.81,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": true,
+      "phaseText": "· background work",
+      "phaseWidth": 23.265625,
+      "pr": {
+        "w": 54.28125,
+        "h": 24,
+        "text": "#1234",
+        "href": "https://github.com/hive/ptah/pull/1234",
+        "contrast": 14.86,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "docOverflowX": false,
+    "errs": [],
+    "tabsFromCard": [
+      "BODY|||in:",
+      "BUTTON|||in:",
+      "BUTTON|||in:",
+      "BUTTON|tasks-view-mode-kanban||in:",
+      "BUTTON|tasks-view-mode-list||in:",
+      "BUTTON|tasks-palette-trigger||in:"
+    ],
+    "linkReachedByTab": false,
+    "cardFocusStyle": {
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineColor": "oklch(0.766528 0.138677 91.0594)",
+      "focusVisible": true
+    },
+    "popupUrl": "https://github.com/hive/ptah/pull/42",
+    "rpcAfterLinkClick": [],
+    "rpcAfterRowClick": ["tasks:get"]
+  },
+  "anubis-800": {
+    "TASK_T1_none": {
+      "cardW": 240,
+      "cardH": 140.25,
+      "cardOverflowX": false,
+      "row": false
+    },
+    "TASK_T2_three": {
+      "cardW": 240,
+      "cardH": 189.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "3 linked sessions: Implement service, running; Review pass, idle; Old spike, not open",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 5.04,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "none",
+          "w": 8,
+          "fillContrast": null,
+          "borderContrast": 4.48,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625,
+      "pr": {
+        "w": 41.3125,
+        "h": 24,
+        "text": "#42",
+        "href": "https://github.com/hive/ptah/pull/42",
+        "contrast": 14.86,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T3_prnonum": {
+      "cardW": 240,
+      "cardH": 170.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Hotfix, idle",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· idle",
+      "phaseWidth": 22.5,
+      "pr": {
+        "w": 34.828125,
+        "h": 24,
+        "text": "PR",
+        "href": "https://example.com/merge/abc",
+        "contrast": 14.86,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T4_nopr": {
+      "cardW": 240,
+      "cardH": 162.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 20],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Running agent, running",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 5.04,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625
+    },
+    "TASK_T5_long": {
+      "cardW": 240,
+      "cardH": 185.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "7 linked sessions: A very long session name that goes on and on, background work; b, failed; c, sleeping; d, idle; e, idle; f, idle; g, not open",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "awaiting-background",
+          "w": 8,
+          "fillContrast": 6.61,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "failed",
+          "w": 8,
+          "fillContrast": 3.84,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "sleeping",
+          "w": 8,
+          "fillContrast": 8.81,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": true,
+      "phaseText": "· background work",
+      "phaseWidth": 23.265625,
+      "pr": {
+        "w": 54.28125,
+        "h": 24,
+        "text": "#1234",
+        "href": "https://github.com/hive/ptah/pull/1234",
+        "contrast": 14.86,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "docOverflowX": false,
+    "errs": []
+  },
+  "anubis-1400": {
+    "TASK_T1_none": {
+      "cardW": 240,
+      "cardH": 140.25,
+      "cardOverflowX": false,
+      "row": false
+    },
+    "TASK_T2_three": {
+      "cardW": 240,
+      "cardH": 189.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "3 linked sessions: Implement service, running; Review pass, idle; Old spike, not open",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 5.04,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "none",
+          "w": 8,
+          "fillContrast": null,
+          "borderContrast": 4.48,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625,
+      "pr": {
+        "w": 41.3125,
+        "h": 24,
+        "text": "#42",
+        "href": "https://github.com/hive/ptah/pull/42",
+        "contrast": 14.86,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T3_prnonum": {
+      "cardW": 240,
+      "cardH": 170.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Hotfix, idle",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· idle",
+      "phaseWidth": 22.5,
+      "pr": {
+        "w": 34.828125,
+        "h": 24,
+        "text": "PR",
+        "href": "https://example.com/merge/abc",
+        "contrast": 14.86,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T4_nopr": {
+      "cardW": 240,
+      "cardH": 162.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 20],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Running agent, running",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 5.04,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625
+    },
+    "TASK_T5_long": {
+      "cardW": 240,
+      "cardH": 185.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "7 linked sessions: A very long session name that goes on and on, background work; b, failed; c, sleeping; d, idle; e, idle; f, idle; g, not open",
+      "cardBg": [19, 19, 23, 1],
+      "dots": [
+        {
+          "phase": "awaiting-background",
+          "w": 8,
+          "fillContrast": 6.61,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "failed",
+          "w": 8,
+          "fillContrast": 3.84,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "sleeping",
+          "w": 8,
+          "fillContrast": 8.81,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 5.62,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 14.86,
+      "textFont": "10px",
+      "phaseTruncated": true,
+      "phaseText": "· background work",
+      "phaseWidth": 23.265625,
+      "pr": {
+        "w": 54.28125,
+        "h": 24,
+        "text": "#1234",
+        "href": "https://github.com/hive/ptah/pull/1234",
+        "contrast": 14.86,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "docOverflowX": false,
+    "errs": [],
+    "tabsFromCard": [
+      "BODY|||in:",
+      "BUTTON|||in:",
+      "BUTTON|||in:",
+      "BUTTON|tasks-view-mode-kanban||in:",
+      "BUTTON|tasks-view-mode-list||in:",
+      "BUTTON|tasks-palette-trigger||in:"
+    ],
+    "linkReachedByTab": false,
+    "cardFocusStyle": {
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineColor": "oklch(0.766528 0.138677 91.0594)",
+      "focusVisible": true
+    },
+    "popupUrl": "https://github.com/hive/ptah/pull/42",
+    "rpcAfterLinkClick": [],
+    "rpcAfterRowClick": ["tasks:get"]
+  },
+  "anubis-light-360": {
+    "TASK_T1_none": {
+      "cardW": 240,
+      "cardH": 140.25,
+      "cardOverflowX": false,
+      "row": false
+    },
+    "TASK_T2_three": {
+      "cardW": 240,
+      "cardH": 189.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "3 linked sessions: Implement service, running; Review pass, idle; Old spike, not open",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 2.59,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "none",
+          "w": 8,
+          "fillContrast": null,
+          "borderContrast": 3.28,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625,
+      "pr": {
+        "w": 41.3125,
+        "h": 24,
+        "text": "#42",
+        "href": "https://github.com/hive/ptah/pull/42",
+        "contrast": 15.92,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T3_prnonum": {
+      "cardW": 240,
+      "cardH": 170.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Hotfix, idle",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· idle",
+      "phaseWidth": 22.5,
+      "pr": {
+        "w": 34.828125,
+        "h": 24,
+        "text": "PR",
+        "href": "https://example.com/merge/abc",
+        "contrast": 15.92,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T4_nopr": {
+      "cardW": 240,
+      "cardH": 162.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 20],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Running agent, running",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 2.59,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625
+    },
+    "TASK_T5_long": {
+      "cardW": 240,
+      "cardH": 185.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "7 linked sessions: A very long session name that goes on and on, background work; b, failed; c, sleeping; d, idle; e, idle; f, idle; g, not open",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "awaiting-background",
+          "w": 8,
+          "fillContrast": 2.46,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "failed",
+          "w": 8,
+          "fillContrast": 3.57,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "sleeping",
+          "w": 8,
+          "fillContrast": 4.11,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": true,
+      "phaseText": "· background work",
+      "phaseWidth": 23.265625,
+      "pr": {
+        "w": 54.28125,
+        "h": 24,
+        "text": "#1234",
+        "href": "https://github.com/hive/ptah/pull/1234",
+        "contrast": 15.92,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "docOverflowX": false,
+    "errs": [],
+    "tabsFromCard": [
+      "BODY|||in:",
+      "BUTTON|||in:",
+      "BUTTON|||in:",
+      "BUTTON|tasks-view-mode-kanban||in:",
+      "BUTTON|tasks-view-mode-list||in:",
+      "BUTTON|tasks-palette-trigger||in:"
+    ],
+    "linkReachedByTab": false,
+    "cardFocusStyle": {
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineColor": "oklch(0.58 0.132 75)",
+      "focusVisible": true
+    },
+    "popupUrl": "https://github.com/hive/ptah/pull/42",
+    "rpcAfterLinkClick": [],
+    "rpcAfterRowClick": ["tasks:get"]
+  },
+  "anubis-light-800": {
+    "TASK_T1_none": {
+      "cardW": 240,
+      "cardH": 140.25,
+      "cardOverflowX": false,
+      "row": false
+    },
+    "TASK_T2_three": {
+      "cardW": 240,
+      "cardH": 189.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "3 linked sessions: Implement service, running; Review pass, idle; Old spike, not open",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 2.59,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "none",
+          "w": 8,
+          "fillContrast": null,
+          "borderContrast": 3.28,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625,
+      "pr": {
+        "w": 41.3125,
+        "h": 24,
+        "text": "#42",
+        "href": "https://github.com/hive/ptah/pull/42",
+        "contrast": 15.92,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T3_prnonum": {
+      "cardW": 240,
+      "cardH": 170.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Hotfix, idle",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· idle",
+      "phaseWidth": 22.5,
+      "pr": {
+        "w": 34.828125,
+        "h": 24,
+        "text": "PR",
+        "href": "https://example.com/merge/abc",
+        "contrast": 15.92,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T4_nopr": {
+      "cardW": 240,
+      "cardH": 162.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 20],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Running agent, running",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 2.59,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625
+    },
+    "TASK_T5_long": {
+      "cardW": 240,
+      "cardH": 185.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "7 linked sessions: A very long session name that goes on and on, background work; b, failed; c, sleeping; d, idle; e, idle; f, idle; g, not open",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "awaiting-background",
+          "w": 8,
+          "fillContrast": 2.46,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "failed",
+          "w": 8,
+          "fillContrast": 3.57,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "sleeping",
+          "w": 8,
+          "fillContrast": 4.11,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": true,
+      "phaseText": "· background work",
+      "phaseWidth": 23.265625,
+      "pr": {
+        "w": 54.28125,
+        "h": 24,
+        "text": "#1234",
+        "href": "https://github.com/hive/ptah/pull/1234",
+        "contrast": 15.92,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "docOverflowX": false,
+    "errs": []
+  },
+  "anubis-light-1400": {
+    "TASK_T1_none": {
+      "cardW": 240,
+      "cardH": 140.25,
+      "cardOverflowX": false,
+      "row": false
+    },
+    "TASK_T2_three": {
+      "cardW": 240,
+      "cardH": 189.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "3 linked sessions: Implement service, running; Review pass, idle; Old spike, not open",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 2.59,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "none",
+          "w": 8,
+          "fillContrast": null,
+          "borderContrast": 3.28,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625,
+      "pr": {
+        "w": 41.3125,
+        "h": 24,
+        "text": "#42",
+        "href": "https://github.com/hive/ptah/pull/42",
+        "contrast": 15.92,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T3_prnonum": {
+      "cardW": 240,
+      "cardH": 170.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Hotfix, idle",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· idle",
+      "phaseWidth": 22.5,
+      "pr": {
+        "w": 34.828125,
+        "h": 24,
+        "text": "PR",
+        "href": "https://example.com/merge/abc",
+        "contrast": 15.92,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "TASK_T4_nopr": {
+      "cardW": 240,
+      "cardH": 162.25,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 20],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "1 linked session: Running agent, running",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "generating",
+          "w": 8,
+          "fillContrast": 2.59,
+          "borderContrast": null,
+          "anim": "pulse",
+          "animDur": "2s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": false,
+      "phaseText": "· running",
+      "phaseWidth": 41.65625
+    },
+    "TASK_T5_long": {
+      "cardW": 240,
+      "cardH": 185.5,
+      "cardOverflowX": false,
+      "row": true,
+      "rowRect": [17, 206, 24],
+      "rowOverflowsCard": false,
+      "noteRole": "note",
+      "noteLabel": "7 linked sessions: A very long session name that goes on and on, background work; b, failed; c, sleeping; d, idle; e, idle; f, idle; g, not open",
+      "cardBg": [250, 247, 245, 1],
+      "dots": [
+        {
+          "phase": "awaiting-background",
+          "w": 8,
+          "fillContrast": 2.46,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "failed",
+          "w": 8,
+          "fillContrast": 3.57,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "sleeping",
+          "w": 8,
+          "fillContrast": 4.11,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        },
+        {
+          "phase": "idle",
+          "w": 8,
+          "fillContrast": 2.37,
+          "borderContrast": null,
+          "anim": "none",
+          "animDur": "0s"
+        }
+      ],
+      "textContrast": 15.92,
+      "textFont": "10px",
+      "phaseTruncated": true,
+      "phaseText": "· background work",
+      "phaseWidth": 23.265625,
+      "pr": {
+        "w": 54.28125,
+        "h": 24,
+        "text": "#1234",
+        "href": "https://github.com/hive/ptah/pull/1234",
+        "contrast": 15.92,
+        "deco": "underline",
+        "tabindex": "-1",
+        "inside": true
+      }
+    },
+    "docOverflowX": false,
+    "errs": [],
+    "tabsFromCard": [
+      "BODY|||in:",
+      "BUTTON|||in:",
+      "BUTTON|||in:",
+      "BUTTON|tasks-view-mode-kanban||in:",
+      "BUTTON|tasks-view-mode-list||in:",
+      "BUTTON|tasks-palette-trigger||in:"
+    ],
+    "linkReachedByTab": false,
+    "cardFocusStyle": {
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineColor": "oklch(0.58 0.132 75)",
+      "focusVisible": true
+    },
+    "popupUrl": "https://github.com/hive/ptah/pull/42",
+    "rpcAfterLinkClick": [],
+    "rpcAfterRowClick": ["tasks:get"]
+  },
+  "reduced-false": {
+    "animationName": "pulse",
+    "duration": "2s",
+    "runningAnims": 1
+  },
+  "reduced-true": {
+    "animationName": "none",
+    "duration": "1e-05s",
+    "runningAnims": 0
+  },
+  "unavailable": {
+    "rows": 0,
+    "cards": 5
+  },
+  "shift": {
+    "pre": {
+      "TASK_T1_none": [195, 140],
+      "TASK_T2_three": [343, 160],
+      "TASK_T3_prnonum": [511, 140],
+      "TASK_T4_nopr": [195, 136]
+    },
+    "post": {
+      "TASK_T1_none": [195, 140],
+      "TASK_T2_three": [343, 190],
+      "TASK_T3_prnonum": [541, 170],
+      "TASK_T4_nopr": [195, 162]
+    },
+    "cls": 0.014396428674768518
+  }
+}

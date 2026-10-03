@@ -29,6 +29,7 @@ import { SessionHistoryReaderService } from '../session-history-reader.service';
 import { SessionStatsReaderService } from '../session-stats';
 import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
+import { UnattendedSessionPolicyRegistry } from '../permission/unattended-session-policy.registry';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
 import {
@@ -89,6 +90,7 @@ import {
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
+import { CommitMessageGenerator } from '../commit-message/commit-message-generator.service';
 import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { HarnessPolicySync } from '../harness/harness-policy-sync';
@@ -170,6 +172,15 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_STATS_READER,
     { useClass: SessionStatsReaderService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Before the permission handler: it injects the registry as an OPTIONAL
+  // dependency, and tsyringe resolves that once, when the singleton handler is
+  // built — a later registration would leave the handler without it.
+  container.register(
+    SDK_TOKENS.SDK_UNATTENDED_SESSION_POLICY_REGISTRY,
+    { useClass: UnattendedSessionPolicyRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -565,6 +576,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
     { useClass: InternalQueryService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Stateless; resolved lazily by the `git:generateCommitMessage` handler, so
+  // its `TOKENS.GIT_INFO_SERVICE` dependency is the host's registration.
+  container.register(
+    SDK_TOKENS.SDK_COMMIT_MESSAGE_GENERATOR,
+    { useClass: CommitMessageGenerator },
     { lifecycle: Lifecycle.Singleton },
   );
 

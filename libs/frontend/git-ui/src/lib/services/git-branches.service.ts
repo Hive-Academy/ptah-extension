@@ -21,14 +21,13 @@ import type {
   GitCheckoutResult,
   GitFetchResult,
   GitLastCommitResult,
+  GitPrStatusResult,
   GitPullResult,
   GitPushResult,
   GitRemotesResult,
   GitStashListResult,
   GitStatusUpdatePayload,
-  GitTagsResult,
   RemoteInfo,
-  TagRef,
 } from '@ptah-extension/shared';
 
 /**
@@ -37,6 +36,17 @@ import type {
  * so each repository keeps its own most-recent list.
  */
 const RECENT_BRANCHES_STATE_KEY = 'gitBranches.recentBranchesByWorkspace';
+
+/**
+ * Renderer timeout for `git:prStatus`. The backend gives `gh` 15 s and answers
+ * `timeout` itself, so its typed result lands well inside this.
+ */
+export const PR_STATUS_RPC_TIMEOUT_MS = 30_000;
+
+const PR_STATUS_FAILED: GitPrStatusResult = {
+  status: 'unavailable',
+  reason: 'failed',
+};
 
 /** How many recent branches to remember per workspace. */
 const MAX_RECENT_BRANCHES = 5;
@@ -82,8 +92,8 @@ const EMPTY_BRANCHES: GitBranchesResult = {
  * - Event-driven refresh: reacts to `git:status-update` pushes routed by
  *   `MessageRouterService` while {@link startListening} has armed the gate.
  *   There is NO polling and no raw `window` listener.
- * - On-demand refresh via `refreshBranches()`, `refreshTags()`,
- *   `refreshRemotes()`. Tags and remotes are split out so they can be
+ * - On-demand refresh via `refreshBranches()` and `refreshRemotes()`.
+ *   Remotes are split out so they can be
  *   lazily fetched (the branch picker doesn't need them on first paint).
  * - Refresh requests are COALESCED, not serialised: everything asked for
  *   within {@link REFRESH_COALESCE_MS}, or while a pass is running, merges
@@ -103,9 +113,15 @@ export class GitBranchesService implements MessageHandler {
   private readonly _stashCount = signal<number>(0);
   private readonly _lastCommit = signal<GitLastCommitResult | null>(null);
   private readonly _remotes = signal<RemoteInfo[]>([]);
-  private readonly _tags = signal<TagRef[]>([]);
   private readonly _isLoading = signal<boolean>(false);
   private readonly _recentBranches = signal<string[]>([]);
+  private readonly _pushCompletions = signal<number>(0);
+
+  /**
+   * Counts successful pushes made through {@link push}. A view that shows
+   * remote state (the Task tab's PR status) reads it to refresh after a push.
+   */
+  readonly pushCompletions = this._pushCompletions.asReadonly();
 
   /** Full branches result — { current, local, remote, recent }. */
   readonly branches = this._branches.asReadonly();
@@ -115,8 +131,6 @@ export class GitBranchesService implements MessageHandler {
   readonly lastCommit = this._lastCommit.asReadonly();
   /** Configured remotes (lazy — populated by `refreshRemotes()`). */
   readonly remotes = this._remotes.asReadonly();
-  /** Recent tags (lazy — populated by `refreshTags()`). */
-  readonly tags = this._tags.asReadonly();
   /** Whether a refresh RPC is currently in flight. */
   readonly isLoading = this._isLoading.asReadonly();
   /** Recently visited branch names (most-recent first, max 5). */
@@ -241,7 +255,6 @@ export class GitBranchesService implements MessageHandler {
     this._stashCount.set(0);
     this._lastCommit.set(null);
     this._remotes.set([]);
-    this._tags.set([]);
     this._recentBranches.set([]);
   }
 
@@ -425,22 +438,42 @@ export class GitBranchesService implements MessageHandler {
       this._lastCommit.set(result);
   }
 
-  /** Lazy fetch of recent tags — call when the branch details popover opens. */
-  async refreshTags(limit = 20): Promise<void> {
-    const result = await this.safeRpc<GitTagsResult>('git:tags', {
-      limit,
-      ...this.scopeParams(),
-    });
-    if (result) this._tags.set(result.tags);
-  }
-
-  /** Lazy fetch of configured remotes — call when the popover opens. */
+  /**
+   * Lazy fetch of configured remotes — call when the popover opens. A reply
+   * without a `remotes` array reads as no remotes, so a malformed payload
+   * never reaches the template.
+   */
   async refreshRemotes(): Promise<void> {
     const result = await this.safeRpc<GitRemotesResult>(
       'git:remotes',
       this.scopeParams(),
     );
-    if (result) this._remotes.set(result.remotes);
+    if (!result) return;
+    const remotes: unknown = result.remotes;
+    this._remotes.set(Array.isArray(remotes) ? (remotes as RemoteInfo[]) : []);
+  }
+
+  /**
+   * GitHub pull-request and CI status for the branch checked out in
+   * `workspaceRoot`. The backend resolves the branch itself and caches the
+   * answer for 60 s. A transport failure or a malformed reply reads as
+   * `unavailable: 'failed'`, so callers always get the typed result.
+   */
+  async readPrStatus(workspaceRoot: string): Promise<GitPrStatusResult> {
+    try {
+      const response = await rpcCall<GitPrStatusResult>(
+        this.vscodeService,
+        'git:prStatus',
+        { workspaceRoot },
+        PR_STATUS_RPC_TIMEOUT_MS,
+      );
+      const data = response.success ? response.data : undefined;
+      if (data?.status === 'ok' || data?.status === 'unavailable') return data;
+      return PR_STATUS_FAILED;
+    } catch (err: unknown) {
+      console.error('[GitBranchesService] git:prStatus failed', err);
+      return PR_STATUS_FAILED;
+    }
   }
 
   /**
@@ -566,12 +599,14 @@ export class GitBranchesService implements MessageHandler {
         timeoutMs,
       );
       if (response.success && response.data) {
-        if (response.data.success)
+        if (response.data.success) {
           void this.requestRefresh({
             branches: true,
             stash: false,
             lastCommit: headMoves,
           });
+          if (method === 'git:push') this._pushCompletions.update((n) => n + 1);
+        }
         return response.data;
       }
       return {
@@ -649,6 +684,14 @@ export class GitBranchesService implements MessageHandler {
    * Returns `null` when no workspace is set; callers must guard before
    * reading/writing state.
    */
+  /**
+   * The workspace this service's slices (branches, stash count, last commit)
+   * belong to, so a caller can tell whether `lastCommit()` is for its folder.
+   */
+  workspaceRoot(): string | null {
+    return this.workspaceKey();
+  }
+
   private workspaceKey(): string | null {
     return (
       this._activeWorkspacePath ??

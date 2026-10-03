@@ -11,7 +11,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import { Logger, RpcHandler, RpcUserError, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { getAnthropicProvider } from '@ptah-extension/agent-sdk';
 import {
@@ -33,6 +33,19 @@ import type {
   PtahCliListModelsResult,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
+
+/**
+ * Fixed client-facing text for each RPC's unexpected-failure catch. A thrown
+ * error's message can carry an API key or a local path, so it never goes into
+ * the RPC result, the log or Sentry (see `reportFailure`).
+ */
+const PTAH_CLI_RPC_ERRORS = {
+  create: 'Could not create the Ptah CLI agent.',
+  update: 'Could not save the Ptah CLI agent.',
+  delete: 'Could not delete the Ptah CLI agent.',
+  testConnection: 'Could not test the connection.',
+  listModels: 'Could not load the model list.',
+} as const;
 
 /**
  * RPC handlers for Ptah CLI management operations
@@ -97,16 +110,13 @@ export class PtahCliRpcHandlers {
           });
 
           return { agents };
-        } catch (error) {
-          this.logger.error(
-            'RPC: ptahCli:list failed',
-            error instanceof Error ? error : new Error(String(error)),
+        } catch (error: unknown) {
+          this.reportFailure('ptahCli:list', 'registerList', error);
+          if (error instanceof RpcUserError) throw error;
+          throw new RpcUserError(
+            'Could not load the CLI agents.',
+            'PERSISTENCE_UNAVAILABLE',
           );
-          this.sentryService.captureException(
-            error instanceof Error ? error : new Error(String(error)),
-            { errorSource: 'PtahCliRpcHandlers.registerList' },
-          );
-          throw error;
         }
       },
     );
@@ -138,18 +148,9 @@ export class PtahCliRpcHandlers {
           });
 
           return { success: true, agent };
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          this.logger.error(
-            'RPC: ptahCli:create failed',
-            error instanceof Error ? error : new Error(errorMessage),
-          );
-          this.sentryService.captureException(
-            error instanceof Error ? error : new Error(errorMessage),
-            { errorSource: 'PtahCliRpcHandlers.registerCreate' },
-          );
-          return { success: false, error: errorMessage };
+        } catch (error: unknown) {
+          this.reportFailure('ptahCli:create', 'registerCreate', error);
+          return { success: false, error: PTAH_CLI_RPC_ERRORS.create };
         }
       },
     );
@@ -197,18 +198,9 @@ export class PtahCliRpcHandlers {
           });
 
           return { success: true };
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          this.logger.error(
-            'RPC: ptahCli:update failed',
-            error instanceof Error ? error : new Error(errorMessage),
-          );
-          this.sentryService.captureException(
-            error instanceof Error ? error : new Error(errorMessage),
-            { errorSource: 'PtahCliRpcHandlers.registerUpdate' },
-          );
-          return { success: false, error: errorMessage };
+        } catch (error: unknown) {
+          this.reportFailure('ptahCli:update', 'registerUpdate', error);
+          return { success: false, error: PTAH_CLI_RPC_ERRORS.update };
         }
       },
     );
@@ -233,18 +225,9 @@ export class PtahCliRpcHandlers {
           });
 
           return { success: true };
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          this.logger.error(
-            'RPC: ptahCli:delete failed',
-            error instanceof Error ? error : new Error(errorMessage),
-          );
-          this.sentryService.captureException(
-            error instanceof Error ? error : new Error(errorMessage),
-            { errorSource: 'PtahCliRpcHandlers.registerDelete' },
-          );
-          return { success: false, error: errorMessage };
+        } catch (error: unknown) {
+          this.reportFailure('ptahCli:delete', 'registerDelete', error);
+          return { success: false, error: PTAH_CLI_RPC_ERRORS.delete };
         }
       },
     );
@@ -274,18 +257,15 @@ export class PtahCliRpcHandlers {
         });
 
         return result;
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        this.logger.error(
-          'RPC: ptahCli:testConnection failed',
-          error instanceof Error ? error : new Error(errorMessage),
+      } catch (error: unknown) {
+        this.reportFailure(
+          'ptahCli:testConnection',
+          'registerTestConnection',
+          error,
         );
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(errorMessage),
-          { errorSource: 'PtahCliRpcHandlers.registerTestConnection' },
-        );
-        return { success: false, error: errorMessage };
+        // Only this outer catch is fixed; the registry's own result above
+        // keeps its already-sanitized `error` (the UI's `reason`).
+        return { success: false, error: PTAH_CLI_RPC_ERRORS.testConnection };
       }
     });
   }
@@ -345,19 +325,29 @@ export class PtahCliRpcHandlers {
           models,
           isStatic: !hasDynamicEndpoint,
         };
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        this.logger.error(
-          'RPC: ptahCli:listModels failed',
-          error instanceof Error ? error : new Error(errorMessage),
-        );
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(errorMessage),
-          { errorSource: 'PtahCliRpcHandlers.registerListModels' },
-        );
-        return { models: [], isStatic: true, error: errorMessage };
+      } catch (error: unknown) {
+        this.reportFailure('ptahCli:listModels', 'registerListModels', error);
+        return {
+          models: [],
+          isStatic: true,
+          error: PTAH_CLI_RPC_ERRORS.listModels,
+        };
       }
     });
+  }
+
+  /**
+   * Log and capture an unexpected failure by error TYPE only. These calls can
+   * carry an API key (`ptahCli:create`/`update` take `apiKey`), and a registry
+   * or secret-store error can echo it, so the message never reaches the log
+   * or Sentry (the auth handlers' `keyStoreReadFailure` rule).
+   */
+  private reportFailure(method: string, source: string, error: unknown): void {
+    const errorType = error instanceof Error ? error.name : 'unknown';
+    this.logger.error(`RPC: ${method} failed`, { errorType });
+    this.sentryService.captureException(
+      new Error(`${method} failed (${errorType})`),
+      { errorSource: `PtahCliRpcHandlers.${source}` },
+    );
   }
 }

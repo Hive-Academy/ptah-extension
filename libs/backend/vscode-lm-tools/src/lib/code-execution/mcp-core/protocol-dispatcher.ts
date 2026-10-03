@@ -129,6 +129,24 @@ import {
   appsOnlyToolMessage,
   resolveMcpToolProfile,
 } from './mcp-tool-profile';
+import {
+  SESSION_LINK_TASK_TOOL_NAME,
+  buildSessionLinkTaskTool,
+  formatSessionLinkTaskResult,
+} from './session-organization-tools';
+import {
+  SESSION_READ_TOOL_NAME,
+  SESSION_SEND_TOOL_NAME,
+  SESSION_START_TOOL_NAME,
+  SESSION_STATUS_TOOL_NAME,
+  SESSION_STOP_TOOL_NAME,
+  buildSessionReadTool,
+  buildSessionSendTool,
+  buildSessionStartTool,
+  buildSessionStatusTool,
+  buildSessionStopTool,
+} from './session-tools';
+import { handleSessionToolCall } from './session-tool-handlers';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 import { buildServerInstructions } from './server-instructions';
@@ -334,6 +352,7 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  * Always-on core tools (never disabled by namespace toggles):
  * - workspace_analyze, search_files, get_diagnostics, count_tokens,
  *   web_search, execute_code, approval_prompt
+ * - ptah_session_link_task (TASK_2026_580), beside the task tools.
  * - ptah_task_create/update/get/list/check (TASK_2026_179, step 17). These sit
  *   in the core set on purpose and have NO entry in the namespace-toggle list
  *   below: an agent that cannot rely on the task tools being present will fall
@@ -425,6 +444,9 @@ function buildToolDefinitions(
     buildTaskGetTool(),
     buildTaskListTool(),
     buildTaskCheckTool(),
+    // Always-on beside the task tools (TASK_2026_580, D12): an agent that
+    // cannot rely on it would leave its session unlinked from the task.
+    buildSessionLinkTaskTool(),
     // Listed only under the apps profile (TASK_2026_595), filtered in buildToolSet.
     buildDashboardProposeSpecTool(),
     buildSurfaceUpdateTool(),
@@ -445,6 +467,13 @@ function buildToolDefinitions(
           buildAgentReportTool(),
           buildAgentStopTool(),
           buildAgentListTool(),
+          // Child chat sessions (TASK_2026_584): the same group, so the one
+          // `agent` toggle governs every way to start delegated work.
+          buildSessionStartTool(),
+          buildSessionSendTool(),
+          buildSessionStatusTool(),
+          buildSessionReadTool(),
+          buildSessionStopTool(),
         ]
       : []),
     ...(!disabled.has('git')
@@ -1208,8 +1237,21 @@ async function handleIndividualTool(
         // guessing would deliver one agent's report into another's session.
         // Read from the request context only: `resolveMcpCaller` already
         // treats an empty or whitespace-only id as absent.
+        //
+        // A spawned agent (`/agent/{id}`) wins. Without one, a calling chat
+        // session (`/session/{id}`) reports as a child session
+        // (TASK_2026_584): the router delivers only when that session IS a
+        // child started with ptah_session_start, and refuses any other
+        // session itself. Neither id -> today's `unattributed-caller`.
         const callerAgentId = getCallerAgentId();
-        if (callerAgentId === undefined) {
+        const callerSessionId = getCallerSessionId()?.trim() || undefined;
+        const { message, summary } = parsed.data;
+        let reportInput: Parameters<PtahAPI['agent']['report']>[0];
+        if (callerAgentId !== undefined) {
+          reportInput = { agentId: callerAgentId, message, summary };
+        } else if (callerSessionId !== undefined) {
+          reportInput = { childSessionId: callerSessionId, message, summary };
+        } else {
           return await createToolSuccessResponse(
             request,
             formatAgentReport({
@@ -1219,11 +1261,7 @@ async function handleIndividualTool(
             deps,
           );
         }
-        const delivery = await ptahAPI.agent.report({
-          agentId: callerAgentId,
-          message: parsed.data.message,
-          summary: parsed.data.summary,
-        });
+        const delivery = await ptahAPI.agent.report(reportInput);
         return await createToolSuccessResponse(
           request,
           formatAgentReport(delivery),
@@ -2008,6 +2046,25 @@ async function handleIndividualTool(
           : await createToolSuccessResponse(request, reply.text, deps);
       }
 
+      // Child chat sessions (TASK_2026_584). The caller is the transport's
+      // session id, read by the namespace from the request context; the
+      // arguments never carry it.
+      case SESSION_START_TOOL_NAME:
+      case SESSION_SEND_TOOL_NAME:
+      case SESSION_STATUS_TOOL_NAME:
+      case SESSION_READ_TOOL_NAME:
+      case SESSION_STOP_TOOL_NAME: {
+        const reply = await handleSessionToolCall(
+          name,
+          args,
+          ptahAPI.session,
+          logger,
+        );
+        return reply.isError
+          ? toolErrorResponse(request, reply.text)
+          : await createToolSuccessResponse(request, reply.text, deps);
+      }
+
       case 'ptah_ast_analyze': {
         const { file, workspaceRoot } = args as {
           file: string;
@@ -2339,6 +2396,30 @@ async function handleIndividualTool(
         return await createToolSuccessResponse(
           request,
           JSON.stringify(result),
+          deps,
+        );
+      }
+
+      // -- Session organization (TASK_2026_580, D12) ----------------------
+      //
+      // The namespace validates the args and resolves the CALLER from the
+      // request context, never from args. A refusal is data, as with the task
+      // tools. `link-failed` carries the recorder's own message, which is
+      // logged here and replaced by fixed text for the agent.
+      case SESSION_LINK_TASK_TOOL_NAME: {
+        const result = ptahAPI.sessionOrganization.linkTask(args);
+        if (!result.ok && result.error === 'link-failed') {
+          runObserver(() =>
+            logger.warn(
+              '[MCP] ptah_session_link_task: the recorder threw',
+              'CodeExecutionMCP',
+              { message: result.message },
+            ),
+          );
+        }
+        return await createToolSuccessResponse(
+          request,
+          formatSessionLinkTaskResult(result),
           deps,
         );
       }

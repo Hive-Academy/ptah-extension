@@ -62,6 +62,16 @@ export const PLATFORM_TOKENS = {
   /** IMemoryWriter — upsert memory entries by stable (fingerprint, subject) identity. */
   MEMORY_WRITER: Symbol.for('PlatformMemoryWriter'),
 
+  /**
+   * ISessionOrganizationRecorder — capture port for session worktree, lineage,
+   * task and PR links. Adapter: @ptah-extension/session-organization, bound
+   * only when the SQLite connection is registered (unregistered on VS Code).
+   * Consumers inject it `{ isOptional: true }` and skip when absent.
+   */
+  SESSION_ORGANIZATION_RECORDER: Symbol.for(
+    'PlatformSessionOrganizationRecorder',
+  ),
+
   /** IMasterKeyProvider — platform-specific 32-byte AES-256 master key retrieval. */
   MASTER_KEY_PROVIDER: Symbol.for('PlatformMasterKeyProvider'),
 
@@ -70,6 +80,9 @@ export const PLATFORM_TOKENS = {
 
   /** IMcpServerStatus — read-only port for querying the in-process MCP server status. Breaks the vscode-lm-tools ↔ cli-agent-runtime construction cycle. */
   MCP_SERVER_STATUS: Symbol.for('PlatformMcpServerStatus'),
+
+  /** IMcpSubagentRootRegistrar — keeps the Ptah `.mcp.json` entry in a non-workspace folder (a child session's worktree) while a session runs there. Registered only by hosts that run the MCP server. */
+  MCP_SUBAGENT_ROOT_REGISTRAR: Symbol.for('PlatformMcpSubagentRootRegistrar'),
 
   /** ITracer — performance tracing port (spans + breadcrumbs). Adapters: SentryTracerAdapter / NoopTracer (vscode-core). */
   TRACER: Symbol.for('Ptah.ITracer'),

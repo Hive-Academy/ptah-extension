@@ -66,6 +66,41 @@
           ></div>
         }
       </div>
+      <!-- Change-set cards of the turn this message ends. `when` adds no
+           per-item observer and keeps the card chunk lazy. -->
+      @if (changeSetAnchors().get(msg.id); as changeSets) {
+        @defer (when changeSets.length > 0) {
+          @for (changeSet of changeSets; track changeSetKey(changeSet)) {
+            <div class="px-2 pb-3" data-testid="chat-change-set">
+              <ptah-change-set-card
+                [changeSet]="changeSet"
+                [host]="changeSetHost()"
+                [reconciled]="changeSetMarks(changeSet).reconciled"
+                [conflicted]="changeSetMarks(changeSet).conflicted"
+                (review)="onChangeSetReview(changeSet)"
+                (openFile)="onChangeSetOpenFile(changeSet, $event)"
+                (openScm)="onChangeSetOpenScm(changeSet)"
+              />
+              @if (changeSetError(changeSet); as error) {
+                <!-- Error ink is the anubis AA override (--ptah-error-ink);
+                     the icon keeps it readable as an error without colour. -->
+                <p
+                  class="max-w-md pt-1 flex items-start gap-1 text-[11px] text-error"
+                  role="alert"
+                  data-testid="chat-change-set-error"
+                >
+                  <lucide-angular
+                    [img]="ChangeSetErrorIcon"
+                    class="w-3 h-3 mt-px shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{{ error }}</span>
+                </p>
+              }
+            </div>
+          }
+        }
+      }
     }
   </div>
 </div>

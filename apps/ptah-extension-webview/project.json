@@ -20,9 +20,9 @@
             "input": "apps/ptah-extension-webview/public"
           },
           {
-            "glob": "**/*",
-            "input": "node_modules/monaco-editor/min",
-            "output": "/assets/monaco"
+            "glob": "worker-portable.js",
+            "input": "node_modules/@pierre/diffs/dist/worker",
+            "output": "/assets/pierre"
           }
         ],
         "styles": [
@@ -68,6 +68,7 @@
           ],
           "outputHashing": "none",
           "namedChunks": false,
+          "statsJson": true,
           "optimization": {
             "scripts": true,
             "styles": {
@@ -128,6 +129,13 @@
         "buildTarget": "ptah-extension-webview:build",
         "staticFilePath": "dist/apps/ptah-extension-vscode/webview/browser",
         "spa": true
+      }
+    },
+    "verify-eager-bundle": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "command": "node apps/ptah-extension-webview/scripts/assert-eager-bundle.mjs"
       }
     },
     "typecheck": {

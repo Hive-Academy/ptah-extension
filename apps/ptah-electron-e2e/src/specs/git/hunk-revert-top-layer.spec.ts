@@ -4,10 +4,18 @@ import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { test, expect } from '../../support/real-rpc-fixtures';
 import { THREE_HUNK_FILE } from '../../support/git-scratch-repo';
 import { showCanvas } from '../../support/show-canvas';
-import { sourceControlFileButton } from '../../support/source-control';
+import type { UiDriver } from '../../support/ui-driver';
 
 /**
  * The hunk revert confirmation, answered by MOUSE — TASK_2026_227.
+ *
+ * TASK_2026_576 Batch 59 retargeted this to the review canvas: the Reject
+ * button is the hunk row's (`ptah-hunk-toolbar`), and the dialog is the shared
+ * `ptah-git-confirm-dialog` (a native `<dialog>` opened with `showModal()`, so
+ * it sits in the browser's top layer by construction). The assertions are the
+ * same ones: the dialog paints above the Orchestra Canvas, Cancel and Confirm
+ * receive a real unforced click, Cancel writes nothing and Confirm reverts
+ * exactly the hunk it was opened for.
  *
  * The dialog was written carefully and was correct in every dimension jsdom can
  * observe: `alertdialog`, `aria-modal`, labelled and described, focus on the
@@ -111,8 +119,14 @@ async function waitForWorktreeDiff(
   const deadline = Date.now() + timeoutMs;
   let last = '';
   for (;;) {
-    last = read();
-    if (predicate(last)) return last;
+    try {
+      last = read();
+      if (predicate(last)) return last;
+    } catch (error: unknown) {
+      // `git apply` replaces a file by unlink + create, so a `git diff` that
+      // lands in between fails with "stat ...: No such file". Poll again.
+      last = `(git diff failed: ${error instanceof Error ? error.message : String(error)})`;
+    }
     if (Date.now() > deadline) {
       throw new Error(
         `Timed out after ${timeoutMs}ms waiting on the working tree.\n` +
@@ -133,45 +147,27 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
    * the locators the assertions need.
    */
   async function openRevertDialog(
-    page: Page,
+    ui: UiDriver,
     electronApp: ElectronApplication,
   ) {
-    // The dock has no tab rail (TASK_2026_385 Batch 3.3): the caller's
-    // goto('git') already opens it on the source-control panel, so the old
-    // "click the Git tab" step is gone.
+    const page = ui.page;
     await assertDefaultWindow(electronApp);
-    const changedRow = await sourceControlFileButton(page, THREE_HUNK_FILE);
-    await expect(changedRow).toBeVisible({ timeout: 20_000 });
-    await changedRow.click();
+    const section = ui.reviewFileSection(THREE_HUNK_FILE);
+    await expect(
+      section.locator('[data-testid="pierre-hunk-host"]'),
+    ).toHaveCount(3, { timeout: 30_000 });
+    await expect(
+      ui.hunkHost(0, section).locator('[data-testid="hunk-position"]'),
+    ).toHaveText('Hunk 1 of 3');
 
-    await expect(page.locator('ptah-diff-view .view-lines').last()).toBeVisible(
-      {
-        timeout: 20_000,
-      },
-    );
-    await expect(page.locator('[data-testid="hunk-position"]')).toHaveText(
-      '3 hunks',
-      { timeout: 20_000 },
-    );
+    await ui.hunkAction(0, 'revert', section).click();
 
-    await page
-      .locator(
-        'ptah-diff-view .modified-in-monaco-diff-editor .ptah-hunk-glyph',
-      )
-      .first()
-      .click();
-    await expect(page.locator('[data-testid="hunk-position"]')).toHaveText(
-      'Hunk 1 of 3',
-    );
-
-    await page.locator('[data-testid="hunk-widget-revert"]').click();
-
-    const dialog = page.locator('[data-testid="hunk-revert-dialog"]');
+    const dialog = page.locator('[data-testid="git-confirm-dialog"]');
     await expect(dialog).toBeVisible();
     return {
       dialog,
-      cancel: page.locator('[data-testid="hunk-revert-cancel"]'),
-      confirm: page.locator('[data-testid="hunk-revert-confirm"]'),
+      cancel: page.locator('[data-testid="git-confirm-cancel"]'),
+      confirm: page.locator('[data-testid="git-confirm-confirm"]'),
     };
   }
 
@@ -187,10 +183,7 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
     const before = repo.worktreeDiff();
     expect(before.match(/^@@ /gm)?.length).toBe(3);
 
-    const { dialog, cancel, confirm } = await openRevertDialog(
-      page,
-      electronApp,
-    );
+    const { dialog, cancel, confirm } = await openRevertDialog(ui, electronApp);
 
     // The condition the bug needed: the canvas really is behind this dialog.
     // Without this the spec could pass in a layout where nothing overlaps and
@@ -215,13 +208,13 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
     expect(
       overCancel.testid,
       `something else is on top of Cancel: <${overCancel.tag}> "${overCancel.text}"`,
-    ).toBe('hunk-revert-cancel');
+    ).toBe('git-confirm-cancel');
 
     const overConfirm = await topmostAt(page, confirm);
     expect(
       overConfirm.testid,
       `something else is on top of Discard: <${overConfirm.tag}> "${overConfirm.text}"`,
-    ).toBe('hunk-revert-confirm');
+    ).toBe('git-confirm-confirm');
 
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     const shot = await page.screenshot({ scale: 'css' });
@@ -254,19 +247,17 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
     expect(before.match(/^@@ /gm)?.length).toBe(3);
     expect(before).toContain('value10 = 10000');
 
-    const { dialog, confirm } = await openRevertDialog(page, electronApp);
+    const { dialog, confirm } = await openRevertDialog(ui, electronApp);
 
     const overConfirm = await topmostAt(page, confirm);
     expect(
       overConfirm.testid,
       `something else is on top of Discard: <${overConfirm.tag}> "${overConfirm.text}"`,
-    ).toBe('hunk-revert-confirm');
+    ).toBe('git-confirm-confirm');
 
     await confirm.click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.locator('[data-testid="hunk-apply-error"]')).toHaveCount(
-      0,
-    );
+    await expect(page.locator('[data-testid="hunk-refused"]')).toHaveCount(0);
 
     const after = await waitForWorktreeDiff(
       () => repo.worktreeDiff(),

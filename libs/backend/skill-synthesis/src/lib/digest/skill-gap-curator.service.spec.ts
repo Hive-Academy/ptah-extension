@@ -178,16 +178,19 @@ function seedSuggestion(
   slug: string,
   description: string,
 ): { id: string } {
-  return h.suggestions.insertPending({
-    name: slug,
-    description,
-    body: '# body',
-    memberSessionIds: ['s-old'],
-    memberCandidateIds: ['c-old'],
-    clusterSize: 3,
-    technologyFingerprint: 'ts',
-    judgeScore: 8,
-  });
+  return h.suggestions.insert(
+    {
+      name: slug,
+      description,
+      body: '# body',
+      memberSessionIds: ['s-old'],
+      memberCandidateIds: ['c-old'],
+      clusterSize: 3,
+      technologyFingerprint: 'ts',
+      judgeScore: 8,
+    },
+    'pending',
+  );
 }
 
 /** A promoted skill in the library, through the real store path. */
@@ -318,13 +321,13 @@ describe('SkillGapCuratorService', () => {
   });
 
   describe('the autonomy boundary, scanned from source', () => {
-    it('never CALLS insertPending', () => {
+    it('never CALLS insert', () => {
       // The DB-count assertion further down only catches this on a seeded pass
       // with a pending suggestion in reach. This catches it unconditionally:
       // the digest may SHARPEN a proposal the user has not decided on and may
       // never FILE one. Same shape as the judge service's `score: 10` scan.
       // Matched with the open paren so the file may still SAY the word.
-      expect(curatorSource()).not.toContain('insertPending(');
+      expect(curatorSource()).not.toContain('.insert(');
     });
 
     it('writes through updatePending, from exactly one call site', () => {
@@ -453,16 +456,19 @@ describe('SkillGapCuratorService', () => {
           saveVerdict(h, 's-research', 'tests-green', {
             intent: RESEARCH_INTENT,
           });
-          const suggestion = h.suggestions.insertPending({
-            name: 'deep-research',
-            description: 'Research things.',
-            body: '# body',
-            memberSessionIds: ['s-old'],
-            memberCandidateIds: ['c-old'],
-            clusterSize: 3,
-            technologyFingerprint: 'ts',
-            judgeScore: 8,
-          });
+          const suggestion = h.suggestions.insert(
+            {
+              name: 'deep-research',
+              description: 'Research things.',
+              body: '# body',
+              memberSessionIds: ['s-old'],
+              memberCandidateIds: ['c-old'],
+              clusterSize: 3,
+              technologyFingerprint: 'ts',
+              judgeScore: 8,
+            },
+            'pending',
+          );
 
           const first = await h.curator.runDigest({ workspaceRoot: WORKSPACE });
           const after = h.suggestions.findById(suggestion.id);
@@ -493,17 +499,20 @@ describe('SkillGapCuratorService', () => {
           saveVerdict(h, 's-research', 'tests-green', {
             intent: RESEARCH_INTENT,
           });
-          const accepted = h.suggestions.insertPending({
-            name: 'deep-research',
-            description: 'Research things.',
-            body: '# body',
-            memberSessionIds: ['s-old'],
-            memberCandidateIds: ['c-old'],
-            clusterSize: 3,
-            technologyFingerprint: 'ts',
-            judgeScore: 8,
-          });
-          h.suggestions.accept(accepted.id);
+          const accepted = h.suggestions.insert(
+            {
+              name: 'deep-research',
+              description: 'Research things.',
+              body: '# body',
+              memberSessionIds: ['s-old'],
+              memberCandidateIds: ['c-old'],
+              clusterSize: 3,
+              technologyFingerprint: 'ts',
+              judgeScore: 8,
+            },
+            'pending',
+          );
+          h.suggestions.accept(accepted.id, null);
 
           await h.curator.runDigest({ workspaceRoot: WORKSPACE });
 

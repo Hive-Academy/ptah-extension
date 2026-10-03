@@ -1,0 +1,644 @@
+/**
+ * Prototype styling for TASK_2026_555, Variant B (master–detail control center).
+ *
+ * Part 1 (below the marker) is a verbatim copy of the TASK_2026_494 app.css
+ * (apps/ptah-extension-webview/tailwind.config.js token values). Part 2 adds
+ * the master–detail layout components for this variant. Loaded AFTER the
+ * daisyUI 4 CDN stylesheet.
+ */
+
+/* ---------------------------------------------------------------------- */
+/* Token variables — source: apps/ptah-extension-webview/tailwind.config.js */
+/* ---------------------------------------------------------------------- */
+
+[data-theme='anubis'] {
+  --brand-primary: #2563eb;
+  --brand-primary-focus: #1d4ed8;
+  --brand-primary-content: #f8f7f4;
+  --brand-secondary: #d4af37;
+  --brand-secondary-content: #131317;
+  --brand-accent: #fbbf24;
+  --brand-accent-content: #131317;
+  --brand-neutral: #1e1e26;
+  --brand-neutral-content: #d1d5db;
+  --brand-base-100: #131317;
+  --brand-base-200: #1a1a20;
+  --brand-base-300: #242430;
+  --brand-content: #e8e6e1;
+  /* base-content-muted, computed 40% toward base-100 in OKLCH -> 5.29:1.
+     tailwind.config.js:96-98 + :12-31 (base-content-muted token). */
+  --brand-content-muted: oklch(63.048152% 0.00745 23.427972);
+  --brand-info: #3b82f6;
+  --brand-info-content: #e8e6e1;
+  --brand-success: #16a34a;
+  --brand-success-content: #e8e6e1;
+  --brand-warning: #f97316;
+  --brand-warning-content: #131317;
+  --brand-error: #dc2626;
+  --brand-error-content: #e8e6e1;
+  --brand-rounded-box: 0.75rem;
+  --brand-rounded-btn: 0.375rem;
+  --brand-rounded-badge: 0.25rem;
+  color-scheme: dark;
+}
+
+[data-theme='anubis-light'] {
+  --brand-primary: oklch(85% 0.138 181.071);
+  --brand-primary-focus: oklch(80% 0.15 181);
+  --brand-primary-content: oklch(43% 0.078 188.216);
+  --brand-secondary: oklch(58% 0.132 75);
+  --brand-secondary-content: oklch(98% 0.015 80);
+  --brand-accent: oklch(90% 0.076 70.697);
+  --brand-accent-content: oklch(47% 0.157 37.304);
+  --brand-neutral: oklch(27% 0.006 286.033);
+  --brand-neutral-content: oklch(92% 0.004 286.32);
+  --brand-base-100: oklch(97.788% 0.004 56.375);
+  --brand-base-200: oklch(93.982% 0.007 61.449);
+  --brand-base-300: oklch(91.586% 0.006 53.44);
+  --brand-content: oklch(23.574% 0.066 313.189);
+  /* base-content-muted, 40% toward base-100 -> 5.01:1. tailwind.config.js:159-161 */
+  --brand-content-muted: oklch(53.2596% 0.0412 354.4634);
+  --brand-info: oklch(68% 0.169 237.323);
+  --brand-info-content: oklch(29% 0.066 243.157);
+  --brand-success: oklch(69% 0.17 162.48);
+  --brand-success-content: oklch(26% 0.051 172.552);
+  --brand-warning: oklch(72% 0.18 55);
+  --brand-warning-content: oklch(28% 0.066 53.813);
+  --brand-error: oklch(64% 0.246 16.439);
+  --brand-error-content: oklch(27% 0.105 12.094);
+  --brand-rounded-box: 1rem;
+  --brand-rounded-btn: 2rem;
+  --brand-rounded-badge: 1rem;
+  color-scheme: light;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Base surface + text ladder                                             */
+/* ---------------------------------------------------------------------- */
+
+html,
+body {
+  background-color: var(--brand-base-100);
+  color: var(--brand-content);
+}
+
+.bg-base-100 { background-color: var(--brand-base-100); }
+.bg-base-200 { background-color: var(--brand-base-200); }
+.bg-base-300 { background-color: var(--brand-base-300); }
+.text-base-content { color: var(--brand-content); }
+/* Project rule: never use text-base-content/40|50|60|80 for secondary text —
+   TASK_2026_183 removed that ladder because no single alpha clears 4.5:1 on
+   every theme. Use this class instead (tailwind.config.js:12-31). */
+.text-base-content-muted { color: var(--brand-content-muted); }
+.border-base-300 { border-color: var(--brand-base-300); }
+.border-base-content\/10 { border-color: color-mix(in oklab, var(--brand-content) 10%, transparent); }
+.border-base-content\/15 { border-color: color-mix(in oklab, var(--brand-content) 15%, transparent); }
+.bg-base-300\/30 { background-color: color-mix(in oklab, var(--brand-base-300) 30%, transparent); }
+.bg-base-300\/40 { background-color: color-mix(in oklab, var(--brand-base-300) 40%, transparent); }
+.bg-base-200\/50 { background-color: color-mix(in oklab, var(--brand-base-200) 50%, transparent); }
+.hover\:bg-base-300\/50:hover { background-color: color-mix(in oklab, var(--brand-base-300) 50%, transparent); }
+
+/* ---------------------------------------------------------------------- */
+/* Semantic text / tint pairs (colored text on neutral tile, never a solid  */
+/* filled badge — design-spec.md "Accessibility", measured-contrast table) */
+/* ---------------------------------------------------------------------- */
+
+.text-primary { color: var(--brand-primary); }
+.text-secondary { color: var(--brand-secondary); }
+.text-success { color: var(--brand-success); }
+.text-warning { color: var(--brand-warning); }
+.text-error { color: var(--brand-error); }
+.text-info { color: var(--brand-info); }
+
+.border-primary\/20 { border-color: color-mix(in oklab, var(--brand-primary) 20%, transparent); }
+.border-primary\/40 { border-color: color-mix(in oklab, var(--brand-primary) 40%, transparent); }
+.border-success\/20 { border-color: color-mix(in oklab, var(--brand-success) 20%, transparent); }
+.border-info\/20 { border-color: color-mix(in oklab, var(--brand-info) 20%, transparent); }
+.border-warning\/20 { border-color: color-mix(in oklab, var(--brand-warning) 20%, transparent); }
+.border-warning\/30 { border-color: color-mix(in oklab, var(--brand-warning) 30%, transparent); }
+.border-error\/30 { border-color: color-mix(in oklab, var(--brand-error) 30%, transparent); }
+.bg-warning\/10 { background-color: color-mix(in oklab, var(--brand-warning) 10%, transparent); }
+.bg-error\/10 { background-color: color-mix(in oklab, var(--brand-error) 10%, transparent); }
+.bg-success\/10 { background-color: color-mix(in oklab, var(--brand-success) 10%, transparent); }
+.bg-primary\/10 { background-color: color-mix(in oklab, var(--brand-primary) 10%, transparent); }
+
+/* ---------------------------------------------------------------------- */
+/* daisyUI class overrides (shape/behavior from the CDN build; color from   */
+/* the project tokens above, since the CDN build ships its own generic     */
+/* "dark"/"light" themes, not anubis / anubis-light)                       */
+/* ---------------------------------------------------------------------- */
+
+.btn { border-radius: var(--brand-rounded-btn); text-transform: none; }
+.btn-primary {
+  background-color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: var(--brand-primary-content);
+}
+.btn-primary:hover { background-color: var(--brand-primary-focus); border-color: var(--brand-primary-focus); }
+.btn-primary[disabled], .btn-primary:disabled {
+  background-color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-ghost { background-color: transparent; border-color: transparent; color: var(--brand-content); }
+.btn-ghost:hover { background-color: color-mix(in oklab, var(--brand-content) 10%, transparent); }
+.btn-outline { background-color: transparent; }
+.btn-outline.btn-error { border-color: var(--brand-error); color: var(--brand-error); }
+.btn-outline.btn-error:hover { background-color: var(--brand-error); color: var(--brand-error-content); }
+.btn:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+/* Tab row: a plain custom pill/underline treatment, not daisyUI's
+   `tabs-lifted` "paper" visual — that variant paints its active state with
+   internal pseudo-elements colored from the CDN build's own baked-in theme,
+   which this file cannot reliably override. See README.md "Deviations". */
+[role='tab'], .tab {
+  color: var(--brand-content-muted) !important;
+  background: none !important;
+  border: none !important;
+  border-bottom: 2px solid transparent !important;
+  box-shadow: none !important;
+}
+[role='tab'].tab-active,
+.tab.tab-active,
+[role='tab'][aria-selected='true'] {
+  color: var(--brand-content) !important;
+  background-color: var(--brand-base-300) !important;
+  border-bottom: 2px solid var(--brand-primary) !important;
+}
+
+.card { border-radius: var(--brand-rounded-box); }
+.card-bordered, .card.border { border: 1px solid var(--brand-base-300); background-color: var(--brand-base-100); }
+
+.input, .select, .textarea {
+  background-color: var(--brand-base-200);
+  border: 1px solid var(--brand-base-300);
+  color: var(--brand-content);
+  border-radius: var(--brand-rounded-btn);
+}
+.input:focus, .select:focus, .textarea:focus, .input:focus-visible, .select:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+  border-color: var(--brand-primary);
+}
+.input-error, .select-error, [aria-invalid='true'] {
+  border-color: var(--brand-error);
+}
+
+.checkbox, .radio {
+  border-color: var(--brand-content-muted);
+  accent-color: var(--brand-primary);
+}
+
+fieldset { border: none; padding: 0; margin: 0; }
+legend {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--brand-content);
+  padding: 0;
+  margin-bottom: 0.25rem;
+}
+
+.table { color: var(--brand-content); }
+.table th {
+  color: var(--brand-content-muted);
+  background-color: var(--brand-base-200);
+  border-bottom: 1px solid var(--brand-base-300);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.625rem;
+}
+.table td { border-bottom: 1px solid color-mix(in oklab, var(--brand-base-300) 60%, transparent); }
+.table tbody tr:hover { background-color: color-mix(in oklab, var(--brand-base-300) 40%, transparent); }
+.table tbody tr[aria-selected='true'] {
+  background-color: color-mix(in oklab, var(--brand-primary) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.badge { border-radius: var(--brand-rounded-badge); font-weight: 500; }
+
+.loading { color: var(--brand-primary); }
+
+/* Sortable table header button */
+.th-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.th-sort-btn:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; border-radius: 2px; }
+
+/* State/status spine (NativeCardComponent pattern, native-card.component.ts:120-124) */
+.spine-neutral { box-shadow: inset 3px 0 0 var(--brand-content-muted); }
+.spine-success { box-shadow: inset 3px 0 0 var(--brand-success); }
+.spine-warning { box-shadow: inset 3px 0 0 var(--brand-warning); }
+.spine-error { box-shadow: inset 3px 0 0 var(--brand-error); }
+
+/* Chat / tool-call cards (Pin flow pattern, design-spec.md:108, matching
+   QuestionCardComponent / PermissionRequestCardComponent) */
+.tool-card {
+  border-left: 2px solid var(--brand-primary);
+  background-color: color-mix(in oklab, var(--brand-base-300) 30%, transparent);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.625rem;
+}
+
+/* Chart axis / gridline tokens (design-spec.md "Catalog components": axis
+   and gridline colors use text-base-content-muted / border-base-content/10,
+   not new chart-specific colors) */
+.chart-axis-text { fill: var(--brand-content-muted); font-size: 9px; }
+.chart-gridline { stroke: color-mix(in oklab, var(--brand-content) 10%, transparent); stroke-width: 1; }
+.chart-series-a { stroke: var(--brand-primary); fill: var(--brand-primary); }
+.chart-series-b { stroke: var(--brand-secondary); fill: var(--brand-secondary); }
+
+/* Viewport container toggle (PROTOTYPING.md skeleton) */
+.viewport-sidebar {
+  max-width: 420px;
+  margin: 0 auto;
+  border-left: 1px dashed color-mix(in oklab, var(--brand-content) 20%, transparent);
+  border-right: 1px dashed color-mix(in oklab, var(--brand-content) 20%, transparent);
+  height: calc(100vh - 40px);
+}
+.viewport-wide { max-width: 100%; margin: 0 auto; }
+
+/* At embedded-sidebar width the conversation column and the surface panel
+   cannot sit side by side (360px alone nearly fills a 420px host) — the same
+   constraint a real ~400px VS Code sidebar would impose. Stack them instead,
+   matching how the shell's own narrow layouts fall back to a vertical
+   arrangement elsewhere (e.g. the mobile workspace sidebar). This is a
+   prototype-only responsive decision; see README.md "Deviations". */
+.viewport-sidebar #appsPageHost,
+.narrow-stack #appsPageHost {
+  flex-direction: column;
+  overflow-y: auto;
+  height: auto;
+}
+.viewport-sidebar #appsPageHost > div:first-child,
+.narrow-stack #appsPageHost > div:first-child {
+  width: 100% !important;
+  border-right: none !important;
+  border-bottom: 1px solid var(--brand-base-300);
+  max-height: 260px;
+}
+.viewport-sidebar #appsPageHost > div:last-child,
+.narrow-stack #appsPageHost > div:last-child {
+  min-height: 480px;
+}
+
+/* Grid collapse below `sm` (design-spec.md "Catalog components": grid ...
+   collapses to one column below sm). A real narrow browser viewport fires
+   the media query below; the container-width TOGGLE does not (PROTOTYPING.md
+   — "a max-width container does not trigger viewport media queries"), so it
+   gets the identical rule applied explicitly via .viewport-sidebar. */
+@media (max-width: 480px) {
+  .grid-cols-2, .grid-cols-3 { grid-template-columns: 1fr !important; }
+  #appsPageHost { flex-direction: column; overflow-y: auto; height: auto; }
+  #appsPageHost > div:first-child {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--brand-base-300);
+    max-height: 260px;
+  }
+  #appsPageHost > div:last-child { min-height: 480px; }
+  [role='tablist'].tabs { overflow-x: auto; flex-wrap: nowrap; max-width: 55vw; }
+}
+.viewport-sidebar .grid-cols-2,
+.viewport-sidebar .grid-cols-3 {
+  grid-template-columns: 1fr !important;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.font-mono-fallback {
+  font-family: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* hidden helper (avoid relying on Tailwind CDN's own .hidden generation
+   order relative to this stylesheet) */
+.is-hidden { display: none !important; }
+
+/* ====================================================================== */
+/* TASK_2026_555 — Variant B "master–detail control center" additions.     */
+/* Same token variables as above; no new palette.                         */
+/* ====================================================================== */
+
+/* Prototype toolbar (not part of the product) */
+.proto-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  min-height: 42px;
+  padding: 0.25rem 0.75rem;
+  border-bottom: 1px solid var(--brand-base-300);
+  background-color: var(--brand-base-200);
+}
+.proto-label { font-size: 0.75rem; color: var(--brand-content-muted); }
+.proto-links { display: flex; gap: 0.25rem; font-size: 0.75rem; }
+.proto-links a {
+  color: var(--brand-content-muted);
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--brand-rounded-badge);
+  text-decoration: none;
+}
+.proto-links a[aria-current='page'],
+.proto-links a:hover {
+  color: var(--brand-content);
+  background-color: color-mix(in oklab, var(--brand-content) 10%, transparent);
+}
+.proto-actions { margin-left: auto; display: flex; gap: 0.375rem; }
+
+/* Viewport frame: full width by default, 1024x768 when toggled */
+.proto-frame {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  margin: 0 auto;
+  height: calc(100vh - 42px);
+}
+.proto-frame--1024 {
+  width: 1024px;
+  height: 768px;
+  flex: none;
+  border-left: 1px dashed color-mix(in oklab, var(--brand-content) 20%, transparent);
+  border-right: 1px dashed color-mix(in oklab, var(--brand-content) 20%, transparent);
+}
+
+/* Settings header + tab bar */
+.settings-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.625rem 1.5rem 0.375rem;
+  border-bottom: 1px solid var(--brand-base-300);
+}
+
+/* Master–detail shell */
+.md-shell {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 0;
+}
+.md-list {
+  overflow-y: auto;
+  border-right: 1px solid var(--brand-base-300);
+  background-color: color-mix(in oklab, var(--brand-base-200) 50%, transparent);
+  padding: 0.5rem;
+}
+.md-detail { overflow-y: auto; padding: 1rem 1.5rem 2rem; min-width: 0; }
+
+/* Master list rows */
+.md-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border: none;
+  background: none;
+  color: var(--brand-content);
+  border-radius: var(--brand-rounded-btn);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+.md-row:hover { background-color: color-mix(in oklab, var(--brand-content) 8%, transparent); }
+.md-row[aria-selected='true'] {
+  background-color: color-mix(in oklab, var(--brand-primary) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+.md-row .sub {
+  display: block;
+  color: var(--brand-content-muted);
+  font-size: 0.6875rem;
+  line-height: 1.15;
+  margin-top: 0.125rem;
+}
+.md-row.is-dimmed .md-row-main { color: var(--brand-content-muted); }
+.md-group-label {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--brand-content-muted);
+  padding: 0.625rem 0.5rem 0.25rem;
+}
+
+/* Status dots (status is always colour AND text, never colour alone) */
+.dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; flex: none; }
+.dot-success { background-color: var(--brand-success); }
+.dot-error { background-color: var(--brand-error); }
+.dot-warning { background-color: var(--brand-warning); }
+.dot-muted { background-color: var(--brand-content-muted); }
+
+/* Detail-pane sections */
+.detail-section {
+  border: 1px solid var(--brand-base-300);
+  border-radius: var(--brand-rounded-box);
+  background-color: var(--brand-base-100);
+  padding: 0.875rem 1rem;
+  margin-bottom: 0.875rem;
+}
+.detail-section.danger { border-color: color-mix(in oklab, var(--brand-error) 30%, transparent); }
+.section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--brand-content-muted);
+  margin-bottom: 0.5rem;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--brand-base-300) 50%, transparent);
+}
+.setting-row:last-child { border-bottom: none; }
+
+/* Popovers (progressive disclosure for short choices) */
+.popover {
+  position: absolute;
+  z-index: 60;
+  min-width: 14rem;
+  max-width: 20rem;
+  background-color: var(--brand-base-200);
+  border: 1px solid var(--brand-base-300);
+  border-radius: var(--brand-rounded-box);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  padding: 0.5rem;
+}
+.pop-list { max-height: 15rem; overflow-y: auto; }
+.pop-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  background: none;
+  color: var(--brand-content);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+.pop-item:hover { background-color: color-mix(in oklab, var(--brand-content) 10%, transparent); }
+.pop-item[aria-checked='true'] { color: var(--brand-primary); font-weight: 600; }
+.pop-sep { border-top: 1px solid var(--brand-base-300); margin: 0.375rem 0; }
+.pop-note { font-size: 0.6875rem; color: var(--brand-content-muted); padding: 0.25rem 0.5rem; }
+
+/* Modal (catalog + wizard) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.modal-card {
+  background-color: var(--brand-base-100);
+  border: 1px solid var(--brand-base-300);
+  border-radius: var(--brand-rounded-box);
+  width: 100%;
+  max-width: 36rem;
+  max-height: calc(100vh - 3rem);
+  display: flex;
+  flex-direction: column;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--brand-base-300);
+}
+.modal-body { padding: 1rem; overflow-y: auto; }
+
+/* Toasts (save-on-select + Undo) */
+.toast-host {
+  position: fixed;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 24rem;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  background-color: var(--brand-base-300);
+  border: 1px solid var(--brand-base-300);
+  border-radius: var(--brand-rounded-btn);
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 0.8125rem;
+}
+.toast .btn { margin-left: auto; }
+
+/* Scope-provenance override badge (only on overridden values) */
+.badge-override {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.625rem;
+  padding: 0.05rem 0.375rem;
+  border-radius: var(--brand-rounded-badge);
+  background-color: color-mix(in oklab, var(--brand-secondary) 14%, transparent);
+  color: var(--brand-secondary);
+  border: 1px solid color-mix(in oklab, var(--brand-secondary) 30%, transparent);
+  cursor: pointer;
+}
+.badge-override:hover { background-color: color-mix(in oklab, var(--brand-secondary) 24%, transparent); }
+.badge-override:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
+
+/* Tool-use compatibility indicator (parity #38) */
+.tool-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.625rem;
+  padding: 0.05rem 0.375rem;
+  border-radius: var(--brand-rounded-badge);
+  vertical-align: middle;
+}
+.tool-badge.ok { background-color: color-mix(in oklab, var(--brand-success) 12%, transparent); color: var(--brand-success); }
+.tool-badge.warn { background-color: color-mix(in oklab, var(--brand-warning) 14%, transparent); color: var(--brand-warning); }
+
+/* Tier-mapping chip (parity #54) */
+.tier-chip {
+  display: inline-flex;
+  font-size: 0.625rem;
+  padding: 0.05rem 0.375rem;
+  border-radius: var(--brand-rounded-badge);
+  background-color: color-mix(in oklab, var(--brand-primary) 12%, transparent);
+  color: var(--brand-primary);
+  border: 1px solid color-mix(in oklab, var(--brand-primary) 30%, transparent);
+}
+
+/* daisyUI toggle/range recoloured from project tokens */
+input[type='range'] { accent-color: var(--brand-primary); }
+.toggle { border-color: var(--brand-content-muted); }
+.toggle:checked, .toggle[aria-checked='true'] {
+  background-color: var(--brand-primary);
+  border-color: var(--brand-primary);
+}
+
+/* Preferred-order drag list (Policy pane) */
+.order-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--brand-base-300);
+  border-radius: var(--brand-rounded-btn);
+  background-color: color-mix(in oklab, var(--brand-base-200) 60%, transparent);
+  margin-bottom: 0.375rem;
+  cursor: grab;
+}
+.order-item.is-off { opacity: 0.55; }
+.grip { color: var(--brand-content-muted); flex: none; }
+
+/* Catalog tiles in the connect wizard */
+.wiz-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  align-items: flex-start;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--brand-base-300);
+  border-radius: var(--brand-rounded-btn);
+  background-color: var(--brand-base-100);
+  color: var(--brand-content);
+  cursor: pointer;
+  text-align: left;
+}
+.wiz-tile:hover { border-color: var(--brand-primary); }
+.wiz-tile .sub { font-size: 0.6875rem; color: var(--brand-content-muted); }

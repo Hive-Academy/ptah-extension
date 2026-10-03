@@ -41,7 +41,7 @@ export default [
     },
   },
   {
-    // The Skills tab must never inherit the Monaco bundle. The ONLY legal
+    // The Skills tab must never inherit the git-ui (diff renderer) bundle. The ONLY legal
     // route to `@ptah-extension/git-ui` is the runtime `import()` inside
     // `lazy-diff-view.component.ts`; a static import anywhere else silently
     // defeats that boundary, so it is a lint error rather than a convention.
@@ -55,14 +55,14 @@ export default [
             {
               name: '@ptah-extension/git-ui',
               message:
-                'Static import of @ptah-extension/git-ui pulls Monaco into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
+                'Static import of @ptah-extension/git-ui pulls the diff renderer into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
             },
           ],
           patterns: [
             {
               group: ['@ptah-extension/git-ui/*'],
               message:
-                'Static import of @ptah-extension/git-ui pulls Monaco into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
+                'Static import of @ptah-extension/git-ui pulls the diff renderer into the Skills bundle. Go through lazy-diff-view.component.ts, which loads it with a runtime import().',
             },
           ],
         },

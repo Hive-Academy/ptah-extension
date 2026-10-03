@@ -56,7 +56,7 @@ interface LinkContext {
  *
  * ## Why git-ui is imported dynamically
  *
- * `@ptah-extension/git-ui` carries Monaco and the whole dock. A static import
+ * `@ptah-extension/git-ui` carries the whole dock (review canvas, Pierre diff renderer). A static import
  * here would pull it into the eager chat chunk, and chat loads on every host
  * including VS Code, where the dock does not exist. Same pattern as
  * `WorkspaceCoordinatorService.resolveGitServices`.
@@ -101,13 +101,15 @@ export class FileLinkRouterService
   }
 
   /**
-   * Reveal the dock, put it in working-tree mode, and add a read-only tab.
+   * Reveal the dock and open the file read-only in the review shell's spot
+   * editor (`ReviewNavigationService.openFile`, Changes tab).
    *
    * `setEditorPanelVisible` runs FIRST and synchronously: it is what triggers
    * the shell's lazy dock load, so the dock chunk and this import fetch in
    * parallel rather than in series. If the open then fails, the reveal is
    * undone when the dock was hidden before — a revealed empty dock is a worse
-   * answer than no dock at all (L-11).
+   * answer than no dock at all (L-11). A backend refusal is not a failure
+   * here: the spot editor shows the blocked state with its reason.
    */
   private async openInDock(
     request: FileLinkOpenRequest,
@@ -119,14 +121,13 @@ export class FileLinkRouterService
     this.layout.setEditorPanelVisible(true);
     try {
       const git = await import('@ptah-extension/git-ui');
-      this.injector.get(git.GitReviewService).setMode('working-tree');
-      await this.injector.get(git.DiffTabsService).openFileView({
-        path: request.path,
-        line: request.line,
-        column: request.column,
-        workspaceRoot: context.workspaceRoot,
-        documentPath: context.documentPath,
-      });
+      this.injector
+        .get(git.ReviewNavigationService)
+        .openFile(request.path, request.line, {
+          column: request.column,
+          workspaceRoot: context.workspaceRoot,
+          documentPath: context.documentPath,
+        });
     } catch (error: unknown) {
       if (!dockWasVisible) this.layout.setEditorPanelVisible(false);
       console.error(`${LOG_PREFIX} Failed to open ${request.path}`, error);

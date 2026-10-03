@@ -482,6 +482,15 @@ export interface ExecGitOptions {
    */
   maxOutputBytes?: number;
   /**
+   * Keep only about the last this-many bytes of each stream (whole chunks,
+   * so at most one pipe chunk more) instead of all of it. Memory then stays
+   * bounded however much the child prints, so `maxOutputBytes` is not
+   * enforced: the timeout bounds the run. For a command whose output is
+   * watched through `onOutput` and only its end matters (`git commit` with
+   * hooks).
+   */
+  keepOutputTailBytes?: number;
+  /**
    * `'background'` lowers the child to below-normal OS priority once its pid
    * is known, best-effort. For work nobody is waiting on (a watcher-driven
    * status refresh); user-initiated commands leave it unset.
@@ -703,6 +712,16 @@ function acquireUnlessAborted(
 }
 
 /**
+ * `bytes` from its first UTF-8 character start: leading continuation bytes
+ * (0x80-0xBF), left by a cut inside a multi-byte character, are skipped.
+ */
+function fromCharBoundary(bytes: Buffer): Buffer {
+  let start = 0;
+  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
+  return start === 0 ? bytes : bytes.subarray(start);
+}
+
+/**
  * Spawn one git child and supervise it until it exits. Owns `release`: it is
  * called exactly when the child is gone (or the kill grace ran out), which may
  * be well after the returned promise settled.
@@ -847,6 +866,39 @@ function runGitChild(
       }
     };
 
+    const keepTailBytes = options?.keepOutputTailBytes;
+    const keptBytes = { stdout: 0, stderr: 0 };
+    /** Whether a stream's leading chunks were dropped by {@link keepTail}. */
+    const cut = { stdout: false, stderr: false };
+
+    /** Keep `data`, then drop whole leading chunks the tail no longer needs. */
+    const keepTail = (
+      chunks: Buffer[],
+      stream: 'stdout' | 'stderr',
+      data: Buffer,
+      tailBytes: number,
+    ): void => {
+      chunks.push(data);
+      keptBytes[stream] += data.byteLength;
+      while (
+        chunks.length > 1 &&
+        keptBytes[stream] - chunks[0].byteLength >= tailBytes
+      ) {
+        keptBytes[stream] -= chunks[0].byteLength;
+        chunks.shift();
+        cut[stream] = true;
+      }
+    };
+
+    /** A stream's kept bytes; a cut tail starts at a character boundary. */
+    const keptOutput = (
+      chunks: Buffer[],
+      stream: 'stdout' | 'stderr',
+    ): Buffer => {
+      const kept = Buffer.concat(chunks);
+      return cut[stream] ? fromCharBoundary(kept) : kept;
+    };
+
     const collect =
       (
         chunks: Buffer[],
@@ -855,12 +907,16 @@ function runGitChild(
       ) =>
       (data: Buffer): void => {
         if (settled) return;
-        outputBytes += data.byteLength;
-        if (outputBytes > maxOutputBytes) {
-          abort(new GitOutputLimitError(args[0], maxOutputBytes));
-          return;
+        if (keepTailBytes === undefined) {
+          outputBytes += data.byteLength;
+          if (outputBytes > maxOutputBytes) {
+            abort(new GitOutputLimitError(args[0], maxOutputBytes));
+            return;
+          }
+          chunks.push(data);
+        } else {
+          keepTail(chunks, stream, data, keepTailBytes);
         }
-        chunks.push(data);
         if (decoder) emitOutput(stream, decoder.decode(data, { stream: true }));
       };
     child.stdout?.on('data', collect(stdoutChunks, 'stdout', stdoutDecoder));
@@ -890,8 +946,8 @@ function runGitChild(
       if (stdoutDecoder) emitOutput('stdout', stdoutDecoder.decode());
       if (stderrDecoder) emitOutput('stderr', stderrDecoder.decode());
       resolve({
-        stdout: Buffer.concat(stdoutChunks),
-        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+        stdout: keptOutput(stdoutChunks, 'stdout'),
+        stderr: keptOutput(stderrChunks, 'stderr').toString('utf8'),
         exitCode: code ?? 1,
       });
     });

@@ -1,0 +1,41 @@
+{
+  "light-focus-review": {
+    "testid": "change-set-review",
+    "focusVisible": true,
+    "outline": "oklch(0.48 0.12 70) solid 2px",
+    "outlineOffset": "2px",
+    "ratioVsRowBg": 4.51,
+    "ratioVsCardBg": 5.73,
+    "rowBg": [
+      68,
+      235,
+      211
+    ]
+  },
+  "light-focus-row1": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "oklch(0.48 0.12 70) solid 2px",
+    "outlineOffset": "-2px",
+    "ratioVsRowBg": 5.45,
+    "ratioVsCardBg": 5.73,
+    "rowBg": [
+      234,
+      230,
+      228
+    ]
+  },
+  "light-focus-row2": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "oklch(0.48 0.12 70) solid 2px",
+    "outlineOffset": "-2px",
+    "ratioVsRowBg": 5.45,
+    "ratioVsCardBg": 5.73,
+    "rowBg": [
+      234,
+      230,
+      228
+    ]
+  }
+}

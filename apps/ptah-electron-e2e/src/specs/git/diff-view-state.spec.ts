@@ -1,258 +1,283 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from '../../support/fixtures';
 import { gitDiffFileMock } from '../../support/git-diff-mock';
+import type { UiDriver } from '../../support/ui-driver';
 
 /**
- * Diff editor lifecycle — EMPIRICAL verification in Electron (TASK_2026_173,
- * batch 3, tasks 3.2 / 3.4; B1 AC1, AC3, AC4).
+ * Review canvas state across switches — TASK_2026_576 Batch 60, the successor
+ * of the Monaco diff-editor lifecycle spec (TASK_2026_173, B1 AC1/AC3/AC4).
  *
- * Three claims are checked against the REAL pinned Monaco (0.55.x) in the real
- * renderer, because none of them can be honestly settled by a faked API:
+ * The behaviour kept: the diff surface is not rebuilt when the user switches
+ * away and back, and the reading position survives.
  *
- *   B1 AC1 — the diff editor instance survives a switch away and back. Proved
- *            by branding the live editor object and finding the brand again.
- *   B1 AC3 — scroll position is restored per tab via saveViewState /
- *            restoreViewState around setModel.
- *   B1 AC4 — collapsed regions. RISK A-3 says to verify this empirically and
- *            to RECORD A SHORTFALL rather than claim a pass. The probe reads
- *            the folding option and the folding contribution's saved state
- *            straight off the live editor; see the assertions at the bottom
- *            for what the pinned version actually does.
+ *   B1 AC1 (instance survives) - the Changes body stays mounted (hidden) while
+ *          another review tab shows. Proved by branding the live Pierre
+ *          section element (`ptah-file-diff-section`) and finding the same
+ *          element, brand intact, after a Changes -> Task -> Changes round
+ *          trip. The Pierre `<diffs-container>` inside is windowed (A9): the
+ *          canvas disposes it while its body is hidden and the intersection
+ *          observer reports nothing near, so its survival is logged, not
+ *          asserted.
+ *   B1 AC3 (scroll restored) - the list's scroll position survives both the
+ *          tab round trip and a comparison round trip (Working tree -> Staged
+ *          -> Working tree; the canvas restores scroll per comparison).
+ *   B1 AC4 (collapsed regions) - has NO successor. That criterion recorded a
+ *          Monaco shortfall (its diff editor disables folding); Pierre renders
+ *          hunks with their context and has no folding state to preserve, so
+ *          nothing is asserted about it here.
  */
 
-const MAIN_TS_PATH = 'C:\\ptah-e2e-ws\\src\\big-file.ts';
-const LINE_COUNT = 500;
+const FILE_COUNT = 24;
+const FILE_LINES = 40;
+const CHANGED_LINE = 20;
+const BRAND = 5760;
 
-function makeContent(changedLine: number, changedValue: string): string {
+function filePath(index: number): string {
+  return `src/state/file${String(index).padStart(2, '0')}.ts`;
+}
+
+function side(index: number, modified: boolean): string {
   const lines: string[] = [];
-  for (let i = 1; i <= LINE_COUNT; i++) {
+  for (let line = 1; line <= FILE_LINES; line++) {
     lines.push(
-      i === changedLine
-        ? changedValue
-        : `export function line${i}() {\n  return ${i};\n}`,
+      line === CHANGED_LINE
+        ? `export const f${index}v${line} = ${modified ? 'worktree' : 'index'};`
+        : `export const f${index}v${line} = ${line};`,
     );
   }
   return lines.join('\n') + '\n';
 }
 
-const ORIGINAL_CONTENT = makeContent(
-  250,
-  'export function line250() {\n  return -1;\n}',
-);
-const MODIFIED_CONTENT = makeContent(
-  250,
-  'export function line250() {\n  return 250;\n}',
-);
-
-interface DiffProbe {
-  found: boolean;
-  brand?: number;
-  scrollTop?: number;
-  foldingEnabled?: boolean;
-  foldingState?: unknown;
-  hasCollapsedRegions?: boolean;
+async function openCanvas(ui: UiDriver): Promise<void> {
+  const diffByPath: Record<string, unknown> = {};
+  const files: {
+    path: string;
+    status: string;
+    staged: boolean;
+    isDirectory: boolean;
+  }[] = [];
+  for (let i = 0; i < FILE_COUNT; i++) {
+    const path = filePath(i);
+    files.push({ path, status: 'M', staged: false, isDirectory: false });
+    diffByPath[path] = gitDiffFileMock({
+      path,
+      comparison: 'worktree',
+      original: side(i, false),
+      modified: side(i, true),
+      snapshotToken: `state-${i}`,
+    });
+  }
+  // A few files are also staged, so the Staged comparison is not empty (an
+  // empty comparison has no section to anchor a scroll position to).
+  for (let i = 0; i < 4; i++) {
+    files.push({
+      path: filePath(i),
+      status: 'M',
+      staged: true,
+      isDirectory: false,
+    });
+  }
+  await ui.mockRpc({
+    'git:diffFile': `(params) => (${JSON.stringify(diffByPath)})[params.path]`,
+  });
+  await ui.goto('git');
+  await ui.pushEvent({
+    type: 'git:status-update',
+    payload: {
+      branch: { branch: 'main', upstream: null, ahead: 0, behind: 0 },
+      files,
+      isGitRepo: true,
+    },
+  });
+  await expect(ui.reviewTab(/^Changes, \d+ changed files/)).toBeVisible();
+  await expect(
+    ui.reviewFileSection(filePath(0)).getByText('f0v20 = worktree'),
+  ).toBeVisible({ timeout: 60_000 });
 }
 
 /**
- * Read the live standalone diff editor. Declared as a string-free page
- * function so Playwright serializes it; `window.monaco` is the shared handle
- * the Monaco loader publishes for the ngx wrapper.
+ * Scroll the canvas list, wait for the virtualised window to settle (section
+ * heights are estimated until Pierre mounts and they are measured), then nudge
+ * by a few pixels so the canvas records the settled position as its anchor.
  */
-function probeDiffEditor(action: 'brand' | 'read'): DiffProbe {
-  interface StandaloneDiffEditor {
-    __ptahBrand?: number;
-    getModifiedEditor(): {
-      getScrollTop(): number;
-      setScrollTop(top: number): void;
-      getRawOptions(): { folding?: boolean };
-      saveViewState(): {
-        contributionsState?: Record<string, unknown>;
-      } | null;
-    };
-  }
-  const monacoApi = (
-    window as unknown as {
-      monaco?: { editor: { getDiffEditors(): StandaloneDiffEditor[] } };
-    }
-  ).monaco;
-  const editors = monacoApi?.editor.getDiffEditors() ?? [];
-  const diffEditor = editors[0];
-  if (!diffEditor) return { found: false };
-
-  const modified = diffEditor.getModifiedEditor();
-  if (action === 'brand') {
-    diffEditor.__ptahBrand = 4173;
-    modified.setScrollTop(400);
-    return { found: true, brand: diffEditor.__ptahBrand };
-  }
-
-  const viewState = modified.saveViewState();
-  const foldingState = viewState?.contributionsState?.[
-    'editor.contrib.folding'
-  ] as { collapsedRegions?: unknown[] } | undefined;
-
-  return {
-    found: true,
-    brand: diffEditor.__ptahBrand,
-    scrollTop: modified.getScrollTop(),
-    foldingEnabled: modified.getRawOptions().folding !== false,
-    foldingState: foldingState ?? null,
-    hasCollapsedRegions: Array.isArray(foldingState?.collapsedRegions)
-      ? foldingState.collapsedRegions.length > 0
-      : false,
-  };
+async function scrollListTo(page: Page, top: number): Promise<number> {
+  const list = page.locator('[data-testid="review-canvas-list"]');
+  await list.evaluate((el, value) => {
+    el.scrollTop = value;
+  }, top);
+  let lastHeight = -1;
+  await expect
+    .poll(
+      async () => {
+        const height = await list.evaluate((el) => el.scrollHeight);
+        const stable = height === lastHeight;
+        lastHeight = height;
+        return stable;
+      },
+      { intervals: [800] },
+    )
+    .toBe(true);
+  await list.evaluate((el) => {
+    el.scrollTop += 5;
+  });
+  await page.waitForTimeout(300);
+  return list.evaluate((el) => el.scrollTop);
 }
 
-test.describe('diff editor lifecycle (B1 AC1/AC3/AC4)', () => {
-  test('survives a tab round trip, restores scroll, and reports folding support', async ({
+interface ReadingPosition {
+  /** Header path of the first section still reaching into the viewport. */
+  path: string;
+  /** Pixels of that section already scrolled past the viewport top. */
+  offset: number;
+}
+
+/**
+ * Where the user is reading, as content rather than pixels: section heights
+ * are estimated until measured, so a raw `scrollTop` does not name a place.
+ */
+function readingPosition(page: Page): Promise<ReadingPosition> {
+  return page.evaluate(() => {
+    const list = document.querySelector(
+      '[data-testid="review-canvas-list"]',
+    ) as HTMLElement;
+    const top = list.getBoundingClientRect().top;
+    for (const section of Array.from(
+      list.querySelectorAll('ptah-file-diff-section'),
+    )) {
+      const rect = section.getBoundingClientRect();
+      if (rect.bottom > top + 1) {
+        return {
+          path:
+            section
+              .querySelector('[data-testid="file-section-path"]')
+              ?.textContent?.trim() ?? '',
+          offset: top - rect.top,
+        };
+      }
+    }
+    return { path: '', offset: 0 };
+  });
+}
+
+test.describe('review canvas state across switches (B1 AC1/AC3)', () => {
+  test.setTimeout(120_000);
+
+  test('keeps the same Pierre instance and scroll position through a tab round trip', async ({
     ui,
   }) => {
-    test.fixme(
-      true,
-      'The dock has no tab strip, no file tree and no second surface, so the ' +
-        'file-tab <-> diff-tab round trip this spec measures has no dock ' +
-        'equivalent. The underlying claims — diff-editor instance survival, ' +
-        'scroll-position restore, and folding support (B1 AC1/AC3/AC4) — are ' +
-        'still real product behaviour worth proving. Deferred to ' +
-        "TASK_2026_386, which owns the dock's remaining UI work and must " +
-        'first decide which mechanism counts as "away and back": toggling ' +
-        "the dock closed and open, or selecting a second file's diff and " +
-        'back. See batch-3.3-report.md (TASK_2026_385) for the decision ' +
-        'record and the KNOWN GAP comment below for the exact failure.',
-    );
-
-    await ui.mockRpc({
-      'editor:getFileTree': {
-        tree: [{ name: 'big-file.ts', type: 'file', path: MAIN_TS_PATH }],
-      },
-      'editor:openFile': {
-        content: MODIFIED_CONTENT,
-        language: 'typescript',
-        path: MAIN_TS_PATH,
-        filePath: MAIN_TS_PATH,
-      },
-      // Built through the contract-typed factory, NOT hand-written. The inline
-      // literal that used to sit here omitted `patch` and `hunks` — both
-      // REQUIRED by `GitDiffFileResult` — which is the same drift TASK_2026_231
-      // found in the perf M1 harness, and it cost this spec the same way: the
-      // diff tab button never reached the DOM and the wait below timed out.
-      // Confirmed by an A/B probe over this exact flow: with the literal the
-      // tab strip ended at "Switch to big-file.ts" and the renderer logged six
-      // `Angular Error: TypeError: Cannot read properties of undefined
-      // (reading 'length')`; with a valid payload the diff tab appeared and
-      // those errors were gone. See `git-diff-mock.ts` for the mechanism.
-      'git:diffFile': gitDiffFileMock({
-        path: 'src/big-file.ts',
-        comparison: 'worktree',
-        original: ORIGINAL_CONTENT,
-        modified: MODIFIED_CONTENT,
-        snapshotToken: 'view-state-probe',
-      }),
-    });
-
-    // KNOWN GAP (TASK_2026_385 Batch 3.3): this spec's B1 AC1/AC3 round trip
-    // depends on a plain FILE tab existing alongside the diff tab in the same
-    // tabbed host — `ptah-editor-panel`'s file-tree-opened Monaco tab. The git
-    // dock has no file-tree, no plain-file-open affordance and no tab strip at
-    // all: `GitDockComponent` shows only the active diff, or nothing. `goto`
-    // is retargeted below so the spec at least navigates to a real surface,
-    // but the `fileNode`/`fileTabBtn` steps immediately after this comment
-    // have no dock equivalent and WILL fail here — this spec needs a
-    // methodology rewrite (a different "switch away and back" mechanism, e.g.
-    // toggling the dock closed/open) before it can prove B1 AC1/AC3 against
-    // the dock. Left failing rather than silently deleted; see
-    // batch-3.3-report.md for the decision record.
-    await ui.goto('git');
+    await openCanvas(ui);
     const page = ui.page;
 
-    const fileNode = page.locator('[data-testid="editor-file-node"]', {
-      hasText: 'big-file.ts',
-    });
-    await expect(fileNode).toBeVisible();
-    await fileNode.click();
+    const scrolled = await scrollListTo(page, 700);
+    expect(scrolled).toBeGreaterThan(300);
+    const before = await readingPosition(page);
+    expect(before.path).not.toContain('file00');
 
-    const fileTabBtn = page.locator(
-      'ptah-editor-panel [role="tab"][aria-label="Switch to big-file.ts"]',
-    );
-    await expect(fileTabBtn).toBeVisible();
+    // Brand the first section (and its Pierre container) that is on screen.
+    const branded = await page.evaluate((brand) => {
+      const list = document.querySelector(
+        '[data-testid="review-canvas-list"]',
+      ) as HTMLElement;
+      const box = list.getBoundingClientRect();
+      for (const section of Array.from(
+        list.querySelectorAll('ptah-file-diff-section'),
+      )) {
+        const rect = section.getBoundingClientRect();
+        if (rect.bottom > box.top + 20 && rect.top < box.bottom - 20) {
+          (section as unknown as { __ptahBrand?: number }).__ptahBrand = brand;
+          const container = section.querySelector('diffs-container');
+          if (container) {
+            (container as unknown as { __ptahBrand?: number }).__ptahBrand =
+              brand;
+          }
+          return true;
+        }
+      }
+      return false;
+    }, BRAND);
+    expect(branded).toBe(true);
 
-    const changedRow = page.locator('[role="listitem"]', {
-      hasText: 'big-file.ts',
-    });
-    await ui.pushEvent({
-      type: 'git:status-update',
-      payload: {
-        branch: {
-          branch: 'main',
-          upstream: 'origin/main',
-          ahead: 0,
-          behind: 0,
-        },
-        files: [
-          {
-            path: 'src/big-file.ts',
-            status: 'M',
-            staged: false,
-            isDirectory: false,
-          },
-        ],
-        isGitRepo: true,
-      },
-    });
-    await expect(changedRow).toBeVisible({ timeout: 10_000 });
-    await changedRow.click();
+    // Away: the Task tab hides the Changes body (it must not unmount it).
+    await ui.reviewTab('Task').click();
+    await expect(ui.reviewTab('Task')).toHaveAttribute('aria-selected', 'true');
+    await expect(
+      page.locator('[data-testid="review-canvas-list"]'),
+    ).toBeHidden();
+    await expect(
+      page.locator('[data-testid="review-canvas-list"]'),
+    ).toHaveCount(1);
 
-    const diffTabBtn = page.locator(
-      'ptah-editor-panel [role="tab"][aria-label="Switch to big-file.ts (working tree)"]',
-    );
-    await expect(diffTabBtn).toBeVisible();
-    await expect(page.locator('ptah-diff-view .view-lines').last()).toBeVisible(
-      {
-        timeout: 15_000,
-      },
-    );
+    // Back.
+    await ui.reviewTab(/^Changes/).click();
+    await expect(
+      page.locator('[data-testid="review-canvas-list"]'),
+    ).toBeVisible();
 
-    // Brand the live editor and scroll the modified side.
-    const branded = await page.evaluate(probeDiffEditor, 'brand' as const);
-    expect(branded.found).toBe(true);
+    // B1 AC1: the same section element, brand intact. A rebuilt list loses it.
+    const survivors = (): Promise<{ section: number; container: number }> =>
+      page.evaluate((brand) => {
+        const has = (el: Element): boolean =>
+          (el as unknown as { __ptahBrand?: number }).__ptahBrand === brand;
+        return {
+          section: Array.from(
+            document.querySelectorAll('ptah-file-diff-section'),
+          ).filter(has).length,
+          container: Array.from(
+            document.querySelectorAll('diffs-container'),
+          ).filter(has).length,
+        };
+      }, BRAND);
+    await expect.poll(async () => (await survivors()).section).toBe(1);
 
-    // Round trip: away to the plain file tab, then back to the diff.
-    await fileTabBtn.click();
-    await expect(page.locator('ptah-diff-view')).toHaveCount(1);
-    await expect(page.locator('ptah-diff-view .view-line')).toHaveCount(0);
-    await diffTabBtn.click();
-    await expect(page.locator('ptah-diff-view .view-line').first()).toBeVisible(
-      {
-        timeout: 15_000,
-      },
-    );
+    // The diff text of the visible section is on screen again, not blank.
+    await expect(
+      page
+        .locator('ptah-file-diff-section')
+        .filter({ has: page.locator('diffs-container') })
+        .first()
+        .locator('diffs-container')
+        .first(),
+    ).toBeVisible();
 
-    const after = await page.evaluate(probeDiffEditor, 'read' as const);
-
-    // B1 AC1 — same instance. A rebuilt editor would have lost the brand.
-    expect(after.found).toBe(true);
-    expect(after.brand).toBe(4173);
-
-    // B1 AC3 — scroll position came back with the tab.
-    expect(after.scrollTop).toBeGreaterThan(0);
-
-    // B1 AC4 — RECORDED SHORTFALL, not a pass.
-    //
-    // Monaco's diff editor hard-disables classic folding on BOTH sub-editors
-    // (`clonedOptions.folding = false`,
-    // esm/vs/editor/browser/widget/diffEditor/components/diffEditorEditors.js).
-    // FoldingController therefore reports `_isEnabled === false` and its
-    // saveViewState() returns `{}` with no `collapsedRegions` at all — there is
-    // no collapsed-region state to preserve because a diff editor cannot have
-    // collapsed regions on this version. This assertion PINS that observation
-    // so the day Monaco changes it, the shortfall is revisited rather than
-    // silently assumed still true.
-    expect(after.foldingEnabled).toBe(false);
-    expect(after.hasCollapsedRegions).toBe(false);
+    // B1 AC3: the reading position came back - same file at the top.
+    await expect
+      .poll(async () => (await readingPosition(page)).path)
+      .toBe(before.path);
+    const after = await readingPosition(page);
+    expect(Math.abs(after.offset - before.offset)).toBeLessThan(150);
 
     console.log(
-      `[diff-view-state] brand=${after.brand} scrollTop=${after.scrollTop} ` +
-        `foldingEnabled=${after.foldingEnabled} ` +
-        `foldingState=${JSON.stringify(after.foldingState)}`,
+      `[diff-view-state] tab round trip: before=${JSON.stringify(before)} after=${JSON.stringify(after)} containerSurvived=${(await survivors()).container}`,
+    );
+  });
+
+  test('restores the scroll position when the comparison is switched and switched back', async ({
+    ui,
+  }) => {
+    await openCanvas(ui);
+    const page = ui.page;
+    const scrolled = await scrollListTo(page, 900);
+    expect(scrolled).toBeGreaterThan(400);
+    const before = await readingPosition(page);
+    expect(before.path).not.toContain('file00');
+
+    const trigger = page.locator('[data-testid="comparison-trigger"]');
+    await trigger.click();
+    await page.locator('[data-testid="comparison-option-staged"]').click();
+    await expect(trigger).toHaveText(/Staged/);
+
+    await trigger.click();
+    await page.locator('[data-testid="comparison-option-worktree"]').click();
+    await expect(trigger).toHaveText(/Working tree/);
+
+    await expect
+      .poll(async () => (await readingPosition(page)).path)
+      .toBe(before.path);
+    const after = await readingPosition(page);
+    expect(Math.abs(after.offset - before.offset)).toBeLessThan(150);
+
+    console.log(
+      `[diff-view-state] comparison round trip: before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
     );
   });
 });

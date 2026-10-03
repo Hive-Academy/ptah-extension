@@ -242,6 +242,8 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.curatorIntervalHours',
   'skillSynthesis.suggestionMinClusterSize',
   'skillSynthesis.suggestionMaxCandidates',
+  'skillSynthesis.retirement.dormantAfterDays',
+  'skillSynthesis.retirement.retireAfterDormantDays',
   // TASK_2026_180 Phase 0 — the queued synthesis drain. Dotted sub-trees under
   // `skillSynthesis.` are the proven shape (`skillSynthesis.triggers.*` below).
   //
@@ -530,7 +532,9 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.curatorEnabled': true,
   'skillSynthesis.curatorIntervalHours': 24,
   'skillSynthesis.suggestionMinClusterSize': 2,
-  'skillSynthesis.suggestionMaxCandidates': 200,
+  'skillSynthesis.suggestionMaxCandidates': 1000,
+  'skillSynthesis.retirement.dormantAfterDays': 30,
+  'skillSynthesis.retirement.retireAfterDormantDays': 30,
   // TASK_2026_180 Phase 0. Every numeric value here MUST equal its counterpart
   // in `SKILL_DRAIN_DEFAULTS` (`skill-synthesis/src/lib/queue/skill-drain.service.ts`).
   // That constant is the fallback the drain passes to `getConfiguration`, so a

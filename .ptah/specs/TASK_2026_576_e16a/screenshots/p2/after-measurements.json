@@ -1,0 +1,568 @@
+{
+  "measurements": {
+    "badges-dark": [],
+    "badges-light": [],
+    "picker-list-dark": [
+      {
+        "label": "branch row (ghost btn)",
+        "text": "feature/review",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          26,
+          26,
+          32
+        ],
+        "opacity": 1,
+        "ratio": 13.89,
+        "fontPx": "11px",
+        "w": 278,
+        "h": 24
+      },
+      {
+        "label": "current branch (disabled)",
+        "text": "main",
+        "fg": [
+          67,
+          67,
+          72
+        ],
+        "bg": [
+          27,
+          27,
+          34
+        ],
+        "opacity": 1,
+        "ratio": 1.76,
+        "fontPx": "11px",
+        "w": 278,
+        "h": 24
+      }
+    ],
+    "picker-list-light": [
+      {
+        "label": "branch row (ghost btn)",
+        "text": "feature/review",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          239,
+          234,
+          230
+        ],
+        "opacity": 1,
+        "ratio": 14.21,
+        "fontPx": "11px",
+        "w": 278,
+        "h": 24
+      },
+      {
+        "label": "current branch (disabled)",
+        "text": "main",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          199,
+          195,
+          192
+        ],
+        "opacity": 1,
+        "ratio": 9.72,
+        "fontPx": "11px",
+        "w": 278,
+        "h": 24
+      }
+    ],
+    "picker-blocked-dark": [
+      {
+        "label": "warning copy",
+        "text": "Local changes would be overwritten by sw",
+        "fg": [
+          249,
+          115,
+          22
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 5.38,
+        "fontPx": "12px",
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "conflict paths (opacity-80)",
+        "text": "src/modified.ts",
+        "fg": [
+          195,
+          191,
+          186
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 0.8,
+        "ratio": 8.26,
+        "fontPx": "10px",
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "Stash & switch (primary)",
+        "text": "Stash & switch",
+        "fg": [
+          248,
+          247,
+          244
+        ],
+        "bg": [
+          37,
+          99,
+          235
+        ],
+        "opacity": 1,
+        "ratio": 4.82,
+        "fontPx": "11px",
+        "w": 88,
+        "h": 24
+      },
+      {
+        "label": "Discard & switch (ghost error)",
+        "text": "Discard & switch…",
+        "fg": [
+          220,
+          38,
+          38
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 3.12,
+        "fontPx": "11px",
+        "w": 109,
+        "h": 24
+      }
+    ],
+    "picker-blocked-light": [
+      {
+        "label": "warning copy",
+        "text": "Local changes would be overwritten by sw",
+        "fg": [
+          247,
+          127,
+          0
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 2.02,
+        "fontPx": "12px",
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "conflict paths (opacity-80)",
+        "text": "src/modified.ts",
+        "fg": [
+          81,
+          60,
+          83
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 0.8,
+        "ratio": 7.64,
+        "fontPx": "10px",
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "Stash & switch (primary)",
+        "text": "Stash & switch",
+        "fg": [
+          0,
+          93,
+          88
+        ],
+        "bg": [
+          68,
+          235,
+          211
+        ],
+        "opacity": 1,
+        "ratio": 5.2,
+        "fontPx": "11px",
+        "w": 90,
+        "h": 24
+      },
+      {
+        "label": "Discard & switch (ghost error)",
+        "text": "Discard & switch…",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 13.07,
+        "fontPx": "11px",
+        "w": 109,
+        "h": 24
+      }
+    ],
+    "picker-discard-confirm-dark": [
+      {
+        "label": "confirm copy (text-error)",
+        "text": "Discard all uncommitted changes? This ca",
+        "fg": [
+          220,
+          38,
+          38
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 3.12,
+        "fontPx": "12px",
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "Discard changes (btn-error)",
+        "text": "Discard changes",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          220,
+          38,
+          38
+        ],
+        "opacity": 1,
+        "ratio": 3.87,
+        "fontPx": "11px",
+        "w": 99,
+        "h": 24
+      }
+    ],
+    "picker-discard-confirm-light": [
+      {
+        "label": "confirm copy (text-error)",
+        "text": "Discard all uncommitted changes? This ca",
+        "fg": [
+          254,
+          28,
+          85
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 2.93,
+        "fontPx": "12px",
+        "w": 468,
+        "h": 16
+      },
+      {
+        "label": "Discard changes (btn-error)",
+        "text": "Discard changes",
+        "fg": [
+          77,
+          2,
+          24
+        ],
+        "bg": [
+          254,
+          28,
+          85
+        ],
+        "opacity": 1,
+        "ratio": 4.12,
+        "fontPx": "11px",
+        "w": 101,
+        "h": 24
+      }
+    ],
+    "picker-discard-refusal-dark": [
+      {
+        "label": "refusal copy (text-error)",
+        "text": "Cannot discard: untracked files would be",
+        "fg": [
+          220,
+          38,
+          38
+        ],
+        "bg": [
+          48,
+          35,
+          31
+        ],
+        "opacity": 1,
+        "ratio": 3.12,
+        "fontPx": "12px",
+        "w": 270,
+        "h": 32
+      },
+      {
+        "label": "Stash & switch",
+        "text": "Stash & switch",
+        "fg": [
+          248,
+          247,
+          244
+        ],
+        "bg": [
+          37,
+          99,
+          235
+        ],
+        "opacity": 1,
+        "ratio": 4.82,
+        "fontPx": "11px",
+        "w": 88,
+        "h": 24
+      }
+    ],
+    "picker-discard-refusal-light": [
+      {
+        "label": "refusal copy (text-error)",
+        "text": "Cannot discard: untracked files would be",
+        "fg": [
+          254,
+          28,
+          85
+        ],
+        "bg": [
+          240,
+          223,
+          207
+        ],
+        "opacity": 1,
+        "ratio": 2.93,
+        "fontPx": "12px",
+        "w": 270,
+        "h": 32
+      },
+      {
+        "label": "Stash & switch",
+        "text": "Stash & switch",
+        "fg": [
+          0,
+          93,
+          88
+        ],
+        "bg": [
+          68,
+          235,
+          211
+        ],
+        "opacity": 1,
+        "ratio": 5.2,
+        "fontPx": "11px",
+        "w": 90,
+        "h": 24
+      }
+    ],
+    "picker-stash-notice-dark": [
+      {
+        "label": "notice copy (on bg-info/10)",
+        "text": "Changes stashed as 0123456 — find them i",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          29,
+          36,
+          54
+        ],
+        "opacity": 1,
+        "ratio": 12.35,
+        "fontPx": "12px",
+        "w": 210,
+        "h": 32
+      },
+      {
+        "label": "short SHA",
+        "text": "0123456",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          29,
+          36,
+          54
+        ],
+        "opacity": 1,
+        "ratio": 12.35,
+        "fontPx": "12px",
+        "w": 50,
+        "h": 16
+      },
+      {
+        "label": "Dismiss",
+        "text": "Dismiss",
+        "fg": [
+          232,
+          230,
+          225
+        ],
+        "bg": [
+          29,
+          36,
+          54
+        ],
+        "opacity": 1,
+        "ratio": 12.35,
+        "fontPx": "11px",
+        "w": 52,
+        "h": 24
+      }
+    ],
+    "picker-stash-notice-light": [
+      {
+        "label": "notice copy (on bg-info/10)",
+        "text": "Changes stashed as 0123456 — find them i",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          215,
+          226,
+          231
+        ],
+        "opacity": 1,
+        "ratio": 12.87,
+        "fontPx": "12px",
+        "w": 210,
+        "h": 32
+      },
+      {
+        "label": "short SHA",
+        "text": "0123456",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          215,
+          226,
+          231
+        ],
+        "opacity": 1,
+        "ratio": 12.87,
+        "fontPx": "12px",
+        "w": 50,
+        "h": 16
+      },
+      {
+        "label": "Dismiss",
+        "text": "Dismiss",
+        "fg": [
+          41,
+          19,
+          52
+        ],
+        "bg": [
+          215,
+          226,
+          231
+        ],
+        "opacity": 1,
+        "ratio": 12.87,
+        "fontPx": "11px",
+        "w": 52,
+        "h": 24
+      }
+    ],
+    "picker-create-error-dark": [
+      {
+        "label": "create error copy (text-error on base-200)",
+        "text": "Could not create branch feature/review: ",
+        "fg": [
+          220,
+          38,
+          38
+        ],
+        "bg": [
+          26,
+          26,
+          32
+        ],
+        "opacity": 1,
+        "ratio": 3.59,
+        "fontPx": "12px",
+        "w": 286,
+        "h": 48
+      }
+    ],
+    "picker-create-error-light": [
+      {
+        "label": "create error copy (text-error on base-200)",
+        "text": "Could not create branch feature/review: ",
+        "fg": [
+          254,
+          28,
+          85
+        ],
+        "bg": [
+          239,
+          234,
+          230
+        ],
+        "opacity": 1,
+        "ratio": 3.19,
+        "fontPx": "12px",
+        "w": 286,
+        "h": 48
+      }
+    ]
+  },
+  "focus": {
+    "blocked": "BUTTON testid=stash-switch text=Stash & switch",
+    "confirm": "BUTTON testid=confirm-discard text=Discard changes",
+    "refusal": "BUTTON testid=stash-switch text=Stash & switch",
+    "stash-notice": "BUTTON testid=dismiss-stash-notice text=Dismiss"
+  }
+}

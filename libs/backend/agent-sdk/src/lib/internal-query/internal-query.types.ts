@@ -18,7 +18,10 @@ import type {
   SDKMessage,
   OutputFormat,
 } from '../types/sdk-types/claude-sdk.types';
-import type { OneShotAuthOverride } from '../helpers/sdk-query-runner.service';
+import type {
+  OneShotAuthOverride,
+  OneShotToolAccess,
+} from '../helpers/sdk-query-runner.service';
 
 /**
  * Configuration for an internal one-shot query.
@@ -88,6 +91,15 @@ export interface InternalQueryConfig {
   lane?: string;
 
   auth?: OneShotAuthOverride;
+
+  /**
+   * Which tools the model may call. Omitted means `'claude-code'`: the Claude
+   * Code tools and the allowed MCP servers, auto-approved. A caller whose
+   * prompt carries untrusted content (repository text a stranger could have
+   * written) passes `'none'`, so no built-in or MCP tool can run whatever the
+   * prompt asks for.
+   */
+  toolAccess?: OneShotToolAccess;
 }
 
 /**

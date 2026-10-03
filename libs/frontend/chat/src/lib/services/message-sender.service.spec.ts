@@ -33,16 +33,25 @@ import {
 } from '@ptah-extension/core';
 import { MessageSenderService } from './message-sender.service';
 import { UltracodeStateService } from './ultracode-state.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  ABORT_REASON_SUPERSEDED,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import {
   SessionManager,
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
 import { MessageValidationService } from './message-validation.service';
 import type { TabState } from '@ptah-extension/chat-types';
-import type { ExecutionChatMessage } from '@ptah-extension/shared';
+import type { ExecutionChatMessage, SessionId } from '@ptah-extension/shared';
 
-function makeTab(overrides: Partial<TabState> = {}): TabState {
+/** Test tabs take plain-string ids: the brands (TabId, SessionId) are applied by the cast below. */
+function makeTab(
+  overrides: Omit<Partial<TabState>, 'id' | 'claudeSessionId'> & {
+    id?: string;
+    claudeSessionId?: string | null;
+  } = {},
+): TabState {
   return {
     id: 'tab-1',
     title: 'Session',
@@ -82,6 +91,7 @@ describe('MessageSenderService', () => {
     setMessages: jest.Mock;
     consumeFirstMessagePreamble: jest.Mock;
     findTabByIdAcrossWorkspaces: jest.Mock;
+    activeWorkspacePath: string | null;
   };
   /** Tabs parked in a NON-active workspace — absent from `tabs()` by design. */
   let backgroundTabsSignal: ReturnType<typeof signal<TabState[]>>;
@@ -183,11 +193,14 @@ describe('MessageSenderService', () => {
       // Mirrors production: resolves the ACTIVE workspace and every background
       // partition, unlike `tabs()`.
       findTabByIdAcrossWorkspaces: jest.fn((tabId: string) => {
-        const tab =
-          tabsSignal().find((t) => t.id === tabId) ??
-          backgroundTabsSignal().find((t) => t.id === tabId);
-        return tab ? { tab, workspacePath: 'D:/repo' } : null;
+        const active = tabsSignal().find((t) => t.id === tabId);
+        if (active) return { tab: active, workspacePath: 'D:/repo' };
+        const background = backgroundTabsSignal().find((t) => t.id === tabId);
+        return background
+          ? { tab: background, workspacePath: 'D:/other-repo' }
+          : null;
       }),
+      activeWorkspacePath: 'D:/repo',
     };
 
     sessionManager = {
@@ -247,10 +260,18 @@ describe('MessageSenderService', () => {
         },
         {
           provide: EffortStateService,
-          useValue: {
-            currentEffort: jest.fn(() => 'medium'),
-            setEffort: jest.fn().mockResolvedValue(undefined),
-          },
+          // Stateful like the real service: a successful write is readable back, which
+          // UltracodeStateService.enable()/disable() check before reporting success.
+          useValue: (() => {
+            let effort: string | undefined = 'medium';
+            return {
+              currentEffort: jest.fn(() => effort),
+              setEffort: jest.fn(async (next: string | undefined) => {
+                effort = next;
+                return true;
+              }),
+            };
+          })(),
         },
         {
           provide: PtahCliStateService,
@@ -388,7 +409,7 @@ describe('MessageSenderService', () => {
       it('also removes the bubble when a rejected queue flush re-queues the text', async () => {
         failContinue({ success: true, data: { success: false, error: 'no' } });
 
-        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
           tabId: 'tab-1',
         });
 
@@ -402,7 +423,7 @@ describe('MessageSenderService', () => {
       it('also removes the bubble when a queue flush throws', async () => {
         failContinue(new Error('socket closed'), true);
 
-        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
           tabId: 'tab-1',
         });
 
@@ -416,7 +437,7 @@ describe('MessageSenderService', () => {
       it('rolls nothing back when the continue is delivered', async () => {
         failContinue({ success: true });
 
-        await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+        await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
           tabId: 'tab-1',
         });
 
@@ -448,7 +469,7 @@ describe('MessageSenderService', () => {
 
         const pending = service.continueExistingSessionForQueueFlush(
           'queued',
-          'sess-X',
+          'sess-X' as SessionId,
           { tabId: 'tab-1' },
         );
         await continueReached;
@@ -567,6 +588,82 @@ describe('MessageSenderService', () => {
       expect(written.map((m) => m.id)).toContain('bg-msg');
       expect(written.map((m) => m.id)).not.toContain('active-msg');
       expect(written.at(-1)?.rawContent).toBe('hello background');
+    });
+
+    it("validates and continues a background tab's session against ITS workspace, not the active one", async () => {
+      tabsSignal.set([
+        makeTab({ id: 'tab-1', claudeSessionId: 'sess-ACTIVE' }),
+      ]);
+      backgroundTabsSignal.set([
+        makeTab({ id: 'tab-bg', claudeSessionId: 'sess-BG' }),
+      ]);
+      rpcCall.mockImplementation(
+        (
+          method: string,
+          payload: { workspacePath?: string },
+        ): Promise<{ success: boolean; data?: unknown }> => {
+          if (method === 'session:validate') {
+            // The session file only exists under the background workspace.
+            return Promise.resolve({
+              success: true,
+              data: { exists: payload.workspacePath === 'D:/other-repo' },
+            });
+          }
+          return Promise.resolve({ success: true });
+        },
+      );
+
+      await service.send('review feedback', { tabId: 'tab-bg' });
+
+      const methods = rpcCall.mock.calls.map((c) => c[0]);
+      expect(methods).not.toContain('chat:start');
+      expect(tabManager.detachSessionAndMarkLoaded).not.toHaveBeenCalled();
+      const validateCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'session:validate',
+      );
+      expect(validateCall?.[1]).toEqual(
+        expect.objectContaining({
+          sessionId: 'sess-BG',
+          workspacePath: 'D:/other-repo',
+        }),
+      );
+      const continueCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'chat:continue',
+      );
+      expect(continueCall?.[1]).toEqual(
+        expect.objectContaining({
+          sessionId: 'sess-BG',
+          tabId: 'tab-bg',
+          workspacePath: 'D:/other-repo',
+        }),
+      );
+    });
+
+    it('treats another spelling of the active workspace as the active workspace', async () => {
+      tabsSignal.set([
+        makeTab({ id: 'tab-1', claudeSessionId: 'sess-ACTIVE' }),
+      ]);
+      // Same folder, different separator, drive-letter case and trailing slash.
+      tabManager.findTabByIdAcrossWorkspaces.mockImplementation(
+        (tabId: string) => {
+          const tab = tabsSignal().find((t) => t.id === tabId);
+          return tab ? { tab, workspacePath: 'd:\\repo\\' } : null;
+        },
+      );
+      rpcCall.mockResolvedValue({ success: true, data: { exists: true } });
+
+      await service.send('review feedback', { tabId: 'tab-1' });
+
+      const validateCall = rpcCall.mock.calls.find(
+        (c) => c[0] === 'session:validate',
+      );
+      // The host's configured root, not the tab's alternate spelling.
+      expect(validateCall?.[1]).toEqual(
+        expect.objectContaining({
+          sessionId: 'sess-ACTIVE',
+          workspacePath: 'D:/repo',
+        }),
+      );
     });
   });
 
@@ -718,7 +815,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe(
+      expect(payload['prompt']).toBe(
         'COUNCIL FRAMING\nObjective:\n\ncompare the two designs',
       );
 
@@ -736,7 +833,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe('plain question');
+      expect(payload['prompt']).toBe('plain question');
     });
 
     it('flags a re-auth banner when chat:start returns AUTH_REQUIRED', async () => {
@@ -780,10 +877,10 @@ describe('MessageSenderService', () => {
         Record<string, unknown>,
       ];
       expect(method).toBe('chat:start');
-      expect(payload.prompt).toBe('hello');
+      expect(payload['prompt']).toBe('hello');
       // workspacePath is either omitted entirely or explicitly undefined;
       // both forms let the backend resolve via IWorkspaceProvider.
-      expect(payload.workspacePath).toBeUndefined();
+      expect(payload['workspacePath']).toBeUndefined();
       // No "No workspace path" warning — that early-return was the bug.
       expect(consoleWarn).not.toHaveBeenCalledWith(
         expect.stringContaining('No workspace path'),
@@ -895,7 +992,7 @@ describe('MessageSenderService', () => {
       // workspacePath must be omitted (or undefined) so backend falls back
       // to IWorkspaceProvider.getWorkspaceRoot().
       expect(
-        (continueCall?.[1] as Record<string, unknown>).workspacePath,
+        (continueCall?.[1] as Record<string, unknown>)['workspacePath'],
       ).toBeUndefined();
       // And we must NOT have started a new conversation — the contract is
       // "send anyway, let the backend surface the error".
@@ -938,6 +1035,64 @@ describe('MessageSenderService', () => {
     });
   });
 
+  // TASK_2026_592 MOD-3: closing a tab aborts its stream through the listener
+  // `wireAbortDispatch` installs. During the first turn no session id is bound
+  // yet; the backend registers that turn's record under the tab id, so the tab
+  // id must be sent instead of nothing (otherwise the process leaks).
+  describe('abort listener (tab close)', () => {
+    function wireAndAbort(tabId: string): void {
+      const controller = new AbortController();
+      tabManager.createAbortController.mockReturnValueOnce(controller.signal);
+      (
+        service as unknown as { wireAbortDispatch(id: string): AbortSignal }
+      ).wireAbortDispatch(tabId);
+      controller.abort();
+    }
+
+    beforeEach(() => {
+      rpcCall.mockImplementation(() => Promise.resolve({ success: true }));
+    });
+
+    it('turn-1 close (no session id yet) sends chat:abort with the tab id', () => {
+      const tabId = '33333333-3333-4333-8333-333333333333';
+      tabsSignal.set([makeTab({ id: tabId, claudeSessionId: null })]);
+
+      wireAndAbort(tabId);
+
+      const aborts = rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort');
+      expect(aborts).toHaveLength(1);
+      expect(aborts[0][1]).toEqual({ sessionId: tabId });
+    });
+
+    it('with a bound session id it still sends the session id', () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+
+      wireAndAbort('tab-1');
+
+      const aborts = rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort');
+      expect(aborts).toHaveLength(1);
+      expect(aborts[0][1]).toEqual({ sessionId: 'sess-X' });
+    });
+  });
+
+  describe('abort listener (superseded by a newer send)', () => {
+    it('does not send chat:abort when the controller was replaced, not closed', () => {
+      rpcCall.mockImplementation(() => Promise.resolve({ success: true }));
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      const controller = new AbortController();
+      tabManager.createAbortController.mockReturnValueOnce(controller.signal);
+      (
+        service as unknown as { wireAbortDispatch(id: string): AbortSignal }
+      ).wireAbortDispatch('tab-1');
+
+      controller.abort(ABORT_REASON_SUPERSEDED);
+
+      expect(rpcCall.mock.calls.filter((c) => c[0] === 'chat:abort')).toEqual(
+        [],
+      );
+    });
+  });
+
   describe('continueExistingSessionForQueueFlush', () => {
     // The post-stream queue flush (`MessageDispatchService.sendQueuedMessage`)
     // fires on turn-end while the previous stream's AbortController may still
@@ -964,7 +1119,7 @@ describe('MessageSenderService', () => {
       const existing = new AbortController();
       tabManager.getAbortSignal.mockReturnValue(existing.signal);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
         tabId: 'tab-1',
       });
 
@@ -982,7 +1137,7 @@ describe('MessageSenderService', () => {
     it('sends with no signal when no existing controller is tracked (already finalized)', async () => {
       tabManager.getAbortSignal.mockReturnValue(undefined);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
         tabId: 'tab-1',
       });
 
@@ -1004,7 +1159,7 @@ describe('MessageSenderService', () => {
     it('forwards files, images, and effort to the chat:continue payload', async () => {
       tabManager.getAbortSignal.mockReturnValue(undefined);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
         tabId: 'tab-1',
         files: ['a.ts', 'b.ts'],
         images: [{ data: 'base64', mediaType: 'image/png' }],
@@ -1030,7 +1185,7 @@ describe('MessageSenderService', () => {
       const existing = new AbortController();
       tabManager.getAbortSignal.mockReturnValue(existing.signal);
 
-      await service.continueExistingSessionForQueueFlush('queued', 'sess-X', {
+      await service.continueExistingSessionForQueueFlush('queued', 'sess-X' as SessionId, {
         tabId: 'tab-1',
       });
 
@@ -1079,7 +1234,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe('plain message');
+      expect(payload['prompt']).toBe('plain message');
     });
 
     it('prefixes the outgoing prompt with `ultracode:` when enabled', async () => {
@@ -1091,7 +1246,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe('ultracode: refactor the auth module');
+      expect(payload['prompt']).toBe('ultracode: refactor the auth module');
     });
 
     it('does not double-stamp content that already carries the keyword', async () => {
@@ -1103,7 +1258,7 @@ describe('MessageSenderService', () => {
       const [, payload] = rpcCall.mock.calls.find(
         (c) => c[0] === 'chat:start',
       ) as [string, { prompt: string }];
-      expect(payload.prompt).toBe('ultracode: already tagged');
+      expect(payload['prompt']).toBe('ultracode: already tagged');
     });
   });
 });

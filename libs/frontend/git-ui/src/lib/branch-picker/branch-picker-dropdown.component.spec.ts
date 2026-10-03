@@ -1,37 +1,499 @@
 import { signal } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import type { BranchRef, GitCheckoutResult } from '@ptah-extension/shared';
 import { BranchPickerDropdownComponent } from './branch-picker-dropdown.component';
 import { GitBranchesService } from '../services/git-branches.service';
+
+const localBranch = (name: string): BranchRef => ({
+  name,
+  isCurrent: false,
+  isRemote: false,
+  ahead: 0,
+  behind: 0,
+});
+
+async function setup(options: {
+  local?: BranchRef[];
+  remote?: BranchRef[];
+  checkout?: jest.Mock<Promise<GitCheckoutResult>>;
+}) {
+  const branches = {
+    localBranches: signal(options.local ?? []),
+    remoteBranches: signal(options.remote ?? []),
+    recentBranches: signal<string[]>([]),
+    checkout:
+      options.checkout ?? jest.fn().mockResolvedValue({ success: true }),
+    recordVisitedBranch: jest.fn(),
+  };
+  await TestBed.configureTestingModule({
+    imports: [BranchPickerDropdownComponent],
+    providers: [{ provide: GitBranchesService, useValue: branches }],
+  }).compileComponents();
+  const fixture = TestBed.createComponent(BranchPickerDropdownComponent);
+  fixture.componentRef.setInput('isOpen', true);
+  const checkedOut: string[] = [];
+  fixture.componentInstance.branchCheckedOut.subscribe((name) =>
+    checkedOut.push(name),
+  );
+  fixture.detectChanges();
+  return { fixture, branches, checkedOut };
+}
+
+async function click(
+  fixture: ComponentFixture<BranchPickerDropdownComponent>,
+  selector: string,
+): Promise<void> {
+  const button = fixture.nativeElement.querySelector(
+    selector,
+  ) as HTMLButtonElement | null;
+  if (!button) throw new Error(`No element for ${selector}`);
+  button.click();
+  await fixture.whenStable();
+  fixture.detectChanges();
+}
+
+const query = (
+  fixture: ComponentFixture<BranchPickerDropdownComponent>,
+  selector: string,
+): HTMLElement | null => fixture.nativeElement.querySelector(selector);
+
 describe('BranchPickerDropdownComponent', () => {
-  it('clicks a clean branch once without force', async () => {
-    const checkout = jest.fn().mockResolvedValue({ success: true });
-    const branches = {
-      localBranches: signal([
-        {
-          name: 'feature',
-          isCurrent: false,
-          isRemote: false,
-          ahead: 0,
-          behind: 0,
-        },
-      ]),
-      remoteBranches: signal([]),
-      recentBranches: signal([]),
+  it('switches to a clean branch once, without stash or force', async () => {
+    const { fixture, branches, checkedOut } = await setup({
+      local: [localBranch('feature')],
+    });
+
+    await click(fixture, '.max-h-72 > button');
+
+    expect(branches.checkout).toHaveBeenCalledTimes(1);
+    expect(branches.checkout).toHaveBeenCalledWith({ branch: 'feature' });
+    expect(checkedOut).toEqual(['feature']);
+  });
+
+  it('runs one checkout at a time: rows and Create are disabled until it settles', async () => {
+    let settle: (result: GitCheckoutResult) => void = () => undefined;
+    const checkout = jest.fn(
+      () =>
+        new Promise<GitCheckoutResult>((resolve) => {
+          settle = resolve;
+        }),
+    );
+    const { fixture, checkedOut } = await setup({
+      local: [localBranch('feature'), localBranch('other')],
       checkout,
-      recordVisitedBranch: jest.fn(),
-    };
-    await TestBed.configureTestingModule({
-      imports: [BranchPickerDropdownComponent],
-      providers: [{ provide: GitBranchesService, useValue: branches }],
-    }).compileComponents();
-    const fixture = TestBed.createComponent(BranchPickerDropdownComponent);
+    });
+    const rows = (): HTMLButtonElement[] => [
+      ...fixture.nativeElement.querySelectorAll('.max-h-72 > button'),
+    ];
+    const createButton = (): HTMLButtonElement =>
+      fixture.nativeElement.querySelector('.border-t > button');
+    fixture.componentInstance['newBranch'].set('topic');
+
+    rows()[0].click();
+    fixture.detectChanges();
+
+    expect(rows().every((row) => row.disabled)).toBe(true);
+    expect(createButton().disabled).toBe(true);
+    // Even an entry point reached while disabled starts nothing.
+    fixture.componentInstance['switchTo']('other');
+    fixture.componentInstance['create']();
+    expect(checkout).toHaveBeenCalledTimes(1);
+
+    settle({ success: false, error: 'boom' });
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(rows().every((row) => !row.disabled)).toBe(true);
+    expect(createButton().disabled).toBe(false);
+    expect(checkedOut).toEqual([]);
+  });
+
+  it('offers Stash & switch as the primary action on a dirty refusal and lists the paths', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        dirty: true,
+        conflictingPaths: ['src/a.ts', 'README.md'],
+      })
+      .mockResolvedValueOnce({ success: true, stashRef: 'abc123' });
+    const { fixture, branches, checkedOut } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+
+    await click(fixture, '.max-h-72 > button');
+
+    const stash = query(fixture, '[data-testid="stash-switch"]');
+    expect(stash?.textContent?.trim()).toBe('Stash & switch');
+    expect(stash?.classList).toContain('btn-primary');
+    expect(document.activeElement).toBe(stash);
+    const paths = [
+      ...(query(fixture, '[data-testid="conflicting-paths"]')?.querySelectorAll(
+        'li',
+      ) ?? []),
+    ].map((item) => item.textContent?.trim());
+    expect(paths).toEqual(['src/a.ts', 'README.md']);
+
+    await click(fixture, '[data-testid="stash-switch"]');
+
+    expect(checkout).toHaveBeenLastCalledWith({
+      branch: 'feature',
+      stash: true,
+    });
+    expect(branches.recordVisitedBranch).toHaveBeenCalledWith('feature');
+    expect(checkedOut).toEqual(['feature']);
+  });
+
+  it('keeps Discard & switch behind a second confirmation', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, dirty: true })
+      .mockResolvedValueOnce({ success: true });
+    const { fixture } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    await click(fixture, '.max-h-72 > button');
+    expect(query(fixture, '[data-testid="conflicting-paths"]')).toBeNull();
+    // Destructive but secondary: an error-bordered outline with base-content
+    // ink (text-error on the warning tint fails AA; anubis-light's btn-ghost
+    // override erased it).
+    const discard = query(fixture, '[data-testid="discard-switch"]');
+    expect([...(discard?.classList ?? [])]).toEqual(
+      expect.arrayContaining([
+        'btn-outline',
+        'border-error',
+        'text-base-content',
+      ]),
+    );
+    expect(discard?.classList).not.toContain('text-error');
+
+    await click(fixture, '[data-testid="discard-switch"]');
+
+    expect(checkout).toHaveBeenCalledTimes(1);
+    const confirm = query(fixture, '[data-testid="confirm-discard"]');
+    expect(confirm?.textContent?.trim()).toBe('Discard changes');
+    expect(document.activeElement).toBe(confirm);
+    // error-content on a btn-error fill is 3.87:1 / 4.12:1, below AA.
+    expect(confirm?.classList).not.toContain('btn-error');
+    expect(confirm?.classList).toContain('text-base-content');
+    // Script focus after a pointer click is not :focus-visible in Chromium.
+    expect(confirm?.classList).toContain('focus:!outline');
+    expect(query(fixture, '[data-testid="stash-switch"]')).toBeNull();
+
+    await click(fixture, '[data-testid="confirm-discard"]');
+
+    expect(checkout).toHaveBeenLastCalledWith({
+      branch: 'feature',
+      force: true,
+    });
+  });
+
+  it('names the stash after a successful Stash & switch and closes only on Dismiss', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, dirty: true })
+      .mockResolvedValueOnce({ success: true, stashRef: 'abc123' });
+    const { fixture, checkedOut } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    let closedCount = 0;
+    fixture.componentInstance.closed.subscribe(() => closedCount++);
+    await click(fixture, '.max-h-72 > button');
+    await click(fixture, '[data-testid="stash-switch"]');
+
+    const notice = query(fixture, '[data-testid="stash-notice"]');
+    expect(notice?.getAttribute('role')).toBe('status');
+    expect((notice?.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+      'Changes stashed as abc123 — find them in Stashes. Dismiss',
+    );
+    expect(notice?.querySelector('.font-mono')?.getAttribute('title')).toBe(
+      'abc123',
+    );
+    const dismiss = query(fixture, '[data-testid="dismiss-stash-notice"]');
+    expect(document.activeElement).toBe(dismiss);
+    expect(query(fixture, '[data-testid="blocked-switch"]')).toBeNull();
+    expect(checkedOut).toEqual(['feature']);
+    expect(closedCount).toBe(0);
+
+    await click(fixture, '[data-testid="dismiss-stash-notice"]');
+    expect(closedCount).toBe(1);
+
+    fixture.componentRef.setInput('isOpen', false);
+    fixture.detectChanges();
     fixture.componentRef.setInput('isOpen', true);
     fixture.detectChanges();
-    (
-      fixture.nativeElement.querySelector('button') as HTMLButtonElement
-    ).click();
+    expect(query(fixture, '[data-testid="stash-notice"]')).toBeNull();
+  });
+
+  it('closes straight away when Stash & switch needed no stash entry', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, dirty: true })
+      .mockResolvedValueOnce({ success: true });
+    const { fixture } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    let closedCount = 0;
+    fixture.componentInstance.closed.subscribe(() => closedCount++);
+    await click(fixture, '.max-h-72 > button');
+    await click(fixture, '[data-testid="stash-switch"]');
+
+    expect(query(fixture, '[data-testid="stash-notice"]')).toBeNull();
+    expect(closedCount).toBe(1);
+  });
+
+  it('re-prompts with the paths and reason when a confirmed discard is refused, offering only stash', async () => {
+    const reason =
+      'Untracked files would be overwritten; move or delete them first.';
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        dirty: true,
+        conflictingPaths: ['new.txt'],
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        dirty: true,
+        conflictingPaths: ['new.txt'],
+        error: reason,
+      })
+      .mockResolvedValueOnce({ success: true });
+    const { fixture, checkedOut } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    await click(fixture, '.max-h-72 > button');
+    await click(fixture, '[data-testid="discard-switch"]');
+    await click(fixture, '[data-testid="confirm-discard"]');
+
+    expect(query(fixture, '[data-testid="blocked-switch"]')).not.toBeNull();
+    const refusal = query(fixture, '[data-testid="discard-refusal"]');
+    expect(refusal?.textContent?.trim()).toBe(reason);
+    // Readable ink on the error tint; the hue is on the box, not the text.
+    expect(refusal?.closest('.text-error')).toBeNull();
+    expect(refusal?.closest('.text-base-content')).not.toBeNull();
+    const paths = [
+      ...(query(fixture, '[data-testid="conflicting-paths"]')?.querySelectorAll(
+        'li',
+      ) ?? []),
+    ].map((item) => item.textContent?.trim());
+    expect(paths).toEqual(['new.txt']);
+    expect(query(fixture, '[data-testid="discard-switch"]')).toBeNull();
+    expect(query(fixture, '[data-testid="confirm-discard"]')).toBeNull();
+    const stash = query(fixture, '[data-testid="stash-switch"]');
+    expect(document.activeElement).toBe(stash);
+    expect(checkedOut).toEqual([]);
+
+    await click(fixture, '[data-testid="stash-switch"]');
+    expect(checkout).toHaveBeenLastCalledWith({
+      branch: 'feature',
+      stash: true,
+    });
+    expect(checkedOut).toEqual(['feature']);
+  });
+
+  it('Cancel dismisses the dirty prompt without switching', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValue({ success: false, dirty: true });
+    const { fixture } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    await click(fixture, '.max-h-72 > button');
+
+    const cancel = [
+      ...fixture.nativeElement.querySelectorAll(
+        '[data-testid="blocked-switch"] button',
+      ),
+    ].find((button) => button.textContent?.trim() === 'Cancel') as
+      HTMLButtonElement | undefined;
+    cancel?.click();
     await fixture.whenStable();
-    expect(checkout).toHaveBeenCalledWith({ branch: 'feature', force: false });
+    fixture.detectChanges();
+
+    expect(query(fixture, '[data-testid="blocked-switch"]')).toBeNull();
+    expect(checkout).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the error when a stash & switch fails', async () => {
+    const checkout = jest
+      .fn()
+      .mockResolvedValueOnce({ success: false, dirty: true })
+      .mockResolvedValueOnce({
+        success: false,
+        error: 'pathspec did not match',
+      });
+    const { fixture, checkedOut } = await setup({
+      local: [localBranch('feature')],
+      checkout,
+    });
+    await click(fixture, '.max-h-72 > button');
+    await click(fixture, '[data-testid="stash-switch"]');
+
+    expect(query(fixture, '[data-testid="blocked-switch"]')).toBeNull();
+    expect(query(fixture, '[role="alert"]')?.textContent?.trim()).toBe(
+      'pathspec did not match',
+    );
+    expect(checkedOut).toEqual([]);
+  });
+
+  it('passes track:true for a remote row and records the local branch name', async () => {
+    const { fixture, branches, checkedOut } = await setup({
+      remote: [
+        {
+          ...localBranch('origin/feature/x'),
+          isRemote: true,
+          remote: 'origin',
+        },
+      ],
+    });
+
+    await click(fixture, '.max-h-72 > button');
+
+    expect(branches.checkout).toHaveBeenCalledWith({
+      branch: 'origin/feature/x',
+      track: true,
+    });
+    expect(branches.recordVisitedBranch).toHaveBeenCalledWith('feature/x');
+    expect(checkedOut).toEqual(['feature/x']);
+  });
+
+  it('shows the reason when creating a branch fails', async () => {
+    const checkout = jest.fn().mockResolvedValue({
+      success: false,
+      error: "a branch named 'topic' already exists",
+    });
+    const { fixture } = await setup({ checkout });
+    const input = query(
+      fixture,
+      '[aria-label="New branch name"]',
+    ) as HTMLInputElement;
+    input.value = 'topic';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    await click(fixture, '.border-t > button');
+
+    expect(checkout).toHaveBeenCalledWith({ branch: 'topic', createNew: true });
+    const alert = query(fixture, '[role="alert"]');
+    expect(alert?.textContent?.trim()).toBe(
+      "Could not create branch topic: a branch named 'topic' already exists",
+    );
+    expect(alert?.closest('.text-error')).toBeNull();
+    expect(alert?.closest('.text-base-content')).not.toBeNull();
+  });
+
+  it('disables the current branch and shows ahead/behind counts (parity row 121)', async () => {
+    const { fixture, branches } = await setup({
+      local: [
+        { ...localBranch('main'), isCurrent: true },
+        { ...localBranch('feature'), ahead: 2, behind: 3 },
+        localBranch('quiet'),
+      ],
+    });
+    const rows = [
+      ...fixture.nativeElement.querySelectorAll('.max-h-72 > button'),
+    ] as HTMLButtonElement[];
+    const row = (name: string): HTMLButtonElement => {
+      const found = rows.find((button) =>
+        button.textContent?.trim().startsWith(name),
+      );
+      if (!found) throw new Error(`no row ${name}`);
+      return found;
+    };
+
+    expect(row('main').disabled).toBe(true);
+    expect(row('feature').disabled).toBe(false);
+    expect(row('feature').textContent?.replace(/\s+/g, '')).toBe('feature↑2↓3');
+    expect(row('quiet').textContent?.trim()).toBe('quiet');
+
+    row('main').click();
+    await fixture.whenStable();
+    expect(branches.checkout).not.toHaveBeenCalled();
+  });
+
+  it('lists recent branches under Recent until a search, and switches from there (parity row 120)', async () => {
+    const { fixture, branches } = await setup({
+      local: [localBranch('feature'), localBranch('main')],
+    });
+    branches.recentBranches.set(['feature']);
+    fixture.detectChanges();
+    const list = query(fixture, '.max-h-72') as HTMLElement;
+    const headings = [...list.querySelectorAll('p')].map((p) =>
+      p.textContent?.trim(),
+    );
+    expect(headings).toEqual(['Recent', 'Local', 'Remote']);
+    // The first button under Recent is the recent entry.
+    const recentRow = list.querySelector('p + button') as HTMLButtonElement;
+    expect(recentRow.textContent?.trim()).toBe('feature');
+
+    await click(fixture, '.max-h-72 > p + button');
+    expect(branches.checkout).toHaveBeenCalledWith({ branch: 'feature' });
+
+    const search = query(
+      fixture,
+      '[aria-label="Search branches"]',
+    ) as HTMLInputElement;
+    search.value = 'zzz';
+    search.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(
+      [...list.querySelectorAll('p')].map((p) => p.textContent?.trim()),
+    ).toEqual(['Local', 'Remote']);
+  });
+
+  it('creates the typed branch on Enter (parity row 125)', async () => {
+    const { fixture, branches, checkedOut } = await setup({});
+    const input = query(
+      fixture,
+      '[aria-label="New branch name"]',
+    ) as HTMLInputElement;
+    input.value = '  topic  ';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(branches.checkout).toHaveBeenCalledWith({
+      branch: 'topic',
+      createNew: true,
+    });
+    expect(checkedOut).toEqual(['topic']);
+  });
+
+  it('closes on an outside click and on Escape, not on a click inside (parity row 127)', async () => {
+    const { fixture } = await setup({ local: [localBranch('feature')] });
+    const closed = jest.fn();
+    fixture.componentInstance.closed.subscribe(closed);
+
+    (query(fixture, '[aria-label="Search branches"]') as HTMLElement).click();
+    expect(closed).not.toHaveBeenCalled();
+
+    document.body.click();
+    expect(closed).toHaveBeenCalledTimes(1);
+
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    expect(closed).toHaveBeenCalledTimes(2);
+
+    fixture.componentRef.setInput('isOpen', false);
+    fixture.detectChanges();
+    document.body.click();
+    expect(closed).toHaveBeenCalledTimes(2);
   });
 
   it('renders the ten most recent branches per group until search is used', async () => {
@@ -44,20 +506,10 @@ describe('BranchPickerDropdownComponent', () => {
         behind: 0,
         lastCommitTime: index,
       }));
-    const branches = {
-      localBranches: signal(makeBranches('local', false)),
-      remoteBranches: signal(makeBranches('remote', true)),
-      recentBranches: signal([]),
-      checkout: jest.fn(),
-      recordVisitedBranch: jest.fn(),
-    };
-    await TestBed.configureTestingModule({
-      imports: [BranchPickerDropdownComponent],
-      providers: [{ provide: GitBranchesService, useValue: branches }],
-    }).compileComponents();
-    const fixture = TestBed.createComponent(BranchPickerDropdownComponent);
-    fixture.componentRef.setInput('isOpen', true);
-    fixture.detectChanges();
+    const { fixture } = await setup({
+      local: makeBranches('local', false),
+      remote: makeBranches('remote', true),
+    });
 
     const branchButtons = () =>
       [

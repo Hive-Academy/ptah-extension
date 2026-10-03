@@ -17,6 +17,7 @@ export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
 export * from './rpc/rpc-git.types';
+export * from './rpc/rpc-change-set.types';
 export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
 export * from './rpc/rpc-mem.types';
@@ -90,6 +91,8 @@ import type {
   ChatPendingQuestionsResult,
   ChatRunningAgentsParams,
   ChatRunningAgentsResult,
+  ChatAgentSessionsParams,
+  ChatAgentSessionsResult,
 } from './rpc/rpc-chat.types';
 
 import type {
@@ -115,6 +118,18 @@ import type {
   SessionRewindResult,
   SessionStatusParams,
   SessionStatusResponse,
+  SessionSetOrganizationParams,
+  SessionSetOrganizationResult,
+  SessionLinkTaskParams,
+  SessionLinkTaskResult,
+  SessionUnlinkTaskParams,
+  SessionUnlinkTaskResult,
+  SessionAddPrLinkParams,
+  SessionAddPrLinkResult,
+  SessionRemovePrLinkParams,
+  SessionRemovePrLinkResult,
+  SessionListForTasksParams,
+  SessionListForTasksResult,
 } from './rpc/rpc-session.types';
 
 import type {
@@ -160,6 +175,11 @@ import type {
   AuthVerifyDraftConnectionResult,
   AuthCancelDraftVerificationParams,
   AuthCancelDraftVerificationResult,
+  AuthDeleteStoredKeyParams,
+  AuthDeleteStoredKeyResult,
+  AuthGetApiKeyStatusResult,
+  AuthCheckConnectionParams,
+  AuthCheckConnectionResult,
 } from './rpc/rpc-auth.types';
 
 import type {
@@ -333,6 +353,18 @@ import type {
   GitDiscardResult,
   GitCommitParams,
   GitCommitResult,
+  GitCancelOperationParams,
+  GitCancelOperationResult,
+  GitGenerateCommitMessageParams,
+  GitGenerateCommitMessageResult,
+  GitPrStatusParams,
+  GitPrStatusResult,
+  GitOperationAbortParams,
+  GitOperationAbortResult,
+  GitOperationContinueParams,
+  GitOperationContinueResult,
+  GitLogParams,
+  GitLogResult,
   GitShowFileParams,
   GitShowFileResult,
   GitDiffFileParams,
@@ -364,6 +396,10 @@ import type {
   GitLastCommitParams,
   GitLastCommitResult,
 } from './rpc/rpc-git.types';
+import type {
+  GitTurnChangeSetsParams,
+  GitTurnChangeSetsResult,
+} from './rpc/rpc-change-set.types';
 
 import type {
   MemoryListParams,
@@ -536,6 +572,8 @@ import type {
   FileOpenResult,
   FileViewContentParams,
   FileViewContentResult,
+  FileSaveContentParams,
+  FileSaveContentResult,
   LicenseGetStatusParams,
   LicenseGetStatusResponse,
   LicenseSetKeyParams,
@@ -560,6 +598,8 @@ import type {
   EditorOpenFileParams,
   EditorOpenWorkspaceParams,
   EditorOpenResult,
+  EditorOpenMergeParams,
+  EditorOpenMergeResult,
 } from './rpc/rpc-editor.types';
 import type {
   DbHealthResult,
@@ -706,6 +746,10 @@ export interface RpcMethodRegistry {
     params: ChatRunningAgentsParams;
     result: ChatRunningAgentsResult;
   };
+  'chat:agent-sessions': {
+    params: ChatAgentSessionsParams;
+    result: ChatAgentSessionsResult;
+  };
   'session:list': { params: SessionListParams; result: SessionListResult };
   'session:load': { params: SessionLoadParams; result: SessionLoadResult };
   'session:delete': {
@@ -744,6 +788,32 @@ export interface RpcMethodRegistry {
     params: SessionStatusParams;
     result: SessionStatusResponse;
   };
+  // Session organization (TASK_2026_580). Served on every host; a host
+  // without the organization store answers `organization-unavailable`.
+  'session:setOrganization': {
+    params: SessionSetOrganizationParams;
+    result: SessionSetOrganizationResult;
+  };
+  'session:linkTask': {
+    params: SessionLinkTaskParams;
+    result: SessionLinkTaskResult;
+  };
+  'session:unlinkTask': {
+    params: SessionUnlinkTaskParams;
+    result: SessionUnlinkTaskResult;
+  };
+  'session:addPrLink': {
+    params: SessionAddPrLinkParams;
+    result: SessionAddPrLinkResult;
+  };
+  'session:removePrLink': {
+    params: SessionRemovePrLinkParams;
+    result: SessionRemovePrLinkResult;
+  };
+  'session:listForTasks': {
+    params: SessionListForTasksParams;
+    result: SessionListForTasksResult;
+  };
   'context:getAllFiles': {
     params: ContextGetAllFilesParams;
     result: ContextGetAllFilesResult;
@@ -765,6 +835,10 @@ export interface RpcMethodRegistry {
     params: FileViewContentParams;
     result: FileViewContentResult;
   };
+  'file:saveContent': {
+    params: FileSaveContentParams;
+    result: FileSaveContentResult;
+  };
   'editor:detectTargets': {
     params: EditorDetectTargetsParams;
     result: EditorDetectTargetsResult;
@@ -776,6 +850,10 @@ export interface RpcMethodRegistry {
   'editor:openWorkspace': {
     params: EditorOpenWorkspaceParams;
     result: EditorOpenResult;
+  };
+  'editor:openMerge': {
+    params: EditorOpenMergeParams;
+    result: EditorOpenMergeResult;
   };
   'file:pick': {
     params: { multiple?: boolean };
@@ -858,6 +936,10 @@ export interface RpcMethodRegistry {
   'auth:getEffectiveRoute': {
     params: AuthGetEffectiveRouteParams;
     result: AuthGetEffectiveRouteResult;
+  };
+  'auth:checkConnection': {
+    params: AuthCheckConnectionParams;
+    result: AuthCheckConnectionResult;
   };
   'config:getScopes': {
     params: ConfigGetScopesParams;
@@ -1469,20 +1551,17 @@ export interface RpcMethodRegistry {
     params: { provider: string; apiKey: string };
     result: { success: boolean; error?: string };
   };
+  'auth:deleteStoredKey': {
+    params: AuthDeleteStoredKeyParams;
+    result: AuthDeleteStoredKeyResult;
+  };
   'auth:getStatus': {
     params: Record<string, never>;
     result: { isAuthenticated: boolean; provider: string; hasApiKey: boolean };
   };
   'auth:getApiKeyStatus': {
     params: Record<string, never>;
-    result: {
-      providers: Array<{
-        provider: string;
-        displayName: string;
-        hasApiKey: boolean;
-        isDefault: boolean;
-      }>;
-    };
+    result: AuthGetApiKeyStatusResult;
   };
   'settings:get': {
     params: { key: string };
@@ -1559,6 +1638,24 @@ export interface RpcMethodRegistry {
   'git:unstage': { params: GitUnstageParams; result: GitUnstageResult };
   'git:discard': { params: GitDiscardParams; result: GitDiscardResult };
   'git:commit': { params: GitCommitParams; result: GitCommitResult };
+  'git:cancelOperation': {
+    params: GitCancelOperationParams;
+    result: GitCancelOperationResult;
+  };
+  'git:generateCommitMessage': {
+    params: GitGenerateCommitMessageParams;
+    result: GitGenerateCommitMessageResult;
+  };
+  'git:prStatus': { params: GitPrStatusParams; result: GitPrStatusResult };
+  'git:operationAbort': {
+    params: GitOperationAbortParams;
+    result: GitOperationAbortResult;
+  };
+  'git:operationContinue': {
+    params: GitOperationContinueParams;
+    result: GitOperationContinueResult;
+  };
+  'git:log': { params: GitLogParams; result: GitLogResult };
   'git:showFile': { params: GitShowFileParams; result: GitShowFileResult };
   'git:diffFile': { params: GitDiffFileParams; result: GitDiffFileResult };
   'git:applyHunks': {
@@ -1586,6 +1683,10 @@ export interface RpcMethodRegistry {
   'git:lastCommit': {
     params: GitLastCommitParams;
     result: GitLastCommitResult;
+  };
+  'git:turnChangeSets': {
+    params: GitTurnChangeSetsParams;
+    result: GitTurnChangeSetsResult;
   };
   'harness:initialize': {
     params: HarnessInitializeParams;
@@ -3567,6 +3668,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'chat:abort': true,
   'chat:pending-questions': true,
   'chat:running-agents': true,
+  'chat:agent-sessions': true,
   'chat:resume': true,
   'chat:history-page': true,
   'session:list': true,
@@ -3580,15 +3682,23 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:forkSession': true,
   'session:rewindFiles': true,
   'session:status': true,
+  'session:setOrganization': true,
+  'session:linkTask': true,
+  'session:unlinkTask': true,
+  'session:addPrLink': true,
+  'session:removePrLink': true,
+  'session:listForTasks': true,
   'context:getAllFiles': true,
   'context:getFileSuggestions': true,
   'autocomplete:agents': true,
   'autocomplete:commands': true,
   'file:open': true,
   'file:viewContent': true,
+  'file:saveContent': true,
   'editor:detectTargets': true,
   'editor:openFile': true,
   'editor:openWorkspace': true,
+  'editor:openMerge': true,
   'file:pick': true,
   'file:pick-images': true,
   'config:model-switch': true,
@@ -3608,6 +3718,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
   'auth:getEffectiveRoute': true,
+  'auth:checkConnection': true,
   'config:getScopes': true,
   'config:clearScopeOverride': true,
   'auth:getScope': true,
@@ -3735,6 +3846,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'file:save-dialog': true,
   'config:model-set': true,
   'auth:setApiKey': true,
+  'auth:deleteStoredKey': true,
   'auth:getStatus': true,
   'auth:getApiKeyStatus': true,
   'settings:get': true,
@@ -3757,6 +3869,12 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:unstage': true,
   'git:discard': true,
   'git:commit': true,
+  'git:cancelOperation': true,
+  'git:generateCommitMessage': true,
+  'git:prStatus': true,
+  'git:operationAbort': true,
+  'git:operationContinue': true,
+  'git:log': true,
   'git:showFile': true,
   'git:diffFile': true,
   'git:applyHunks': true,
@@ -3773,6 +3891,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'git:tags': true,
   'git:remotes': true,
   'git:lastCommit': true,
+  'git:turnChangeSets': true,
   'harness:initialize': true,
   'harness:suggest-config': true,
   'harness:search-skills': true,

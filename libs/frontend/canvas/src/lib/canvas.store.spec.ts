@@ -180,6 +180,37 @@ describe('CanvasStore', () => {
     expect(store.tiles().map((tile) => tile.tabId)).toEqual(['A', 'C']);
   });
 
+  describe('removeTile', () => {
+    const closeTabMock = (): jest.Mock =>
+      TestBed.inject(TabManagerService).closeTab as unknown as jest.Mock;
+
+    it('keeps the tile and focus when the close confirm is cancelled (tab still open)', async () => {
+      hydrate('/ws/a', ['A', 'B']);
+      expect(store.toggleLayoutFocus('/ws/a', 'B')).toBe(true);
+      // Cancelled confirm: closeTab resolves and the tab stays in the list.
+      closeTabMock().mockResolvedValueOnce(undefined);
+
+      await store.removeTile('B');
+
+      expect(closeTabMock()).toHaveBeenCalledWith('B');
+      expect(store.tiles().map((tile) => tile.tabId)).toEqual(['A', 'B']);
+      expect(store.layoutFocusTabIdFor('/ws/a')).toBe('B');
+    });
+
+    it('drops the tile and clears focus when the close goes through', async () => {
+      hydrate('/ws/a', ['A', 'B']);
+      expect(store.toggleLayoutFocus('/ws/a', 'B')).toBe(true);
+      closeTabMock().mockImplementationOnce(async (id: string) => {
+        tabs.update((list) => list.filter((t) => t.id !== id));
+      });
+
+      await store.removeTile('B');
+
+      expect(store.tiles().map((tile) => tile.tabId)).toEqual(['A']);
+      expect(store.layoutFocusTabIdFor('/ws/a')).toBeNull();
+    });
+  });
+
   it('removes background tiles and deletes acknowledged workspace persistence', () => {
     hydrate('/ws/a', ['A']);
     store.hydrateWorkspace('/ws/b', ['B']);

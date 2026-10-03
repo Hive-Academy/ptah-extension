@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings · Agent Orchestration — Variant B (master–detail)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="text-sm" style="font-family: Inter, ui-sans-serif, system-ui, sans-serif;">
+
+<!-- Prototype toolbar (not part of the product) -->
+<div class="proto-toolbar">
+  <span class="proto-label">TASK_2026_555 · Variant B — Master–detail control center</span>
+  <span class="proto-links">
+    <a href="index.html">Providers</a>
+    <a href="orchestration.html" aria-current="page">Agent Orchestration</a>
+  </span>
+  <span class="proto-actions">
+    <button type="button" id="themeToggle" class="btn btn-ghost btn-xs">Theme: anubis</button>
+    <button type="button" id="frameToggle" class="btn btn-ghost btn-xs" aria-pressed="false">1024×768 frame: off</button>
+  </span>
+</div>
+
+<div class="proto-frame" id="frame">
+  <header class="settings-header">
+    <div>
+      <h1 class="text-lg font-semibold leading-tight">Settings</h1>
+      <p class="text-xs text-base-content-muted">Workspace: ptah-extension · App: Desktop</p>
+    </div>
+    <nav role="tablist" aria-label="Settings sections" class="tabs">
+      <a role="tab" aria-selected="false" class="tab" href="index.html">Providers</a>
+      <a role="tab" aria-selected="true" class="tab tab-active" href="orchestration.html">Agent Orchestration</a>
+      <a role="tab" class="tab" aria-disabled="true" title="Unchanged in this task">Advanced</a>
+      <a role="tab" class="tab" aria-disabled="true" title="Unchanged in this task">Search &amp; Voice</a>
+    </nav>
+  </header>
+
+  <div class="md-shell">
+    <!-- ================= master list ================= -->
+    <nav class="md-list" aria-label="Agent Orchestration list">
+      <div class="md-group-label">Model roles</div>
+      <button type="button" class="md-row" data-pane="pane-memory" aria-selected="true">
+        <span class="flex-1 min-w-0"><span class="block truncate font-medium">Memory curator</span>
+        <span class="sub">OpenAI Codex · gpt-5.6-luna</span></span>
+      </button>
+      <button type="button" class="md-row" data-pane="pane-archaeologist" aria-selected="false">
+        <span class="flex-1 min-w-0"><span class="block truncate font-medium">Archaeologist lane</span>
+        <span class="sub">Follows main agent · Haiku tier</span></span>
+      </button>
+      <button type="button" class="md-row" data-pane="pane-synthesis" aria-selected="false">
+        <span class="flex-1 min-w-0"><span class="block truncate font-medium">Synthesis lane</span>
+        <span class="sub">Follows main agent · Sonnet tier</span></span>
+      </button>
+      <button type="button" class="md-row" data-pane="pane-judge" aria-selected="false">
+        <span class="flex-1 min-w-0"><span class="block truncate font-medium">Judge lane</span>
+        <span class="sub">Moonshot (Kimi) · kimi-k2.5</span></span>
+      </button>
+      <button type="button" class="md-row" data-pane="pane-replay" aria-selected="false">
+        <span class="flex-1 min-w-0"><span class="block truncate font-medium">Replay lane</span>
+        <span class="sub">Follows main agent · Haiku tier</span></span>
+      </button>
+      <button type="button" class="md-row" data-pane="pane-judging" aria-selected="false">
+        <span class="flex-1 min-w-0"><span class="block truncate font-medium">Judging &amp; enhancement</span>
+        <span class="sub">Inherit · 120 s limit</span></span>
+      </button>
+
+      <div class="md-group-label">CLI agents</div>
+      <div class="flex items-center gap-1">
+        <button type="button" class="md-row flex-1" data-pane="pane-cli-codex" aria-selected="false">
+          <span class="dot dot-success"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">Codex</span>
+          <span class="sub">On · gpt-5.5-codex · medium</span></span>
+        </button>
+        <input type="checkbox" class="toggle toggle-sm" checked aria-label="Enable Codex" data-toast-msg="Codex turned %s">
+      </div>
+      <div class="flex items-center gap-1">
+        <button type="button" class="md-row flex-1" data-pane="pane-cli-copilot" aria-selected="false">
+          <span class="dot dot-warning" id="rowDotCopilot"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">Copilot</span>
+          <span class="sub" id="rowSubCopilot">Off · Not signed in</span></span>
+        </button>
+        <input type="checkbox" class="toggle toggle-sm" id="copilotToggle" aria-label="Enable Copilot" data-toast-msg="Copilot turned %s">
+      </div>
+      <div class="flex items-center gap-1">
+        <button type="button" class="md-row flex-1 is-dimmed" data-pane="pane-cli-cursor" aria-selected="false">
+          <span class="dot dot-muted"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium md-row-main">Cursor</span>
+          <span class="sub">Not installed</span></span>
+        </button>
+      </div>
+      <div class="flex items-center gap-1">
+        <button type="button" class="md-row flex-1" data-pane="pane-cli-antigravity" aria-selected="false">
+          <span class="dot dot-success"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">Antigravity</span>
+          <span class="sub">On · claude-sonnet-4-6 Thinking</span></span>
+        </button>
+        <input type="checkbox" class="toggle toggle-sm" checked aria-label="Enable Antigravity" data-toast-msg="Antigravity turned %s">
+      </div>
+      <div class="flex items-center gap-1">
+        <button type="button" class="md-row flex-1" data-pane="pane-cli-opencode" aria-selected="false">
+          <span class="dot dot-warning"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">OpenCode</span>
+          <span class="sub">On · quota reached</span></span>
+        </button>
+        <input type="checkbox" class="toggle toggle-sm" checked aria-label="Enable OpenCode" data-toast-msg="OpenCode turned %s">
+      </div>
+      <div class="flex items-center gap-1">
+        <button type="button" class="md-row flex-1 is-dimmed" data-pane="pane-cli-pi" aria-selected="false">
+          <span class="dot dot-muted"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium md-row-main">Pi</span>
+          <span class="sub">Not installed</span></span>
+        </button>
+      </div>
+      <div class="flex items-center gap-1">
+        <button type="button" class="md-row flex-1" data-pane="pane-cli-glm" aria-selected="false">
+          <span class="dot dot-success"></span>
+          <span class="flex-1 min-w-0"><span class="block truncate font-medium">Glm</span>
+          <span class="sub">Ptah CLI · Ollama Cloud · glm-5.3:cloud</span></span>
+        </button>
+        <input type="checkbox" class="toggle toggle-sm" checked aria-label="Enable the Glm Ptah CLI agent" data-toast-msg="Glm turned %s">
+      </div>
+
+      <div class="md-group-label">Policy</div>
+      <button type="button" class="md-row" data-pane="pane-policy" aria-selected="false">
+        <span class="flex-1 min-w-0"><span class="block truncate font-medium">Orchestration policy</span>
+        <span class="sub">Max 3 concurrent · order: Codex → Antigravity → Glm → Copilot</span></span>
+      </button>
+    </nav>
+
+    <!-- ================= detail panes ================= -->
+    <main class="md-detail">
+
+      <!-- Memory curator -->
+      <section class="detail-pane" id="pane-memory" aria-labelledby="memTitle">
+        <h2 id="memTitle" class="text-base font-semibold mb-1">Memory curator</h2>
+        <p class="text-xs text-base-content-muted mb-3">Summarises and files conversation memory in the background.</p>
+        <div class="detail-section">
+          <div class="setting-row">
+            <div><div class="font-medium">Provider</div><div class="text-xs text-base-content-muted">Configured connection this role uses</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popMemProvider" aria-haspopup="dialog">
+                <span class="ctrl-label" id="memProviderLabel">OpenAI Codex</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popMemProvider" role="dialog" aria-label="Choose the provider" style="right:0; top:calc(100% + 6px);">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#memProviderLabel" data-msg="Memory curator provider: Claude (Subscription)">Claude (Subscription)</button>
+                  <button type="button" class="pop-item" data-set="#memProviderLabel" aria-checked="true" data-msg="Memory curator provider: OpenAI Codex">OpenAI Codex</button>
+                  <button type="button" class="pop-item" data-set="#memProviderLabel" data-msg="Memory curator provider: Moonshot (Kimi)">Moonshot (Kimi)</button>
+                  <button type="button" class="pop-item" data-set="#memProviderLabel" data-msg="Memory curator provider: Ollama Cloud">Ollama Cloud</button>
+                  <button type="button" class="pop-item" data-set="#memProviderLabel" data-msg="Memory curator provider: sovereigneg">sovereigneg</button>
+                </div>
+              </div>
+            </span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Model</div><div class="text-xs text-base-content-muted">Search the provider's model list</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popMemModel" aria-haspopup="dialog">
+                <span class="ctrl-label" id="memModelLabel">gpt-5.6-luna</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popMemModel" role="dialog" aria-label="Choose the model" style="right:0; top:calc(100% + 6px);">
+                <input class="input input-sm w-full mb-1" type="search" placeholder="Search models" data-filter="#popMemModel .pop-item" aria-label="Search models">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#memModelLabel" aria-checked="true" data-name="gpt-5.6-luna" data-msg="Memory curator model: gpt-5.6-luna">gpt-5.6-luna</button>
+                  <button type="button" class="pop-item" data-set="#memModelLabel" data-name="gpt-5.5-codex" data-msg="Memory curator model: gpt-5.5-codex">gpt-5.5-codex</button>
+                  <button type="button" class="pop-item" data-set="#memModelLabel" data-name="gpt-5.5-mini" data-msg="Memory curator model: gpt-5.5-mini">gpt-5.5-mini</button>
+                </div>
+              </div>
+            </span>
+          </div>
+        </div>
+        <p class="text-xs text-base-content-muted">Provider and model save at once. Select <strong>Undo</strong> in the notification to revert.</p>
+      </section>
+
+      <!-- Archaeologist lane -->
+      <section class="detail-pane is-hidden" id="pane-archaeologist" aria-labelledby="archTitle">
+        <h2 id="archTitle" class="text-base font-semibold mb-1">Archaeologist lane</h2>
+        <p class="text-xs text-base-content-muted mb-3">Digs through workspace history in the background.</p>
+        <div class="detail-section">
+          <div class="setting-row">
+            <div><div class="font-medium">Model source</div><div class="text-xs text-base-content-muted">This lane always follows the main agent's provider</div></div>
+            <span class="text-xs text-base-content-muted">Follows main agent</span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Tier</div><div class="text-xs text-base-content-muted">Which capability tier the lane uses</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popArchTier" aria-haspopup="dialog">
+                <span class="ctrl-label" id="archTierLabel">Haiku tier</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popArchTier" role="dialog" aria-label="Choose the tier" style="right:0; top:calc(100% + 6px);">
+                <button type="button" class="pop-item" data-set="#archTierLabel" aria-checked="true" data-msg="Archaeologist tier: Haiku">Haiku tier</button>
+                <button type="button" class="pop-item" data-set="#archTierLabel" data-msg="Archaeologist tier: Sonnet">Sonnet tier</button>
+                <button type="button" class="pop-item" data-set="#archTierLabel" data-msg="Archaeologist tier: Opus">Opus tier</button>
+              </div>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Synthesis lane -->
+      <section class="detail-pane is-hidden" id="pane-synthesis" aria-labelledby="synTitle">
+        <h2 id="synTitle" class="text-base font-semibold mb-1">Synthesis lane</h2>
+        <p class="text-xs text-base-content-muted mb-3">Merges research results into one answer.</p>
+        <div class="detail-section">
+          <div class="setting-row">
+            <div><div class="font-medium">Model source</div><div class="text-xs text-base-content-muted">This lane always follows the main agent's provider</div></div>
+            <span class="text-xs text-base-content-muted">Follows main agent</span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Tier</div><div class="text-xs text-base-content-muted">Which capability tier the lane uses</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popSynTier" aria-haspopup="dialog">
+                <span class="ctrl-label" id="synTierLabel">Sonnet tier</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popSynTier" role="dialog" aria-label="Choose the tier" style="right:0; top:calc(100% + 6px);">
+                <button type="button" class="pop-item" data-set="#synTierLabel" data-msg="Synthesis tier: Haiku">Haiku tier</button>
+                <button type="button" class="pop-item" data-set="#synTierLabel" aria-checked="true" data-msg="Synthesis tier: Sonnet">Sonnet tier</button>
+                <button type="button" class="pop-item" data-set="#synTierLabel" data-msg="Synthesis tier: Opus">Opus tier</button>
+              </div>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Judge lane -->
+      <section class="detail-pane is-hidden" id="pane-judge" aria-labelledby="judgeTitle">
+        <h2 id="judgeTitle" class="text-base font-semibold mb-1">Judge lane</h2>
+        <p class="text-xs text-base-content-muted mb-3">Scores candidate answers from other lanes.</p>
+        <div class="detail-section">
+          <div class="setting-row">
+            <div><div class="font-medium">Provider</div><div class="text-xs text-base-content-muted">Configured connection this role uses</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popJudgeProvider" aria-haspopup="dialog">
+                <span class="ctrl-label" id="judgeProviderLabel">Moonshot (Kimi)</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popJudgeProvider" role="dialog" aria-label="Choose the provider" style="right:0; top:calc(100% + 6px);">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#judgeProviderLabel" data-msg="Judge provider: Claude (Subscription)">Claude (Subscription)</button>
+                  <button type="button" class="pop-item" data-set="#judgeProviderLabel" data-msg="Judge provider: OpenAI Codex">OpenAI Codex</button>
+                  <button type="button" class="pop-item" data-set="#judgeProviderLabel" aria-checked="true" data-msg="Judge provider: Moonshot (Kimi)">Moonshot (Kimi)</button>
+                  <button type="button" class="pop-item" data-set="#judgeProviderLabel" data-msg="Judge provider: Ollama Cloud">Ollama Cloud</button>
+                  <button type="button" class="pop-item" data-set="#judgeProviderLabel" data-msg="Judge provider: sovereigneg">sovereigneg</button>
+                </div>
+              </div>
+            </span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Model</div><div class="text-xs text-base-content-muted">Search the provider's model list</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popJudgeModel" aria-haspopup="dialog">
+                <span class="ctrl-label" id="judgeModelLabel">kimi-k2.5</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popJudgeModel" role="dialog" aria-label="Choose the model" style="right:0; top:calc(100% + 6px);">
+                <input class="input input-sm w-full mb-1" type="search" placeholder="Search models" data-filter="#popJudgeModel .pop-item" aria-label="Search models">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#judgeModelLabel" aria-checked="true" data-name="kimi-k2.5" data-msg="Judge model: kimi-k2.5">kimi-k2.5</button>
+                  <button type="button" class="pop-item" data-set="#judgeModelLabel" data-name="kimi-k2.5-turbo" data-msg="Judge model: kimi-k2.5-turbo">kimi-k2.5-turbo</button>
+                  <button type="button" class="pop-item" data-set="#judgeModelLabel" data-name="kimi-k2-thinking" data-msg="Judge model: kimi-k2-thinking">kimi-k2-thinking</button>
+                </div>
+              </div>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Replay lane -->
+      <section class="detail-pane is-hidden" id="pane-replay" aria-labelledby="repTitle">
+        <h2 id="repTitle" class="text-base font-semibold mb-1">Replay lane</h2>
+        <p class="text-xs text-base-content-muted mb-3">Replays tool calls to reproduce a result.</p>
+        <div class="detail-section">
+          <div class="setting-row">
+            <div><div class="font-medium">Model source</div><div class="text-xs text-base-content-muted">This lane always follows the main agent's provider</div></div>
+            <span class="text-xs text-base-content-muted">Follows main agent</span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Tier</div><div class="text-xs text-base-content-muted">Which capability tier the lane uses</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popRepTier" aria-haspopup="dialog">
+                <span class="ctrl-label" id="repTierLabel">Haiku tier</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popRepTier" role="dialog" aria-label="Choose the tier" style="right:0; top:calc(100% + 6px);">
+                <button type="button" class="pop-item" data-set="#repTierLabel" aria-checked="true" data-msg="Replay tier: Haiku">Haiku tier</button>
+                <button type="button" class="pop-item" data-set="#repTierLabel" data-msg="Replay tier: Sonnet">Sonnet tier</button>
+                <button type="button" class="pop-item" data-set="#repTierLabel" data-msg="Replay tier: Opus">Opus tier</button>
+              </div>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Judging & enhancement -->
+      <section class="detail-pane is-hidden" id="pane-judging" aria-labelledby="judTitle">
+        <h2 id="judTitle" class="text-base font-semibold mb-1">Judging &amp; enhancement</h2>
+        <p class="text-xs text-base-content-muted mb-3">Runs after the Judge lane to polish the final answer.</p>
+        <div class="detail-section">
+          <div class="setting-row">
+            <div><div class="font-medium">Model source</div><div class="text-xs text-base-content-muted">Inherit uses the Judge lane's provider and model</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popJudSource" aria-haspopup="dialog">
+                <span class="ctrl-label" id="judSourceLabel">Inherit (from Judge)</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popJudSource" role="dialog" aria-label="Choose the model source" style="right:0; top:calc(100% + 6px);">
+                <button type="button" class="pop-item" data-set="#judSourceLabel" aria-checked="true" data-msg="Judging &amp; enhancement: Inherit (from Judge)">Inherit (from Judge)</button>
+                <div class="pop-sep"></div>
+                <button type="button" class="pop-item" data-set="#judSourceLabel" data-msg="Judging &amp; enhancement: Moonshot (Kimi) · kimi-k2.5">Moonshot (Kimi) · kimi-k2.5</button>
+                <button type="button" class="pop-item" data-set="#judSourceLabel" data-msg="Judging &amp; enhancement: OpenAI Codex · gpt-5.6-luna">OpenAI Codex · gpt-5.6-luna</button>
+              </div>
+            </span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Time limit</div><div class="text-xs text-base-content-muted">Stop judging after this many seconds</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popJudLimit" aria-haspopup="dialog">
+                <span class="ctrl-label" id="judLimitLabel">120 s</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popJudLimit" role="dialog" aria-label="Choose the time limit" style="right:0; top:calc(100% + 6px);">
+                <button type="button" class="pop-item" data-set="#judLimitLabel" data-msg="Judging time limit: 60 s">60 s</button>
+                <button type="button" class="pop-item" data-set="#judLimitLabel" data-msg="Judging time limit: 90 s">90 s</button>
+                <button type="button" class="pop-item" data-set="#judLimitLabel" aria-checked="true" data-msg="Judging time limit: 120 s">120 s</button>
+                <button type="button" class="pop-item" data-set="#judLimitLabel" data-msg="Judging time limit: 180 s">180 s</button>
+                <button type="button" class="pop-item" data-set="#judLimitLabel" data-msg="Judging time limit: 240 s">240 s</button>
+              </div>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Codex CLI agent -->
+      <section class="detail-pane is-hidden" id="pane-cli-codex" aria-labelledby="cdxTitle">
+        <h2 id="cdxTitle" class="text-base font-semibold mb-1">Codex</h2>
+        <p class="text-xs text-base-content-muted mb-3"><span class="dot dot-success inline-block"></span> <span class="text-success">Installed · v1.9.2</span> · Ready — last test 340 ms</p>
+        <div class="detail-section">
+          <div class="section-title">Delegated settings</div>
+          <div class="setting-row">
+            <div><div class="font-medium">Model</div><div class="text-xs text-base-content-muted">Model this CLI uses</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popCdxModel" aria-haspopup="dialog">
+                <span class="ctrl-label" id="cdxModelLabel">gpt-5.5-codex</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popCdxModel" role="dialog" aria-label="Choose the Codex model" style="right:0; top:calc(100% + 6px);">
+                <input class="input input-sm w-full mb-1" type="search" placeholder="Search models" data-filter="#popCdxModel .pop-item" aria-label="Search models">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#cdxModelLabel" data-name="gpt-5.6-luna" data-msg="Codex model: gpt-5.6-luna">gpt-5.6-luna</button>
+                  <button type="button" class="pop-item" data-set="#cdxModelLabel" aria-checked="true" data-name="gpt-5.5-codex" data-msg="Codex model: gpt-5.5-codex">gpt-5.5-codex</button>
+                  <button type="button" class="pop-item" data-set="#cdxModelLabel" data-name="gpt-5.5-mini" data-msg="Codex model: gpt-5.5-mini">gpt-5.5-mini</button>
+                </div>
+              </div>
+            </span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Reasoning effort</div><div class="text-xs text-base-content-muted">How long Codex reasons</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popCdxEffort" aria-haspopup="dialog">
+                <span class="ctrl-label" id="cdxEffortLabel">medium</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popCdxEffort" role="dialog" aria-label="Choose the effort" style="right:0; top:calc(100% + 6px);">
+                <button type="button" class="pop-item" data-set="#cdxEffortLabel" data-label="provider default" data-msg="Codex effort: provider default">provider default</button>
+                <button type="button" class="pop-item" data-set="#cdxEffortLabel" data-msg="Codex effort: low">low</button>
+                <button type="button" class="pop-item" data-set="#cdxEffortLabel" aria-checked="true" data-msg="Codex effort: medium">medium</button>
+                <button type="button" class="pop-item" data-set="#cdxEffortLabel" data-msg="Codex effort: high">high</button>
+              </div>
+            </span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Auto-approve</div><div class="text-xs text-base-content-muted">Approval mode for tool calls</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popCdxAuto" aria-haspopup="dialog">
+                <span class="ctrl-label" id="cdxAutoLabel">--auto</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popCdxAuto" role="dialog" aria-label="Choose the approval mode" style="right:0; top:calc(100% + 6px);">
+                <button type="button" class="pop-item" data-set="#cdxAutoLabel" data-msg="Codex auto-approve: off">off</button>
+                <button type="button" class="pop-item" data-set="#cdxAutoLabel" aria-checked="true" data-msg="Codex auto-approve: --auto">--auto</button>
+                <button type="button" class="pop-item" data-set="#cdxAutoLabel" data-disabled="1" data-msg="Codex auto-approve: full auto — not supported by this CLI">full auto (unsupported)</button>
+              </div>
+            </span>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Tier mapping <span class="tier-chip">Opus</span> <span class="tier-chip">Sonnet</span> <span class="tier-chip">Haiku</span></div>
+          <div class="setting-row">
+            <div><span class="font-medium">Opus</span> <span class="text-xs text-base-content-muted">for heavy sub-tasks</span></div>
+            <span class="text-xs">gpt-5.6-luna <span class="tool-badge ok">tools ✓</span></span>
+          </div>
+          <div class="setting-row">
+            <div><span class="font-medium">Sonnet</span> <span class="text-xs text-base-content-muted">default for lanes</span></div>
+            <span class="text-xs">gpt-5.5-codex <span class="tool-badge ok">tools ✓</span></span>
+          </div>
+          <div class="setting-row">
+            <div><span class="font-medium">Haiku</span> <span class="text-xs text-base-content-muted">for cheap lanes</span></div>
+            <span class="text-xs">gpt-5.5-mini <span class="tool-badge ok">tools ✓</span></span>
+          </div>
+          <p class="text-xs text-base-content-muted mt-1">Edit a tier on the <a class="link text-primary" href="index.html">OpenAI Codex connection</a>.</p>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Permissions &amp; safety</div>
+          <p class="text-xs">Codex runs with the <span class="font-mono-fallback">--auto</span> flag. Full auto is not supported.</p>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Connection</div>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline btn-sm" data-check data-check-msg="Codex: 340 ms — Ready">Test connection</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-toast="Re-detecting CLI agents…">Re-detect CLIs</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Copilot CLI agent -->
+      <section class="detail-pane is-hidden" id="pane-cli-copilot" aria-labelledby="copTitle">
+        <h2 id="copTitle" class="text-base font-semibold mb-1">Copilot</h2>
+        <p class="text-xs text-base-content-muted mb-3"><span class="dot dot-warning inline-block"></span> <span class="text-warning">Installed · Not signed in</span></p>
+        <div class="detail-section">
+          <div class="section-title">GitHub authentication</div>
+          <p class="text-xs mb-2" id="copilotAuthState"><span class="text-warning">No GitHub session.</span> Sign in to use Copilot as a CLI agent.</p>
+          <button type="button" class="btn btn-primary btn-sm" data-signin>Sign in with GitHub</button>
+          <button type="button" class="btn btn-outline btn-error btn-sm is-hidden" id="copilotSignOut" data-toast="Signed out of GitHub Copilot">Sign out</button>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Delegated settings</div>
+          <p class="text-xs text-base-content-muted mb-1">Locked until you are signed in.</p>
+          <div class="setting-row">
+            <div><div class="font-medium">Model</div><div class="text-xs text-base-content-muted">Model this CLI uses</div></div>
+            <span class="text-xs text-base-content-muted">provider default</span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Reasoning effort</div><div class="text-xs text-base-content-muted">How long Copilot reasons</div></div>
+            <span class="text-xs text-base-content-muted">provider default</span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Auto-approve</div><div class="text-xs text-base-content-muted">Approval mode for tool calls</div></div>
+            <span class="text-xs">off</span>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Permissions &amp; safety</div>
+          <p class="text-xs">Copilot runs with the <span class="font-mono-fallback">--auto</span> flag when enabled. Full auto is not supported.</p>
+        </div>
+      </section>
+
+      <!-- Cursor CLI agent -->
+      <section class="detail-pane is-hidden" id="pane-cli-cursor" aria-labelledby="curTitle">
+        <h2 id="curTitle" class="text-base font-semibold mb-1">Cursor</h2>
+        <p class="text-xs text-base-content-muted mb-3"><span class="dot dot-muted inline-block"></span> Not installed</p>
+        <div class="detail-section">
+          <div class="section-title">Install help</div>
+          <p class="text-xs mb-2">Cursor was not found on this machine. Install it, then select "Re-detect CLIs" in the Policy pane.</p>
+          <p class="text-xs text-base-content-muted font-mono-fallback mb-2">npm i -g @cursor/cli</p>
+          <p class="text-xs text-base-content-muted">Delegated settings are hidden while the CLI is not installed.</p>
+        </div>
+      </section>
+
+      <!-- Antigravity CLI agent -->
+      <section class="detail-pane is-hidden" id="pane-cli-antigravity" aria-labelledby="agyTitle">
+        <h2 id="agyTitle" class="text-base font-semibold mb-1">Antigravity</h2>
+        <p class="text-xs text-base-content-muted mb-3"><span class="dot dot-success inline-block"></span> <span class="text-success">Installed · Ready</span> — last test 410 ms</p>
+        <div class="detail-section">
+          <div class="section-title">Delegated settings</div>
+          <div class="setting-row">
+            <div><div class="font-medium">Model</div><div class="text-xs text-base-content-muted">Model this CLI uses</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popAgyModel" aria-haspopup="dialog">
+                <span class="ctrl-label" id="agyModelLabel">claude-sonnet-4-6 Thinking</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popAgyModel" role="dialog" aria-label="Choose the Antigravity model" style="right:0; top:calc(100% + 6px);">
+                <input class="input input-sm w-full mb-1" type="search" placeholder="Search models" data-filter="#popAgyModel .pop-item" aria-label="Search models">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#agyModelLabel" data-name="claude-sonnet-4-6 thinking" aria-checked="true" data-msg="Antigravity model: claude-sonnet-4-6 Thinking">claude-sonnet-4-6 Thinking</button>
+                  <button type="button" class="pop-item" data-set="#agyModelLabel" data-name="claude-opus-5-5" data-msg="Antigravity model: claude-opus-5-5">claude-opus-5-5</button>
+                </div>
+              </div>
+            </span>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Permissions &amp; safety</div>
+          <p class="text-xs">Antigravity supports full-auto approvals. Prefer <span class="font-mono-fallback">--auto</span> for unsafe workspaces.</p>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Connection</div>
+          <button type="button" class="btn btn-outline btn-sm" data-check data-check-msg="Antigravity: 410 ms — Ready">Test connection</button>
+        </div>
+      </section>
+
+      <!-- OpenCode CLI agent -->
+      <section class="detail-pane is-hidden" id="pane-cli-opencode" aria-labelledby="ocTitle">
+        <h2 id="ocTitle" class="text-base font-semibold mb-1">OpenCode</h2>
+        <p class="text-xs text-base-content-muted mb-3"><span class="dot dot-warning inline-block"></span> <span class="text-warning">Installed · Quota reached</span> — free tier exhausted at 14:32</p>
+        <div class="detail-section">
+          <div class="section-title">Delegated settings</div>
+          <div class="setting-row">
+            <div><div class="font-medium">Model</div><div class="text-xs text-base-content-muted">OpenCode model ids use the provider/model format</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popOcModel" aria-haspopup="dialog">
+                <span class="ctrl-label" id="ocModelLabel">opencode/nemotron-3-ultra-free</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popOcModel" role="dialog" aria-label="Choose the OpenCode model" style="right:0; top:calc(100% + 6px);">
+                <input class="input input-sm w-full mb-1" type="search" placeholder="Search models" data-filter="#popOcModel .pop-item" aria-label="Search models">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#ocModelLabel" aria-checked="true" data-name="opencode/nemotron-3-ultra-free" data-msg="OpenCode model: opencode/nemotron-3-ultra-free">opencode/nemotron-3-ultra-free</button>
+                  <button type="button" class="pop-item" data-set="#ocModelLabel" data-name="opencode/gpt-5.5" data-msg="OpenCode model: opencode/gpt-5.5">opencode/gpt-5.5</button>
+                  <button type="button" class="pop-item" data-set="#ocModelLabel" data-name="opencode/kimi-k2.5" data-msg="OpenCode model: opencode/kimi-k2.5">opencode/kimi-k2.5</button>
+                </div>
+              </div>
+            </span>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Status</div>
+          <p class="text-xs mb-2"><span class="text-warning font-medium">Quota reached.</span> The free tier is exhausted. Requests fail with HTTP 429.</p>
+          <button type="button" class="btn btn-outline btn-sm" data-check data-check-msg="OpenCode: failed — HTTP 429, quota reached">Test connection</button>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Permissions &amp; safety</div>
+          <p class="text-xs">OpenCode runs with <span class="font-mono-fallback">--auto</span>. Full auto is not supported.</p>
+        </div>
+      </section>
+
+      <!-- Pi CLI agent -->
+      <section class="detail-pane is-hidden" id="pane-cli-pi" aria-labelledby="piTitle">
+        <h2 id="piTitle" class="text-base font-semibold mb-1">Pi</h2>
+        <p class="text-xs text-base-content-muted mb-3"><span class="dot dot-muted inline-block"></span> Not installed</p>
+        <div class="detail-section">
+          <div class="section-title">Install help</div>
+          <p class="text-xs mb-2">Pi was not found on this machine.</p>
+          <p class="text-xs text-base-content-muted font-mono-fallback mb-2">npm i -g @picode/cli</p>
+          <p class="text-xs"><strong>Note:</strong> Pi has no approval gate and no MCP support. Use it only in trusted workspaces.</p>
+          <p class="text-xs text-base-content-muted mt-1">Delegated settings are hidden while the CLI is not installed.</p>
+        </div>
+      </section>
+
+      <!-- Glm (Ptah CLI instance) -->
+      <section class="detail-pane is-hidden" id="pane-cli-glm" aria-labelledby="glmTitle">
+        <h2 id="glmTitle" class="text-base font-semibold mb-1">Glm — Ptah CLI agent</h2>
+        <p class="text-xs text-base-content-muted mb-3"><span class="dot dot-success inline-block"></span> <span class="text-success">Ready</span> · Key status: Cloud signin · Ollama Cloud</p>
+        <div class="detail-section">
+          <div class="section-title">Status</div>
+          <p class="text-xs mb-2">Agent status: <span class="text-success font-medium">Ready</span>. Key status: <span class="font-medium">Cloud signin</span> — no local key; the Ollama Cloud connection is used.</p>
+          <button type="button" class="btn btn-outline btn-sm" data-check data-check-msg="Glm: 210 ms — Ready">Test agent</button>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Delegated settings</div>
+          <div class="setting-row">
+            <div><div class="font-medium">Provider</div><div class="text-xs text-base-content-muted">Connection this CLI agent uses</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popGlmProvider" aria-haspopup="dialog">
+                <span class="ctrl-label" id="glmProviderLabel">Ollama Cloud</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popGlmProvider" role="dialog" aria-label="Choose the provider" style="right:0; top:calc(100% + 6px);">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#glmProviderLabel" data-msg="Glm provider: Ollama Cloud" aria-checked="true">Ollama Cloud</button>
+                  <button type="button" class="pop-item" data-set="#glmProviderLabel" data-msg="Glm provider: Claude (Subscription)">Claude (Subscription)</button>
+                  <button type="button" class="pop-item" data-set="#glmProviderLabel" data-msg="Glm provider: Moonshot (Kimi)">Moonshot (Kimi)</button>
+                </div>
+              </div>
+            </span>
+          </div>
+          <div class="setting-row">
+            <div><div class="font-medium">Model</div><div class="text-xs text-base-content-muted">Search the provider's model list</div></div>
+            <span class="relative">
+              <button type="button" class="btn btn-ghost btn-sm gap-1" data-pop="#popGlmModel" aria-haspopup="dialog">
+                <span class="ctrl-label" id="glmModelLabel">glm-5.3:cloud</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="popover is-hidden" id="popGlmModel" role="dialog" aria-label="Choose the model" style="right:0; top:calc(100% + 6px);">
+                <input class="input input-sm w-full mb-1" type="search" placeholder="Search models" data-filter="#popGlmModel .pop-item" aria-label="Search models">
+                <div class="pop-list">
+                  <button type="button" class="pop-item" data-set="#glmModelLabel" aria-checked="true" data-name="glm-5.3:cloud" data-msg="Glm model: glm-5.3:cloud">glm-5.3:cloud</button>
+                  <button type="button" class="pop-item" data-set="#glmModelLabel" data-name="gemma3:27b" data-msg="Glm model: gemma3:27b">gemma3:27b</button>
+                  <button type="button" class="pop-item" data-set="#glmModelLabel" data-name="qwen3:8b" data-msg="Glm model: qwen3:8b">qwen3:8b</button>
+                </div>
+              </div>
+            </span>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Tier mapping <span class="tier-chip">Opus</span> <span class="tier-chip">Sonnet</span> <span class="tier-chip">Haiku</span></div>
+          <div class="setting-row">
+            <div><span class="font-medium">Opus</span></div>
+            <span class="text-xs">glm-5.3:cloud <span class="tool-badge ok">tools ✓</span></span>
+          </div>
+          <div class="setting-row">
+            <div><span class="font-medium">Sonnet</span></div>
+            <span class="text-xs">glm-5.3:cloud <span class="tool-badge ok">tools ✓</span></span>
+          </div>
+          <div class="setting-row">
+            <div><span class="font-medium">Haiku</span></div>
+            <span class="text-xs">qwen3:8b <span class="tool-badge warn" title="Tool use not verified for this model">tools ⚠</span></span>
+          </div>
+          <p class="text-xs text-base-content-muted mt-1">Tier mapping uses the <span class="font-mono-fallback">cliAgent</span> scope. Search models on the <a class="link text-primary" href="index.html">Ollama Cloud connection</a>.</p>
+        </div>
+        <div class="detail-section danger">
+          <div class="section-title text-error">Danger zone</div>
+          <button type="button" class="btn btn-outline btn-error btn-sm" data-toast="Ptah CLI agent Glm removed">Remove this CLI agent</button>
+        </div>
+      </section>
+
+      <!-- Policy -->
+      <section class="detail-pane is-hidden" id="pane-policy" aria-labelledby="polTitle">
+        <h2 id="polTitle" class="text-base font-semibold mb-1">Orchestration policy</h2>
+        <p class="text-xs text-base-content-muted mb-3">Limits and order for all agents.</p>
+        <div class="detail-section">
+          <div class="section-title">Max concurrent agents</div>
+          <input type="range" min="1" max="20" value="3" class="range w-full" data-range-label="#concLabel" aria-label="Maximum concurrent agents">
+          <p class="text-xs mt-1"><span id="concLabel" class="font-medium">3 agents</span> run at the same time.</p>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Preferred agent order</div>
+          <p class="text-xs text-base-content-muted mb-2">Drag to reorder. Disabled agents stay in the list and run last.</p>
+          <div data-drag-list>
+            <div class="order-item" data-order-item draggable="true">
+              <svg class="grip" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>
+              <span class="flex-1 font-medium">Codex</span>
+              <button type="button" class="btn btn-ghost btn-xs" data-move="up" aria-label="Move Codex up">↑</button>
+              <button type="button" class="btn btn-ghost btn-xs" data-move="down" aria-label="Move Codex down">↓</button>
+            </div>
+            <div class="order-item" data-order-item draggable="true">
+              <svg class="grip" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>
+              <span class="flex-1 font-medium">Antigravity</span>
+              <button type="button" class="btn btn-ghost btn-xs" data-move="up" aria-label="Move Antigravity up">↑</button>
+              <button type="button" class="btn btn-ghost btn-xs" data-move="down" aria-label="Move Antigravity down">↓</button>
+            </div>
+            <div class="order-item" data-order-item draggable="true">
+              <svg class="grip" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>
+              <span class="flex-1 font-medium">Glm</span>
+              <span class="text-xs text-base-content-muted">Ptah CLI</span>
+              <button type="button" class="btn btn-ghost btn-xs" data-move="up" aria-label="Move Glm up">↑</button>
+              <button type="button" class="btn btn-ghost btn-xs" data-move="down" aria-label="Move Glm down">↓</button>
+            </div>
+            <div class="order-item is-off" data-order-item draggable="true">
+              <svg class="grip" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>
+              <span class="flex-1 font-medium">Copilot</span>
+              <span class="badge">Off</span>
+              <button type="button" class="btn btn-ghost btn-xs" data-move="up" aria-label="Move Copilot up">↑</button>
+              <button type="button" class="btn btn-ghost btn-xs" data-move="down" aria-label="Move Copilot down">↓</button>
+            </div>
+          </div>
+        </div>
+        <div class="detail-section">
+          <div class="section-title">Detection</div>
+          <p class="text-xs mb-2">Ptah looks for installed CLIs and refreshes the provider state.</p>
+          <button type="button" class="btn btn-outline btn-sm" data-toast="Detected 4 installed CLIs — providers refreshed">Re-detect CLIs</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<div class="toast-host" id="toastHost" aria-live="polite"></div>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -3,22 +3,15 @@ import { rpcCall, VSCodeService } from '@ptah-extension/core';
 import { GIT_HOOK_TIMEOUT_MS, gitRpcTimeoutFor } from '@ptah-extension/shared';
 import type {
   GitReviewChangesResult,
-  GitReviewFileResult,
   GitStashFileEntry,
   GitStashListResult,
   GitStashMutationResult,
   GitStashShowResult,
   StashEntry,
 } from '@ptah-extension/shared';
-import type { EditorTab } from '../types/diff-tab.types';
-import { DiffTabsService } from './diff-tabs.service';
 import { GitBranchesService } from './git-branches.service';
 import { GitStatusService } from './git-status.service';
-import {
-  describeGitReadError,
-  firstReadError,
-  readSideText,
-} from './git-read-error-messages';
+import { ReviewNavigationService } from './review-navigation.service';
 
 export type GitStashMutation = 'apply' | 'pop' | 'drop';
 
@@ -76,6 +69,11 @@ function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+/** How a stash entry is named in the comparison bar. */
+function stashLabel(entry: StashEntry): string {
+  return `${entry.message} · ${entry.hash.slice(0, 7)}`;
+}
+
 /**
  * GitStashService — state for the dock's stash viewer: the entry list, the
  * selected entry's changed files, and apply / pop / drop.
@@ -95,7 +93,7 @@ export class GitStashService {
   private readonly vscode = inject(VSCodeService);
   private readonly gitStatus = inject(GitStatusService);
   private readonly gitBranches = inject(GitBranchesService);
-  private readonly diffTabs = inject(DiffTabsService);
+  private readonly reviewNavigation = inject(ReviewNavigationService);
 
   private readonly _states = signal<ReadonlyMap<string, StashWorkspaceState>>(
     new Map(),
@@ -363,7 +361,11 @@ export class GitStashService {
     return outcome;
   }
 
-  /** Open one file of the selected stash as a diff tab: parent vs stash. */
+  /**
+   * Open one file of the selected stash read-only, parent vs stash, in the
+   * review canvas (`ReviewNavigationService.openStashFile`; the canvas reads
+   * the diff itself). Only the immutable ref pair is resolved here.
+   */
   async openFileDiff(file: GitStashFileEntry): Promise<void> {
     const workspace = this.gitStatus.activeWorkspacePath();
     if (!workspace) return;
@@ -383,28 +385,12 @@ export class GitStashService {
       if (token !== this.fileDiffToken) return;
       if (!this.isSelectionCurrent(workspace, entry, generation)) return;
       if (!refs) return;
-      const response = await rpcCall<GitReviewFileResult>(
-        this.vscode,
-        'git:reviewFile',
-        {
-          workspaceRoot: workspace,
-          baseSha: refs.baseSha,
-          headSha: refs.headSha,
-          path: file.path,
-          ...(file.oldPath ? { originalPath: file.oldPath } : {}),
-        },
-      );
-      if (token !== this.fileDiffToken) return;
-      if (!this.isSelectionCurrent(workspace, entry, generation)) return;
-      const result = response.data;
-      if (!response.success || !result?.success) {
-        this.patch(workspace, {
-          error:
-            result?.error ?? response.error ?? 'Could not read the stash diff.',
-        });
-        return;
-      }
-      this.diffTabs.openHistoricalDiff(this.toTab(entry, result));
+      this.reviewNavigation.openStashFile({
+        base: { name: `${entry.hash}^1`, sha: refs.baseSha },
+        head: { name: entry.hash, sha: refs.headSha },
+        label: stashLabel(entry),
+        file,
+      });
     } catch (error: unknown) {
       // degradation-audit: reported - the message is published through the
       // slice's `error`, which the stash popover renders.
@@ -452,54 +438,6 @@ export class GitStashService {
       this.patch(workspace, { refs });
     }
     return refs;
-  }
-
-  private toTab(entry: StashEntry, data: GitReviewFileResult): EditorTab {
-    const shortHash = entry.hash.slice(0, 7);
-    const label = `${entry.message} · ${shortHash}`;
-    const fileName =
-      data.path.replace(/\\/g, '/').split('/').pop() || data.path;
-    const failure = firstReadError(data.original, data.modified);
-    const modified = readSideText(data.modified);
-    return {
-      filePath: `diff:${entry.hash}:${data.headSha}:${data.path}`,
-      fileName: `${fileName} (${label})`,
-      content: modified,
-      isDirty: false,
-      diff: {
-        provenance: {
-          kind: 'historical',
-          base: { name: `${entry.hash}^1`, sha: data.baseSha },
-          head: { name: entry.hash, sha: data.headSha },
-        },
-        comparison: 'staged',
-        path: data.path,
-        originalPath: data.originalPath,
-        original: readSideText(data.original),
-        modified,
-        originalRef:
-          data.original.outcome === 'absent'
-            ? { kind: 'absent' }
-            : { kind: 'commit', sha: data.baseSha },
-        modifiedRef:
-          data.modified.outcome === 'absent'
-            ? { kind: 'absent' }
-            : { kind: 'commit', sha: data.headSha },
-        snapshotToken: '',
-        hunks: [],
-        isBinary:
-          data.original.outcome === 'binary' ||
-          data.modified.outcome === 'binary',
-        status: failure ? 'error' : 'fresh',
-        ...(failure
-          ? {
-              errorMessage: describeGitReadError(failure.code),
-              errorDetail: failure.message || undefined,
-            }
-          : {}),
-        requestId: 0,
-      },
-    };
   }
 
   private stateFor(workspace: string): StashWorkspaceState {

@@ -22,7 +22,10 @@ import {
   createFakeAsyncGenerator,
   type MockLogger,
 } from '@ptah-extension/shared/testing';
-import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type {
+  ISessionOrganizationRecorder,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 
 import { SessionForkService } from './session-fork.service';
 import { SdkError, SessionNotActiveError } from '../errors';
@@ -101,15 +104,24 @@ interface Harness {
   historyReader: ReturnType<typeof createMockHistoryReader>;
   sessionLifecycle: ReturnType<typeof createMockSessionLifecycle>;
   workspaceProvider: ReturnType<typeof createMockWorkspaceProvider>;
+  recorder: ReturnType<typeof createMockRecorder>;
 }
 
-function makeService(): Harness {
+function createMockRecorder(): jest.Mocked<
+  Pick<ISessionOrganizationRecorder, 'recordLineage' | 'recordWorktree'>
+> {
+  return { recordLineage: jest.fn(), recordWorktree: jest.fn() };
+}
+
+function makeService(options: { withRecorder?: boolean } = {}): Harness {
+  const { withRecorder = true } = options;
   const logger = createMockLogger();
   const sentry = createMockSentry();
   const metadataStore = createMockMetadataStore();
   const historyReader = createMockHistoryReader();
   const sessionLifecycle = createMockSessionLifecycle();
   const workspaceProvider = createMockWorkspaceProvider();
+  const recorder = createMockRecorder();
 
   const service = new SessionForkService(
     asLogger(logger),
@@ -118,6 +130,7 @@ function makeService(): Harness {
     sessionLifecycle as unknown as SessionLifecycleManager,
     workspaceProvider as unknown as IWorkspaceProvider,
     sentry as unknown as SentryService,
+    withRecorder ? (recorder as unknown as ISessionOrganizationRecorder) : null,
   );
 
   return {
@@ -128,6 +141,7 @@ function makeService(): Harness {
     historyReader,
     sessionLifecycle,
     workspaceProvider,
+    recorder,
   };
 }
 
@@ -357,6 +371,89 @@ describe('SessionForkService', () => {
       await expect(
         h.service.forkSession({ sessionId: 'src' as SessionId }),
       ).rejects.toBeInstanceOf(SdkError);
+      expect(h.recorder.recordLineage).not.toHaveBeenCalled();
+    });
+
+    describe('session-organization capture', () => {
+      it('records fork lineage with the new SDK id and the source id after the metadata row is created', async () => {
+        const h = makeService();
+        h.metadataStore.get.mockResolvedValueOnce({
+          sessionId: 'source-uuid' as SessionId,
+          workspaceId: '/ws',
+          name: 'Original Session',
+          status: 'active',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+        getMockedForkSession().mockResolvedValueOnce({
+          sessionId: 'forked-uuid-123',
+        });
+
+        const result = await h.service.forkSession({
+          sessionId: 'source-uuid' as SessionId,
+        });
+
+        expect(h.recorder.recordLineage).toHaveBeenCalledTimes(1);
+        expect(h.recorder.recordLineage).toHaveBeenCalledWith({
+          sessionId: 'forked-uuid-123',
+          forkOfSessionId: 'source-uuid',
+          workspaceRootHint: '/ws',
+        });
+        expect(h.recorder.recordWorktree).not.toHaveBeenCalled();
+        expect(
+          h.recorder.recordLineage.mock.invocationCallOrder[0],
+        ).toBeGreaterThan(h.metadataStore.create.mock.invocationCallOrder[0]);
+        // The fork result is unchanged by recording.
+        expect(result).toEqual({ sessionId: 'forked-uuid-123' });
+      });
+
+      it('falls back to the active workspace root as the hint when the source has no metadata', async () => {
+        const h = makeService();
+        getMockedForkSession().mockResolvedValueOnce({ sessionId: 'fork-2' });
+
+        await h.service.forkSession({ sessionId: 'src' as SessionId });
+
+        expect(h.recorder.recordLineage).toHaveBeenCalledWith({
+          sessionId: 'fork-2',
+          forkOfSessionId: 'src',
+          workspaceRootHint: '/fake/workspace',
+        });
+      });
+
+      it('records nothing when the SDK fork fails', async () => {
+        const h = makeService();
+        getMockedForkSession().mockRejectedValueOnce(new Error('boom'));
+
+        await expect(
+          h.service.forkSession({ sessionId: 'src' as SessionId }),
+        ).rejects.toBeInstanceOf(SdkError);
+        expect(h.recorder.recordLineage).not.toHaveBeenCalled();
+      });
+
+      it('records nothing when the metadata row cannot be created', async () => {
+        const h = makeService();
+        h.metadataStore.create.mockRejectedValueOnce(new Error('disk full'));
+        getMockedForkSession().mockResolvedValueOnce({ sessionId: 'fork-3' });
+
+        await expect(
+          h.service.forkSession({ sessionId: 'src' as SessionId }),
+        ).rejects.toBeInstanceOf(SdkError);
+        expect(h.recorder.recordLineage).not.toHaveBeenCalled();
+      });
+
+      it('forks unchanged when no recorder is registered', async () => {
+        const h = makeService({ withRecorder: false });
+        getMockedForkSession().mockResolvedValueOnce({ sessionId: 'fork-4' });
+
+        const result = await h.service.forkSession({
+          sessionId: 'src' as SessionId,
+        });
+
+        expect(result).toEqual({ sessionId: 'fork-4' });
+        expect(h.metadataStore.create).toHaveBeenCalledTimes(1);
+        expect(h.recorder.recordLineage).not.toHaveBeenCalled();
+      });
     });
   });
 

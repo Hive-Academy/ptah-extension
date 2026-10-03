@@ -25,6 +25,7 @@ import * as path from 'path';
 import * as os from 'os';
 import {
   container as globalContainer,
+  instanceCachingFactory,
   type DependencyContainer,
 } from 'tsyringe';
 
@@ -247,6 +248,21 @@ export function governorShutdownHandle(container: DependencyContainer): {
   };
 }
 
+/**
+ * One `GitInfoService` per host (TASK_2026_576 RC13): its caches are
+ * invalidated by the worktree hook, the task sweep and the file-link policy,
+ * and the next `git:*` RPC must see that. `instanceCachingFactory` and not
+ * `{ lifecycle: Lifecycle.Singleton }` because tsyringe rejects a lifecycle on
+ * a factory provider. Exported for its spec only.
+ */
+export function registerGitInfoService(container: DependencyContainer): void {
+  container.register(TOKENS.GIT_INFO_SERVICE, {
+    useFactory: instanceCachingFactory(
+      (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
+    ),
+  });
+}
+
 export class CliDIContainer {
   /**
    * The PtahFileSettingsManager instance shared with CliWorkspaceProvider.
@@ -442,9 +458,7 @@ export class CliDIContainer {
     } else {
       CliDIContainer._diagnostics = governorShutdownHandle(container);
     }
-    container.register(TOKENS.GIT_INFO_SERVICE, {
-      useFactory: (c) => new GitInfoService(c.resolve(TOKENS.LOGGER)),
-    });
+    registerGitInfoService(container);
     const defaultWorkspaceStoragePath = path.join(
       userDataPath,
       'workspace-storage',

@@ -1,0 +1,178 @@
+{
+ "card": {
+  "tag": "DIV",
+  "tid": null,
+  "outline": "solid 2px 2px",
+  "outlineRgb": [
+   0,
+   0,
+   0
+  ],
+  "outlineA": 0,
+  "outlineRatio": 1.13,
+  "parentBg": [
+   19,
+   19,
+   23
+  ],
+  "shadows": [
+   {
+    "raw": "rgb(255, 255, 255) 0px 0px 0px 0px",
+    "rgb": [
+     255,
+     255,
+     255
+    ],
+    "a": 1,
+    "ratio": 18.53
+   },
+   {
+    "raw": "oklch(0.54615 0.215208 262.881 / 0.6) 0px 0px 0px 2px",
+    "rgb": [
+     37,
+     98,
+     235
+    ],
+    "a": 0.6,
+    "ratio": 3.55
+   },
+   {
+    "raw": "rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+    "rgb": [
+     0,
+     0,
+     0
+    ],
+    "a": 0,
+    "ratio": null
+   }
+  ]
+ },
+ "checkbox": {
+  "tag": "INPUT",
+  "tid": null,
+  "outline": "solid 2px 2px",
+  "outlineRgb": [
+   37,
+   99,
+   235
+  ],
+  "outlineA": 1,
+  "outlineRatio": 3.35,
+  "parentBg": [
+   26,
+   26,
+   32
+  ],
+  "shadows": [
+   {
+    "raw": "none",
+    "ratio": null
+   }
+  ]
+ },
+ "summary": {
+  "tag": "SUMMARY",
+  "tid": null,
+  "outline": "auto 1px 0px",
+  "outlineRgb": [
+   16,
+   16,
+   16
+  ],
+  "outlineA": 1,
+  "outlineRatio": 1.1,
+  "parentBg": [
+   26,
+   26,
+   32
+  ],
+  "shadows": [
+   {
+    "raw": "none",
+    "ratio": null
+   }
+  ]
+ },
+ "disabledIcon": {
+  "opacity": 0.4,
+  "ink": [
+   230,
+   230,
+   225
+  ],
+  "bg": [
+   26,
+   26,
+   32
+  ],
+  "eff": [
+   108,
+   108,
+   109
+  ],
+  "ratio": 3.28,
+  "enabledInfo": {
+   "opacity": "1",
+   "ratio": 13.89
+  },
+  "bgColor": "rgba(0, 0, 0, 0)",
+  "ariaDisabledRule": "Built into the agent — Ptah can select it but not change it."
+ },
+ "explore": {
+  "iconRgb": [
+   212,
+   175,
+   55
+  ],
+  "textRgb": [
+   232,
+   230,
+   225
+  ],
+  "cls": "lucide w-3 h-3 text-secondary",
+  "ratioIcon": 8.24,
+  "siblings": [
+   {
+    "label": "Export",
+    "color": [
+     232,
+     230,
+     225
+    ]
+   },
+   {
+    "label": "Import",
+    "color": [
+     232,
+     230,
+     225
+    ]
+   },
+   {
+    "label": "Enter Membership Key",
+    "color": [
+     232,
+     230,
+     225
+    ]
+   },
+   {
+    "label": "Explore Ptah Builders",
+    "color": [
+     212,
+     175,
+     55
+    ]
+   },
+   {
+    "label": "Create Account",
+    "color": [
+     248,
+     247,
+     244
+    ]
+   }
+  ]
+ }
+}

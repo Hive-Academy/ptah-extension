@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<title>TASK_2026_555 — Providers settings prototypes</title>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: Inter, system-ui, sans-serif; }
+  iframe { width: 1024px; height: 768px; border: 0; transform: scale(.6); transform-origin: 0 0; }
+  .frame { width: 615px; height: 461px; overflow: hidden; border-radius: .75rem; border: 1px solid oklch(var(--bc) / .2); }
+</style>
+</head>
+<body class="bg-base-100 text-base-content p-6 text-sm">
+  <h1 class="text-xl font-semibold">Settings → Providers &amp; Agent Orchestration — three prototypes</h1>
+  <p class="opacity-70 mt-1">All three use the same data (<a class="link" href="BRIEF.md">BRIEF.md</a>) and the anubis / anubis-light tokens.
+    Frames below are live pages at 1024×768, scaled to 60 %. Open a variant full size to click through popovers, drawers and modals.</p>
+
+  <div class="overflow-x-auto mt-4">
+  <table class="table table-sm">
+    <thead><tr><th></th><th>A — Talk-to / Does-work split</th><th>B — Master–detail</th><th>C — Routing map</th></tr></thead>
+    <tbody>
+      <tr><th>Idea</th><td>Main-agent chip strip + connections table; Orchestration = roles table + CLI table</td><td>Left list, right detail pane on both tabs (macOS System Settings style)</td><td>Routing overview "which model does what" + connection card grid; Orchestration = matrices</td></tr>
+      <tr><th>Providers at 1024×768</th><td>Fits (no scroll)</td><td>Fits (no scroll)</td><td>Fits (no scroll)</td></tr>
+      <tr><th>Orchestration page height</th><td>1181 px — both tables above the fold, policy below</td><td>768 px — list scrolls inside the left pane</td><td>1171 px — CLI matrix above the fold, roles collapsed below</td></tr>
+      <tr><th>See everything at a glance</th><td>Yes, in tables</td><td>No — one item at a time</td><td>Yes, overview + matrices</td></tr>
+      <tr><th>Edit</th><td>Popover chips, row → side drawer (Overview / Credentials / Models / Advanced)</td><td>Inline selects with popovers in the detail pane; modal wizard</td><td>Popovers on nodes/cells; card → tabbed modal; command-palette catalog</td></tr>
+      <tr><th>Build cost (estimate of change size)</th><td>Medium — reuses table + drawer patterns</td><td>Medium — new two-pane shell</td><td>Higher — routing overview is new, most visual</td></tr>
+      <tr><th>Known issues</th><td>Picker cells lack a caret; policy strip still has text "Edit"</td><td>No overview; many clicks to compare roles</td><td>Main-agent card truncates names; UI shows internal notes ("Restores #70"); roles popover still uses "Edit"</td></tr>
+      <tr><th>Open</th>
+        <td><a class="btn btn-primary btn-sm" href="a-split/index.html">Providers</a> <a class="btn btn-sm" href="a-split/orchestration.html">Orchestration</a> <a class="link" href="a-split/README.md">README</a></td>
+        <td><a class="btn btn-primary btn-sm" href="b-master-detail/index.html">Providers</a> <a class="btn btn-sm" href="b-master-detail/orchestration.html">Orchestration</a> <a class="link" href="b-master-detail/README.md">README</a></td>
+        <td><a class="btn btn-primary btn-sm" href="c-routing-map/index.html">Providers</a> <a class="btn btn-sm" href="c-routing-map/orchestration.html">Orchestration</a> <a class="link" href="c-routing-map/README.md">README</a></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 class="text-lg font-semibold mt-8">Providers tab</h2>
+  <div class="flex flex-wrap gap-4 mt-2">
+    <div><div class="font-medium mb-1">A</div><div class="frame"><iframe src="a-split/index.html"></iframe></div></div>
+    <div><div class="font-medium mb-1">B</div><div class="frame"><iframe src="b-master-detail/index.html"></iframe></div></div>
+    <div><div class="font-medium mb-1">C</div><div class="frame"><iframe src="c-routing-map/index.html"></iframe></div></div>
+  </div>
+  <h2 class="text-lg font-semibold mt-8">Agent Orchestration tab</h2>
+  <div class="flex flex-wrap gap-4 mt-2">
+    <div><div class="font-medium mb-1">A</div><div class="frame"><iframe src="a-split/orchestration.html"></iframe></div></div>
+    <div><div class="font-medium mb-1">B</div><div class="frame"><iframe src="b-master-detail/orchestration.html"></iframe></div></div>
+    <div><div class="font-medium mb-1">C</div><div class="frame"><iframe src="c-routing-map/orchestration.html"></iframe></div></div>
+  </div>
+</body>
+</html>

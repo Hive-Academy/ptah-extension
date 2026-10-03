@@ -103,6 +103,11 @@
     "@anthropic-ai/sdk": "0.127.0",
     "@astrojs/starlight": "^0.42.2",
     "@clack/prompts": "^1.8.1",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/language-data": "6.5.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
     "@cursor/sdk": "^1.0.13",
     "@floating-ui/dom": "^1.7.4",
     "@fullcalendar/angular": "^7.0.2",
@@ -122,6 +127,7 @@
     "@paddle/paddle-node-sdk": "^3.10.0",
     "@paper-design/shaders-react": "^0.0.77",
     "@parcel/watcher": "2.6.0",
+    "@pierre/diffs": "1.5.1",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "@react-three/drei": "10.7.7",
@@ -175,8 +181,6 @@
     "lucide-angular": "^1.0.0",
     "marked": "^18.0.13",
     "minimatch": "10.2.6",
-    "monaco-editor": "^0.56.0",
-    "ngx-monaco-editor-v2": "^22.0.5",
     "node-pty": "1.1.0",
     "nodejs-whisper": "0.3.1",
     "pg": "^8.20.0",
@@ -188,6 +192,7 @@
     "resend": "^6.9.0",
     "rxjs": "7.8.2",
     "sanitize-html": "^2.17.7",
+    "shiki": "4.4.3",
     "sqlite-vec": "0.1.9",
     "temporal-polyfill": "^1.0.2",
     "tsyringe": "^4.10.0",
@@ -292,9 +297,6 @@
     "@nx/nx-linux-x64-musl": "23.2.1"
   },
   "overrides": {
-    "monaco-editor": {
-      "dompurify": "^3.3.2"
-    },
     "lucide-angular": {
       "@angular/core": "$@angular/core",
       "@angular/common": "$@angular/common"

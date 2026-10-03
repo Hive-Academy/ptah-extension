@@ -1,0 +1,97 @@
+{
+ "cardBefore": {
+  "state": "connected",
+  "text": "Connected",
+  "blocked": 0
+ },
+ "drawerAfter": "Check failed",
+ "escAfterCheck": {
+  "closed": true,
+  "focus": "div:sovereigneg: Check failed. The last chec"
+ },
+ "cardAfterFailed": {
+  "state": "check-failed",
+  "text": "Check failed",
+  "blocked": 0
+ },
+ "backdropAfterCheck": {
+  "closed": true,
+  "focus": "div:sovereigneg: Check failed. The last chec"
+ },
+ "retryButton": 1,
+ "afterRetry": {
+  "calls": [
+   "sovereigneg"
+  ],
+  "card": {
+   "state": "connected",
+   "text": "Connected",
+   "blocked": 0
+  },
+  "focus": "div:sovereigneg: Connected. Connected and av",
+  "focusIsCard": false
+ },
+ "ollamaBefore": {
+  "state": "unreachable",
+  "text": "Unreachable",
+  "blocked": 0
+ },
+ "ollamaAfter": {
+  "calls": [],
+  "card": {
+   "state": "unreachable",
+   "text": "Unreachable",
+   "blocked": 0
+  },
+  "focus": "div:Ollama Cloud: Unreachable. Could not rea"
+ },
+ "orderStrip": {
+  "text": "1. Codex → 2. Antigravity → +3",
+  "stripRight": 800.21875,
+  "maxChipRight": 769.5,
+  "clipped": false,
+  "n": 3
+ },
+ "axe": {
+  "Providers": {
+   "violations": [
+    "nested-interactivex1"
+   ],
+   "stops": 17,
+   "noRing": 0
+  },
+  "Agent Orchestration": {
+   "violations": [],
+   "stops": 26,
+   "noRing": 0
+  },
+  "Advanced": {
+   "violations": [],
+   "stops": 26,
+   "noRing": 0
+  },
+  "Search & Voice": {
+   "violations": [],
+   "stops": 18,
+   "noRing": 0
+  }
+ },
+ "mainList": {
+  "field": 278,
+  "list": 278,
+  "listX": 318,
+  "fieldX": 318
+ },
+ "tierList": {
+  "field": 209.5,
+  "list": 209.5,
+  "listX": 772.5,
+  "fieldX": 772.5
+ },
+ "matrixList": {
+  "field": 248,
+  "list": 248,
+  "listX": 475.234375,
+  "fieldX": 475.234375
+ }
+}

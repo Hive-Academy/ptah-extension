@@ -36,8 +36,8 @@ import { openConfigSurface } from './_harness/config-menu';
  *   tab, id `claude-auth`, renders the consolidated Providers page whose
  *   "Your connections" section carries `#providers-connections-heading` and
  *   `[data-testid="provider-connection-card"]`), `[data-testid="settings-back"]`,
- *   and the web-search provider select
- *   `[data-testid="settings-toggle-web-search-provider"]` (see
+ *   and the web-search provider checkboxes
+ *   `[data-testid^="settings-toggle-web-search-provider-"]` (see
  *   `src/specs/settings/settings.spec.ts`). The four tabs are addressed by
  *   their visible label text — the third tab's label is "Advanced", not
  *   "Pro Features".
@@ -242,18 +242,21 @@ test('P3 — settings surface tour (providers, tabs & live theme)', async ({
     page.getByRole('button', { name: 'Search & Voice' }),
   ]);
   await director.hold(400);
-  const providerSelect = page.locator(
-    '[data-testid="settings-toggle-web-search-provider"]',
-  );
-  if (await providerSelect.isVisible().catch(() => false)) {
-    await director.say(7, {
-      target: providerSelect,
-      during: async () => {
-        await director.spotlight(providerSelect, 1600);
-        await director.hover(providerSelect, 700);
-      },
-    });
-  }
+  // Since Batch 45 the testid is per provider (`...-provider-tavily`, ...), one
+  // checkbox per matrix row. The bare `...-provider` id no longer exists, which
+  // made this step skip silently. It now waits for the first row's checkbox and
+  // throws (a failed scene) when the control is missing.
+  const providerSelect = page
+    .locator('[data-testid^="settings-toggle-web-search-provider-"]')
+    .first();
+  await providerSelect.waitFor({ state: 'visible', timeout: 15_000 });
+  await director.say(7, {
+    target: providerSelect,
+    during: async () => {
+      await director.spotlight(providerSelect, 1600);
+      await director.hover(providerSelect, 700);
+    },
+  });
 
   // Pop back to the Advanced tab and spotlight the data-portability controls —
   // export/import settings live in that tab's block.

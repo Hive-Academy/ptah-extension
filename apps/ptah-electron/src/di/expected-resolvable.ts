@@ -7,6 +7,7 @@ import {
   EditorRpcHandlers,
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
+  FileEditRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 export const EXPECTED_RESOLVABLE = [
@@ -18,4 +19,5 @@ export const EXPECTED_RESOLVABLE = [
   EditorRpcHandlers,
   ElectronFileOpenRpcHandlers,
   FileViewRpcHandlers,
+  FileEditRpcHandlers,
 ] as const;

@@ -1,0 +1,442 @@
+[
+ {
+  "tag": "button",
+  "id": "settings-back",
+  "label": "Back to Chat",
+  "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 26,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "Providers",
+  "outline": "solid 2px oklch(0.630482 0.00745 23.428)",
+  "shadow": "",
+  "w": 182,
+  "h": 32,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "Agent Orchestration",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 247,
+  "h": 32,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "Advanced",
+  "outline": "solid 2px oklch(0.630482 0.00745 23.428)",
+  "shadow": "",
+  "w": 186,
+  "h": 32,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "Search & Voice",
+  "outline": "solid 2px oklch(0.630482 0.00745 23.428)",
+  "shadow": "",
+  "w": 217,
+  "h": 32,
+  "visible": true
+ },
+ {
+  "tag": "input",
+  "id": "",
+  "label": "",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 64,
+  "h": 14,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "policy-order-edit",
+  "label": "Preferred order: 1. Codex, 2. ",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 24,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "policy-redetect",
+  "label": "Re-detect CLI agents",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 105,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-add",
+  "label": "Add Ptah CLI Instance",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 143,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "input",
+  "id": "cli-matrix-toggle-codex",
+  "label": "Codex enabled",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 16,
+  "h": 16,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-model-codex",
+  "label": "Codex model: gpt-5.5-codex. Ch",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 116,
+  "h": 16,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-effort-codex",
+  "label": "Codex reasoning effort: medium",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 65,
+  "h": 16,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-permission-info-codex",
+  "label": "Codex permission details",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 20,
+  "h": 20,
+  "visible": true
+ },
+ {
+  "tag": "input",
+  "id": "cli-matrix-toggle-antigravity",
+  "label": "Antigravity enabled",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 16,
+  "h": 16,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-model-antigravity",
+  "label": "Antigravity model: claude-sonn",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 144,
+  "h": 16,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-permission-info-antigravity",
+  "label": "Antigravity permission details",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 20,
+  "h": 20,
+  "visible": true
+ },
+ {
+  "tag": "input",
+  "id": "cli-matrix-toggle-glm-instance-1",
+  "label": "Glm enabled",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 16,
+  "h": 16,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-model-glm-instance-1",
+  "label": "Glm model: glm-5.3:cloud. Chan",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 116,
+  "h": 16,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-permission-info-glm-instance-1",
+  "label": "Glm permission details",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 20,
+  "h": 20,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-tiers-glm-instance-1",
+  "label": "Tiers for Glm",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 37,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-edit-glm-instance-1",
+  "label": "Edit Glm name or key",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 30,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-test-glm-instance-1",
+  "label": "Test Glm",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 32,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-delete-glm-instance-1",
+  "label": "Delete Glm",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 44,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "input",
+  "id": "cli-matrix-toggle-copilot",
+  "label": "Copilot enabled",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 16,
+  "h": 16,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-permission-info-copilot",
+  "label": "Copilot permission details",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 20,
+  "h": 20,
+  "visible": true
+ },
+ {
+  "tag": "input",
+  "id": "cli-matrix-toggle-opencode",
+  "label": "OpenCode enabled",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 16,
+  "h": 16,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-model-opencode",
+  "label": "OpenCode model: opencode/nemot",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 154,
+  "h": 32,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-permission-info-opencode",
+  "label": "OpenCode permission details",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 20,
+  "h": 20,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-permission-info-cursor",
+  "label": "Cursor permission details",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 20,
+  "h": 20,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-credentials-cursor",
+  "label": "Credentials for Cursor",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 70,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-install-cursor",
+  "label": "Install guide for Cursor",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 74,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-permission-info-pi",
+  "label": "Pi permission details",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 20,
+  "h": 20,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-matrix-install-pi",
+  "label": "Install guide for Pi",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 74,
+  "h": 24,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "Close",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 22,
+  "h": 22,
+  "visible": true
+ },
+ {
+  "tag": "input",
+  "id": "add-cli-instance-name",
+  "label": "",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 418,
+  "h": 29,
+  "visible": true
+ },
+ {
+  "tag": "select",
+  "id": "add-cli-instance-provider",
+  "label": "Choose a provider connection…O",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 418,
+  "h": 29,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "Cancel",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 52,
+  "h": 29,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "close",
+  "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+  "shadow": "",
+  "w": 1024,
+  "h": 768,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "Close",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 22,
+  "h": 22,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "cli-tier-mapping-done",
+  "label": "Done",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0",
+  "w": 44,
+  "h": 29,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "close",
+  "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+  "shadow": "",
+  "w": 1024,
+  "h": 768,
+  "visible": true
+ },
+ {
+  "tag": "summary",
+  "id": "background-roles-summary",
+  "label": "Background Model Roles6 rolesM",
+  "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
+  "shadow": "",
+  "w": 830,
+  "h": 36,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "close",
+  "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+  "shadow": "",
+  "w": 1024,
+  "h": 768,
+  "visible": true
+ },
+ {
+  "tag": "button",
+  "id": "",
+  "label": "close",
+  "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+  "shadow": "",
+  "w": 1024,
+  "h": 768,
+  "visible": true
+ }
+]

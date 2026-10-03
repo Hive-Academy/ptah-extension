@@ -1,0 +1,796 @@
+{
+  "dark-populated": {
+    "headerLabel": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px"
+    },
+    "rowPath": {
+      "ratio": 14.15,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px"
+    },
+    "rowCounts": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px"
+    },
+    "review": {
+      "ratio": 4.82,
+      "fg": [
+        248,
+        247,
+        244
+      ],
+      "bg": [
+        37,
+        99,
+        235
+      ],
+      "size": "11px"
+    },
+    "accent": {
+      "color": "oklch(0.627052 0.169912 149.214)",
+      "ratioVsPage": 5.62
+    },
+    "cardW": 448,
+    "scrollW": 446
+  },
+  "dark-populated-focus": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "oklch(0.766528 0.138677 91.0594) solid 2px",
+    "outlineOffset": "-2px",
+    "outlineColor": "oklch(0.766528 0.138677 91.0594)",
+    "boxShadow": "none",
+    "ratioVsRowBg": 7.85,
+    "ratioVsCardBg": 8.39,
+    "rowBg": [
+      30,
+      30,
+      39
+    ],
+    "cardBg": [
+      24,
+      24,
+      30
+    ]
+  },
+  "dark-populated-320": {
+    "w": 304,
+    "scrollW": 302
+  },
+  "dark-populated-routeAbortErrorCount": 0,
+  "dark-populated-dock": {
+    "tileW": 118,
+    "cardW": 66,
+    "scrollW": 64,
+    "reviewInsideCard": true,
+    "reviewRect": [
+      6,
+      54
+    ],
+    "rows": [
+      {
+        "rowH": 62,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 62,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      }
+    ],
+    "docOverflow": false
+  },
+  "dark-unavailable": {
+    "headerLabel": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px"
+    },
+    "countsUnavailableBadge": {
+      "ratio": 13.89,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        26,
+        26,
+        32
+      ],
+      "size": "9px"
+    },
+    "rowPath": {
+      "ratio": 14.15,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px"
+    },
+    "rowCounts": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px"
+    },
+    "review": {
+      "ratio": 4.82,
+      "fg": [
+        248,
+        247,
+        244
+      ],
+      "bg": [
+        37,
+        99,
+        235
+      ],
+      "size": "11px"
+    },
+    "accent": {
+      "color": "oklch(0.630482 0.00745 23.428)",
+      "ratioVsPage": 5.31
+    },
+    "cardW": 448,
+    "scrollW": 446
+  },
+  "dark-unavailable-320": {
+    "w": 304,
+    "scrollW": 302
+  },
+  "dark-mixed": {
+    "headerLabel": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px"
+    },
+    "rowPath": {
+      "ratio": 14.15,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px"
+    },
+    "rowCounts": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "10px"
+    },
+    "reconciledPath": {
+      "ratio": 5.06,
+      "fg": [
+        142,
+        136,
+        135
+      ],
+      "bg": [
+        24,
+        24,
+        30
+      ],
+      "size": "11px"
+    },
+    "reconciledBadge": {
+      "ratio": 13.89,
+      "fg": [
+        232,
+        230,
+        225
+      ],
+      "bg": [
+        26,
+        26,
+        32
+      ],
+      "size": "9px"
+    },
+    "conflictedBadge": {
+      "ratio": 4.83,
+      "fg": [
+        255,
+        255,
+        255
+      ],
+      "bg": [
+        220,
+        38,
+        38
+      ],
+      "size": "9px"
+    },
+    "review": {
+      "ratio": 4.82,
+      "fg": [
+        248,
+        247,
+        244
+      ],
+      "bg": [
+        37,
+        99,
+        235
+      ],
+      "size": "11px"
+    },
+    "accent": {
+      "color": "oklch(0.627052 0.169912 149.214)",
+      "ratioVsPage": 5.62
+    },
+    "cardW": 448,
+    "scrollW": 446
+  },
+  "dark-mixed-focus": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "oklch(0.766528 0.138677 91.0594) solid 2px",
+    "outlineOffset": "-2px",
+    "outlineColor": "oklch(0.766528 0.138677 91.0594)",
+    "boxShadow": "none",
+    "ratioVsRowBg": 7.85,
+    "ratioVsCardBg": 8.39,
+    "rowBg": [
+      30,
+      30,
+      39
+    ],
+    "cardBg": [
+      24,
+      24,
+      30
+    ]
+  },
+  "dark-mixed-320": {
+    "w": 304,
+    "scrollW": 302
+  },
+  "dark-mixed-dock": {
+    "tileW": 118,
+    "cardW": 66,
+    "scrollW": 64,
+    "reviewInsideCard": true,
+    "reviewRect": [
+      6,
+      54
+    ],
+    "rows": [
+      {
+        "rowH": 60,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 84,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 62,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      }
+    ],
+    "docOverflow": false
+  },
+  "light-populated": {
+    "headerLabel": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px"
+    },
+    "rowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px"
+    },
+    "rowCounts": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px"
+    },
+    "review": {
+      "ratio": 5.2,
+      "fg": [
+        0,
+        93,
+        88
+      ],
+      "bg": [
+        68,
+        235,
+        211
+      ],
+      "size": "11px"
+    },
+    "accent": {
+      "color": "oklch(0.69 0.17 162.48)",
+      "ratioVsPage": 2.37
+    },
+    "cardW": 448,
+    "scrollW": 446
+  },
+  "light-populated-focus": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "rgb(245, 217, 125) solid 2px",
+    "outlineOffset": "-2px",
+    "outlineColor": "rgb(245, 217, 125)",
+    "boxShadow": "none",
+    "ratioVsRowBg": 1.13,
+    "ratioVsCardBg": 1.18,
+    "rowBg": [
+      234,
+      230,
+      228
+    ],
+    "cardBg": [
+      239,
+      236,
+      234
+    ]
+  },
+  "light-populated-320": {
+    "w": 304,
+    "scrollW": 302
+  },
+  "light-populated-routeAbortErrorCount": 0,
+  "light-populated-dock": {
+    "tileW": 118,
+    "cardW": 66,
+    "scrollW": 64,
+    "reviewInsideCard": true,
+    "reviewRect": [
+      6,
+      56
+    ],
+    "rows": [
+      {
+        "rowH": 62,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 62,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      }
+    ],
+    "docOverflow": false
+  },
+  "light-unavailable": {
+    "headerLabel": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px"
+    },
+    "countsUnavailableBadge": {
+      "ratio": 14.21,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        234,
+        230
+      ],
+      "size": "9px"
+    },
+    "rowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px"
+    },
+    "rowCounts": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px"
+    },
+    "review": {
+      "ratio": 5.2,
+      "fg": [
+        0,
+        93,
+        88
+      ],
+      "bg": [
+        68,
+        235,
+        211
+      ],
+      "size": "11px"
+    },
+    "accent": {
+      "color": "oklch(0.532596 0.0412 354.463)",
+      "ratioVsPage": 5.01
+    },
+    "cardW": 448,
+    "scrollW": 446
+  },
+  "light-unavailable-320": {
+    "w": 304,
+    "scrollW": 302
+  },
+  "light-mixed": {
+    "headerLabel": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px"
+    },
+    "rowPath": {
+      "ratio": 14.44,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px"
+    },
+    "rowCounts": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "10px"
+    },
+    "reconciledPath": {
+      "ratio": 4.55,
+      "fg": [
+        128,
+        99,
+        110
+      ],
+      "bg": [
+        239,
+        236,
+        234
+      ],
+      "size": "11px"
+    },
+    "reconciledBadge": {
+      "ratio": 14.21,
+      "fg": [
+        41,
+        19,
+        52
+      ],
+      "bg": [
+        239,
+        234,
+        230
+      ],
+      "size": "9px"
+    },
+    "conflictedBadge": {
+      "ratio": 4.86,
+      "fg": [
+        19,
+        19,
+        23
+      ],
+      "bg": [
+        254,
+        28,
+        85
+      ],
+      "size": "9px"
+    },
+    "review": {
+      "ratio": 5.2,
+      "fg": [
+        0,
+        93,
+        88
+      ],
+      "bg": [
+        68,
+        235,
+        211
+      ],
+      "size": "11px"
+    },
+    "accent": {
+      "color": "oklch(0.69 0.17 162.48)",
+      "ratioVsPage": 2.37
+    },
+    "cardW": 448,
+    "scrollW": 446
+  },
+  "light-mixed-focus": {
+    "testid": "change-set-row",
+    "focusVisible": true,
+    "outline": "rgb(245, 217, 125) solid 2px",
+    "outlineOffset": "-2px",
+    "outlineColor": "rgb(245, 217, 125)",
+    "boxShadow": "none",
+    "ratioVsRowBg": 1.13,
+    "ratioVsCardBg": 1.18,
+    "rowBg": [
+      234,
+      230,
+      228
+    ],
+    "cardBg": [
+      239,
+      236,
+      234
+    ]
+  },
+  "light-mixed-320": {
+    "w": 304,
+    "scrollW": 302
+  },
+  "light-mixed-dock": {
+    "tileW": 118,
+    "cardW": 66,
+    "scrollW": 64,
+    "reviewInsideCard": true,
+    "reviewRect": [
+      6,
+      56
+    ],
+    "rows": [
+      {
+        "rowH": 60,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 84,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 44,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      },
+      {
+        "rowH": 62,
+        "pathW": 56,
+        "pathLeft": 6,
+        "clipped": true,
+        "overflowRight": 0
+      }
+    ],
+    "docOverflow": false
+  }
+}

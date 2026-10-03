@@ -10,8 +10,10 @@
  *   - worktreeList — success parses porcelain output, non-zero exit returns
  *     error, cross-spawn error also maps to error envelope
  *   - worktreeAdd — default path derivation, createBranch flag, notification
- *     callback, non-zero exit handling
+ *     callback (a throwing one does not fail the add), non-zero exit handling
  *   - worktreeRemove — force flag, notification callback
+ *   - worktreeAdd caller capture — records on the resolved SDK session only
+ *     after a successful add; failure or an unresolved caller records nothing
  *   - missing workspace root rejection
  */
 
@@ -143,6 +145,8 @@ function makeDeps(
   return {
     getWorkspaceRoot: overrides.getWorkspaceRoot ?? (() => 'D:/ws'),
     onWorktreeChanged: overrides.onWorktreeChanged,
+    resolveCallerSessionId: overrides.resolveCallerSessionId,
+    recordWorktreeForCaller: overrides.recordWorktreeForCaller,
   };
 }
 
@@ -352,6 +356,27 @@ describe('buildGitNamespace — worktreeAdd', () => {
     );
   });
 
+  it('still reports success when the notification callback throws', async () => {
+    queueFakeChild({ exitCode: 0 });
+    const cb: jest.MockedFunction<WorktreeChangeCallback> = jest
+      .fn()
+      .mockImplementation(() => {
+        throw new Error('listener boom');
+      });
+    const record = jest.fn();
+    const out = await buildGitNamespace(
+      makeDeps({
+        onWorktreeChanged: cb,
+        resolveCallerSessionId: () => 'sdk-session-uuid',
+        recordWorktreeForCaller: record,
+      }),
+    ).worktreeAdd({ branch: 'b', path: 'D:/ws-b' });
+
+    expect(out).toEqual({ success: true, worktreePath: 'D:/ws-b' });
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledTimes(1);
+  });
+
   it('returns error envelope on non-zero exit and does NOT notify', async () => {
     queueFakeChild({ stderr: 'already exists', exitCode: 1 });
     const cb: jest.MockedFunction<WorktreeChangeCallback> = jest.fn();
@@ -362,6 +387,159 @@ describe('buildGitNamespace — worktreeAdd', () => {
     expect(out.success).toBe(false);
     expect(out.error).toBe('already exists');
     expect(cb).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// worktreeAdd — capture for the calling session (TASK_2026_580, L15)
+// ---------------------------------------------------------------------------
+
+describe('buildGitNamespace — worktreeAdd caller capture', () => {
+  const SDK_ID = 'sdk-session-uuid';
+
+  it('records the worktree on the resolved SDK session and carries sessionId in the event', async () => {
+    queueFakeChild({ exitCode: 0 });
+    const record = jest.fn();
+    const cb: jest.MockedFunction<WorktreeChangeCallback> = jest.fn();
+    const out = await buildGitNamespace(
+      makeDeps({
+        onWorktreeChanged: cb,
+        resolveCallerSessionId: () => SDK_ID,
+        recordWorktreeForCaller: record,
+      }),
+    ).worktreeAdd({ branch: 'feat/a', path: 'D:/ws-a' });
+
+    expect(out).toEqual({ success: true, worktreePath: 'D:/ws-a' });
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith({
+      sessionId: SDK_ID,
+      worktreePath: 'D:/ws-a',
+      branch: 'feat/a',
+    });
+    expect(cb).toHaveBeenCalledWith({
+      action: 'created',
+      worktreePath: 'D:/ws-a',
+      branch: 'feat/a',
+      sessionId: SDK_ID,
+    });
+  });
+
+  it('does not record when git fails', async () => {
+    queueFakeChild({ stderr: 'already exists', exitCode: 1 });
+    const resolve = jest.fn(() => SDK_ID);
+    const record = jest.fn();
+    const out = await buildGitNamespace(
+      makeDeps({
+        resolveCallerSessionId: resolve,
+        recordWorktreeForCaller: record,
+      }),
+    ).worktreeAdd({ branch: 'feat/a', path: 'D:/ws-a' });
+
+    expect(out.success).toBe(false);
+    expect(record).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('does not record when the path is rejected before git runs', async () => {
+    const record = jest.fn();
+    const out = await buildGitNamespace(
+      makeDeps({
+        getWorkspaceRoot: () => path.resolve('/repo'),
+        resolveCallerSessionId: () => SDK_ID,
+        recordWorktreeForCaller: record,
+      }),
+    ).worktreeAdd({ branch: 'feat/a', path: '../escape' });
+
+    expect(out.success).toBe(false);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['an empty string', ''],
+  ])(
+    'does not record and omits sessionId when the caller resolves to %s',
+    async (_label, resolved) => {
+      queueFakeChild({ exitCode: 0 });
+      const record = jest.fn();
+      const cb: jest.MockedFunction<WorktreeChangeCallback> = jest.fn();
+      const out = await buildGitNamespace(
+        makeDeps({
+          onWorktreeChanged: cb,
+          resolveCallerSessionId: () => resolved,
+          recordWorktreeForCaller: record,
+        }),
+      ).worktreeAdd({ branch: 'feat/a', path: 'D:/ws-a' });
+
+      expect(out.success).toBe(true);
+      expect(record).not.toHaveBeenCalled();
+      expect(cb.mock.calls[0][0]).not.toHaveProperty('sessionId');
+    },
+  );
+
+  it('still reports success and notifies when the recorder throws', async () => {
+    queueFakeChild({ exitCode: 0 });
+    const cb: jest.MockedFunction<WorktreeChangeCallback> = jest.fn();
+    const out = await buildGitNamespace(
+      makeDeps({
+        onWorktreeChanged: cb,
+        resolveCallerSessionId: () => SDK_ID,
+        recordWorktreeForCaller: () => {
+          throw new Error('recorder boom');
+        },
+      }),
+    ).worktreeAdd({ branch: 'feat/a', path: 'D:/ws-a' });
+
+    expect(out).toEqual({ success: true, worktreePath: 'D:/ws-a' });
+    expect(cb).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'created', sessionId: SDK_ID }),
+    );
+  });
+
+  it('still reports success and notifies without sessionId when the resolver throws', async () => {
+    queueFakeChild({ exitCode: 0 });
+    const record = jest.fn();
+    const cb: jest.MockedFunction<WorktreeChangeCallback> = jest.fn();
+    const out = await buildGitNamespace(
+      makeDeps({
+        onWorktreeChanged: cb,
+        resolveCallerSessionId: () => {
+          throw new Error('resolver boom');
+        },
+        recordWorktreeForCaller: record,
+      }),
+    ).worktreeAdd({ branch: 'feat/a', path: 'D:/ws-a' });
+
+    expect(out).toEqual({ success: true, worktreePath: 'D:/ws-a' });
+    expect(record).not.toHaveBeenCalled();
+    expect(cb.mock.calls[0][0]).not.toHaveProperty('sessionId');
+  });
+
+  it('carries sessionId in the event even with no recorder supplied', async () => {
+    queueFakeChild({ exitCode: 0 });
+    const cb: jest.MockedFunction<WorktreeChangeCallback> = jest.fn();
+    await buildGitNamespace(
+      makeDeps({ onWorktreeChanged: cb, resolveCallerSessionId: () => SDK_ID }),
+    ).worktreeAdd({ branch: 'feat/a', path: 'D:/ws-a' });
+
+    expect(cb).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: SDK_ID }),
+    );
+  });
+
+  it('never records on worktreeRemove', async () => {
+    queueFakeChild({ exitCode: 0 });
+    const resolve = jest.fn(() => SDK_ID);
+    const record = jest.fn();
+    await buildGitNamespace(
+      makeDeps({
+        resolveCallerSessionId: resolve,
+        recordWorktreeForCaller: record,
+      }),
+    ).worktreeRemove({ path: 'D:/ws-a' });
+
+    expect(resolve).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
   });
 });
 

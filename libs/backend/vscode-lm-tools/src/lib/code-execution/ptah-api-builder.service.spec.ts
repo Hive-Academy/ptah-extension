@@ -123,6 +123,12 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   ),
   Logger: class LoggerStub {},
   FileSystemManager: class FileSystemManagerStub {},
+  // Used only by the REAL git namespace the worktree-capture suite below
+  // loads with `jest.requireActual`: git itself never runs.
+  execGit: jest.fn(),
+  resolveWorktreePath: (_root: string, _branch: string, requested?: string) =>
+    requested ?? 'D:\\worktrees\\default',
+  WORKTREE_GIT_TIMEOUT_MS: 300_000,
 }));
 
 /**
@@ -195,12 +201,17 @@ import { executeCode } from './mcp-core/code-execution.engine';
 import { runWithMcpRequestContext } from './mcp-core/mcp-request-context';
 import type { DiagnosticsCacheInvalidator } from '../diagnostics/diagnostics-cache-invalidator.service';
 import type { SurfaceStateService } from '../surface';
-import type { Logger, FileSystemManager } from '@ptah-extension/vscode-core';
+import type {
+  Logger,
+  FileSystemManager,
+  WebviewManager,
+} from '@ptah-extension/vscode-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
   IDiagnosticsProvider,
   ISecretStorage,
+  ISessionOrganizationRecorder,
 } from '@ptah-extension/platform-core';
 import type { IMemoryUsageRecorder } from '@ptah-extension/memory-contracts';
 import type {
@@ -323,11 +334,14 @@ function buildTestBuilder(
   agentRoleResolver?: AgentRoleResolver,
   memoryUsageRecorder?: IMemoryUsageRecorder,
   surfaceStateService?: SurfaceStateService,
+  webviewManager?: WebviewManager,
+  sessionOrganizationRecorder?: ISessionOrganizationRecorder,
+  logger: Logger = makeLogger(),
 ): PtahAPIBuilder {
   return new PtahAPIBuilder(
     {} as unknown as WorkspaceAnalyzerService,
     {} as unknown as ContextOrchestrationService,
-    makeLogger(),
+    logger,
     {} as unknown as FileSystemManager,
     {} as unknown as ContextSizeOptimizerService,
     {} as unknown as MonorepoDetectorService,
@@ -358,7 +372,7 @@ function buildTestBuilder(
     undefined, // codeSymbolReader
     undefined, // memoryWriter
     undefined, // symbolIndexer
-    undefined, // webviewManager
+    webviewManager,
     undefined, // ideCapabilities
     undefined, // browserCapabilities
     undefined, // skillsShApiClient
@@ -373,6 +387,7 @@ function buildTestBuilder(
     // `diagnostics-cache-invalidator.service.spec.ts`.
     { start: () => undefined } as unknown as DiagnosticsCacheInvalidator,
     surfaceStateService,
+    sessionOrganizationRecorder,
   );
 }
 
@@ -670,4 +685,340 @@ describe('PtahAPIBuilder execute_code Apps namespace gates', () => {
       );
     },
   );
+});
+
+/**
+ * TASK_2026_580 AC4/AC8 reachability: an agent's `ptah_git_worktree_add`
+ * reaches the session-organization recorder through the git namespace, keyed
+ * by the caller's SDK session id. The REAL git namespace runs here (only
+ * `execGit` is mocked), so this fails if production stops wiring the capture.
+ */
+describe('PtahAPIBuilder.build() — MCP worktree capture (TASK_2026_580, L15)', () => {
+  const TAB_ID = 'tab-7';
+  const SDK_ID = '5f0c1d2e-sdk-session';
+  const TAB_ROOT = 'D:\\tab-root';
+  const WORKTREE = 'D:\\worktrees\\feat-x';
+
+  const execGitMock = (
+    jest.requireMock('@ptah-extension/vscode-core') as { execGit: jest.Mock }
+  ).execGit;
+  const realBuildGitNamespace = (
+    jest.requireActual('./namespace-builders/git-namespace.builder') as {
+      buildGitNamespace: typeof namespaceBuilders.buildGitNamespace;
+    }
+  ).buildGitNamespace;
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeRecorder(): ISessionOrganizationRecorder & {
+    recordWorktree: jest.Mock;
+  } {
+    return {
+      recordWorktree: jest.fn(),
+      recordLineage: jest.fn(),
+      linkTask: jest.fn(),
+      addPrLink: jest.fn(),
+      recordAgentStartedSession: jest.fn(),
+    };
+  }
+
+  function makeWebviewManager(): WebviewManager & {
+    broadcastMessage: jest.Mock;
+  } {
+    return {
+      broadcastMessage: jest.fn().mockResolvedValue(undefined),
+    } as unknown as WebviewManager & { broadcastMessage: jest.Mock };
+  }
+
+  function makeCallerSessionManager(
+    realSessionId: string | null,
+  ): ReturnType<typeof makeSessionManager> {
+    const manager = makeSessionManager();
+    manager.find.mockImplementation((id: string) =>
+      id === TAB_ID ? { realSessionId } : undefined,
+    );
+    manager.getSessionWorkspace.mockImplementation((id: string) =>
+      id === TAB_ID ? TAB_ROOT : undefined,
+    );
+    return manager;
+  }
+
+  function buildWithRealGit(
+    sessionManager: ReturnType<typeof makeSessionManager>,
+    recorder?: ISessionOrganizationRecorder,
+    webviewManager?: WebviewManager,
+    logger?: Logger,
+  ) {
+    (namespaceBuilders.buildGitNamespace as jest.Mock).mockImplementationOnce(
+      realBuildGitNamespace,
+    );
+    return buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      sessionManager,
+      undefined,
+      undefined,
+      undefined,
+      webviewManager,
+      recorder,
+      logger,
+    ).build();
+  }
+
+  it('records the worktree on the caller SDK session id, never the tab id', async () => {
+    execGitMock.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 });
+    const sessionManager = makeCallerSessionManager(SDK_ID);
+    const recorder = makeRecorder();
+    const webviewManager = makeWebviewManager();
+    const api = buildWithRealGit(sessionManager, recorder, webviewManager);
+
+    const result = await runWithMcpRequestContext(
+      { callerSessionId: TAB_ID },
+      () => api.git.worktreeAdd({ branch: 'feat/x', path: WORKTREE }),
+    );
+
+    expect(result).toEqual({ success: true, worktreePath: WORKTREE });
+    expect(sessionManager.find).toHaveBeenCalledWith(TAB_ID);
+    expect(recorder.recordWorktree).toHaveBeenCalledTimes(1);
+    expect(recorder.recordWorktree).toHaveBeenCalledWith({
+      sessionId: SDK_ID,
+      worktreePath: WORKTREE,
+      branch: 'feat/x',
+      workspaceRootHint: TAB_ROOT,
+    });
+    expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      'git:worktreeChanged',
+      {
+        action: 'created',
+        name: 'feat/x',
+        path: WORKTREE,
+        sessionId: SDK_ID,
+      },
+    );
+  });
+
+  it('drops and logs a caller whose tab has no SDK session id yet', async () => {
+    execGitMock.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 });
+    const recorder = makeRecorder();
+    const webviewManager = makeWebviewManager();
+    const api = buildWithRealGit(
+      makeCallerSessionManager(null),
+      recorder,
+      webviewManager,
+    );
+
+    const result = await runWithMcpRequestContext(
+      { callerSessionId: TAB_ID },
+      () => api.git.worktreeAdd({ branch: 'feat/x', path: WORKTREE }),
+    );
+
+    expect(result.success).toBe(true);
+    expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    const payload = webviewManager.broadcastMessage.mock.calls[0][1];
+    expect(payload).not.toHaveProperty('sessionId');
+  });
+
+  it('records nothing outside an MCP request context', async () => {
+    execGitMock.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 });
+    const sessionManager = makeCallerSessionManager(SDK_ID);
+    const recorder = makeRecorder();
+    const api = buildWithRealGit(sessionManager, recorder);
+
+    const result = await api.git.worktreeAdd({
+      branch: 'feat/x',
+      path: WORKTREE,
+    });
+
+    expect(result.success).toBe(true);
+    expect(sessionManager.find).not.toHaveBeenCalled();
+    expect(recorder.recordWorktree).not.toHaveBeenCalled();
+  });
+
+  it('records nothing when git fails', async () => {
+    execGitMock.mockResolvedValueOnce({
+      stdout: '',
+      stderr: 'fatal: already exists',
+      exitCode: 128,
+    });
+    const recorder = makeRecorder();
+    const api = buildWithRealGit(makeCallerSessionManager(SDK_ID), recorder);
+
+    const result = await runWithMcpRequestContext(
+      { callerSessionId: TAB_ID },
+      () => api.git.worktreeAdd({ branch: 'feat/x', path: WORKTREE }),
+    );
+
+    expect(result.success).toBe(false);
+    expect(recorder.recordWorktree).not.toHaveBeenCalled();
+  });
+
+  it('skips the capture without failing the add when no recorder is registered (VS Code)', async () => {
+    execGitMock.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 });
+    const api = buildWithRealGit(makeCallerSessionManager(SDK_ID), undefined);
+
+    const result = await runWithMcpRequestContext(
+      { callerSessionId: TAB_ID },
+      () => api.git.worktreeAdd({ branch: 'feat/x', path: WORKTREE }),
+    );
+
+    expect(result).toEqual({ success: true, worktreePath: WORKTREE });
+  });
+
+  it('keeps the add successful and logs one debug line when the recorder throws', async () => {
+    execGitMock.mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0 });
+    const recorder = makeRecorder();
+    recorder.recordWorktree.mockImplementation(() => {
+      throw new Error('recorder boom');
+    });
+    const logger = makeLogger();
+    const api = buildWithRealGit(
+      makeCallerSessionManager(SDK_ID),
+      recorder,
+      makeWebviewManager(),
+      logger,
+    );
+    const debug = logger.debug as jest.Mock;
+    // build() logs its own debug line; count only what the add produces.
+    debug.mockClear();
+
+    const result = await runWithMcpRequestContext(
+      { callerSessionId: TAB_ID },
+      () => api.git.worktreeAdd({ branch: 'feat/x', path: WORKTREE }),
+    );
+
+    expect(result).toEqual({ success: true, worktreePath: WORKTREE });
+    expect(recorder.recordWorktree).toHaveBeenCalledTimes(1);
+    expect(debug).toHaveBeenCalledTimes(1);
+    expect(debug.mock.calls[0][0]).toContain('Worktree capture failed');
+  });
+
+  it('the shared change handler only forwards sessionId and records nothing (protects TASK_2026_584 child worktrees)', () => {
+    const recorder = makeRecorder();
+    const webviewManager = makeWebviewManager();
+    const sessionManager = makeCallerSessionManager(SDK_ID);
+    buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      sessionManager,
+      undefined,
+      undefined,
+      undefined,
+      webviewManager,
+      recorder,
+    ).build();
+    const gitDeps = (namespaceBuilders.buildGitNamespace as jest.Mock).mock
+      .calls[0][0] as {
+      onWorktreeChanged: (event: {
+        action: 'created' | 'removed';
+        worktreePath?: string;
+        branch?: string;
+        sessionId?: string;
+      }) => void;
+    };
+
+    // Inside a caller context, as 584's ptah_session_start would invoke it for
+    // a child: the parent caller must not receive the child's worktree.
+    runWithMcpRequestContext({ callerSessionId: TAB_ID }, () =>
+      gitDeps.onWorktreeChanged({
+        action: 'created',
+        worktreePath: 'D:\\worktrees\\child',
+        branch: 'child-branch',
+        sessionId: 'child-sdk-id',
+      }),
+    );
+
+    expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    expect(sessionManager.find).not.toHaveBeenCalled();
+    expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+      'git:worktreeChanged',
+      {
+        action: 'created',
+        name: 'child-branch',
+        path: 'D:\\worktrees\\child',
+        sessionId: 'child-sdk-id',
+      },
+    );
+  });
+});
+
+/**
+ * TASK_2026_580 D12 reachability: `ptahAPI.sessionOrganization.linkTask` runs
+ * the REAL namespace (imported directly, not through the mocked barrel) and
+ * attributes the link to the caller's SDK session id, never its tab id.
+ */
+describe('PtahAPIBuilder.build() — sessionOrganization.linkTask (TASK_2026_580, D12)', () => {
+  const TAB_ID = 'tab-7';
+  const SDK_ID = '5f0c1d2e-sdk-session';
+  const TAB_ROOT = 'D:\\tab-root';
+  const TASK_ID = 'TASK_2026_580_9f77';
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeCallerSessionManager(): ReturnType<typeof makeSessionManager> {
+    const manager = makeSessionManager();
+    manager.find.mockImplementation((id: string) =>
+      id === TAB_ID ? { realSessionId: SDK_ID } : undefined,
+    );
+    manager.getSessionWorkspace.mockImplementation((id: string) =>
+      id === TAB_ID ? TAB_ROOT : undefined,
+    );
+    return manager;
+  }
+
+  function buildApi(recorder?: ISessionOrganizationRecorder) {
+    return buildTestBuilder(
+      makeRawWorkspaceProvider(),
+      makeCallerSessionManager(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      recorder,
+    ).build();
+  }
+
+  it('records the link on the caller SDK session id with source agent and role primary', () => {
+    const recorder = {
+      recordWorktree: jest.fn(),
+      recordLineage: jest.fn(),
+      linkTask: jest.fn(),
+      addPrLink: jest.fn(),
+      recordAgentStartedSession: jest.fn(),
+    };
+    const api = buildApi(recorder);
+
+    const result = runWithMcpRequestContext({ callerSessionId: TAB_ID }, () =>
+      api.sessionOrganization.linkTask({ taskId: TASK_ID }),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      sessionId: SDK_ID,
+      taskId: TASK_ID,
+      role: 'primary',
+    });
+    expect(recorder.linkTask).toHaveBeenCalledTimes(1);
+    expect(recorder.linkTask).toHaveBeenCalledWith({
+      sessionId: SDK_ID,
+      workspaceRootHint: TAB_ROOT,
+      taskId: TASK_ID,
+      role: 'primary',
+      source: 'agent',
+    });
+    expect(recorder.linkTask.mock.calls[0][0].sessionId).not.toBe(TAB_ID);
+  });
+
+  it('returns organization-unavailable when no recorder is registered', () => {
+    const api = buildApi(undefined);
+
+    const result = runWithMcpRequestContext({ callerSessionId: TAB_ID }, () =>
+      api.sessionOrganization.linkTask({ taskId: TASK_ID }),
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, error: 'organization-unavailable' }),
+    );
+  });
 });

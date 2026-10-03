@@ -33,12 +33,15 @@ interface WorkspaceAwareService {
  * SessionLoaderService (session cache), FilePickerService (`@` picker file
  * cache), AgentDiscoveryFacade / CommandDiscoveryFacade (`/` picker agent and
  * command caches), GitStatusService / GitBranchesService (git state),
- * AppStateManager (which view/layout surface is on screen) and
- * ConfirmationDialogService.
+ * ReviewDiffService (the review canvas's per-workspace diff cache),
+ * GitReviewService (branch review), ReviewNavigationService (where the review
+ * shell is pointed — a commit, stash file or spot-editor file opened in the
+ * workspace being left is dropped), AppStateManager (which view/layout
+ * surface is on screen) and ConfirmationDialogService.
  *
- * Git services (GitStatusService, GitBranchesService, GitReviewService) are resolved
- * dynamically via Injector to avoid a static import of
- * `@ptah-extension/git-ui` at this layer. Everything else —
+ * Git services (GitStatusService, GitBranchesService, ReviewDiffService,
+ * GitReviewService, ReviewNavigationService) are resolved dynamically via
+ * Injector to avoid a static import of `@ptah-extension/git-ui` at this layer. Everything else —
  * TabManagerService, SessionLoaderService, FilePickerService and the two
  * discovery facades — is injected directly and reset synchronously.
  *
@@ -119,11 +122,17 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
       return this.gitServices;
     }
 
-    const gitModule = await import('@ptah-extension/git-ui');
+    // All five come from the services-only entry by dynamic import, so this
+    // layer keeps no static edge to git-ui and never loads the review shell's
+    // chunks (which the VS Code package does not ship).
+    const git = await import('@ptah-extension/git-ui/services');
     this.gitServices = [
-      this.injector.get(gitModule.GitStatusService),
-      this.injector.get(gitModule.GitBranchesService),
-      this.injector.get(gitModule.GitReviewService),
+      this.injector.get(git.GitStatusService),
+      this.injector.get(git.GitBranchesService),
+      this.injector.get(git.ReviewDiffService),
+      this.injector.get(git.GitReviewService),
+      // Last: it reads GitStatusService's new active workspace when it resets.
+      this.injector.get(git.ReviewNavigationService),
     ];
     return this.gitServices;
   }
@@ -311,6 +320,14 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
         (tab) => tab.status === 'streaming' && tab.claudeSessionId != null,
       )
       .map((tab) => tab.claudeSessionId as SessionId);
+  }
+
+  getSessionIds(workspacePath: string): SessionId[] {
+    const ids = new Set<SessionId>();
+    for (const tab of this.tabManager.getWorkspaceTabs(workspacePath)) {
+      if (tab.claudeSessionId != null) ids.add(tab.claudeSessionId);
+    }
+    return [...ids];
   }
 
   confirm(options: ConfirmDialogOptions): Promise<boolean> {

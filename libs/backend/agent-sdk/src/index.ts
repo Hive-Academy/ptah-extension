@@ -42,6 +42,10 @@ export type {
   QueryNetworkVerdict,
   NetworkBackoffOptions,
 } from './lib/internal-query';
+export {
+  CommitMessageGenerator,
+  COMMIT_MESSAGE_TIMEOUT_MS,
+} from './lib/commit-message/commit-message-generator.service';
 export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export {
   AgentOutputCursorStaleError,
@@ -86,6 +90,10 @@ export type {
   PermissionPromptLifecycleEvent,
   PermissionPromptLifecycleListener,
 } from './lib/sdk-permission-handler';
+export {
+  UnattendedSessionPolicyRegistry,
+  type UnattendedSessionPolicy,
+} from './lib/permission/unattended-session-policy.registry';
 export type { IAuthEnvProvider } from './lib/auth-env.port';
 export type { IProviderAuthResolver } from './lib/auth/provider-auth-resolver.port';
 export type { OneShotAuthOverride } from './lib/helpers';

@@ -1,0 +1,426 @@
+{
+ "count": 20,
+ "minRing": 14.86,
+ "stops": [
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  },
+  {
+   "tag": "DIV",
+   "testid": null,
+   "cls": "relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    19,
+    19,
+    23
+   ],
+   "ring": 14.86
+  }
+ ]
+}

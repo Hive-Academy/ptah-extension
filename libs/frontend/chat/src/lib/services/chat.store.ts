@@ -25,17 +25,22 @@ import {
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService, TabId } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
-import { SessionLoaderService } from './chat-store/session-loader.service';
+import {
+  SessionLoaderService,
+  type SessionListQuery,
+} from './chat-store/session-loader.service';
 import { SessionHistoryReplayer } from './chat-store/session-history-replayer.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
+import type { SendOutcome } from './message-sender.service';
 import {
   SessionStatsAggregatorService,
   type SessionStatsEvent,
 } from './chat-store/session-stats-aggregator.service';
 import { ChatLifecycleService } from './chat-store/chat-lifecycle.service';
 import { TaskPromptBridgeService } from './chat-store/task-prompt-bridge.service';
+import { SessionOpenBridgeService } from './chat-store/session-open-bridge.service';
 import { TurnEndHandlerService } from './chat-store/turn-end-handler.service';
 import { TabState, SendMessageOptions } from '@ptah-extension/chat-types';
 
@@ -83,6 +88,11 @@ export class ChatStore {
    * read by the facade.
    */
   private readonly taskPromptBridge = inject(TaskPromptBridgeService);
+  /**
+   * Eagerly constructed for the same reason: its `sessionOpenRequest` effect
+   * lets the Tasks board open an existing session without importing this lib.
+   */
+  private readonly sessionOpenBridge = inject(SessionOpenBridgeService);
 
   private readonly _servicesReady = signal(false);
   readonly servicesReady = this._servicesReady.asReadonly();
@@ -95,6 +105,8 @@ export class ChatStore {
   readonly hasMoreSessions = this.sessionLoader.hasMoreSessions;
   readonly totalSessions = this.sessionLoader.totalSessions;
   readonly isLoadingMoreSessions = this.sessionLoader.isLoadingMoreSessions;
+  readonly listQuery = this.sessionLoader.listQuery;
+  readonly organizationAvailable = this.sessionLoader.organizationAvailable;
   readonly isStopping = this.conversation.isStopping;
   readonly queueRestoreContent = this.conversation.queueRestoreSignal;
   readonly permissionRequests = this.permissionHandler.permissionRequests;
@@ -199,6 +211,11 @@ export class ChatStore {
     return this.sessionLoader.loadMoreSessions();
   }
 
+  /** Replace the sidebar's `session:list` organization query (TASK_2026_580). */
+  setListQuery(query: SessionListQuery): void {
+    this.sessionLoader.setListQuery(query);
+  }
+
   async switchSession(
     sessionId: SessionId,
     opts?: { reason?: 'compaction'; activate?: boolean },
@@ -227,7 +244,7 @@ export class ChatStore {
   async sendOrQueueMessage(
     content: string,
     options?: SendMessageOptions,
-  ): Promise<void> {
+  ): Promise<SendOutcome> {
     return this.messageDispatch.sendOrQueueMessage(content, options);
   }
 

@@ -44,6 +44,8 @@ export * from './monogram-tile';
 export * from './brand-slugs';
 export * from './tab-group';
 export * from './drawer';
+export * from './modal';
 export * from './provider-model-picker';
 export * from './provider-mark';
 export * from './peer-session-picker';
+export * from './file-status-badge';

@@ -1062,6 +1062,77 @@ describe('SdkAgentAdapter', () => {
       );
     });
 
+    describe('metadata identity at creation (TASK_2026_584)', () => {
+      async function resolveSessionId(
+        h: ReturnType<typeof makeAdapter>,
+      ): Promise<void> {
+        const transformArg = h.streamTransformer.transform.mock.calls[0][0];
+        await (
+          transformArg.onSessionIdResolved as unknown as (
+            tabId: string | undefined,
+            realSessionId: string,
+          ) => Promise<void>
+        )('tab_1', 'resolved-session-id');
+      }
+
+      it('lists a worktree child under its workspace and records the worktree as cwd', async () => {
+        const h = makeAdapter();
+        await h.adapter.initialize();
+        h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+          sdkQuery: createFakeQuery(),
+          initialModel: 'claude-sonnet-4-20250514',
+          abortController: new AbortController(),
+        } as ExecuteQueryResult);
+
+        await h.adapter.startChatSession(
+          makeSessionConfig({
+            name: 'Child',
+            workspaceId: '/root',
+            projectPath: '/root/.claude-worktrees/x',
+          }),
+        );
+        await resolveSessionId(h);
+
+        expect(h.metadataStore.create).toHaveBeenCalledTimes(1);
+        expect(h.metadataStore.create).toHaveBeenCalledWith(
+          'resolved-session-id',
+          '/root',
+          'Child',
+          'created',
+          '/root/.claude-worktrees/x',
+        );
+      });
+
+      it.each([
+        ['omitted', undefined],
+        ['blank', '  '],
+        ['equal to projectPath', '/fake/workspace'],
+      ])(
+        'keeps the existing create() call when workspaceId is %s',
+        async (_label, workspaceId) => {
+          const h = makeAdapter();
+          await h.adapter.initialize();
+          h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+            sdkQuery: createFakeQuery(),
+            initialModel: 'claude-sonnet-4-20250514',
+            abortController: new AbortController(),
+          } as ExecuteQueryResult);
+
+          await h.adapter.startChatSession(
+            makeSessionConfig({ name: 'Plain', workspaceId }),
+          );
+          await resolveSessionId(h);
+
+          expect(h.metadataStore.create).toHaveBeenCalledWith(
+            'resolved-session-id',
+            '/fake/workspace',
+            'Plain',
+          );
+          expect(h.metadataStore.create.mock.calls[0]).toHaveLength(3);
+        },
+      );
+    });
+
     it('preserves an explicit sessionTitle independently of sessionName', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
@@ -2505,6 +2576,201 @@ describe('SdkAgentAdapter', () => {
 
       expect(h.metadataStore.touch).not.toHaveBeenCalled();
       expect(seen).toEqual([]);
+    });
+
+    // -----------------------------------------------------------------
+    // TASK_2026_580 component 13: the rotation signal. `'rebound'` on the
+    // new-chat path is the one place a record's id moves, and the fan-out
+    // payload names the id it moved FROM so keyed state can follow it.
+    // -----------------------------------------------------------------
+    describe('session id rotation signal (TASK_2026_580)', () => {
+      const ROTATED_ID = '33333333-3333-4333-8333-333333333333';
+
+      it('carries no previousSessionId on a first bind', async () => {
+        const h = makeAdapter();
+        await h.adapter.initialize();
+        const registry = wireFakeRegistry(h);
+        const seen = captureResolved(h);
+
+        await startSessionWithPrompt(h, registry);
+        await deliverInit(h, REAL_ID);
+
+        expect(seen).toHaveLength(1);
+        expect(seen[0].realSessionId).toBe(REAL_ID);
+        expect(seen[0]).not.toHaveProperty('previousSessionId');
+      });
+
+      it('names the id the record moved from when its own query rebinds it', async () => {
+        const h = makeAdapter();
+        await h.adapter.initialize();
+        const registry = wireFakeRegistry(h);
+        const seen = captureResolved(h);
+        const singleSlot = jest.fn();
+        h.adapter.setSessionIdResolvedCallback(singleSlot);
+
+        await startSessionWithPrompt(h, registry);
+        await deliverInit(h, REAL_ID);
+        // Same callback, same owner token, a new id: the registry rebinds.
+        await deliverInit(h, ROTATED_ID);
+
+        expect(h.sessionLifecycle.bindRealSessionId).toHaveLastReturnedWith(
+          'rebound',
+        );
+        expect(seen).toHaveLength(2);
+        expect(seen[1]).toEqual(
+          expect.objectContaining({
+            tabId: TAB_ID,
+            realSessionId: ROTATED_ID,
+            previousSessionId: REAL_ID,
+          }),
+        );
+        expect(singleSlot).toHaveBeenLastCalledWith(TAB_ID, ROTATED_ID);
+        expect(
+          h.metadataStore.create.mock.calls.map(([sessionId]) => sessionId),
+        ).toEqual([REAL_ID, ROTATED_ID]);
+      });
+
+      it('notifies nothing on a stale-mismatch, even though the record held a different id', async () => {
+        const h = makeAdapter();
+        await h.adapter.initialize();
+        const registry = wireFakeRegistry(h);
+        const seen = captureResolved(h);
+
+        await startSessionWithPrompt(h, registry);
+        const staleCallback = h.streamTransformer.transform.mock.calls[0][0]
+          .onSessionIdResolved as unknown as (
+          tabId: string | undefined,
+          realSessionId: string,
+        ) => Promise<void>;
+        await deliverInit(h, REAL_ID);
+
+        await startSessionWithPrompt(h, registry);
+        await deliverInit(h, ROTATED_ID);
+        expect(seen).toHaveLength(2);
+
+        const displacedId = '44444444-4444-4444-8444-444444444444';
+        await staleCallback(TAB_ID, displacedId);
+
+        expect(h.sessionLifecycle.bindRealSessionId).toHaveLastReturnedWith(
+          'stale-mismatch',
+        );
+        expect(seen).toHaveLength(2);
+        expect(seen.map((payload) => payload.previousSessionId)).toEqual([
+          undefined,
+          undefined,
+        ]);
+      });
+
+      it('carries no previousSessionId on a resume that reports a new id', async () => {
+        const h = makeAdapter();
+        await h.adapter.initialize();
+        const registry = wireFakeRegistry(h);
+        const seen = captureResolved(h);
+        h.sessionLifecycle.executeQuery.mockImplementationOnce(async () => {
+          // A resume registers under the id being resumed.
+          const sessionToken = registry.register(TAB_ID);
+          h.sessionLifecycle.bindRealSessionId(TAB_ID, REAL_ID, sessionToken);
+          return {
+            sdkQuery: createFakeQuery(),
+            initialModel: 'claude-sonnet-4-20250514',
+            abortController: new AbortController(),
+            sessionToken,
+          } as ExecuteQueryResult;
+        });
+
+        await h.adapter.resumeSession(
+          REAL_ID as SessionId,
+          makeSessionConfig({ tabId: TAB_ID }),
+        );
+        await deliverInit(h, ROTATED_ID);
+
+        expect(h.sessionLifecycle.bindRealSessionId).toHaveLastReturnedWith(
+          'rebound',
+        );
+        expect(seen).toHaveLength(1);
+        expect(seen[0].realSessionId).toBe(ROTATED_ID);
+        expect(seen[0]).not.toHaveProperty('previousSessionId');
+      });
+
+      // Revision 2 regression guard. `bindRefused` is a truthiness check at
+      // both call sites; if the resume guard ever became always-truthy, every
+      // resume with a tabId would silently skip the touch and both signals.
+      it.each(['bound', 'already-bound'] as const)(
+        'a resume with a tabId whose bind is %s touches metadata once and fires both signals',
+        async (outcome) => {
+          const h = makeAdapter();
+          await h.adapter.initialize();
+          const seen = captureResolved(h);
+          const singleSlot = jest.fn();
+          h.adapter.setSessionIdResolvedCallback(singleSlot);
+          h.sessionLifecycle.bindRealSessionId.mockReturnValue(outcome);
+          h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+            sdkQuery: createFakeQuery(),
+            initialModel: 'claude-sonnet-4-20250514',
+            abortController: new AbortController(),
+            sessionToken: 'resume-owner',
+          } as ExecuteQueryResult);
+
+          await h.adapter.resumeSession(
+            REAL_ID as SessionId,
+            makeSessionConfig({ tabId: TAB_ID }),
+          );
+          await deliverInit(h, REAL_ID);
+
+          expect(h.sessionLifecycle.bindRealSessionId).toHaveBeenCalledWith(
+            TAB_ID,
+            REAL_ID,
+            'resume-owner',
+          );
+          expect(h.metadataStore.touch).toHaveBeenCalledTimes(1);
+          expect(h.metadataStore.touch).toHaveBeenCalledWith(REAL_ID);
+          expect(singleSlot).toHaveBeenCalledTimes(1);
+          expect(singleSlot).toHaveBeenCalledWith(TAB_ID, REAL_ID);
+          expect(seen).toHaveLength(1);
+          expect(seen[0]).toEqual(
+            expect.objectContaining({ tabId: TAB_ID, realSessionId: REAL_ID }),
+          );
+        },
+      );
+
+      describe('readReboundSource', () => {
+        type ReboundSourceReader = {
+          readReboundSource(
+            tabId: string,
+            realSessionId: string,
+          ): string | undefined;
+        };
+
+        it.each([
+          ['no record', undefined, undefined],
+          [
+            'an unbound record',
+            { tabId: TAB_ID, realSessionId: null },
+            undefined,
+          ],
+          [
+            'a record bound to the same id',
+            { tabId: TAB_ID, realSessionId: ROTATED_ID },
+            undefined,
+          ],
+          [
+            'a record bound to a different id',
+            { tabId: TAB_ID, realSessionId: REAL_ID },
+            REAL_ID,
+          ],
+        ])('answers for %s, and never binds', (_label, record, expected) => {
+          const h = makeAdapter();
+          h.sessionLifecycle.find.mockReturnValue(
+            record as unknown as ReturnType<SessionLifecycleManager['find']>,
+          );
+
+          const reader = h.adapter as unknown as ReboundSourceReader;
+
+          expect(reader.readReboundSource(TAB_ID, ROTATED_ID)).toBe(expected);
+          expect(h.sessionLifecycle.find).toHaveBeenCalledWith(TAB_ID);
+          expect(h.sessionLifecycle.bindRealSessionId).not.toHaveBeenCalled();
+        });
+      });
     });
   });
 });

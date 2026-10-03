@@ -3,8 +3,16 @@ import { ErrorHandler, signal } from '@angular/core';
 
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
 import { MODEL_REFRESH_CONTROL } from '@ptah-extension/chat-state';
-import { MemoryStateService } from '@ptah-extension/memory-curator-ui';
-import { SkillSynthesisStateService } from '@ptah-extension/skill-synthesis-ui';
+import {
+  MemoryRpcService,
+  MemoryStateService,
+} from '@ptah-extension/memory-curator-ui';
+import {
+  SkillSynthesisRpcService,
+  SkillSynthesisStateService,
+} from '@ptah-extension/skill-synthesis-ui';
+import { CronRpcService } from '@ptah-extension/cron-scheduler-ui';
+import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui';
 
 import {
   ThothShellComponent,
@@ -322,5 +330,164 @@ describe('ThothShellComponent', () => {
       fixture.nativeElement as HTMLElement
     ).querySelectorAll('[aria-label="Status filter"] [role="tab"]');
     expect(skillFilterTabs.length).toBe(0);
+  });
+
+  /**
+   * Acceptance: the sidebar tiles reload on a tab switch and on a workspace
+   * switch, and the Skills tile counts only the current workspace. Runs the
+   * REAL ThothStatusService; only the RPC services are stubbed, and the skills
+   * stub answers like the backend handler: by `scope`, against the backend's
+   * own active root.
+   */
+  describe('tile refresh (real ThothStatusService)', () => {
+    interface FakeSkillsBackend {
+      root: string | null;
+      readonly pendingByRoot: Record<string, string[]>;
+    }
+
+    let backend: FakeSkillsBackend;
+    let workspaceInfo: ReturnType<typeof signal<{ path: string } | null>>;
+    let listCandidates: jest.Mock;
+
+    const allRows = (): string[] =>
+      Object.values(backend.pendingByRoot).flat();
+
+    const flushAsync = (): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, 0));
+
+    const skillsTileValue = (el: HTMLElement): string | undefined =>
+      el
+        .querySelector(
+          '[data-pillar="skills"] [data-testid="dashboard-status-card-value"]',
+        )
+        ?.textContent?.trim();
+
+    beforeEach(() => {
+      TestBed.resetTestingModule();
+      activeTabSignal = signal<ThothActiveTabId>('memory');
+      workspaceInfo = signal<{ path: string } | null>({ path: '/ws-a' });
+      backend = {
+        root: '/ws-a',
+        pendingByRoot: {
+          '/ws-a': ['a1', 'a2', 'a3'],
+          '/ws-b': ['b1', 'b2', 'b3', 'b4', 'b5'],
+        },
+      };
+
+      listCandidates = jest.fn(
+        async (params: { scope?: 'workspace' | 'all' } = {}) => {
+          // Mirrors `listScope`: 'all' is every row; otherwise the backend's
+          // own root, falling back to every row when it has none.
+          const rows =
+            params.scope === 'all' || backend.root === null
+              ? allRows()
+              : (backend.pendingByRoot[backend.root] ?? []);
+          return rows.map((id) => ({ id }));
+        },
+      );
+
+      TestBed.configureTestingModule({
+        imports: [ThothShellComponent],
+        providers: [
+          { provide: ErrorHandler, useValue: errorHandler },
+          {
+            provide: AppStateManager,
+            useValue: {
+              ...makeAppStateStub(activeTabSignal),
+              workspaceInfo: workspaceInfo.asReadonly(),
+            },
+          },
+          {
+            provide: VSCodeService,
+            useValue: { config: signal({ isElectron: true }) },
+          },
+          { provide: MemoryStateService, useValue: memoryStateStub },
+          { provide: SkillSynthesisStateService, useValue: skillStateStub },
+          { provide: MODEL_REFRESH_CONTROL, useValue: modelRefreshStub },
+          {
+            provide: MemoryRpcService,
+            useValue: {
+              stats: jest.fn(async () => ({
+                core: 0,
+                recall: 0,
+                archival: 0,
+                codeIndex: 0,
+                lastCuratedAt: null,
+              })),
+            },
+          },
+          { provide: SkillSynthesisRpcService, useValue: { listCandidates } },
+          {
+            provide: CronRpcService,
+            useValue: { list: jest.fn(async () => ({ jobs: [] })) },
+          },
+          {
+            provide: GatewayRpcService,
+            useValue: {
+              status: jest.fn(async () => ({ enabled: false, adapters: [] })),
+              listBindings: jest.fn(async () => ({ bindings: [] })),
+            },
+          },
+        ],
+      });
+    });
+
+    it('reloads on tab switch, then on workspace switch, scoped to the workspace', async () => {
+      const fixture = TestBed.createComponent(ThothShellComponent);
+      const el = fixture.nativeElement as HTMLElement;
+      fixture.detectChanges();
+      await flushAsync();
+      fixture.detectChanges();
+      expect(skillsTileValue(el)).toBe('3');
+
+      // The backend gains a candidate while the user sits on Memory.
+      backend.pendingByRoot['/ws-a'].push('a4');
+
+      const tabs = el.querySelectorAll<HTMLButtonElement>(
+        '[role="tablist"][aria-label="Thoth feature tabs"] > [role="tab"]',
+      );
+      tabs[2].click(); // Schedules
+      fixture.detectChanges();
+      await flushAsync();
+      fixture.detectChanges();
+      expect(activeTabSignal()).toBe('cron');
+      expect(skillsTileValue(el)).toBe('4');
+
+      // Workspace switch: the backend root moves first, then the webview's.
+      backend.root = '/ws-b';
+      workspaceInfo.set({ path: '/ws-b' });
+      TestBed.tick();
+      await flushAsync();
+      fixture.detectChanges();
+      expect(skillsTileValue(el)).toBe('5');
+
+      // Never the machine-wide count, and every call asked for the workspace.
+      expect(allRows()).toHaveLength(9);
+      expect(listCandidates).toHaveBeenCalledTimes(3);
+      for (const [params] of listCandidates.mock.calls) {
+        expect(params).toEqual({
+          status: 'candidate',
+          scope: 'workspace',
+          limit: 1000,
+        });
+      }
+    });
+
+    it('does not refetch when the active tab is clicked again', async () => {
+      const fixture = TestBed.createComponent(ThothShellComponent);
+      const el = fixture.nativeElement as HTMLElement;
+      fixture.detectChanges();
+      await flushAsync();
+      expect(listCandidates).toHaveBeenCalledTimes(1);
+
+      const tabs = el.querySelectorAll<HTMLButtonElement>(
+        '[role="tablist"][aria-label="Thoth feature tabs"] > [role="tab"]',
+      );
+      tabs[0].click(); // Memory, already active
+      fixture.detectChanges();
+      await flushAsync();
+
+      expect(listCandidates).toHaveBeenCalledTimes(1);
+    });
   });
 });

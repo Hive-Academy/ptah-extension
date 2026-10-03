@@ -196,6 +196,57 @@ function createTurnDeferred(): TurnDeferred {
   return deferred;
 }
 
+/** A legacy-format line that starts with a status or error word is never a model. */
+const AGY_STATUS_LINE_START =
+  /^(error|warning|fetching|loading|usage|failed)\b/i;
+
+/** A legacy-format line ending in an ellipsis ("...", "…") or ":" is a status line. */
+const AGY_STATUS_LINE_END = /(\.\.\.|…|:)$/;
+
+/**
+ * Parse `agy models` stdout (TASK_2026_555 Batch 52.2). Two formats:
+ *
+ * - agy 1.2: a status line ("Fetching available models...") and then
+ *   `id<TAB>display name` per model ("claude-sonnet-4-6\tClaude Sonnet 4.6
+ *   (Thinking)"). When ANY line has a tab, only tab lines are read and every
+ *   other line (status, progress, error) is ignored.
+ * - Older builds: one label per line ("Gemini 3.1 Pro (High)"), which is both
+ *   the id and the name. With no tab anywhere, a line is a model unless it is
+ *   a status or error line: ending in "...", "…" or ":", or starting with a
+ *   status/error word ({@link AGY_STATUS_LINE_START}).
+ *
+ * The spawn passes only the id (`agyModelId`).
+ */
+export function parseAgyModels(stdout: string): CliModelInfo[] {
+  const lines = stdout
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (lines.some((line) => line.includes('\t'))) {
+    return lines.flatMap((line) => {
+      const tab = line.indexOf('\t');
+      if (tab < 0) return [];
+      const id = line.slice(0, tab).trim();
+      const name = line.slice(tab + 1).trim();
+      return id ? [{ id, name: name || id }] : [];
+    });
+  }
+  return lines
+    .filter(
+      (line) =>
+        !AGY_STATUS_LINE_END.test(line) && !AGY_STATUS_LINE_START.test(line),
+    )
+    .map((line) => ({ id: line, name: line }));
+}
+
+/**
+ * The value for `--model`. A model saved from the earlier parse is the whole
+ * `id<TAB>name` line; only its id is passed (Batch 52.2).
+ */
+export function agyModelId(value: string): string {
+  return value.split('\t')[0].trim();
+}
+
 function buildAntigravityArgs(
   options: CliCommandOptions,
   taskPrompt: string,
@@ -214,8 +265,9 @@ function buildAntigravityArgs(
     args.push('--dangerously-skip-permissions');
   }
   args.push('--print-timeout', PRINT_TIMEOUT);
-  if (options.model) {
-    args.push('--model', options.model);
+  const model = options.model ? agyModelId(options.model) : '';
+  if (model) {
+    args.push('--model', model);
   }
   if (
     options.reasoningEffort &&
@@ -383,10 +435,9 @@ export class AntigravityCliAdapter implements CliAdapter {
   }
 
   /**
-   * List available models by parsing `agy models` stdout (one label per line,
-   * e.g. "Gemini 3.1 Pro (High)"). The label IS the value passed to `--model`,
-   * so it serves as both id and display name. Falls back to an empty list when
-   * the probe fails — the caller treats a bare binary on PATH as "installed".
+   * List available models by parsing `agy models` stdout (`parseAgyModels`).
+   * Falls back to an empty list when the probe fails — the caller treats a
+   * bare binary on PATH as "installed".
    */
   async listModels(): Promise<CliModelInfo[]> {
     const binaryPath = (await resolveCliPath('agy')) ?? 'agy';
@@ -394,11 +445,7 @@ export class AntigravityCliAdapter implements CliAdapter {
     if (!raw) {
       return [];
     }
-    return stripAnsiCodes(raw)
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map((label) => ({ id: label, name: label }));
+    return parseAgyModels(stripAnsiCodes(raw));
   }
 
   /**

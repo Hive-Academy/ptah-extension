@@ -1,4 +1,4 @@
-import { summarizeCliSdkError } from './sdk-error-summary';
+import { redactSecrets, summarizeCliSdkError } from './sdk-error-summary';
 
 describe('summarizeCliSdkError', () => {
   it('recognises a usage limit and keeps the retry time', () => {
@@ -72,5 +72,78 @@ describe('summarizeCliSdkError', () => {
     expect(summarizeCliSdkError(new Error(''), 'Codex')).toBe(
       'Codex SDK Error: Unknown error',
     );
+  });
+
+  it('leaves a two-argument call untouched (Codex call sites)', () => {
+    expect(summarizeCliSdkError(new Error('agent boom'), 'Codex')).toBe(
+      'Codex SDK Error: agent boom',
+    );
+  });
+});
+
+describe('redactSecrets', () => {
+  it('replaces every literal occurrence with the fixed marker', () => {
+    const text =
+      'auth failed for key sk-cursor-secret-551; request used sk-cursor-secret-551';
+
+    expect(redactSecrets(text, ['sk-cursor-secret-551'])).toBe(
+      'auth failed for key [REDACTED]; request used [REDACTED]',
+    );
+  });
+
+  it('redacts each secret in the order given', () => {
+    const text = 'one alpha-key and one beta-key';
+
+    expect(redactSecrets(text, ['beta-key', 'alpha-key'])).toBe(
+      'one [REDACTED] and one [REDACTED]',
+    );
+  });
+
+  it('ignores blank secrets and leaves the text unchanged without any', () => {
+    expect(redactSecrets('unchanged', [])).toBe('unchanged');
+    expect(redactSecrets('unchanged', ['   ', ''])).toBe('unchanged');
+  });
+
+  it('replaces a value that contains regex metacharacters literally', () => {
+    expect(redactSecrets('token a.b*c+ used', ['a.b*c+'])).toBe(
+      'token [REDACTED] used',
+    );
+  });
+});
+
+describe('summarizeCliSdkError — secret redaction (551)', () => {
+  const KEY = 'sk-cursor-secret-551';
+
+  it('redacts the key from the kept headline', () => {
+    const summary = summarizeCliSdkError(
+      new Error(`auth failed: invalid API key ${KEY}`),
+      'Cursor',
+      [KEY],
+    );
+
+    expect(summary).toBe(
+      'Cursor SDK Error: auth failed: invalid API key [REDACTED]',
+    );
+    expect(summary).not.toContain(KEY);
+  });
+
+  it('redacts before the headline is cut, so the marker survives the cap', () => {
+    const raw = `failure for ${KEY}: ${'y'.repeat(2000)}`;
+
+    const summary = summarizeCliSdkError(new Error(raw), 'Cursor', [KEY]);
+
+    expect(summary).not.toContain(KEY);
+    expect(summary).toContain('[REDACTED]');
+  });
+
+  it('keeps the usage-limit wording while redacting the key', () => {
+    const summary = summarizeCliSdkError(
+      new Error(`usage limit reached for ${KEY}. try again at 5:05 PM.`),
+      'Cursor',
+      [KEY],
+    );
+
+    expect(summary).toBe('Cursor usage limit reached. Try again at 5:05 PM.');
+    expect(summary).not.toContain(KEY);
   });
 });

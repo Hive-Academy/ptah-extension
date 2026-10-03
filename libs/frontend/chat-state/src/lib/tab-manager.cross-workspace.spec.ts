@@ -142,6 +142,61 @@ describe('TabManagerService — cross-workspace routing (TASK_2026_154)', () => 
       expect(service.isTabStreaming(tabIdA)).toBe(false);
     });
   });
+
+  // TASK_2026_592: closing a tab ends its session, so a workspace switch must
+  // never look like a close — it only parks tabs in a background partition.
+  describe('workspace switch never closes tabs (TASK_2026_592)', () => {
+    it('switching away and back emits no closedTab and keeps background tabs intact', () => {
+      const sessIdle = SessionId.create();
+      const sessLive = SessionId.create();
+
+      service.switchWorkspace(WS_A);
+      const idleTab = service.createTab('idle');
+      service.attachSession(idleTab, sessIdle);
+      const liveTab = service.createTab('live');
+      service.attachSession(liveTab, sessLive);
+      service.markStreaming(liveTab);
+      service.markTabStreaming(liveTab);
+      const liveSignal = service.createAbortController(liveTab);
+      expect(service.closedTab()).toBeNull();
+
+      service.switchWorkspace(WS_B);
+      service.createTab('b');
+
+      expect(service.closedTab()).toBeNull();
+      const parked = service.getWorkspaceTabs(WS_A);
+      expect(parked.map((t) => t.id).sort()).toEqual(
+        [idleTab, liveTab].sort(),
+      );
+      expect(parked.find((t) => t.id === idleTab)?.claudeSessionId).toBe(
+        sessIdle,
+      );
+      expect(parked.find((t) => t.id === liveTab)?.claudeSessionId).toBe(
+        sessLive,
+      );
+      expect(service.findTabBySessionId(sessIdle)?.id).toBe(idleTab);
+      // The in-flight stream of the parked tab is not aborted by the switch.
+      expect(liveSignal.aborted).toBe(false);
+
+      service.switchWorkspace(WS_A);
+
+      expect(service.closedTab()).toBeNull();
+      expect(
+        service
+          .tabs()
+          .map((t) => t.id)
+          .sort(),
+      ).toEqual([idleTab, liveTab].sort());
+      expect(
+        service.tabs().find((t) => t.id === idleTab)?.claudeSessionId,
+      ).toBe(sessIdle);
+      expect(
+        service.tabs().find((t) => t.id === liveTab)?.claudeSessionId,
+      ).toBe(sessLive);
+      expect(service.isTabStreaming(liveTab)).toBe(true);
+      expect(liveSignal.aborted).toBe(false);
+    });
+  });
 });
 
 /**

@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -25,7 +26,12 @@ interface SuccessResult {
   content: string;
   sizeBytes: number;
   encoding: string;
+  sha256: string;
+  bom: boolean;
 }
+
+const sha256Of = (bytes: Buffer): string =>
+  createHash('sha256').update(bytes).digest('hex');
 
 describe('FileViewRpcHandlers — file:viewContent', () => {
   let base: string;
@@ -117,14 +123,57 @@ describe('FileViewRpcHandlers — file:viewContent', () => {
       workspaceRoot: workspace,
       relativePath: 'src/a.ts',
       absolutePath: path.join(workspace, 'src', 'a.ts'),
+      sha256: sha256Of(Buffer.from('hello', 'utf8')),
+      bom: false,
     });
   });
 
-  it('strips a UTF-8 BOM', async () => {
+  it('strips a UTF-8 BOM, reports it, and hashes the raw bytes', async () => {
     resolveForView.mockResolvedValue(await resolvedFile('bom.txt'));
     const result = (await build()({ path: 'bom.txt' })) as SuccessResult;
     expect(result.content).toBe('hi');
     expect(result.encoding).toBe('utf-8');
+    expect(result.bom).toBe(true);
+    // The hash covers the BOM: it is of the bytes on disk, not of `content`.
+    const raw = await fs.readFile(path.join(workspace, 'bom.txt'));
+    expect(result.sha256).toBe(sha256Of(raw));
+    expect(result.sha256).not.toBe(sha256Of(Buffer.from('hi', 'utf8')));
+  });
+
+  it('keeps CRLF and a second BOM in content so a save can round-trip them', async () => {
+    const raw = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf, 0xef, 0xbb, 0xbf]),
+      Buffer.from('a\r\nb\r\n', 'utf8'),
+    ]);
+    await fs.writeFile(path.join(workspace, 'double-bom.txt'), raw);
+    resolveForView.mockResolvedValue(await resolvedFile('double-bom.txt'));
+
+    const result = (await build()({
+      path: 'double-bom.txt',
+    })) as SuccessResult;
+    expect(result.bom).toBe(true);
+    expect(result.content).toBe('﻿a\r\nb\r\n');
+    expect(result.sha256).toBe(sha256Of(raw));
+  });
+
+  it('reports a UTF-16 BOM as bom: true', async () => {
+    resolveForView.mockResolvedValue(await resolvedFile('utf16le.txt'));
+    const result = (await build()({ path: 'utf16le.txt' })) as SuccessResult;
+    expect(result.bom).toBe(true);
+  });
+
+  it('gives a different sha256 once the bytes change', async () => {
+    const target = path.join(workspace, 'changing.txt');
+    await fs.writeFile(target, 'one', 'utf8');
+    resolveForView.mockResolvedValue(await resolvedFile('changing.txt'));
+    const before = (await build()({ path: 'changing.txt' })) as SuccessResult;
+
+    await fs.writeFile(target, 'two', 'utf8');
+    resolveForView.mockResolvedValue(await resolvedFile('changing.txt'));
+    const after = (await build()({ path: 'changing.txt' })) as SuccessResult;
+
+    expect(before.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(after.sha256).not.toBe(before.sha256);
   });
 
   /**

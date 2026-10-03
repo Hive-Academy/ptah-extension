@@ -3,7 +3,7 @@ import type {
   FileViewContentResult,
   FileViewFailureReason,
 } from '@ptah-extension/shared';
-import type { FileViewTabState } from '../types/diff-tab.types';
+import type { FileViewTabState } from '../types/file-view.types';
 import { FileViewReaderService } from './file-view-reader.service';
 
 const mockRpcCall = jest.fn();
@@ -50,6 +50,8 @@ describe('FileViewReaderService', () => {
         content: '# A',
         sizeBytes: 3,
         encoding: 'utf-8',
+        sha256: 'c'.repeat(64),
+        bom: true,
       } satisfies FileViewContentResult,
     });
 
@@ -73,9 +75,28 @@ describe('FileViewReaderService', () => {
       status: 'fresh',
       absolutePath: '/ws/docs/a.md',
       content: '# A',
+      encoding: 'utf-8',
+      sha256: 'c'.repeat(64),
+      bom: true,
       isMarkdown: true,
       reveal: { line: 4, column: 2 },
       requestId: 7,
+    });
+  });
+
+  it('keeps the previous hash when a refresh fails, so it still matches the kept content', async () => {
+    mockRpcCall.mockRejectedValue(new Error('transport'));
+    const result = await service.read({ path: '/ws/old.ts' }, 2, {
+      ...previousState(),
+      encoding: 'utf-8',
+      sha256: 'd'.repeat(64),
+      bom: false,
+    });
+    expect(result).toMatchObject({
+      content: 'kept content',
+      encoding: 'utf-8',
+      sha256: 'd'.repeat(64),
+      bom: false,
     });
   });
 

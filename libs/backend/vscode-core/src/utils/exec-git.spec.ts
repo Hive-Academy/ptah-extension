@@ -1005,6 +1005,52 @@ describe('git process supervision', () => {
     await expect(call).resolves.toMatchObject({ stdout: '0123456789' });
   });
 
+  it('keeps only the tail of each stream and ignores the cap with keepOutputTailBytes', async () => {
+    const seen: string[] = [];
+    const call = execGit(['commit', '-m', 'x'], WS, {
+      ...BG,
+      maxOutputBytes: 4,
+      keepOutputTailBytes: 4,
+      onOutput: (_stream, chunk) => seen.push(chunk),
+    });
+    await drain();
+    for (const part of ['aaaa', 'bbbb', 'cc', 'dd']) {
+      held[0].stdout.emit('data', Buffer.from(part));
+    }
+    held[0].stderr.emit('data', Buffer.from('eeee'));
+    held[0].stderr.emit('data', Buffer.from('ffff'));
+    held[0].emit('close', 1);
+
+    // Whole chunks: the last ones holding at least 4 bytes per stream.
+    await expect(call).resolves.toEqual({
+      stdout: 'ccdd',
+      stderr: 'ffff',
+      exitCode: 1,
+    });
+    // The observer still saw every byte.
+    expect(seen.join('')).toBe('aaaabbbbccddeeeeffff');
+  });
+
+  it('starts a cut tail at a UTF-8 character boundary (MIN-9)', async () => {
+    const call = execGit(['commit', '-m', 'x'], WS, {
+      ...BG,
+      keepOutputTailBytes: 4,
+    });
+    await drain();
+    // `é` is C3 A9; the cut drops the chunk holding C3.
+    held[0].stderr.emit('data', Buffer.from([0x61, 0x61, 0xc3]));
+    held[0].stderr.emit('data', Buffer.from([0xa9, 0x62, 0x63, 0x64]));
+    // Not cut: a whole multi-byte stdout is kept as is.
+    held[0].stdout.emit('data', Buffer.from('é', 'utf8'));
+    held[0].emit('close', 1);
+
+    await expect(call).resolves.toEqual({
+      stdout: 'é',
+      stderr: 'bcd',
+      exitCode: 1,
+    });
+  });
+
   it('frees the slot at once when the child never started', async () => {
     process.env['PTAH_GIT_MAX_CONCURRENT'] = '2';
     resetGitProcessGateForTests();

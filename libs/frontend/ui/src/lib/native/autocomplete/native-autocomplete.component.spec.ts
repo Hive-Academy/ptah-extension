@@ -2,6 +2,8 @@ import {
   Component,
   TemplateRef,
   ViewChild,
+  ViewChildren,
+  QueryList,
   signal,
   ChangeDetectionStrategy,
 } from '@angular/core';
@@ -32,6 +34,7 @@ interface TestSuggestion {
       [suggestions]="suggestions()"
       [isLoading]="isLoading()"
       [isOpen]="isOpen()"
+      [openActiveIndex]="openActiveIndex()"
       [headerTitle]="headerTitle()"
       [ariaLabel]="ariaLabel()"
       [emptyMessage]="emptyMessage()"
@@ -60,6 +63,7 @@ class HostComponent {
   ]);
   isLoading = signal(false);
   isOpen = signal(false);
+  openActiveIndex = signal<number | null>(null);
   headerTitle = signal('Suggestions');
   ariaLabel = signal('Autocomplete');
   emptyMessage = signal('Nothing found');
@@ -73,6 +77,48 @@ class HostComponent {
   onClosed(): void {
     this.closedCount++;
   }
+}
+
+@Component({
+  standalone: true,
+  imports: [NativeAutocompleteComponent],
+  changeDetection: ChangeDetectionStrategy.Eager,
+  template: `
+    <ptah-native-autocomplete
+      [suggestions]="firstSuggestions()"
+      [isOpen]="isOpen()"
+      [suggestionTemplate]="tpl"
+    >
+      <input type="text" autocompleteInput />
+    </ptah-native-autocomplete>
+    <ptah-native-autocomplete
+      [suggestions]="secondSuggestions()"
+      [isOpen]="isOpen()"
+      [suggestionTemplate]="tpl"
+    >
+      <input type="text" autocompleteInput />
+    </ptah-native-autocomplete>
+
+    <ng-template #tpl let-suggestion>
+      <span class="item-label">{{ suggestion.name }}</span>
+    </ng-template>
+  `,
+})
+class TwoAutocompleteHostComponent {
+  @ViewChildren(NativeAutocompleteComponent)
+  autocompletes!: QueryList<NativeAutocompleteComponent<TestSuggestion>>;
+  @ViewChild('tpl', { static: true })
+  tpl!: TemplateRef<{ $implicit: TestSuggestion }>;
+
+  firstSuggestions = signal<TestSuggestion[]>([
+    { id: 1, name: 'Alpha' },
+    { id: 2, name: 'Beta' },
+  ]);
+  secondSuggestions = signal<TestSuggestion[]>([
+    { id: 3, name: 'Gamma' },
+    { id: 4, name: 'Delta' },
+  ]);
+  isOpen = signal(false);
 }
 
 describe('NativeAutocompleteComponent', () => {
@@ -269,11 +315,185 @@ describe('NativeAutocompleteComponent', () => {
       expect(host.autocomplete.getActiveDescendantId()).toBeNull();
     });
 
-    it('should return suggestion-<index> when active', () => {
+    it('should return the prefixed option id when active', () => {
       host.isOpen.set(true);
       fixture.detectChanges();
-      // Default first-item active after configure
-      expect(host.autocomplete.getActiveDescendantId()).toBe('suggestion-0');
+      // Default first-item active after the open reset
+      expect(host.autocomplete.getActiveDescendantId()).toBe(
+        `${host.autocomplete.optionIdPrefix()}-0`,
+      );
+    });
+  });
+
+  describe('per-instance ids', () => {
+    it('should render the listbox with the listboxId input', () => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      const panel = (fixture.nativeElement as HTMLElement).querySelector(
+        '[role="listbox"]',
+      );
+      expect(panel?.getAttribute('id')).toBe(host.autocomplete.listboxId());
+    });
+
+    it('should render option ids from the optionIdPrefix input', () => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      const ids = Array.from(
+        (fixture.nativeElement as HTMLElement).querySelectorAll(
+          '[role="option"]',
+        ),
+      ).map((o) => o.id);
+      expect(ids).toEqual(
+        [0, 1, 2].map((i) => `${host.autocomplete.optionIdPrefix()}-${i}`),
+      );
+    });
+
+    describe('two instances on one page', () => {
+      let twoFixture: ComponentFixture<TwoAutocompleteHostComponent>;
+      let twoHost: TwoAutocompleteHostComponent;
+      let panels: HTMLElement[];
+
+      beforeEach(() => {
+        twoFixture = TestBed.createComponent(TwoAutocompleteHostComponent);
+        twoHost = twoFixture.componentInstance;
+        twoHost.isOpen.set(true);
+        twoFixture.detectChanges();
+        panels = Array.from(
+          (twoFixture.nativeElement as HTMLElement).querySelectorAll(
+            '[role="listbox"]',
+          ),
+        );
+      });
+
+      it('should generate disjoint listbox and option ids', () => {
+        const [first, second] = twoHost.autocompletes.toArray();
+        expect(panels).toHaveLength(2);
+        expect(panels[0].id).toBe(first.listboxId());
+        expect(panels[1].id).toBe(second.listboxId());
+        expect(panels[0].id).not.toBe(panels[1].id);
+
+        const ids = Array.from(
+          (twoFixture.nativeElement as HTMLElement).querySelectorAll(
+            '[role="option"]',
+          ),
+        ).map((o) => o.id);
+        expect(ids).toHaveLength(4);
+        expect(new Set(ids).size).toBe(ids.length);
+      });
+
+      it('should point each activedescendant at its own panel only', () => {
+        const [first, second] = twoHost.autocompletes.toArray();
+        second.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+
+        const firstId = first.getActiveDescendantId();
+        const secondId = second.getActiveDescendantId();
+        expect(firstId).not.toBeNull();
+        expect(secondId).not.toBeNull();
+        expect(firstId).not.toBe(secondId);
+
+        expect(
+          panels[0].querySelector(`[id="${firstId}"]`),
+        ).not.toBeNull();
+        expect(panels[1].querySelector(`[id="${firstId}"]`)).toBeNull();
+        expect(
+          panels[1].querySelector(`[id="${secondId}"]`),
+        ).not.toBeNull();
+        expect(panels[0].querySelector(`[id="${secondId}"]`)).toBeNull();
+      });
+    });
+  });
+
+  describe('active index reset on reopen', () => {
+    it('should reset to the first row when no openActiveIndex is given', () => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      host.autocomplete.onKeyDown(
+        new KeyboardEvent('keydown', { key: 'ArrowDown' }),
+      );
+      expect(host.autocomplete.activeIndex()).toBe(1);
+
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      host.isOpen.set(true);
+      fixture.detectChanges();
+
+      expect(host.autocomplete.activeIndex()).toBe(0);
+      expect(host.autocomplete.getActiveDescendantId()).toBe(
+        `${host.autocomplete.optionIdPrefix()}-0`,
+      );
+    });
+
+    it('should mark the requested row active on open and on reopen', () => {
+      host.openActiveIndex.set(1);
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      expect(host.autocomplete.activeIndex()).toBe(1);
+
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      host.autocomplete.handleHover(2); // a stale index from the last session
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      expect(host.autocomplete.activeIndex()).toBe(1);
+    });
+
+    it('should keep no row active on open when openActiveIndex is -1', () => {
+      host.openActiveIndex.set(-1);
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      expect(host.autocomplete.activeIndex()).toBe(-1);
+      expect(host.autocomplete.getActiveDescendantId()).toBeNull();
+
+      // Enter must not pick a row the user never navigated to.
+      host.autocomplete.onKeyDown(
+        new KeyboardEvent('keydown', { key: 'Enter' }),
+      );
+      expect(host.selected).toBeNull();
+
+      // Arrows enter from the ends of the list.
+      host.autocomplete.onKeyDown(
+        new KeyboardEvent('keydown', { key: 'ArrowDown' }),
+      );
+      expect(host.autocomplete.activeIndex()).toBe(0);
+    });
+
+    it('should activate the first match when suggestions change while suppressed', () => {
+      host.openActiveIndex.set(-1);
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      expect(host.autocomplete.activeIndex()).toBe(-1);
+
+      // The user typed and the list narrowed: the first match must become
+      // the active row, so Enter selects it.
+      host.suggestions.set([
+        { id: 2, name: 'Beta' },
+        { id: 3, name: 'Gamma' },
+      ]);
+      fixture.detectChanges();
+
+      expect(host.autocomplete.activeIndex()).toBe(0);
+      host.autocomplete.onKeyDown(
+        new KeyboardEvent('keydown', { key: 'Enter' }),
+      );
+      expect(host.selected?.name).toBe('Beta');
+    });
+
+    it('should hand the reopen highlight over to the first match when suggestions change', () => {
+      host.openActiveIndex.set(2);
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      expect(host.autocomplete.activeIndex()).toBe(2);
+
+      // The highlight holds until the user types; a changed list re-targets
+      // the first match instead of staying sticky on the old row.
+      host.suggestions.set([{ id: 1, name: 'Alpha' }]);
+      fixture.detectChanges();
+
+      expect(host.autocomplete.activeIndex()).toBe(0);
+      host.autocomplete.onKeyDown(
+        new KeyboardEvent('keydown', { key: 'Enter' }),
+      );
+      expect(host.selected?.name).toBe('Alpha');
     });
   });
 

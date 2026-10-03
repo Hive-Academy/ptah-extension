@@ -70,6 +70,8 @@ describe('MessageDispatchService', () => {
   let persistedAuthMethod: ReturnType<typeof signal<string | null>>;
   let isLoadingAuth: ReturnType<typeof signal<boolean>>;
   let permissionRequests: ReturnType<typeof signal<unknown[]>>;
+  /** Router-resolved target tabs per prompt id (`targetTabsFor`). */
+  let promptTargets: Map<string, string[]>;
   let sendMock: jest.Mock;
   let queueOrAppendMock: jest.Mock;
   let continueConversationMock: jest.Mock;
@@ -150,9 +152,11 @@ describe('MessageDispatchService', () => {
       queueOrAppendMessage: queueOrAppendMock,
       continueConversation: continueConversationMock,
     } as unknown as ConversationService;
+    promptTargets = new Map<string, string[]>();
     const permissionHandlerMock = {
       permissionRequests: () => permissionRequests(),
       handlePermissionResponse: handlePermissionResponseMock,
+      targetTabsFor: (id: string) => promptTargets.get(id) ?? [],
     } as unknown as PermissionHandlerService;
 
     TestBed.configureTestingModule({
@@ -256,10 +260,73 @@ new`);
       expect(queueOrAppendMock).toHaveBeenCalledWith('hello', undefined);
     });
 
+    it("when streaming, denies only the target tab's prompts and leaves other sessions' prompts pending", async () => {
+      tabs = [
+        makeTab({ id: 'tab-1', claudeSessionId: 'sess-1' }),
+        makeTab({ id: 'tab-2', claudeSessionId: 'sess-2', status: 'streaming' }),
+      ];
+      permissionRequests.set([
+        { id: 'own-by-tab', tabId: 'tab-2' },
+        { id: 'own-by-session', sessionId: 'sess-2' },
+        { id: 'own-by-target' },
+        { id: 'other-by-tab', tabId: 'tab-1', sessionId: 'sess-2' },
+        { id: 'other-by-session', sessionId: 'sess-1' },
+        { id: 'other-by-target' },
+        { id: 'unrouted' },
+      ]);
+      promptTargets.set('own-by-target', ['tab-2']);
+      promptTargets.set('other-by-target', ['tab-1']);
+
+      await service.sendOrQueueMessage('feedback', { tabId: 'tab-2' });
+
+      const denied = handlePermissionResponseMock.mock.calls.map(
+        (c) => (c[0] as { id: string }).id,
+      );
+      expect(denied).toEqual(['own-by-tab', 'own-by-session', 'own-by-target']);
+      expect(handlePermissionResponseMock).toHaveBeenCalledWith({
+        id: 'own-by-tab',
+        decision: 'deny_with_message',
+        reason: 'feedback',
+      });
+      expect(queueOrAppendMock).toHaveBeenCalledWith('feedback', {
+        tabId: 'tab-2',
+      });
+    });
+
+    it('when streaming the active tab, an unrouted (globally shown) prompt is still denied', async () => {
+      activeTabStatus.set('streaming');
+      permissionRequests.set([{ id: 'unrouted' }, { id: 'routed-away', tabId: 'tab-9' }]);
+      await service.sendOrQueueMessage('hello');
+      const denied = handlePermissionResponseMock.mock.calls.map(
+        (c) => (c[0] as { id: string }).id,
+      );
+      expect(denied).toEqual(['unrouted']);
+    });
+
     it('when not streaming, dispatches via MessageSender.send', async () => {
       activeTabStatus.set('loaded');
       await service.sendOrQueueMessage('hello');
       expect(sendMock).toHaveBeenCalledWith('hello', undefined);
+    });
+
+    it('resolves the outcome: send result passed through, queue accepted, blocked command refused', async () => {
+      activeTabStatus.set('loaded');
+      sendMock.mockResolvedValue({ success: false, error: 'AUTH_REQUIRED' });
+      await expect(service.sendOrQueueMessage('hello')).resolves.toEqual({
+        success: false,
+        error: 'AUTH_REQUIRED',
+      });
+
+      activeTabStatus.set('streaming');
+      await expect(service.sendOrQueueMessage('queued')).resolves.toEqual({
+        success: true,
+      });
+
+      activeTabStatus.set('loaded');
+      persistedAuthMethod.set('copilot');
+      const blocked = await service.sendOrQueueMessage('/context');
+      expect(blocked.success).toBe(false);
+      expect(blocked.error).toBeTruthy();
     });
 
     it('queues (never sends/aborts) when the self-heal flag is set despite a non-streaming status', async () => {

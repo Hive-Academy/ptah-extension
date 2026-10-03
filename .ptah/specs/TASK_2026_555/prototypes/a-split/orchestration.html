@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Orchestration — Variant A (Talk-to / Does-work split) — TASK_2026_555</title>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="assets/app.css" rel="stylesheet" type="text/css" />
+</head>
+<body class="bg-base-100 text-base-content text-sm min-h-screen">
+
+<header class="proto-toolbar flex flex-wrap items-center justify-between gap-2">
+  <div class="flex items-center gap-2">
+    <span class="font-semibold">Prototype A — Talk-to / Does-work split</span>
+    <button id="protoThemeToggle" class="btn btn-xs btn-outline">Theme: anubis (dark)</button>
+    <button id="protoFrameToggle" class="btn btn-xs btn-outline">Frame: 1024x768 (off)</button>
+  </div>
+  <nav class="flex items-center gap-2">
+    <a href="index.html" class="btn btn-xs btn-ghost">Providers</a>
+    <a href="orchestration.html" class="btn btn-xs btn-ghost">Agent Orchestration</a>
+    <span class="hf">(OpenCode row demonstrates "Quota reached"; Cursor/Pi demonstrate "Not installed")</span>
+  </nav>
+</header>
+
+<div id="pageFrame">
+<main class="p-4 space-y-4 max-w-5xl mx-auto">
+
+  <div role="tablist" class="tabs flex border-b border-base-300">
+    <a role="tab" class="tab px-4 py-2 text-sm font-medium" href="index.html">Providers</a>
+    <button role="tab" class="tab tab-active px-4 py-2 text-sm font-medium" aria-selected="true">Agent Orchestration</button>
+    <button role="tab" class="tab px-4 py-2 text-sm font-medium" aria-selected="false" disabled>Advanced</button>
+    <button role="tab" class="tab px-4 py-2 text-sm font-medium" aria-selected="false" disabled>Search &amp; Voice</button>
+  </div>
+
+  <div>
+    <h1 class="text-base font-semibold">Agent Orchestration</h1>
+    <p class="hf">Who does the work — background model roles, delegated CLI agents, and run policy.</p>
+  </div>
+
+  <!-- Model roles -->
+  <section class="card card-bordered overflow-hidden">
+    <div class="px-3 py-2 border-b border-base-300 flex items-center justify-between">
+      <h2 class="text-sm font-semibold">Model roles</h2>
+      <span class="hf">Cells are pickers — click to change provider / model / effort</span>
+    </div>
+    <table class="table table-sm">
+      <thead>
+        <tr><th>Role</th><th>Provider</th><th>Model</th><th>Effort</th></tr>
+      </thead>
+      <tbody id="rolesBody"></tbody>
+    </table>
+  </section>
+
+  <!-- CLI agents -->
+  <section class="card card-bordered overflow-hidden">
+    <div class="px-3 py-2 border-b border-base-300 flex items-center justify-between">
+      <h2 class="text-sm font-semibold">CLI agents</h2>
+      <button id="btnAddCliAgent" class="btn btn-primary btn-xs">+ Add CLI agent</button>
+    </div>
+    <table class="table table-sm">
+      <thead>
+        <tr><th>Enabled</th><th>CLI</th><th>Status</th><th>Provider</th><th>Model</th><th>Effort</th><th></th><th>Auto-approve</th></tr>
+      </thead>
+      <tbody id="cliBody"></tbody>
+    </table>
+    <div class="px-3 py-2 hf">Not-installed CLIs (Cursor, Pi) stay listed with a "Not installed" status instead of being hidden — install help is one click away via the row.</div>
+  </section>
+
+  <!-- Ptah CLI instances -->
+  <section class="card card-bordered overflow-hidden">
+    <div class="px-3 py-2 border-b border-base-300 flex items-center justify-between">
+      <h2 class="text-sm font-semibold">Ptah CLI instances</h2>
+      <span class="hf">Custom CLI instances backed by any connected provider</span>
+    </div>
+    <table class="table table-sm">
+      <thead><tr><th>Name</th><th>Provider</th><th>Model</th><th>Tier mapping</th><th>Key status</th><th></th></tr></thead>
+      <tbody id="ptahCliBody"></tbody>
+    </table>
+  </section>
+
+  <!-- Policy strip -->
+  <section class="card card-bordered p-3 flex flex-wrap items-center gap-4">
+    <div class="flex items-center gap-2">
+      <span class="chip-label">Max concurrent agents</span>
+      <span class="font-medium">3</span>
+      <button id="btnEditConcurrency" class="btn btn-ghost btn-xs">Edit</button>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="chip-label">Preferred order</span>
+      <span class="font-medium text-xs">Codex → Antigravity → Glm → Copilot</span>
+      <button id="btnEditOrder" class="btn btn-ghost btn-xs">Edit order</button>
+    </div>
+  </section>
+
+</main>
+</div>
+
+<script src="assets/app.js"></script>
+<script>
+/* ------------------------------------------------------------------ */
+/* Mock data                                                           */
+/* ------------------------------------------------------------------ */
+const CONNECTED_PROVIDERS = ['Claude (Subscription)', 'Moonshot (Kimi)', 'OpenAI Codex', 'Ollama Cloud', 'sovereigneg'];
+const EFFORTS = ['low', 'medium', 'high', 'provider default'];
+
+const ROLES = [
+  { id: 'main', name: 'Main agent', readOnly: true, provider: 'Claude (Subscription)', model: 'Default (chosen by Claude)', effort: 'medium' },
+  { id: 'memory', name: 'Memory curator', provider: 'OpenAI Codex', model: 'gpt-5.6-luna', effort: 'medium' },
+  { id: 'archaeologist', name: 'Archaeologist lane', follows: 'main agent (haiku tier)' },
+  { id: 'synthesis', name: 'Synthesis lane', follows: 'main agent (sonnet tier)' },
+  { id: 'judge', name: 'Judge lane', provider: 'Moonshot (Kimi)', model: 'kimi-k2.5', effort: 'medium' },
+  { id: 'replay', name: 'Replay lane', follows: 'main agent (haiku tier)' },
+  { id: 'judging', name: 'Judging & enhancement', follows: 'inherit', extra: 'Time limit: 120s' },
+];
+
+const CLI_AGENTS = [
+  { id: 'codex', name: 'Codex', installed: true, enabled: true, status: 'ready', provider: 'OpenAI Codex', model: 'gpt-5.5-codex', effort: 'medium', permNote: 'Runs full auto — no per-command approval.', autoApprove: null },
+  { id: 'copilot', name: 'Copilot', installed: true, enabled: false, status: 'disabled', provider: 'provider default', model: 'provider default', effort: 'provider default', permNote: 'Approval gate depends on auto-approve.', autoApprove: false },
+  { id: 'cursor', name: 'Cursor', installed: false, enabled: false, status: 'not-installed', provider: '—', model: '—', effort: '—', permNote: 'Runs full auto — no per-command approval.', autoApprove: null },
+  { id: 'antigravity', name: 'Antigravity', installed: true, enabled: true, status: 'ready', provider: 'built-in', model: 'claude-sonnet-4-6 Thinking', effort: '—', permNote: 'Runs full auto — no per-command approval.', autoApprove: null },
+  { id: 'opencode', name: 'OpenCode', installed: true, enabled: true, status: 'quota', provider: 'built-in', model: 'opencode/nemotron-3-ultra-free', effort: '—', permNote: 'Runs with --auto — no per-command approval.', autoApprove: null },
+  { id: 'pi', name: 'Pi', installed: false, enabled: false, status: 'not-installed', provider: '—', model: '—', effort: '—', permNote: 'No approval gate and no MCP access.', autoApprove: null },
+];
+
+const PTAH_CLI_INSTANCES = [
+  { id: 'glm', name: 'Glm', provider: 'Ollama Cloud', model: 'glm-5.3:cloud', tiers: { opus: 'glm-5.3:cloud', sonnet: 'glm-5.3:cloud', haiku: 'qwen-3.2:cloud' }, keyStatus: 'Key set' },
+];
+
+/* ------------------------------------------------------------------ */
+/* Model roles table                                                   */
+/* ------------------------------------------------------------------ */
+function renderRoles() {
+  const body = document.getElementById('rolesBody');
+  body.innerHTML = '';
+  ROLES.forEach((r) => {
+    const tr = el('tr', {}, []);
+    if (r.readOnly) {
+      tr.appendChild(el('td', {}, [
+        el('a', { href: 'index.html', class: 'font-medium underline' }, [r.name]),
+      ]));
+      tr.appendChild(el('td', { class: 'hf' }, [r.provider]));
+      tr.appendChild(el('td', { class: 'hf' }, [r.model]));
+      tr.appendChild(el('td', { class: 'hf capitalize' }, [r.effort]));
+    } else if (r.follows) {
+      tr.appendChild(el('td', { class: 'font-medium' }, [r.name]));
+      const followsBtn = el('button', { class: 'follows-chip' }, ['Follows main agent →']);
+      followsBtn.addEventListener('click', () => showToast(r.name + ' follows: ' + r.follows + (r.extra ? ' · ' + r.extra : '')));
+      tr.appendChild(el('td', { colspan: '3' }, [followsBtn, document.createTextNode(' ' + r.follows.replace('main agent ', ''))]));
+    } else {
+      tr.appendChild(el('td', { class: 'font-medium' }, [r.name]));
+      tr.appendChild(el('td', {}, [rolePickerCell(r, 'provider', CONNECTED_PROVIDERS)]));
+      tr.appendChild(el('td', {}, [rolePickerCell(r, 'model', PROVIDER_MODELS_FOR(r.provider))]));
+      tr.appendChild(el('td', {}, [rolePickerCell(r, 'effort', EFFORTS)]));
+    }
+    body.appendChild(tr);
+  });
+}
+function PROVIDER_MODELS_FOR(providerName) {
+  const map = {
+    'OpenAI Codex': ['gpt-5.6-luna', 'gpt-5.5-codex'],
+    'Moonshot (Kimi)': ['kimi-k2.5', 'kimi-k2.5-lite'],
+    'Claude (Subscription)': ['Default (chosen by Claude)', 'claude-opus-4-6'],
+    'Ollama Cloud': ['glm-5.3:cloud', 'qwen-3.2:cloud'],
+    sovereigneg: ['custom-70b'],
+  };
+  return map[providerName] || ['Default'];
+}
+function rolePickerCell(role, field, options) {
+  const btn = el('button', { class: 'role-cell-btn' }, [el('span', { class: field === 'effort' ? 'capitalize' : '' }, [String(role[field])])]);
+  btn.addEventListener('click', () => {
+    openPopover(btn, () => {
+      const wrap = el('div', {}, [el('div', { class: 'popover-title' }, [field.charAt(0).toUpperCase() + field.slice(1) + ' — ' + role.name])]);
+      options.forEach((opt) => {
+        const o = el('button', { class: 'popover-option' }, [el('span', { class: field === 'effort' ? 'capitalize' : '' }, [opt])]);
+        o.addEventListener('click', () => {
+          role[field] = opt;
+          if (field === 'provider') role.model = PROVIDER_MODELS_FOR(opt)[0];
+          closePopover();
+          renderRoles();
+          showToast(role.name + ' ' + field + ' set to ' + opt + '.');
+        });
+        wrap.appendChild(o);
+      });
+      return wrap;
+    });
+  });
+  return btn;
+}
+renderRoles();
+
+/* ------------------------------------------------------------------ */
+/* CLI agents table                                                     */
+/* ------------------------------------------------------------------ */
+function statusBadge(status) {
+  const map = {
+    ready: { cls: 'status-connected', text: 'Ready' },
+    disabled: { cls: 'status-idle', text: 'Disabled' },
+    'not-installed': { cls: 'status-idle', text: 'Not installed' },
+    quota: { cls: 'status-error', text: 'Quota reached' },
+    error: { cls: 'status-error', text: 'Error' },
+  };
+  const m = map[status] || map.disabled;
+  return el('span', { class: 'inline-flex items-center gap-1.5' }, [
+    el('span', { class: 'status-dot ' + m.cls }, []),
+    el('span', { class: (m.cls === 'status-error' ? 'status-text-error' : m.cls === 'status-connected' ? 'status-text-active' : 'status-text-idle') + ' text-xs' }, [m.text]),
+  ]);
+}
+
+function renderCliAgents() {
+  const body = document.getElementById('cliBody');
+  body.innerHTML = '';
+  CLI_AGENTS.forEach((c) => {
+    const tr = el('tr', {}, []);
+
+    const toggle = el('button', { class: 'toggle-switch', role: 'switch', 'aria-checked': String(c.enabled), 'aria-label': 'Enable ' + c.name }, [el('span', { class: 'toggle-knob' }, [])]);
+    if (!c.installed) toggle.setAttribute('disabled', 'disabled');
+    toggle.addEventListener('click', () => {
+      if (!c.installed) return;
+      c.enabled = !c.enabled;
+      c.status = c.enabled ? 'ready' : 'disabled';
+      renderCliAgents();
+      showToast(c.name + (c.enabled ? ' enabled.' : ' disabled.'));
+    });
+    tr.appendChild(el('td', {}, [toggle]));
+
+    tr.appendChild(el('td', { class: 'font-medium' }, [c.name]));
+    tr.appendChild(el('td', {}, [statusBadge(c.status)]));
+    tr.appendChild(el('td', { class: 'hf' }, [c.provider]));
+
+    if (c.installed && c.model !== '—') {
+      tr.appendChild(el('td', {}, [rolePickerCell(c, 'model', [c.model, 'gpt-5.5-codex', 'gpt-5.6-luna'])]));
+      tr.appendChild(el('td', {}, [rolePickerCell(c, 'effort', EFFORTS)]));
+    } else {
+      tr.appendChild(el('td', { class: 'hf' }, [c.model]));
+      tr.appendChild(el('td', { class: 'hf' }, [c.effort]));
+    }
+
+    const permBtn = el('button', { class: 'perm-note-icon', 'aria-label': 'Permission note for ' + c.name }, [
+      (function () { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('width', '14'); s.setAttribute('height', '14'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor'); s.setAttribute('stroke-width', '2'); s.innerHTML = '<circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/>'; return s; })(),
+    ]);
+    permBtn.addEventListener('click', () => {
+      openPopover(permBtn, () => el('div', {}, [
+        el('div', { class: 'popover-title' }, ['Permission note']),
+        el('p', { class: 'text-xs' }, [c.permNote]),
+      ]), { align: 'right' });
+    });
+    tr.appendChild(el('td', {}, [permBtn]));
+
+    if (c.autoApprove === null) {
+      tr.appendChild(el('td', { class: 'hf' }, ['—']));
+    } else {
+      const aaToggle = el('button', { class: 'toggle-switch', role: 'switch', 'aria-checked': String(c.autoApprove) }, [el('span', { class: 'toggle-knob' }, [])]);
+      aaToggle.addEventListener('click', () => { c.autoApprove = !c.autoApprove; renderCliAgents(); showToast('Copilot auto-approve ' + (c.autoApprove ? 'enabled' : 'disabled') + '.'); });
+      tr.appendChild(el('td', {}, [aaToggle]));
+    }
+
+    if (!c.installed) {
+      tr.addEventListener('click', (e) => { if (e.target.closest('button')) return; showToast(c.name + ' is not installed. See install instructions in the drawer (mock).'); });
+    }
+    body.appendChild(tr);
+  });
+}
+renderCliAgents();
+
+/* ------------------------------------------------------------------ */
+/* Ptah CLI instances                                                   */
+/* ------------------------------------------------------------------ */
+function renderPtahCli() {
+  const body = document.getElementById('ptahCliBody');
+  body.innerHTML = '';
+  PTAH_CLI_INSTANCES.forEach((p) => {
+    const tr = el('tr', { class: 'cursor-pointer' }, []);
+    tr.appendChild(el('td', { class: 'font-medium' }, [p.name]));
+    tr.appendChild(el('td', { class: 'hf' }, [p.provider]));
+    tr.appendChild(el('td', { class: 'hf' }, [p.model]));
+    tr.appendChild(el('td', {}, [
+      el('span', { class: 'tier-badge mr-1' }, ['opus:' + p.tiers.opus.split(':')[0]]),
+      el('span', { class: 'tier-badge mr-1' }, ['sonnet:' + p.tiers.sonnet.split(':')[0]]),
+      el('span', { class: 'tier-badge' }, ['haiku:' + p.tiers.haiku.split(':')[0]]),
+    ]));
+    tr.appendChild(el('td', { class: 'hf' }, [p.keyStatus]));
+    const manageBtn = el('button', { class: 'btn btn-ghost btn-xs' }, ['Manage']);
+    manageBtn.addEventListener('click', () => openPtahCliDrawer(p));
+    tr.appendChild(el('td', {}, [manageBtn]));
+    tr.addEventListener('click', (e) => { if (!e.target.closest('button')) openPtahCliDrawer(p); });
+    body.appendChild(tr);
+  });
+}
+function openPtahCliDrawer(p) {
+  openDrawer((close) => {
+    const wrap = el('div', { class: 'flex flex-col h-full' }, []);
+    const header = el('div', { class: 'drawer-header' }, [
+      el('div', {}, [el('h3', { class: 'font-semibold' }, [p.name]), el('p', { class: 'hf' }, ['Ptah CLI instance · ' + p.provider])]),
+      el('button', { class: 'btn btn-ghost btn-xs' }, ['✕']),
+    ]);
+    header.querySelector('button').addEventListener('click', close);
+    wrap.appendChild(header);
+    const body = el('div', { class: 'drawer-body space-y-3' }, []);
+    body.appendChild(el('p', { class: 'text-sm' }, ['Status: Ready']));
+    body.appendChild(el('p', { class: 'text-sm' }, ['Key status: ' + p.keyStatus]));
+    body.appendChild(el('h4', { class: 'text-xs font-semibold uppercase text-base-content-muted mt-2' }, ['Tier mapping']));
+    ['opus', 'sonnet', 'haiku'].forEach((tier) => {
+      const row = el('div', { class: 'flex items-center justify-between border border-base-300 rounded-btn px-2 py-1.5' }, [
+        el('span', { class: 'text-xs font-semibold uppercase w-16' }, [tier]),
+        el('span', { class: 'text-sm' }, [p.tiers[tier]]),
+      ]);
+      body.appendChild(row);
+    });
+    const deleteBtn = el('button', { class: 'btn btn-outline btn-error btn-xs mt-3' }, ['Delete instance']);
+    deleteBtn.addEventListener('click', () => { showToast(p.name + ' deleted.'); close(); });
+    body.appendChild(deleteBtn);
+    wrap.appendChild(body);
+    return wrap;
+  }, { label: 'Manage ' + p.name });
+}
+renderPtahCli();
+
+document.getElementById('btnAddCliAgent').addEventListener('click', () => {
+  let showKey = false;
+  openModal((close) => {
+    const wrap = el('div', {}, []);
+    wrap.appendChild(el('div', { class: 'modal-header' }, [
+      el('h3', { class: 'font-semibold' }, ['Add CLI agent']),
+      (function () { const b = el('button', { class: 'btn btn-ghost btn-xs' }, ['✕']); b.addEventListener('click', close); return b; })(),
+    ]));
+    const body = el('div', { class: 'modal-body space-y-3' }, []);
+    body.appendChild(el('div', {}, [el('label', { class: 'text-xs font-semibold block mb-1' }, ['Name']), el('input', { class: 'input input-bordered input-sm w-full', placeholder: 'e.g. Glm-2' }, [])]));
+    body.appendChild(el('div', {}, [el('label', { class: 'text-xs font-semibold block mb-1' }, ['Provider']), el('select', { class: 'select select-bordered select-sm w-full' }, CONNECTED_PROVIDERS.concat(['GitHub Copilot (sign in below)']).map((p) => el('option', {}, [p])))]));
+    const keyBox = el('div', {}, [el('label', { class: 'text-xs font-semibold block mb-1' }, ['API key (if required)'])]);
+    const keyRow = el('div', { class: 'flex items-center gap-2' }, []);
+    const keyInput = el('input', { class: 'input input-bordered input-sm flex-1', type: 'password' }, []);
+    const toggleBtn = el('button', { class: 'btn btn-ghost btn-xs' }, ['Show']);
+    toggleBtn.addEventListener('click', () => { showKey = !showKey; keyInput.type = showKey ? 'text' : 'password'; toggleBtn.textContent = showKey ? 'Hide' : 'Show'; });
+    keyRow.appendChild(keyInput); keyRow.appendChild(toggleBtn);
+    keyBox.appendChild(keyRow);
+    body.appendChild(keyBox);
+    const copilotLogin = el('div', { class: 'border border-base-300 rounded-box p-2' }, [
+      el('p', { class: 'hf mb-1' }, ['If this agent is backed by GitHub Copilot, sign in here instead of a key:']),
+      (function () { const b = el('button', { class: 'btn btn-outline btn-xs' }, ['Sign in with GitHub']); b.addEventListener('click', () => showToast('Opening GitHub sign-in…')); return b; })(),
+    ]);
+    body.appendChild(copilotLogin);
+    wrap.appendChild(body);
+    const footer = el('div', { class: 'modal-footer' }, []);
+    const saveBtn = el('button', { class: 'btn btn-primary btn-sm' }, ['Add agent']);
+    saveBtn.addEventListener('click', () => { showToast('CLI agent added.'); close(); });
+    footer.appendChild(el('span', { class: 'hf' }, ['']));
+    footer.appendChild(saveBtn);
+    wrap.appendChild(footer);
+    return wrap;
+  }, { label: 'Add CLI agent' });
+});
+
+document.getElementById('btnEditConcurrency').addEventListener('click', function () {
+  const trigger = this;
+  openPopover(trigger, () => {
+    const wrap = el('div', {}, [el('div', { class: 'popover-title' }, ['Max concurrent agents'])]);
+    const input = el('input', { class: 'input input-bordered input-xs w-20', type: 'number', min: '1', max: '20', value: '3' }, []);
+    wrap.appendChild(input);
+    const saveBtn = el('button', { class: 'btn btn-primary btn-xs w-full mt-2' }, ['Save']);
+    saveBtn.addEventListener('click', () => {
+      document.querySelector('#btnEditConcurrency').previousElementSibling.textContent = input.value;
+      closePopover();
+      showToast('Max concurrent agents set to ' + input.value + '.');
+    });
+    wrap.appendChild(saveBtn);
+    return wrap;
+  }, { align: 'left' });
+});
+
+document.getElementById('btnEditOrder').addEventListener('click', function () {
+  const trigger = this;
+  let order = ['Codex', 'Antigravity', 'Glm', 'Copilot'];
+  openPopover(trigger, () => {
+    const wrap = el('div', {}, [el('div', { class: 'popover-title' }, ['Preferred order (drag to reorder)'])]);
+    const list = el('div', { class: 'space-y-1' }, []);
+    function renderList() {
+      list.innerHTML = '';
+      order.forEach((name, i) => {
+        const item = el('div', { class: 'flex items-center justify-between border border-base-300 rounded-btn px-2 py-1 text-xs', draggable: 'true' }, [
+          el('span', {}, ['≡ ' + (i + 1) + '. ' + name]),
+        ]);
+        item.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/plain', String(i)));
+        item.addEventListener('dragover', (e) => e.preventDefault());
+        item.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const from = Number(e.dataTransfer.getData('text/plain'));
+          const to = i;
+          const moved = order.splice(from, 1)[0];
+          order.splice(to, 0, moved);
+          renderList();
+        });
+        list.appendChild(item);
+      });
+    }
+    renderList();
+    wrap.appendChild(list);
+    const saveBtn = el('button', { class: 'btn btn-primary btn-xs w-full mt-2' }, ['Save order']);
+    saveBtn.addEventListener('click', () => {
+      trigger.previousElementSibling.textContent = order.join(' → ');
+      closePopover();
+      showToast('Preferred order updated.');
+    });
+    wrap.appendChild(saveBtn);
+    return wrap;
+  }, { align: 'left' });
+});
+</script>
+</body>
+</html>

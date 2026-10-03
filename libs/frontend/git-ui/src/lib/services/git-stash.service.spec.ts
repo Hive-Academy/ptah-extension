@@ -1,11 +1,10 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
-import type { EditorTab } from '../types/diff-tab.types';
-import { DiffTabsService } from './diff-tabs.service';
 import { GitBranchesService } from './git-branches.service';
 import { GitStashService } from './git-stash.service';
 import { GitStatusService } from './git-status.service';
+import { ReviewNavigationService } from './review-navigation.service';
 
 const mockRpcCall = jest.fn();
 jest.mock('@ptah-extension/core', () => {
@@ -59,7 +58,7 @@ describe('GitStashService', () => {
     refresh: jest.fn(async () => undefined),
   };
   const gitBranches = { refreshForCauses: jest.fn(async () => undefined) };
-  const diffTabs = { openHistoricalDiff: jest.fn() };
+  const reviewNavigation = { openStashFile: jest.fn() };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -70,7 +69,7 @@ describe('GitStashService', () => {
         { provide: VSCodeService, useValue: {} },
         { provide: GitStatusService, useValue: gitStatus },
         { provide: GitBranchesService, useValue: gitBranches },
-        { provide: DiffTabsService, useValue: diffTabs },
+        { provide: ReviewNavigationService, useValue: reviewNavigation },
       ],
     });
     service = TestBed.inject(GitStashService);
@@ -227,70 +226,84 @@ describe('GitStashService', () => {
     expect(service.entries()).toEqual([ENTRIES[1]]);
   });
 
-  it('opens a stash file as a historical parent-vs-stash diff tab', async () => {
-    routeRpc({
-      'git:stashList': () => ({ count: 2, entries: ENTRIES }),
-      'git:stashShow': () => ({
-        success: true,
-        files: [{ path: 'src/a.ts', status: 'M' }],
-      }),
-      'git:reviewChanges': () => ({
-        success: true,
-        base: { name: 'stash@{0}^1', sha: 'base' },
-        head: { name: 'stash@{0}', sha: 'head' },
-        mergeBaseSha: 'base',
-        files: [],
-        totals: { additions: 0, deletions: 0, binaryFiles: 0 },
-      }),
-      'git:reviewFile': () => ({
-        success: true,
-        path: 'src/a.ts',
-        originalPath: 'src/a.ts',
-        baseSha: 'base',
-        headSha: 'head',
-        original: { outcome: 'content', content: 'old' },
-        modified: { outcome: 'content', content: 'new' },
-      }),
-    });
-    await service.loadList();
-    await service.select(ENTRIES[0]);
-    await service.openFileDiff({ path: 'src/a.ts', status: 'M' });
+  describe('opening a stash file in the review canvas', () => {
+    function routeStashRead(): void {
+      routeRpc({
+        'git:stashList': () => ({ count: 2, entries: ENTRIES }),
+        'git:stashShow': () => ({ success: true, files: [] }),
+        'git:reviewChanges': () => ({
+          success: true,
+          base: { name: 'stash@{0}^1', sha: 'base' },
+          head: { name: 'stash@{0}', sha: 'head' },
+          mergeBaseSha: 'base',
+          files: [],
+          totals: { additions: 0, deletions: 0, binaryFiles: 0 },
+        }),
+      });
+    }
 
-    expect(mockRpcCall).toHaveBeenCalledWith(
-      expect.anything(),
-      'git:reviewChanges',
-      {
-        workspaceRoot: '/ws/a',
-        base: `${ENTRIES[0].hash}^1`,
-        head: ENTRIES[0].hash,
-      },
-    );
-    expect(mockRpcCall).toHaveBeenCalledWith(
-      expect.anything(),
-      'git:reviewFile',
-      {
-        workspaceRoot: '/ws/a',
-        baseSha: 'base',
-        headSha: 'head',
-        path: 'src/a.ts',
-      },
-    );
-    const tab = diffTabs.openHistoricalDiff.mock.calls[0][0] as EditorTab;
-    expect(tab.diff?.provenance).toEqual({
-      kind: 'historical',
-      base: { name: `${ENTRIES[0].hash}^1`, sha: 'base' },
-      head: { name: ENTRIES[0].hash, sha: 'head' },
-    });
-    expect(tab.fileName).toContain('WIP on main: tidy · 0123456');
-    expect(tab.diff?.original).toBe('old');
-    expect(tab.diff?.modified).toBe('new');
-    expect(tab.diff?.hunks).toEqual([]);
+    it('opens the stash file in the canvas with the resolved pair, without reading it', async () => {
+      routeStashRead();
+      await service.loadList();
+      await service.select(ENTRIES[0]);
+      const file = {
+        path: 'src/new.ts',
+        status: 'R' as const,
+        oldPath: 'src/old.ts',
+      };
+      await service.openFileDiff(file);
 
-    // Second file reuses the resolved refs.
-    await service.openFileDiff({ path: 'src/a.ts', status: 'M' });
-    expect(
-      mockRpcCall.mock.calls.filter(([, m]) => m === 'git:reviewChanges'),
-    ).toHaveLength(1);
+      expect(mockRpcCall).toHaveBeenCalledWith(
+        expect.anything(),
+        'git:reviewChanges',
+        {
+          workspaceRoot: '/ws/a',
+          base: `${ENTRIES[0].hash}^1`,
+          head: ENTRIES[0].hash,
+        },
+      );
+      expect(reviewNavigation.openStashFile).toHaveBeenCalledWith({
+        base: { name: `${ENTRIES[0].hash}^1`, sha: 'base' },
+        head: { name: ENTRIES[0].hash, sha: 'head' },
+        label: 'WIP on main: tidy · 0123456',
+        file,
+      });
+      expect(
+        mockRpcCall.mock.calls.filter(([, m]) => m === 'git:reviewFile'),
+      ).toHaveLength(0);
+    });
+
+    it('reuses the resolved pair for a second file of the same stash', async () => {
+      routeStashRead();
+      await service.loadList();
+      await service.select(ENTRIES[0]);
+      await service.openFileDiff({ path: 'src/a.ts', status: 'M' });
+      await service.openFileDiff({ path: 'src/b.ts', status: 'M' });
+
+      expect(reviewNavigation.openStashFile).toHaveBeenCalledTimes(2);
+      expect(
+        mockRpcCall.mock.calls.filter(([, m]) => m === 'git:reviewChanges'),
+      ).toHaveLength(1);
+    });
+
+    it('surfaces a ref-resolution failure and does not route', async () => {
+      routeRpc({
+        'git:stashList': () => ({ count: 2, entries: ENTRIES }),
+        'git:stashShow': () => ({ success: true, files: [] }),
+        'git:reviewChanges': () => ({
+          success: false,
+          files: [],
+          totals: { additions: 0, deletions: 0, binaryFiles: 0 },
+          error: 'bad revision',
+        }),
+      });
+      await service.loadList();
+      await service.select(ENTRIES[0]);
+      await service.openFileDiff({ path: 'src/a.ts', status: 'M' });
+
+      expect(reviewNavigation.openStashFile).not.toHaveBeenCalled();
+      expect(service.error()).toBe('bad revision');
+    });
   });
 
   it('does not open a diff when the stash selection changes during ref resolution', async () => {
@@ -318,7 +331,7 @@ describe('GitStashService', () => {
     });
     await pending;
 
-    expect(diffTabs.openHistoricalDiff).not.toHaveBeenCalled();
+    expect(reviewNavigation.openStashFile).not.toHaveBeenCalled();
     expect(
       mockRpcCall.mock.calls.filter(
         ([, method]) => method === 'git:reviewFile',
@@ -352,7 +365,7 @@ describe('GitStashService', () => {
     });
     await pending;
 
-    expect(diffTabs.openHistoricalDiff).not.toHaveBeenCalled();
+    expect(reviewNavigation.openStashFile).not.toHaveBeenCalled();
   });
 
   it('invalidates a pre-mutation list response before reconciling', async () => {
@@ -484,88 +497,42 @@ describe('GitStashService', () => {
     expect(service.entries()).toEqual([ENTRIES[1]]);
   });
 
-  it('only opens the latest clicked file diff when concurrent openFileDiff requests resolve out of order', async () => {
+  it('only routes the latest clicked file when concurrent ref resolutions resolve out of order', async () => {
     routeRpc({
       'git:stashList': () => ({ count: 2, entries: ENTRIES }),
-      'git:stashShow': () => ({
-        success: true,
-        files: [
-          { path: 'src/a.ts', status: 'M' },
-          { path: 'src/b.ts', status: 'M' },
-        ],
-      }),
-      'git:reviewChanges': () => ({
+      'git:stashShow': () => ({ success: true, files: [] }),
+    });
+    await service.loadList();
+    await service.select(ENTRIES[0]);
+
+    const finishes: Array<(value: unknown) => void> = [];
+    mockRpcCall.mockImplementation(
+      () => new Promise((resolve) => finishes.push(resolve)),
+    );
+    const refsAnswer = {
+      success: true,
+      data: {
         success: true,
         base: { sha: 'base' },
         head: { sha: 'head' },
         files: [],
         totals: { additions: 0, deletions: 0, binaryFiles: 0 },
-      }),
-      'git:reviewFile': () => ({
-        success: true,
-        path: 'src/a.ts',
-        originalPath: 'src/a.ts',
-        baseSha: 'base',
-        headSha: 'head',
-        original: { outcome: 'content', content: 'old' },
-        modified: { outcome: 'content', content: 'new' },
-      }),
-    });
-    await service.loadList();
-    await service.select(ENTRIES[0]);
-    await service.openFileDiff({ path: 'src/a.ts', status: 'M' });
-    diffTabs.openHistoricalDiff.mockClear();
-
-    let finishFileA!: (value: unknown) => void;
-    let finishFileB!: (value: unknown) => void;
-    const promiseA = new Promise((resolve) => (finishFileA = resolve));
-    const promiseB = new Promise((resolve) => (finishFileB = resolve));
-
-    mockRpcCall.mockImplementation(async (_vscode, method, params) => {
-      if (method === 'git:reviewFile') {
-        const path = (params as { path: string }).path;
-        if (path === 'src/a.ts') return promiseA;
-        if (path === 'src/b.ts') return promiseB;
-      }
-      return { success: false, error: `unexpected ${method}` };
-    });
+      },
+    };
 
     const pendingA = service.openFileDiff({ path: 'src/a.ts', status: 'M' });
     const pendingB = service.openFileDiff({ path: 'src/b.ts', status: 'M' });
+    expect(finishes).toHaveLength(2);
 
-    finishFileB({
-      success: true,
-      data: {
-        success: true,
-        path: 'src/b.ts',
-        originalPath: 'src/b.ts',
-        baseSha: 'base',
-        headSha: 'head',
-        original: { outcome: 'content', content: 'old-b' },
-        modified: { outcome: 'content', content: 'new-b' },
-      },
-    });
+    finishes[1](refsAnswer);
     await pendingB;
+    expect(reviewNavigation.openStashFile).toHaveBeenCalledTimes(1);
+    expect(reviewNavigation.openStashFile).toHaveBeenCalledWith(
+      expect.objectContaining({ file: { path: 'src/b.ts', status: 'M' } }),
+    );
 
-    expect(diffTabs.openHistoricalDiff).toHaveBeenCalledTimes(1);
-    const openedTabB = diffTabs.openHistoricalDiff.mock
-      .calls[0][0] as EditorTab;
-    expect(openedTabB.diff?.path).toBe('src/b.ts');
-
-    finishFileA({
-      success: true,
-      data: {
-        success: true,
-        path: 'src/a.ts',
-        originalPath: 'src/a.ts',
-        baseSha: 'base',
-        headSha: 'head',
-        original: { outcome: 'content', content: 'old-a' },
-        modified: { outcome: 'content', content: 'new-a' },
-      },
-    });
+    finishes[0](refsAnswer);
     await pendingA;
-
-    expect(diffTabs.openHistoricalDiff).toHaveBeenCalledTimes(1);
+    expect(reviewNavigation.openStashFile).toHaveBeenCalledTimes(1);
   });
 });

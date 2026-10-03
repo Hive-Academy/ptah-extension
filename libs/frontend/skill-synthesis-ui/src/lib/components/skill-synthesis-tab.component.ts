@@ -33,7 +33,8 @@ import {
 import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
 import { SkillDiagnosticsStateService } from '../services/skill-diagnostics-state.service';
 import { SkillSynthesisLiveService } from '../services/skill-synthesis-live.service';
-import { SkillDiagnosticsAccordionComponent } from './diagnostics/skill-diagnostics-accordion.component';
+import { SkillActivityFeedComponent } from './diagnostics/skill-activity-feed.component';
+import { SkillTriggersSettingsComponent } from './diagnostics/skill-triggers-settings.component';
 import { SkillClonesViewComponent } from './clones/skill-clones-view.component';
 import { SkillSuggestionsViewComponent } from './suggestions/skill-suggestions-view.component';
 import { SkillStatsStripComponent } from './skill-stats-strip.component';
@@ -67,7 +68,8 @@ interface ActionDialogState {
     FormsModule,
     ReactiveFormsModule,
     LucideAngularModule,
-    SkillDiagnosticsAccordionComponent,
+    SkillActivityFeedComponent,
+    SkillTriggersSettingsComponent,
     SkillClonesViewComponent,
     SkillSuggestionsViewComponent,
     SkillStatsStripComponent,
@@ -478,12 +480,16 @@ interface ActionDialogState {
                 [drainRuns]="drainRuns()"
                 [queueItems]="queueItems()"
                 [stageSpend]="stageSpend()"
+                [lastCuratorPassAt]="lastCuratorPassAt()"
+                [byStatus]="byStatus()"
+                [refreshing]="diagnosticsLoading()"
+                (refresh)="onRefreshDiagnostics()"
               />
+              <ptah-skill-activity-feed />
               <ptah-skill-digest-panel
                 [items]="digestItems()"
                 [loading]="digestLoading()"
               />
-              <ptah-skill-diagnostics-accordion />
 
               <div class="card border border-base-300 bg-base-200/40">
                 <div class="card-body gap-3 p-4">
@@ -588,6 +594,7 @@ interface ActionDialogState {
                 [isElectron]="isElectron()"
                 (save)="onSaveSettings()"
               />
+              <ptah-skill-triggers-settings />
               @if (toast(); as t) {
                 <div
                   role="alert"
@@ -750,7 +757,11 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   public readonly lastAnalyzeRunAt = this.diagnostics.lastAnalyzeRunAt;
   public readonly eligibilityHistogram = this.diagnostics.eligibilityHistogram;
+  /** Newest-first: `SkillDiagnosticsStateService` keeps it in that order. */
   public readonly recentEvents = this.diagnostics.recentEvents;
+  public readonly lastCuratorPassAt = this.diagnostics.lastCuratorPassAt;
+  public readonly byStatus = this.diagnostics.byStatus;
+  protected readonly diagnosticsLoading = this.diagnostics.loading;
 
   public readonly specs = this.state.specs;
   public readonly specsLoading = this.state.specsLoading;
@@ -766,6 +777,10 @@ export class SkillSynthesisTabComponent implements OnInit {
   public readonly candidateDetail = this.state.candidateDetail;
   public readonly candidateDetailLoading = this.state.candidateDetailLoading;
 
+  /**
+   * Sessions-view hint driven by the latest diagnostics event. `recentEvents`
+   * is newest-first, so `events[0]` is the most recent one.
+   */
   public readonly ineligibleHint = computed<string | null>(() => {
     const events = this.recentEvents();
     if (events.length === 0) return null;
@@ -935,6 +950,11 @@ export class SkillSynthesisTabComponent implements OnInit {
 
   protected setSubView(view: SkillSubView): void {
     this._subView.set(view);
+  }
+
+  /** The status card's "Refresh": re-reads the diagnostics snapshot. */
+  protected onRefreshDiagnostics(): void {
+    void this.diagnostics.refresh();
   }
 
   protected async onHarvestSpecs(): Promise<void> {

@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import * as path from 'path';
 import type { Logger, GitInfoService } from '@ptah-extension/vscode-core';
 import { worktreeDirectoryName } from '@ptah-extension/vscode-core';
+import type { ISessionOrganizationRecorder } from '@ptah-extension/platform-core';
 import { parseWorktreeList } from '@ptah-extension/shared';
 import { WorktreeHookHandler } from './worktree-hook-handler';
 import type {
@@ -11,7 +12,15 @@ import type {
 
 describe('WorktreeHookHandler', () => {
   let logger: jest.Mocked<Logger>;
-  let gitInfo: { addWorktree: jest.Mock; getWorktrees: jest.Mock };
+  let gitInfo: {
+    addWorktree: jest.Mock;
+    getWorktrees: jest.Mock;
+    removeWorktree: jest.Mock;
+    pruneWorktrees: jest.Mock;
+  };
+  let recorder: jest.Mocked<
+    Pick<ISessionOrganizationRecorder, 'recordWorktree' | 'recordLineage'>
+  >;
   let handler: WorktreeHookHandler;
 
   const REPO = 'D:\\repo';
@@ -78,10 +87,14 @@ describe('WorktreeHookHandler', () => {
           isBare: false,
         },
       ]),
+      removeWorktree: jest.fn().mockResolvedValue({ success: true }),
+      pruneWorktrees: jest.fn().mockResolvedValue({ success: true }),
     };
+    recorder = { recordWorktree: jest.fn(), recordLineage: jest.fn() };
     handler = new WorktreeHookHandler(
       logger,
       gitInfo as unknown as GitInfoService,
+      recorder as unknown as ISessionOrganizationRecorder,
     );
   });
 
@@ -107,8 +120,96 @@ describe('WorktreeHookHandler', () => {
       continue: true,
     });
     expect(onCreated).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 's1', name: NAME }),
+      expect.objectContaining({
+        sessionId: 's1',
+        name: NAME,
+        worktreePath: expectedPath,
+        cwd: REPO,
+      }),
     );
+  });
+
+  describe('session-organization capture', () => {
+    it('records the SDK session id, created path and branch after a successful add', async () => {
+      gitInfo.addWorktree.mockResolvedValue({
+        success: true,
+        worktreePath: expectedPath,
+      });
+      const onCreated = jest.fn();
+
+      const result = await invokeCreate(onCreated);
+
+      expect(recorder.recordWorktree).toHaveBeenCalledTimes(1);
+      expect(recorder.recordWorktree).toHaveBeenCalledWith({
+        sessionId: 's1',
+        worktreePath: expectedPath,
+        branch: NAME,
+        workspaceRootHint: REPO,
+      });
+      expect(recorder.recordLineage).not.toHaveBeenCalled();
+      // Recorded before the host is notified.
+      expect(recorder.recordWorktree.mock.invocationCallOrder[0]).toBeLessThan(
+        onCreated.mock.invocationCallOrder[0],
+      );
+      // The hook's SDK return value is unchanged by recording.
+      expect(result).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'WorktreeCreate',
+          worktreePath: expectedPath,
+        },
+        continue: true,
+      });
+    });
+
+    it('records nothing when addWorktree reports failure', async () => {
+      gitInfo.addWorktree.mockResolvedValue({
+        success: false,
+        error: 'branch already exists',
+      });
+
+      await expect(invokeCreate()).rejects.toThrow('branch already exists');
+      expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    });
+
+    it('records nothing when addWorktree succeeds without a path', async () => {
+      gitInfo.addWorktree.mockResolvedValue({ success: true });
+
+      await expect(invokeCreate()).rejects.toThrow(
+        `Git did not return a worktree path for ${NAME}`,
+      );
+      expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    });
+
+    it('records nothing when addWorktree throws', async () => {
+      gitInfo.addWorktree.mockRejectedValue(new Error('git exploded'));
+
+      await expect(invokeCreate()).rejects.toThrow('git exploded');
+      expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    });
+
+    it('creates the worktree unchanged when no recorder is registered', async () => {
+      handler = new WorktreeHookHandler(
+        logger,
+        gitInfo as unknown as GitInfoService,
+      );
+      gitInfo.addWorktree.mockResolvedValue({
+        success: true,
+        worktreePath: expectedPath,
+      });
+      const onCreated = jest.fn();
+
+      const result = await invokeCreate(onCreated);
+
+      expect(result).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'WorktreeCreate',
+          worktreePath: expectedPath,
+        },
+        continue: true,
+      });
+      expect(onCreated).toHaveBeenCalledTimes(1);
+      expect(recorder.recordWorktree).not.toHaveBeenCalled();
+    });
   });
 
   it.each(pathCases)(
@@ -281,5 +382,213 @@ describe('WorktreeHookHandler', () => {
       invokeCreate(undefined, REPO, { hook_event_name: 'WorktreeRemove' }),
     ).rejects.toThrow('Unexpected hook input for WorktreeCreate');
     expect(gitInfo.addWorktree).not.toHaveBeenCalled();
+  });
+
+  describe('WorktreeRemove', () => {
+    const AGENT_PATH = path.win32.join(REPO, '.claude-worktrees', 'agent-a');
+    const mainEntry = {
+      path: REPO,
+      head: 'abcdef12',
+      branch: 'main',
+      isMain: true,
+      isBare: false,
+    };
+
+    function listWith(entry: Record<string, unknown>): void {
+      gitInfo.getWorktrees.mockResolvedValue([
+        mainEntry,
+        {
+          path: AGENT_PATH,
+          head: '12345678',
+          branch: 'agent-a',
+          isMain: false,
+          isBare: false,
+          ...entry,
+        },
+      ]);
+    }
+
+    function invokeRemove(
+      worktreePath: string,
+      onRemoved?: Parameters<WorktreeHookHandler['createHooks']>[1],
+      inputOverride?: Partial<HookInput>,
+    ): Promise<HookJSONOutput> {
+      const hooks = handler.createHooks(undefined, onRemoved);
+      const hook = hooks.WorktreeRemove?.[0]?.hooks?.[0];
+      if (!hook) throw new Error('WorktreeRemove hook not registered');
+      const input = {
+        hook_event_name: 'WorktreeRemove',
+        session_id: 's1',
+        transcript_path: '',
+        cwd: REPO,
+        worktree_path: worktreePath,
+        ...inputOverride,
+      } as unknown as HookInput;
+      return hook(input, undefined, {
+        signal: new AbortController().signal,
+      }) as Promise<HookJSONOutput>;
+    }
+
+    function loggedRemovalPath(): unknown {
+      const call = logger.info.mock.calls.find(
+        ([message]) => message === '[WorktreeHookHandler] Worktree removed',
+      );
+      return (call?.[1] as { removalPath?: unknown } | undefined)?.removalPath;
+    }
+
+    it('force-removes a listed agent worktree, prunes, and notifies', async () => {
+      listWith({});
+      const onRemoved = jest.fn();
+
+      // Forward slashes and different case still name the same win32 path.
+      const result = await invokeRemove(
+        AGENT_PATH.replace(/\\/g, '/').toUpperCase(),
+        onRemoved,
+      );
+
+      expect(result).toEqual({ continue: true });
+      expect(gitInfo.getWorktrees).toHaveBeenCalledWith(REPO);
+      expect(gitInfo.removeWorktree).toHaveBeenCalledWith(
+        REPO,
+        AGENT_PATH,
+        true,
+      );
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledWith(REPO);
+      expect(gitInfo.removeWorktree.mock.invocationCallOrder[0]).toBeLessThan(
+        gitInfo.pruneWorktrees.mock.invocationCallOrder[0],
+      );
+      expect(loggedRemovalPath()).toBe('removed-and-pruned');
+      expect(onRemoved).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 's1' }),
+      );
+    });
+
+    it.each([
+      { platform: 'Ubuntu/Linux', root: '/home/dev/repo' },
+      { platform: 'macOS', root: '/Users/dev/repo' },
+    ])('removes a $platform agent worktree', async ({ root }) => {
+      const agent = path.posix.join(root, '.claude-worktrees', 'agent-a');
+      gitInfo.getWorktrees.mockResolvedValue([
+        { ...mainEntry, path: root },
+        { ...mainEntry, path: agent, isMain: false, branch: 'agent-a' },
+      ]);
+
+      await invokeRemove(agent, undefined, { cwd: agent });
+
+      expect(gitInfo.removeWorktree).toHaveBeenCalledWith(root, agent, true);
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledWith(root);
+    });
+
+    it('only prunes when the worktree directory is already gone', async () => {
+      listWith({
+        prunable: true,
+        prunableReason: 'gitdir file points to non-existent location',
+      });
+
+      const onRemoved = jest.fn();
+
+      const result = await invokeRemove(AGENT_PATH, onRemoved);
+
+      expect(result).toEqual({ continue: true });
+      expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
+      expect(gitInfo.pruneWorktrees).toHaveBeenCalledWith(REPO);
+      expect(loggedRemovalPath()).toBe('pruned-missing-directory');
+      expect(onRemoved).toHaveBeenCalledWith(
+        expect.objectContaining({ worktreePath: AGENT_PATH }),
+      );
+    });
+
+    it('never force-removes a locked worktree, and does not notify', async () => {
+      listWith({ locked: true, lockReason: 'in use' });
+      const onRemoved = jest.fn();
+
+      const result = await invokeRemove(AGENT_PATH, onRemoved);
+
+      expect(result).toEqual({ continue: true });
+      expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+      expect(loggedRemovalPath()).toBe('skipped-locked');
+      expect(onRemoved).not.toHaveBeenCalled();
+    });
+
+    it('leaves a path that git worktree list does not report', async () => {
+      listWith({});
+      const onRemoved = jest.fn();
+
+      await invokeRemove(
+        path.win32.join(REPO, '.claude-worktrees', 'other'),
+        onRemoved,
+      );
+
+      expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+      expect(loggedRemovalPath()).toBe('skipped-not-listed');
+      expect(onRemoved).not.toHaveBeenCalled();
+    });
+
+    it('leaves a listed worktree outside .claude-worktrees', async () => {
+      const outside = 'D:\\elsewhere\\feature';
+      listWith({ path: outside });
+      const onRemoved = jest.fn();
+
+      await invokeRemove(outside, onRemoved);
+
+      expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
+      expect(loggedRemovalPath()).toBe('skipped-outside-agent-dir');
+      expect(onRemoved).not.toHaveBeenCalled();
+    });
+
+    it('never removes the main worktree', async () => {
+      listWith({});
+
+      await invokeRemove(REPO);
+
+      expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
+      expect(loggedRemovalPath()).toBe('skipped-not-listed');
+    });
+
+    it('skips pruning and still continues when removal fails', async () => {
+      listWith({});
+      gitInfo.removeWorktree.mockResolvedValue({
+        success: false,
+        error: 'contains modified files',
+      });
+      const onRemoved = jest.fn();
+
+      const result = await invokeRemove(AGENT_PATH, onRemoved);
+
+      expect(result).toEqual({ continue: true });
+      expect(gitInfo.pruneWorktrees).not.toHaveBeenCalled();
+      expect(loggedRemovalPath()).toBe('remove-failed');
+      expect(onRemoved).not.toHaveBeenCalled();
+    });
+
+    it('warns and continues when prune fails', async () => {
+      listWith({});
+      gitInfo.pruneWorktrees.mockResolvedValue({
+        success: false,
+        error: 'lock held',
+        code: 'locked',
+      });
+
+      const result = await invokeRemove(AGENT_PATH);
+
+      expect(result).toEqual({ continue: true });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[WorktreeHookHandler] Worktree prune failed',
+        expect.objectContaining({ error: 'lock held' }),
+      );
+    });
+
+    it('returns continue: true when listing worktrees throws', async () => {
+      gitInfo.getWorktrees.mockRejectedValue(new Error('git exploded'));
+      const onRemoved = jest.fn();
+
+      const result = await invokeRemove(AGENT_PATH, onRemoved);
+
+      expect(result).toEqual({ continue: true });
+      expect(gitInfo.removeWorktree).not.toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalled();
+    });
   });
 });

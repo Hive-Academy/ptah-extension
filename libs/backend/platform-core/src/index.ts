@@ -62,6 +62,8 @@ export type { ICommandRegistry } from './interfaces/command-registry.interface';
 export type { IEditorProvider } from './interfaces/editor-provider.interface';
 export type {
   IEditorLauncher,
+  EditorMergeLaunchResult,
+  EditorMergeRequest,
   EditorTarget,
   EditorTargetId,
 } from './interfaces/editor-launcher.interface';
@@ -118,6 +120,7 @@ export type {
   MemoryWriteRequest,
   MemoryWriteResult,
 } from './interfaces/memory-writer.interface';
+export type { ISessionOrganizationRecorder } from './interfaces/session-organization-recorder.interface';
 export type {
   IHttpServerProvider,
   IHttpServerHandle,
@@ -133,6 +136,10 @@ export type {
   McpSessionWiring,
 } from './interfaces/mcp-server-status.interface';
 export { resolveMcpSessionWiring } from './interfaces/mcp-server-status.interface';
+export type {
+  IMcpSubagentRootRegistrar,
+  McpSubagentRootRetention,
+} from './interfaces/mcp-subagent-root-registrar.interface';
 export type { ICallerWorkspaceResolver } from './interfaces/caller-workspace-resolver.interface';
 export type { ITracer } from './interfaces/tracer.interface';
 export type {
@@ -295,6 +302,7 @@ export {
   EditorTargetCache,
   editorExecutableCandidates,
   prepareEditorFileLaunch,
+  prepareEditorMergeLaunch,
   prepareEditorWorkspaceLaunch,
   spawnEditorProcess,
 } from './utils/editor-launcher-detection';
@@ -304,6 +312,7 @@ export type {
   EditorDescriptor,
   EditorExecutableCandidate,
   EditorFileLaunch,
+  EditorMergeLaunch,
   EditorWorkspaceLaunch,
 } from './utils/editor-launcher-detection';
 export {
@@ -317,6 +326,7 @@ export {
 export type { TerminalLaunch } from './utils/terminal-launch';
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';
+export { SettingsPersistError } from './file-settings-errors';
 export {
   ENHANCE_TIMEOUT_DEFAULT_MS,
   ENHANCE_TIMEOUT_MAX_MS,

@@ -1,7 +1,9 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
+  inject,
   input,
   output,
   signal,
@@ -16,21 +18,26 @@ import {
   CornerLeftUp,
   Eye,
   GitBranch,
+  GitPullRequest,
   ListTree,
   Loader,
   LucideAngularModule,
+  MessagesSquare,
   MoreVertical,
   Play,
   User,
 } from 'lucide-angular';
 import {
   TASK_STATUSES,
+  type SessionTurnPhase,
   type TaskChildRollup,
   type TaskGraph,
+  type TaskLinkedSession,
   type TaskSpecSummary,
   type TaskStatus,
 } from '@ptah-extension/shared';
 import type { TaskBulkOutcome } from '../../services/tasks-store.service';
+import { TaskSessionLinksService } from '../../services/task-session-links.service';
 import type {
   TaskAgentTarget,
   TaskStartRequest,
@@ -69,10 +76,55 @@ export interface TaskSelectionToggle {
   readonly range: boolean;
 }
 
+/** Visible word for a session's live phase. `none`: not loaded in this host. */
+const SESSION_PHASE_LABELS: Record<SessionTurnPhase | 'none', string> = {
+  generating: 'running',
+  'awaiting-background': 'background work',
+  sleeping: 'sleeping',
+  idle: 'idle',
+  failed: 'failed',
+  none: 'not open',
+};
+
 /**
- * Presentational task card. Pure `@Input`/`@Output`; owns only the local
- * worktree-isolation toggle UI state. The Start action emits {@link startTask};
- * `TaskStartService` (wired by `TasksViewComponent`) runs the launch flow.
+ * Dot fill per phase. A secondary cue only: every dot also has a high-contrast
+ * ring (template) and every phase is written out on the line below. `none` is
+ * hollow, so "not open" also differs by shape.
+ */
+const SESSION_PHASE_DOT_CLASSES: Record<SessionTurnPhase | 'none', string> = {
+  generating: 'bg-info motion-safe:animate-pulse',
+  'awaiting-background': 'bg-warning',
+  sleeping: 'bg-secondary',
+  idle: 'bg-success',
+  failed: 'bg-error',
+  none: 'bg-transparent',
+};
+
+/** Order the written phase summary takes: what needs attention first. */
+const SESSION_PHASE_ORDER: readonly (SessionTurnPhase | 'none')[] = [
+  'failed',
+  'generating',
+  'awaiting-background',
+  'sleeping',
+  'idle',
+  'none',
+];
+
+/** Dots shown; past this a "+N" marker stands for the rest. */
+const MAX_SESSION_DOTS = 5;
+
+/** A PR URL rendered as a link must be http(s); anything else is not linked. */
+const HTTP_URL = /^https?:\/\//i;
+
+/**
+ * Presentational task card. `@Input`/`@Output` for everything the board owns;
+ * owns only the local worktree-isolation toggle UI state. The Start action
+ * emits {@link startTask}; `TaskStartService` (wired by `TasksViewComponent`)
+ * runs the launch flow.
+ *
+ * Its linked sessions (TASK_2026_580) are read from the root
+ * {@link TaskSessionLinksService}, which fetches once for the whole board; the
+ * card only retains it while mounted and runs no timer of its own.
  */
 @Component({
   selector: 'ptah-task-card',
@@ -396,6 +448,105 @@ export interface TaskSelectionToggle {
           </div>
         }
 
+        <!-- Linked sessions (TASK_2026_580). Line 1: one live-phase dot per
+             session (capped, then "+N"), and the count. Line 2: every phase
+             in words, wrapping instead of truncating, so phase is never
+             carried by colour alone (WCAG 1.4.1) at the 240px card width. The
+             PR link sits beside both lines. Absent when the task has no
+             linked session or the host has no organization store (VS Code).
+             The note's name repeats every session with its phase. -->
+        @if (sessions().length > 0) {
+          <div
+            class="flex items-start gap-1.5 min-w-0 text-[10px] text-base-content"
+            data-testid="task-card-sessions"
+          >
+            <span
+              class="flex flex-col gap-0.5 min-w-0 flex-1"
+              role="note"
+              [attr.aria-label]="sessionsSummary()"
+              [title]="sessionsSummary()"
+            >
+              <span class="flex items-center flex-wrap gap-1 min-w-0">
+                <lucide-angular
+                  [img]="MessagesSquareIcon"
+                  class="w-3 h-3 shrink-0"
+                  aria-hidden="true"
+                />
+                <!-- Every dot carries a base-content/70 ring: 6.18:1 light,
+                     7.69:1 dark against the card, so the shape meets 3:1
+                     (SC 1.4.11) whatever the phase fill is. -->
+                <span
+                  class="flex items-center gap-0.5 shrink-0"
+                  aria-hidden="true"
+                >
+                  @for (dot of sessionDots(); track dot.sessionId) {
+                    <span
+                      class="inline-block w-2.5 h-2.5 rounded-full border border-base-content/70"
+                      [class]="dot.dotClass"
+                      data-testid="task-card-session-dot"
+                      [attr.data-phase]="dot.phase"
+                    ></span>
+                  }
+                </span>
+                @if (hiddenSessionCount() > 0) {
+                  <span
+                    class="tabular-nums shrink-0"
+                    data-testid="task-card-session-overflow"
+                    [attr.aria-label]="hiddenSessionsLabel()"
+                    [title]="hiddenSessionsLabel()"
+                  >
+                    +{{ hiddenSessionCount() }}
+                  </span>
+                }
+                <span
+                  class="tabular-nums whitespace-nowrap shrink-0"
+                  aria-hidden="true"
+                  data-testid="task-card-session-count"
+                >
+                  {{ sessionCountLabel() }}
+                </span>
+              </span>
+              <span
+                class="flex flex-wrap gap-x-1 min-w-0"
+                aria-hidden="true"
+                data-testid="task-card-session-phase"
+              >
+                @for (
+                  part of phaseSummary();
+                  track part.phase;
+                  let last = $last
+                ) {
+                  <span class="whitespace-nowrap"
+                    >{{ part.text }}{{ last ? '' : ' ·' }}</span
+                  >
+                }
+              </span>
+            </span>
+            <!-- 24x24 minimum (SC 2.5.8). Underlined base-content text, so it
+                 reads as a link by shape and passes contrast on every theme. -->
+            @if (firstPr(); as pr) {
+              <a
+                class="link inline-flex items-center justify-center gap-0.5 min-h-6 min-w-6 px-1 shrink-0 rounded text-base-content tabular-nums focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[oklch(var(--s))]"
+                [href]="pr.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                [attr.tabindex]="rovingTabIndex()"
+                [attr.aria-label]="pr.title"
+                [title]="pr.title"
+                data-testid="task-card-session-pr"
+                (click)="$event.stopPropagation()"
+              >
+                <lucide-angular
+                  [img]="GitPullRequestIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
+                {{ pr.label }}
+              </a>
+            }
+          </div>
+        }
+
         <!-- Actions: agent-managed worktree isolation toggle + Start.
              Only backlog and blocked tasks are startable — everything else
              shows a status footer instead of the launch controls. -->
@@ -611,6 +762,104 @@ export class TaskCardComponent {
   /** Local UI state: whether the Start action should request isolation. */
   public readonly isolate = signal(false);
 
+  private readonly sessionLinks = inject(TaskSessionLinksService);
+
+  public constructor() {
+    inject(DestroyRef).onDestroy(this.sessionLinks.retain());
+  }
+
+  /** This task's linked sessions, primary first and then newest. */
+  protected readonly sessions = computed<readonly TaskLinkedSession[]>(() =>
+    this.sessionLinks.linksFor(this.task().id),
+  );
+
+  protected readonly sessionDots = computed(() =>
+    this.sessions()
+      .slice(0, MAX_SESSION_DOTS)
+      .map((session) => {
+        const phase = session.livePhase ?? 'none';
+        return {
+          sessionId: session.sessionId,
+          phase,
+          dotClass: SESSION_PHASE_DOT_CLASSES[phase],
+        };
+      }),
+  );
+
+  protected readonly sessionCountLabel = computed(() => {
+    const count = this.sessions().length;
+    return count === 1 ? '1 session' : `${count} sessions`;
+  });
+
+  /** Sessions past the dot cap, shown as "+N". */
+  protected readonly hiddenSessionCount = computed(() =>
+    Math.max(0, this.sessions().length - MAX_SESSION_DOTS),
+  );
+
+  protected readonly hiddenSessionsLabel = computed(() => {
+    const hidden = this.hiddenSessionCount();
+    return hidden === 1
+      ? '1 more session not shown as a dot'
+      : `${hidden} more sessions not shown as dots`;
+  });
+
+  /**
+   * Every phase present, written out: "running" for one session, otherwise
+   * "1 failed", "2 running", … in {@link SESSION_PHASE_ORDER}. This line wraps
+   * rather than truncates, so it is the visible, colour-free statement of
+   * phase for every session, not only the first.
+   */
+  protected readonly phaseSummary = computed(() => {
+    const sessions = this.sessions();
+    const counts = new Map<SessionTurnPhase | 'none', number>();
+    for (const session of sessions) {
+      const phase = session.livePhase ?? 'none';
+      counts.set(phase, (counts.get(phase) ?? 0) + 1);
+    }
+    return SESSION_PHASE_ORDER.filter((phase) => counts.has(phase)).map(
+      (phase) => ({
+        phase,
+        text:
+          sessions.length === 1
+            ? SESSION_PHASE_LABELS[phase]
+            : `${counts.get(phase)} ${SESSION_PHASE_LABELS[phase]}`,
+      }),
+    );
+  });
+
+  /** The sessions row's accessible name: every session with its phase. */
+  protected readonly sessionsSummary = computed(() => {
+    const sessions = this.sessions();
+    if (sessions.length === 0) return '';
+    const noun = sessions.length === 1 ? 'linked session' : 'linked sessions';
+    const items = sessions
+      .map(
+        (session) =>
+          `${session.name || 'Untitled session'}, ${SESSION_PHASE_LABELS[session.livePhase ?? 'none']}`,
+      )
+      .join('; ');
+    return `${sessions.length} ${noun}: ${items}`;
+  });
+
+  /** The first http(s) PR link across the sessions, in session order. */
+  protected readonly firstPr = computed(() => {
+    for (const session of this.sessions()) {
+      const link = session.prLinks.find((candidate) =>
+        HTTP_URL.test(candidate.url),
+      );
+      if (!link) continue;
+      const label = link.number !== null ? `#${link.number}` : 'PR';
+      const repo = link.repo ? ` in ${link.repo}` : '';
+      const state = link.state ? `, ${link.state}` : '';
+      return {
+        url: link.url,
+        label,
+        title: `Open pull request ${label}${repo}${state} in the browser`,
+      };
+    }
+    return null;
+  });
+
   /**
    * `0` on the focused card, `-1` on every other — bound to the root AND to
    * each focusable descendant. See {@link focused}.
@@ -784,6 +1033,8 @@ export class TaskCardComponent {
   protected readonly ListTreeIcon = ListTree;
   protected readonly CircleXIcon = CircleX;
   protected readonly CircleDashedIcon = CircleDashed;
+  protected readonly MessagesSquareIcon = MessagesSquare;
+  protected readonly GitPullRequestIcon = GitPullRequest;
 
   protected statusLabel(status: TaskStatus): string {
     return TASK_STATUS_LABELS[status];

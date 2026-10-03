@@ -136,12 +136,14 @@ export {
   SkillSynthesizerService,
   SYNTHESIZED_SKILL_JSON_SCHEMA,
   type SynthesizedSkill,
-  type ClusterMemberInput,
+  type UmbrellaMemberInput,
 } from './lib/skill-synthesizer.service';
 export { SkillSuggestionStore } from './lib/skill-suggestion.store';
 export {
   SkillClusteringService,
-  type SkillCandidateCluster,
+  type PoolExclusions,
+  type PoolMember,
+  type PoolPartition,
 } from './lib/skill-clustering.service';
 export { SkillClusterDedupService } from './lib/skill-cluster-dedup.service';
 export {
@@ -158,6 +160,7 @@ export {
 export {
   SkillCuratorService,
   type CuratorReport,
+  type CuratorPassStats,
   type AcceptSuggestionResult,
   type DismissSuggestionResult,
 } from './lib/skill-curator.service';
@@ -430,6 +433,7 @@ export type {
   SkillCandidateStatusCounts,
   SkillSynthesisDiagnosticsSnapshot,
 } from './lib/diagnostics.types';
+export { toSkillSynthesisEventWire } from './lib/event-wire';
 
 export {
   JUDGE_DEFAULT_MODEL_ID,

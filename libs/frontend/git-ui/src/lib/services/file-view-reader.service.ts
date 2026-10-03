@@ -8,7 +8,7 @@ import type {
 import type {
   FileViewOpenRequest,
   FileViewTabState,
-} from '../types/diff-tab.types';
+} from '../types/file-view.types';
 
 const KNOWN_FAILURE_REASONS = new Set<FileViewFailureReason>([
   'invalid-request',
@@ -114,6 +114,15 @@ export class FileViewReaderService {
       relativePath: previous?.relativePath ?? null,
       content: previous?.content ?? '',
       sizeBytes: previous?.sizeBytes ?? null,
+      // A failed refresh keeps the previous content, so the previous hash
+      // still describes the bytes that content came from.
+      ...(previous?.sha256 !== undefined
+        ? {
+            sha256: previous.sha256,
+            bom: previous.bom,
+            encoding: previous.encoding,
+          }
+        : {}),
       isMarkdown: previous?.isMarkdown ?? isMarkdownPath(request.path),
       reveal: revealFor(request),
       status: previous ? 'refreshing' : 'loading',
@@ -134,6 +143,9 @@ export class FileViewReaderService {
         relativePath: result.relativePath,
         content: result.content,
         sizeBytes: result.sizeBytes,
+        encoding: result.encoding,
+        sha256: result.sha256,
+        bom: result.bom,
         isMarkdown: isMarkdownPath(result.absolutePath),
         status: 'fresh',
         failure: undefined,

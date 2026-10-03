@@ -15,7 +15,9 @@ test.describe('Settings', () => {
    * editor that carried `settings-section-auth`. Coverage moved, not dropped:
    * the old assertion proved the default tab actually mounted content; the
    * new ones prove the same against the new page by asserting its Background
-   * models section header (`assignments-heading`), not just the shell.
+   * connections section header (`providers-connections-heading`), not just the
+ * shell. The Background models header (`assignments-heading`) is asserted on
+ * the Agent Orchestration tab after opening the roles details.
    */
   test('settings renders', async ({ ui }) => {
     await ui.goto('settings');
@@ -24,10 +26,20 @@ test.describe('Settings', () => {
 
     await expect(page.locator('ptah-settings')).toBeVisible();
     await expect(page.locator('ptah-providers-settings')).toBeVisible();
+    await expect(page.locator('#providers-connections-heading')).toBeVisible();
+    await expect(page.locator('[data-testid="settings-back"]')).toBeVisible();
+
+    // `assignments-heading` moved to the Agent Orchestration tab (Batch 18) and
+    // sits inside the roles <details>, closed by default (Batch 33): open it
+    // before looking for the heading.
+    await page
+      .locator('ptah-settings')
+      .getByRole('button', { name: 'Agent Orchestration', exact: true })
+      .click();
+    await page.locator('[data-testid="background-roles-summary"]').click();
     await expect(
       page.locator('[data-testid="assignments-heading"]'),
     ).toBeVisible();
-    await expect(page.locator('[data-testid="settings-back"]')).toBeVisible();
   });
 
   test('toggle persists (round-trip)', async ({ ui }) => {

@@ -21,6 +21,8 @@ export const EXPECTED_ABSENT_CAPABILITIES = [
   'fileSystemAccess',
   // No renderer, so nothing can host an in-app file viewer.
   'fileViewer',
+  // Nor the spot editor that saves through it.
+  'fileEditor',
   'commandExecution',
   'appUpdater',
 ] as const;

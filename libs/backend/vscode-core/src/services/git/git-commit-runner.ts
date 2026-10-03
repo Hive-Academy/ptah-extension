@@ -4,13 +4,84 @@ import * as path from 'path';
 import {
   GIT_HOOK_TIMEOUT_MS,
   type GitCommitResult,
+  type GitOperationOutputStream,
 } from '@ptah-extension/shared';
 import type { Logger } from '../../logging';
-import type { ExecGitResult } from '../../utils/exec-git';
-import type { GitRepoWriteLock, GitWriteRunner } from './git-write-lock';
+import type {
+  GitRepoWriteLock,
+  GitWriteCompleted,
+  GitWriteRunner,
+} from './git-write-lock';
 
 /** Hooks that run inside `git commit` and can reject it. */
 const COMMIT_HOOKS = ['pre-commit', 'prepare-commit-msg', 'commit-msg'];
+
+/** The newest commit output kept for `hookOutput`. */
+export const HOOK_OUTPUT_TAIL_BYTES = 256 * 1024;
+
+/** First line of a `hookOutput` whose start was dropped. */
+const HOOK_OUTPUT_TRUNCATED_NOTE = `[Earlier output truncated; the last ${HOOK_OUTPUT_TAIL_BYTES / 1024} KiB follows.]\n`;
+
+/** Observer for a commit's live stdout / stderr, chunk by chunk. */
+export type GitOutputListener = (
+  stream: GitOperationOutputStream,
+  chunk: string,
+) => void;
+
+export interface GitCommitRunOptions {
+  /** Aborting it stops the commit → `CANCELLED`. */
+  readonly signal?: AbortSignal;
+  /**
+   * Live output of the commit, hooks included, as git produces it. Errors it
+   * throws are ignored; it never changes the result.
+   */
+  readonly onOutput?: GitOutputListener;
+}
+
+/**
+ * The last `limit` UTF-8 bytes of a stream of chunks, in arrival order.
+ * Memory stays bounded however much a hook prints.
+ */
+export class GitOutputTail {
+  private chunks: Buffer[] = [];
+  private head = 0;
+  private bytes = 0;
+  private dropped = false;
+
+  constructor(private readonly limit: number) {}
+
+  push(chunk: string): void {
+    const data = Buffer.from(chunk, 'utf8');
+    this.chunks.push(data);
+    this.bytes += data.length;
+    while (this.bytes > this.limit) {
+      const first = this.chunks[this.head];
+      const excess = this.bytes - this.limit;
+      this.dropped = true;
+      if (first.length <= excess) {
+        this.head++;
+        this.bytes -= first.length;
+      } else {
+        this.chunks[this.head] = first.subarray(excess);
+        this.bytes -= excess;
+      }
+    }
+    if (this.head > 1024) {
+      this.chunks = this.chunks.slice(this.head);
+      this.head = 0;
+    }
+  }
+
+  /** The kept text; prefixed with a truncation line when bytes were dropped. */
+  text(): string {
+    const kept = Buffer.concat(this.chunks.slice(this.head));
+    if (!this.dropped) return kept.toString('utf8');
+    // The cut may land inside a character: skip its continuation bytes.
+    let start = 0;
+    while (start < kept.length && (kept[start] & 0xc0) === 0x80) start++;
+    return HOOK_OUTPUT_TRUNCATED_NOTE + kept.subarray(start).toString('utf8');
+  }
+}
 
 /** A git path printed by `rev-parse`, minus its line ending (never trimmed). */
 function gitPathOutput(workspacePath: string, stdout: string): string {
@@ -218,8 +289,10 @@ export interface GitCommitRunnerDeps {
  * - Hooks get {@link GIT_HOOK_TIMEOUT_MS}; the budget and a caller abort both
  *   kill through {@link GitCommitKillGuard}, which then recovers the commit's
  *   own leftover `index.lock` → `TIMEOUT` / `CANCELLED`.
- * - A non-zero exit with a commit hook installed is `HOOK_FAILED` with the
- *   hook's stdout + stderr verbatim and git's exit code; otherwise `GIT_ERROR`.
+ * - Output streams to the caller's `onOutput` as it arrives, and its last
+ *   {@link HOOK_OUTPUT_TAIL_BYTES} (stdout and stderr interleaved) are kept.
+ * - A non-zero exit with a commit hook installed is `HOOK_FAILED` with that
+ *   kept output verbatim and git's exit code; otherwise `GIT_ERROR`.
  * - On success the hash and subject are read back from git
  *   (`rev-parse --short HEAD`, `log -1 --format=%s`), not parsed from output.
  */
@@ -232,14 +305,16 @@ export class GitCommitRunner {
   async run(
     workspacePath: string,
     message: string,
-    signal: AbortSignal | undefined,
+    options: GitCommitRunOptions = {},
   ): Promise<GitCommitResult> {
     const { exec, writeLock, logger } = this.deps;
     const guard = new GitCommitKillGuard(
       await this.indexLockPath(workspacePath),
       GIT_HOOK_TIMEOUT_MS,
-      signal,
+      options.signal,
     );
+    const tail = new GitOutputTail(HOOK_OUTPUT_TAIL_BYTES);
+    const onOutput = options.onOutput;
     try {
       const run = await writeLock.execWrite(
         ['commit', '-m', message],
@@ -248,12 +323,22 @@ export class GitCommitRunner {
           timeoutMs: GIT_HOOK_TIMEOUT_MS,
           signal: guard.signal,
           onExit: guard.onExit,
+          // Hooks may print without bound: `tail` keeps what `hookOutput`
+          // needs, and the result keeps only the end of each stream (still
+          // enough for the lock-retry check and a `GIT_ERROR` message).
+          keepOutputTailBytes: HOOK_OUTPUT_TAIL_BYTES,
+          onOutput: (stream, chunk) => {
+            tail.push(chunk);
+            onOutput?.(stream, chunk);
+          },
         },
       );
       if (run.code === 'LOCKED') {
         return { success: false, code: 'LOCKED', error: run.message };
       }
-      if (run.exitCode !== 0) return await this.failure(workspacePath, run);
+      if (run.exitCode !== 0) {
+        return await this.failure(workspacePath, run, tail.text());
+      }
       const [hash, subject] = await Promise.all([
         exec(['rev-parse', '--short', 'HEAD'], workspacePath),
         exec(['log', '-1', '--format=%s'], workspacePath),
@@ -283,7 +368,8 @@ export class GitCommitRunner {
   /** A commit git refused: a hook's verdict when one is installed. */
   private async failure(
     workspacePath: string,
-    run: ExecGitResult,
+    run: GitWriteCompleted,
+    output: string,
   ): Promise<GitCommitResult> {
     const { exitCode, stdout, stderr } = run;
     if (!(await this.hasCommitHook(workspacePath))) {
@@ -298,7 +384,7 @@ export class GitCommitRunner {
       success: false,
       code: 'HOOK_FAILED',
       exitCode,
-      hookOutput: stdout + stderr,
+      hookOutput: output,
       error: `git refused the commit (exit code ${exitCode}); a commit hook may have rejected it. See the output below.`,
     };
   }

@@ -1040,12 +1040,19 @@ export class SessionMetadataStore {
    * distinguish brand-new sessions from forked ones (e.g. for highlight UX).
    * When metadata already exists, the kind is downgraded to `'updated'` —
    * a duplicate `create()` is semantically just an activity touch.
+   *
+   * `workingDirectory` is the session's cwd when it differs from the workspace
+   * it is listed under — an agent child session runs in a worktree but belongs
+   * to its parent's workspace (TASK_2026_584). Omitted, it defaults to
+   * `workspaceId`, so every existing caller's record is unchanged. It applies
+   * to a NEW record only; an existing record keeps its own value.
    */
   async create(
     sessionId: string,
     workspaceId: string,
     name: string,
     kind: SessionMetadataChangeKind = 'created',
+    workingDirectory?: string,
   ): Promise<SessionMetadata> {
     // Same invariant SessionRegistry.bindRealSessionId enforces on the same
     // value three lines away in SdkAgentAdapter. A record keyed by '' is not a
@@ -1074,7 +1081,7 @@ export class SessionMetadataStore {
       sessionId,
       name,
       workspaceId,
-      workingDirectory: workspaceId,
+      workingDirectory: blankToUndefined(workingDirectory) ?? workspaceId,
       createdAt: now,
       lastActiveAt: now,
       totalCost: 0,

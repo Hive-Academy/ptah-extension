@@ -177,6 +177,33 @@ function lspReport(
   };
 }
 
+/** A child snapshot whose label carries the driver's size and marker. */
+function sessionChild(label: string): Record<string, unknown> {
+  return {
+    childSessionId: 'c-1',
+    parentSessionId: 'p-1',
+    label,
+    branch: 'feat/x',
+    baseRef: 'a'.repeat(40),
+    workspaceRoot: '/fixture',
+    worktreePath: '/fixture/.worktrees/feat-x',
+    deliverables: [],
+    status: 'working',
+    subagentPtahTools: 'available',
+    startedAt: '2026-10-01T12:00:00.000Z',
+    turnsSettled: 0,
+    reportsDelivered: 0,
+    reportsRefused: 0,
+  };
+}
+
+/** A session namespace stub with nothing held. */
+function sessionStub(
+  methods: Record<string, unknown>,
+): Record<string, unknown> {
+  return { takeHeldCompletions: () => [], ...methods };
+}
+
 interface ToolDriver {
   /** Valid `tools/call` arguments; a function form when the marker must sit inside an argument. */
   args: Record<string, unknown> | ((marker: string) => Record<string, unknown>);
@@ -195,8 +222,8 @@ function resolveArgs(
 
 /**
  * One driver per tool this dispatcher recognises (`protocol-dispatcher.ts`
- * `handleIndividualTool`/`dispatchToolsCall`), 54 entries — matches the r1
- * review's live probe (56 HTTP tools with IDE capabilities minus
+ * `handleIndividualTool`/`dispatchToolsCall`), 55 entries — the r1
+ * review's live probe plus `ptah_session_link_task` (57 HTTP tools with IDE capabilities minus
  * `execute_code` and `approval_prompt`, which are driven separately below).
  *
  * - Most namespace calls go straight through `JSON.stringify` — any large
@@ -847,6 +874,22 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
       api.tasks = { check: async () => bigJsonBlob(marker) };
     },
   },
+  ptah_session_link_task: {
+    // The success text is one fixed line around the echoed ids; an oversized
+    // task id (the real namespace would refuse it) is the only way to push
+    // it past the budget.
+    args: { taskId: 'TASK_1' },
+    mock: (api, marker) => {
+      api.sessionOrganization = {
+        linkTask: () => ({
+          ok: true,
+          sessionId: 'sdk-session-1',
+          taskId: `${marker}-${filler(280000, 'k')}`,
+          role: 'primary',
+        }),
+      };
+    },
+  },
   ptah_dashboard_propose_spec: {
     requestExtra: { _callerToolProfile: 'apps' },
     args: { spec: { title: 'x' } },
@@ -884,6 +927,70 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
           text: `${marker}-${filler(600000, 'g')}`,
         }),
       };
+    },
+  },
+  // Child sessions (TASK_2026_584). Each drives the session NAMESPACE (the
+  // dispatcher's collaborator), with the oversized text in the one field its
+  // reply echoes.
+  ptah_session_start: {
+    args: { task: 'do the thing', branch: 'feat/x' },
+    mock: (api, marker) => {
+      api.session = sessionStub({
+        start: async () => ({
+          ok: true,
+          child: sessionChild(`${marker}-${filler(280000, 's')}`),
+        }),
+      });
+    },
+  },
+  ptah_session_send: {
+    args: { sessionId: 'c-1', message: 'go' },
+    mock: (api, marker) => {
+      api.session = sessionStub({
+        send: async () => ({
+          delivered: false,
+          reason: 'delivery-failed',
+          detail: `${marker}-${filler(280000, 'n')}`,
+        }),
+      });
+    },
+  },
+  ptah_session_status: {
+    args: {},
+    mock: (api, marker) => {
+      api.session = sessionStub({
+        status: async () => ({
+          ok: true,
+          children: [sessionChild(`${marker}-${filler(280000, 't')}`)],
+        }),
+      });
+    },
+  },
+  ptah_session_read: {
+    args: { sessionId: 'c-1' },
+    mock: (api, marker) => {
+      api.session = sessionStub({
+        read: async () => ({
+          ok: true,
+          result: {
+            child: sessionChild(marker),
+            transcript: filler(280000, 'r'),
+            truncated: false,
+            available: true,
+          },
+        }),
+      });
+    },
+  },
+  ptah_session_stop: {
+    args: { sessionId: 'c-1' },
+    mock: (api, marker) => {
+      api.session = sessionStub({
+        stop: async () => ({
+          ok: true,
+          child: sessionChild(`${marker}-${filler(280000, 'o')}`),
+        }),
+      });
     },
   },
   execute_code: {
@@ -1309,6 +1416,9 @@ const PINNED_BUDGET_OVERRIDES: Readonly<
 > = {
   // 32 KiB page cap + 1 KiB Markdown wrapper; tokens at 4 chars/token.
   ptah_browser_content: { chars: 33_792, tokens: 8_448 },
+  // TASK_2026_584 F2: the default 32 KiB transcript tail + the 8,000-char
+  // default for the header and held-completion block; tokens at 4 chars/token.
+  ptah_session_read: { chars: 40_768, tokens: 10_192 },
   // The surface catalog's `maxStateReadBytes` (548 KiB); tokens at 4 chars/token.
   ptah_surface_get_state: { chars: 561_152, tokens: 140_288 },
 };
@@ -1332,6 +1442,11 @@ const PINNED_PREFORMATTED_TOOLS: ReadonlySet<string> = new Set([
   'ptah_agent_report',
   'ptah_agent_stop',
   'ptah_agent_list',
+  'ptah_session_start',
+  'ptah_session_send',
+  'ptah_session_status',
+  'ptah_session_read',
+  'ptah_session_stop',
   'ptah_task_list',
 ]);
 
@@ -1675,6 +1790,15 @@ describe('independently pinned budgets (TASK_2026_559 Batch 21 r1, defect 3)', (
     expect(TOOL_RESULT_BUDGET_OVERRIDES['ptah_browser_content'].tokens).toBe(
       Math.ceil(browserContentChars / 4),
     );
+    // `ptah_session_read`: the default 32 KiB transcript tail + the default
+    // budget (tool-result-budget.ts `SESSION_READ_CHARS`, TASK_2026_584 F2).
+    const sessionReadChars = 32 * 1024 + 8000;
+    expect(TOOL_RESULT_BUDGET_OVERRIDES['ptah_session_read'].chars).toBe(
+      sessionReadChars,
+    );
+    expect(TOOL_RESULT_BUDGET_OVERRIDES['ptah_session_read'].tokens).toBe(
+      Math.ceil(sessionReadChars / 4),
+    );
     // `ptah_surface_get_state`: the surface catalog's `maxStateReadBytes`.
     const surfaceStateChars = 548 * 1024;
     expect(TOOL_RESULT_BUDGET_OVERRIDES['ptah_surface_get_state'].chars).toBe(
@@ -1692,7 +1816,7 @@ describe('independently pinned budgets (TASK_2026_559 Batch 21 r1, defect 3)', (
 // ---------------------------------------------------------------------------
 
 describe('coverage matrix — served tools across host, caller and transport (defect 1)', () => {
-  it('HTTP coding with IDE capabilities serves 53 identically-named tools across every caller kind', async () => {
+  it('HTTP coding with IDE capabilities serves 59 identically-named tools across every caller kind', async () => {
     const deps = buildDeps({}, { hasIDECapabilities: true });
     const callers: Array<Partial<MCPRequest>> = [
       {},
@@ -1714,11 +1838,13 @@ describe('coverage matrix — served tools across host, caller and transport (de
       expect(names).toEqual(namesPerCaller[0]);
     }
     // Pinned at this HEAD (2026-09-27): update deliberately if the served
-    // set legitimately changes.
-    expect(namesPerCaller[0]).toHaveLength(53);
+    // set legitimately changes. 62 in total: the five ptah_session_* tools
+    // (TASK_2026_584) and ptah_session_link_task (TASK_2026_580); coding
+    // drops the 3 Apps-only tools (TASK_2026_595).
+    expect(namesPerCaller[0]).toHaveLength(59);
   });
 
-  it('HTTP coding without IDE capabilities serves 50 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
+  it('HTTP coding without IDE capabilities serves 56 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
     const deps = buildDeps({}, { hasIDECapabilities: false });
     const callers: Array<Partial<MCPRequest>> = [
       {},
@@ -1739,7 +1865,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
     for (const names of namesPerCaller.slice(1)) {
       expect(names).toEqual(namesPerCaller[0]);
     }
-    expect(namesPerCaller[0]).toHaveLength(50);
+    // 59 in total minus the 3 Apps-only tools; see the note above.
+    expect(namesPerCaller[0]).toHaveLength(56);
     for (const ideOnly of [
       'ptah_lsp_references',
       'ptah_lsp_definitions',
@@ -1777,7 +1904,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
             deps,
           ),
         );
-        expect(apps).toHaveLength(hasIDECapabilities ? 56 : 53);
+        expect(apps).toHaveLength(hasIDECapabilities ? 62 : 59);
         expect(apps.filter((name) => !APPS_ONLY_TOOL_NAMES.has(name))).toEqual(
           coding,
         );
@@ -2147,7 +2274,9 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_context_enrich_file: 1175,
       ptah_get_symbol_index: 1048,
       ptah_task_list: 830,
-      ptah_agent_report: 799,
+      // TASK_2026_584 F3, measured 2026-10-01: 828 chars (+ the child
+      // session sentence); ceil(828 * 1.1) + 10.
+      ptah_agent_report: 921,
       ptah_harness_install_mcp_server: 780,
       // +12 (Batch 33): the registry graphEdges list gained ", python, go".
       ptah_get_dependents: 734,
@@ -2166,6 +2295,8 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_agent_message: 591,
       execute_code: 567,
       ptah_agent_read: 553,
+      // TASK_2026_580: measured 522 chars (2026-10-01).
+      ptah_session_link_task: 585,
       // Pre-24b budget restored (Batch 24c fix round, review r1 on ruling
       // R2): measured 524 chars (2026-09-27) with every required item kept
       // (asserted item by item in tool-description.builder.spec.ts).
@@ -2205,6 +2336,12 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_agent_stop: 162,
       ptah_git_worktree_list: 156,
       ptah_git_worktree_remove: 144,
+      // TASK_2026_584, measured 2026-10-01: 885, 539, 426, 274, 275 chars.
+      ptah_session_start: 984,
+      ptah_session_send: 603,
+      ptah_session_status: 479,
+      ptah_session_read: 312,
+      ptah_session_stop: 313,
     };
     const tools = await listAllTools();
     const violations: string[] = [];
@@ -2248,8 +2385,12 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
     // Pinned at this HEAD (2026-09-27), measured 125,374 bytes, + 5%
     // headroom, per Task 21.1. A tool added or removed, or a description
     // that grows, moves this number — update the pin deliberately, do not
-    // silence the assertion.
-    const PINNED_TOOLS_LIST_BYTES_AT_HEAD = 125_374;
+    // silence the assertion. TASK_2026_584 (2026-10-01): the five
+    // ptah_session_* tools moved it to 130,357 bytes; follow-ups F2/F3
+    // (measured 2026-10-01) to 130,469: +111 for the ptah_agent_report
+    // child-session sentence, +1 for ptah_session_read's 40768-char
+    // maxResultSizeChars.
+    const PINNED_TOOLS_LIST_BYTES_AT_HEAD = 130_469;
     const bytes = Buffer.byteLength(payloads[0], 'utf8');
     expect(bytes).toBeLessThanOrEqual(
       Math.ceil(PINNED_TOOLS_LIST_BYTES_AT_HEAD * 1.05),

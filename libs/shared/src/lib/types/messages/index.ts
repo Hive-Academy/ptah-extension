@@ -11,6 +11,7 @@ export * from './payload-map';
 export * from './helpers';
 export * from './workspace';
 export * from './gateway';
+export * from './agent-session';
 export * from './voice';
 export * from './update';
 export * from './git-status';

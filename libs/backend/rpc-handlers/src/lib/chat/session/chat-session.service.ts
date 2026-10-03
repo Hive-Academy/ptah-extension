@@ -3,7 +3,9 @@
  *
  * SDK-adapter orchestration for the six chat RPC methods (`chat:start`,
  * `chat:continue` with auto-resume + slash-command intercept, `chat:resume`,
- * `chat:abort`, `chat:running-agents`, `agent:backgroundList`).
+ * `chat:abort`, `chat:running-agents`, `agent:backgroundList`), plus the
+ * child-session start behind `ChildChatSessionHostAdapter` (TASK_2026_584),
+ * which shares `chat:start`'s SDK launch.
  *
  * Every prompt string, log message, error message, and Sentry `errorSource`
  * tag is byte-identical to the pre-extraction handler. The
@@ -73,6 +75,7 @@ import type {
   ChatResumeResult,
   CliSessionReference,
   McpHttpServerOverride,
+  PermissionLevel,
 } from '@ptah-extension/shared';
 import { MESSAGE_TYPES, selectHistoryPage } from '@ptah-extension/shared';
 
@@ -117,6 +120,41 @@ interface AutoResumePreflight {
   effort?: ChatContinueParams['effort'];
   surfaceMode?: ChatContinueParams['surfaceMode'];
   mcpToolProfile?: ChatContinueParams['mcpToolProfile'];
+}
+
+/** Input of {@link ChatSessionService.startAgentChildSession} (TASK_2026_584). */
+export interface AgentChildSessionStartParams {
+  /** Backend-minted child tab id: the stream key and MCP routing id. */
+  readonly tabId: string;
+  /** Parent root: the metadata `workspaceId` and the root context resolves for. */
+  readonly workspaceRoot: string;
+  /** The child's git worktree: its `projectPath` and cwd. */
+  readonly worktreePath: string;
+  /** Contract + task text the SDK receives. */
+  readonly prompt: string;
+  readonly sessionName: string;
+  readonly model?: string;
+}
+
+/** What {@link ChatSessionService.launchSdkSession} needs from its two callers. */
+interface SdkSessionLaunch {
+  /** Label in the launch log lines (`chat:start` keeps its existing text). */
+  readonly logLabel: string;
+  readonly tabId: string;
+  /** Metadata identity, and the root prompts / profile / style resolve for. */
+  readonly workspaceId: string;
+  /** Where the session runs. */
+  readonly projectPath: string;
+  readonly prompt?: string;
+  readonly name?: string;
+  readonly options?: NonNullable<ChatStartParams['options']>;
+  readonly mcpServerRunning: boolean;
+  readonly mcpServersOverride:
+    Record<string, McpHttpServerOverride> | undefined;
+  readonly permissionLevel?: PermissionLevel;
+  readonly surfaceMode: ChatStartParams['surfaceMode'];
+  /** Only the Apps page sets `apps`; absent means the coding tool profile. */
+  readonly mcpToolProfile?: ChatStartParams['mcpToolProfile'];
 }
 
 @injectable()
@@ -515,73 +553,19 @@ export class ChatSessionService {
         }
       }
 
-      const enhancedPromptsContent =
-        await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
-
-      this.logger.info('[ptah.main] chat:start - prompt config', {
-        hasEnhancedPrompts: !!enhancedPromptsContent,
-        enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-      });
-
-      const currentModel =
-        options?.model || this.modelSettings.selectedModel.get() || 'default';
-      const files = options?.files ?? [];
-      if (files.length > 0) {
-        this.logger.debug('RPC: chat:start received files', {
-          tabId,
-          fileCount: files.length,
-          files,
-        });
-      }
-      const images = options?.images ?? [];
-      const mcpServersOverride = await this.buildMcpServersOverride(
-        params.mcpServersOverride,
-      );
-      // Resolve an isolated per-workspace provider profile so a session in
-      // workspace A runs against A's provider even when a different workspace's
-      // provider is currently the process-global active one. `undefined` → the
-      // session rides the global auth env (unchanged single-provider behavior).
-      const providerProfile =
-        await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
-          workspacePath,
-          currentModel,
-        );
-      // Output-style activation, resolved fresh for THIS session (Req 5.6).
-      // Spreads to at most one field — `outputStyleName` for the flag tier or
-      // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
-      // both (R3 / Req 5.3).
-      const outputStyle = await this.outputStyleActivation.resolveSessionFields(
-        { workspaceRoot: workspacePath },
-      );
-      const stream = await this.sdkAdapter.startChatSession({
+      await this.launchSdkSession({
+        logLabel: 'chat:start',
         tabId,
         workspaceId: workspacePath,
-        model: currentModel,
-        systemPrompt: options?.systemPrompt,
         projectPath: workspacePath,
-        name,
         prompt,
-        files,
-        images, // inline pasted/dropped images
+        name,
+        options,
         mcpServerRunning,
-        enhancedPromptsContent,
-        thinking: options?.thinking,
-        effort: options?.effort,
-        workflowsDisabled: this.resolveWorkflowsDisabled(),
-        includePartialMessages: options?.includePartialMessages,
-        mcpServersOverride,
-        providerProfile,
-        ...outputStyle,
-        ...(params.mcpToolProfile
-          ? { mcpToolProfile: params.mcpToolProfile }
-          : {}),
+        mcpServersOverride: params.mcpServersOverride,
+        surfaceMode: params.surfaceMode,
+        mcpToolProfile: params.mcpToolProfile,
       });
-      this.streamBroadcaster.streamEventsToWebview(
-        tabId as SessionId,
-        stream,
-        tabId,
-        params.surfaceMode,
-      );
 
       return { success: true };
     } catch (error) {
@@ -596,6 +580,176 @@ export class ChatSessionService {
         ...this.authErrorFields(error),
       };
     }
+  }
+
+  /**
+   * Start a child chat session for a parent session's `ptah_session_start`
+   * (TASK_2026_584). Called only by `ChildChatSessionHostAdapter`.
+   *
+   * Same SDK launch as `chat:start`, with three differences that make it a
+   * child: the metadata identity is the parent's `workspaceRoot` (so the child
+   * lists under the parent's workspace) while the session runs in its own
+   * `worktreePath`; it always starts at `auto-edit`; and MCP availability is the
+   * server's own state — the active root's `.mcp.json` outcome does not
+   * downgrade it, because a child without MCP could never report back.
+   * There is no slash-command intercept and no Ptah-CLI branch: the prompt is
+   * the backend-built contract, never user input.
+   *
+   * Never throws: every failure returns `{ success: false, error }`.
+   */
+  async startAgentChildSession(
+    params: AgentChildSessionStartParams,
+  ): Promise<ChatStartResult> {
+    const { tabId, workspaceRoot, worktreePath, prompt, sessionName, model } =
+      params;
+    try {
+      // Prompts, provider profile and output style are resolved for the root,
+      // so the root needs the same authorization as the worktree.
+      if (!isAuthorizedWorkspace(workspaceRoot, this.workspaceProvider)) {
+        this.logger.warn(
+          '[RPC] agent child session - refused: workspace root is not inside an open folder',
+          { tabId, workspaceRoot },
+        );
+        return {
+          success: false,
+          error: 'Access denied: workspace root is not inside an open folder.',
+        };
+      }
+      if (!isAuthorizedWorkspace(worktreePath, this.workspaceProvider)) {
+        this.logger.warn(
+          '[RPC] agent child session - refused: worktree is not inside an open folder',
+          { tabId, worktreePath },
+        );
+        return {
+          success: false,
+          error: 'Access denied: worktree path is not inside an open folder.',
+        };
+      }
+      const unsafe = this.rejectIfUnsafeWorkspace(
+        worktreePath,
+        'agent child session',
+      );
+      if (unsafe) return unsafe;
+
+      const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
+      this.logger.info('[ptah.main] agent child session - session config', {
+        tabId,
+        workspaceRoot,
+        worktreePath,
+        mcpServerRunning,
+      });
+
+      await this.launchSdkSession({
+        logLabel: 'agent child session',
+        tabId,
+        workspaceId: workspaceRoot,
+        projectPath: worktreePath,
+        prompt,
+        name: sessionName,
+        options: model ? { model } : undefined,
+        mcpServerRunning,
+        mcpServersOverride: undefined,
+        permissionLevel: 'auto-edit',
+        surfaceMode: undefined,
+      });
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(
+        'RPC: agent child session start failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      this.captureSentry(error, 'ChatSessionService.startAgentChildSession');
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        ...this.authErrorFields(error),
+      };
+    }
+  }
+
+  /**
+   * The SDK-launch half shared by `chat:start` and child sessions: enhanced
+   * prompts, model, MCP overrides, provider profile and output style — all
+   * resolved for `workspaceId` — then `startChatSession` and the webview
+   * stream. Throws on failure; each caller result-shapes it.
+   *
+   * `workspaceId` is the session's metadata identity and the root its context
+   * is resolved for; `projectPath` is where it runs. `chat:start` passes the
+   * same path for both.
+   */
+  private async launchSdkSession(input: SdkSessionLaunch): Promise<void> {
+    const { logLabel, tabId, workspaceId, projectPath, options } = input;
+
+    const enhancedPromptsContent =
+      await this.sdkContext.resolveEnhancedPromptsContent(workspaceId);
+
+    this.logger.info(`[ptah.main] ${logLabel} - prompt config`, {
+      hasEnhancedPrompts: !!enhancedPromptsContent,
+      enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
+    });
+
+    const currentModel =
+      options?.model || this.modelSettings.selectedModel.get() || 'default';
+    const files = options?.files ?? [];
+    if (files.length > 0) {
+      this.logger.debug(`RPC: ${logLabel} received files`, {
+        tabId,
+        fileCount: files.length,
+        files,
+      });
+    }
+    const images = options?.images ?? [];
+    const mcpServersOverride = await this.buildMcpServersOverride(
+      input.mcpServersOverride,
+    );
+    // Resolve an isolated per-workspace provider profile so a session in
+    // workspace A runs against A's provider even when a different workspace's
+    // provider is currently the process-global active one. `undefined` → the
+    // session rides the global auth env (unchanged single-provider behavior).
+    const providerProfile =
+      await this.workspaceProviderProfileResolver.resolveProviderProfileForWorkspace(
+        workspaceId,
+        currentModel,
+      );
+    // Output-style activation, resolved fresh for THIS session (Req 5.6).
+    // Spreads to at most one field — `outputStyleName` for the flag tier or
+    // `outputStyleBody` for the user-tier-file-on-localhost fallback, never
+    // both (R3 / Req 5.3).
+    const outputStyle = await this.outputStyleActivation.resolveSessionFields({
+      workspaceRoot: workspaceId,
+    });
+    const stream = await this.sdkAdapter.startChatSession({
+      tabId,
+      workspaceId,
+      model: currentModel,
+      systemPrompt: options?.systemPrompt,
+      projectPath,
+      name: input.name,
+      prompt: input.prompt,
+      files,
+      images, // inline pasted/dropped images
+      mcpServerRunning: input.mcpServerRunning,
+      enhancedPromptsContent,
+      thinking: options?.thinking,
+      effort: options?.effort,
+      workflowsDisabled: this.resolveWorkflowsDisabled(),
+      includePartialMessages: options?.includePartialMessages,
+      mcpServersOverride,
+      providerProfile,
+      // Only a child passes a level; `chat:start` keeps the global default.
+      ...(input.permissionLevel
+        ? { permissionLevel: input.permissionLevel }
+        : {}),
+      ...outputStyle,
+      ...(input.mcpToolProfile ? { mcpToolProfile: input.mcpToolProfile } : {}),
+    });
+    this.streamBroadcaster.streamEventsToWebview(
+      tabId as SessionId,
+      stream,
+      tabId,
+      input.surfaceMode,
+    );
   }
 
   /**
@@ -977,6 +1131,10 @@ export class ChatSessionService {
         return customAbortResult;
       }
 
+      // Read before the interrupt removes the record. Same lookup as
+      // `SessionControl.endSession`, so false means the interrupt below is a
+      // no-op ('already-ended').
+      const hadLiveRecord = this.sdkAdapter.isSessionActive(sessionId);
       await this.sdkAdapter.interruptSession(sessionId);
 
       const resumableSubagents = this.subagentRegistry.getResumableBySession(
@@ -993,9 +1151,15 @@ export class ChatSessionService {
         });
       }
 
-      await this.sessionMetadataStore.saveResumeState(sessionId, {
-        resumableSdkSubagents: resumableSubagents,
-      });
+      // `saveResumeState` REPLACES the durable list. Without a live record
+      // nothing changed this call, and the registry may simply never have
+      // restored that list (a tab restored after a restart and closed
+      // unopened), so writing its snapshot would wipe resumable agents.
+      if (hadLiveRecord) {
+        await this.sessionMetadataStore.saveResumeState(sessionId, {
+          resumableSdkSubagents: resumableSubagents,
+        });
+      }
 
       return {
         success: true,

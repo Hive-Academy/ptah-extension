@@ -3,9 +3,52 @@ import { rpcCall, VSCodeService } from '@ptah-extension/core';
 import type {
   EditorTarget,
   EditorTargetId,
+  EditorOpenMergeFailureReason,
+  EditorOpenMergeResult,
   EditorOpenResult,
 } from '@ptah-extension/shared';
 import type { OpenInRequest } from '../open-in/open-in-button.component';
+
+const MERGE_LAUNCH_FAILED_COPY = 'The merge view could not be opened.';
+
+const MERGE_LAUNCH_FAILED: EditorOpenMergeResult = {
+  status: 'failed',
+  reason: 'failed',
+  error: MERGE_LAUNCH_FAILED_COPY,
+};
+
+const MERGE_FAILURE_REASONS: ReadonlySet<string> =
+  new Set<EditorOpenMergeFailureReason>([
+    'invalid-params',
+    'invalid-path',
+    'not-installed',
+    'no-operation',
+    'not-conflicted',
+    'not-mergeable',
+    'failed',
+  ]);
+
+/** Check an `editor:openMerge` reply's shape; anything else is a failure. */
+function readOpenMergeResult(data: unknown): EditorOpenMergeResult {
+  if (typeof data !== 'object' || data === null) return MERGE_LAUNCH_FAILED;
+  const { status, reason, error } = data as Record<string, unknown>;
+  if (status === 'ok' || status === 'unsupported') return { status };
+  if (
+    status === 'failed' &&
+    typeof reason === 'string' &&
+    MERGE_FAILURE_REASONS.has(reason)
+  ) {
+    return {
+      status,
+      reason: reason as EditorOpenMergeFailureReason,
+      error:
+        typeof error === 'string' && error !== ''
+          ? error
+          : MERGE_LAUNCH_FAILED_COPY,
+    };
+  }
+  return MERGE_LAUNCH_FAILED;
+}
 
 export interface LaunchStatus {
   kind: 'success' | 'error';
@@ -88,6 +131,41 @@ export class EditorLauncherService {
       { target, workspaceRoot, path, ...(line ? { line } : {}) },
       `Opened ${path} in ${target}.`,
     );
+  }
+
+  /**
+   * Open the three-way merge view of one conflicted, repository-relative
+   * path (`editor:openMerge`). `ok` and `failed` publish a launch status;
+   * `unsupported` publishes nothing, because the caller opens the file
+   * instead. A transport failure or a malformed reply reads as `failed`.
+   */
+  async openMerge(
+    target: EditorTargetId,
+    workspaceRoot: string,
+    path: string,
+  ): Promise<EditorOpenMergeResult> {
+    let result: EditorOpenMergeResult = MERGE_LAUNCH_FAILED;
+    try {
+      const response = await rpcCall<EditorOpenMergeResult>(
+        this.vscode,
+        'editor:openMerge',
+        { target, path, workspaceRoot },
+      );
+      result = readOpenMergeResult(response.success ? response.data : null);
+    } catch (error: unknown) {
+      // degradation-audit: reported - published as a failed launch below,
+      // which the header renders as a visible error.
+      console.error('[EditorLauncherService] editor:openMerge threw', error);
+    }
+    if (result.status === 'ok') {
+      this._launchStatus.set({
+        kind: 'success',
+        message: `Opened the merge view for ${path}.`,
+      });
+    } else if (result.status === 'failed') {
+      this._launchStatus.set({ kind: 'error', message: result.error });
+    }
+    return result;
   }
 
   async openLinkedFile(request: OpenInRequest): Promise<boolean> {

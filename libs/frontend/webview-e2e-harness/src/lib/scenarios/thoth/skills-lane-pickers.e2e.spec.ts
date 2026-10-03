@@ -435,7 +435,13 @@ test.describe('webview > settings > providers > background model pickers', () =>
       synthesisPicker.locator('[data-testid="provider-model-picker-model"]'),
     ).toHaveValue('kimi-k2');
 
-    // An untouched lane still shows the documented default: inherit.
+    // An untouched lane still shows the documented default: inherit. Reassignment is one popover at a time since Batch 35
+    // (its backdrop intercepts clicks), so the synthesis popover is closed first (Esc; the first Esc may only close an
+    // open model list).
+    await synthesisEditor.focus().catch(() => undefined);
+    await page.keyboard.press('Escape');
+    if (await synthesisEditor.count()) await page.keyboard.press('Escape');
+    await expect(synthesisEditor).toHaveCount(0);
     await page.locator('[data-testid="consumer-edit-judge"]').click();
     const judgePicker = page.locator(
       '[data-testid="consumer-editor-judge"] ptah-provider-model-picker',

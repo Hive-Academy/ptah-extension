@@ -186,6 +186,27 @@ export class SkillRegistryStore {
     stmt.run(candidateId, Date.now(), kind, slug);
   }
 
+  /**
+   * Delete the `(kind, slug)` row only when its `clone_status` is
+   * `onlyCloneStatus` (default `synth`), so an authored, cloned or diverged
+   * entry is never removed by a synthesis-side cleanup. One plain statement:
+   * inside a caller's transaction it joins that unit of work. Returns whether
+   * a row was deleted.
+   */
+  remove(
+    kind: SkillRegistryKind,
+    slug: string,
+    onlyCloneStatus: CloneStatus = 'synth',
+  ): boolean {
+    const result = this.db
+      .prepare(
+        `DELETE FROM skill_registry
+          WHERE kind = ? AND slug = ? AND clone_status = ?`,
+      )
+      .run(kind, slug, onlyCloneStatus);
+    return Number(result.changes) === 1;
+  }
+
   private toRow(raw: RawRegistryRow): SkillRegistryRow {
     return {
       slug: raw.slug,

@@ -47,8 +47,11 @@ import type {
   IWorkspaceProvider,
   IFileSystemProvider,
 } from '@ptah-extension/platform-core';
+import { GitOperationOutputThrottle } from './git-operation-output.throttle';
+import { findRegisteredWorkspaceFolder } from './git-workspace-root';
 import {
   parseGitApplyHunksParams,
+  parseGitCommitParams,
   parseGitDiffFileParams,
   parseGitReviewChangesParams,
   parseGitReviewFileParams,
@@ -62,6 +65,7 @@ import type {
   GitReviewChangesResult,
   GitReviewFileParams,
   GitReviewFileResult,
+  GitWorktreesParams,
   GitWorktreesResult,
   GitAddWorktreeParams,
   GitAddWorktreeResult,
@@ -75,6 +79,7 @@ import type {
   GitDiscardResult,
   GitCommitParams,
   GitCommitResult,
+  GitOperationOutputPayload,
   GitShowFileParams,
   GitShowFileResult,
   GitDiffFileParams,
@@ -289,9 +294,11 @@ export class GitRpcHandlers {
     method: string,
   ): string | undefined {
     if (requested) {
-      if (this.isRegisteredFolder(requested)) {
-        return requested;
-      }
+      const registered = findRegisteredWorkspaceFolder(
+        this.workspace,
+        requested,
+      );
+      if (registered) return registered;
       this.logger.warn(
         `[GitRpc] ${method} called with unregistered workspaceRoot`,
         { workspaceRoot: requested } as unknown as Error,
@@ -301,24 +308,21 @@ export class GitRpcHandlers {
     return this.workspace.getWorkspaceRoot();
   }
 
-  private isRegisteredFolder(requested: string): boolean {
-    const normalize = (p: string): string =>
-      p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-    const target = normalize(requested);
-    return this.workspace
-      .getWorkspaceFolders()
-      .some((folder) => normalize(folder) === target);
-  }
-
   /**
-   * git:worktrees - Returns all worktrees for the active workspace.
-   * If no workspace is open, returns an empty list.
+   * git:worktrees - Returns all worktrees for the workspace folder named in
+   * `params.workspaceRoot`, falling back to the active workspace. Invalid
+   * params, an unregistered folder or no workspace return an empty list.
    */
   private registerGitWorktrees(): void {
-    this.rpcHandler.registerMethod<Record<string, never>, GitWorktreesResult>(
+    this.rpcHandler.registerMethod<GitWorktreesParams, GitWorktreesResult>(
       'git:worktrees',
-      async () => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+      async (rawParams) => {
+        const params = parseGitWorkspaceScopedParams(rawParams);
+        if (!params) {
+          this.logger.warn('[GitRpc] git:worktrees called with invalid params');
+          return { worktrees: [] };
+        }
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:worktrees');
         if (!wsRoot) {
           return { worktrees: [] };
         }
@@ -344,7 +348,10 @@ export class GitRpcHandlers {
     this.rpcHandler.registerMethod<GitAddWorktreeParams, GitAddWorktreeResult>(
       'git:addWorktree',
       async (params) => {
-        const wsRoot = this.workspace.getWorkspaceRoot();
+        const wsRoot = this.resolveRoot(
+          params?.workspaceRoot,
+          'git:addWorktree',
+        );
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
@@ -408,7 +415,10 @@ export class GitRpcHandlers {
       GitRemoveWorktreeParams,
       GitRemoveWorktreeResult
     >('git:removeWorktree', async (params) => {
-      const wsRoot = this.workspace.getWorkspaceRoot();
+      const wsRoot = this.resolveRoot(
+        params?.workspaceRoot,
+        'git:removeWorktree',
+      );
       if (!wsRoot) {
         return { success: false, error: 'No workspace folder open' };
       }
@@ -548,23 +558,80 @@ export class GitRpcHandlers {
 
   /**
    * git:commit - Create a commit with the provided message.
+   *
+   * With an `operationId`, the hook output streams to the webview as
+   * throttled `git:operationOutput` pushes while the commit runs (see
+   * {@link GitOperationOutputThrottle}), the last of them sent before the
+   * result returns, and `git:cancelOperation` can stop it.
    */
   private registerGitCommit(): void {
     this.rpcHandler.registerMethod<GitCommitParams, GitCommitResult>(
       'git:commit',
-      async (params) => {
-        const wsRoot = this.resolveRoot(params?.workspaceRoot, 'git:commit');
+      async (rawParams) => {
+        const params = parseGitCommitParams(rawParams);
+        if (!params) {
+          return { success: false, error: 'Invalid commit request.' };
+        }
+
+        const wsRoot = this.resolveRoot(params.workspaceRoot, 'git:commit');
         if (!wsRoot) {
           return { success: false, error: 'No workspace folder open' };
         }
 
-        if (!params?.message || !params.message.trim()) {
+        if (!params.message.trim()) {
           return { success: false, error: 'Commit message cannot be empty' };
         }
 
-        return this.gitInfo.commit(wsRoot, params.message);
+        if (!params.operationId) {
+          return this.gitInfo.commit(wsRoot, params.message);
+        }
+        return this.commitWithLiveOutput(
+          wsRoot,
+          params.message,
+          params.operationId,
+        );
       },
     );
+  }
+
+  private async commitWithLiveOutput(
+    wsRoot: string,
+    message: string,
+    operationId: string,
+  ): Promise<GitCommitResult> {
+    // One error log per operation: with the webview gone every push fails.
+    let failureLogged = false;
+    const output = new GitOperationOutputThrottle(operationId, (payload) =>
+      this.broadcastOperationOutput(payload, () => {
+        if (failureLogged) return false;
+        failureLogged = true;
+        return true;
+      }),
+    );
+    try {
+      return await this.gitInfo.commit(wsRoot, message, {
+        operationId,
+        onOutput: (stream, chunk) => output.push(stream, chunk),
+      });
+    } finally {
+      await output.flush();
+    }
+  }
+
+  /** Push one output chunk; a failure is logged when `shouldLog()` says so. */
+  private broadcastOperationOutput(
+    payload: GitOperationOutputPayload,
+    shouldLog: () => boolean,
+  ): Promise<void> {
+    return this.webviewManager
+      .broadcastMessage('git:operationOutput', payload)
+      .catch((error: unknown) => {
+        if (!shouldLog()) return;
+        this.logger.error(
+          '[GitRpc] Failed to broadcast git:operationOutput',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      });
   }
 
   /**
@@ -915,9 +982,10 @@ export class GitRpcHandlers {
   }
 
   /**
-   * git:checkout - Checkout a branch, optionally creating it.
-   * Returns { success: false, dirty: true } when working tree is dirty and force=false.
-   * Validates that branch param is non-empty before delegating.
+   * git:checkout - Switch branches (`git switch` semantics), optionally creating one.
+   * Returns { success: false, dirty: true, conflictingPaths } when git refuses
+   * because local changes would be overwritten. `stash` and `track` are passed
+   * through to GitInfoService. Validates that branch param is non-empty before delegating.
    */
   private registerGitCheckout(): void {
     this.rpcHandler.registerMethod<GitCheckoutParams, GitCheckoutResult>(
@@ -936,6 +1004,8 @@ export class GitRpcHandlers {
           branch: params.branch,
           createNew: params.createNew,
           force: params.force,
+          stash: params.stash,
+          track: params.track,
         } as unknown as Error);
 
         return this.gitInfo.checkout(
@@ -943,6 +1013,7 @@ export class GitRpcHandlers {
           params.branch,
           params.createNew,
           params.force,
+          { stash: params.stash, track: params.track },
         );
       },
     );

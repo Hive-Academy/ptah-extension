@@ -21,14 +21,49 @@ const USAGE_LIMIT_REGEX = /usage limit/i;
 
 const RETRY_AT_REGEX = /try again at\s+([^\n.)]+)/i;
 
+/** Fixed marker that replaces every literal secret occurrence. */
+const REDACTED_MARKER = '[REDACTED]';
+
+/**
+ * Replace every literal occurrence of each secret with a fixed marker.
+ *
+ * Literal-value replacement, not a regex: a key such as `key_…` may not match
+ * a shape-based sanitizer, and splitting on the exact value cannot be evaded
+ * by punctuation inside the key.
+ */
+export function redactSecrets(
+  text: string,
+  secrets: readonly string[],
+): string {
+  let redacted = text;
+  for (const secret of secrets) {
+    const value = secret.trim();
+    if (value.length === 0) {
+      continue;
+    }
+    redacted = redacted.split(value).join(REDACTED_MARKER);
+  }
+  return redacted;
+}
+
 /**
  * Turn a rejected vendor SDK error into one bounded line fit for the stream.
  *
  * @param error - The rejection value, narrowed here rather than by the caller.
  * @param vendor - Display name of the SDK, e.g. `Codex` or `Cursor`.
+ * @param secrets - Literal values that must never reach the stream. Redaction
+ *   runs before the headline is cut, so an occurrence inside the kept headline
+ *   is always replaced. Defaults to no secrets (Codex stays untouched).
  */
-export function summarizeCliSdkError(error: unknown, vendor: string): string {
-  const raw = (error instanceof Error ? error.message : String(error)).trim();
+export function summarizeCliSdkError(
+  error: unknown,
+  vendor: string,
+  secrets: readonly string[] = [],
+): string {
+  const raw = redactSecrets(
+    (error instanceof Error ? error.message : String(error)).trim(),
+    secrets,
+  );
 
   const usageLimit = summarizeUsageLimit(raw, vendor);
   if (usageLimit) {

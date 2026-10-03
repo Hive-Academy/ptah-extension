@@ -1,0 +1,105 @@
+{
+ "name": "advanced-vscode-anubis",
+ "axe": [],
+ "coloured": {
+  "tokens": {
+   "primary": [
+    37,
+    99,
+    235,
+    1
+   ],
+   "secondary": [
+    212,
+    175,
+    55,
+    1
+   ],
+   "accent": [
+    251,
+    191,
+    36,
+    1
+   ],
+   "info": [
+    59,
+    130,
+    246,
+    1
+   ],
+   "success": [
+    22,
+    163,
+    74,
+    1
+   ],
+   "warning": [
+    249,
+    115,
+    22,
+    1
+   ],
+   "error": [
+    248,
+    113,
+    113,
+    1
+   ]
+  },
+  "hits": []
+ },
+ "disabled": [
+  {
+   "label": "Edit Explanatory",
+   "testid": "output-style-edit-button",
+   "opacity": 0.4,
+   "ratio": 1.22,
+   "kind": "icon"
+  },
+  {
+   "label": "Delete Explanatory",
+   "testid": "output-style-delete-button",
+   "opacity": 0.4,
+   "ratio": 1.22,
+   "kind": "icon"
+  },
+  {
+   "label": "Edit Learning",
+   "testid": "output-style-edit-button",
+   "opacity": 0.4,
+   "ratio": 1.22,
+   "kind": "icon"
+  },
+  {
+   "label": "Delete Learning",
+   "testid": "output-style-delete-button",
+   "opacity": 0.4,
+   "ratio": 1.22,
+   "kind": "icon"
+  },
+  {
+   "label": "Save MCP port",
+   "testid": "mcp-port-save-btn",
+   "opacity": 1,
+   "ratio": 1.76,
+   "kind": "text"
+  }
+ ],
+ "alerts": [],
+ "stops": 70,
+ "noRing": [],
+ "lowRing": [
+  "SUMMARY Command-line parity | 1.1 | 16,16,16 | auto 1px off 0px | cursor-pointer font-medium select-none text-xs text-base-content | box=",
+  "SUMMARY Command-line parity | 1.1 | 16,16,16 | auto 1px off 0px | cursor-pointer font-medium select-none text-xs text-base-content | box="
+ ],
+ "ringCols": [
+  "146,139,139",
+  "212,175,55",
+  "37,99,235",
+  "16,16,16",
+  "230,230,225",
+  "232,230,225"
+ ],
+ "minRing": 1.1,
+ "maxRing": 14.86
+}

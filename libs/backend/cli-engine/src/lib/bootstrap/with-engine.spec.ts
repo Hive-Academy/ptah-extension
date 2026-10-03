@@ -6,7 +6,17 @@
  * targets ≥ 80% on `with-engine.ts`.
  */
 
+import 'reflect-metadata';
 import { EventEmitter } from 'node:events';
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
 const activateThothMock = jest.fn();
@@ -25,7 +35,11 @@ jest.mock('@ptah-extension/rpc-handlers', () => ({
     runCursorApiKeyMigrationMock(...(args as [])),
 }));
 
-import { withEngine, SdkInitFailedError } from './with-engine.js';
+import {
+  withEngine,
+  SdkInitFailedError,
+  migrateLegacyAuthMethod,
+} from './with-engine.js';
 import type {
   EngineContext,
   WithEngineGlobals,
@@ -34,6 +48,14 @@ import type {
 import type { CliBootstrapOptions, CliBootstrapResult } from '../container.js';
 import type { CliMessageTransport } from '../transport/cli-message-transport.js';
 import { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
+import {
+  PLATFORM_TOKENS,
+  PtahFileSettingsManager,
+  SettingsPersistError,
+} from '@ptah-extension/platform-core';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import { createMockLogger } from '@ptah-extension/shared/testing';
 
 // ---------------------------------------------------------------------------
 // Test doubles
@@ -194,6 +216,108 @@ describe('withEngine', () => {
         async () => 0,
       );
       expect(runCursorApiKeyMigrationMock).not.toHaveBeenCalled();
+    });
+
+    it('startup survives a rejecting settings write (TASK_2026_553)', async () => {
+      // Every startup writer rejects the way PtahFileSettingsManager.set()
+      // does when ~/.ptah/settings.json cannot be written.
+      const persistError = () => new SettingsPersistError('EACCES');
+      const legacyKey = 'with-engine-553-plain-cursor-key';
+      const logger = createMockLogger();
+      const setConfiguration = jest.fn(async () => {
+        throw persistError();
+      });
+      const setProviderKey = jest.fn(async () => undefined);
+      const workspace = {
+        getConfiguration: (_section: string, key: string) =>
+          key === 'authMethod'
+            ? 'claudeCli'
+            : key === 'provider.cursor.apiKey'
+              ? legacyKey
+              : undefined,
+        setConfiguration,
+      };
+      const byToken = new Map<unknown, unknown>([
+        [
+          SETTINGS_TOKENS.MIGRATION_RUNNER,
+          { runMigrations: async () => Promise.reject(persistError()) },
+        ],
+        // The one token both migrateLegacyAuthMethod and the Cursor step
+        // resolve (the platform token CliDIContainer.setup registers).
+        [PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspace],
+        [TOKENS.LOGGER, logger],
+        [
+          TOKENS.AUTH_SECRETS_SERVICE,
+          { hasProviderKey: async () => false, setProviderKey },
+        ],
+      ]);
+      const { bootstrap } = makeFakeBootstrap();
+      const wrapped: typeof bootstrap = (options) => {
+        const result = bootstrap(options);
+        const c = result.container as unknown as FakeContainer;
+        c.resolve = jest.fn((token: unknown) =>
+          byToken.has(token) ? byToken.get(token) : c.__sdkAdapter,
+        );
+        return result;
+      };
+      // Run the real catch-all Cursor step against the rejecting provider.
+      const { runCursorApiKeyMigration: realCursorMigration } =
+        jest.requireActual<typeof import('@ptah-extension/rpc-handlers')>(
+          '@ptah-extension/rpc-handlers',
+        );
+      runCursorApiKeyMigrationMock.mockImplementationOnce(((
+        c: DependencyContainer,
+      ) => realCursorMigration(c)) as never);
+      const stderrSpy = jest
+        .spyOn(process.stderr, 'write')
+        .mockImplementation(() => true);
+
+      try {
+        await expect(
+          withEngine(
+            { verbose: true },
+            { mode: 'full', requireSdk: false, bootstrap: wrapped },
+            async () => 'ran',
+          ),
+        ).resolves.toBe('ran');
+
+        // Each writer was reached and rejected.
+        expect(setConfiguration).toHaveBeenCalledWith(
+          'ptah',
+          'authMethod',
+          'claude-cli',
+        );
+        expect(setConfiguration).toHaveBeenCalledWith(
+          'ptah',
+          'provider.cursor.apiKey',
+          undefined,
+        );
+        const stderr = stderrSpy.mock.calls.map((call) => String(call[0]));
+        expect(stderr).toContainEqual(
+          expect.stringContaining(
+            'file-settings migration failed (non-fatal): Settings could not be saved to disk (EACCES)',
+          ),
+        );
+        expect(stderr).toContainEqual(
+          expect.stringContaining(
+            'authMethod migration skipped: Settings could not be saved to disk (EACCES)',
+          ),
+        );
+        expect(logger.warn).toHaveBeenCalledWith(
+          '[CursorApiKeyMigration] failed; the plain setting is kept and retried next start',
+          { errorType: 'SettingsPersistError' },
+        );
+        // The warnings never carry the value.
+        const logged = JSON.stringify([
+          stderr,
+          Object.values(logger).flatMap((fn) =>
+            jest.isMockFunction(fn) ? fn.mock.calls : [],
+          ),
+        ]);
+        expect(logged).not.toContain(legacyKey);
+      } finally {
+        stderrSpy.mockRestore();
+      }
     });
 
     it('threads cwd from globals to workspacePath', async () => {
@@ -1150,5 +1274,112 @@ describe('withEngine', () => {
       expect(disposeThothMock).not.toHaveBeenCalled();
       stderrSpy.mockRestore();
     });
+  });
+});
+
+describe('migrateLegacyAuthMethod (TASK_2026_555 Batch 2b)', () => {
+  // A real ~/.ptah/settings.json in a temp dir, behind the provider slice
+  // the CLI workspace provider exposes for file-based `ptah` keys.
+  let dir = '';
+  let manager: PtahFileSettingsManager;
+  let setConfiguration: jest.SpyInstance;
+
+  function containerWithProvider(): DependencyContainer {
+    const provider = {
+      getConfiguration: <T>(_section: string, key: string) =>
+        manager.get<T>(key),
+      setConfiguration: (_section: string, key: string, value: unknown) =>
+        manager.set(key, value),
+    };
+    setConfiguration = jest.spyOn(provider, 'setConfiguration');
+    const c = rootContainer.createChildContainer();
+    // Registered exactly where CliDIContainer.setup registers it.
+    c.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, provider);
+    return c;
+  }
+
+  function writeUserFile(content: Record<string, unknown>): string {
+    const raw = JSON.stringify(
+      { $schema: 'https://ptah.live/schemas/settings.json', version: 1, ...content },
+      null,
+      2,
+    );
+    writeFileSync(join(dir, 'settings.json'), raw, 'utf-8');
+    return raw;
+  }
+
+  function readUserFile(): Record<string, unknown> {
+    return JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf-8'));
+  }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'ptah-auth-method-migration-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('runs against the platform-token provider and writes the canonical value, keeping other keys', async () => {
+    writeUserFile({
+      authMethod: 'claudeCli',
+      llm: { defaultProvider: 'openrouter' },
+      reasoningEffort: 'high',
+    });
+    manager = new PtahFileSettingsManager({}, dir);
+
+    await migrateLegacyAuthMethod(containerWithProvider());
+
+    expect(setConfiguration).toHaveBeenCalledTimes(1);
+    expect(setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'authMethod',
+      'claude-cli',
+    );
+    const onDisk = readUserFile();
+    expect(onDisk['authMethod']).toBe('claude-cli');
+    expect(onDisk['llm']).toEqual({ defaultProvider: 'openrouter' });
+    expect(onDisk['reasoningEffort']).toBe('high');
+  });
+
+  it('is a no-op on the second run', async () => {
+    writeUserFile({ authMethod: 'claudeCli' });
+    manager = new PtahFileSettingsManager({}, dir);
+    const c = containerWithProvider();
+    await migrateLegacyAuthMethod(c);
+    const afterFirst = readFileSync(join(dir, 'settings.json'), 'utf-8');
+    setConfiguration.mockClear();
+
+    await migrateLegacyAuthMethod(c);
+
+    expect(setConfiguration).not.toHaveBeenCalled();
+    expect(readFileSync(join(dir, 'settings.json'), 'utf-8')).toBe(afterFirst);
+  });
+
+  it.each([
+    ['already migrated', { authMethod: 'claude-cli', reasoningEffort: 'low' }],
+    ['another auth method', { authMethod: 'apiKey', reasoningEffort: 'low' }],
+    ['no authMethod at all', { reasoningEffort: 'low' }],
+  ])('leaves a user file with %s untouched', async (_label, content) => {
+    const raw = writeUserFile(content);
+    manager = new PtahFileSettingsManager({}, dir);
+
+    await migrateLegacyAuthMethod(containerWithProvider());
+
+    expect(setConfiguration).not.toHaveBeenCalled();
+    expect(readFileSync(join(dir, 'settings.json'), 'utf-8')).toBe(raw);
+  });
+
+  it('rejects with the fixed persist error when the write fails, without the value', async () => {
+    writeUserFile({ authMethod: 'claudeCli' });
+    manager = new PtahFileSettingsManager({}, dir);
+    const c = containerWithProvider();
+    setConfiguration.mockRejectedValueOnce(new SettingsPersistError('EACCES'));
+
+    // withEngine's `.catch` (with-engine.ts) contains this; the message it
+    // prints is the fixed text only.
+    await expect(migrateLegacyAuthMethod(c)).rejects.toThrow(
+      'Settings could not be saved to disk (EACCES)',
+    );
   });
 });
