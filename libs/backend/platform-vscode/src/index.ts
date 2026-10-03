@@ -1,5 +1,6 @@
 export { registerPlatformVscodeServices } from './registration';
 export { registerVscodeSettings } from './settings/vscode-settings-registration';
+export { createAgentModelSettingsGetter } from './settings/agent-model-settings-getter';
 export {
   VscodeSettingsAdapter,
   type VscodeApiSlice,
