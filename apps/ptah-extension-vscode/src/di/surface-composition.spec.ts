@@ -73,6 +73,7 @@ import {
   handleSurfaceToolCall,
   SURFACE_UPDATE_TOOL_NAME,
   SURFACE_GET_STATE_TOOL_NAME,
+  runWithMcpRequestContext,
 } from '@ptah-extension/vscode-lm-tools';
 import { resolveRpcHandlerPlan } from '@ptah-extension/rpc-handlers';
 import type { SurfaceEnvelope } from '@ptah-extension/shared';
@@ -362,9 +363,14 @@ describe('VS Code surface composition — PtahAPIBuilder wiring check (Req 7.4, 
     const builder = c.resolve<PtahAPIBuilder>(TOKENS.PTAH_API_BUILDER);
     const api = builder.build();
 
-    const outcome = await api.surface.update(
-      { operation: 'create', surface: envelope() },
-      { sessionId: 'tab-1', toolCallId: 'call-builder' },
+    // `ptah.surface` is Apps-only (TASK_2026_595): run as an Apps caller.
+    const outcome = await runWithMcpRequestContext(
+      { callerToolProfile: 'apps' },
+      () =>
+        api.surface.update(
+          { operation: 'create', surface: envelope() },
+          { sessionId: 'tab-1', toolCallId: 'call-builder' },
+        ),
     );
     expect(outcome.status).toBe('accepted');
 
