@@ -393,3 +393,34 @@ Unrendered error and progress states (test-connection result lines, voice downlo
 
 - Recommendation: PASS WITH NOTES (7/10); fix F1 and F2 before merge if the team treats Serious as blocking (both are one-class changes).
 - Confidence: HIGH on folds, axe, coloured text, overlays, the drawer-busy result and the F1/F2 numbers at full opacity; MEDIUM on the effective F2 ratios (blended by hand) and on F3 beyond the paths run.
+
+## Re-check of the Batch 55 fixes (2026-10-03)
+
+Same-side, disclosed: in-process visual-reviewer subagent; the author of the fixes was also an in-process subagent. The screenshots were read by the model (no image-capable CLI lane). No source edited, no git writes. Head `f62e1e360`; `dist/apps/ptah-extension-webview/browser` (stamped 13:36) is newer than every file under `apps/ptah-extension-webview/src` and `libs/frontend` (checked with `find -newer`), so I did not rebuild. Method as in the final review: Playwright chromium, harness fixture server (`useAppBuild: true`), 1024x768, hosts vscode + electron x themes anubis + anubis-light (16 probe tests, all green). Tab ring read from `getComputedStyle` of the focused element after real `Tab` presses, colour resolved through a canvas, composited over the parent's background chain (an offset ring is measured against its parent), WCAG relative-luminance ratio. The throwaway probe (`scenarios/finalprobe55/`) is deleted. **No tracked PNG under `screenshots/angular` was rewritten** (the probe wrote only to `screenshots/recheck-55/`; `git status` shows no screenshot change). The `libs/backend/rpc-handlers` modifications in `git status` predate this re-check and are not mine.
+
+Evidence: `screenshots/recheck-55/` (`f1-f4-f5-<host>-<theme>.json`, `f2-cards-*.json`, `f3-mouse-*.json`, `f3-keyboard-*.json`, and the ring PNGs `f1-advanced-*`, `f1-search-voice-*`, `f2-card-*`, `f4-icons-*`, `f5-summary-*`, `f3-mouse-held-*`, `f3-keyboard-after-esc-*`).
+
+| Finding | Host / theme | Before | After | Result | Evidence |
+| --- | --- | --- | --- | --- | --- |
+| F1 checkbox / radio / toggle Tab ring (Advanced, Search & Voice) | vscode + electron / anubis-light | teal `68,235,211` on `250,247,245` = 1.4:1 | solid 2px `41,19,52` on `250,247,245`; lowest of 43 + 21 stops (vscode) and 20 + 8 stops (electron) = **15.9:1** | PASS | `f1-f4-f5-*-anubis-light.json`, `f1-advanced-*-anubis-light.png`; kinds seen: checkbox, radio, toggle |
+| F1 | vscode + electron / anubis | blue, 3.35:1 | solid 2px `232,230,225` on `26,26,32`; lowest of all stops = **13.9:1** | PASS | `f1-f4-f5-*-anubis.json` |
+| F2 interactive provider card ring | vscode (20 stops) + electron (9 stops) / anubis-light | `box-shadow` ring primary/60, about 1.3:1 | solid 2px outline, offset 2px, `41,19,52` on `250,247,245`, box-shadow `none`; lowest **15.9:1** | PASS | `f2-cards-*-anubis-light.json`, `f2-card-vscode-anubis-light.png` (dark rounded outline clearly visible around "Claude (Subscription)") |
+| F2 | same / anubis | about 2:1 | solid 2px `232,230,225` on `19,19,23`; lowest **14.9:1** | PASS | `f2-cards-*-anubis.json` |
+| F2 selected card shows selection and focus | n/a | n/a | Not demonstrable in the fixtures: the provider connection card is `clickable`, not `selectable`, so it never draws the selected ring (`provider-connection-card.component.ts:67`). Only selectable `NativeCard` users (skill-candidates table) do. By code, the outline (`native-card.component.ts:202-207`) is a separate property from the selected `ring-2` box-shadow (`:210-212`), so both can draw together; covered by the author's unit spec, not rendered here | NOT RENDERED (by code, compatible) | `native-card.component.ts:195-212` |
+| F3 mouse pick while `agent:setConfig` is held | all 4 combos | focus on `BODY`, Esc did nothing until the save returned | after the pick focus stays on `INPUT#provider-model-picker-search` (`aria-disabled="true"`); Esc closes the popover (0 left) and focus is on `BUTTON#cli-matrix-model-codex`; the cell is still focused after the save returns | PASS | `f3-mouse-*.json`, `f3-mouse-held-*.png` |
+| F3 keyboard path | all 4 combos (review ran VS Code dark only) | Esc closed the popover but focus landed on `BODY`, also after the save | focus stays in the search field; Esc closes the popover; focus on the cell (`cellFocusedAfterEsc: true`) and still on it after the release (`cellFocusedAfterRelease: true`) | PASS | `f3-keyboard-*.json`, `f3-keyboard-after-esc-*.png` |
+| F4 built-in Edit/Delete icons | all 4 combos | opacity .4: 3.28:1 dark, 2.48:1 light | opacity .5: **4.39:1 dark, 3.28:1 light** (4 disabled icons per combo) | PASS | `f1-f4-f5-*.json` `F4`, `f4-icons-*.png` |
+| F5 "Command-line parity" summary ring | all 4 combos | browser default two-tone `outline: auto` | solid 2px base-content, light `41,19,52` = **15.9:1**, dark `232,230,225` = **13.9:1** | PASS | `f1-f4-f5-*.json` `F5`, `f5-summary-*.png` |
+| M-6 `keyUnreadable` per-row state | n/a | n/a | **Skipped: not possible with the fixtures** (no row returns `keyUnreadable`); not examined | NOT CHECKED | n/a |
+
+Notes on method: the F1 minimum is over every `.checkbox, .radio, .toggle` stop inside `ptah-settings` reached by Tab (the Search & Voice electron tab has toggles, the vscode one only checkboxes by host-gating). The F2 stop count includes inner `role="button"` descendants of the cards as well as the card itself; the minimum is over all of them. The provider cards are outside the `ptah-settings`-scoped F1 rule, so F2 stands on its own class change, as designed.
+
+### New visual defects
+
+None found in the scope examined (Tab rings, matrix popover under a held save, built-in output-style icons, parity summary). Not re-examined: the inline-toast look in the Models & tiers drawer (CS-1), the split output-style editor/list (CS-2), and the other `NativeCard` users (clone-card, candidates table), which the author flagged as not captured. The F6 and F7 minors from the final review were intentionally left as is.
+
+### Verdict
+
+- **PASS**, score **8/10**: all of F1 to F5 are fixed and measured in all four host/theme combinations, rings are 13.9-15.9:1 where they were 1.4-3.4:1, both held-save focus paths now behave, 0 breaking, 0 serious, 0 moderate open.
+- Why 8 and not 9: the selected-plus-focused card state and the M-6 state could not be rendered with the fixtures, and the CS-1 inline toast and CS-2 splits were outside this re-check; F6 (Electron provider-name truncation) remains a minor.
+- Confidence: HIGH on F1, F2 (focus-only), F3, F4, F5; MEDIUM on the selected-card claim (by code only).
