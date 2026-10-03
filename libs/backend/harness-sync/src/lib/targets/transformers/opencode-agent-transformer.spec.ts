@@ -19,6 +19,7 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { parse as parseYaml } from 'yaml';
 import type { HarnessAgentSource } from './agent-transformer.port';
 import { OpencodeAgentTransformer } from './opencode-agent-transformer';
 
@@ -56,6 +57,24 @@ function frontmatterOf(rendered: string): string {
 
 describe('OpencodeAgentTransformer', () => {
   const transformer = new OpencodeAgentTransformer();
+
+  it.each([undefined, ''])(
+    'no model (%s) keeps identical output and drops the Claude model',
+    (model) => {
+      expect(transformer.transform({ ...agentSource('x'), model })).toBe(
+        '---\ndescription: "x agent"\nmode: subagent\nsource: ptah\ntarget-cli: opencode\n---\n\nAgent body\n',
+      );
+    },
+  );
+
+  it('replaces the Claude model with one escaped provider/model value that round-trips', () => {
+    const model = 'provider/model:"quoted"\\path';
+    const rendered = transformer.transform({ ...agentSource('x'), model });
+    const frontmatter = frontmatterOf(rendered);
+    expect(frontmatter.match(/^model:/gm)).toHaveLength(1);
+    expect(parseYaml(frontmatter)).toMatchObject({ model });
+    expect(rendered).not.toContain('opus');
+  });
 
   // ------------------------------------------------------------------ paths
 
@@ -107,7 +126,7 @@ describe('OpencodeAgentTransformer', () => {
 
   // -------------------------------------------------------------------- body
 
-  it('keeps exactly one frontmatter block — the source\'s is replaced, not stacked', () => {
+  it("keeps exactly one frontmatter block — the source's is replaced, not stacked", () => {
     const rendered = transformer.transform(agentSource('backend-developer'));
     expect(rendered.match(/^---$/gm)).toHaveLength(2);
   });
@@ -127,7 +146,7 @@ describe('OpencodeAgentTransformer', () => {
 
   // ------------------------------------------------------------- round-trip
 
-  it('round-trips the repo\'s real backend-developer agent into a loadable file', () => {
+  it("round-trips the repo's real backend-developer agent into a loadable file", () => {
     const rendered = transformer.transform(realBackendDeveloperSource());
     const frontmatter = frontmatterOf(rendered);
 

@@ -20,6 +20,7 @@ import {
 import {
   resolveAgentDescription,
   transformAgentContent,
+  yamlDoubleQuoted,
 } from './transform-rules';
 
 export class CopilotAgentTransformer implements IHarnessAgentTransformer {
@@ -37,12 +38,19 @@ export class CopilotAgentTransformer implements IHarnessAgentTransformer {
       undefined,
       source.agentId,
     );
-    return transformAgentContent(
+    const content = transformAgentContent(
       source.content,
       'copilot',
       source.agentId,
       description,
     );
+    const model = source.model;
+    return model
+      ? content.replace(
+          /^---\n/,
+          () => `---\nmodel: ${yamlDoubleQuoted(model)}\n`,
+        )
+      : content;
   }
 
   /**

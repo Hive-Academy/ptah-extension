@@ -12,6 +12,8 @@
  * sandbox case.
  */
 
+import { parse as parseToml } from 'smol-toml';
+import { parse as parseYaml } from 'yaml';
 import { CodexAgentTransformer } from './codex-agent-transformer';
 import { CopilotAgentTransformer } from './copilot-agent-transformer';
 import { CursorAgentTransformer } from './cursor-agent-transformer';
@@ -25,6 +27,79 @@ function agentSource(id: string, body = 'Agent body'): HarnessAgentSource {
 }
 
 describe('Workspace agent transformers (decision #4)', () => {
+  describe.each([
+    ['Copilot', new CopilotAgentTransformer()],
+    ['Cursor', new CursorAgentTransformer()],
+  ] as const)('%s model emission', (_name, transformer) => {
+    it.each([undefined, ''])(
+      'no model (%s) keeps identical output and drops the Claude model',
+      (model) => {
+        const source = agentSource('x');
+        source.content = source.content.replace(
+          '---\nAgent body',
+          'model: opus\n---\nAgent body',
+        );
+        expect(transformer.transform({ ...source, model })).toBe(
+          `---\nname: x\ndescription: "x agent"\nsource: ptah\ntarget-cli: ${transformer.target}\n---\nAgent body`,
+        );
+      },
+    );
+
+    it('replaces the Claude model with one escaped, round-trippable target model', () => {
+      const model = 'vendor/model:"quoted"\\path$&';
+      const rendered = transformer.transform({
+        agentId: 'x',
+        content: '---\nname: x\nmodel: opus\n---\nAgent body',
+        model,
+      });
+      const frontmatter = rendered.split('---\n')[1];
+      expect(frontmatter.match(/^model:/gm)).toHaveLength(1);
+      expect(parseYaml(frontmatter)).toMatchObject({ model });
+      expect(rendered).not.toContain('opus');
+    });
+
+    it('adds the model when the source has no frontmatter without rewriting its vocabulary', () => {
+      const model = 'Claude Code:Task tool';
+      const rendered = transformer.transform({
+        agentId: 'x',
+        content: 'Agent body',
+        model,
+      });
+      expect(parseYaml(rendered.split('---\n')[1])).toMatchObject({ model });
+    });
+  });
+
+  it.each([undefined, ''])(
+    'Codex no model (%s) keeps identical output and drops the Claude model',
+    (model) => {
+      expect(
+        new CodexAgentTransformer().transform({
+          agentId: 'x',
+          content:
+            '---\nname: x\ndescription: x agent\nmodel: opus\n---\nAgent body',
+          model,
+        }),
+      ).toBe(
+        '# source: ptah\nname = "x"\ndescription = "x agent"\ndeveloper_instructions = """\nAgent body\n"""\n',
+      );
+    },
+  );
+
+  it('Codex replaces the Claude model with one TOML model that round-trips quotes, backslashes and all controls', () => {
+    const controls = Array.from({ length: 32 }, (_, index) =>
+      String.fromCharCode(index),
+    ).join('');
+    const model = `vendor/"quoted"\\path${controls}\u007f`;
+    const rendered = new CodexAgentTransformer().transform({
+      agentId: 'x',
+      content: '---\nname: x\nmodel: opus\n---\nAgent body',
+      model,
+    });
+    expect(rendered.match(/^model =/gm)).toHaveLength(1);
+    expect(parseToml(rendered).model).toBe(model);
+    expect(rendered).not.toContain('opus');
+  });
+
   it('Cursor agents target .cursor/agents/{slug}.md (bare-name)', () => {
     const transformer = new CursorAgentTransformer();
     expect(transformer.relPathFor('backend-developer')).toBe(

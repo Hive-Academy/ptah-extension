@@ -16,6 +16,7 @@ import {
 import {
   resolveAgentDescription,
   transformAgentContent,
+  yamlDoubleQuoted,
 } from './transform-rules';
 
 export class CursorAgentTransformer implements IHarnessAgentTransformer {
@@ -33,12 +34,19 @@ export class CursorAgentTransformer implements IHarnessAgentTransformer {
       undefined,
       source.agentId,
     );
-    return transformAgentContent(
+    const content = transformAgentContent(
       source.content,
       'cursor',
       source.agentId,
       description,
     );
+    const model = source.model;
+    return model
+      ? content.replace(
+          /^---\n/,
+          () => `---\nmodel: ${yamlDoubleQuoted(model)}\n`,
+        )
+      : content;
   }
 
   /** Same markdown frontmatter signature Copilot uses; same two generations. */
