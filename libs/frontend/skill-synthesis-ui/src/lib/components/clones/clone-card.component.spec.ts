@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import type { AgentScorecard, CloneSummary } from '@ptah-extension/shared';
 
 import { CloneCardComponent } from './clone-card.component';
+import type { AgentSyncChip } from './agent-sync-chips';
 
 function clone(overrides: Partial<CloneSummary> = {}): CloneSummary {
   return {
@@ -197,6 +198,88 @@ describe('CloneCardComponent', () => {
     expect(q<HTMLButtonElement>('clones-revert-btn')?.disabled).toBe(true);
     expect(q<HTMLButtonElement>('clones-rebase-btn')?.disabled).toBe(true);
     expect(q<HTMLButtonElement>('clones-keep-btn')?.disabled).toBe(true);
+  });
+
+  // ── Provider sync chips and ownership (TASK_2026_609) ────────────────────
+
+  describe('sync chips', () => {
+    const chips: AgentSyncChip[] = [
+      { target: 'claude', state: 'source', label: 'source', path: null },
+      {
+        target: 'codex',
+        state: 'in-sync',
+        label: 'in sync',
+        path: '.codex/agents/planner.toml',
+      },
+      {
+        target: 'cursor',
+        state: 'failed',
+        label: 'failed',
+        path: '.cursor/agents/planner.md',
+        reason: 'EACCES: permission denied',
+      },
+    ];
+
+    function renderAgent(syncChips: AgentSyncChip[], notOwned = false): void {
+      fixture = TestBed.createComponent(CloneCardComponent);
+      fixture.componentRef.setInput(
+        'clone',
+        clone({ kind: 'agent', slug: 'planner' }),
+      );
+      fixture.componentRef.setInput('syncChips', syncChips);
+      fixture.componentRef.setInput('notOwned', notOwned);
+      fixture.detectChanges();
+    }
+
+    it('renders nothing new with the default (empty) inputs', () => {
+      render(clone({ kind: 'agent', slug: 'planner' }));
+      expect(q('clone-card-sync-chips')).toBeNull();
+      expect(q('clone-card-sync-failed')).toBeNull();
+      expect(q('clone-card-not-owned')).toBeNull();
+    });
+
+    it('renders one chip per provider, in the given order, with its state', () => {
+      renderAgent(chips);
+      const rendered = Array.from(
+        el().querySelectorAll('[data-testid="clone-card-sync-chip"]'),
+      );
+      expect(
+        rendered.map((c) => c.textContent?.replace(/\s+/g, ' ').trim()),
+      ).toEqual(['claude source', 'codex in sync', 'cursor failed']);
+      expect(rendered.map((c) => c.getAttribute('data-state'))).toEqual([
+        'source',
+        'in-sync',
+        'failed',
+      ]);
+      expect(rendered[1].getAttribute('title')).toContain(
+        '.codex/agents/planner.toml',
+      );
+    });
+
+    it('spells out the path and reason of a failed write on the card', () => {
+      renderAgent(chips);
+      const failed = q('clone-card-sync-failed')?.textContent ?? '';
+      expect(failed).toContain('.cursor/agents/planner.md');
+      expect(failed).toContain('EACCES: permission denied');
+      expect(
+        el().querySelectorAll('[data-testid="clone-card-sync-failed"]'),
+      ).toHaveLength(1);
+    });
+
+    it('shows the not-owned note only when asked', () => {
+      renderAgent([], true);
+      expect(q('clone-card-not-owned')?.textContent).toContain(
+        'no source file for this agent',
+      );
+    });
+
+    it('keeps its outputs: the card still opens with chips present', () => {
+      renderAgent(chips);
+      const opened: CloneSummary[] = [];
+      fixture.componentInstance.opened.subscribe((c) => opened.push(c));
+      (el().querySelector('[role="button"]') as HTMLElement).click();
+      expect(opened.map((c) => c.slug)).toEqual(['planner']);
+    });
   });
 
   // ── Scorecard ────────────────────────────────────────────────────────────

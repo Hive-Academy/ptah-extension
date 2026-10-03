@@ -22,6 +22,13 @@
  * "Enhance now" is also no longer a blind write: it previews a proposal, shows
  * the Monaco diff and the judge's verdict, and only writes on Apply.
  *
+ * On the desktop Agents tab only (TASK_2026_609): one chip per provider copy
+ * on each agent card, a Sync action, and the quarantined-agents panel. Every
+ * mutation there confirms through the single {@link ReconcileGuardComponent}
+ * placed in this template. The harness is verified once per tab entry, per
+ * Refresh and per guarded mutation; there is no polling, and the other tabs
+ * make no harness call.
+ *
  * Smart component — owns the RPC calls and orchestrates the presentational
  * card / drawer children. Signals + `computed()` + `inject()`, OnPush.
  */
@@ -34,8 +41,11 @@ import {
   inject,
   input,
   signal,
+  untracked,
+  viewChild,
 } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
+import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import { NativeTab, NativeTabGroupComponent } from '@ptah-extension/ui';
 import type {
   AgentScorecard,
@@ -64,6 +74,15 @@ import {
   KEEP_MINE_EXPLANATION,
   REBASE_EXPLANATION,
 } from './clone-action-gating';
+import { agentSyncChips, type AgentSyncChip } from './agent-sync-chips';
+import { ReconcileGuardComponent } from './reconcile-guard';
+import {
+  QuarantinedAgentsPanelComponent,
+  type QuarantineNotice,
+} from './quarantined-agents-panel.component';
+
+/** Shared empty value so cards without chips keep one input identity. */
+const NO_CHIPS: readonly AgentSyncChip[] = [];
 
 interface ClonesToast {
   readonly message: string;
@@ -115,6 +134,8 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
     CloneBulkToolbarComponent,
     BulkRebaseConfirmComponent,
     EnhancePreviewDrawerComponent,
+    ReconcileGuardComponent,
+    QuarantinedAgentsPanelComponent,
   ],
   // Per-surface, deliberately not root: a finished batch's outcomes must die
   // with the surface rather than reappear on the next visit.
@@ -215,6 +236,34 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
               (bulkRebaseRequested)="bulkConfirmOpen.set(true)"
             />
 
+            @if (onAgentTab()) {
+              <div
+                class="mb-3 flex flex-wrap items-center justify-between gap-2"
+                data-testid="clones-agent-sync"
+              >
+                <p class="text-xs text-base-content-muted">
+                  @if (harness.error(); as harnessError) {
+                    <span data-testid="clones-agent-sync-error"
+                      >Provider status unavailable: {{ harnessError }}</span
+                    >
+                  } @else {
+                    Each agent shows the state of its copy for every provider.
+                  }
+                </p>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs shrink-0 transition-colors duration-150"
+                  data-testid="clones-agent-sync-btn"
+                  [disabled]="actionsLocked()"
+                  (click)="onSync()"
+                >
+                  {{
+                    harness.reconciling() ? 'Syncing…' : 'Sync provider copies'
+                  }}
+                </button>
+              </div>
+            }
+
             @if (visibleClones().length === 0) {
               <p
                 class="px-1 py-8 text-center text-sm text-base-content-muted"
@@ -237,6 +286,8 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
                       [clone]="c"
                       [scorecard]="scorecardFor(c.slug)"
                       [busy]="busySlug() === c.slug || bulk.running()"
+                      [syncChips]="chipsFor(c)"
+                      [notOwned]="isNotOwned(c)"
                       (opened)="onOpenDetail($event)"
                       (enhance)="onEnhance($event)"
                       (revert)="onOpenDetail($event)"
@@ -246,6 +297,19 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
                   </li>
                 }
               </ul>
+            }
+
+            @if (onAgentTab()) {
+              <ptah-quarantined-agents-panel
+                [guard]="guard"
+                [locked]="actionsLocked()"
+                (notice)="onPanelNotice($event)"
+                (notOwnedChange)="notOwnedSlugs.set($event)"
+              />
+              <!-- The one reconcile guard on this surface (PR7). Sync (via
+                   viewChild), Restore and Finish restore all confirm through
+                   it before they mutate. Agents tab only, like its callers. -->
+              <ptah-reconcile-guard #guard />
             }
           </div>
         </ptah-native-tab-group>
@@ -350,6 +414,15 @@ export class SkillClonesViewComponent implements OnInit {
   private readonly rpc = inject(SkillSynthesisRpcService);
   private readonly vscodeService = inject(VSCodeService);
   protected readonly bulk = inject(CloneBulkRebaseService);
+  /**
+   * Provider-copy health for the agent chips and Sync. Only read on the
+   * desktop host's Agents tab ({@link onAgentTab}); other tabs make no harness
+   * call.
+   */
+  protected readonly harness = inject(HarnessHealthStore);
+
+  private readonly reconcileGuard = viewChild(ReconcileGuardComponent);
+  private readonly quarantinePanel = viewChild(QuarantinedAgentsPanelComponent);
 
   /**
    * The deep link's request to arrive pre-filtered to diverged entries (R2.5),
@@ -366,9 +439,21 @@ export class SkillClonesViewComponent implements OnInit {
    */
   public readonly divergedFilterRequest = input<number>(0);
 
+  /** Whether the last effect run saw the Agents tab; detects tab ENTRY. */
+  private wasOnAgentTab = false;
+
   public constructor() {
     effect(() => {
       if (this.divergedFilterRequest() > 0) this.divergedOnly.set(true);
+    });
+    // One fresh verify per ENTRY into the desktop Agents tab, never a poll:
+    // staying on the tab, or re-rendering it, does not re-read.
+    effect(() => {
+      const onAgentTab = this.onAgentTab();
+      if (onAgentTab && !this.wasOnAgentTab) {
+        untracked(() => void this.harness.refresh({ refresh: true }));
+      }
+      this.wasOnAgentTab = onAgentTab;
     });
   }
 
@@ -451,14 +536,40 @@ export class SkillClonesViewComponent implements OnInit {
    * `loading()` belongs here. A clone-list refresh replaces every row, so a
    * write started mid-refresh was authorised against rows that are already
    * gone — including the eligibility the confirmation counted.
+   *
+   * `harness.busy()` belongs here too: a harness verify or reconcile is
+   * rewriting or re-reading the provider copies Sync and Restore act on.
    */
   public readonly actionsLocked = computed<boolean>(
     () =>
       this.loading() ||
       this.bulk.running() ||
       this.busySlug() !== null ||
-      this.bodySaving(),
+      this.bodySaving() ||
+      this.harness.busy(),
   );
+
+  /** The desktop host's Agents tab: the only place harness state is read. */
+  protected readonly onAgentTab = computed<boolean>(
+    () => this.isElectron() && this.currentKind() === 'agent',
+  );
+
+  /** Kept foreign agent slugs, as the quarantine panel last listed them. */
+  protected readonly notOwnedSlugs = signal<readonly string[]>([]);
+  private readonly notOwnedSet = computed(
+    () => new Set<string>(this.notOwnedSlugs()),
+  );
+
+  /** Chips per agent slug, from the store's last report. Agents tab only. */
+  private readonly agentChips = computed<Map<string, AgentSyncChip[]>>(() => {
+    const chips = new Map<string, AgentSyncChip[]>();
+    if (!this.onAgentTab()) return chips;
+    const health = this.harness.health();
+    for (const c of this.visibleClones()) {
+      chips.set(c.slug, agentSyncChips(health, c.slug));
+    }
+    return chips;
+  });
 
   /**
    * R3.1/R3.9. Every condition lives in {@link canEditCloneBody} — including
@@ -488,6 +599,56 @@ export class SkillClonesViewComponent implements OnInit {
 
   protected onRefresh(): void {
     void this.state.refreshClones();
+    if (!this.onAgentTab()) return;
+    void this.harness.refresh({ refresh: true });
+    void this.quarantinePanel()?.load();
+  }
+
+  // ── Provider copies (Agents tab) ─────────────────────────────────────────
+
+  /**
+   * Sync = the reconcile guard's fresh verify and confirmation, then one
+   * reconcile. Cancel at the guard writes nothing.
+   */
+  protected async onSync(): Promise<void> {
+    const guard = this.reconcileGuard();
+    if (guard === undefined || !this.onAgentTab()) return;
+    if (!(await guard.confirm({ confirmLabel: 'Sync' }))) return;
+
+    await this.harness.reconcile();
+    const error = this.harness.error();
+    if (error !== null) {
+      this.showToast(`Sync failed: ${error}`, 'error');
+      return;
+    }
+    const failed = (this.harness.health()?.targets ?? []).reduce(
+      (n, t) => n + t.writeFailed.length,
+      0,
+    );
+    if (failed > 0) {
+      this.showToast(
+        `Synced, but ${failed} file${failed === 1 ? '' : 's'} could not be written. The chips name each path and reason.`,
+        'warning',
+      );
+      return;
+    }
+    this.showToast('Provider copies updated.', 'success');
+  }
+
+  protected onPanelNotice(notice: QuarantineNotice): void {
+    this.showToast(notice.message, notice.kind);
+  }
+
+  protected chipsFor(c: CloneSummary): readonly AgentSyncChip[] {
+    return c.kind === 'agent'
+      ? (this.agentChips().get(c.slug) ?? NO_CHIPS)
+      : NO_CHIPS;
+  }
+
+  protected isNotOwned(c: CloneSummary): boolean {
+    return (
+      c.kind === 'agent' && this.onAgentTab() && this.notOwnedSet().has(c.slug)
+    );
   }
 
   // ── Detail drawer ────────────────────────────────────────────────────────
