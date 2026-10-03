@@ -4,7 +4,10 @@
  *
  * Real filesystem in a temp workspace. The two interleavings a disk cannot be
  * made to produce on demand (a save racing the detach, a rename that fails)
- * go through the module's own `RetirementHooks` seam, never a mock of `fs`.
+ * go through the module's own `RetirementHooks` seam. Unreadable entries,
+ * which Windows cannot produce through permissions, use a `fs/promises` spy
+ * that fails only for the one path under test and passes everything else
+ * through to the real filesystem.
  */
 
 import {
@@ -204,6 +207,71 @@ describe('retireOwnedArtifact (TASK_2026_609)', () => {
     expect(
       readFileSync(join(snapshot, ...deep.split('/'), 'buried.md'), 'utf-8'),
     ).toBe('deep bytes');
+  });
+
+  describe('F1 (re-review): unreadable entries are never proof', () => {
+    const fsPromises =
+      jest.requireActual<typeof import('fs/promises')>('fs/promises');
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    /** Fail `method` with EACCES for any path ending in `suffix`, pass the rest through. */
+    function denyPath(method: 'readFile' | 'readdir', suffix: string): void {
+      const real = fsPromises[method] as (...args: unknown[]) => unknown;
+      jest
+        .spyOn(fsPromises, method)
+        .mockImplementation((async (...args: unknown[]) => {
+          if (String(args[0]).endsWith(suffix)) {
+            throw errnoError('EACCES');
+          }
+          return real(...args);
+        }) as never);
+    }
+
+    it('a skill holding an unreadable regular file is kept whole, even when the recorded hash already carries the unreadable sentinel', async () => {
+      await ownedSkill();
+      writeAt(`${SKILL}/notes.md`, 'only copy of my notes');
+      denyPath('readFile', join('tuned', 'notes.md'));
+      // Recorded while notes.md was already unreadable: the digest holds the
+      // sentinel, and the detached tree re-hashes to exactly the same value.
+      const owned = (await hashDir(abs(SKILL))) as string;
+      expect(await hashFile(abs(`${SKILL}/notes.md`))).toBeNull();
+
+      const outcome = await retireOwnedArtifact(request(SKILL, true, owned));
+
+      jest.restoreAllMocks();
+      expect(outcome.kind).toBe('removed-local-edit');
+      expect(existsSync(abs(SKILL))).toBe(false);
+      const snapshot = snapshotOf('tuned', SKILL);
+      expect(readFileSync(join(snapshot, 'notes.md'), 'utf-8')).toBe(
+        'only copy of my notes',
+      );
+      expect(readFileSync(join(snapshot, 'SKILL.md'), 'utf-8')).toBe(
+        '---\nname: tuned\n---\nbody\n',
+      );
+      expect(readFileSync(join(snapshot, 'refs', 'guide.md'), 'utf-8')).toBe(
+        'guide',
+      );
+    });
+
+    it('a skill holding an unreadable directory is kept whole', async () => {
+      await ownedSkill();
+      denyPath('readdir', join('tuned', 'refs'));
+      // The hash skips the unreadable directory both times, so it matches.
+      const owned = (await hashDir(abs(SKILL))) as string;
+
+      const outcome = await retireOwnedArtifact(request(SKILL, true, owned));
+
+      jest.restoreAllMocks();
+      expect(outcome.kind).toBe('removed-local-edit');
+      expect(existsSync(abs(SKILL))).toBe(false);
+      const snapshot = snapshotOf('tuned', SKILL);
+      expect(readFileSync(join(snapshot, 'refs', 'guide.md'), 'utf-8')).toBe(
+        'guide',
+      );
+    });
   });
 
   // ------------------------------------------------ F2: a save racing retirement

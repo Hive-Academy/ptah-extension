@@ -28,7 +28,16 @@
  */
 
 import type { Dirent, Stats } from 'fs';
-import { cp, lstat, mkdir, readdir, rename, rm, rmdir } from 'fs/promises';
+import {
+  cp,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  rmdir,
+} from 'fs/promises';
 import { basename, dirname, join } from 'path';
 import {
   hashDir,
@@ -210,6 +219,11 @@ async function isProvablyUnchanged(
  * where that walk SKIPS an ignored name, a symlink, an unusual node, an
  * unreadable directory or a level below `MAX_DEPTH`, this one answers `false`,
  * because those bytes are exactly the ones a matching hash says nothing about.
+ *
+ * The same holds for a regular file that cannot be read: `hashDir` digests it
+ * as the `unreadable` sentinel, so a recorded hash taken while it was already
+ * unreadable still matches and proves nothing about its bytes. Every regular
+ * file is therefore read here, and any read failure answers `false`.
  */
 async function isFullyHashable(dir: string, depth: number): Promise<boolean> {
   if (depth > MAX_DEPTH) return false;
@@ -226,11 +240,23 @@ async function isFullyHashable(dir: string, depth: number): Promise<boolean> {
     const absolute = join(dir, entry.name);
     const kind = await entryKind(entry, absolute);
     if (kind === 'other') return false;
+    if (kind === 'file' && !(await isReadableFile(absolute))) return false;
     if (kind === 'directory' && !(await isFullyHashable(absolute, depth + 1))) {
       return false;
     }
   }
   return true;
+}
+
+async function isReadableFile(absolute: string): Promise<boolean> {
+  try {
+    await readFile(absolute);
+    return true;
+  } catch {
+    // degradation-audit: optional-capability - an unreadable file was hashed
+    // as a sentinel, so it is reported as not covered and the tree is kept.
+    return false;
+  }
 }
 
 async function entryKind(
