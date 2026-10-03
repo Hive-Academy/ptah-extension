@@ -1,0 +1,65 @@
+{
+ "name": "search-voice-vscode-anubis",
+ "axe": [],
+ "coloured": {
+  "tokens": {
+   "primary": [
+    37,
+    99,
+    235,
+    1
+   ],
+   "secondary": [
+    212,
+    175,
+    55,
+    1
+   ],
+   "accent": [
+    251,
+    191,
+    36,
+    1
+   ],
+   "info": [
+    59,
+    130,
+    246,
+    1
+   ],
+   "success": [
+    22,
+    163,
+    74,
+    1
+   ],
+   "warning": [
+    249,
+    115,
+    22,
+    1
+   ],
+   "error": [
+    248,
+    113,
+    113,
+    1
+   ]
+  },
+  "hits": []
+ },
+ "disabled": [],
+ "alerts": [],
+ "stops": 70,
+ "noRing": [],
+ "lowRing": [],
+ "ringCols": [
+  "212,175,55",
+  "37,99,235",
+  "232,230,225",
+  "232,230,225 (base-content class)",
+  "146,139,139"
+ ],
+ "minRing": 3.35,
+ "maxRing": 14.86
+}

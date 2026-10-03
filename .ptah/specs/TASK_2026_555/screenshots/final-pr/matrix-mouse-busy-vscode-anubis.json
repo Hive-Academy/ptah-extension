@@ -1,0 +1,10 @@
+{
+ "busy": {
+  "popover": 1,
+  "focus": "BODY"
+ },
+ "afterRelease": {
+  "popover": 0,
+  "focus": "BUTTON[cli-matrix-model-codex]"
+ }
+}

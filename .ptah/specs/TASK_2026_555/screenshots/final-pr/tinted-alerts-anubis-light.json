@@ -1,0 +1,41 @@
+{
+ "error": {
+  "text": 13.71,
+  "icon": 5.98,
+  "inkRgb": [
+   41,
+   19,
+   52
+  ]
+ },
+ "warning": {
+  "text": 14.51,
+  "icon": 2.25,
+  "inkRgb": [
+   41,
+   19,
+   52
+  ]
+ },
+ "info": {
+  "text": 14.31,
+  "icon": 2.33,
+  "inkRgb": [
+   41,
+   19,
+   52
+  ]
+ },
+ "success": {
+  "text": 14.48,
+  "icon": 2.16,
+  "inkRgb": [
+   41,
+   19,
+   52
+  ]
+ },
+ "btn-warning": {
+  "text": 5.66
+ }
+}

@@ -323,3 +323,73 @@ Same-side, disclosed (in-process subagent, no image-capable CLI lane). Head `eea
 ### Verdict
 
 **PASS WITH NOTES, 9/10 for the Batch 53 fixes; overall 8/10.** All five Batch 38 findings are fixed in both hosts and both themes, with no regression in axe, focus rings, backdrop close or card focus return. One new Moderate (N1, pre-existing, intermittent focus loss after the drawer's Check) keeps the overall score at 8. Open: N1, B38-6 (shell sidebar, outside this task), the setup wizard picker not re-checked after the shared list-width change, and the unstubbed OS dialogs / light-theme live pass from the first review.
+
+
+## Final review on PR 631 (2026-10-03, visual-reviewer subagent — same-side, disclosed)
+
+Same-side, disclosed (in-process subagent, no image-capable CLI lane; screenshots read by the model). Head `af8a35684` (merge of origin/main). No source edited, no git writes; the three throwaway probe specs (`webview-e2e-harness/src/lib/scenarios/finalprobe/`) are deleted. Evidence: `screenshots/final-pr/` (16 tab captures, `scan-*.json`, `ring-details-*.json`, `overlays-busy-*.json`, `matrix-*busy*.json`, `tinted-alerts-*.json`, clips named in the table).
+
+### Verdict
+
+| Metric | Value |
+| --- | --- |
+| Verdict | **PASS WITH NOTES** |
+| Score | **7/10** |
+| Counts | 0 breaking, 2 serious (focus-ring contrast), 2 moderate, 3 minor |
+| Scope | 4 tabs x 2 hosts x 2 themes at 1024x768 (gate size; 800 px only through the folder run's fold tests) |
+
+Why 7 and not 8-9: structure, folds, overlays, coloured text, axe and the Batch 54 drawer/toggle busy behaviour are clean in all 16 combinations, but two focus indicators measure under 3:1 (F1 light checkboxes and radios, F2 interactive provider cards in both themes), which the severity rule files as Serious (NEEDS_REVISION if the team holds to "no Serious"). Why not 5-6: nothing overflows or is unreachable, every overlay closes and returns focus, and both Serious items are one-class fixes.
+
+### Environment
+
+- Build: `npx nx build ptah-extension-webview` from the worktree root: exit 0 (nx re-extracted the cached production output, `dist/apps/ptah-extension-webview/browser/*` stamped 01:35 today; the cache key covers the merged sources). Served by the harness fixture server (`useAppBuild: true`), Playwright chromium, `--workers=2`.
+- Folder run (`src/lib/scenarios/settings`, `--reporter=list --workers=2`): **124 passed, 2 skipped (known "deep link main-model" fixme), 0 failed (4.3 min).** Fold budgets met: Providers VS Code tabs 83 / map 354-382 / heading 398-426 / card5 590-618; Electron tabs 123 / map 503-513 / heading 547-557 (card 5 below the fold, accepted); Orchestration policy bar 125 (VS Code) / 165 (Electron), roles summary 550 / 600 (<= 660); 800 px overflow 0; order strip whole chips (VS Code 4 + "+1", Electron 2 + "+3").
+- **Captures rewritten:** 46 `current-*` PNGs (no new names, no `baseline-*`). Pixel diff vs HEAD (summed channel difference > 24): 43 files have no such pixel; 3 files have 2 px at (114-115, 159) (`current-live-orchestration-vscode-anubis`, `current-orchestration-popover-model-vscode-anubis`, `-anubis-light`), the same badge-edge anti-aliasing noise as the earlier gates. **No visible change vs HEAD; nothing restored.**
+- Standard: WCAG 2.2 AA (4.5:1 text, 3:1 components and focus indicators, 24x24 targets) plus the task rules. Contrast measured in the page (canvas-resolved colours composited over the ancestor background chain); an offset focus ring is measured against its parent's background.
+
+### Findings
+
+| Id | Severity | Tab / host / theme | Evidence (`screenshots/final-pr/`) | Cause (file:line) | Fix |
+| --- | --- | --- | --- | --- | --- |
+| F1 | Serious | Advanced and Search & Voice, both hosts, **light only** | `ring-checkbox-vscode-anubis-light.png`, `ring-details-*-anubis-light.json`, `scan-advanced-*-anubis-light.json`, `scan-search-voice-*-anubis-light.json`: the Tab ring on every `checkbox-primary` / `radio-primary` is `rgb(68,235,211)` on `rgb(250,247,245)` = **1.4:1**. Dark is 3.35:1 (blue), passes | The `checkbox checkbox-xs checkbox-primary` / `radio-primary` inputs: `web-search-config.component.ts:159`, `agent-behaviour-section.component.ts:132,211,236`, `mcp-port-config.component.ts:141,169`, `output-style-parity-section.component.ts:75`, `output-style-list.component.ts:286`. daisyUI's `.checkbox-primary:focus-visible` (outline in the primary colour) out-ranks main's low-specificity gold rule in `apps/ptah-extension-webview/src/styles.css:630-633` | Add `focus-visible:outline-base-content` (or the gold-strong variable) to those inputs, or extend the light rule to `:is(.checkbox, .radio, .toggle):focus-visible`. The unchecked radio and checkbox borders use the same teal (`disabled-output-style-row-vscode-anubis-light.png`, Explanatory/Learning radios): visibly pale; not measured separately |
+| F2 | Serious | Providers, both hosts, **both themes** | `ring-card-vscode-anubis-light.png`, `ring-card-vscode-anubis.png`, `ring-details-*.json` `card`: the focused card draws `box-shadow 0 0 0 2px primary/60` with a transparent outline. Light ring colour `rgb(68,235,212)` = 1.4:1 at full opacity (about 1.3:1 at the 60 % drawn); dark `rgb(37,98,235)` = 3.55:1 at full opacity (about 2:1 at 60 % by my blend arithmetic) against the page background. The card is the first Tab stop of the grid | `libs/frontend/ui/src/lib/native/card/native-card.component.ts:202-203` (`focus-visible:ring-2`, `focus-visible:ring-primary/60`) | Use a full-opacity ring that clears 3:1 on both themes: `focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content` like the card's own Retry link (`provider-connection-card.component.ts:100`) |
+| F3 | Moderate | Orchestration matrix cell popover during a held save; mouse pick 4/4 combos, keyboard pick VS Code dark only | `matrix-busy-*.json`, `matrix-mouse-busy-vscode-anubis.json`, `matrix-keyboard-busy-vscode-anubis.json`, `busy-matrix-popover-*.png`. Mouse pick with `agent:setConfig` held: popover stays, **focus on `BODY`**, Esc does nothing until the save returns (then it closes and focus returns to the cell). Keyboard pick: focus stays on the search field (`aria-disabled`), Esc closes the popover, but **focus lands on `BODY` and does not return to the cell**, also after the save returns | `ptah-ai/cli-model-effort-popover.component.ts` (close-while-saving path; the clicked option takes focus out of the aria-disabled field); not traced to a line | Close path while busy: refocus the cell that opened the popover. Mouse path: keep focus on the search field when an option is picked (preventDefault on option mousedown). Real saves return in milliseconds, so it only shows on a slow host |
+| F4 | Moderate | Advanced, both hosts, both themes | `disabled-output-style-row-vscode-anubis.png`, `-anubis-light.png`, `ring-details-*.json` `disabledIcon`: built-in Edit/Delete icons at opacity .4 are **3.28:1 (dark)** and **2.48:1 (light)** effective | `output-style/output-style-list.component.ts:361,377` (`disabled:opacity-40`) | **Verdict on the question asked: acceptable.** Disabled controls are exempt from the contrast criteria, the icons still read as present (pencil and bin outlines are visible in both themes), the row carries the "Built-in" chip and the footnote "Built-in styles are part of the agent — Ptah can select them but not change it", and main's ghost-button default does not change the look (the explicit `disabled:bg-transparent disabled:border-transparent` wins). In light they are close to the edge; `disabled:opacity-50` would give about 3:1. Optional |
+| F5 | Minor | Advanced, both hosts, both themes | `ring-summary-vscode-anubis.png`, `ring-summary-vscode-anubis-light.png` | `output-style/output-style-parity-section.component.ts:68`: the "Command-line parity" `<summary>` has no Ptah ring class, so it shows the browser's default two-tone `outline: auto`. It is visible in both themes (my 1.1:1 reading for dark is only the dark half of a dual ring) | Give it the same `focus-visible:outline-2 outline-offset-2 outline-base-content` as the Orchestration roles summary |
+| F6 | Minor | Orchestration, Electron, both themes | `agent-orchestration-electron-anubis-light.png`, `agent-orchestration-electron-anubis.png` | In the Electron stacked layout the provider name truncates with an ellipsis beside the status badge ("OpenAI …", "Google …", "Ollama …", "GitHu…"); VS Code shows the full names. The stacked layout was accepted earlier; the truncation loses the provider name | Put the provider on its own line, or add a `title` with the full name |
+| F7 | Minor | Advanced, light | `tinted-alerts-anubis-light.json` (injected markup, not a real component) | Settings alerts are tinted boxes with `text-base-content` (e.g. `license-status-card.component.ts:320`), so main's filled `.alert-error` ink override does not reach them. Measured with the Settings classes: text 13.7:1 (error) and 14.5:1 (warning) in light, 13.1-13.9:1 in dark. The warning/info/success **icons** are 2.2-2.3:1 in light (error 6:1); text carries the meaning, so not a failure | Keep; if an icon ever stands alone, use a darker token |
+
+Also checked, no finding: the "Explore Ptah Builders" icon is `text-secondary` (`license-status-card.component.ts:255`): amber 8.2:1 dark, 4.1:1 light on the card, beside base-content icons (Export, Import, key) and the primary-coloured Create Account icon; colour on an icon is allowed and it reads as one deliberate accent (`explore-builders-vscode-anubis-light.png`). The toast `btn-warning` Undo is 6.6:1 dark and 5.7:1 light.
+
+### Pass line (batches.md Batch 38)
+
+| Item | Result | Evidence |
+| --- | --- | --- |
+| Fold assertions green | **PASS** | 124 passed, 0 failed; numbers above |
+| Structure, order, one primary per region | **PASS** | Providers: shell line, routing map (3 nodes), Connections header with one primary, 5-card grid, dashed tile, catalog strip (`providers-vscode-anubis-light.png` vs `prototypes/final/screenshots/index-anubis-light-1024x768.png`; Electron 2 columns with the map's third node on its own row, the accepted Gate V 28 layout). Orchestration: policy bar, matrix with one primary "Add Ptah CLI Instance", Uninstalled group collapsed, roles `<details>` closed (`agent-orchestration-vscode-anubis.png` vs `orchestration-anubis-1024x768.png`). Advanced / Search & Voice: P2 cards, one primary or none per card; Voice Engines and Go vet render only in Electron (host-gated by design, `search-voice-settings.component.ts:22`) |
+| No `text-primary` / `text-error` text | **PASS** | Computed-colour scan of every text node in `ptah-settings` against the 7 `text-*` tokens: 0 hits on all 16 combinations (`scan-*.json` `coloured`) |
+| Focus visible | **PASS for presence, FAIL for contrast on two controls** | 0 stops without a ring in 16 of 16 (Tab walk 18-70 stops per tab). Where the redesign set `outline-base-content` the ring wins over main's gold: light 41,19,52 (>= 5.5:1), dark 232,230,225. Where it did not, the gold-strong ring applies in light (135,78,0, >= 5.5:1) and gold in dark (212,175,55). Exceptions: F1 and F2 |
+| Esc / backdrop closes overlays and returns focus | **PASS** | `overlays-busy-*.json`, 4 combos: Main Agent popover (Esc and backdrop -> Reassign), catalog dialog (-> "Connect provider"), connection drawer (-> the card); Add-instance and Tier modals are covered by the green folder run |
+| axe: color-contrast 0 in Settings | **PASS** | 0 in `ptah-settings` on all 16 (wcag2a/2aa/21aa/22aa) |
+| axe: nested-interactive only the known card | **PASS** | One node, Providers tab only, all 4 combos; none on the other three tabs |
+
+### Interaction of main's merged styles with the redesign (question 2)
+
+- **Light focus ring:** main's rule (`styles.css:630-633`, `:where()`-wrapped) does not override an explicit `outline-base-content`: confirmed in the walk (ring `41,19,52` on those stops, 5.5-19:1). It reaches buttons, inputs and selects that have no utility, and the busy drawer Check button shows the gold-strong ring (`busy-drawer-check-vscode-anubis-light.png`). It does **not** reach daisyUI checkbox/radio-primary (F1) or the card's box-shadow ring (F2).
+- **Disabled and busy controls after 54.1 and main's ghost default:** busy buttons dim through the shared aria-disabled rule and keep focus; the built-in output-style icons are faint but acceptable (F4).
+- **Error ink:** no Settings surface uses a filled `.alert-error`; see F7.
+
+### Busy-state behaviour (question 3)
+
+| Case | Result |
+| --- | --- |
+| Drawer "Check connection" held (4 combos) | **PASS**: `aria-disabled=true`, not natively disabled, focus stays on the button, Esc closes the drawer while the check runs and focus returns to the card (`busy-drawer-check-*.png`, `overlays-busy-*.json`); the folder run's N1 scene also passes |
+| Matrix toggle save held (4 combos) | **PASS**: focus stays on the checkbox (`aria-disabled`, not native), Tab moves on, released cleanly (`matrix-busy-*.json`) |
+| Matrix cell popover pick held | **Partial** (F3): focus and Esc do not hold on the mouse path, and focus is not returned after Esc on the keyboard path |
+
+### Not examined / residual uncertainty
+
+Unrendered error and progress states (test-connection result lines, voice download progress, go-vet stale/error alerts) were not rendered; the tinted-alert numbers use injected markup. The keyboard pick in F3 was run in VS Code dark only. 800 px was checked only through the folder run's fold tests. Real OS dialogs, the live Electron app and a light-theme live pass were not repeated. The Electron shell sidebar contrast (B38-6) is outside this task and not re-measured. Not re-raised: Electron card 5 below the fold, 512 px drawers, `table-xs` density, Ollama warning spine, order chips "+N".
+
+- Recommendation: PASS WITH NOTES (7/10); fix F1 and F2 before merge if the team treats Serious as blocking (both are one-class changes).
+- Confidence: HIGH on folds, axe, coloured text, overlays, the drawer-busy result and the F1/F2 numbers at full opacity; MEDIUM on the effective F2 ratios (blended by hand) and on F3 beyond the paths run.

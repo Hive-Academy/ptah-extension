@@ -1,0 +1,31 @@
+{
+ "mainPopoverEsc": "BUTTON[routing-node-action]",
+ "mainPopoverBackdrop": {
+  "open": 0,
+  "focus": "BUTTON[routing-node-action]"
+ },
+ "catalogEsc": {
+  "open": false,
+  "focus": "BUTTON[connect-provider]"
+ },
+ "catalogBackdrop": {
+  "open": false,
+  "focus": "BUTTON[connect-provider]"
+ },
+ "drawerEsc": {
+  "open": 0,
+  "focus": "DIV/button"
+ },
+ "drawerBackdrop": {
+  "open": 0,
+  "focus": "DIV/button"
+ },
+ "drawerBusy": {
+  "focus": "BUTTON[connection-check]",
+  "nativeDisabled": false,
+  "escWhileBusyDrawerOpen": 0,
+  "focusAfterEsc": "DIV/button"
+ },
+ "drawerBusyClosedFocus": "DIV/button",
+ "matrixNote": "see matrix test"
+}
