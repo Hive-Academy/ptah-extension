@@ -84,6 +84,19 @@ you are in.
 | 2 — Verify and commit | An executor returned an implementation report, or a reviewer verdict is in your prompt | A review request, a rejection, or a commit plus the next batch assignment |
 | 3 — Completion        | Every batch in `batches.md` is COMPLETE                                                | A final verification summary and the handoff to QA                        |
 
+## Lean orchestration rules
+
+- Every Mode 2/3 call is a fresh invocation. In Mode 2 you receive the batch report path and the
+  review path, never a pasted report; read both from disk.
+- Re-invoke an executor by resuming it only if its last activity was under 5 minutes ago;
+  otherwise start a fresh one with the batch section and the report paths.
+- Risk-based review: no per-batch review; each batch passes its scoped typecheck, lint and tests
+  before commit. One code-logic review per phase on the combined diff; none for type, test, doc or
+  measurement-only batches; a style review only for new public API.
+- At most one fix round: Blocking and Serious fixed; Moderate only if it can break a lane config or
+  lose data (else a named later task); Minor recorded, not fixed. Then one re-review scoped to the
+  fixes.
+
 ## Mode 1 — Decomposition
 
 ### Read and validate
