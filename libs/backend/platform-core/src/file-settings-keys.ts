@@ -173,6 +173,10 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'agentOrchestration.antigravityModel',
   'agentOrchestration.opencodeModel',
   'agentOrchestration.piModel',
+  // Machine scope: { "<agent-slug>" | "*": { claude?, codex?, copilot?, cursor?, opencode?: string } }.
+  // Workspace override: workspace.<hash>.agentGeneration.models,
+  // already routed by SCOPED_SETTING_PREFIX_PATTERN.
+  'agentGeneration.models',
   'agentOrchestration.disabledClis',
   'agentOrchestration.disabledMcpNamespaces',
   'provider.cursor.apiKey',
