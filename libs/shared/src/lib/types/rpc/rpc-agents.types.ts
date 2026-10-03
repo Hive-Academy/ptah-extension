@@ -117,6 +117,12 @@ export interface AgentOrchestrationConfig {
   piReasoningEffort?: string;
   /** @deprecated Codex always runs in full-auto headless mode. Kept for backward compat. */
   codexAutoApprove: boolean;
+  /** Codex lane `model_auto_compact_token_limit` (integer >= 0, default 120000; 0 = Codex runtime default). */
+  codexAutoCompactTokens?: number;
+  /** Codex lane `tool_output_token_limit` (integer >= 0, default 2500; 0 = Codex runtime default). */
+  codexToolOutputTokenLimit?: number;
+  /** Codex lane web search (`web_search` "live" when true, "disabled" when false; default true). */
+  codexWebSearch?: boolean;
   /** Auto-approve all Copilot tool calls without user prompt (default: true) */
   copilotAutoApprove: boolean;
   /** MCP server port (default: 51820) */
@@ -152,9 +158,11 @@ export interface AgentListCliModelsResult {
 /**
  * Reasoning-effort values `agent:setConfig` accepts for Codex / Copilot
  * (`AgentSpawnEnvironment.mapEffortToCli` allowlist). `''` = CLI default.
+ * `'inherit'` = use the chat session's effort for the lane.
  */
 export const CLI_REASONING_EFFORT_VALUES = [
   '',
+  'inherit',
   'minimal',
   'low',
   'medium',
@@ -165,9 +173,12 @@ export const CLI_REASONING_EFFORT_VALUES = [
 /**
  * Reasoning-effort values `agent:setConfig` accepts for Pi. Passed raw to
  * `pi --thinking`, so the host must reject anything else. `''` = CLI default.
+ * `'inherit'` = use the chat session's effort; the spawn path must resolve it
+ * and never pass it to `--thinking` raw.
  */
 export const PI_REASONING_EFFORT_VALUES = [
   '',
+  'inherit',
   'off',
   'minimal',
   'low',
@@ -203,6 +214,12 @@ export interface AgentSetConfigParams {
   copilotAutoApprove?: boolean;
   /** Codex reasoning effort override */
   codexReasoningEffort?: string;
+  /** Codex lane `model_auto_compact_token_limit` (integer >= 0; 0 = Codex runtime default). Rejected, never clamped, when invalid. */
+  codexAutoCompactTokens?: number;
+  /** Codex lane `tool_output_token_limit` (integer >= 0; 0 = Codex runtime default). Rejected, never clamped, when invalid. */
+  codexToolOutputTokenLimit?: number;
+  /** Codex lane web search on/off. */
+  codexWebSearch?: boolean;
   /** Copilot reasoning effort override */
   copilotReasoningEffort?: string;
   /** Pi reasoning effort override, mapped to `--thinking` (off|minimal|low|medium|high|xhigh|max) */
