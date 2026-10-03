@@ -16,6 +16,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { ConfigManager } from '@ptah-extension/vscode-core';
 import type { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import {
   SessionId,
@@ -61,6 +62,7 @@ import type { SdkQueryRunner } from './sdk-query-runner.service';
 import type { NoActivityWatchdog } from './no-activity-watchdog';
 import type { UsageCostSource } from '../session-stats/session-stats-owner.service';
 import type { HarnessPolicySync } from '../harness/harness-policy-sync';
+import type { CompactionConfigProvider } from './compaction-config-provider';
 export type { SDKUserMessage, ContentBlock };
 export type {
   SessionRecord,
@@ -83,7 +85,15 @@ export interface Query {
   interrupt(): Promise<unknown>;
   setPermissionMode(mode: string): Promise<void>;
   setModel(model?: string): Promise<void>;
-  applyFlagSettings(settings: { effortLevel?: FlagEffortLevel }): Promise<void>;
+  /**
+   * Session-scoped flag-layer change. `null` clears a key. `autoCompactWindow`
+   * carries a live `compaction.threshold` change (see
+   * `SessionControl.applyAutoCompactConfig`).
+   */
+  applyFlagSettings(settings: {
+    effortLevel?: FlagEffortLevel;
+    autoCompactWindow?: number | null;
+  }): Promise<void>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
   /**
@@ -301,6 +311,8 @@ export class SessionLifecycleManager {
   private readonly _streamPump: SessionStreamPump;
   private readonly _queryExecutor: SessionQueryExecutor;
   private readonly _control: SessionControl;
+  /** The `compaction.threshold` subscription; released in `dispose()`. */
+  private compactionThresholdWatch: { dispose(): void } | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
@@ -337,6 +349,15 @@ export class SessionLifecycleManager {
      */
     @inject(SDK_TOKENS.SDK_HARNESS_POLICY_SYNC, { isOptional: true })
     private readonly harnessPolicySync: HarnessPolicySync | null = null,
+    /**
+     * Source of the live `compaction.threshold` change. Both are optional so a
+     * container without them (unit tests, SDK-only embedders) still
+     * constructs; a threshold change then applies from the next session start.
+     */
+    @inject(TOKENS.CONFIG_MANAGER, { isOptional: true })
+    private readonly configManager: ConfigManager | null = null,
+    @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER, { isOptional: true })
+    private readonly compactionConfigProvider: CompactionConfigProvider | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
@@ -366,10 +387,38 @@ export class SessionLifecycleManager {
       this.sessionEndRegistry,
     );
     this._registry.startEvictionSweep();
+    this.watchCompactionThreshold();
   }
 
   dispose(): void {
     this._registry.stopEvictionSweep();
+    this.compactionThresholdWatch?.dispose();
+    this.compactionThresholdWatch = null;
+  }
+
+  /**
+   * Re-apply the auto-compact window to live sessions when
+   * `compaction.threshold` changes. `ConfigManager.watch` also calls back once
+   * with the current value on registration; with no live session that call
+   * does nothing.
+   */
+  private watchCompactionThreshold(): void {
+    const config = this.configManager;
+    const provider = this.compactionConfigProvider;
+    if (!config || !provider) return;
+    this.compactionThresholdWatch = config.watch('compaction.threshold', () => {
+      if (this._registry.getActiveSessionCount() === 0) return;
+      // Off the caller's stack: a failure here must not reject the settings
+      // write that triggered the watch.
+      void Promise.resolve()
+        .then(() => this._control.applyAutoCompactConfig(provider.getConfig()))
+        .catch((error: unknown) => {
+          this.logger.warn(
+            '[SessionLifecycle] Live auto-compact window change failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    });
   }
 
   /**

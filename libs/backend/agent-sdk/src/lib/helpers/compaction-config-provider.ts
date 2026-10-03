@@ -13,9 +13,17 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import {
   isValidAutoCompactWindow,
+  parseAutoCompactWindowEnv,
   SDK_AUTO_COMPACT_WINDOW_MAX,
   SDK_AUTO_COMPACT_WINDOW_MIN,
 } from './auto-compact-control';
+
+/**
+ * The runtime's own window override. Ptah never sets it; it is read here only
+ * so the session-start log can say the runtime will use it instead of the
+ * setting.
+ */
+const AUTO_COMPACT_WINDOW_ENV = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW';
 
 /**
  * Compaction configuration settings
@@ -28,6 +36,12 @@ export interface CompactionConfig {
    * `autoCompactWindow`. `null` when unset or invalid: the runtime decides.
    */
   readonly contextTokenThreshold: number | null;
+  /**
+   * The window the runtime takes from `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (it
+   * wins over every setting), or `null` when the variable is unset or the
+   * runtime would ignore it. Read for the log only; Ptah never forwards it.
+   */
+  readonly envWindow: number | null;
 }
 
 /**
@@ -53,6 +67,10 @@ export class CompactionConfigProvider {
    * A persisted threshold outside that range, or not an integer, is warned
    * about and treated as UNSET. It is never clamped: the runtime would then
    * compact at a size the user did not choose.
+   *
+   * `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is read from the process env (the SDK
+   * child inherits it). A value the runtime ignores or clamps is warned about
+   * so the rejection is visible; the variable itself is left untouched.
    */
   getConfig(): CompactionConfig {
     const enabled = this.config.get<boolean>('compaction.enabled') ?? true;
@@ -69,15 +87,21 @@ export class CompactionConfigProvider {
             providedValue:
               typeof rawThreshold === 'number' ? rawThreshold : undefined,
             providedType: typeof rawThreshold,
-            validRange: [SDK_AUTO_COMPACT_WINDOW_MIN, SDK_AUTO_COMPACT_WINDOW_MAX],
+            validRange: [
+              SDK_AUTO_COMPACT_WINDOW_MIN,
+              SDK_AUTO_COMPACT_WINDOW_MAX,
+            ],
           },
         );
       }
     }
 
+    const envWindow = this.readEnvWindow();
+
     const compactionConfig: CompactionConfig = {
       enabled,
       contextTokenThreshold,
+      envWindow,
     };
 
     this.logger.debug(
@@ -85,9 +109,42 @@ export class CompactionConfigProvider {
       {
         enabled: compactionConfig.enabled,
         contextTokenThreshold: compactionConfig.contextTokenThreshold,
+        envWindow: compactionConfig.envWindow,
       },
     );
 
     return compactionConfig;
+  }
+
+  /**
+   * The runtime's view of `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Ignored values
+   * (not a positive integer) and clamped values (outside
+   * `[SDK_AUTO_COMPACT_WINDOW_MIN, SDK_AUTO_COMPACT_WINDOW_MAX]`) are warned
+   * about; the raw text is logged only as its length, never echoed.
+   */
+  private readEnvWindow(): number | null {
+    const raw = process.env[AUTO_COMPACT_WINDOW_ENV];
+    if (raw === undefined || raw.trim() === '') return null;
+    const envWindow = parseAutoCompactWindowEnv(raw);
+    if (envWindow === null) {
+      this.logger.warn(
+        `[CompactionConfigProvider] ${AUTO_COMPACT_WINDOW_ENV} is not a positive integer; the runtime ignores it`,
+        { rawLength: raw.length },
+      );
+      return null;
+    }
+    if (envWindow !== Number.parseInt(raw.trim(), 10)) {
+      this.logger.warn(
+        `[CompactionConfigProvider] ${AUTO_COMPACT_WINDOW_ENV} is outside the accepted range; the runtime clamps it`,
+        {
+          effectiveWindow: envWindow,
+          validRange: [
+            SDK_AUTO_COMPACT_WINDOW_MIN,
+            SDK_AUTO_COMPACT_WINDOW_MAX,
+          ],
+        },
+      );
+    }
+    return envWindow;
   }
 }

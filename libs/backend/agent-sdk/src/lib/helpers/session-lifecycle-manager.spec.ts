@@ -422,8 +422,7 @@ describe('SessionLifecycleManager', () => {
       });
 
       const sdkCtrl = harness.lastQueryOptions.value?.abortController as
-        | AbortController
-        | undefined;
+        AbortController | undefined;
       expect(sdkCtrl).toBeDefined();
       expect(sdkCtrl?.signal.aborted).toBe(false);
 
@@ -804,7 +803,12 @@ describe('SessionLifecycleManager', () => {
   // can assert on notifyAll calls.
   // ---------------------------------------------------------------------------
 
-  function makeIntegrationHarness() {
+  function makeIntegrationHarness(
+    compaction: {
+      configManager: unknown;
+      compactionConfigProvider: unknown;
+    } | null = null,
+  ) {
     const logger = createMockLogger();
     const permissionHandler = createMockPermissionHandler();
     const moduleLoader = createMockModuleLoader();
@@ -867,6 +871,12 @@ describe('SessionLifecycleManager', () => {
       modelResolver as unknown as IModelResolver,
       sessionEndRegistryMock as unknown as import('./session-end-callback-registry').SessionEndCallbackRegistry,
       queryRunnerStub as unknown as import('./sdk-query-runner.service').SdkQueryRunner,
+      null,
+      null,
+      (compaction?.configManager ?? null) as
+        import('@ptah-extension/vscode-core').ConfigManager | null,
+      (compaction?.compactionConfigProvider ?? null) as
+        import('./compaction-config-provider').CompactionConfigProvider | null,
     );
 
     return {
@@ -1031,6 +1041,75 @@ describe('SessionLifecycleManager', () => {
   // ---------------------------------------------------------------------------
   // setSessionEffort — mid-session reasoning effort change via applyFlagSettings
   // ---------------------------------------------------------------------------
+
+  describe('live compaction.threshold change (TASK_2026_597 A1)', () => {
+    function makeCompactionSources(threshold: number | null) {
+      let onChange: ((value: unknown) => void) | null = null;
+      const dispose = jest.fn();
+      const configManager = {
+        watch: jest.fn((key: string, cb: (value: unknown) => void) => {
+          expect(key).toBe('compaction.threshold');
+          onChange = cb;
+          cb(threshold);
+          return { dispose };
+        }),
+      };
+      const current = { threshold };
+      const compactionConfigProvider = {
+        getConfig: jest.fn(() => ({
+          enabled: true,
+          contextTokenThreshold: current.threshold,
+          envWindow: null,
+        })),
+      };
+      return {
+        configManager,
+        compactionConfigProvider,
+        dispose,
+        change(next: number | null): void {
+          current.threshold = next;
+          onChange?.(next);
+        },
+      };
+    }
+
+    async function flush(): Promise<void> {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    }
+
+    it('applies a changed threshold to the live session as autoCompactWindow', async () => {
+      const sources = makeCompactionSources(null);
+      const ih = makeIntegrationHarness(sources);
+      // The registration-time callback ran with no live session: nothing read.
+      expect(sources.compactionConfigProvider.getConfig).not.toHaveBeenCalled();
+
+      const fakeQuery = createFakeQueryForIntegration();
+      ih.queryFn.mockReturnValueOnce(fakeQuery.query);
+      await ih.manager.executeQuery({
+        sessionId: 'tab_window' as SessionId,
+        sessionConfig: createSessionConfig({ projectPath: '/ws/window' }),
+      });
+
+      sources.change(300_000);
+      await flush();
+
+      expect(fakeQuery.applyFlagSettings).toHaveBeenCalledWith({
+        autoCompactWindow: 300_000,
+      });
+    });
+
+    it('releases the watch on dispose', () => {
+      const sources = makeCompactionSources(null);
+      const ih = makeIntegrationHarness(sources);
+      ih.manager.dispose();
+      expect(sources.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it('without the optional sources nothing is watched', () => {
+      const ih = makeIntegrationHarness();
+      expect(() => ih.manager.dispose()).not.toThrow();
+    });
+  });
 
   describe('setSessionEffort', () => {
     it('applies the effort level to the live query as effortLevel', async () => {

@@ -1,7 +1,8 @@
 /**
  * SessionControl — owner of the lifecycle-control methods that act on a
  * registered session's `query` handle: interrupt, end, dispose-all, set
- * permission level, set model.
+ * permission level, set model, set effort, apply a changed auto-compact
+ * window.
  *
  * Extracted from `SessionLifecycleManager` (originally lines
  * 395–451, 462–556, 563–610, 1110–1149, 1162–1207). The cleanup-call order
@@ -33,8 +34,16 @@ import {
   LEVEL_FROM_SDK_MODE,
 } from './permission-mode-map';
 import type { SessionEndCallbackRegistry } from '../session-end-callback-registry';
+import type { CompactionConfig } from '../compaction-config-provider';
+import {
+  autoCompactModelClass,
+  resolveAutoCompactControl,
+} from '../auto-compact-control';
 
 export type EndSessionOutcome = 'ended' | 'already-ended';
+
+/** Upper bound on one session's live auto-compact window change. */
+const AUTO_COMPACT_APPLY_TIMEOUT_MS = 5000;
 
 export class SessionControl {
   constructor(
@@ -504,5 +513,87 @@ export class SessionControl {
       );
       throw error;
     }
+  }
+
+  /**
+   * Apply a changed `compaction.threshold` to every live session through the
+   * flag layer, so it takes effect without a restart.
+   *
+   * Each session is re-resolved with its OWN model class (from the auth env
+   * frozen on its record), so a class default applies exactly as it would at
+   * session start. `null` clears the flag-layer window and hands the decision
+   * back to the runtime. Nothing is sent while auto compaction is disabled:
+   * the session already carries `autoCompactEnabled: false` and the window is
+   * moot.
+   *
+   * One session's failure is logged and does not stop the others; the method
+   * never throws.
+   */
+  async applyAutoCompactConfig(config: CompactionConfig): Promise<void> {
+    if (!config.enabled) {
+      this.logger.debug(
+        '[SessionLifecycle] Auto compaction is disabled; no live window change to apply',
+      );
+      return;
+    }
+
+    const live = Array.from(this.registry.entries())
+      .map(([, rec]) => rec)
+      .filter((rec) => rec.query !== null);
+
+    await Promise.all(
+      live.map(async (rec) => {
+        const query = rec.query;
+        if (!query) return;
+        const id = rec.realSessionId ?? rec.tabId;
+        const modelClass = autoCompactModelClass(
+          rec.accountingAuthEnv.ANTHROPIC_BASE_URL,
+        );
+        const control = resolveAutoCompactControl({
+          enabled: true,
+          windowTokens: config.contextTokenThreshold,
+          modelClass,
+          envWindow: config.envWindow ?? null,
+        });
+        const autoCompactWindow = control.autoCompactWindow ?? null;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          // A child that stopped reading its control channel would leave this
+          // pending forever; the timeout bounds the wait, not the request.
+          await Promise.race([
+            query.applyFlagSettings({ autoCompactWindow }),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `applyFlagSettings timed out after ${AUTO_COMPACT_APPLY_TIMEOUT_MS}ms`,
+                    ),
+                  ),
+                AUTO_COMPACT_APPLY_TIMEOUT_MS,
+              );
+            }),
+          ]);
+          this.logger.info(
+            `[SessionLifecycle] Auto-compact window applied for ${id}`,
+            {
+              autoCompactWindow,
+              window: control.effectiveWindow,
+              source: control.source,
+              modelClass,
+            },
+          );
+        } catch (error) {
+          // degradation-audit: optional-capability - the session keeps the
+          // window it started with; the new value applies to its next start.
+          this.logger.warn(
+            `[SessionLifecycle] Failed to apply auto-compact window for ${id}`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        } finally {
+          clearTimeout(timer);
+        }
+      }),
+    );
   }
 }
