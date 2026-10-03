@@ -624,23 +624,26 @@ export class UserLayerSeedQuarantine {
    */
   private async putBack(file: DetachedFile | null): Promise<boolean> {
     if (file === null) return true;
-    let placed: 'placed' | 'exists' | Error;
+    let failure: 'exists' | Error | null;
     try {
       this.fs.assertUnderUserLayer(file.original);
-      placed = await placeExclusive(file.staged, file.original, 'keep-dest');
+      const placed = await placeExclusive(file.staged, file.original);
+      if (placed === 'placed') failure = null;
+      else if (placed === 'exists') failure = 'exists';
+      else failure = placed.copyFailed;
     } catch (error: unknown) {
       // degradation-audit: optional-capability - reported below; the bytes
       // stay in history, and the caller names that file.
-      placed = error instanceof Error ? error : new Error(String(error));
+      failure = error instanceof Error ? error : new Error(String(error));
     }
-    if (placed !== 'placed') {
+    if (failure !== null) {
       this.logger.warn('[UserLayerMirror] detached file not put back', {
         staged: file.staged,
         livePath: file.original,
         reason:
-          placed === 'exists'
+          failure === 'exists'
             ? 'live path taken'
-            : `${placed.message}; the live path may hold an incomplete copy, the complete file is the staged one`,
+            : `${failure.message}; the live path may hold an incomplete copy, the complete file is the staged one`,
       });
       return false;
     }
@@ -831,7 +834,13 @@ export class UserLayerSeedQuarantine {
       const existing = await this.compareExisting(dest, bytes);
       if (existing !== null) return existing;
 
-      return await this.copySnapshotToSource(bytes, agentSourceDir, slug, dest);
+      return await this.copySnapshotToSource(
+        bytes,
+        snapshot.file,
+        agentSourceDir,
+        slug,
+        dest,
+      );
     } catch (error: unknown) {
       return { outcome: 'copy-failed', path: dest, reason: errorText(error) };
     }
@@ -867,12 +876,17 @@ export class UserLayerSeedQuarantine {
    * Write the snapshot bytes to a temp file beside `dest`, prove them, then
    * place the temp at `dest` exclusively: a hard link (atomic, `EEXIST` if
    * anything got there first) or, where the filesystem refuses links, a
-   * `COPYFILE_EXCL` copy that is verified and removed again on mismatch. The
-   * temp is always removed, so a failure leaves neither a partial `dest` nor a
-   * temp, and a retry is never blocked.
+   * `COPYFILE_EXCL` copy. The temp is always removed.
+   *
+   * Once `dest` is published it is never unlinked (code-logic review B-2a):
+   * another writer may have replaced it after the link. A published `dest`
+   * that does not hold the snapshot bytes, or a fallback copy that failed
+   * part-way, is a `conflict` that keeps `dest` and names the snapshot, which
+   * stays in history as the complete copy.
    */
   private async copySnapshotToSource(
     bytes: Buffer,
+    snapshotFile: string,
     agentSourceDir: string,
     slug: string,
     dest: string,
@@ -887,7 +901,8 @@ export class UserLayerSeedQuarantine {
       if (!(await readFile(tmp)).equals(bytes)) {
         throw new Error('temporary copy does not match the snapshot');
       }
-      if ((await placeExclusive(tmp, dest, 'remove-partial')) === 'exists') {
+      const placed = await placeExclusive(tmp, dest);
+      if (placed === 'exists') {
         // Created by someone else between the check and the link.
         return (
           (await this.compareExisting(dest, bytes)) ?? {
@@ -897,9 +912,19 @@ export class UserLayerSeedQuarantine {
           }
         );
       }
+      if (placed !== 'placed') {
+        return {
+          outcome: 'conflict',
+          path: dest,
+          reason: `copying the snapshot failed (${placed.copyFailed.message}); ${dest} may hold an incomplete copy and was kept; the complete snapshot is ${snapshotFile}`,
+        };
+      }
       if (!(await readFile(dest)).equals(bytes)) {
-        await this.removeOwnDest(dest);
-        throw new Error('restored file does not match the snapshot; removed');
+        return {
+          outcome: 'conflict',
+          path: dest,
+          reason: `${dest} does not hold the snapshot bytes after it was published (changed by another writer, or an incomplete copy) and was kept; the complete snapshot is ${snapshotFile}`,
+        };
       }
       return { outcome: 'restored', path: dest };
     } catch (error: unknown) {
@@ -917,22 +942,6 @@ export class UserLayerSeedQuarantine {
           });
         }
       });
-    }
-  }
-
-  /**
-   * Remove a `dest` this call created (under the slug lock, after an exclusive
-   * create), so a failed restore never leaves a partial file behind.
-   */
-  private async removeOwnDest(dest: string): Promise<void> {
-    try {
-      await unlink(dest);
-    } catch (error: unknown) {
-      if (isErrnoCode(error, 'ENOENT')) return;
-      throw new Error(
-        `restored file does not match the snapshot and could not be removed: ${errorText(error)}`,
-        { cause: error },
-      );
     }
   }
 
@@ -1024,20 +1033,24 @@ export class UserLayerSeedQuarantine {
 }
 
 /**
+ * `copy-failed`: the `COPYFILE_EXCL` fallback failed after it may have created
+ * `dest`, so `dest` may hold an incomplete copy.
+ */
+type ExclusivePlacement = 'placed' | 'exists' | { copyFailed: Error };
+
+/**
  * Create `dest` from `tmp` without ever replacing an existing file. `'exists'`
  * when something is already there.
  *
- * A failed `COPYFILE_EXCL` copy can leave a partial `dest` this call created.
- * `'remove-partial'` (Restore, into a workspace source dir) unlinks it before
- * the error goes on. `'keep-dest'` (quarantine rollback, onto a live clone
- * path) never unlinks: the path may already hold an editor's new file, and
- * the caller keeps the complete bytes at `tmp`.
+ * Nothing at `dest` is ever unlinked, not even after a failed fallback copy:
+ * once the path has been published another writer may own it (an editor's
+ * save, a rename onto it), and the caller still holds the complete bytes.
+ * A link failure other than "unsupported" throws; `dest` was not created.
  */
 async function placeExclusive(
   tmp: string,
   dest: string,
-  onCopyFailure: 'remove-partial' | 'keep-dest',
-): Promise<'placed' | 'exists'> {
+): Promise<ExclusivePlacement> {
   try {
     await link(tmp, dest);
     return 'placed';
@@ -1052,13 +1065,9 @@ async function placeExclusive(
     return 'placed';
   } catch (error: unknown) {
     if (isErrnoCode(error, 'EEXIST')) return 'exists';
-    if (onCopyFailure === 'remove-partial') {
-      // degradation-audit: optional-capability - EXCL guarantees any `dest`
-      // present when the copy failed was created by it; removing it is
-      // best-effort cleanup, and the copy error itself is what propagates.
-      await unlink(dest).catch(() => undefined);
-    }
-    throw error;
+    return {
+      copyFailed: error instanceof Error ? error : new Error(String(error)),
+    };
   }
 }
 

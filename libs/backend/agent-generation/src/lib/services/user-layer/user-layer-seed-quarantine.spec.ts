@@ -1381,8 +1381,15 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
     expect(await sourceDirLeftovers()).toEqual([]);
   });
 
-  it('a fallback copy that fails verification is removed, and the retry succeeds', async () => {
+  /** The quarantine snapshot file, for "history bytes intact" assertions. */
+  async function snapshotFile(): Promise<string> {
+    const [ts] = await readdir(join(scoped, '.history', 'video-director'));
+    return join(scoped, '.history', 'video-director', ts, 'video-director.md');
+  }
+
+  it('B-2a: a fallback copy that fails verification is kept as a conflict, never unlinked', async () => {
     await quarantineForeignAgents();
+    const snapshot = await snapshotFile();
     linkMock.mockRejectedValueOnce(
       Object.assign(new Error('EXDEV'), { code: 'EXDEV' }),
     );
@@ -1392,13 +1399,67 @@ describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
 
     const failed = await service.restoreQuarantinedAgent(ws, 'video-director');
 
-    expect(failed.outcome).toBe('copy-failed');
-    expect(await exists(dest)).toBe(false);
+    expect(failed.outcome).toBe('conflict');
+    expect(failed.path).toBe(dest);
+    expect(failed.reason).toContain(snapshot);
+    expect(await readFile(dest, 'utf-8')).toBe('TRUNCAT');
+    expect(await readFile(snapshot, 'utf-8')).toBe('VIDEO');
     expect(await sourceDirLeftovers()).toEqual([]);
 
+    // The kept file is the user's to resolve: a retry reports it, unchanged.
     const retry = await service.restoreQuarantinedAgent(ws, 'video-director');
-    expect(retry.outcome).toBe('restored');
-    expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
+    expect(retry.outcome).toBe('conflict');
+    expect(await readFile(dest, 'utf-8')).toBe('TRUNCAT');
+  });
+
+  it('B-2a: a replacement written at dest after the link survives, and Restore reports a conflict', async () => {
+    await quarantineForeignAgents();
+    const snapshot = await snapshotFile();
+    const actual =
+      jest.requireActual<typeof import('fs/promises')>('fs/promises');
+    linkMock.mockImplementationOnce(async (tmp: string, to: string) => {
+      await actual.link(tmp, to);
+      // Another writer replaces the published file (an editor's atomic save).
+      await actual.unlink(to);
+      await actual.writeFile(to, 'EDITOR REPLACEMENT', 'utf-8');
+    });
+
+    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(result.outcome).toBe('conflict');
+    expect(result.path).toBe(dest);
+    expect(result.reason).toContain(snapshot);
+    expect(await readFile(dest, 'utf-8')).toBe('EDITOR REPLACEMENT');
+    expect(await readFile(snapshot, 'utf-8')).toBe('VIDEO');
+    expect(await sourceDirLeftovers()).toEqual([]);
+  });
+
+  it('B-2a: link unsupported and the fallback copy fails: dest is not unlinked, history intact, conflict names both paths', async () => {
+    await quarantineForeignAgents();
+    const snapshot = await snapshotFile();
+    linkMock.mockRejectedValueOnce(
+      Object.assign(new Error('EPERM: operation not permitted, link'), {
+        code: 'EPERM',
+      }),
+    );
+    copyFileMock.mockImplementationOnce(async (_src: string, to: string) => {
+      // A partial copy is created, then the copy fails.
+      await writeFile(to, 'VID', { flag: 'wx' });
+      throw Object.assign(new Error('EIO: i/o error, copyfile'), {
+        code: 'EIO',
+      });
+    });
+
+    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(result.outcome).toBe('conflict');
+    expect(result.path).toBe(dest);
+    expect(result.reason).toContain('EIO');
+    expect(result.reason).toContain(dest);
+    expect(result.reason).toContain(snapshot);
+    expect(await readFile(dest, 'utf-8')).toBe('VID');
+    expect(await readFile(snapshot, 'utf-8')).toBe('VIDEO');
+    expect(await sourceDirLeftovers()).toEqual([]);
   });
 
   it('a file that appears at dest during the restore is never replaced', async () => {
