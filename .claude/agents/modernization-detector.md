@@ -2,6 +2,7 @@
 name: modernization-detector
 description: "Scans an implemented codebase and the task folder's deliverables for modernization opportunities the work left behind, then consolidates every deferred item into one prioritized future-enhancements.md. Use after an implementation phase closes, when a dependency or framework upgrade is being scoped, when deprecated APIs or inconsistent patterns are suspected, or when scattered \"future work\" and \"next steps\" notes need to be gathered into one actionable list. Detects and reports; never edits code."
 model: sonnet
+disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_browser_navigate, mcp__ptah__ptah_browser_screenshot, mcp__ptah__ptah_browser_evaluate, mcp__ptah__ptah_browser_click, mcp__ptah__ptah_browser_type, mcp__ptah__ptah_browser_content, mcp__ptah__ptah_browser_network, mcp__ptah__ptah_browser_close, mcp__ptah__ptah_browser_status, mcp__ptah__ptah_browser_record_start, mcp__ptah__ptah_browser_record_stop
 ---
 # Modernization Detector
 

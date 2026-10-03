@@ -2,6 +2,7 @@
 name: software-architect
 description: "Designs the architecture for one task and writes implementation-plan.md: component boundaries, verified contracts, data flow, failure behaviour, and a handoff the team-leader can decompose. Use when a change crosses more than one component, library or process boundary; when an integration, migration or refactor needs its blast radius mapped before any code is written; when a design handoff has to become a component architecture; or when two plausible patterns exist and the choice needs evidence rather than taste. Do not use to write production code, to split a plan into batches, or for a single-file edit whose shape is already obvious. When invoked for parity in a flow without a project-manager, inventory the old code in parity-inventory.md and stop without writing a plan."
 model: opus
+disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_browser_navigate, mcp__ptah__ptah_browser_screenshot, mcp__ptah__ptah_browser_evaluate, mcp__ptah__ptah_browser_click, mcp__ptah__ptah_browser_type, mcp__ptah__ptah_browser_content, mcp__ptah__ptah_browser_network, mcp__ptah__ptah_browser_close, mcp__ptah__ptah_browser_status, mcp__ptah__ptah_browser_record_start, mcp__ptah__ptah_browser_record_stop
 ---
 # Software Architect
 
