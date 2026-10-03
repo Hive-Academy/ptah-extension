@@ -11,6 +11,7 @@
 import * as os from 'os';
 import { join } from 'path';
 import {
+  type AgentModelLayers,
   isCapabilityPolicyUnknownError,
   USER_LAYER_AGENTS_DIR_NAME,
   userLayerAgentDirName,
@@ -79,6 +80,11 @@ export interface HarnessEffectivePluginConfig {
   overlayPluginPaths: string[];
 }
 
+/** Structural settings reader: hosts own settings-core and its lazy lifecycle. */
+export type AgentModelsFactory = () => {
+  layersForPath(workspacePath: string): AgentModelLayers;
+} | null;
+
 /**
  * `~/.ptah/user/{skills,commands,agents}`, plus the two other roots a legacy
  * junction could have pointed into.
@@ -145,6 +151,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
      * the entry it just recorded.
      */
     private readonly mcpIntents: McpIntentStore = new McpIntentStore(),
+    private readonly agentModelsFactory?: AgentModelsFactory,
   ) {}
 
   /**
@@ -170,6 +177,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     // cannot describe two different agent directories. The scope is a pure
     // function of the root and reads nothing, so it cannot itself fail.
     const layout = scopeAgentsRoot(this.layout, workspaceRoot);
+    const agentModels = this.readAgentModels(workspaceRoot);
     // Every `return empty` below is a READ FAILURE, not an observation that the
     // user has nothing enabled. It therefore deliberately omits
     // `overlayPluginPathsKnown`, which is what tells the manifest builder to
@@ -183,6 +191,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
       disabledSkillIds: [],
       disabledPluginIds: [],
       disabledAgentIds: [],
+      ...(agentModels === undefined ? {} : { agentModels }),
     };
 
     let reader: HarnessPluginConfigReader | null;
@@ -212,6 +221,7 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
         disabledSkillIds: reader.getDisabledSkillIds(workspaceRoot),
         disabledPluginIds: config.disabledPluginIds ?? [],
         disabledAgentIds: config.disabledAgentIds ?? [],
+        ...(agentModels === undefined ? {} : { agentModels }),
       };
     } catch {
       return empty;
@@ -246,6 +256,9 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
         disabledPluginIds: effective.config.disabledPluginIds ?? [],
         disabledAgentIds: effective.config.disabledAgentIds ?? [],
         policyFingerprint: effective.fingerprint,
+        ...(empty.agentModels === undefined
+          ? {}
+          : { agentModels: empty.agentModels }),
       };
     } catch (error: unknown) {
       // Recognised by name, not `instanceof`: the error class lives in
@@ -256,6 +269,21 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
         return { ...empty, policyUnknown: true };
       }
       return empty;
+    }
+  }
+
+  private readAgentModels(
+    workspaceRoot: string | undefined,
+  ): AgentModelLayers | undefined {
+    // The reconciler already normalizes this root. Never substitute the host's
+    // active folder or read a machine default for an unscoped resolve.
+    if (!workspaceRoot) return undefined;
+    try {
+      return this.agentModelsFactory?.()?.layersForPath(workspaceRoot);
+    } catch {
+      // Settings may not be ready yet; models are optional and must not prevent
+      // the existing source/policy resolution. This resolver has no logger.
+      return undefined;
     }
   }
 
@@ -273,8 +301,14 @@ export function createPluginConfigSourceResolver(
   readerFactory: () => HarnessPluginConfigReader | null,
   layout?: HarnessSourceLayout,
   mcpIntents?: McpIntentStore,
+  agentModelsFactory?: AgentModelsFactory,
 ): IHarnessSourceResolver {
-  return new PluginConfigSourceResolver(readerFactory, layout, mcpIntents);
+  return new PluginConfigSourceResolver(
+    readerFactory,
+    layout,
+    mcpIntents,
+    agentModelsFactory,
+  );
 }
 
 /** A resolver bound to fixed roots and no overlay. Used by tests and by hosts

@@ -240,6 +240,7 @@ export {
   createPluginConfigSourceResolver,
   createStaticSourceResolver,
   defaultHarnessSourceLayout,
+  type AgentModelsFactory,
   type HarnessPluginConfigReader,
 } from './lib/sources/plugin-config-source-resolver';
 
