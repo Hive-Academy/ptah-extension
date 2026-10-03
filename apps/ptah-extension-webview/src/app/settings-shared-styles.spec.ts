@@ -40,6 +40,14 @@ describe('Settings shared styles (Batch 51)', () => {
     expect(rule).not.toContain('pointer-events');
   });
 
+  it('a Settings checkbox, radio or toggle Tab ring is a solid full base-content outline (Batch 55b F1)', () => {
+    const rule = declarationsOf(':where(ptah-settings) :is(.checkbox, .radio, .toggle):focus-visible');
+    expect(rule).toContain('outline-style: solid');
+    expect(rule).toContain('outline-width: 2px');
+    expect(rule).toContain('outline-offset: 2px');
+    expect(rule).toContain('outline-color: var(--fallback-bc, oklch(var(--bc) / 1))');
+  });
+
   it('an aria-disabled Settings button that is not a .btn is dimmed', () => {
     const rule = declarationsOf(":where(ptah-settings) button[aria-disabled='true']:not(.btn)");
     expect(rule).toContain('opacity: 0.6');

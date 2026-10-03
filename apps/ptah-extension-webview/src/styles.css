@@ -287,6 +287,17 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
     cursor: not-allowed;
     opacity: 0.6;
   }
+
+  /* Batch 55b F1: daisyUI draws a coloured checkbox, radio or toggle's Tab ring in its own colour (primary teal is
+     1.4:1 on anubis-light) and a plain toggle's at 20% base-content. In Settings every one gets the full base-content
+     ring the other Settings controls use, which clears 3:1 in both themes. Same specificity as
+     `.checkbox-primary:focus-visible` and later, so it wins; an explicit `focus-visible:outline-*` utility still wins. */
+  :where(ptah-settings) :is(.checkbox, .radio, .toggle):focus-visible {
+    outline-style: solid;
+    outline-width: 2px;
+    outline-offset: 2px;
+    outline-color: var(--fallback-bc, oklch(var(--bc) / 1));
+  }
 }
 
 /* Light theme overrides for glass morphism and decorative elements */
