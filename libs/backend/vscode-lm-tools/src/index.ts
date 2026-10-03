@@ -14,6 +14,9 @@ export {
   type McpSubagentRegistration,
 } from './lib/code-execution/mcp-http/http-mcp-server.service';
 export { McpCallerWorkspaceResolver } from './lib/code-execution/mcp-caller-workspace-resolver';
+// The per-call MCP caller context (session, workspace, tool profile). Hosts
+// and composition tests use it to run `ptah.*` calls as a given caller.
+export { runWithMcpRequestContext } from './lib/code-execution/mcp-core/mcp-request-context';
 export {
   DiagnosticsCacheInvalidator,
   DIAGNOSTICS_CACHE_INVALIDATOR,

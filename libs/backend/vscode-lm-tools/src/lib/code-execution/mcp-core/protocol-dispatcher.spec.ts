@@ -51,7 +51,10 @@ import {
   buildSearchFilesTool,
 } from './tool-description.builder';
 import { buildServerInstructions } from './server-instructions';
+import { APPS_ONLY_TOOL_NAMES } from './mcp-tool-profile';
+import { buildHelpMethod } from '../namespace-builders/system-namespace.builders';
 import {
+  getCallerToolProfile,
   getCallerAgentId,
   getCallerSessionId,
   getCallerWorkspaceRoot,
@@ -3619,6 +3622,7 @@ describe('protocol-handlers › surface tools', () => {
     return handleMCPRequest(
       makeRequest({
         id: 'surface-7',
+        _callerToolProfile: 'apps',
         method: 'tools/call',
         params: { name, arguments: args },
         ...(callerSessionId ? { _callerSessionId: callerSessionId } : {}),
@@ -3629,7 +3633,11 @@ describe('protocol-handlers › surface tools', () => {
 
   it('lists both tools even when every namespace toggle is off', async () => {
     const res = await handleMCPRequest(
-      makeRequest({ id: 'surface-list', method: 'tools/list' }),
+      makeRequest({
+        id: 'surface-list',
+        method: 'tools/list',
+        _callerToolProfile: 'apps',
+      }),
       buildDeps({
         disabledMcpNamespaces: [
           'ide',
@@ -3945,7 +3953,9 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
     });
 
     const text = textOf(
-      await callTool('ptah_dashboard_propose_spec', { spec: {} }, deps),
+      await callTool('ptah_dashboard_propose_spec', { spec: {} }, deps, {
+        _callerToolProfile: 'apps',
+      }),
     );
 
     expectWithinDefaultBudget(text);
@@ -7646,6 +7656,108 @@ describe('protocol-handlers › LSP reports (TASK_2026_559 Batch 26a)', () => {
       'Found: 0 references (qualified as above; not proof that none exist)',
     );
   });
+});
+
+describe('MCP tool profile listing, eager loading and dispatch', () => {
+  it.each([true, false])(
+    'keeps the coding catalog stable and makes only Apps tools additionally eager (IDE=%s)',
+    async (hasIDECapabilities) => {
+      const deps = buildDeps({ hasIDECapabilities });
+      const list = async (profile?: string) => {
+        const response = await handleMCPRequest(
+          makeRequest({ method: 'tools/list', _callerToolProfile: profile }),
+          deps,
+        );
+        return (
+          response.result as {
+            tools: Array<{ name: string; _meta?: Record<string, unknown> }>;
+          }
+        ).tools;
+      };
+      const coding = await list();
+      const apps = await list('apps');
+      expect(await list('coding')).toEqual(coding);
+      expect(await list('admin')).toEqual(coding);
+      expect(coding).toHaveLength(hasIDECapabilities ? 59 : 56);
+      expect(
+        apps.filter((tool) => !APPS_ONLY_TOOL_NAMES.has(tool.name)),
+      ).toEqual(coding);
+      expect(
+        apps
+          .filter((tool) => APPS_ONLY_TOOL_NAMES.has(tool.name))
+          .map((tool) => tool.name),
+      ).toEqual([...APPS_ONLY_TOOL_NAMES]);
+      for (const name of APPS_ONLY_TOOL_NAMES) {
+        expect(coding.some((tool) => tool.name === name)).toBe(false);
+        expect(
+          apps.find((tool) => tool.name === name)?._meta?.[
+            'anthropic/alwaysLoad'
+          ],
+        ).toBe(true);
+      }
+    },
+  );
+
+  it.each([...APPS_ONLY_TOOL_NAMES])(
+    'refuses %s under coding before touching a namespace',
+    async (name) => {
+      const update = jest.fn();
+      const getState = jest.fn();
+      const proposeSpec = jest.fn();
+      const deps = buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          surface: { update, getState },
+          dashboard: { proposeSpec },
+        }),
+      });
+      for (const profile of [undefined, 'coding', 'admin']) {
+        const result = agentToolResult(
+          await handleMCPRequest(
+            makeRequest({
+              method: 'tools/call',
+              _callerToolProfile: profile,
+              params: { name, arguments: {} },
+            }),
+            deps,
+          ),
+        );
+        expect(result.isError).toBe(true);
+        expect(result.text).toContain(name);
+        expect(result.text).toContain('available on the Apps page only');
+      }
+      expect(update).not.toHaveBeenCalled();
+      expect(getState).not.toHaveBeenCalled();
+      expect(proposeSpec).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['coding', 'apps'])(
+    'execute_code help inherits the %s request context',
+    async (profile) => {
+      const deps = buildDeps({
+        ptahAPI: buildPtahAPIStub({
+          help: buildHelpMethod({ getCallerToolProfile }),
+        }),
+      });
+      const result = agentToolResult(
+        await handleMCPRequest(
+          makeRequest({
+            method: 'tools/call',
+            _callerToolProfile: profile,
+            params: {
+              name: 'execute_code',
+              arguments: { code: 'return await ptah.help()' },
+            },
+          }),
+          deps,
+        ),
+      );
+      expect(result.isError).not.toBe(true);
+      expect(result.text.includes('ptah.surface')).toBe(profile === 'apps');
+      expect(result.text.includes('ptah.dashboard')).toBe(profile === 'apps');
+      expect(result.text).toContain('TASKS:');
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

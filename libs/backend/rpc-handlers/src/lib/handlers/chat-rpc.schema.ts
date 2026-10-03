@@ -19,13 +19,17 @@
  *
  * Schemas use `.passthrough()` so unknown fields (model selection, files,
  * thinking config, …) are preserved verbatim for the handler body; we only
- * validate the id fields and trust the rest of the static
+ * validate the id, surface mode and MCP tool profile fields and trust the rest of the static
  * `ChatStartParams`/`ChatContinueParams`/`ChatResumeParams`/`ChatAbortParams`
  * types past this boundary.
  */
 
 import { z } from 'zod';
-import { HISTORY_PAGE_MAX_EVENTS, UUID_REGEX } from '@ptah-extension/shared';
+import {
+  HISTORY_PAGE_MAX_EVENTS,
+  MCP_TOOL_PROFILES,
+  UUID_REGEX,
+} from '@ptah-extension/shared';
 
 const HistoryPageSizeSchema = z
   .number()
@@ -48,12 +52,13 @@ const uuidString = (label: string) =>
 
 /**
  * `chat:start` params — `tabId` is required (REQUIRED for new conversations
- * per `ChatStartParams` docs); everything else is opaque to the schema.
+ * per `ChatStartParams` docs); surface mode and MCP tool profile are optional.
  */
 export const ChatStartParamsSchema = z
   .object({
     tabId: uuidString('tabId'),
     surfaceMode: z.boolean().optional(),
+    mcpToolProfile: z.enum(MCP_TOOL_PROFILES).optional(),
   })
   .passthrough();
 
@@ -67,6 +72,7 @@ export const ChatContinueParamsSchema = z
     tabId: uuidString('tabId'),
     sessionId: uuidString('sessionId'),
     surfaceMode: z.boolean().optional(),
+    mcpToolProfile: z.enum(MCP_TOOL_PROFILES).optional(),
   })
   .passthrough();
 

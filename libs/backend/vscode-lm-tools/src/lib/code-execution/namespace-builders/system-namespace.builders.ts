@@ -9,7 +9,7 @@
  */
 
 import * as path from 'path';
-import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
+import { SYSTEM_CLI_TYPES, type McpToolProfile } from '@ptah-extension/shared';
 import {
   DASHBOARD_LIMITS,
   describeDashboardLimits,
@@ -47,7 +47,7 @@ const DASHBOARD_CONTRACT_HELP = describeDashboardContract();
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah IDE Access - 22 Namespaces:
+  overview: `Ptah IDE Access - Namespaces:
 
 WORKSPACE: workspace, search, files, diagnostics
 ANALYSIS: context, project, relevance, ast, dependencies
@@ -700,21 +700,38 @@ export function buildFilesNamespace(
   };
 }
 
+const APPS_ONLY_HELP_TOPICS: ReadonlySet<string> = new Set([
+  'dashboard',
+  'surface',
+]);
+const CODING_OVERVIEW = HELP_DOCS['overview']
+  .split('\n')
+  .filter((line) => !/^(DASHBOARD|SURFACE):/.test(line))
+  .join('\n');
+
 /**
  * Build the help method for Ptah API self-documentation
  * Provides documentation for all Ptah namespaces at ptah.help() root level
  */
-export function buildHelpMethod() {
+export function buildHelpMethod(deps: {
+  getCallerToolProfile: () => McpToolProfile;
+}) {
   return async (topic?: string): Promise<string> => {
-    if (!topic) {
-      return HELP_DOCS['overview'];
+    const apps = deps.getCallerToolProfile() === 'apps';
+    if (!topic || topic === 'overview') {
+      return apps ? HELP_DOCS['overview'] : CODING_OVERVIEW;
     }
     const normalizedTopic = topic.replace(/^ai\.ide\./, 'ide.');
 
+    if (!apps && APPS_ONLY_HELP_TOPICS.has(normalizedTopic)) {
+      return `ptah.${normalizedTopic} is available on the Apps page only.`;
+    }
     const doc = HELP_DOCS[normalizedTopic];
     if (!doc) {
       const available = Object.keys(HELP_DOCS)
-        .filter((k) => k !== 'overview')
+        .filter(
+          (k) => k !== 'overview' && (apps || !APPS_ONLY_HELP_TOPICS.has(k)),
+        )
         .join(', ');
       return `Topic '${topic}' not found. Available: ${available}`;
     }

@@ -58,6 +58,7 @@ import {
   TOOL_RESULT_BUDGET_OVERRIDES,
   getToolResultBudget,
 } from './tool-result-budget';
+import { APPS_ONLY_TOOL_NAMES } from './mcp-tool-profile';
 import * as ToolResultBudgetModule from './tool-result-budget';
 import { formatWorkspaceAnalysis } from './mcp-response-formatter';
 import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
@@ -890,6 +891,7 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
     },
   },
   ptah_dashboard_propose_spec: {
+    requestExtra: { _callerToolProfile: 'apps' },
     args: { spec: { title: 'x' } },
     mock: (api, marker) => {
       api.dashboard = {
@@ -901,6 +903,7 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
     },
   },
   ptah_surface_update: {
+    requestExtra: { _callerToolProfile: 'apps' },
     args: {},
     mock: (api, marker) => {
       api.surface = {
@@ -915,6 +918,7 @@ const TOOL_DRIVERS: Readonly<Record<string, ToolDriver>> = {
     },
   },
   ptah_surface_get_state: {
+    requestExtra: { _callerToolProfile: 'apps' },
     args: {},
     mock: (api, marker) => {
       api.surface = {
@@ -1264,6 +1268,7 @@ const BELOW_OUTLINE_CAP_DRIVERS: Readonly<Record<string, ToolDriver>> = {
     },
   },
   ptah_dashboard_propose_spec: {
+    requestExtra: { _callerToolProfile: 'apps' },
     args: { spec: { title: 'x' } },
     mock: (api, marker) => {
       api.dashboard = {
@@ -1275,6 +1280,7 @@ const BELOW_OUTLINE_CAP_DRIVERS: Readonly<Record<string, ToolDriver>> = {
     },
   },
   ptah_surface_update: {
+    requestExtra: { _callerToolProfile: 'apps' },
     args: {},
     mock: (api, marker) => {
       api.surface = {
@@ -1741,7 +1747,12 @@ async function listAllTools(
   Array<{ name: string; description: string; _meta?: Record<string, unknown> }>
 > {
   const res = await handleMCPRequest(
-    makeRequest({ id: 'list', method: 'tools/list', ...requestExtra }),
+    makeRequest({
+      id: 'list',
+      method: 'tools/list',
+      _callerToolProfile: 'apps',
+      ...requestExtra,
+    }),
     buildDeps({}, overrides),
   );
   return getTools(res);
@@ -1805,7 +1816,7 @@ describe('independently pinned budgets (TASK_2026_559 Batch 21 r1, defect 3)', (
 // ---------------------------------------------------------------------------
 
 describe('coverage matrix — served tools across host, caller and transport (defect 1)', () => {
-  it('HTTP with IDE capabilities serves 62 identically-named tools across every caller kind', async () => {
+  it('HTTP coding with IDE capabilities serves 59 identically-named tools across every caller kind', async () => {
     const deps = buildDeps({}, { hasIDECapabilities: true });
     const callers: Array<Partial<MCPRequest>> = [
       {},
@@ -1827,12 +1838,13 @@ describe('coverage matrix — served tools across host, caller and transport (de
       expect(names).toEqual(namesPerCaller[0]);
     }
     // Pinned at this HEAD (2026-09-27): update deliberately if the served
-    // set legitimately changes. 56 -> 62: the five ptah_session_* tools
-    // (TASK_2026_584) and ptah_session_link_task (TASK_2026_580).
-    expect(namesPerCaller[0]).toHaveLength(62);
+    // set legitimately changes. 62 in total: the five ptah_session_* tools
+    // (TASK_2026_584) and ptah_session_link_task (TASK_2026_580); coding
+    // drops the 3 Apps-only tools (TASK_2026_595).
+    expect(namesPerCaller[0]).toHaveLength(59);
   });
 
-  it('HTTP without IDE capabilities serves 59 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
+  it('HTTP coding without IDE capabilities serves 56 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
     const deps = buildDeps({}, { hasIDECapabilities: false });
     const callers: Array<Partial<MCPRequest>> = [
       {},
@@ -1853,9 +1865,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
     for (const names of namesPerCaller.slice(1)) {
       expect(names).toEqual(namesPerCaller[0]);
     }
-    // 59: the five ptah_session_* tools (TASK_2026_584) and
-    // ptah_session_link_task (TASK_2026_580); see the note above.
-    expect(namesPerCaller[0]).toHaveLength(59);
+    // 59 in total minus the 3 Apps-only tools; see the note above.
+    expect(namesPerCaller[0]).toHaveLength(56);
     for (const ideOnly of [
       'ptah_lsp_references',
       'ptah_lsp_definitions',
@@ -1865,24 +1876,70 @@ describe('coverage matrix — served tools across host, caller and transport (de
     }
   });
 
-  it('every tool served in either HTTP configuration has a registered driver (or is explicitly excluded)', async () => {
-    const ideNames = await listAllTools({ hasIDECapabilities: true }).then(
-      (t) => t.map((x) => x.name),
-    );
-    const nonIdeNames = await listAllTools({ hasIDECapabilities: false }).then(
-      (t) => t.map((x) => x.name),
-    );
-    const served = new Set([...ideNames, ...nonIdeNames]);
-    const missing = [...served].filter(
-      (name) => !(name in CONTROL_TOOL_EXCEPTIONS) && !TOOL_DRIVERS[name],
-    );
-    expect(missing).toEqual([]);
-    // Every named exception is a tool actually served (a stale exception
-    // entry would otherwise hide nothing and mislead).
-    for (const excepted of Object.keys(CONTROL_TOOL_EXCEPTIONS)) {
-      expect(served.has(excepted)).toBe(true);
-    }
-  });
+  it.each([true, false])(
+    'apps lists coding plus exactly three tools across caller kinds (IDE=%s)',
+    async (hasIDECapabilities) => {
+      const deps = buildDeps({}, { hasIDECapabilities });
+      const callers: Array<Partial<MCPRequest>> = [
+        {},
+        { _callerAgentId: 'agent-7' },
+        { _callerSessionId: 'session-7' },
+        { _callerWorkspaceRoot: '/fixture/workspace' },
+      ];
+      let firstApps: string[] | undefined;
+      for (const caller of callers) {
+        const coding = getToolNames(
+          await handleMCPRequest(
+            makeRequest({ method: 'tools/list', ...caller }),
+            deps,
+          ),
+        );
+        const apps = getToolNames(
+          await handleMCPRequest(
+            makeRequest({
+              method: 'tools/list',
+              ...caller,
+              _callerToolProfile: 'apps',
+            }),
+            deps,
+          ),
+        );
+        expect(apps).toHaveLength(hasIDECapabilities ? 62 : 59);
+        expect(apps.filter((name) => !APPS_ONLY_TOOL_NAMES.has(name))).toEqual(
+          coding,
+        );
+        expect(apps.filter((name) => APPS_ONLY_TOOL_NAMES.has(name))).toEqual([
+          ...APPS_ONLY_TOOL_NAMES,
+        ]);
+        if (firstApps) expect(apps).toEqual(firstApps);
+        firstApps = apps;
+      }
+    },
+  );
+
+  it.each(['coding', 'apps'])(
+    'every tool served in either HTTP configuration under %s has a registered driver (or is explicitly excluded)',
+    async (_callerToolProfile) => {
+      const ideNames = await listAllTools(
+        { hasIDECapabilities: true },
+        { _callerToolProfile },
+      ).then((t) => t.map((x) => x.name));
+      const nonIdeNames = await listAllTools(
+        { hasIDECapabilities: false },
+        { _callerToolProfile },
+      ).then((t) => t.map((x) => x.name));
+      const served = new Set([...ideNames, ...nonIdeNames]);
+      const missing = [...served].filter(
+        (name) => !(name in CONTROL_TOOL_EXCEPTIONS) && !TOOL_DRIVERS[name],
+      );
+      expect(missing).toEqual([]);
+      // Every named exception is a tool actually served (a stale exception
+      // entry would otherwise hide nothing and mislead).
+      for (const excepted of Object.keys(CONTROL_TOOL_EXCEPTIONS)) {
+        expect(served.has(excepted)).toBe(true);
+      }
+    },
+  );
 
   it('the stdio MCP server advertises exactly its 8 documented tool names', () => {
     expect([...MCP_MVP_TOOL_NAMES]).toEqual([

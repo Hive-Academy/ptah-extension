@@ -197,6 +197,7 @@ jest.mock('@ptah-extension/cli-agent-runtime', () => ({
 import * as namespaceBuilders from './namespace-builders';
 import { WebSearchService } from './services/web-search.service';
 import { PtahAPIBuilder } from './ptah-api-builder.service';
+import { executeCode } from './mcp-core/code-execution.engine';
 import { runWithMcpRequestContext } from './mcp-core/mcp-request-context';
 import type { DiagnosticsCacheInvalidator } from '../diagnostics/diagnostics-cache-invalidator.service';
 import type { SurfaceStateService } from '../surface';
@@ -628,6 +629,62 @@ describe('PtahAPIBuilder.build() — surface wiring (TASK_2026_538)', () => {
     expect(surfaceDeps.service).toBeUndefined();
     expect(namespaceBuilders.createDashboardBroadcast).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('PtahAPIBuilder execute_code Apps namespace gates', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it.each(['surface.update', 'surface.getState', 'dashboard.proposeSpec'])(
+    'refuses coding %s before calling its namespace; apps still works on the same API',
+    async (method) => {
+      const update = jest
+        .fn()
+        .mockResolvedValue({ status: 'accepted', text: 'updated' });
+      const getState = jest
+        .fn()
+        .mockResolvedValue({ status: 'found', text: 'read' });
+      const proposeSpec = jest
+        .fn()
+        .mockResolvedValue({ status: 'delivered', text: 'proposed' });
+      (
+        namespaceBuilders.buildSurfaceNamespace as jest.Mock
+      ).mockReturnValueOnce({ update, getState });
+      (
+        namespaceBuilders.buildDashboardNamespace as jest.Mock
+      ).mockReturnValueOnce({ proposeSpec });
+      const ptahAPI = buildTestBuilder(
+        makeRawWorkspaceProvider(),
+        makeSessionManager(),
+      ).build();
+      const deps = { ptahAPI, logger: makeLogger() };
+      const code = `return await ptah.${method}({}, { sessionId: 'victim', toolCallId: 'call' });`;
+      await expect(
+        runWithMcpRequestContext({ callerToolProfile: 'coding' }, () =>
+          executeCode(code, 3000, deps),
+        ),
+      ).rejects.toThrow(`ptah.${method} is available on the Apps page only`);
+      expect(update).not.toHaveBeenCalled();
+      expect(getState).not.toHaveBeenCalled();
+      expect(proposeSpec).not.toHaveBeenCalled();
+      const target = {
+        'surface.update': update,
+        'surface.getState': getState,
+        'dashboard.proposeSpec': proposeSpec,
+      }[method];
+      await expect(
+        runWithMcpRequestContext({ callerToolProfile: 'apps' }, () =>
+          executeCode(code, 3000, deps),
+        ),
+      ).resolves.toMatchObject({ text: expect.any(String) });
+      expect(target).toHaveBeenCalledTimes(1);
+      expect(target).toHaveBeenCalledWith(
+        {},
+        { sessionId: 'victim', toolCallId: 'call' },
+      );
+    },
+  );
 });
 
 /**

@@ -119,6 +119,7 @@ interface AutoResumePreflight {
   thinking?: ChatContinueParams['thinking'];
   effort?: ChatContinueParams['effort'];
   surfaceMode?: ChatContinueParams['surfaceMode'];
+  mcpToolProfile?: ChatContinueParams['mcpToolProfile'];
 }
 
 /** Input of {@link ChatSessionService.startAgentChildSession} (TASK_2026_584). */
@@ -152,6 +153,8 @@ interface SdkSessionLaunch {
     Record<string, McpHttpServerOverride> | undefined;
   readonly permissionLevel?: PermissionLevel;
   readonly surfaceMode: ChatStartParams['surfaceMode'];
+  /** Only the Apps page sets `apps`; absent means the coding tool profile. */
+  readonly mcpToolProfile?: ChatStartParams['mcpToolProfile'];
 }
 
 @injectable()
@@ -561,6 +564,7 @@ export class ChatSessionService {
         mcpServerRunning,
         mcpServersOverride: params.mcpServersOverride,
         surfaceMode: params.surfaceMode,
+        mcpToolProfile: params.mcpToolProfile,
       });
 
       return { success: true };
@@ -738,6 +742,7 @@ export class ChatSessionService {
         ? { permissionLevel: input.permissionLevel }
         : {}),
       ...outputStyle,
+      ...(input.mcpToolProfile ? { mcpToolProfile: input.mcpToolProfile } : {}),
     });
     this.streamBroadcaster.streamEventsToWebview(
       tabId as SessionId,
@@ -1421,6 +1426,9 @@ export class ChatSessionService {
         prompt,
         providerProfile,
         ...outputStyle,
+        ...(params.mcpToolProfile
+          ? { mcpToolProfile: params.mcpToolProfile }
+          : {}),
       });
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,

@@ -144,9 +144,21 @@ export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type FlagEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | null;
 
 /**
+ * Ptah MCP tool profile: which tool set a session's MCP URL asks for.
+ * `apps` adds the dashboard and surface tools (Apps page only, TASK_2026_595).
+ */
+export const MCP_TOOL_PROFILES = ['coding', 'apps'] as const;
+export type McpToolProfile = (typeof MCP_TOOL_PROFILES)[number];
+
+/**
  * AI Session Configuration
  */
 export interface AISessionConfig {
+  /**
+   * Ptah MCP tool profile. Absent means `coding`. Only the Apps page sets
+   * `apps`. Read by `SdkQueryOptionsBuilder.buildMcpServers`.
+   */
+  readonly mcpToolProfile?: McpToolProfile;
   readonly projectPath?: string;
   readonly workspaceId?: string;
   readonly maxTokens?: number;

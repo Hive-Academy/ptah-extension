@@ -456,7 +456,8 @@ describe('HTTP request handling', () => {
   //   /session/{id}                   → session only
   //   /workspace/{root}               → workspace only
   //   /session/{id}/workspace/{root}  → both — the ONLY combined order
-  // The workspace segment must be terminal; every other shape is anonymous.
+  // An optional terminal /profile/{name} may follow these shapes (TASK_2026_595).
+  // Invalid trailing path segments still leave the workspace unset.
   // -------------------------------------------------------------------------
 
   const toolsCallBody = JSON.stringify({
@@ -464,6 +465,62 @@ describe('HTTP request handling', () => {
     id: 1,
     method: 'tools/call',
   });
+
+  it.each([
+    ['/session/s1/profile/apps', 's1', undefined, undefined, 'apps'],
+    [
+      '/agent/a1/workspace/D%3A%5Cx/profile/apps',
+      undefined,
+      'a1',
+      'D:\\x',
+      'apps',
+    ],
+    ['/workspace/w/profile/apps/', undefined, undefined, 'w', 'apps'],
+    ['/workspace/w/profile/apps?x=1', undefined, undefined, 'w', 'apps'],
+    ['/profile/apps', undefined, undefined, undefined, 'apps'],
+    ['/profile/%61pps', undefined, undefined, undefined, 'apps'],
+    ['/profile/admin', undefined, undefined, undefined, 'admin'],
+    ['/profile/apps/session/s1', undefined, undefined, undefined, undefined],
+    ['/session/profile/apps', 'profile', undefined, undefined, undefined],
+    ['/workspace/w/profile', undefined, undefined, undefined, undefined],
+  ])(
+    'parses the closed profile grammar: %s',
+    async (url, session, agent, workspace, profile) => {
+      await fetchPath(port, 'POST', url as string, toolsCallBody);
+      const call = onMCPRequest.mock.calls[0][0];
+      expect(call._callerSessionId).toBe(session);
+      expect(call._callerAgentId).toBe(agent);
+      expect(call._callerWorkspaceRoot).toBe(workspace);
+      expect(call._callerToolProfile).toBe(profile);
+    },
+  );
+
+  it('drops a forged body profile when the URL carries none', async () => {
+    await fetchPath(
+      port,
+      'POST',
+      '/session/s1',
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        _callerToolProfile: 'apps',
+      }),
+    );
+    expect(onMCPRequest.mock.calls[0][0]._callerToolProfile).toBeUndefined();
+  });
+
+  it.each(['/profile/%ZZ', '/profile/%E0%A4', '/session/s1/profile/%E0%A4'])(
+    'returns a parse error for an invalid profile escape: %s',
+    async (url) => {
+      const response = await fetchPath(port, 'POST', url, toolsCallBody);
+      expect(response.status).toBe(400);
+      expect((JSON.parse(response.body) as MCPResponse).error?.code).toBe(
+        -32700,
+      );
+      expect(onMCPRequest).not.toHaveBeenCalled();
+    },
+  );
 
   it('stamps _callerWorkspaceRoot from /workspace/{root} and leaves the session unset', async () => {
     await fetchPath(port, 'POST', '/workspace/ws-plain', toolsCallBody);
@@ -602,7 +659,12 @@ describe('HTTP request handling', () => {
   });
 
   it('REJECTS /agent/{id}/session/{id} — the session segment must lead', async () => {
-    await fetchPath(port, 'POST', '/agent/agent-abc/session/tab-x', toolsCallBody);
+    await fetchPath(
+      port,
+      'POST',
+      '/agent/agent-abc/session/tab-x',
+      toolsCallBody,
+    );
     const call = onMCPRequest.mock.calls[0][0];
     expect(call._callerAgentId).toBe('agent-abc');
     expect(call._callerSessionId).toBeUndefined();

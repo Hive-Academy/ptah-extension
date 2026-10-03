@@ -242,6 +242,7 @@ export class AppsSessionService {
           ? { workspacePath: conversation.workspacePath }
           : {}),
         surfaceMode: true,
+        mcpToolProfile: 'apps',
         options: {
           ...(model ? { model } : {}),
           ...(effort ? { effort } : {}),
@@ -323,6 +324,7 @@ export class AppsSessionService {
         tabId: conversation.routingId,
         prompt,
         surfaceMode: true,
+        mcpToolProfile: 'apps',
       });
       if (!result.success || result.data?.success === false) {
         this.failTurn(

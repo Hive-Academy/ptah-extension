@@ -124,6 +124,9 @@ export class ChatSlashCommandRouterService {
                 this.modelSettings.selectedModel.get() ||
                 'default',
               projectPath: workspacePath,
+              ...(params.mcpToolProfile
+                ? { mcpToolProfile: params.mcpToolProfile }
+                : {}),
             } as AISessionConfig,
             mcpServerRunning,
             enhancedPromptsContent,

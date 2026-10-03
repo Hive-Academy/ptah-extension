@@ -33,6 +33,7 @@ import {
   type EffectiveCapabilitySet,
   type ICapabilityResolver,
   type McpHttpServerOverride,
+  type McpToolProfile,
   type PermissionLevel,
   type SessionMcpNotice,
 } from '@ptah-extension/shared';
@@ -1146,7 +1147,11 @@ export class SdkQueryOptionsBuilder {
       this.mergeMcpOverride(
         // Same `routingId` the permission callback above is keyed on, and the
         // same precedence `SessionQueryExecutor` uses for its registry key.
-        this.buildMcpServers(mcpServerRunning, routingId),
+        this.buildMcpServers(
+          mcpServerRunning,
+          routingId,
+          sessionConfig.mcpToolProfile,
+        ),
         mcpServersOverride,
       ),
       policy,
@@ -1766,6 +1771,10 @@ export class SdkQueryOptionsBuilder {
    * the only id that exists yet, since the canonical SDK UUID does not arrive
    * until the system `init` message.
    *
+   * Apps sessions use `/session/{id}/profile/apps`; coding sessions keep the
+   * bare `/session/{id}` URL. The reader is `extractCallerToolProfile` in
+   * vscode-lm-tools `http-server.handler.ts`.
+   *
    * @throws SdkError when no routing id is available. Dropping the segment
    * instead — which this used to do — produced a working MCP endpoint whose
    * calls arrived anonymous, and the consumer then attributed the spawn to
@@ -1781,6 +1790,7 @@ export class SdkQueryOptionsBuilder {
   private buildMcpServers(
     mcpServerRunning = true,
     routingSessionId?: string,
+    toolProfile?: McpToolProfile,
   ): Record<string, McpHttpServerConfig> {
     if (!mcpServerRunning) {
       this.logger.info(
@@ -1798,10 +1808,11 @@ export class SdkQueryOptionsBuilder {
           'or sessionId before starting an interactive session.',
       );
     }
+    const sessionUrl = `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(routingSessionId)}`;
     const mcpConfig = {
       ptah: {
         type: 'http' as const,
-        url: `http://localhost:${PTAH_MCP_PORT}/session/${encodeURIComponent(routingSessionId)}`,
+        url: toolProfile === 'apps' ? `${sessionUrl}/profile/apps` : sessionUrl,
       },
     };
     this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {

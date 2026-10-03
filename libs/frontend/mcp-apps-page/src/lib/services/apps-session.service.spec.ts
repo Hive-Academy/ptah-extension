@@ -276,6 +276,7 @@ describe('AppsSessionService', () => {
       expect(start.params['name']).toBe(APPS_SESSION_NAME);
       expect(start.params['workspacePath']).toBe('/ws-a');
       expect(start.params['surfaceMode']).toBe(true);
+      expect(start.params['mcpToolProfile']).toBe('apps');
       expect(start.params['options']).toEqual({
         model: 'sonnet',
         systemPrompt: APPS_SYSTEM_PROMPT,
@@ -758,6 +759,7 @@ describe('AppsSessionService', () => {
         tabId: service.routingId(),
         prompt: 'More',
         surfaceMode: true,
+        mcpToolProfile: 'apps',
       });
       expect(service.userBubbles().map((b) => b.text)).toEqual([
         'Build',

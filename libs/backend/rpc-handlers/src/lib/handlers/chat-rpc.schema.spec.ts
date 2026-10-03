@@ -199,3 +199,26 @@ describe('chat-rpc.schema', () => {
     });
   });
 });
+
+describe.each([ChatStartParamsSchema, ChatContinueParamsSchema])(
+  'MCP tool profile validation',
+  (schema) => {
+    const required = { tabId: VALID_TAB_UUID, sessionId: VALID_SESSION_UUID };
+
+    it.each(['apps', 'coding'])('accepts %s', (mcpToolProfile) => {
+      expect(schema.parse({ ...required, mcpToolProfile }).mcpToolProfile).toBe(
+        mcpToolProfile,
+      );
+    });
+
+    it('keeps an absent profile absent', () => {
+      expect(schema.parse(required)).not.toHaveProperty('mcpToolProfile');
+    });
+
+    it.each(['admin', 42])('rejects %s', (mcpToolProfile) => {
+      expect(() => schema.parse({ ...required, mcpToolProfile })).toThrow(
+        ZodError,
+      );
+    });
+  },
+);
