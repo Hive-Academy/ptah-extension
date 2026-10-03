@@ -349,6 +349,102 @@ describe('SkillSynthesisRpcService', () => {
     );
   });
 
+  it('listQuarantinedAgents() calls skillSynthesis:listQuarantinedAgents with {} and returns the listing untouched', async () => {
+    const listing = {
+      workspaceRoot: '/ws',
+      agentSync: 'disabled',
+      recordUnreadable: true,
+      quarantined: [
+        {
+          slug: 'reviewer',
+          state: 'quarantined',
+          quarantinedAt: null,
+          hasSnapshot: true,
+          sourcePath: '/ws/.claude/agents/reviewer.md',
+        },
+      ],
+      notOwned: ['planner'],
+    };
+    rpcCall.mockResolvedValue(okResult(listing));
+
+    const result = await service.listQuarantinedAgents();
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:listQuarantinedAgents',
+      {},
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toBe(listing);
+  });
+
+  it('listQuarantinedAgents() keeps the no-folder answer (workspaceRoot: null) distinct from an empty quarantine', async () => {
+    rpcCall.mockResolvedValue(
+      okResult({
+        workspaceRoot: null,
+        agentSync: 'unknown',
+        quarantined: [],
+        notOwned: [],
+      }),
+    );
+
+    const result = await service.listQuarantinedAgents();
+
+    expect(result.workspaceRoot).toBeNull();
+  });
+
+  it('listQuarantinedAgents() throws the RPC error rather than returning an empty listing', async () => {
+    rpcCall.mockResolvedValue({
+      ...errResult('Quarantine record could not be read'),
+      errorCode: 'PERSISTENCE_UNAVAILABLE',
+    });
+
+    await expect(service.listQuarantinedAgents()).rejects.toThrow(
+      'Quarantine record could not be read',
+    );
+  });
+
+  it('restoreQuarantinedAgent(slug) sends exactly { slug } and returns every outcome as data', async () => {
+    const outcome = {
+      outcome: 'conflict',
+      path: '/ws/.claude/agents/reviewer.md',
+      reason: 'a different file already exists',
+      agentSync: 'enabled',
+    };
+    rpcCall.mockResolvedValue(okResult(outcome));
+
+    const result = await service.restoreQuarantinedAgent('reviewer');
+
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:restoreQuarantinedAgent',
+      { slug: 'reviewer' },
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(result).toBe(outcome);
+  });
+
+  it('restoreQuarantinedAgent() throws on INVALID_PARAMS (no open folder) instead of reporting success', async () => {
+    rpcCall.mockResolvedValue({
+      ...errResult('Open a workspace folder to restore a quarantined agent.'),
+      errorCode: 'INVALID_PARAMS',
+    });
+
+    await expect(service.restoreQuarantinedAgent('reviewer')).rejects.toThrow(
+      'Open a workspace folder to restore a quarantined agent.',
+    );
+  });
+
+  it('restoreQuarantinedAgent() falls back to its own message when the error carries no text', async () => {
+    rpcCall.mockResolvedValue({
+      success: false,
+      isSuccess: () => false,
+      errorCode: 'PERSISTENCE_UNAVAILABLE',
+    });
+
+    await expect(service.restoreQuarantinedAgent('reviewer')).rejects.toThrow(
+      'Failed to restore quarantined agent',
+    );
+  });
+
   it('throws with the RPC error string when listModels fails', async () => {
     rpcCall.mockResolvedValue(errResult('no-provider-configured'));
 

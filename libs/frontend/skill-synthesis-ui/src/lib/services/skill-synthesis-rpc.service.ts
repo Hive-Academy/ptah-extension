@@ -39,6 +39,8 @@ import type {
   SkillSynthesisQueueResult,
   SkillSynthesisDigestParams,
   SkillSynthesisDigestResult,
+  SkillSynthesisListQuarantinedAgentsResult,
+  SkillSynthesisRestoreQuarantinedAgentResult,
 } from '@ptah-extension/shared';
 
 export interface SkillAcceptSuggestionResult {
@@ -587,6 +589,50 @@ export class SkillSynthesisRpcService {
       return result.data;
     }
     throw new Error(result.error || 'Failed to load scorecard detail');
+  }
+
+  /**
+   * Agents the seed quarantine moved out of this workspace, plus the kept
+   * clones Ptah does not own.
+   *
+   * `workspaceRoot: null` is the backend's "no folder open" answer and is
+   * returned as-is: it is NOT the same as an empty quarantine, and the caller
+   * must tell the two apart. Handler failures (e.g. `PERSISTENCE_UNAVAILABLE`)
+   * throw; they never come back as an empty listing.
+   */
+  public async listQuarantinedAgents(): Promise<SkillSynthesisListQuarantinedAgentsResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:listQuarantinedAgents',
+      {},
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to list quarantined agents');
+  }
+
+  /**
+   * Copy a quarantined agent's snapshot back to `.claude/agents/<slug>.md`.
+   *
+   * Every outcome the handler returns (`restored`, `conflict`, `copy-failed`,
+   * …) is data for the caller to present. An RPC error (`INVALID_PARAMS` for a
+   * bad slug or no open folder, `PERSISTENCE_UNAVAILABLE`) throws, so a refused
+   * restore is never mistaken for one that ran. The handler never turns agent
+   * sync on; `agentSync` only reports it.
+   */
+  public async restoreQuarantinedAgent(
+    slug: string,
+  ): Promise<SkillSynthesisRestoreQuarantinedAgentResult> {
+    const result = await this.rpcService.call(
+      'skillSynthesis:restoreQuarantinedAgent',
+      { slug },
+      { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to restore quarantined agent');
   }
 
   /** List cluster-derived skill suggestions awaiting human decision. */
