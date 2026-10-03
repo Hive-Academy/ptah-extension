@@ -147,6 +147,12 @@ export interface ProvidersConnection {
    * logged or offered to a copy action. Absent when the host sends none, or anything but that shape.
    */
   readonly keyHint?: string;
+  /**
+   * The host could not read this connection's stored key (`auth:getApiKeyStatus` `keyUnreadable`). `hasKey` stays
+   * false but means unknown, not "no key": the connection counts as configured, and views show the fixed
+   * "Could not read the stored key." state with Retry, never "no key". Absent for every readable row.
+   */
+  readonly keyUnreadable?: true;
 }
 /**
  * The drawer's last "Check connection" (`auth:checkConnection`). `checking` while it and the route re-read

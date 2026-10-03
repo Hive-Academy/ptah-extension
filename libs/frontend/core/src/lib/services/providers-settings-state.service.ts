@@ -332,7 +332,9 @@ export class ProvidersSettingsStateService {
           : entry.nativeAuth ? auth.claudeCliInstalled === true : false;
         return {
           id: entry.id, name: entry.name, hasKey: host?.hasApiKey === true, ...hostKeyHint(host?.hasApiKey ? host.keyHint : undefined),
-          configured: host?.hasApiKey === true || customIds.has(entry.id) || savedSetupIds.has(entry.id) || authenticated,
+          // An unreadable key (M-6) is unknown, not absent: configured, with no hint and `hasKey` false.
+          ...(host?.keyUnreadable === true ? { keyUnreadable: true } : {}),
+          configured: host?.hasApiKey === true || host?.keyUnreadable === true || customIds.has(entry.id) || savedSetupIds.has(entry.id) || authenticated,
           custom: customIds.has(entry.id), defaultsResolvable: !!entry.defaultTiers,
           authMode: entry.nativeAuth ? 'cli' : entry.authType === 'oauth' ? 'oauth'
             : entry.isLocal ? entry.requiresProxy ? 'local-proxy' : 'local-native' : 'apiKey',

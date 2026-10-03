@@ -339,6 +339,39 @@ describe('ProvidersConnectionSetupService', () => {
       expect(methods()).toEqual([]);
     });
 
+    it('maps the host refusal CONNECTION_IN_USE to "Switch the main agent first.", removes nothing and shows no host text (final review M-5)', async () => {
+      // The route snapshot names another driver ('first'), so only the host knows this entry runs the main agent.
+      handlers.set('provider:removeCustomEntry', async () => new RpcResult(false, undefined,
+        'This connection runs the main agent. host-only text', 'CONNECTION_IN_USE'));
+      handlers.set('provider:listCustomEntries', async () => success({ entries: [endpointEntry] }));
+      await expect(service.removeCustomEntry('my-endpoint', context, hooks)).resolves.toBe(true);
+      const commit = commits.commit();
+      expect(commit).toMatchObject({ status: 'blocked', message: 'Switch the main agent first.', unsaved: ['Custom connection'],
+        saved: [], unconfirmed: [] });
+      expect(commit.status).not.toBe('saved');
+      // Not removed: no read-back claims it is gone, and the connections are re-read so the entry stays listed.
+      expect(methods()).toEqual(['provider:removeCustomEntry']);
+      expect(events).toEqual(['refreshScopes', 'refresh']);
+      expect(JSON.stringify(commit)).not.toContain('runs the main agent');
+      expect(JSON.stringify(commit)).not.toContain('host-only text');
+    });
+
+    it('another host error code on remove stays a generic unconfirmed result, not the main-agent block (M-5)', async () => {
+      handlers.set('provider:removeCustomEntry', async () => new RpcResult(false, undefined, 'raw host text', 'PERSISTENCE_UNAVAILABLE'));
+      await service.removeCustomEntry('my-endpoint', context, hooks);
+      expect(commits.commit()).toMatchObject({ status: 'unconfirmed', message: null });
+      expect(JSON.stringify(commits.commit())).not.toContain('raw host text');
+    });
+
+    it('deleteStoredKey: a row the host could not read after the delete is not proof of deletion (final review M-6)', async () => {
+      handlers.set('auth:deleteStoredKey', async () => success({ success: true }));
+      handlers.set('auth:getApiKeyStatus', async () => success({ providers: [
+        { provider: 'openrouter', displayName: 'OpenRouter', isDefault: false, hasApiKey: false, keyUnreadable: true },
+      ] }));
+      await service.deleteStoredKey('openrouter', context, hooks);
+      expect(commits.commit()).toMatchObject({ status: 'failed', saved: [], unsaved: ['Stored key'] });
+    });
+
     describe.each([
       ['updateLocalBaseUrl', (probeId: string) => service.updateLocalBaseUrl('ollama', 'http://localhost:1', probeId, context, hooks)],
       ['updateCustomEntryEndpoint', (probeId: string) =>

@@ -46,6 +46,8 @@ import { WorkspaceScopeService } from './workspace-scope.service';
 const NATIVE_ANTHROPIC_IDS: ReadonlySet<string> = new Set(['anthropic', 'claude-cli']);
 /** The host's stored-key probe allows up to 30 s, plus its queue wait (as `auth:verifyDraftConnection`). */
 const CHECK_TIMEOUT_MS = 35000;
+/** Removing the main agent's own connection is refused, by the route snapshot or by the host (`CONNECTION_IN_USE`). */
+const SWITCH_MAIN_AGENT_FIRST = 'Switch the main agent first.';
 
 /** What connection setup needs from the page state that owns the other sections. */
 export interface ProvidersConnectionSetupHooks {
@@ -340,13 +342,18 @@ export class ProvidersConnectionSetupService {
     }
   }
 
-  /** D4: deletes one stored key. No auth-method write and no SDK reset. */
+  /**
+   * D4: deletes one stored key. No auth-method write and no SDK reset. A row the host could not read after the
+   * delete (`keyUnreadable`, M-6) is not proof of deletion, so it reads back as not deleted.
+   */
   deleteStoredKey(providerId: string, context: ProvidersEditContext, hooks: ProvidersConnectionSetupHooks): Promise<boolean> {
     return this.commits.run([{ fields: ['Stored key'],
       write: async () => (await this.require('auth:deleteStoredKey', { providerId })).success,
-      readBack: async () => providerId === 'anthropic'
-        ? (await this.require('auth:getAuthStatus', {})).hasApiKey !== true
-        : (await this.require('auth:getApiKeyStatus', {})).providers.find((entry) => entry.provider === providerId)?.hasApiKey !== true,
+      readBack: async () => {
+        if (providerId === 'anthropic') return (await this.require('auth:getAuthStatus', {})).hasApiKey !== true;
+        const row = (await this.require('auth:getApiKeyStatus', {})).providers.find((entry) => entry.provider === providerId);
+        return row?.hasApiKey !== true && row?.keyUnreadable !== true;
+      },
     }], context, hooks.commit);
   }
 
@@ -357,7 +364,11 @@ export class ProvidersConnectionSetupService {
     }], context, hooks.commit);
   }
 
-  /** Refused while the connection drives the main agent: that would leave the main agent without a provider. */
+  /**
+   * Refused while the connection drives the main agent: that would leave the main agent without a provider. The
+   * route snapshot refuses first; the host refuses too (`CONNECTION_IN_USE`, M-5) when the snapshot is stale, and
+   * both show the same fixed block. The host's error text never enters state.
+   */
   async removeCustomEntry(id: string, context: ProvidersEditContext, hooks: ProvidersConnectionSetupHooks): Promise<boolean> {
     if (this.commits.commit().status === 'saving') return false;
     const route = hooks.route();
@@ -366,13 +377,25 @@ export class ProvidersConnectionSetupService {
       return true;
     }
     if (route.data.driverProviderId === id) {
-      this.commits.block(['Custom connection'], 'Switch the main agent first.');
+      this.commits.block(['Custom connection'], SWITCH_MAIN_AGENT_FIRST);
       return true;
     }
-    return this.commits.run([{ fields: ['Custom connection'],
-      write: async () => (await this.require('provider:removeCustomEntry', { id })).removed,
+    let inUse = false;
+    const started = await this.commits.run([{ fields: ['Custom connection'],
+      write: async () => {
+        const result = await this.rpc.call('provider:removeCustomEntry', { id });
+        // Nothing was removed: an unsaved write, then the block below replaces the generic failure.
+        if (!result.success && result.errorCode === 'CONNECTION_IN_USE') {
+          inUse = true;
+          return false;
+        }
+        if (!result.isSuccess()) throw new Error('Settings request failed');
+        return result.data.removed;
+      },
       readBack: async () => !(await this.customEntries()).some((entry) => entry.id === id),
     }], context, hooks.commit);
+    if (started && inUse) this.commits.block(['Custom connection'], SWITCH_MAIN_AGENT_FIRST);
+    return started;
   }
 
   /** Help URL and pricing are metadata: saved without a connection check. */

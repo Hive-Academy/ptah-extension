@@ -1615,6 +1615,20 @@ describe('ProvidersSettingsStateService', () => {
       expect(JSON.stringify(service.connections())).not.toContain('sk-or-v1');
     });
 
+    it('maps a keyUnreadable row as configured with an unknown key: keyUnreadable set, hasKey false, no hint (final review M-6)', async () => {
+      handlers.set('auth:getApiKeyStatus', async () => success({ providers: [
+        { provider: 'moonshot', displayName: 'Moonshot', hasApiKey: false, isDefault: false, keyUnreadable: true },
+        { provider: 'openrouter', displayName: 'OpenRouter', hasApiKey: true, isDefault: false, keyHint: '•••• 8f21' },
+      ] }));
+      await service.refreshConnections();
+      const byId = (id: string) => service.connections().data?.find((entry) => entry.id === id);
+      expect(byId('moonshot')).toMatchObject({ keyUnreadable: true, hasKey: false, configured: true });
+      expect(Object.hasOwn(byId('moonshot') ?? {}, 'keyHint')).toBe(false);
+      // A readable row carries no flag at all.
+      expect(Object.hasOwn(byId('openrouter') ?? {}, 'keyUnreadable')).toBe(false);
+      expect(byId('openrouter')).toMatchObject({ hasKey: true, configured: true });
+    });
+
     it('reads custom connection metadata with the connections, in one host call', async () => {
       const stored = { id: 'my-endpoint', name: 'My endpoint', baseUrl: 'https://llm.example.test', lane: 'openai',
         authEnvVar: 'ANTHROPIC_AUTH_TOKEN', keyPrefix: 'sk-', helpUrl: 'https://help.example.test',
