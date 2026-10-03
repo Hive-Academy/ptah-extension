@@ -109,6 +109,8 @@ interface SdkSpawnOptions {
   readonly roleChannel: AgentRoleChannel;
   readonly binaryPath?: string;
   readonly mcpPort?: number;
+  /** Detected CLI version, for the `Lane policy` log line only (never passed to the adapter, F2). */
+  readonly cliVersion?: string;
 }
 
 function roleStampOf(
@@ -270,6 +272,7 @@ export class AgentProcessManager {
       roleChannel: adapter.roleChannel,
       binaryPath: detection.path,
       mcpPort,
+      cliVersion: detection.version,
     });
   }
 
@@ -290,14 +293,19 @@ export class AgentProcessManager {
       roleChannel,
       binaryPath,
       mcpPort,
+      cliVersion,
     } = options;
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
-    const resolvedModel = this.spawnEnvironment.resolveModel(
-      cli,
-      request.model,
-    );
+    const laneModel = this.spawnEnvironment.resolveModel(cli, request.model);
+    const resolvedModel = laneModel.model;
     const roleDefinition = request.roleDefinition;
+    const laneEffort = this.spawnEnvironment.resolveReasoningEffort(cli, {
+      effort: request.effort,
+      roleName: roleDefinition?.name,
+    });
+    const laneBudgets =
+      cli === 'codex' ? this.spawnEnvironment.resolveLaneBudgets() : undefined;
     const roleStamp: AgentRoleStamp | undefined = roleDefinition
       ? { role: roleDefinition.name, roleDelivery: 'preamble', roleChannel }
       : undefined;
@@ -335,6 +343,29 @@ export class AgentProcessManager {
       );
     }
 
+    // R2.5: one line per spawn naming the model and effort and what produced
+    // each. Codex lanes add the binary version and the state of the lane's
+    // config prefix; the line is re-emitted if Codex rejects that prefix.
+    const lanePolicy = {
+      agentId,
+      cli,
+      model: resolvedModel ?? 'cli-default',
+      modelSource: laneModel.source,
+      effort: laneEffort.effort ?? 'cli-default',
+      effortStep: laneEffort.step,
+      ...(laneEffort.ignored.length > 0
+        ? {
+            ignoredEfforts: laneEffort.ignored.map(
+              (entry) => `step ${entry.step}: ${entry.value}`,
+            ),
+          }
+        : {}),
+      ...(cli === 'codex'
+        ? { codexVersion: cliVersion ?? 'unknown', prefixKeys: 'applied' }
+        : {}),
+    };
+    this.logger.info('[AgentProcessManager] Lane policy', lanePolicy);
+
     const sdkHandle = await runSdk({
       task,
       workingDirectory,
@@ -342,12 +373,12 @@ export class AgentProcessManager {
       taskFolder: request.taskFolder,
       deliverables: request.deliverables,
       model: resolvedModel,
+      modelSource: laneModel.source,
       binaryPath,
       mcpPort,
       resumeSessionId: request.resumeSessionId,
       projectGuidance: request.projectGuidance,
-      systemPrompt: request.systemPrompt,
-      reasoningEffort: this.spawnEnvironment.resolveReasoningEffort(cli),
+      reasoningEffort: laneEffort.effort,
       autoApprove: this.spawnEnvironment.resolveAutoApprove(cli),
       // Minted above, BEFORE the CLI is asked to build its MCP config, so the
       // `/agent/{id}` segment of the URL names this exact record
@@ -355,6 +386,13 @@ export class AgentProcessManager {
       // the id already exists by the time `runSdk` is called.
       agentId,
       role: roleDefinition,
+      laneBudgets,
+    });
+    sdkHandle.onLaneConfigRejected?.(() => {
+      this.logger.info('[AgentProcessManager] Lane policy', {
+        ...lanePolicy,
+        prefixKeys: 'dropped (config rejected)',
+      });
     });
     const initialCliSessionId = sdkHandle.getSessionId?.();
     const infoWithSession = initialCliSessionId

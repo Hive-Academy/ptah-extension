@@ -363,7 +363,7 @@ describe('PiCliAdapter (RPC mode)', () => {
     const baseOptions = {
       task: 'Do the thing',
       workingDirectory: '/proj',
-      systemPrompt: 'HARNESS CONTEXT',
+      projectGuidance: 'HARNESS CONTEXT',
       model: 'openai/gpt-4o',
       reasoningEffort: 'high',
     };

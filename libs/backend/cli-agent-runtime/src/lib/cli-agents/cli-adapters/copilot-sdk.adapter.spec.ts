@@ -934,7 +934,7 @@ describe('CopilotSdkAdapter', () => {
     const baseOptions = {
       task: 'Review the change',
       workingDirectory: '/proj',
-      systemPrompt: 'HARNESS CONTEXT',
+      projectGuidance: 'HARNESS CONTEXT',
       model: 'claude-sonnet-4.5',
       reasoningEffort: 'high',
       mcpPort: 51820,

@@ -124,31 +124,60 @@ describe('AgentSpawnEnvironment', () => {
   });
 
   describe('resolveReasoningEffort()', () => {
-    it('lets the UI effort selection drive codex and copilot', () => {
+    it('lets the UI effort selection drive codex and copilot when no setting is set', () => {
+      const { environment } = makeEnvironment({ effort: 'high' });
+      expect(environment.resolveReasoningEffort('codex').effort).toBe('high');
+      expect(environment.resolveReasoningEffort('copilot').effort).toBe('high');
+    });
+
+    it('lets a concrete per-CLI setting win over the UI selection', () => {
       const { environment } = makeEnvironment({
         effort: 'high',
         config: { codexReasoningEffort: 'low' },
       });
-      expect(environment.resolveReasoningEffort('codex')).toBe('high');
-      expect(environment.resolveReasoningEffort('copilot')).toBe('high');
+      expect(environment.resolveReasoningEffort('codex')).toEqual({
+        effort: 'low',
+        step: 2,
+        ignored: [],
+      });
+    });
+
+    it('lets the spawn effort win, and applies the reviewer default', () => {
+      const { environment } = makeEnvironment({
+        effort: 'high',
+        config: { codexReasoningEffort: 'low' },
+      });
+      expect(
+        environment.resolveReasoningEffort('codex', { effort: 'xhigh' }).effort,
+      ).toBe('xhigh');
+      expect(
+        makeEnvironment({ effort: 'high' }).environment.resolveReasoningEffort(
+          'codex',
+          { roleName: 'code-logic-reviewer' },
+        ),
+      ).toEqual({ effort: 'medium', step: 4, ignored: [] });
     });
 
     it("maps UI 'max' to 'xhigh' for codex", () => {
       const { environment } = makeEnvironment({ effort: 'max' });
-      expect(environment.resolveReasoningEffort('codex')).toBe('xhigh');
+      expect(environment.resolveReasoningEffort('codex').effort).toBe('xhigh');
     });
 
-    it('falls back to the per-CLI config and drops an unknown value', () => {
+    it('reads the per-CLI config and drops an unknown value', () => {
       expect(
         makeEnvironment({
           config: { copilotReasoningEffort: 'medium' },
-        }).environment.resolveReasoningEffort('copilot'),
+        }).environment.resolveReasoningEffort('copilot').effort,
       ).toBe('medium');
       expect(
         makeEnvironment({
           config: { codexReasoningEffort: 'turbo' },
         }).environment.resolveReasoningEffort('codex'),
-      ).toBeUndefined();
+      ).toEqual({
+        effort: undefined,
+        step: 6,
+        ignored: [{ step: 2, value: 'turbo' }],
+      });
     });
 
     it.each([
@@ -159,20 +188,35 @@ describe('AgentSpawnEnvironment', () => {
       ['', undefined],
     ])("clamps antigravity effort '%s' to %s", (effort, expected) => {
       const { environment } = makeEnvironment({ effort });
-      expect(environment.resolveReasoningEffort('antigravity')).toBe(expected);
+      expect(environment.resolveReasoningEffort('antigravity').effort).toBe(
+        expected,
+      );
     });
 
-    it('passes pi effort through raw and ignores the UI selection', () => {
+    it('passes a pi setting through raw over the UI selection', () => {
       const { environment } = makeEnvironment({
         effort: 'low',
         config: { piReasoningEffort: 'max' },
       });
-      expect(environment.resolveReasoningEffort('pi')).toBe('max');
+      expect(environment.resolveReasoningEffort('pi').effort).toBe('max');
+    });
+
+    it('gives pi the UI effort when its setting is empty (R2.3 step 5)', () => {
+      const { environment } = makeEnvironment({ effort: 'low' });
+      expect(environment.resolveReasoningEffort('pi')).toEqual({
+        effort: 'low',
+        step: 5,
+        ignored: [],
+      });
     });
 
     it('is undefined for a CLI with no effort channel', () => {
       const { environment } = makeEnvironment({ effort: 'high' });
-      expect(environment.resolveReasoningEffort('cursor')).toBeUndefined();
+      expect(environment.resolveReasoningEffort('cursor')).toEqual({
+        effort: undefined,
+        step: 6,
+        ignored: [],
+      });
     });
   });
 
@@ -200,25 +244,38 @@ describe('AgentSpawnEnvironment', () => {
       const { environment } = makeEnvironment({
         config: { codexModel: 'gpt-configured' },
       });
-      expect(environment.resolveModel('codex', 'gpt-requested')).toBe(
-        'gpt-requested',
-      );
+      expect(environment.resolveModel('codex', 'gpt-requested')).toEqual({
+        model: 'gpt-requested',
+        source: 'request',
+      });
     });
 
     it('reads the per-CLI model key when no model is requested', () => {
       const { environment } = makeEnvironment({
         config: { opencodeModel: 'gpt-5-codex' },
       });
-      expect(environment.resolveModel('opencode', undefined)).toBe(
-        'gpt-5-codex',
-      );
+      expect(environment.resolveModel('opencode', undefined)).toEqual({
+        model: 'gpt-5-codex',
+        source: 'setting',
+      });
+    });
+
+    it('defaults an unset Codex model to the Ptah lane default', () => {
+      const { environment } = makeEnvironment();
+      expect(environment.resolveModel('codex', undefined)).toEqual({
+        model: 'gpt-6-sol',
+        source: 'ptah-default',
+      });
     });
 
     it('is undefined for a CLI without a model key', () => {
       const { environment } = makeEnvironment({
         config: { codexModel: 'unused' },
       });
-      expect(environment.resolveModel('ptah-cli', undefined)).toBeUndefined();
+      expect(environment.resolveModel('ptah-cli', undefined)).toEqual({
+        model: undefined,
+        source: 'cli-default',
+      });
     });
   });
 

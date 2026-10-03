@@ -61,9 +61,6 @@ export interface CliCommandOptions {
   readonly resumeSessionId?: string;
   /** Project-specific guidance to provide as system context. Adapters with native system prompt support handle this natively; others prepend to task prompt via buildTaskPrompt(). */
   readonly projectGuidance?: string;
-  /** Full system prompt content (prompt harness). Replaces projectGuidance when available.
-   *  Includes core prompt, enhanced prompts, skill catalog, and MCP docs. */
-  readonly systemPrompt?: string;
   /** Reasoning effort level for the CLI agent (adapter-specific values) */
   readonly reasoningEffort?: string;
   /** Auto-approve all tool calls without user prompt (default: true). Maps to adapter-specific approval policies. */

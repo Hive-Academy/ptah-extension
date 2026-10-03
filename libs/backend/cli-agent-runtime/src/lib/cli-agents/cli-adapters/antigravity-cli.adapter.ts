@@ -44,7 +44,7 @@
  *   file-writing tool calls hang waiting for interactive approval.
  * - `--effort` takes `low|medium|high` only; other values are dropped rather
  *   than passed through (same allowlist shape as the Codex adapter).
- * - `agy` has no GEMINI_SYSTEM_MD support, so systemPrompt/projectGuidance are
+ * - `agy` has no GEMINI_SYSTEM_MD support, so projectGuidance is
  *   prepended to the task prompt via buildTaskPrompt (the shared fallback).
  *
  * See: https://antigravity.google/docs/cli/reference
@@ -647,7 +647,7 @@ export class AntigravityCliAdapter implements CliAdapter {
       spawnEnv['NODE_PTY_USE_CONPTY'] = '0';
     }
 
-    // No GEMINI_SYSTEM_MD support in `agy`: fold systemPrompt/projectGuidance
+    // No GEMINI_SYSTEM_MD support in `agy`: fold projectGuidance
     // into the task prompt via the shared builder.
     const taskPrompt = buildTaskPrompt(options, this.name);
     const abortController = new AbortController();

@@ -662,23 +662,60 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   });
 
   describe('reasoning effort resolution', () => {
-    const spawnCodex = async () => {
+    const spawnCodex = async (
+      extra: { effort?: string; roleName?: string } = {},
+    ) => {
       setTimeout(() => sdkControls.resolve(0), 10);
       await manager.spawn({
         task: 'Task',
         cli: 'codex',
         workingDirectory: '/workspace/root',
+        ...(extra.effort !== undefined ? { effort: extra.effort } : {}),
+        ...(extra.roleName
+          ? {
+              roleDefinition: {
+                name: extra.roleName,
+                body: 'Review.',
+                sourcePath: `/ws/.claude/agents/${extra.roleName}.md`,
+                bytes: 7,
+              },
+            }
+          : {}),
       });
       return (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
     };
 
-    it('lets the UI effort selection drive the CLI agent', async () => {
+    it('lets the UI effort selection drive the CLI agent when no setting is set', async () => {
+      reasoningEffortGet.mockReturnValue('high');
+
+      const runSdkCall = await spawnCodex();
+
+      expect(runSdkCall.reasoningEffort).toBe('high');
+    });
+
+    it('lets a concrete per-CLI setting win over the UI effort (R2.3)', async () => {
       reasoningEffortGet.mockReturnValue('high');
       setupVscodeConfig({ codexReasoningEffort: 'low' });
 
       const runSdkCall = await spawnCodex();
 
+      expect(runSdkCall.reasoningEffort).toBe('low');
+    });
+
+    it('lets the spawn effort win over the setting', async () => {
+      setupVscodeConfig({ codexReasoningEffort: 'low' });
+
+      const runSdkCall = await spawnCodex({ effort: 'high' });
+
       expect(runSdkCall.reasoningEffort).toBe('high');
+    });
+
+    it('gives a reviewer medium when the setting is empty, by role name', async () => {
+      reasoningEffortGet.mockReturnValue('xhigh');
+
+      const runSdkCall = await spawnCodex({ roleName: 'code-logic-reviewer' });
+
+      expect(runSdkCall.reasoningEffort).toBe('medium');
     });
 
     it("maps UI 'max' to 'xhigh' (Codex/Copilot have no max tier)", async () => {
@@ -718,7 +755,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     };
 
     // Pi maps effort to `--thinking` and supports the full off..max scale, so
-    // the configured value must flow through RAW — no `max`→`xhigh` coercion
+    // a configured level flows through RAW — no `max`→`xhigh` coercion
     // (unlike Codex/Copilot). These cases guard that documented divergence.
     it.each([
       ['max', 'max'],
@@ -727,8 +764,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     ])(
       "passes Pi reasoning effort '%s' through raw (no max->xhigh coercion)",
       async (configured, expected) => {
-        // UI driver is Codex/Copilot-only; it must NOT influence Pi.
-        reasoningEffortGet.mockReturnValue('max');
+        // A concrete setting wins over the UI effort (R2.3 step 2).
+        reasoningEffortGet.mockReturnValue('low');
         setupVscodeConfig({ piReasoningEffort: configured });
 
         const runSdkCall = await spawnPi();
@@ -737,12 +774,144 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       },
     );
 
-    it('is undefined for Pi when no reasoning effort is configured', async () => {
+    it('is undefined for Pi when neither a setting nor a UI effort is set', async () => {
       setupVscodeConfig({ piReasoningEffort: '' });
 
       const runSdkCall = await spawnPi();
 
       expect(runSdkCall.reasoningEffort).toBeUndefined();
+    });
+
+    it('resolves a stored Pi inherit to the UI effort, never passing inherit', async () => {
+      reasoningEffortGet.mockReturnValue('high');
+      setupVscodeConfig({ piReasoningEffort: 'inherit' });
+
+      const runSdkCall = await spawnPi();
+
+      expect(runSdkCall.reasoningEffort).toBe('high');
+    });
+  });
+
+  describe('lane policy (TASK_2026_597, R2.5)', () => {
+    type RejectionCallback = () => void;
+
+    const spawnCodex = async (effort?: string) => {
+      setTimeout(() => sdkControls.resolve(0), 10);
+      await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+        ...(effort !== undefined ? { effort } : {}),
+      });
+      return (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+    };
+    const lanePolicyLines = () =>
+      logger.info.mock.calls.filter(
+        ([message]) => message === '[AgentProcessManager] Lane policy',
+      );
+
+    it('logs one line with model, source, effort, step, version and prefix state', async () => {
+      reasoningEffortGet.mockReturnValue('high');
+
+      await spawnCodex();
+
+      expect(lanePolicyLines()).toHaveLength(1);
+      expect(lanePolicyLines()[0][1]).toEqual(
+        expect.objectContaining({
+          cli: 'codex',
+          model: 'gpt-6-sol',
+          modelSource: 'ptah-default',
+          effort: 'high',
+          effortStep: 5,
+          codexVersion: '1.0.0',
+          prefixKeys: 'applied',
+        }),
+      );
+      expect(lanePolicyLines()[0][1]).not.toHaveProperty('ignoredEfforts');
+    });
+
+    it('names an ignored effort value and the step it was offered at', async () => {
+      setupVscodeConfig({ codexReasoningEffort: 'low' });
+
+      await spawnCodex('turbo');
+
+      expect(lanePolicyLines()[0][1]).toEqual(
+        expect.objectContaining({
+          effort: 'low',
+          effortStep: 2,
+          ignoredEfforts: ['step 1: turbo'],
+        }),
+      );
+    });
+
+    it('records a request model and the CLI default effort', async () => {
+      setTimeout(() => sdkControls.resolve(0), 10);
+      await manager.spawn({
+        task: 'Task',
+        cli: 'codex',
+        model: 'gpt-requested',
+        workingDirectory: '/workspace/root',
+      });
+
+      expect(lanePolicyLines()[0][1]).toEqual(
+        expect.objectContaining({
+          model: 'gpt-requested',
+          modelSource: 'request',
+          effort: 'cli-default',
+          effortStep: 6,
+        }),
+      );
+    });
+
+    it('passes the model source and the Codex lane budgets to the adapter', async () => {
+      setupVscodeConfig({ codexAutoCompactTokens: 90000 });
+
+      const runSdkCall = await spawnCodex();
+
+      expect(runSdkCall.model).toBe('gpt-6-sol');
+      expect(runSdkCall.modelSource).toBe('ptah-default');
+      expect(runSdkCall.laneBudgets).toEqual({
+        autoCompactTokens: 90000,
+        toolOutputTokenLimit: 2500,
+        webSearch: true,
+      });
+      expect(runSdkCall).not.toHaveProperty('systemPrompt');
+    });
+
+    it('re-emits the line when Codex rejects the lane config prefix', async () => {
+      let onRejected: RejectionCallback | undefined;
+      Object.assign(sdkControls.handle, {
+        onLaneConfigRejected: (callback: RejectionCallback) => {
+          onRejected = callback;
+        },
+      });
+
+      await spawnCodex();
+      expect(lanePolicyLines()).toHaveLength(1);
+      onRejected?.();
+
+      expect(lanePolicyLines()).toHaveLength(2);
+      expect(lanePolicyLines()[1][1]).toEqual(
+        expect.objectContaining({
+          model: 'gpt-6-sol',
+          prefixKeys: 'dropped (config rejected)',
+        }),
+      );
+    });
+
+    it('omits the Codex-only fields and budgets for another CLI', async () => {
+      setTimeout(() => sdkControls.resolve(0), 10);
+      await manager.spawn({
+        task: 'Task',
+        cli: 'pi',
+        workingDirectory: '/workspace/root',
+      });
+      const runSdkCall = (sdkAdapter.runSdk as jest.Mock).mock.calls[0][0];
+
+      expect(runSdkCall.laneBudgets).toBeUndefined();
+      expect(runSdkCall.modelSource).toBe('cli-default');
+      expect(lanePolicyLines()[0][1]).not.toHaveProperty('codexVersion');
+      expect(lanePolicyLines()[0][1]).not.toHaveProperty('prefixKeys');
     });
   });
 

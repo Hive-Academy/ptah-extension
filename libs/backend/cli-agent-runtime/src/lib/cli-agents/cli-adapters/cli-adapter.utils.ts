@@ -519,8 +519,7 @@ export function fullPromptPreambles(
 
 /**
  * Build a task prompt string from CLI command options.
- * Optionally prepends system prompt or project-specific guidance from enhanced prompts.
- * Prefers systemPrompt (full prompt harness) over projectGuidance when available.
+ * Optionally prepends the project-specific guidance from enhanced prompts.
  * Appends the shared native-agent tool policy, file context, and task folder
  * instructions to the base task.
  *
@@ -554,7 +553,7 @@ export function buildTaskPrompt(
   const omitToolPolicy = delivered?.toolPolicy === true;
   const omitMessaging = delivered?.messaging === true;
   let taskPrompt = '';
-  const systemContext = options.systemPrompt || options.projectGuidance;
+  const systemContext = options.projectGuidance;
   if (systemContext && !restoredContext) {
     taskPrompt += systemContext + PROMPT_SECTION_DELIMITER;
   }

@@ -126,12 +126,10 @@ describe('buildTaskPrompt', () => {
     const prompt = buildTaskPrompt({
       task: 'Implement the requested change.',
       workingDirectory: 'D:\\workspace',
-      systemPrompt: 'Existing system guidance.',
-      projectGuidance: 'Ignored fallback guidance.',
+      projectGuidance: 'Existing system guidance.',
     });
 
     expect(prompt).toContain('Existing system guidance.\n\n---\n\n');
-    expect(prompt).not.toContain('Ignored fallback guidance.');
     expect(prompt.split(toolPolicy)).toHaveLength(2);
   });
 
@@ -146,8 +144,7 @@ describe('buildTaskPrompt', () => {
     const base = {
       task: 'Continue the implementation.',
       workingDirectory: '/ws',
-      systemPrompt: 'S'.repeat(1000),
-      projectGuidance: 'PROJECT GUIDANCE',
+      projectGuidance: 'S'.repeat(1000),
       role,
       files: ['src/a.ts'],
       taskFolder: '/tf',
@@ -191,7 +188,6 @@ describe('buildTaskPrompt', () => {
       `);
       const resumed = { ...fresh, resumeSessionId: 'session-1' };
       const prompt = buildTaskPrompt(resumed, 'cursor');
-      expect(prompt).not.toContain(base.systemPrompt);
       expect(prompt).not.toContain(base.projectGuidance);
       expect(prompt).not.toContain('## Role:');
       expect(prompt).not.toContain(role.body);
@@ -200,7 +196,6 @@ describe('buildTaskPrompt', () => {
         buildTaskPrompt(
           {
             ...base,
-            systemPrompt: undefined,
             projectGuidance: undefined,
             role: undefined,
           },
@@ -343,7 +338,6 @@ describe('buildTaskPrompt', () => {
     it('omits project guidance when it is the restored system context', () => {
       const resumed = {
         ...base,
-        systemPrompt: undefined,
         resumeRestoresContext: true,
         resumeSessionId: 'session-1',
       };
@@ -464,9 +458,9 @@ describe('buildTaskPrompt', () => {
     });
 
     it('system context, no role', () => {
-      expect(buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' }, 'pi')).toBe(
-        `SYSTEM\n\n---\n\n${tail}`,
-      );
+      expect(
+        buildTaskPrompt({ ...base, projectGuidance: 'SYSTEM' }, 'pi'),
+      ).toBe(`SYSTEM\n\n---\n\n${tail}`);
     });
 
     it('no system context, with role', () => {
@@ -485,8 +479,8 @@ describe('buildTaskPrompt', () => {
     });
 
     it('is byte-identical without a role whether or not a CLI is passed', () => {
-      expect(buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' })).toBe(
-        buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' }, 'codex'),
+      expect(buildTaskPrompt({ ...base, projectGuidance: 'SYSTEM' })).toBe(
+        buildTaskPrompt({ ...base, projectGuidance: 'SYSTEM' }, 'codex'),
       );
     });
 

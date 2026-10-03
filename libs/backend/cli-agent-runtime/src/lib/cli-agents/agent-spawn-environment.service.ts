@@ -23,6 +23,14 @@ import {
   normalizeWorkspaceRoot,
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
+import type { CliLaneBudgets } from './cli-adapters/cli-adapter.interface';
+import { CODEX_DEFAULT_LANE_BUDGETS } from './cli-adapters/codex/codex-lane-budgets';
+import {
+  resolveLaneEffort,
+  resolveLaneModel,
+  type LaneEffortResolution,
+  type LaneModelResolution,
+} from './lane-spawn-policy';
 import {
   SDK_IDLE_RELEASE_MS,
   MIN_SDK_IDLE_RELEASE_MS,
@@ -81,75 +89,41 @@ export class AgentSpawnEnvironment {
     private readonly callerWorkspaceResolver: ICallerWorkspaceResolver | null = null,
   ) {}
 
-  /** Allowlist an effort value to what Codex/Copilot accept (`max` → `xhigh`). */
-  private static mapEffortToCli(effort: string): string | undefined {
-    switch (effort) {
-      case 'low':
-      case 'medium':
-      case 'high':
-      case 'xhigh':
-      case 'minimal':
-        return effort;
-      case 'max':
-        return 'xhigh';
-      default:
-        return undefined;
-    }
-  }
+  /**
+   * Per-CLI effort setting keys. Antigravity has none (its settings pane is
+   * model-only), so R2.3 step 2 never matches for it.
+   */
+  private static readonly EFFORT_CONFIG_KEYS: Partial<Record<CliType, string>> =
+    {
+      codex: 'codexReasoningEffort',
+      copilot: 'copilotReasoningEffort',
+      pi: 'piReasoningEffort',
+    };
 
-  /** Clamp a UI effort value onto the `low|medium|high` scale `agy` accepts. */
-  private static mapEffortToAgy(effort: string): string | undefined {
-    switch (effort) {
-      case 'minimal':
-      case 'low':
-        return 'low';
-      case 'medium':
-        return 'medium';
-      case 'high':
-      case 'xhigh':
-      case 'max':
-        return 'high';
-      default:
-        return undefined;
-    }
-  }
-
-  /** UI reasoning-effort selection drives Codex/Copilot; per-CLI config is the fallback. */
-  resolveReasoningEffort(cli: CliType): string | undefined {
-    // Pi maps reasoning effort to `--thinking` and supports the full scale
-    // (off|minimal|low|medium|high|xhigh|max), so the configured value flows
-    // through raw — no in-chat driver and no `max`→`xhigh` coercion.
-    if (cli === 'pi') {
-      const piEffort =
-        this.workspace.getConfiguration<string>(
+  /**
+   * The lane's effort, in R2.3 order (see `resolveLaneEffort`). This reads
+   * the per-CLI setting and the in-chat effort; the policy decides. A saved
+   * `inherit` resolves to the in-chat effort and never reaches a CLI raw.
+   */
+  resolveReasoningEffort(
+    cli: CliType,
+    spawn: { readonly effort?: string; readonly roleName?: string } = {},
+  ): LaneEffortResolution {
+    const settingKey = AgentSpawnEnvironment.EFFORT_CONFIG_KEYS[cli];
+    const setting = settingKey
+      ? (this.workspace.getConfiguration<string>(
           'ptah',
-          'agentOrchestration.piReasoningEffort',
+          `agentOrchestration.${settingKey}`,
           '',
-        ) ?? '';
-      return piEffort || undefined;
-    }
-    // `agy --effort` takes low|medium|high only, and has no per-CLI config key
-    // (the Antigravity settings pane is model-only), so the in-chat selection
-    // is the sole driver and is clamped onto that three-value scale.
-    if (cli === 'antigravity') {
-      return AgentSpawnEnvironment.mapEffortToAgy(
-        this.reasoningSettings.effort.get(),
-      );
-    }
-    if (cli !== 'codex' && cli !== 'copilot') return undefined;
-    const uiEffort = AgentSpawnEnvironment.mapEffortToCli(
-      this.reasoningSettings.effort.get(),
-    );
-    if (uiEffort) return uiEffort;
-    const effortKey =
-      cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
-    const effort =
-      this.workspace.getConfiguration<string>(
-        'ptah',
-        `agentOrchestration.${effortKey}`,
-        '',
-      ) ?? '';
-    return AgentSpawnEnvironment.mapEffortToCli(effort);
+        ) ?? '')
+      : undefined;
+    return resolveLaneEffort({
+      cli,
+      spawnEffort: spawn.effort,
+      setting,
+      chatEffort: this.reasoningSettings.effort.get(),
+      roleName: spawn.roleName,
+    });
   }
 
   resolveAutoApprove(cli: CliType): boolean | undefined {
@@ -162,20 +136,50 @@ export class AgentSpawnEnvironment {
     );
   }
 
+  /** The lane's model and where it came from (see `resolveLaneModel`). */
   resolveModel(
     cli: CliType,
     requestModel: string | undefined,
-  ): string | undefined {
-    if (requestModel) return requestModel;
+  ): LaneModelResolution {
     const configKey = AgentSpawnEnvironment.MODEL_CONFIG_KEYS[cli];
-    if (!configKey) return requestModel;
     const configuredModel =
-      this.workspace.getConfiguration<string>(
-        'ptah',
-        `agentOrchestration.${configKey}`,
-        '',
-      ) ?? '';
-    return configuredModel || requestModel;
+      !requestModel && configKey
+        ? (this.workspace.getConfiguration<string>(
+            'ptah',
+            `agentOrchestration.${configKey}`,
+            '',
+          ) ?? '')
+        : undefined;
+    return resolveLaneModel(cli, requestModel, configuredModel);
+  }
+
+  /**
+   * The Codex lane budgets, with the `FILE_BASED_SETTINGS_DEFAULTS` values
+   * when a key is unset. The values are passed on as read: the adapter
+   * validates them (`resolveCodexLaneBudgets`) and warns once per invalid key.
+   */
+  resolveLaneBudgets(): CliLaneBudgets {
+    const defaults = CODEX_DEFAULT_LANE_BUDGETS;
+    return {
+      autoCompactTokens:
+        this.workspace.getConfiguration<number>(
+          'ptah',
+          'agentOrchestration.codexAutoCompactTokens',
+          defaults.autoCompactTokens,
+        ) ?? defaults.autoCompactTokens,
+      toolOutputTokenLimit:
+        this.workspace.getConfiguration<number>(
+          'ptah',
+          'agentOrchestration.codexToolOutputTokenLimit',
+          defaults.toolOutputTokenLimit,
+        ) ?? defaults.toolOutputTokenLimit,
+      webSearch:
+        this.workspace.getConfiguration<boolean>(
+          'ptah',
+          'agentOrchestration.codexWebSearch',
+          defaults.webSearch,
+        ) ?? defaults.webSearch,
+    };
   }
 
   /**
