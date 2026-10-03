@@ -11,7 +11,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import { Logger, RpcHandler, RpcUserError, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { getAnthropicProvider } from '@ptah-extension/agent-sdk';
 import {
@@ -112,7 +112,11 @@ export class PtahCliRpcHandlers {
           return { agents };
         } catch (error: unknown) {
           this.reportFailure('ptahCli:list', 'registerList', error);
-          throw error;
+          if (error instanceof RpcUserError) throw error;
+          throw new RpcUserError(
+            'Could not load the CLI agents.',
+            'PERSISTENCE_UNAVAILABLE',
+          );
         }
       },
     );

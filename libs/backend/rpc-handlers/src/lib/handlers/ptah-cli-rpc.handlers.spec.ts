@@ -11,7 +11,7 @@
  *     RpcHandler.
  *
  *   - `ptahCli:list`: returns the registry's `listAgents()` output as-is
- *     under `{ agents }`. A registry throw re-throws to the RPC boundary
+ *     under `{ agents }`. A registry throw becomes fixed public text at the RPC boundary
  *     (the UI surfaces this as a generic failure — it does NOT silently
  *     return an empty list).
  *
@@ -133,6 +133,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
 }));
 
 import type { Logger, SentryService } from '@ptah-extension/vscode-core';
+import { RpcUserError } from '@ptah-extension/vscode-core';
 import {
   createMockRpcHandler,
   createMockSentryService,
@@ -274,9 +275,41 @@ describe('PtahCliRpcHandlers', () => {
       expect(result.agents).toEqual(fixture);
     });
 
-    it('re-throws registry errors to the RPC boundary (captured to Sentry)', async () => {
+    it('preserves an existing public RpcUserError after reporting the failure', async () => {
       const h = makeHarness();
-      h.registry.listAgents.mockRejectedValue(new Error('registry offline'));
+      const error = new RpcUserError(
+        'Sign in to load the CLI agents.',
+        'AUTH_REQUIRED',
+      );
+      h.registry.listAgents.mockRejectedValue(error);
+      h.handlers.register();
+
+      const handler = h.rpcHandler.__handlers().get('ptahCli:list');
+      expect(handler).toBeDefined();
+      await expect(handler?.({})).rejects.toBe(error);
+      expect(h.logger.error).toHaveBeenCalledWith('RPC: ptahCli:list failed', {
+        errorType: 'RpcUserError',
+      });
+      expect(h.sentry.captureException).toHaveBeenCalledTimes(1);
+
+      const response = await h.rpcHandler.handleMessage({
+        method: 'ptahCli:list',
+        params: {},
+        correlationId: 'corr-public',
+      });
+      expect(response).toEqual({
+        success: false,
+        error: error.message,
+        errorCode: 'AUTH_REQUIRED',
+        correlationId: 'corr-public',
+      });
+    });
+
+    it('returns fixed public text at the RPC boundary for registry errors', async () => {
+      const h = makeHarness();
+      h.registry.listAgents.mockRejectedValue(
+        new Error('registry offline sk-test-FAKEKEY123'),
+      );
       h.handlers.register();
 
       const response = await h.rpcHandler.handleMessage({
@@ -286,7 +319,9 @@ describe('PtahCliRpcHandlers', () => {
       });
 
       expect(response.success).toBe(false);
-      expect(response.error).toBe('registry offline');
+      expect(response.error).toBe('Could not load the CLI agents.');
+      expect(JSON.stringify(response)).not.toContain('registry offline');
+      expect(JSON.stringify(response)).not.toContain('sk-test-FAKEKEY123');
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
   });
@@ -722,12 +757,14 @@ describe('PtahCliRpcHandlers', () => {
         arrange(h);
         h.handlers.register();
 
-        await h.rpcHandler.handleMessage({
+        const response = await h.rpcHandler.handleMessage({
           method,
           params,
           correlationId: 'corr-s1',
         });
 
+        expect(JSON.stringify(response)).not.toContain(FAKE_KEY);
+        expect(JSON.stringify(response)).not.toContain('registry rejected');
         const text = diagnostics(h);
         expect(text).not.toContain(FAKE_KEY);
         expect(text).not.toContain('registry rejected');

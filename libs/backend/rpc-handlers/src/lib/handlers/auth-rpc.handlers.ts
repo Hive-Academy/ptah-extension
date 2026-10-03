@@ -76,6 +76,7 @@ import type {
   AuthApiKeyStatusEntry,
   AuthGetApiKeyStatusResult,
   AuthCheckConnectionResult,
+  AuthTestConnectionResponse,
 } from '@ptah-extension/shared';
 import { maskKeyHint } from '../utils/mask-key-hint';
 import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
@@ -1142,7 +1143,7 @@ export class AuthRpcHandlers {
   private registerTestConnection(): void {
     this.rpcHandler.registerMethod<
       void,
-      { success: boolean; health: unknown; errorMessage?: string }
+      AuthTestConnectionResponse
     >('auth:testConnection', async () => {
       try {
         this.logger.debug('RPC: auth:testConnection called');
@@ -1157,7 +1158,7 @@ export class AuthRpcHandlers {
           if (health.status === 'available') {
             const result = {
               success: true,
-              health,
+              health: { ...health, errorMessage: undefined },
               errorMessage: undefined,
             };
             this.logger.info('RPC: auth:testConnection completed', {
@@ -1175,8 +1176,17 @@ export class AuthRpcHandlers {
         const finalHealth = this.sdkAdapter.getHealth();
         const result = {
           success: finalHealth.status === 'available',
-          health: finalHealth,
-          errorMessage: finalHealth.errorMessage || 'Connection test timed out',
+          health: {
+            ...finalHealth,
+            errorMessage: finalHealth.errorMessage
+              ? 'Could not test the connection.'
+              : undefined,
+          },
+          errorMessage: finalHealth.status === 'available'
+            ? undefined
+            : finalHealth.status === 'error'
+              ? 'Could not test the connection.'
+              : 'Connection test timed out',
         };
 
         this.logger.info(
@@ -1184,16 +1194,18 @@ export class AuthRpcHandlers {
           { result },
         );
         return result;
-      } catch (error) {
-        this.logger.error(
-          'RPC: auth:testConnection failed',
-          error instanceof Error ? error : new Error(String(error)),
-        );
+      } catch (error: unknown) {
+        const errorType = error instanceof Error ? error.name : 'unknown';
+        this.logger.error('RPC: auth:testConnection failed', { errorType });
         this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
+          new Error(`auth:testConnection failed (${errorType})`),
           { errorSource: 'AuthRpcHandlers.registerTestConnection' },
         );
-        throw error;
+        return {
+          success: false,
+          health: null,
+          errorMessage: 'Could not test the connection.',
+        };
       }
     });
   }
@@ -1371,19 +1383,19 @@ export class AuthRpcHandlers {
         this.providerModels.clearCache(params.provider);
         this.invalidateAuthStatusCache();
         return { success: true };
-      } catch (error) {
-        this.logger.error(
-          'RPC: auth:setApiKey failed',
-          error instanceof Error ? error : new Error(String(error)),
-        );
+      } catch (error: unknown) {
+        const errorType = error instanceof Error ? error.name : 'unknown';
+        this.logger.error('RPC: auth:setApiKey failed', { errorType });
         this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
+          new Error(`auth:setApiKey failed (${errorType})`),
           { errorSource: 'AuthRpcHandlers.registerSetApiKey' },
         );
         // Fixed copy: a secret-store error can echo the key it was given.
         return {
           success: false,
-          error: 'Could not save the API key.',
+          error: params.apiKey?.trim()
+            ? 'Could not save the API key.'
+            : 'Could not delete the stored key.',
         };
       }
     });
