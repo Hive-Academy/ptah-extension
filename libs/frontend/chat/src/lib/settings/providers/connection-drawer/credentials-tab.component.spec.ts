@@ -127,6 +127,24 @@ describe('CredentialsTabComponent', () => {
       query<HTMLButtonElement>('credentials-key-unreadable-retry')?.click();
       expect(retried).toHaveBeenCalledTimes(1);
     });
+
+    it('an unreadable key can be deleted: Delete key shows and opens the confirm (re-check N-4)', () => {
+      render({ connection: unreadable() });
+      query<HTMLButtonElement>('credentials-delete')?.click(); fixture.detectChanges();
+      expect(query('credentials-delete-confirm')).not.toBeNull();
+    });
+
+    it('a local connection with an unreadable optional key says so, with Retry (re-check N-2)', () => {
+      render({ connection: connection({ id: 'ollama', name: 'Ollama', authMode: 'local-native', hasKey: false, keyUnreadable: true }), kind: 'local' });
+      expect(query('credentials-local-key-unreadable')?.textContent).toContain('Could not read the stored key.');
+      const retried = jest.fn();
+      fixture.componentInstance.keyRetryRequested.subscribe(retried);
+      query<HTMLButtonElement>('credentials-local-key-unreadable-retry')?.click();
+      expect(retried).toHaveBeenCalledTimes(1);
+      // A readable local connection shows no unreadable state.
+      render({ connection: connection({ id: 'ollama', name: 'Ollama', authMode: 'local-native', hasKey: false }) });
+      expect(query('credentials-local-key-unreadable')).toBeNull();
+    });
   });
 
   it('shows the host\'s masked hint for a stored key, not selectable and with no copy action (Batch 28d)', () => {

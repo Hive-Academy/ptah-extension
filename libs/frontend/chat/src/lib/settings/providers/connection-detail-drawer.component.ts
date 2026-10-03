@@ -207,7 +207,8 @@ export class ConnectionDetailDrawerComponent {
       case 'api-key': return current?.hasKey ? 'API key · Stored locally'
         : current?.keyUnreadable ? 'API key · Stored key unreadable' : 'API key · No key stored';
       case 'oauth': return current?.accountLabel ? `Provider sign-in · ${current.accountLabel}` : 'Provider sign-in';
-      case 'local': return current?.hasKey ? 'Local server · Key stored locally' : 'Local server';
+      case 'local': return current?.hasKey ? 'Local server · Key stored locally'
+        : current?.keyUnreadable ? 'Local server · Stored key unreadable' : 'Local server';
       default: return 'CLI subscription · Claude CLI login';
     }
   });
@@ -216,7 +217,8 @@ export class ConnectionDetailDrawerComponent {
     switch (this.kind()) {
       case 'claude-cli': return 'Claude CLI login session';
       case 'oauth': return current?.accountLabel ? `Signed in as ${current.accountLabel}` : 'Provider sign-in session';
-      case 'local': return current?.hasKey ? 'Optional key stored on this machine' : 'No key needed';
+      case 'local': return current?.hasKey ? 'Optional key stored on this machine'
+        : current?.keyUnreadable ? KEY_UNREADABLE_TEXT : 'No key needed';
       default: return current?.hasKey ? 'Stored on this machine' : current?.keyUnreadable ? KEY_UNREADABLE_TEXT : 'No key stored';
     }
   });

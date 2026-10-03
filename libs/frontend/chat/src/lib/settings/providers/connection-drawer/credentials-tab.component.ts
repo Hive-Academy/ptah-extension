@@ -178,6 +178,18 @@ let PROBE_COUNTER = 0;
           <p class="rounded border border-base-300 bg-base-200 p-3 text-xs text-base-content" data-testid="credentials-local">
             No key needed: this connection runs on a local server.{{ connection().hasKey ? ' An optional key is stored on this machine.' : '' }}
           </p>
+          @if (connection().keyUnreadable) {
+            <!-- M-6: an optional key may be stored but could not be read; never imply that no key is involved. -->
+            <div class="flex flex-wrap items-center gap-2" data-testid="credentials-local-key-unreadable">
+              <span class="flex min-w-0 flex-1 items-center gap-1.5 rounded border border-base-300 bg-base-200 px-3 py-1.5 text-xs text-base-content">
+                <lucide-angular [img]="AlertTriangleIcon" class="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                {{ keyUnreadableText }}
+              </span>
+              <button type="button"
+                class="btn btn-link btn-xs h-6 min-h-6 !px-0 text-xs text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                aria-label="Retry reading the stored key" (click)="keyRetryRequested.emit()" data-testid="credentials-local-key-unreadable-retry">Retry</button>
+            </div>
+          }
         }
         @default {
           <div class="space-y-2" data-testid="credentials-key">
@@ -206,7 +218,8 @@ let PROBE_COUNTER = 0;
                 <button type="button" class="btn btn-outline btn-sm" [disabled]="busy() || replacing()"
                   (click)="startReplace()" data-testid="credentials-replace">{{ connection().hasKey || connection().keyUnreadable ? 'Replace' : 'Add key' }}</button>
               }
-              @if (connection().hasKey) {
+              @if (connection().hasKey || connection().keyUnreadable) {
+                <!-- An unreadable key can be deleted too: the delete does not need to read it. -->
                 <button type="button" class="btn btn-outline btn-sm border-error text-base-content" [disabled]="busy()"
                   (click)="confirming.set('delete')" data-testid="credentials-delete">Delete key</button>
               }
