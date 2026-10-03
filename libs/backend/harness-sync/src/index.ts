@@ -61,6 +61,7 @@ export {
 // Desired state.
 export {
   HarnessManifestBuilder,
+  isAgentSelectedForSync,
   type HarnessManifestBuildOptions,
 } from './lib/manifest/harness-manifest.builder';
 export type {

@@ -126,6 +126,24 @@ export interface HarnessManifestBuildOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Shared agent selection for the manifest and generation preview. An absent
+ * consent flag preserves the builder's enabled default; migration belongs to
+ * AgentSyncGate. Disabled ids match raw slugs, without canonicalisation.
+ */
+export function isAgentSelectedForSync(
+  {
+    agentSyncEnabled,
+    disabledAgentIds,
+  }: {
+    readonly agentSyncEnabled?: boolean;
+    readonly disabledAgentIds?: readonly string[];
+  },
+  slug: string,
+): boolean {
+  return agentSyncEnabled !== false && !(disabledAgentIds ?? []).includes(slug);
+}
+
 export class HarnessManifestBuilder {
   async build(
     sources: HarnessSourceState,
@@ -500,11 +518,14 @@ export class HarnessManifestBuilder {
   ): Promise<HarnessDesiredAgent[]> {
     if (!syncEnabled) return [];
 
-    const disabled = new Set(sources.disabledAgentIds ?? []);
+    const selection = {
+      agentSyncEnabled: syncEnabled,
+      disabledAgentIds: sources.disabledAgentIds,
+    };
     const claimed = new Map<string, HarnessDesiredAgent>();
     for (const file of this.listMarkdownFiles(sources.layout.agentsRoot)) {
       const slug = file.replace(/\.md$/i, '');
-      if (disabled.has(slug)) continue;
+      if (!isAgentSelectedForSync(selection, slug)) continue;
       const collision = this.rejectSlug(
         claimed,
         slug,
