@@ -30,6 +30,7 @@ import {
   GatewaySettings,
   MemorySettings,
   SkillSynthesisSettings,
+  AgentModelSettings,
   CronSettings,
   TasksSettings,
   CustomProviderStore,
@@ -124,6 +125,9 @@ export function registerVscodeSettings(
   if (scopeResolver) {
     container.register(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {
       useValue: scopeResolver,
+    });
+    container.register(SETTINGS_TOKENS.AGENT_MODEL_SETTINGS, {
+      useValue: new AgentModelSettings(reactiveStore, scopeResolver),
     });
   }
   container.register(SETTINGS_TOKENS.AUTH_SETTINGS, {

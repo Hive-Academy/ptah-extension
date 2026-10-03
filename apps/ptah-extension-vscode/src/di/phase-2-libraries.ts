@@ -20,6 +20,10 @@ import {
 } from '@ptah-extension/task-specs';
 import { registerOutputStyleServices } from '@ptah-extension/output-styles';
 import {
+  SETTINGS_TOKENS,
+  type AgentModelSettings,
+} from '@ptah-extension/settings-core';
+import {
   registerHarnessSyncServices,
   ALL_HARNESS_TARGET_FACTORIES,
   createPluginConfigSourceResolver,
@@ -170,12 +174,21 @@ export function registerPhase2Libraries(
           )
         : null,
     ),
-    sourceResolver: createPluginConfigSourceResolver(() =>
-      container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)
-        ? container.resolve<HarnessPluginConfigReader>(
-            SDK_TOKENS.SDK_PLUGIN_LOADER,
-          )
-        : null,
+    sourceResolver: createPluginConfigSourceResolver(
+      () =>
+        container.isRegistered(SDK_TOKENS.SDK_PLUGIN_LOADER)
+          ? container.resolve<HarnessPluginConfigReader>(
+              SDK_TOKENS.SDK_PLUGIN_LOADER,
+            )
+          : null,
+      undefined,
+      undefined,
+      () =>
+        container.isRegistered(SETTINGS_TOKENS.AGENT_MODEL_SETTINGS)
+          ? container.resolve<AgentModelSettings>(
+              SETTINGS_TOKENS.AGENT_MODEL_SETTINGS,
+            )
+          : null,
     ),
     // Batch 3. `HarnessPropagationService` runs this before each reconcile it
     // performs, so an RPC that changed an upstream source (harness-builder

@@ -24,6 +24,10 @@ import {
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { ElectronEditorLauncher } from '@ptah-extension/platform-electron';
+import {
+  SETTINGS_TOKENS,
+  type AgentModelSettings,
+} from '@ptah-extension/settings-core';
 import { SessionId, type IAgentAdapter } from '@ptah-extension/shared';
 import {
   registerWorkspaceIntelligenceServices,
@@ -264,6 +268,14 @@ export function registerPhase2Libraries(
           },
         };
       },
+      undefined,
+      undefined,
+      () =>
+        container.isRegistered(SETTINGS_TOKENS.AGENT_MODEL_SETTINGS)
+          ? container.resolve<AgentModelSettings>(
+              SETTINGS_TOKENS.AGENT_MODEL_SETTINGS,
+            )
+          : null,
     ),
     // Batch 3. `HarnessPropagationService` runs this before each reconcile, so
     // a trigger that changed an upstream source is visible in `~/.ptah/user`
