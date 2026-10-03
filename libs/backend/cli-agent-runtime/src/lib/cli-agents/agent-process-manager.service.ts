@@ -361,7 +361,10 @@ export class AgentProcessManager {
           }
         : {}),
       ...(cli === 'codex'
-        ? { codexVersion: cliVersion ?? 'unknown', prefixKeys: 'applied' }
+        ? {
+            detectedCliVersion: cliVersion ?? 'unknown',
+            prefixKeys: 'applied',
+          }
         : {}),
     };
     this.logger.info('[AgentProcessManager] Lane policy', lanePolicy);

@@ -823,7 +823,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
           modelSource: 'ptah-default',
           effort: 'high',
           effortStep: 5,
-          codexVersion: '1.0.0',
+          detectedCliVersion: '1.0.0',
           prefixKeys: 'applied',
         }),
       );
@@ -910,7 +910,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(runSdkCall.laneBudgets).toBeUndefined();
       expect(runSdkCall.modelSource).toBe('cli-default');
-      expect(lanePolicyLines()[0][1]).not.toHaveProperty('codexVersion');
+      expect(lanePolicyLines()[0][1]).not.toHaveProperty('detectedCliVersion');
       expect(lanePolicyLines()[0][1]).not.toHaveProperty('prefixKeys');
     });
   });
