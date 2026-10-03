@@ -20,6 +20,7 @@
  * only while it mirrors that function's traversal exactly.
  */
 
+import { constants } from 'fs';
 import {
   mkdir,
   readdir,
@@ -30,7 +31,7 @@ import {
   unlink,
   writeFile,
 } from 'fs/promises';
-import { extname, join } from 'path';
+import { dirname, extname, join } from 'path';
 import {
   digestFileMap,
   hashContent,
@@ -98,13 +99,28 @@ async function copyTree(
  * that a copy no longer hashes equal to its source — which is why a rival
  * target's manifest entry records the OUTPUT hash and carries the source hash
  * separately (`ManagedEntry.sourceHash`).
+ *
+ * `exclusive` publishes instead of replacing: `targetDir` is created with a
+ * non-recursive `mkdir`, so a directory that appeared there (a save landing
+ * after the caller detached the previous copy) fails with EEXIST and is never
+ * deleted or written into.
  */
 export async function copyDirectoryTransformed(
   sourceDir: string,
   targetDir: string,
   folderName: string,
+  exclusive = false,
 ): Promise<void> {
-  await withWindowsRetry(() => rm(targetDir, { recursive: true, force: true }));
+  if (exclusive) {
+    await withWindowsRetry(() =>
+      mkdir(dirname(targetDir), { recursive: true }),
+    );
+    await withWindowsRetry(() => mkdir(targetDir));
+  } else {
+    await withWindowsRetry(() =>
+      rm(targetDir, { recursive: true, force: true }),
+    );
+  }
   await copyTreeTransformed(sourceDir, targetDir, folderName, 0);
 }
 
@@ -216,14 +232,19 @@ async function hashTransformedFile(
   );
 }
 
-/** Copy a single file, creating its parent directory. */
+/**
+ * Copy a single file, creating its parent directory. `exclusive` fails with
+ * EEXIST rather than overwrite a file already at `targetFile`.
+ */
 export async function copySingleFile(
   sourceFile: string,
   targetFile: string,
   targetDir: string,
+  exclusive = false,
 ): Promise<void> {
   await withWindowsRetry(() => mkdir(targetDir, { recursive: true }));
-  await withWindowsRetry(() => copyFile(sourceFile, targetFile));
+  const mode = exclusive ? constants.COPYFILE_EXCL : 0;
+  await withWindowsRetry(() => copyFile(sourceFile, targetFile, mode));
 }
 
 /**

@@ -39,6 +39,7 @@ import type {
   HarnessTargetId,
 } from '@ptah-extension/shared';
 import { throwIfPassAborted } from '../abort/pass-abort';
+import { errorCode } from '../fs/windows-retry';
 import {
   hashContent,
   hashDir,
@@ -70,11 +71,7 @@ import {
   hashTransformedDir,
   withWindowsRetry,
 } from './copy-engine';
-import {
-  hashArtifact,
-  retireOwnedArtifact,
-  snapshotLocalEdit,
-} from './artifact-retirement';
+import { detachForOverwrite, retireOwnedArtifact } from './artifact-retirement';
 import type {
   HarnessApplyResult,
   HarnessMigration,
@@ -275,7 +272,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
 
     for (const write of plan.writes) {
       if (write.kind === 'mcp') continue;
-      await this.applyWrite(write, workspaceRoot, result);
+      await this.applyWrite(write, workspaceRoot, plan.baseEntries, result);
     }
 
     const facet = this.options.mcpFacet;
@@ -527,21 +524,17 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         : { kind: 'foreign' };
     }
 
-    if (entrySourceHash(owned) !== entry.sourceHash) {
-      return {
-        kind: 'write',
-        reason: 'update',
-        overwritesLocalEdit: false,
-        adopted: false,
-      };
+    // Drift is judged on the copy alone: an edited copy is an edit whether or
+    // not its source (or model) also changed, so a source change must not hide
+    // it from the snapshot and the report (Part B review finding 3).
+    const edited = actual !== owned.hash;
+    if (!edited && entrySourceHash(owned) === entry.sourceHash) {
+      return { kind: 'unchanged', recordHash: owned.hash };
     }
-
-    if (actual === owned.hash) return { kind: 'unchanged', recordHash: actual };
-
     return {
       kind: 'write',
       reason: 'update',
-      overwritesLocalEdit: true,
+      overwritesLocalEdit: edited,
       adopted: false,
     };
   }
@@ -917,30 +910,49 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
   }
 
   /**
-   * Write one artifact. A hand-edited copy is saved first (TASK_2026_609): if
-   * the save fails nothing is written, the edit stays on disk byte-unchanged,
-   * and the path lands in `writeFailed` for the next pass to retry.
+   * Write one artifact (TASK_2026_609, Part B review finding 1).
+   *
+   * An owned copy is never overwritten in place. It is first detached into the
+   * history store (`detachForOverwrite`) and decided on there — Ptah's own bytes
+   * are discarded, anything else stays as the snapshot — whatever the plan
+   * believed, so an edit saved between plan and apply is kept too. The
+   * replacement is then published with an exclusive create, so a save landing
+   * after the detach survives as a conflict instead of being overwritten.
+   * Either failure lands in `writeFailed` and keeps the manifest entry for the
+   * next pass. Only an adopted copy (unowned, carrying a Ptah writer signature)
+   * is still replaced in place: its path is occupied by design.
    */
   private async applyWrite(
     write: HarnessPlanWrite,
     workspaceRoot: string,
+    baseEntries: ManagedEntries,
     result: HarnessApplyResult,
   ): Promise<void> {
-    const absolute = toAbsolute(workspaceRoot, write.relPath);
-    let editSaved = false;
-    if (write.overwritesLocalEdit) {
-      try {
-        editSaved = await snapshotBeforeOverwrite(workspaceRoot, write);
-      } catch (error: unknown) {
+    const owned = baseEntries[write.relPath];
+    const adopted = write.reason === 'update' && owned === undefined;
+    let snapshotPath: string | undefined;
+    if (write.reason === 'update' && owned !== undefined) {
+      const detached = await detachForOverwrite({
+        workspaceRoot,
+        relPath: write.relPath,
+        isDirectory: write.isDirectory,
+        ownedHash: owned.hash,
+      });
+      if (detached.kind === 'failed') {
         result.writeFailed.push({
           relPath: write.relPath,
-          reason: `could not save local edit before overwrite: ${describeError(error)}`,
+          reason: detached.reason,
         });
         return;
       }
+      if (detached.kind === 'local-edit') snapshotPath = detached.snapshotPath;
     }
     try {
-      const outputHash = await this.writeArtifact(write, absolute);
+      const outputHash = await this.writeArtifact(
+        write,
+        toAbsolute(workspaceRoot, write.relPath),
+        !adopted,
+      );
       // Recorded ONLY after the write succeeded: a manifest entry for a file
       // that is not on disk is exactly the record corruption E21 forbids.
       result.written[write.relPath] = managedEntry(
@@ -949,23 +961,30 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         write.kind,
         write.sourceHash,
       );
-      if (editSaved) result.overwrittenLocalEdit.push(write.relPath);
+      if (snapshotPath !== undefined) {
+        result.overwrittenLocalEdit.push(write.relPath);
+      }
     } catch (error: unknown) {
       result.writeFailed.push({
         relPath: write.relPath,
-        reason: describeError(error),
+        reason: publishFailureReason(write.relPath, error, snapshotPath),
       });
     }
   }
 
-  /** Perform one write and answer the hash of what actually landed on disk. */
+  /**
+   * Perform one write and answer the hash of what actually landed on disk.
+   * `exclusive` creates rather than replaces, failing with EEXIST when
+   * something already occupies the path.
+   */
   private async writeArtifact(
     write: HarnessPlanWrite,
     absolute: string,
+    exclusive: boolean,
   ): Promise<string> {
     if (write.kind === 'skill') {
       const slug = write.relPath.slice(write.relPath.lastIndexOf('/') + 1);
-      await copyDirectoryTransformed(write.source, absolute, slug);
+      await copyDirectoryTransformed(write.source, absolute, slug, exclusive);
       // Re-hashed rather than trusted: the copy was rewritten on the way out,
       // so only the result knows its own hash.
       // No signal: this is the APPLY phase, past the pass's commit point. A
@@ -988,11 +1007,16 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       await withWindowsRetry(() =>
         mkdir(dirname(absolute), { recursive: true }),
       );
-      await withWindowsRetry(() => writeFile(absolute, content, 'utf-8'));
+      await withWindowsRetry(() =>
+        writeFile(absolute, content, {
+          encoding: 'utf-8',
+          flag: exclusive ? 'wx' : 'w',
+        }),
+      );
       return hashContent(content);
     }
 
-    await copySingleFile(write.source, absolute, dirname(absolute));
+    await copySingleFile(write.source, absolute, dirname(absolute), exclusive);
     return write.hash;
   }
 }
@@ -1062,33 +1086,23 @@ function basenameWithoutSuffix(
 }
 
 /**
- * Save the hand-edited copy a write is about to replace. `true` once a verified
- * snapshot exists; `false` when the path vanished after the plan, so there is
- * no edit left to save or to report overwritten. Throws when the copy exists
- * but cannot be saved — including a path that became a link, which is never
- * followed.
+ * Why a publish failed. EEXIST is the exclusive create refusing a save that
+ * landed after the detach: that copy is kept, not an error to retry blindly.
+ * A detached local edit is named either way, because it is no longer at its
+ * original path.
  */
-async function snapshotBeforeOverwrite(
-  workspaceRoot: string,
-  write: HarnessPlanWrite,
-): Promise<boolean> {
-  const absolute = toAbsolute(workspaceRoot, write.relPath);
-  const stat = lstatSyncOrNull(absolute);
-  if (stat === null) return false;
-  if (stat.isSymbolicLink()) {
-    throw new Error(`${write.relPath} is a symbolic link`);
-  }
-  const actual = await hashArtifact(absolute, write.isDirectory);
-  if (actual === null) {
-    throw new Error(`${write.relPath} is not readable`);
-  }
-  await snapshotLocalEdit(
-    workspaceRoot,
-    write.relPath,
-    write.isDirectory,
-    actual,
-  );
-  return true;
+function publishFailureReason(
+  relPath: string,
+  error: unknown,
+  snapshotPath: string | undefined,
+): string {
+  const reason =
+    errorCode(error) === 'EEXIST'
+      ? `a new copy appeared at ${relPath} while it was being replaced; kept it`
+      : describeError(error);
+  return snapshotPath === undefined
+    ? reason
+    : `${reason}; the earlier local edit is saved at ${snapshotPath}`;
 }
 
 function lstatSyncOrNull(path: string): Stats | null {

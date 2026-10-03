@@ -25,11 +25,16 @@
  * snapshot. When the rename cannot happen (EXDEV, a locked file, an unwritable
  * history store) nothing is removed and the caller retries next pass; there is
  * deliberately no copy+delete fallback, because that is the racy shape above.
+ *
+ * An OVERWRITE is the same problem with a replacement at the end
+ * (`detachForOverwrite`, Part B review findings 1 and 3): the owned copy is
+ * detached and decided on exactly as above, and the caller then publishes its
+ * replacement with an exclusive create, so a save that lands at the live path
+ * after the detach is never overwritten.
  */
 
 import type { Dirent, Stats } from 'fs';
 import {
-  cp,
   lstat,
   mkdir,
   readdir,
@@ -79,6 +84,20 @@ export type RetirementOutcome =
   | { kind: 'failed'; reason: string };
 
 /**
+ * What detaching an owned copy before it is replaced left behind.
+ *
+ * - `absent`: nothing was at the path; the replacement is a plain create.
+ * - `unchanged`: detached, provably Ptah's own bytes, and discarded.
+ * - `local-edit`: detached and kept at `snapshotPath`.
+ * - `failed`: nothing moved; the copy is still at its original path.
+ */
+export type DetachOutcome =
+  | { kind: 'absent' }
+  | { kind: 'unchanged' }
+  | { kind: 'local-edit'; snapshotPath: string }
+  | { kind: 'failed'; reason: string };
+
+/**
  * Test seams for interleavings that real filesystems cannot be made to produce
  * on demand. Production passes nothing.
  */
@@ -105,7 +124,7 @@ export async function retireOwnedArtifact(
   request: RetireOwnedArtifactRequest,
   hooks: RetirementHooks = {},
 ): Promise<RetirementOutcome> {
-  const { workspaceRoot, relPath, isDirectory, ownedHash } = request;
+  const { workspaceRoot, relPath, isDirectory } = request;
   const original = toAbsolute(workspaceRoot, relPath);
 
   const stat = await lstatOrNull(original);
@@ -124,6 +143,52 @@ export async function retireOwnedArtifact(
     }
   }
 
+  const outcome = await detachExisting(request, stat, 'removal', hooks);
+  if (outcome.kind === 'failed') return outcome;
+  if (outcome.kind === 'local-edit') {
+    return { kind: 'removed-local-edit', snapshotPath: outcome.snapshotPath };
+  }
+  return { kind: 'removed' };
+}
+
+/**
+ * Detach an owned copy that is about to be REPLACED, deciding on the detached
+ * object exactly as {@link retireOwnedArtifact} does. The caller then publishes
+ * its replacement with an exclusive create: whatever appears at the live path
+ * after the detach is a save, and an exclusive create cannot overwrite it.
+ *
+ * A path that became a link since the plan is `failed` — never followed, never
+ * replaced — and stays for the next pass to classify.
+ */
+export async function detachForOverwrite(
+  request: RetireOwnedArtifactRequest,
+  hooks: RetirementHooks = {},
+): Promise<DetachOutcome> {
+  const stat = await lstatOrNull(
+    toAbsolute(request.workspaceRoot, request.relPath),
+  );
+  if (stat === null) return { kind: 'absent' };
+  if (stat.isSymbolicLink()) {
+    return {
+      kind: 'failed',
+      reason: `could not save local edit before overwrite: ${request.relPath} is a symbolic link`,
+    };
+  }
+  return detachExisting(request, stat, 'overwrite', hooks);
+}
+
+/**
+ * Rules 2-6 of {@link retireOwnedArtifact}, shared with
+ * {@link detachForOverwrite}. `stat` is the original's, already known to be
+ * neither absent nor a link; `purpose` only words the failure reasons.
+ */
+async function detachExisting(
+  request: RetireOwnedArtifactRequest,
+  stat: Stats,
+  purpose: 'removal' | 'overwrite',
+  hooks: RetirementHooks,
+): Promise<DetachOutcome> {
+  const { workspaceRoot, relPath, isDirectory, ownedHash } = request;
   const kindMatches = isDirectory ? stat.isDirectory() : stat.isFile();
   if (!kindMatches) {
     return {
@@ -151,11 +216,12 @@ export async function retireOwnedArtifact(
   } catch (error: unknown) {
     return {
       kind: 'failed',
-      reason: `could not save local edit before removal: ${describeError(error)}`,
+      reason: `could not save local edit before ${purpose}: ${describeError(error)}`,
     };
   }
 
   const detach = hooks.rename ?? rename;
+  const original = toAbsolute(workspaceRoot, relPath);
   try {
     await withWindowsRetry(() => detach(original, staged));
   } catch (error: unknown) {
@@ -163,10 +229,10 @@ export async function retireOwnedArtifact(
     // created above; removing it leaves no trace of the attempt.
     await removeEmptyDirs(stampDir);
     await pruneEmptyAncestors(dirname(stampDir), historyRoot);
-    if (errorCode(error) === 'ENOENT') return { kind: 'removed' };
+    if (errorCode(error) === 'ENOENT') return { kind: 'absent' };
     return {
       kind: 'failed',
-      reason: `could not detach for removal: ${describeError(error)}`,
+      reason: `could not detach for ${purpose}: ${describeError(error)}`,
     };
   }
 
@@ -174,7 +240,7 @@ export async function retireOwnedArtifact(
   if (hooks.afterDetach !== undefined) await hooks.afterDetach();
 
   if (!(await isProvablyUnchanged(staged, isDirectory, ownedHash))) {
-    return { kind: 'removed-local-edit', snapshotPath: staged };
+    return { kind: 'local-edit', snapshotPath: staged };
   }
 
   try {
@@ -184,12 +250,12 @@ export async function retireOwnedArtifact(
   } catch {
     // degradation-audit: optional-capability - the artifact is already gone
     // from the target directory; a leftover copy of Ptah's own bytes in the
-    // history store is harmless and must not turn a done retirement into a retry.
-    return { kind: 'removed' };
+    // history store is harmless and must not turn a done detach into a retry.
+    return { kind: 'unchanged' };
   }
-  // An unchanged retirement leaves no history behind.
+  // An unchanged detach leaves no history behind.
   await pruneEmptyAncestors(dirname(stampDir), historyRoot);
-  return { kind: 'removed' };
+  return { kind: 'unchanged' };
 }
 
 /**
@@ -319,61 +385,15 @@ async function rmdirIfEmpty(dir: string): Promise<boolean> {
   }
 }
 
-/** Hash an artifact as the kind the manifest recorded; `null` when unreadable as that kind. */
-export function hashArtifact(
-  absolute: string,
-  isDirectory: boolean,
-): Promise<string | null> {
-  return isDirectory ? hashDir(absolute) : hashFile(absolute);
-}
-
 /**
- * Save a hand-edited copy that is about to be OVERWRITTEN to
- * `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>` and prove the save.
+ * History lives at `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>`: beside
+ * the harness manifests, outside every CLI's read directory, so a snapshot is
+ * never read back as a skill, an agent, or a `foreign` finding (`.history` is
+ * also in the content-hash ignore set). Keeping `relPath` under `<ts>` stops two
+ * targets detaching the same slug in one pass from colliding, and tells the
+ * user exactly where the file came from.
  *
- * Lives beside the harness manifests, outside every CLI's read directory, so a
- * snapshot is never read back as a skill, an agent, or a `foreign` finding;
- * `.history` is also in the content-hash ignore set. Keeping `relPath` under
- * `<ts>` stops two targets snapshotting the same slug in one pass from
- * colliding, and tells the user exactly where the file came from.
- *
- * The snapshot counts only when it re-hashes to `expectedHash`, the hash of
- * the copy about to be overwritten. Throws on any failure.
- */
-export async function snapshotLocalEdit(
-  workspaceRoot: string,
-  relPath: string,
-  isDirectory: boolean,
-  expectedHash: string,
-): Promise<void> {
-  const slugRoot = join(
-    workspaceRoot,
-    HARNESS_STATE_DIR,
-    LOCAL_EDIT_HISTORY_DIR,
-    historySlug(relPath),
-  );
-  await withWindowsRetry(() => mkdir(slugRoot, { recursive: true }));
-  const stampDir = await createUniqueDir(slugRoot, timestampName());
-
-  const destination = join(stampDir, ...relPath.split('/'));
-  await withWindowsRetry(() =>
-    mkdir(dirname(destination), { recursive: true }),
-  );
-  await withWindowsRetry(() =>
-    cp(toAbsolute(workspaceRoot, relPath), destination, {
-      recursive: isDirectory,
-    }),
-  );
-
-  const saved = await hashArtifact(destination, isDirectory);
-  if (saved !== expectedHash) {
-    throw new Error(
-      `snapshot at ${destination} does not match the copy on disk`,
-    );
-  }
-}
-
-/** `.codex/agents/a2.toml` -> `a2`; skill dir `.agents/skills/foo` -> `foo`. */
+ * `.codex/agents/a2.toml` -> `a2`; skill dir `.agents/skills/foo` -> `foo`. */
 function historySlug(relPath: string): string {
   const name = basename(relPath);
   const dot = name.indexOf('.');
