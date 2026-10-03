@@ -616,6 +616,66 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
     expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
   });
 
+  it('re-review #1: a rollback whose fallback copy fails never unlinks an editor file created at the live path', async () => {
+    await leak('video-director', 'VIDEO');
+    const clone = join(scoped, 'video-director.md');
+    renameHook = async (from, to) => {
+      if (from === clone) await writeFile(clone, 'USER SAVE', 'utf-8');
+      await rename(from, to);
+    };
+    const actual =
+      jest.requireActual<typeof import('fs/promises')>('fs/promises');
+    const linkMock = link as unknown as jest.Mock;
+    const copyFileMock = copyFile as unknown as jest.Mock;
+    // Only the put-back onto the live clone path is affected.
+    linkMock.mockImplementation(async (src: string, dest: string) => {
+      if (dest !== clone) return actual.link(src, dest);
+      throw Object.assign(new Error('EPERM: operation not permitted, link'), {
+        code: 'EPERM',
+      });
+    });
+    copyFileMock.mockImplementation(
+      async (src: string, dest: string, mode?: number) => {
+        if (dest !== clone) return actual.copyFile(src, dest, mode);
+        // The copy fails; an editor then creates the live path before the
+        // rollback's error handling runs.
+        await writeFile(clone, 'EDITOR REPLACEMENT', 'utf-8');
+        throw Object.assign(new Error('EIO: i/o error, copyfile'), {
+          code: 'EIO',
+        });
+      },
+    );
+
+    const result = await run().finally(() => {
+      linkMock.mockImplementation(actual.link);
+      copyFileMock.mockImplementation(actual.copyFile);
+    });
+
+    expect(copyFileMock).toHaveBeenCalledWith(
+      expect.any(String),
+      clone,
+      expect.anything(),
+    );
+    expect(result.failed).toEqual(['video-director']);
+    expect(result.quarantined).toEqual([]);
+    expect(await readFile(clone, 'utf-8')).toBe('EDITOR REPLACEMENT');
+    const [ts] = await historyEntries('video-director');
+    const kept = join(
+      scoped,
+      '.history',
+      'video-director',
+      ts,
+      'video-director.md',
+    );
+    expect(await readFile(kept, 'utf-8')).toBe('USER SAVE');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[UserLayerMirror] detached file not put back',
+      expect.objectContaining({ staged: kept, livePath: clone }),
+    );
+    expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(false);
+    expect(await readJournal()).toBeNull();
+  });
+
   it('F2: a save after the detach is a new file that survives; the detached seed is recorded', async () => {
     await leak('video-director', 'VIDEO');
     const clone = join(scoped, 'video-director.md');

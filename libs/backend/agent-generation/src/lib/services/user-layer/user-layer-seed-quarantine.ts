@@ -617,13 +617,17 @@ export class UserLayerSeedQuarantine {
    * No-clobber move back to the live path. `false` (warned) when the path is
    * taken or the move fails; the file then stays in history. A sidecar left
    * there makes its clone sidecar-less, which every pass re-proves by bytes.
+   *
+   * Nothing at the live path is ever unlinked here, not even after a failed
+   * fallback copy: by then an editor may own that path (code-logic re-review
+   * #1). The warning names the history file as the complete copy to recover.
    */
   private async putBack(file: DetachedFile | null): Promise<boolean> {
     if (file === null) return true;
     let placed: 'placed' | 'exists' | Error;
     try {
       this.fs.assertUnderUserLayer(file.original);
-      placed = await placeExclusive(file.staged, file.original);
+      placed = await placeExclusive(file.staged, file.original, 'keep-dest');
     } catch (error: unknown) {
       // degradation-audit: optional-capability - reported below; the bytes
       // stay in history, and the caller names that file.
@@ -632,7 +636,11 @@ export class UserLayerSeedQuarantine {
     if (placed !== 'placed') {
       this.logger.warn('[UserLayerMirror] detached file not put back', {
         staged: file.staged,
-        reason: placed === 'exists' ? 'live path taken' : placed.message,
+        livePath: file.original,
+        reason:
+          placed === 'exists'
+            ? 'live path taken'
+            : `${placed.message}; the live path may hold an incomplete copy, the complete file is the staged one`,
       });
       return false;
     }
@@ -879,7 +887,7 @@ export class UserLayerSeedQuarantine {
       if (!(await readFile(tmp)).equals(bytes)) {
         throw new Error('temporary copy does not match the snapshot');
       }
-      if ((await placeExclusive(tmp, dest)) === 'exists') {
+      if ((await placeExclusive(tmp, dest, 'remove-partial')) === 'exists') {
         // Created by someone else between the check and the link.
         return (
           (await this.compareExisting(dest, bytes)) ?? {
@@ -1017,12 +1025,18 @@ export class UserLayerSeedQuarantine {
 
 /**
  * Create `dest` from `tmp` without ever replacing an existing file. `'exists'`
- * when something is already there. A failed `COPYFILE_EXCL` copy can leave a
- * partial `dest` this call created, so it is removed before the error goes on.
+ * when something is already there.
+ *
+ * A failed `COPYFILE_EXCL` copy can leave a partial `dest` this call created.
+ * `'remove-partial'` (Restore, into a workspace source dir) unlinks it before
+ * the error goes on. `'keep-dest'` (quarantine rollback, onto a live clone
+ * path) never unlinks: the path may already hold an editor's new file, and
+ * the caller keeps the complete bytes at `tmp`.
  */
 async function placeExclusive(
   tmp: string,
   dest: string,
+  onCopyFailure: 'remove-partial' | 'keep-dest',
 ): Promise<'placed' | 'exists'> {
   try {
     await link(tmp, dest);
@@ -1038,10 +1052,12 @@ async function placeExclusive(
     return 'placed';
   } catch (error: unknown) {
     if (isErrnoCode(error, 'EEXIST')) return 'exists';
-    // degradation-audit: optional-capability - EXCL guarantees any `dest` now
-    // present was created by this failed copy; removing it is best-effort
-    // cleanup, and the copy error itself is what propagates.
-    await unlink(dest).catch(() => undefined);
+    if (onCopyFailure === 'remove-partial') {
+      // degradation-audit: optional-capability - EXCL guarantees any `dest`
+      // present when the copy failed was created by it; removing it is
+      // best-effort cleanup, and the copy error itself is what propagates.
+      await unlink(dest).catch(() => undefined);
+    }
     throw error;
   }
 }
