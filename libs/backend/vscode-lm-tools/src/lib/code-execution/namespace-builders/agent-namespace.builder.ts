@@ -72,7 +72,6 @@ interface PtahCliRegistryLike {
     id: string,
     task: string,
     options?: {
-      projectGuidance?: string;
       workingDirectory?: string;
       resumeSessionId?: string;
       parentSessionId?: string;
@@ -98,10 +97,13 @@ export interface AgentNamespaceDependencies {
   getWorkspaceRoot: () => string;
   /** Function that returns the currently active SDK session ID. Called at spawn time to link CLI agents to their parent session. */
   getActiveSessionId?: () => string | undefined;
-  /** Returns project-specific guidance from enhanced prompts (async). Called at spawn time to inject project context into CLI agents. */
+  /**
+   * Returns the capped project guidance from enhanced prompts (async). Called
+   * at spawn time for system-CLI lanes, which receive this and never the full
+   * generated system prompt (TASK_2026_597, R3.4). Ptah CLI lanes read their
+   * guidance in the spawn-options service instead.
+   */
   getProjectGuidance?: () => Promise<string | undefined>;
-  /** Returns full system prompt (prompt harness) (async). Replaces projectGuidance when available. */
-  getSystemPrompt?: () => Promise<string | undefined>;
   /** Returns absolute paths to enabled plugin directories (async). */
   getPluginPaths?: () => Promise<string[] | undefined>;
   /** Lazy resolver for PtahCliRegistry (avoids hard dependency on agent-sdk) */
@@ -156,7 +158,6 @@ export function buildAgentNamespace(
     getWorkspaceRoot,
     getActiveSessionId,
     getProjectGuidance,
-    getSystemPrompt,
     getPluginPaths,
     getPtahCliRegistry,
     getDisabledClis,
@@ -195,7 +196,6 @@ export function buildAgentNamespace(
           request.role,
         );
       }
-      const projectGuidance = await getProjectGuidance?.();
       if (request.ptahCliId) {
         const registry = getPtahCliRegistry?.();
         if (!registry) {
@@ -227,7 +227,6 @@ export function buildAgentNamespace(
           request.ptahCliId,
           ptahCliTask,
           {
-            projectGuidance,
             workingDirectory,
             resumeSessionId: request.resumeSessionId,
             parentSessionId: activeSessionId,
@@ -287,8 +286,12 @@ export function buildAgentNamespace(
         }
       }
 
-      const [systemPrompt, pluginPaths] = await Promise.all([
-        getSystemPrompt?.() ?? Promise.resolve(undefined),
+      // System-CLI lanes get the capped project guidance only. The full
+      // generated system prompt is never fetched for them: `buildTaskPrompt`
+      // preferred it over the guidance, which bypassed the guidance cap on
+      // every lane (TASK_2026_597, R3.4).
+      const [projectGuidance, pluginPaths] = await Promise.all([
+        getProjectGuidance?.() ?? Promise.resolve(undefined),
         getPluginPaths?.() ?? Promise.resolve(undefined),
       ]);
       const workingDirectory = request.workingDirectory ?? getWorkspaceRoot();
@@ -310,7 +313,6 @@ export function buildAgentNamespace(
         ...(activeSessionId && { parentSessionId: activeSessionId }),
         ...(roleDefinition && { roleDefinition }),
         ...(projectGuidance && { projectGuidance }),
-        ...(systemPrompt && { systemPrompt }),
         ...(pluginPaths && pluginPaths.length > 0 && { pluginPaths }),
       };
       return agentProcessManager.spawn(enrichedRequest);

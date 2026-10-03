@@ -25,6 +25,7 @@ import type {
 import { transformAgentBody } from '@ptah-extension/harness-sync';
 import type { CliCommandOptions } from './cli-adapter.interface';
 import { renderLaneCompletionContract } from '../lane-reporting-contract';
+import { condenseLaneRole } from './lane-role-condenser';
 
 /**
  * A buffer-until-first-subscriber emitter. Items emitted before any
@@ -462,6 +463,12 @@ function isRoleTransformTarget(cli: CliType): cli is CliTarget {
   return ROLE_TRANSFORM_TARGETS.has(cli);
 }
 
+/**
+ * The role block every lane receives, capped at `LANE_ROLE_MAX_CHARS`
+ * (TASK_2026_597). Codex `developer_instructions`, every `buildTaskPrompt`
+ * adapter and the Ptah CLI system prompt all render through here, so the cap
+ * holds on every lane type. A role within the cap renders unchanged.
+ */
 export function renderRoleBlock(
   role: AgentRoleDefinition,
   cli: CliType,
@@ -469,11 +476,17 @@ export function renderRoleBlock(
   const body = isRoleTransformTarget(cli)
     ? transformAgentBody(EMPTY_FRONTMATTER + role.body, cli)
     : role.body;
-  return (
-    `## Role: ${role.name}\n\n` +
-    `You are running as the \`${role.name}\` role; the definition below governs this task and outranks any generic persona above.\n\n` +
-    body
-  );
+  const title = `## Role: ${role.name}\n\n`;
+  return condenseLaneRole({
+    header:
+      title +
+      `You are running as the \`${role.name}\` role; the definition below governs this task and outranks any generic persona above.\n\n`,
+    headerWithoutBody:
+      title +
+      `You are running as the \`${role.name}\` role. Its definition is too large to include here: read the file named below before you start; it governs this task and outranks any generic persona above.\n\n`,
+    body,
+    sourcePath: role.sourcePath,
+  });
 }
 
 /**
@@ -484,18 +497,31 @@ export function renderRoleBlock(
  * instructions to the base task.
  *
  * History-restoring adapters opt in to omit system context and the role on
- * resume. Unknown resume behavior keeps the full prefix by default. Native
- * role channels remain the adapter's responsibility.
+ * resume. The tool policy and the two-way messaging block are omitted only when
+ * the adapter also states that its first turn delivered them
+ * (`resumePreamblesDelivered`). The completion contract is always kept.
+ * Unknown resume behavior keeps the full prefix by default. Native role
+ * channels remain the adapter's responsibility.
  */
 export function buildTaskPrompt(
   options: CliCommandOptions & {
     /** Opt in only when the adapter restores the prior conversation on resume. */
     readonly resumeRestoresContext?: boolean;
+    /**
+     * Set only when this lane's first turn actually carried the tool policy
+     * and, if this run would carry it, the two-way messaging block. A lane
+     * first spawned without an agent id or MCP port never received the
+     * messaging block, so a resume must not assume it (TASK_2026_597, F6).
+     * Absent keeps both blocks on resume.
+     */
+    readonly resumePreamblesDelivered?: boolean;
   },
   cli?: CliType,
 ): string {
   const restoredContext =
     !!options.resumeSessionId && options.resumeRestoresContext === true;
+  const omitPreambles =
+    restoredContext && options.resumePreamblesDelivered === true;
   let taskPrompt = '';
   const systemContext = options.systemPrompt || options.projectGuidance;
   if (systemContext && !restoredContext) {
@@ -511,7 +537,13 @@ export function buildTaskPrompt(
     taskPrompt += renderRoleBlock(options.role, cli) + PROMPT_SECTION_DELIMITER;
   }
 
-  taskPrompt += `${NATIVE_AGENT_TOOL_POLICY}\n\n${options.task}`;
+  // A restored-context resume whose first turn delivered the tool policy and
+  // the messaging block already holds both in its thread history, so neither
+  // is resent (TASK_2026_597, F6). The completion contract below is always
+  // sent.
+  taskPrompt += omitPreambles
+    ? options.task
+    : `${NATIVE_AGENT_TOOL_POLICY}\n\n${options.task}`;
 
   if (options.files && options.files.length > 0) {
     taskPrompt += `\n\nFocus on these files:\n${options.files
@@ -533,7 +565,7 @@ export function buildTaskPrompt(
     }
   }
 
-  if (options.agentId && options.mcpPort !== undefined) {
+  if (options.agentId && options.mcpPort !== undefined && !omitPreambles) {
     taskPrompt += PROMPT_SECTION_DELIMITER + TWO_WAY_MESSAGING_GUIDANCE;
   }
 

@@ -302,7 +302,7 @@ describe('PtahCliRegistry.spawnAgent — capability policy', () => {
 
       await spawn(harness);
 
-      expect(harness.assembleSpawnOptions.mock.calls[0]?.[7]).toBe(policy);
+      expect(harness.assembleSpawnOptions.mock.calls[0]?.[6]).toBe(policy);
     });
   });
 

@@ -94,7 +94,10 @@ function capProjectGuidance(guidance: string): string {
 
   // A byte budget is not a character count: step back until the slice fits.
   let end = Math.min(guidance.length, budget);
-  while (end > 0 && Buffer.byteLength(guidance.slice(0, end), 'utf8') > budget) {
+  while (
+    end > 0 &&
+    Buffer.byteLength(guidance.slice(0, end), 'utf8') > budget
+  ) {
     end--;
   }
 
@@ -761,8 +764,13 @@ export class EnhancedPromptsService {
    * Capped at {@link PROJECT_GUIDANCE_MAX_BYTES}: this string is prepended to
    * every CLI spawn and resent with every tool call of that lane.
    *
+   * A stored prompt without the marker (generated before the marker existed,
+   * or hand-edited) yields the whole prompt through the same cap, so a lane
+   * that used to receive guidance never drops to none (TASK_2026_597, R3.4).
+   *
    * @param workspacePath - Workspace to get guidance for
-   * @returns Project-specific guidance content, or null if disabled/unavailable
+   * @returns Project-specific guidance content, or null when disabled or no
+   *   prompt has been generated
    */
   async getProjectGuidanceContent(
     workspacePath: string,
@@ -771,9 +779,10 @@ export class EnhancedPromptsService {
     if (!state.enabled || !state.generatedPrompt) return null;
     const marker = '## Project-Specific Guidance';
     const idx = state.generatedPrompt.indexOf(marker);
-    if (idx === -1) return null;
-
-    return capProjectGuidance(state.generatedPrompt.substring(idx).trim());
+    const guidance = (
+      idx === -1 ? state.generatedPrompt : state.generatedPrompt.substring(idx)
+    ).trim();
+    return guidance ? capProjectGuidance(guidance) : null;
   }
 
   /**

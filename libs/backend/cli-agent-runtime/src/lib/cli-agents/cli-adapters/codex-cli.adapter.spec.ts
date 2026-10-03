@@ -196,11 +196,7 @@ import path from 'path';
 import { CodexCliAdapter, commandToolLabel } from './codex-cli.adapter';
 import type { SdkHandle } from './cli-adapter.interface';
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
-import {
-  buildTaskPrompt,
-  CliCommandLineTooLongError,
-  renderRoleBlock,
-} from './cli-adapter.utils';
+import { buildTaskPrompt, renderRoleBlock } from './cli-adapter.utils';
 
 describe('CodexCliAdapter', () => {
   let adapter: CodexCliAdapter;
@@ -1219,18 +1215,28 @@ describe('CodexCliAdapter', () => {
       expect(constructorConfig()).not.toHaveProperty('developer_instructions');
     });
 
-    it('rejects an oversized role before the Codex client is constructed', async () => {
+    it('caps an oversized role at 10,000 chars before it reaches the Codex client', async () => {
+      // The lane cap (TASK_2026_597) bounds every role block, so a 1.1 MB role
+      // can no longer push developer_instructions past the command-line limit.
       setupMockEvents();
-      const hugeBody = 'x'.repeat(1_100_000);
+      const identity = 'IDENTITY_PARAGRAPH: you review logic, never style.';
+      const hugeBody =
+        `${identity}\n\n` + `${'x'.repeat(999)}.\n\n`.repeat(1_100);
+      const hugeRole = { ...role, body: hugeBody, bytes: hugeBody.length };
 
-      await expect(
-        adapter.runSdk({
-          ...baseOptions,
-          role: { ...role, body: hugeBody, bytes: hugeBody.length },
-        }),
-      ).rejects.toBeInstanceOf(CliCommandLineTooLongError);
-      expect(mockCodexConstructor).not.toHaveBeenCalled();
-      expect(mockStartThread).not.toHaveBeenCalled();
+      await adapter.runSdk({ ...baseOptions, role: hugeRole });
+
+      const instructions = String(
+        constructorConfig()['developer_instructions'],
+      );
+      expect(instructions).toBe(renderRoleBlock(hugeRole, 'codex'));
+      expect(hugeBody.length).toBeGreaterThan(1_000_000);
+      expect(instructions.length).toBeLessThanOrEqual(10_000);
+      // The identity paragraph survives and the pointer names the full file.
+      expect(instructions).toContain(identity);
+      expect(instructions).toContain(`\`${hugeRole.sourcePath}\``);
+      expect(instructions).toContain('This role was condensed for the lane');
+      expect(mockStartThread).toHaveBeenCalled();
     });
 
     it('does not change sandbox, approval, model or effort when a role is set', async () => {

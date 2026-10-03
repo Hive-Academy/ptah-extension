@@ -71,8 +71,7 @@ interface Mocks {
     onInvalidation: jest.Mock;
     invalidate: jest.Mock;
     invalidationCallback:
-      | ((event: { reason: string; workspacePath: string }) => void)
-      | null;
+      ((event: { reason: string; workspacePath: string }) => void) | null;
   };
   context: { globalState: { get: jest.Mock; update: jest.Mock } };
   workspaceIntelligence: {
@@ -93,8 +92,7 @@ function createMocks(): Mocks {
     onInvalidation: jest.fn(),
     invalidate: jest.fn().mockResolvedValue(undefined),
     invalidationCallback: null as
-      | ((event: { reason: string; workspacePath: string }) => void)
-      | null,
+      ((event: { reason: string; workspacePath: string }) => void) | null,
   };
   cacheService.onInvalidation.mockImplementation(
     (cb: (event: { reason: string; workspacePath: string }) => void) => {
@@ -461,10 +459,48 @@ describe('EnhancedPromptsService', () => {
       ).toBeNull();
     });
 
-    it('returns null when marker is missing', async () => {
+    // A legacy or hand-edited prompt without the marker used to reach lanes
+    // whole; it must never drop to no guidance (TASK_2026_597, R3.4).
+    it('returns the whole prompt, trimmed, when the marker is missing', async () => {
       mocks.context.globalState.get.mockReturnValue({
         enabled: true,
-        generatedPrompt: 'no marker here',
+        generatedPrompt: '  no marker here\n',
+        generatedAt: null,
+        detectedStack: null,
+        configHash: null,
+        workspacePath: testWorkspacePath,
+      });
+      expect(await service.getProjectGuidanceContent(testWorkspacePath)).toBe(
+        'no marker here',
+      );
+    });
+
+    it('caps a marker-less prompt at 4,000 bytes and keeps it non-empty', async () => {
+      const generatedPrompt = Array.from(
+        { length: 20 },
+        (_, n) => `### Legacy ${n}\n\n${'y'.repeat(500)}\n\n`,
+      ).join('');
+      mocks.context.globalState.get.mockReturnValue({
+        enabled: true,
+        generatedPrompt,
+        generatedAt: null,
+        detectedStack: null,
+        configHash: null,
+        workspacePath: testWorkspacePath,
+      });
+
+      const r = await service.getProjectGuidanceContent(testWorkspacePath);
+
+      expect(r).not.toBeNull();
+      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(4000);
+      expect(r).toContain('### Legacy 0');
+      expect(r).toContain('[Project guidance truncated at 4,000 bytes');
+    });
+
+    it('returns null for a whitespace-only prompt', async () => {
+      mocks.context.globalState.get.mockReturnValue({
+        enabled: true,
+        generatedPrompt: '   \n ',
         generatedAt: null,
         detectedStack: null,
         configHash: null,

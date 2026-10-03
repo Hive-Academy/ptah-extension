@@ -43,18 +43,22 @@ const ROLE: AgentRoleDefinition = {
 
 const GUIDANCE = 'GUIDANCE_MARKER: follow the repo rules.';
 
-function buildService(): PtahCliSpawnOptions {
+function buildService(guidance?: string): PtahCliSpawnOptions {
   return new PtahCliSpawnOptions(
     createMockLogger() as unknown as Logger,
     { createHooks: jest.fn().mockReturnValue({}) } as never,
     { createHooks: jest.fn().mockReturnValue({}) } as never,
     { getConfig: jest.fn().mockReturnValue({ enabled: false }) } as never,
     {
-      getProjectGuidanceContent: jest.fn().mockResolvedValue(undefined),
+      getProjectGuidanceContent: jest.fn().mockResolvedValue(guidance),
     } as never,
     undefined,
     { resolveSessionFields: jest.fn().mockResolvedValue({}) } as never,
   );
+}
+
+function occurrences(text: string, needle: string): number {
+  return text.split(needle).length - 1;
 }
 
 describe('PtahCliSpawnOptions — role delivery', () => {
@@ -62,11 +66,10 @@ describe('PtahCliSpawnOptions — role delivery', () => {
     mockModeOverride.mode = undefined;
   });
 
-  it('appends the role block after the project guidance', async () => {
-    const assembly = await buildService().assembleSpawnOptions(
+  it('carries the project guidance once and the role block after it', async () => {
+    const assembly = await buildService(GUIDANCE).assembleSpawnOptions(
       AUTH_ENV,
       '/repo',
-      GUIDANCE,
       'opus',
       undefined,
       undefined,
@@ -74,10 +77,9 @@ describe('PtahCliSpawnOptions — role delivery', () => {
     );
 
     const content = assembly.systemPromptContent ?? '';
-    const guidanceIndex = content.indexOf('## Project Guidance');
     const roleIndex = content.indexOf(renderRoleBlock(ROLE, 'ptah-cli'));
-    expect(guidanceIndex).toBeGreaterThanOrEqual(0);
-    expect(roleIndex).toBeGreaterThan(guidanceIndex);
+    expect(occurrences(content, GUIDANCE)).toBe(1);
+    expect(content).not.toContain('## Project Guidance');
     expect(content.indexOf(GUIDANCE)).toBeLessThan(roleIndex);
     expect(content.endsWith(renderRoleBlock(ROLE, 'ptah-cli'))).toBe(true);
   });
@@ -86,7 +88,6 @@ describe('PtahCliSpawnOptions — role delivery', () => {
     const assembly = await buildService().assembleSpawnOptions(
       AUTH_ENV,
       '/repo',
-      undefined,
       'opus',
       undefined,
       undefined,
@@ -103,15 +104,14 @@ describe('PtahCliSpawnOptions — role delivery', () => {
   });
 
   it('carries no role section when no role is given', async () => {
-    const assembly = await buildService().assembleSpawnOptions(
+    const assembly = await buildService(GUIDANCE).assembleSpawnOptions(
       AUTH_ENV,
       '/repo',
-      GUIDANCE,
       'opus',
     );
 
     const content = assembly.systemPromptContent ?? '';
-    expect(content).toContain('## Project Guidance');
+    expect(occurrences(content, GUIDANCE)).toBe(1);
     expect(content).not.toContain('## Role:');
     expect(content).not.toContain('ROLE_BODY_MARKER');
   });
@@ -120,7 +120,6 @@ describe('PtahCliSpawnOptions — role delivery', () => {
     const assembly = await buildService().assembleSpawnOptions(
       AUTH_ENV,
       '/repo',
-      undefined,
       'opus',
       undefined,
       undefined,
@@ -128,9 +127,37 @@ describe('PtahCliSpawnOptions — role delivery', () => {
     );
 
     const content = assembly.systemPromptContent ?? '';
-    expect(content).not.toContain('## Project Guidance');
+    expect(content).not.toContain(GUIDANCE);
     expect(content).toContain(`## Role: ${ROLE.name}`);
     expect(content).toContain(ROLE.body);
+  });
+
+  it('caps a large role at 10,000 chars with a pointer to its source', async () => {
+    const section = (n: number): string =>
+      `## Section ${n}\n\n${'Paragraph text. '.repeat(60)}\n\n`;
+    const body = Array.from({ length: 30 }, (_, n) => section(n)).join('');
+    const bigRole: AgentRoleDefinition = {
+      ...ROLE,
+      body,
+      bytes: Buffer.byteLength(body, 'utf8'),
+    };
+
+    const assembly = await buildService(GUIDANCE).assembleSpawnOptions(
+      AUTH_ENV,
+      '/repo',
+      'opus',
+      undefined,
+      undefined,
+      bigRole,
+    );
+
+    const content = assembly.systemPromptContent ?? '';
+    const roleBlock = renderRoleBlock(bigRole, 'ptah-cli');
+    expect(body.length).toBeGreaterThan(20_000);
+    expect(roleBlock.length).toBeLessThanOrEqual(10_000);
+    expect(roleBlock).toContain(`\`${ROLE.sourcePath}\``);
+    expect(content.endsWith(roleBlock)).toBe(true);
+    expect(occurrences(content, GUIDANCE)).toBe(1);
   });
 
   it.each(['preset-append', 'standalone'] as const)(
@@ -138,10 +165,9 @@ describe('PtahCliSpawnOptions — role delivery', () => {
     async (mode) => {
       mockModeOverride.mode = mode;
 
-      const assembly = await buildService().assembleSpawnOptions(
+      const assembly = await buildService(GUIDANCE).assembleSpawnOptions(
         AUTH_ENV,
         '/repo',
-        GUIDANCE,
         'opus',
         undefined,
         undefined,

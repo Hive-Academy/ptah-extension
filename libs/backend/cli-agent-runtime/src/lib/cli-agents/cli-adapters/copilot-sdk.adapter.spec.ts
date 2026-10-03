@@ -993,7 +993,7 @@ describe('CopilotSdkAdapter', () => {
       await outcome?.done;
     });
 
-    it('surfaces the command-line guard error from spawnCli for an oversized role', async () => {
+    it('surfaces the command-line guard error from spawnCli for an oversized role-carrying prompt', async () => {
       const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
         './cli-adapter.utils',
       );
@@ -1001,12 +1001,15 @@ describe('CopilotSdkAdapter', () => {
         (command: string, args: string[], opts: Record<string, unknown>) =>
           actual.spawnCli(command, args, opts),
       );
-      const hugeBody = 'x'.repeat(1_100_000);
+      // The role block is capped (TASK_2026_597), so the oversized part of
+      // this role-carrying prompt is the task text.
+      const hugeTask = 'x'.repeat(1_100_000);
 
       await expect(
         adapter.runSdk({
           ...baseOptions,
-          role: { ...role, body: hugeBody, bytes: hugeBody.length },
+          task: hugeTask,
+          role,
         }),
       ).rejects.toBeInstanceOf(CliCommandLineTooLongError);
     });
