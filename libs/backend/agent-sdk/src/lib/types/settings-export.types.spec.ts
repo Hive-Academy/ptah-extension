@@ -58,5 +58,15 @@ describe('KNOWN_CONFIG_KEYS', () => {
       expect(KNOWN_CONFIG_KEYS).toContain('authMethod');
       expect(KNOWN_CONFIG_KEYS).toContain('anthropicProviderId');
     });
+
+    it('exports the Codex lane budget keys (TASK_2026_597)', () => {
+      expect(KNOWN_CONFIG_KEYS).toEqual(
+        expect.arrayContaining([
+          'agentOrchestration.codexAutoCompactTokens',
+          'agentOrchestration.codexToolOutputTokenLimit',
+          'agentOrchestration.codexWebSearch',
+        ]),
+      );
+    });
   });
 });
