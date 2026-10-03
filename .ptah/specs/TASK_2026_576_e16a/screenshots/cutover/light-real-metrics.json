@@ -1,5 +1,7 @@
 {
-  "issues": [],
+  "issues": [
+    "comment-composer: TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('ptah-file-diff-section').filter({ has: locator('[data-testid=\"file-section-path\"]').filter({ hasText: 'src/calc.ts' }) }).locator('[data-testid=\"file-section-comment\"]')\u001b[22m\n"
+  ],
   "metrics": [
     {
       "name": "changes-wide",
@@ -13,7 +15,18 @@
         "height": 695
       },
       "clipped": [
-        "bdi[-26..989]"
+        "bdi[65..1080]",
+        "span[1148..1241]",
+        "ptah-open-in-button[1200..1241]",
+        "open-in-button[1200..1241]",
+        "div[1219..1241]",
+        "open-in-caret[1219..1241]",
+        "lucide-angular[1224..1236]",
+        "svg[1224..1236]",
+        "path[1227..1233]",
+        "span[1148..1241]",
+        "ptah-open-in-button[1200..1241]",
+        "open-in-button[1200..1241]"
       ]
     },
     {
@@ -28,10 +41,7 @@
         "height": 695
       },
       "clipped": [
-        "bdi[896..975]",
-        "bdi[846..983]",
-        "bdi[-26..989]",
-        "bdi[894..1066]"
+        "bdi[56..1072]"
       ]
     },
     {
@@ -46,15 +56,18 @@
         "height": 695
       },
       "clipped": [
-        "bdi[916..995]",
-        "span[1170..1237]",
+        "span[1144..1237]",
         "ptah-open-in-button[1196..1237]",
         "open-in-button[1196..1237]",
         "div[1215..1237]",
         "open-in-caret[1215..1237]",
-        "bdi[858..995]",
-        "bdi[-20..995]",
-        "bdi[894..1066]"
+        "span[1144..1237]",
+        "ptah-open-in-button[1196..1237]",
+        "open-in-button[1196..1237]",
+        "div[1215..1237]",
+        "open-in-caret[1215..1237]",
+        "bdi[70..1085]",
+        "span[1153..1246]"
       ]
     },
     {
@@ -69,7 +82,7 @@
         "height": 695
       },
       "clipped": [
-        "bdi[88..1103]"
+        "bdi[96..1111]"
       ]
     },
     {
@@ -719,15 +732,15 @@
       "surface": "changes",
       "stop": 0,
       "tag": "button",
-      "label": "Changes, 7 changed files",
+      "label": "Changes, 9 changed files",
       "focusVisible": false,
       "outline": "none 3px oklch(0.23574 0.066 313.189)",
       "boxShadow": "none",
       "rect": [
-        673,
-        73,
-        110,
-        38
+        917,
+        99,
+        89,
+        34
       ]
     },
     {
@@ -739,10 +752,10 @@
       "outline": "solid 2px oklch(0.58 0.132 75)",
       "boxShadow": "none",
       "rect": [
-        665,
-        111,
-        567,
-        624
+        913,
+        134,
+        319,
+        601
       ]
     },
     {
@@ -754,8 +767,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        674,
-        121,
+        922,
+        144,
         94,
         24
       ]
@@ -769,8 +782,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "none",
       "rect": [
-        777,
-        117,
+        1025,
+        140,
         192,
         32
       ]
@@ -784,8 +797,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        977,
-        121,
+        921,
+        180,
         53,
         24
       ]
@@ -799,8 +812,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1032,
-        121,
+        976,
+        180,
         66,
         24
       ]
@@ -814,9 +827,9 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "none",
       "rect": [
-        665,
-        248,
-        255,
+        913,
+        303,
+        309,
         28
       ]
     },
@@ -829,8 +842,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        819,
-        252,
+        1121,
+        307,
         24,
         20
       ]
@@ -844,8 +857,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        845,
-        252,
+        1147,
+        307,
         24,
         20
       ]
@@ -859,8 +872,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        871,
-        250,
+        1173,
+        305,
         20,
         20
       ]
@@ -874,8 +887,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        890,
-        250,
+        1192,
+        305,
         22,
         24
       ]
@@ -884,15 +897,15 @@
       "surface": "changes",
       "stop": 11,
       "tag": "div",
-      "label": "Resize source control",
+      "label": "Changed files",
       "focusVisible": true,
-      "outline": "auto 1px rgb(229, 151, 0)",
+      "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "none",
       "rect": [
-        921,
-        156,
-        4,
-        579
+        913,
+        403,
+        319,
+        332
       ]
     },
     {
@@ -905,7 +918,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
         673,
-        144,
+        115,
         104,
         24
       ]
@@ -920,7 +933,7 @@
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
         1186,
-        144,
+        115,
         38,
         24
       ]

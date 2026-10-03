@@ -13,7 +13,18 @@
         "height": 695
       },
       "clipped": [
-        "bdi[-26..989]"
+        "bdi[65..1080]",
+        "span[1148..1241]",
+        "ptah-open-in-button[1200..1241]",
+        "open-in-button[1200..1241]",
+        "div[1219..1241]",
+        "open-in-caret[1219..1241]",
+        "lucide-angular[1224..1236]",
+        "svg[1224..1236]",
+        "path[1227..1233]",
+        "span[1148..1241]",
+        "ptah-open-in-button[1200..1241]",
+        "open-in-button[1200..1241]"
       ]
     },
     {
@@ -28,11 +39,7 @@
         "height": 695
       },
       "clipped": [
-        "bdi[896..975]",
-        "bdi[846..983]",
-        "bdi[-26..989]",
-        "bdi[901..1066]",
-        "bdi[894..1066]"
+        "bdi[56..1072]"
       ]
     },
     {
@@ -47,676 +54,724 @@
         "height": 695
       },
       "clipped": [
-        "bdi[916..995]",
-        "span[1170..1237]",
+        "span[1144..1237]",
         "ptah-open-in-button[1196..1237]",
         "open-in-button[1196..1237]",
         "div[1215..1237]",
         "open-in-caret[1215..1237]",
-        "bdi[858..995]",
-        "bdi[-20..995]",
-        "bdi[901..1066]",
-        "bdi[894..1066]"
+        "span[1144..1237]",
+        "ptah-open-in-button[1196..1237]",
+        "open-in-button[1196..1237]",
+        "div[1215..1237]",
+        "open-in-caret[1215..1237]",
+        "bdi[70..1085]",
+        "span[1153..1246]"
       ]
     },
     {
       "name": "branch-review-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": [
-        "bdi[88..1103]"
+        "bdi[752..1767]"
       ]
     },
     {
       "name": "branch-review-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1119,
         "y": 40,
-        "width": 319,
-        "height": 695
+        "width": 769,
+        "height": 943
       },
       "clipped": [
-        "bdi[150..1165]"
+        "bdi[634..1649]"
       ]
     },
     {
       "name": "branch-review-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": [
-        "bdi[150..1165]"
+        "bdi[752..1767]"
       ]
     },
     {
       "name": "spot-editor-readonly-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "spot-editor-readonly-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "spot-editor-readonly-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "spot-editor-dirty-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "spot-editor-dirty-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "spot-editor-dirty-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": [
-        "Contents of src/calc.ts[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]"
+        "Contents of src/calc.ts[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]"
       ]
     },
     {
       "name": "spot-editor-conflict-dialog-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1254,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1910,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": [
-        "git-confirm-dialog[0..1254]",
-        "div[435..819]",
-        "h3[459..795]",
-        "p[459..795]",
-        "div[459..795]",
-        "git-confirm-cancel[555..646]",
-        "git-confirm-secondary[654..712]",
-        "div[0..1254]"
+        "git-confirm-dialog[0..1910]",
+        "div[763..1147]",
+        "h3[787..1123]",
+        "p[787..1123]",
+        "div[787..1123]",
+        "git-confirm-cancel[883..974]",
+        "git-confirm-secondary[982..1040]",
+        "git-confirm-confirm[1048..1123]",
+        "div[0..1910]"
       ]
     },
     {
       "name": "spot-editor-conflict-dialog-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1254,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1910,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": [
-        "git-confirm-dialog[0..1254]",
-        "div[435..819]",
-        "h3[459..795]",
-        "p[459..795]",
-        "div[459..795]",
-        "git-confirm-cancel[555..646]",
-        "git-confirm-secondary[654..712]",
-        "git-confirm-confirm[720..795]",
-        "div[0..1254]"
+        "git-confirm-dialog[0..1910]",
+        "div[763..1147]",
+        "h3[787..1123]",
+        "p[787..1123]",
+        "div[787..1123]",
+        "git-confirm-cancel[883..974]",
+        "git-confirm-secondary[982..1040]",
+        "git-confirm-confirm[1048..1123]",
+        "div[0..1910]"
       ]
     },
     {
       "name": "spot-editor-conflict-dialog-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1254,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1910,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": [
-        "Contents of src/calc.ts[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]",
-        "div[961..1246]"
+        "Contents of src/calc.ts[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]",
+        "div[1617..1902]"
       ]
     },
     {
       "name": "commit-idle-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-idle-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-idle-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-message-filled-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-message-filled-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "0x0",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-message-filled-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-failure-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-failure-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-failure-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-success-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-success-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "commit-success-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "history-commits-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "history-commits-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "history-commits-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "history-stashes-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "history-stashes-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "history-stashes-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "changes-empty-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "changes-empty-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "changes-empty-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "task-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": [
-        "span[1559..1616]"
+        "span[2143..2200]"
       ]
     },
     {
       "name": "task-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": [
-        "span[1807..1864]",
-        "bdi[830..1212]",
-        "bdi[732..1186]"
+        "span[2463..2520]",
+        "bdi[1486..1868]",
+        "bdi[1388..1842]"
       ]
     },
     {
       "name": "task-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": [
-        "span[1827..1884]",
-        "bdi[830..1212]",
-        "bdi[732..1186]"
+        "span[2483..2540]",
+        "bdi[1486..1868]",
+        "bdi[1388..1842]"
       ]
     },
     {
       "name": "task-add-form-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": [
-        "span[1559..1616]"
+        "span[2143..2200]"
       ]
     },
     {
       "name": "task-add-form-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": [
-        "span[1807..1864]",
-        "bdi[830..1212]",
-        "bdi[732..1186]"
+        "span[2463..2520]",
+        "bdi[1486..1868]",
+        "bdi[1388..1842]"
       ]
     },
     {
       "name": "task-add-form-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": [
-        "span[1827..1884]",
-        "bdi[830..1212]",
-        "bdi[732..1186]"
+        "span[2483..2540]",
+        "bdi[1486..1868]",
+        "bdi[1388..1842]"
       ]
     },
     {
       "name": "conflict-banner-changes-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "conflict-banner-changes-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "conflict-banner-changes-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "conflict-commit-blocked-wide",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 665,
+        "x": 1249,
         "y": 40,
-        "width": 567,
-        "height": 695
+        "width": 639,
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "conflict-commit-blocked-narrow",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 913,
+        "x": 1569,
         "y": 40,
         "width": 319,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     },
     {
       "name": "conflict-commit-blocked-min",
-      "viewport": "1264x735",
-      "docScrollWidth": 1264,
-      "docClientWidth": 1264,
+      "viewport": "1920x983",
+      "docScrollWidth": 1920,
+      "docClientWidth": 1920,
       "shellRect": {
-        "x": 933,
+        "x": 1589,
         "y": 40,
         "width": 299,
-        "height": 695
+        "height": 943
       },
       "clipped": []
     }
   ],
   "focus": [
+    {
+      "surface": "comment",
+      "stop": 0,
+      "tag": "input",
+      "label": "comment-from",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "none",
+      "rect": [
+        1653,
+        738,
+        80,
+        32
+      ]
+    },
+    {
+      "surface": "comment",
+      "stop": 1,
+      "tag": "input",
+      "label": "comment-to",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "none",
+      "rect": [
+        1741,
+        738,
+        80,
+        32
+      ]
+    },
+    {
+      "surface": "comment",
+      "stop": 2,
+      "tag": "textarea",
+      "label": "comment-body",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
+      "boxShadow": "none",
+      "rect": [
+        1577,
+        796,
+        293,
+        60
+      ]
+    },
     {
       "surface": "changes",
       "stop": 0,
@@ -726,7 +781,7 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "none",
       "rect": [
-        673,
+        1257,
         73,
         110,
         38
@@ -741,10 +796,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        665,
+        1249,
         111,
-        567,
-        624
+        639,
+        872
       ]
     },
     {
@@ -756,7 +811,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        673,
+        1257,
         121,
         94,
         24
@@ -771,7 +826,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        775,
+        1359,
         117,
         192,
         32
@@ -786,7 +841,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        975,
+        1559,
         121,
         53,
         24
@@ -801,7 +856,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1030,
+        1614,
         121,
         66,
         24
@@ -816,7 +871,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        665,
+        1249,
         248,
         255,
         28
@@ -831,7 +886,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        819,
+        1403,
         252,
         24,
         20
@@ -846,7 +901,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        845,
+        1429,
         252,
         24,
         20
@@ -861,7 +916,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        871,
+        1455,
         250,
         20,
         20
@@ -876,7 +931,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        890,
+        1474,
         250,
         22,
         24
@@ -891,10 +946,10 @@
       "outline": "auto 1px rgb(229, 151, 0)",
       "boxShadow": "none",
       "rect": [
-        921,
+        1505,
         156,
         4,
-        579
+        827
       ]
     },
     {
@@ -906,7 +961,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        673,
+        1257,
         115,
         104,
         24
@@ -921,7 +976,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
-        1188,
+        1844,
         115,
         36,
         24
@@ -936,9 +991,9 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "none",
       "rect": [
-        693,
-        -1302,
-        529,
+        1277,
+        -1054,
+        601,
         2040
       ]
     },
@@ -951,10 +1006,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1232,
+        1888,
         40,
         32,
-        695
+        943
       ]
     },
     {
@@ -966,7 +1021,7 @@
       "outline": "solid 2px oklch(0.54615 0.215208 262.881)",
       "boxShadow": "none",
       "rect": [
-        395,
+        723,
         4,
         79,
         32
@@ -981,9 +1036,9 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        677,
+        1261,
         155,
-        543,
+        615,
         98
       ]
     },
@@ -996,7 +1051,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
-        1157,
+        1813,
         261,
         63,
         32
@@ -1011,10 +1066,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1232,
+        1888,
         40,
         32,
-        695
+        943
       ]
     },
     {
@@ -1026,7 +1081,7 @@
       "outline": "solid 2px oklch(0.54615 0.215208 262.881)",
       "boxShadow": "none",
       "rect": [
-        395,
+        723,
         4,
         79,
         32
@@ -1041,7 +1096,7 @@
       "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "none",
       "rect": [
-        474,
+        802,
         4,
         81,
         32
@@ -1056,7 +1111,7 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "none",
       "rect": [
-        951,
+        1535,
         73,
         72,
         38
@@ -1071,10 +1126,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        665,
+        1249,
         111,
-        567,
-        624
+        639,
+        872
       ]
     },
     {
@@ -1086,7 +1141,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        677,
+        1261,
         123,
         93,
         20
@@ -1101,9 +1156,9 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        681,
+        1265,
         151,
-        429,
+        501,
         20
       ]
     },
@@ -1116,7 +1171,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1114,
+        1770,
         149,
         41,
         24
@@ -1131,7 +1186,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1159,
+        1815,
         149,
         31,
         24
@@ -1146,7 +1201,7 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1198,
+        1854,
         123,
         22,
         24
@@ -1161,7 +1216,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        677,
+        1261,
         213,
         77,
         24
@@ -1176,7 +1231,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        753,
+        1337,
         213,
         22,
         24
@@ -1191,7 +1246,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1172,
+        1828,
         315,
         48,
         24
@@ -1206,9 +1261,9 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        677,
+        1261,
         343,
-        543,
+        615,
         24
       ]
     },
@@ -1221,9 +1276,9 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        677,
+        1261,
         369,
-        517,
+        589,
         24
       ]
     },
@@ -1236,7 +1291,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1198,
+        1854,
         369,
         22,
         24
@@ -1251,10 +1306,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1232,
+        1888,
         40,
         32,
-        695
+        943
       ]
     },
     {
@@ -1266,7 +1321,7 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1127,
+        1783,
         117,
         85,
         24
@@ -1281,7 +1336,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1127,
+        1783,
         143,
         85,
         24
@@ -1296,7 +1351,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
-        717,
+        1301,
         175,
         118,
         24
@@ -1311,7 +1366,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
-        841,
+        1425,
         175,
         40,
         24
@@ -1326,7 +1381,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        673,
+        1257,
         227,
         110,
         38
@@ -1341,10 +1396,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        665,
+        1249,
         265,
-        567,
-        470
+        639,
+        718
       ]
     }
   ]

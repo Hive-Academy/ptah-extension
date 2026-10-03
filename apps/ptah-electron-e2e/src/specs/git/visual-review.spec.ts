@@ -358,6 +358,38 @@ for (const theme of ['dark', 'light'] as const) {
           await cap.resize(WIDE);
         });
 
+        // Narrow dock defaults to Unified; a Split press must win over it.
+        await cap.step('split-override', async () => {
+          await cap.dock(320);
+          await page.locator('[data-testid="layout-split"]').click();
+          await waitSettled(page, 1500);
+          await cap.shot('changes-split-override-narrow');
+          await cap.dock(640);
+          await cap.shot('changes-split-override-wide');
+          await page.locator('[data-testid="layout-unified"]').click();
+          await waitSettled(page, 800);
+        });
+
+        // Comment composer inputs: focus ring (V-4) at the narrow dock.
+        await cap.step('comment-composer', async () => {
+          await cap.dock(320);
+          const section = ui.reviewFileSection(THREE_HUNK_FILE);
+          await section
+            .locator('[data-testid="file-section-comment"]')
+            .click();
+          const composer = page.locator('[data-testid="comment-composer"]');
+          await expect(composer).toBeVisible({ timeout: 15_000 });
+          await composer.scrollIntoViewIfNeeded();
+          await cap.shot('comment-composer-narrow');
+          await cap.focusPass(
+            'comment',
+            composer.locator('[data-testid="comment-from"]'),
+            3,
+          );
+          await composer.locator('[data-testid="comment-cancel"]').click();
+          await cap.dock(640);
+        });
+
         await cap.step('changes-scrolled', async () => {
           const list = page.locator('[data-testid="review-canvas-list"]');
           await list.evaluate((el) => {

@@ -82,24 +82,33 @@ const FOCUS_RING =
   // from the header's own buttons; every action is also a button.
   host: {
     class:
-      'sticky top-0 z-10 flex flex-nowrap items-center gap-2 border-b border-base-content/10 bg-base-200/95 px-2 py-1.5 text-xs backdrop-blur-sm',
+      'sticky top-0 z-10 block border-b border-base-content/10 bg-base-200/95 backdrop-blur-sm',
     'aria-keyshortcuts': 'Delete',
     'data-testid': 'file-section-header',
     '(keydown)': 'onKeydown($event)',
   },
-  // One row at every width (V-6): the path truncates from the left, the
-  // badges and actions never wrap. The host is its own size container (CSS
-  // only, no observer per section), and it clips its own horizontal overflow
-  // so it never widens the scrollport (N-3; `overflow-x: clip` leaves the
-  // open-in menu free to drop below the row). The path keeps at least
-  // min(8rem, 33% of the row) (N-2); the secondary metadata gives way first:
-  // - below 480 px Comment and Edit go icon-only (their aria-labels already
-  //   name them), the chips fold into one "+N" summary chip whose title and
-  //   accessible name list them all, and "renamed from" becomes screen-reader
-  //   text (the path's title still names the old path);
-  // - below 360 px the per-file totals step aside (the comparison bar keeps
-  //   the sums), the gaps tighten and the side badge shows "WT" / "S" (its
-  //   full name stays in the title and as screen-reader text).
+  // One row at every width (V-6, N-2, N-5). The host is the size container
+  // and the row is its child, so every `@container` rule below measures the
+  // row's own width (a rule on `:host` would query an ancestor instead; N-5).
+  // CSS only, no observer per section. The width budget is made to fit, with
+  // the secondary metadata giving way first and the actions last:
+  // - always: the path grows into the space left (flex basis 0) but keeps at
+  //   least min(8rem, 25% of the row); side badge and chips sit in one group
+  //   that is the only thing left to shrink below that, clipping its badges;
+  // - up to 640 px: Comment and Edit go icon-only (their aria-labels name
+  //   them), the chips fold into one "+N" chip whose title and accessible
+  //   name list them, "renamed from" becomes screen-reader text (the path
+  //   title names the old path), the side badge shows "WT" / "S" (full name
+  //   in its title and as screen-reader text), and the gaps tighten. Fixed
+  //   width then: toggle, status, WT, +N, Comment, Edit, Open in + caret,
+  //   about 222 px with padding and gaps;
+  // - up to 400 px: the per-file totals step aside (the comparison bar keeps
+  //   the sums);
+  // - up to 320 px: the path minimum is dropped, so the actions (with their
+  //   inset focus rings) win over the path when both cannot fit.
+  // `overflow-x: clip` stays only as a last resort, so a header can never
+  // widen the scrollport (N-3); it does not clip the open-in menu, which
+  // drops below the row.
   styles: [
     `
       :host {
@@ -107,12 +116,16 @@ const FOCUS_RING =
         overflow-x: clip;
       }
       .fsh-path {
-        min-width: min(8rem, 33cqi);
+        min-width: min(8rem, 25cqi);
       }
       .fsh-chip-summary {
         display: none;
       }
-      @container (max-width: 480px) {
+      @container (max-width: 640px) {
+        .fsh-row,
+        .fsh-actions {
+          gap: 0.25rem;
+        }
         .fsh-label,
         .fsh-chip {
           display: none;
@@ -120,25 +133,7 @@ const FOCUS_RING =
         .fsh-chip-summary {
           display: inline-flex;
         }
-        .fsh-actions {
-          gap: 0.25rem;
-        }
-        .fsh-renamed {
-          position: absolute;
-          width: 1px;
-          height: 1px;
-          overflow: hidden;
-          clip: rect(0, 0, 0, 0);
-          white-space: nowrap;
-        }
-      }
-      @container (max-width: 360px) {
-        :host {
-          gap: 0.25rem;
-        }
-        .fsh-totals {
-          display: none;
-        }
+        .fsh-renamed,
         .fsh-side-text {
           position: absolute;
           width: 1px;
@@ -151,133 +146,159 @@ const FOCUS_RING =
           content: attr(data-short) / '';
         }
       }
+      @container (max-width: 400px) {
+        .fsh-totals {
+          display: none;
+        }
+      }
+      @container (max-width: 320px) {
+        .fsh-path {
+          min-width: 0;
+        }
+      }
     `,
   ],
   template: `
-    <button
-      #toggle
-      type="button"
-      class="btn btn-ghost btn-xs h-auto min-h-0 p-0.5 {{ focusRing }}"
-      [attr.aria-expanded]="!collapsed()"
-      [attr.aria-controls]="bodyId()"
-      [attr.aria-label]="(collapsed() ? 'Expand ' : 'Collapse ') + file().path"
-      [title]="collapsed() ? 'Expand this file' : 'Collapse this file'"
-      data-testid="file-section-toggle"
-      (click)="collapsedChange.emit(!collapsed())"
+    <div
+      class="fsh-row flex flex-nowrap items-center gap-2 px-2 py-1.5 text-xs"
+      data-testid="file-section-row"
     >
-      <lucide-angular
-        [img]="collapsed() ? ChevronRightIcon : ChevronDownIcon"
-        class="h-3 w-3"
-        aria-hidden="true"
+      <button
+        #toggle
+        type="button"
+        class="btn btn-ghost btn-xs h-auto min-h-0 p-0.5 {{ focusRing }}"
+        [attr.aria-expanded]="!collapsed()"
+        [attr.aria-controls]="bodyId()"
+        [attr.aria-label]="
+          (collapsed() ? 'Expand ' : 'Collapse ') + file().path
+        "
+        [title]="collapsed() ? 'Expand this file' : 'Collapse this file'"
+        data-testid="file-section-toggle"
+        (click)="collapsedChange.emit(!collapsed())"
+      >
+        <lucide-angular
+          [img]="collapsed() ? ChevronRightIcon : ChevronDownIcon"
+          class="h-3 w-3"
+          aria-hidden="true"
+        />
+      </button>
+      <ptah-file-status-badge
+        class="shrink-0"
+        [status]="file().status"
+        [conflictKind]="file().conflictKind"
       />
-    </button>
-    <ptah-file-status-badge
-      class="shrink-0"
-      [status]="file().status"
-      [conflictKind]="file().conflictKind"
-    />
-    <!-- Left-truncated (dir=rtl around an ltr bdi), so the file name stays
+      <!-- Left-truncated (dir=rtl around an ltr bdi), so the file name stays
          in view; the title keeps the full path. -->
-    <h3
-      class="fsh-path m-0 min-w-0 flex-auto truncate text-left font-mono font-medium text-base-content"
-      dir="rtl"
-      [attr.title]="pathTitle()"
-      data-testid="file-section-path"
-    >
-      <bdi dir="ltr">{{ file().path }}</bdi>
-    </h3>
-    @if (file().originalPath; as from) {
-      <span
-        class="fsh-renamed min-w-0 max-w-[40%] truncate text-[11px] text-base-content-muted"
-        data-testid="file-section-renamed"
-        [attr.title]="'renamed from ' + from"
+      <h3
+        class="fsh-path m-0 min-w-0 flex-1 truncate text-left font-mono font-medium text-base-content"
+        dir="rtl"
+        [attr.title]="pathTitle()"
+        data-testid="file-section-path"
       >
-        renamed from {{ from }}
-      </span>
-    }
-    @if (sideLabel(); as side) {
-      <span
-        class="fsh-side badge badge-outline badge-xs shrink-0 whitespace-nowrap text-base-content"
-        data-testid="file-section-side"
-        [attr.title]="side"
-        [attr.data-short]="side === 'Staged' ? 'S' : 'WT'"
-        ><span class="fsh-side-text">{{ side }}</span></span
-      >
-    }
-    @for (chip of chips(); track chip) {
-      <span
-        class="fsh-chip badge badge-ghost badge-xs shrink-0 whitespace-nowrap"
-        data-testid="file-chip"
-        >{{ chip }}</span
-      >
-    }
-    @if (chipSummary(); as summary) {
-      <span
-        class="fsh-chip-summary badge badge-ghost badge-xs shrink-0 whitespace-nowrap"
-        role="img"
-        data-testid="file-chip-summary"
-        [attr.title]="summary.full"
-        [attr.aria-label]="summary.full"
-        >+{{ summary.count }}</span
-      >
-    }
-    <span class="fsh-actions ml-auto flex shrink-0 items-center gap-2">
-      @if (totals(); as t) {
+        <bdi dir="ltr">{{ file().path }}</bdi>
+      </h3>
+      @if (file().originalPath; as from) {
         <span
-          class="fsh-totals whitespace-nowrap"
-          data-testid="file-section-totals"
+          class="fsh-renamed min-w-0 max-w-[40%] truncate text-[11px] text-base-content-muted"
+          data-testid="file-section-renamed"
+          [attr.title]="'renamed from ' + from"
         >
-          <span class="sr-only"
-            >{{ t.additions }} additions, {{ t.deletions }} deletions</span
-          >
-          <span class="diff-add-text" aria-hidden="true"
-            >+{{ t.additions }}</span
-          >
-          <span class="diff-del-text" aria-hidden="true"
-            >−{{ t.deletions }}</span
-          >
+          renamed from {{ from }}
         </span>
       }
-      @if (canComment()) {
-        <button
-          #commentButton
-          type="button"
-          class="btn btn-ghost btn-xs {{ focusRing }}"
-          [attr.aria-expanded]="composerOpen()"
-          [attr.aria-label]="'Comment on lines of ' + file().path"
-          data-testid="file-section-comment"
-          (click)="commentToggle.emit()"
-        >
-          <lucide-angular
-            [img]="CommentIcon"
-            class="h-3 w-3"
-            aria-hidden="true"
+      <span
+        class="fsh-meta flex min-w-0 items-center gap-1 overflow-hidden"
+        data-testid="file-section-meta"
+      >
+        @if (sideLabel(); as side) {
+          <span
+            class="fsh-side badge badge-outline badge-xs shrink-0 whitespace-nowrap text-base-content"
+            data-testid="file-section-side"
+            [attr.title]="side"
+            [attr.data-short]="side === 'Staged' ? 'S' : 'WT'"
+            ><span class="fsh-side-text">{{ side }}</span></span
+          >
+        }
+        @for (chip of chips(); track chip) {
+          <span
+            class="fsh-chip badge badge-ghost badge-xs shrink-0 whitespace-nowrap"
+            data-testid="file-chip"
+            >{{ chip }}</span
+          >
+        }
+        @if (chipSummary(); as summary) {
+          <span
+            class="fsh-chip-summary badge badge-ghost badge-xs shrink-0 whitespace-nowrap"
+            role="img"
+            data-testid="file-chip-summary"
+            [attr.title]="summary.full"
+            [attr.aria-label]="summary.full"
+            >+{{ summary.count }}</span
+          >
+        }
+      </span>
+      <span class="fsh-actions ml-auto flex shrink-0 items-center gap-2">
+        @if (totals(); as t) {
+          <span
+            class="fsh-totals whitespace-nowrap"
+            data-testid="file-section-totals"
+          >
+            <span class="sr-only"
+              >{{ t.additions }} additions, {{ t.deletions }} deletions</span
+            >
+            <span class="diff-add-text" aria-hidden="true"
+              >+{{ t.additions }}</span
+            >
+            <span class="diff-del-text" aria-hidden="true"
+              >−{{ t.deletions }}</span
+            >
+          </span>
+        }
+        @if (canComment()) {
+          <button
+            #commentButton
+            type="button"
+            class="btn btn-ghost btn-xs {{ focusRing }}"
+            [attr.aria-expanded]="composerOpen()"
+            [attr.aria-label]="'Comment on lines of ' + file().path"
+            data-testid="file-section-comment"
+            (click)="commentToggle.emit()"
+          >
+            <lucide-angular
+              [img]="CommentIcon"
+              class="h-3 w-3"
+              aria-hidden="true"
+            />
+            <span class="fsh-label">Comment</span>
+          </button>
+        }
+        @if (canEdit()) {
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs {{ focusRing }}"
+            [attr.aria-label]="'Edit ' + file().path"
+            data-testid="file-section-edit"
+            (click)="edit.emit()"
+          >
+            <lucide-angular
+              [img]="EditIcon"
+              class="h-3 w-3"
+              aria-hidden="true"
+            />
+            <span class="fsh-label">Edit</span>
+          </button>
+        }
+        @if (editorTargets().length > 0) {
+          <ptah-open-in-button
+            mode="icon-only"
+            [targets]="editorTargets()"
+            [path]="file().path"
+            [root]="workspaceRoot()"
+            (open)="openFile.emit($event)"
           />
-          <span class="fsh-label">Comment</span>
-        </button>
-      }
-      @if (canEdit()) {
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs {{ focusRing }}"
-          [attr.aria-label]="'Edit ' + file().path"
-          data-testid="file-section-edit"
-          (click)="edit.emit()"
-        >
-          <lucide-angular [img]="EditIcon" class="h-3 w-3" aria-hidden="true" />
-          <span class="fsh-label">Edit</span>
-        </button>
-      }
-      @if (editorTargets().length > 0) {
-        <ptah-open-in-button
-          mode="icon-only"
-          [targets]="editorTargets()"
-          [path]="file().path"
-          [root]="workspaceRoot()"
-          (open)="openFile.emit($event)"
-        />
-      }
-    </span>
+        }
+      </span>
+    </div>
   `,
 })
 export class FileSectionHeaderComponent {

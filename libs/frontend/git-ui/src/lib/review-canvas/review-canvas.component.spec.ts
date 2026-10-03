@@ -807,6 +807,17 @@ describe('ReviewCanvasComponent', () => {
       );
     });
 
+    // N-6: a canvas mounted after the app switched to light (the dock closed
+    // and reopened) starts light; nothing from the earlier dark mount sticks.
+    it('mounts light when the app theme is already light', async () => {
+      isDarkMode.set(false);
+      await create();
+      expect(sectionInstances().length).toBeGreaterThan(0);
+      expect(sectionInstances().every((s) => s.themeType() === 'light')).toBe(
+        true,
+      );
+    });
+
     it("a section's Edit opens the spot editor, editable, in the active workspace", async () => {
       await create();
 
