@@ -8,6 +8,8 @@ import {
 } from '@ptah-extension/auth-providers';
 import type {
   AgentListCliModelsResult,
+  AgentModelEntry,
+  AgentModelProvider,
   CliModelOption,
 } from '@ptah-extension/shared';
 
@@ -24,20 +26,47 @@ export class CliModelListService {
   ) {}
 
   async listAll(): Promise<AgentListCliModelsResult> {
+    return (await this.loadModels()).models;
+  }
+
+  /** Only live auth/host queries establish provider-reported model ids. */
+  async listForClassification(): Promise<
+    Record<AgentModelProvider, AgentModelEntry[]>
+  > {
+    const { models, codexReported, copilotReported } = await this.loadModels();
+    const fallback = (entries: CliModelOption[]): AgentModelEntry[] =>
+      entries.map((entry) => ({ ...entry, isFallback: true }));
+
+    return {
+      claude: [],
+      codex: codexReported ? models.codex : fallback(models.codex),
+      copilot: copilotReported ? models.copilot : fallback(models.copilot),
+      cursor: fallback(models.cursor),
+      opencode: fallback(models.opencode),
+    };
+  }
+
+  private async loadModels(): Promise<{
+    models: AgentListCliModelsResult;
+    codexReported: boolean;
+    copilotReported: boolean;
+  }> {
     const modelMap = await this.cliDetection.listModelsForAll();
 
     // The Codex adapter only knows a curated list baked into the build.
     // `~/.codex/auth.json` is the same account the CLI uses, so the
     // account's live model menu is authoritative when it resolves.
     let codex = await this.getCodexModelsFromAuth();
-    if (codex.length === 0) {
+    const codexReported = codex.length > 0;
+    if (!codexReported) {
       codex = (modelMap['codex'] ?? []) as CliModelOption[];
     }
     // Hosts with a Language Model API (VS Code) report the models the
     // user actually has; everywhere else this is empty and the curated
     // per-CLI list stands in.
     let copilot = await this.getCopilotModelsFromHost();
-    if (copilot.length === 0) {
+    const copilotReported = copilot.length > 0;
+    if (!copilotReported) {
       copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
     }
     const cursor = (modelMap['cursor'] ?? []) as CliModelOption[];
@@ -54,7 +83,7 @@ export class CliModelListService {
       pi,
     };
 
-    return result;
+    return { models: result, codexReported, copilotReported };
   }
 
   /**
