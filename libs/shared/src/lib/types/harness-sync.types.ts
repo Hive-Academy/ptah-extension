@@ -148,6 +148,16 @@ export interface HarnessTargetHealth {
   /** Manifest-owned paths deleted because the source disappeared. */
   removed: string[];
   /**
+   * Manifest-owned paths that had been hand-edited, so the copy was saved to
+   * `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>` before it was removed.
+   * Every path here ALSO appears in {@link removed}.
+   *
+   * Optional for the same reason as {@link adopted}: a report produced without
+   * an apply (a plan-only verify, an undetected target) has nothing to say here,
+   * and every existing producer of this type must keep compiling.
+   */
+  removedLocalEdit?: string[];
+  /**
    * Unowned paths claimed on proof that Ptah wrote them — a legacy
    * `.ptah-managed.json` listed them, or they carry the writer signature of a
    * deleted Ptah writer — and then overwritten with current output.

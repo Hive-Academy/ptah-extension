@@ -156,6 +156,16 @@ export interface HarnessApplyResult {
   removed: string[];
   writeFailed: Array<{ relPath: string; reason: string }>;
   overwrittenLocalEdit: string[];
+  /**
+   * Manifest-owned paths that had been hand-edited, were snapshotted to
+   * `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>`, and only then removed
+   * (TASK_2026_609). Every path here ALSO appears in {@link removed}, so manifest
+   * pruning and removal counts need no second list.
+   *
+   * Optional because only `WorkspaceHarnessTarget` retires hand-editable copies;
+   * every other producer of this type keeps compiling unchanged.
+   */
+  removedLocalEdit?: string[];
 }
 
 export interface IHarnessTarget {

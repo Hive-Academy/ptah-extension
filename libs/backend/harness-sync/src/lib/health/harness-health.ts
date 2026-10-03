@@ -114,6 +114,7 @@ export function appliedTargetHealth(
     writeFailed: [...result.writeFailed],
     overwrittenLocalEdit: [...result.overwrittenLocalEdit],
     removed: [...result.removed],
+    removedLocalEdit: [...(result.removedLocalEdit ?? [])],
     adopted: [...plan.adopted],
     durationMs,
   };
