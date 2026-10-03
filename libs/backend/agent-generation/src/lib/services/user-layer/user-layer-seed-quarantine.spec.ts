@@ -24,13 +24,32 @@ jest.mock('os', () => ({
   homedir: () => fakeHome,
 }));
 
+/**
+ * `link` and `copyFile` pass through to the real implementation unless a test
+ * queues a one-off failure — the only way to prove what a failed restore
+ * leaves behind on a real filesystem.
+ */
+jest.mock('fs/promises', () => {
+  const actual =
+    jest.requireActual<typeof import('fs/promises')>('fs/promises');
+  return {
+    ...actual,
+    link: jest.fn(actual.link),
+    copyFile: jest.fn(actual.copyFile),
+  };
+});
+
+import { link, copyFile } from 'fs/promises';
 import { UserLayerMirrorService } from './user-layer-mirror.service';
 import { UserLayerFsOps } from './user-layer-fs-ops';
 import {
   SEED_QUARANTINE_MARKER,
   UserLayerSeedQuarantine,
   classifySeededClone,
+  isSafeAgentSlug,
+  orderQuarantineSnapshotCandidates,
   readAgentSourceListing,
+  validateSeedQuarantineMarker,
 } from './user-layer-seed-quarantine';
 import type { AgentSlugLock } from './user-layer-seed-quarantine';
 
@@ -590,4 +609,537 @@ describe('UserLayerSeedQuarantine — failure and locking', () => {
       }
     },
   );
+});
+
+describe('validateSeedQuarantineMarker', () => {
+  const good = {
+    version: 1,
+    completedAt: '2026-10-01T10:00:00.000Z',
+    quarantined: ['video-director'],
+    keptWithLocalWork: ['figma-designer'],
+    keptUnprovable: [],
+  };
+
+  it('accepts the shape the pass writes', () => {
+    const result = validateSeedQuarantineMarker(good);
+    expect(result).toEqual({
+      status: 'valid',
+      marker: {
+        ...good,
+        completedAtMs: Date.parse(good.completedAt),
+      },
+      droppedSlugs: [],
+    });
+  });
+
+  it.each([
+    ['not an object', 'x'],
+    ['null', null],
+    ['an array', []],
+    ['a wrong version', { ...good, version: 2 }],
+    ['a missing completedAt', { ...good, completedAt: undefined }],
+    ['an unparseable completedAt', { ...good, completedAt: 'yesterday' }],
+    ['a list that is a string', { ...good, quarantined: 'video-director' }],
+    ['a list holding a non-string', { ...good, keptUnprovable: [1] }],
+    ['a missing list', { ...good, keptWithLocalWork: undefined }],
+  ])('rejects %s', (_label, raw) => {
+    expect(validateSeedQuarantineMarker(raw).status).toBe('invalid');
+  });
+
+  it('drops each unsafe slug on its own and keeps the rest', () => {
+    const result = validateSeedQuarantineMarker({
+      ...good,
+      quarantined: ['video-director', '..', '.', '../etc', 'a/b', 'a\\b', ''],
+      keptUnprovable: ['ok-slug', 'x'.repeat(129)],
+    });
+    expect(result.status).toBe('valid');
+    if (result.status !== 'valid') return;
+    expect(result.marker.quarantined).toEqual(['video-director']);
+    expect(result.marker.keptUnprovable).toEqual(['ok-slug']);
+    expect(result.droppedSlugs).toHaveLength(7);
+  });
+
+  it('isSafeAgentSlug mirrors the RPC slug rule', () => {
+    expect(isSafeAgentSlug('backend-developer')).toBe(true);
+    expect(isSafeAgentSlug('a.b_c-1')).toBe(true);
+    expect(isSafeAgentSlug('..')).toBe(false);
+    expect(isSafeAgentSlug('a..b')).toBe(false);
+    expect(isSafeAgentSlug('.hidden')).toBe(false);
+    expect(isSafeAgentSlug('-x')).toBe(false);
+  });
+});
+
+describe('orderQuarantineSnapshotCandidates', () => {
+  it('keeps <ms>[-<n>] names not later than completedAt, newest first', () => {
+    expect(
+      orderQuarantineSnapshotCandidates(
+        ['100', '200', '200-1', '200-2', '300', 'junk', '150-x', '50'],
+        250,
+      ),
+    ).toEqual([
+      { name: '200-2', ms: 200 },
+      { name: '200-1', ms: 200 },
+      { name: '200', ms: 200 },
+      { name: '100', ms: 100 },
+      { name: '50', ms: 50 },
+    ]);
+  });
+});
+
+describe('quarantined agents — list and restore (TASK_2026_609 C2)', () => {
+  let workRoot: string;
+  let ws: string;
+  let otherWs: string;
+  let legacyRoot: string;
+  let logger: MockLogger;
+  let service: UserLayerMirrorService;
+  let scoped: string;
+  let otherScoped: string;
+  let sourceDir: string;
+  let dest: string;
+  let gateStateFile: string;
+  const GATE_STATE = '{"agentSyncEnabled":false}';
+
+  const linkMock = link as unknown as jest.Mock;
+  const copyFileMock = copyFile as unknown as jest.Mock;
+
+  beforeEach(async () => {
+    workRoot = await mkdtemp(join(tmpdir(), 'ptah-quarantine-restore-'));
+    fakeHome = join(workRoot, 'home');
+    ws = join(workRoot, 'property-hub');
+    otherWs = join(workRoot, 'ptah-extension');
+    legacyRoot = join(fakeHome, '.ptah', 'user', 'agents');
+    await mkdir(legacyRoot, { recursive: true });
+    logger = makeLogger();
+    service = new UserLayerMirrorService(logger as never);
+    scoped = service.getUserLayerRoots(ws).agents;
+    otherScoped = service.getUserLayerRoots(otherWs).agents;
+    sourceDir = join(ws, '.claude', 'agents');
+    dest = join(sourceDir, 'video-director.md');
+    // Stand-in for the harness agent-sync gate file: Restore must never
+    // write consent, so these bytes must survive every test unchanged.
+    gateStateFile = join(ws, '.ptah', 'harness', 'state.json');
+    await mkdir(join(ws, '.ptah', 'harness'), { recursive: true });
+    await writeFile(gateStateFile, GATE_STATE, 'utf-8');
+  });
+
+  afterEach(async () => {
+    linkMock.mockClear();
+    copyFileMock.mockClear();
+    try {
+      await rm(workRoot, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      // Best effort.
+    }
+  });
+
+  function sources() {
+    return { pluginPaths: [], agentSourceDir: sourceDir, workspaceRoot: ws };
+  }
+
+  /** Run the real pass: `video-director` quarantined, `figma-designer` kept. */
+  async function quarantineForeignAgents(): Promise<void> {
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'team-leader.md'), 'OWN', 'utf-8');
+    await mkdir(scoped, { recursive: true });
+    await writeFile(join(legacyRoot, 'video-director.md'), 'VIDEO', 'utf-8');
+    await writeFile(join(scoped, 'video-director.md'), 'VIDEO', 'utf-8');
+    await writeFile(join(legacyRoot, 'figma-designer.md'), 'SEED', 'utf-8');
+    await writeFile(join(scoped, 'figma-designer.md'), 'EDITED', 'utf-8');
+    await service.mirrorAll(sources());
+    expect(await exists(join(scoped, SEED_QUARANTINE_MARKER))).toBe(true);
+    expect(await exists(join(scoped, 'video-director.md'))).toBe(false);
+  }
+
+  async function writeMarker(content: unknown): Promise<void> {
+    await mkdir(scoped, { recursive: true });
+    await writeFile(
+      join(scoped, SEED_QUARANTINE_MARKER),
+      typeof content === 'string' ? content : JSON.stringify(content),
+      'utf-8',
+    );
+  }
+
+  async function markerCompletedAtMs(): Promise<number> {
+    const raw = JSON.parse(
+      await readFile(join(scoped, SEED_QUARANTINE_MARKER), 'utf-8'),
+    ) as { completedAt: string };
+    return Date.parse(raw.completedAt);
+  }
+
+  /** Every file under `dir` with its bytes, for byte-unchanged assertions. */
+  async function tree(dir: string): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    async function walk(current: string): Promise<void> {
+      for (const entry of await readdir(current, { withFileTypes: true })) {
+        const full = join(current, entry.name);
+        if (entry.isDirectory()) await walk(full);
+        else if (entry.isFile()) {
+          out[full.slice(dir.length)] = await readFile(full, 'utf-8');
+        }
+      }
+    }
+    if (await exists(dir)) await walk(dir);
+    return out;
+  }
+
+  async function sourceDirLeftovers(): Promise<string[]> {
+    if (!(await exists(sourceDir))) return [];
+    return (await readdir(sourceDir)).filter((n) => n.includes('ptah-restore'));
+  }
+
+  it('lists nothing, readably, when there is no marker', async () => {
+    expect(await service.listQuarantinedAgents(ws)).toEqual({
+      recordUnreadable: false,
+      quarantined: [],
+      notOwned: [],
+    });
+  });
+
+  it.each([
+    ['unparseable JSON', '{not json'],
+    [
+      'a list that is a string',
+      {
+        version: 1,
+        completedAt: '2026-10-01T10:00:00.000Z',
+        quarantined: 'video-director',
+        keptWithLocalWork: [],
+        keptUnprovable: [],
+      },
+    ],
+    [
+      'a bad completedAt',
+      {
+        version: 1,
+        completedAt: 'not a date',
+        quarantined: ['video-director'],
+        keptWithLocalWork: [],
+        keptUnprovable: [],
+      },
+    ],
+  ])(
+    'treats a marker with %s as absent, flags it, and writes nothing',
+    async (_label, content) => {
+      await writeMarker(content);
+      const scopedBefore = await tree(scoped);
+
+      const listing = await service.listQuarantinedAgents(ws);
+      const restore = await service.restoreQuarantinedAgent(
+        ws,
+        'video-director',
+      );
+
+      expect(listing).toEqual({
+        recordUnreadable: true,
+        quarantined: [],
+        notOwned: [],
+      });
+      expect(restore.outcome).toBe('not-quarantined');
+      expect(await exists(dest)).toBe(false);
+      expect(await tree(scoped)).toEqual(scopedBefore);
+      expect(logger.warn).toHaveBeenCalled();
+    },
+  );
+
+  it('lists a quarantined agent with its snapshot date, and kept clones as notOwned', async () => {
+    await quarantineForeignAgents();
+    const [snapshotTs] = await readdir(
+      join(scoped, '.history', 'video-director'),
+    );
+
+    const listing = await service.listQuarantinedAgents(ws);
+
+    expect(listing).toEqual({
+      recordUnreadable: false,
+      quarantined: [
+        {
+          slug: 'video-director',
+          state: 'quarantined',
+          quarantinedAt: new Date(Number(snapshotTs)).toISOString(),
+          hasSnapshot: true,
+          sourcePath: dest,
+        },
+      ],
+      notOwned: ['figma-designer'],
+    });
+  });
+
+  it('drops an unsafe marker slug with a warning and never reaches the filesystem with it', async () => {
+    await writeMarker({
+      version: 1,
+      completedAt: new Date().toISOString(),
+      quarantined: ['../../evil', 'video-director'],
+      keptWithLocalWork: [],
+      keptUnprovable: [],
+    });
+
+    const listing = await service.listQuarantinedAgents(ws);
+    const restore = await service.restoreQuarantinedAgent(ws, '../../evil');
+
+    expect(listing.quarantined.map((i) => i.slug)).toEqual(['video-director']);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[UserLayerMirror] seed quarantine marker: unsafe slugs dropped',
+      expect.objectContaining({ droppedSlugs: [JSON.stringify('../../evil')] }),
+    );
+    expect(restore).toEqual({
+      outcome: 'not-quarantined',
+      path: sourceDir,
+      reason: 'invalid agent slug',
+    });
+    expect(await exists(join(ws, 'evil.md'))).toBe(false);
+    expect(await exists(join(workRoot, 'evil.md'))).toBe(false);
+  });
+
+  it('with no history: hasSnapshot false, date null, and Restore writes nothing', async () => {
+    await writeMarker({
+      version: 1,
+      completedAt: new Date().toISOString(),
+      quarantined: ['video-director'],
+      keptWithLocalWork: [],
+      keptUnprovable: [],
+    });
+
+    const [item] = (await service.listQuarantinedAgents(ws)).quarantined;
+    const restore = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(item).toMatchObject({ hasSnapshot: false, quarantinedAt: null });
+    expect(restore.outcome).toBe('no-snapshot');
+    expect(await exists(sourceDir)).toBe(false);
+  });
+
+  it('never treats a history dir later than completedAt as the quarantine snapshot', async () => {
+    await quarantineForeignAgents();
+    const later = join(
+      scoped,
+      '.history',
+      'video-director',
+      String((await markerCompletedAtMs()) + 60_000),
+    );
+    await mkdir(later, { recursive: true });
+    await writeFile(join(later, 'video-director.md'), 'LATER EDIT', 'utf-8');
+
+    const restore = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(restore.outcome).toBe('restored');
+    expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
+  });
+
+  it('a slug whose only history is later than completedAt has no snapshot', async () => {
+    const completedAt = new Date(Date.now() - 60_000);
+    await writeMarker({
+      version: 1,
+      completedAt: completedAt.toISOString(),
+      quarantined: ['video-director'],
+      keptWithLocalWork: [],
+      keptUnprovable: [],
+    });
+    const later = join(
+      scoped,
+      '.history',
+      'video-director',
+      String(Date.now()),
+    );
+    await mkdir(later, { recursive: true });
+    await writeFile(join(later, 'video-director.md'), 'LATER', 'utf-8');
+
+    const [item] = (await service.listQuarantinedAgents(ws)).quarantined;
+    expect(item.hasSnapshot).toBe(false);
+    expect(
+      (await service.restoreQuarantinedAgent(ws, 'video-director')).outcome,
+    ).toBe('no-snapshot');
+    expect(await exists(dest)).toBe(false);
+  });
+
+  it('restores the snapshot as the workspace source, touching nothing else', async () => {
+    await quarantineForeignAgents();
+    await mkdir(otherScoped, { recursive: true });
+    await writeFile(join(otherScoped, 'video-director.md'), 'OTHER', 'utf-8');
+    const historyBefore = await tree(join(scoped, '.history'));
+    const flatBefore = await tree(legacyRoot);
+    const otherBefore = await tree(otherScoped);
+    const wsBefore = await tree(ws);
+
+    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(result).toEqual({ outcome: 'restored', path: dest });
+    expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
+    // History kept, flat base and another workspace's scoped root unchanged.
+    expect(await tree(join(scoped, '.history'))).toEqual(historyBefore);
+    expect(await tree(legacyRoot)).toEqual(flatBefore);
+    expect(await tree(otherScoped)).toEqual(otherBefore);
+    // The only change in the workspace is the restored source file; the gate
+    // state (consent) is byte-unchanged and no temp file is left.
+    const wsAfter = await tree(ws);
+    expect(wsAfter).toEqual({
+      ...wsBefore,
+      [dest.slice(ws.length)]: 'VIDEO',
+    });
+    expect(await readFile(gateStateFile, 'utf-8')).toBe(GATE_STATE);
+    expect(await sourceDirLeftovers()).toEqual([]);
+    expect(logger.info).toHaveBeenCalledWith(
+      '[UserLayerMirror] quarantined agent restore',
+      expect.objectContaining({ slug: 'video-director', outcome: 'restored' }),
+    );
+  });
+
+  it('stays listed as source-restored until propagation re-creates the clone, then leaves the list', async () => {
+    await quarantineForeignAgents();
+    await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    // Gate off / reconcile failed: nothing has mirrored the source yet.
+    const pending = await service.listQuarantinedAgents(ws);
+    expect(pending.quarantined).toEqual([
+      expect.objectContaining({
+        slug: 'video-director',
+        state: 'source-restored',
+      }),
+    ]);
+
+    // A successful mirror pass (the propagation step) re-creates the clone.
+    await service.mirrorAll(sources());
+    expect(await readFile(join(scoped, 'video-director.md'), 'utf-8')).toBe(
+      'VIDEO',
+    );
+    expect((await service.listQuarantinedAgents(ws)).quarantined).toEqual([]);
+  });
+
+  it('a retry with identical bytes is already-restored and writes nothing', async () => {
+    await quarantineForeignAgents();
+    await service.restoreQuarantinedAgent(ws, 'video-director');
+    linkMock.mockClear();
+
+    const retry = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(retry).toEqual({ outcome: 'already-restored', path: dest });
+    expect(linkMock).not.toHaveBeenCalled();
+    expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
+  });
+
+  it('two concurrent restores serialise on the slug lock: one restores, one is already-restored', async () => {
+    await quarantineForeignAgents();
+
+    const outcomes = (
+      await Promise.all([
+        service.restoreQuarantinedAgent(ws, 'video-director'),
+        service.restoreQuarantinedAgent(ws, 'video-director'),
+      ])
+    ).map((r) => r.outcome);
+
+    expect(outcomes.sort()).toEqual(['already-restored', 'restored']);
+  });
+
+  it('refuses when the source holds different bytes, leaving both files unchanged', async () => {
+    await quarantineForeignAgents();
+    await writeFile(dest, 'MY OWN VIDEO DIRECTOR', 'utf-8');
+    const historyBefore = await tree(join(scoped, '.history'));
+
+    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(result.outcome).toBe('conflict');
+    expect(result.path).toBe(dest);
+    expect(await readFile(dest, 'utf-8')).toBe('MY OWN VIDEO DIRECTOR');
+    expect(await tree(join(scoped, '.history'))).toEqual(historyBefore);
+  });
+
+  it('refuses when a scoped clone already exists, leaving both files unchanged', async () => {
+    await quarantineForeignAgents();
+    const clone = join(scoped, 'video-director.md');
+    await writeFile(clone, 'A CLONE', 'utf-8');
+
+    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(result).toMatchObject({ outcome: 'conflict', path: clone });
+    expect(await readFile(clone, 'utf-8')).toBe('A CLONE');
+    expect(await exists(dest)).toBe(false);
+  });
+
+  it('a failed link leaves no dest and no temp, and the next Restore succeeds', async () => {
+    await quarantineForeignAgents();
+    linkMock.mockRejectedValueOnce(
+      Object.assign(new Error('EIO: i/o error, link'), { code: 'EIO' }),
+    );
+
+    const failed = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(failed.outcome).toBe('copy-failed');
+    expect(failed.reason).toContain('EIO');
+    expect(await exists(dest)).toBe(false);
+    expect(await sourceDirLeftovers()).toEqual([]);
+
+    const retry = await service.restoreQuarantinedAgent(ws, 'video-director');
+    expect(retry.outcome).toBe('restored');
+    expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
+  });
+
+  it('falls back to an exclusive copy when the filesystem refuses hard links', async () => {
+    await quarantineForeignAgents();
+    linkMock.mockRejectedValueOnce(
+      Object.assign(new Error('EPERM: operation not permitted, link'), {
+        code: 'EPERM',
+      }),
+    );
+
+    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(result.outcome).toBe('restored');
+    expect(copyFileMock).toHaveBeenCalledTimes(1);
+    expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
+    expect(await sourceDirLeftovers()).toEqual([]);
+  });
+
+  it('a fallback copy that fails verification is removed, and the retry succeeds', async () => {
+    await quarantineForeignAgents();
+    linkMock.mockRejectedValueOnce(
+      Object.assign(new Error('EXDEV'), { code: 'EXDEV' }),
+    );
+    copyFileMock.mockImplementationOnce(async (_src: string, to: string) => {
+      await writeFile(to, 'TRUNCAT', { flag: 'wx' });
+    });
+
+    const failed = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(failed.outcome).toBe('copy-failed');
+    expect(await exists(dest)).toBe(false);
+    expect(await sourceDirLeftovers()).toEqual([]);
+
+    const retry = await service.restoreQuarantinedAgent(ws, 'video-director');
+    expect(retry.outcome).toBe('restored');
+    expect(await readFile(dest, 'utf-8')).toBe('VIDEO');
+  });
+
+  it('a file that appears at dest during the restore is never replaced', async () => {
+    await quarantineForeignAgents();
+    linkMock.mockImplementationOnce(async (_tmp: string, to: string) => {
+      await writeFile(to, 'USER WROTE THIS', 'utf-8');
+      throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+    });
+
+    const result = await service.restoreQuarantinedAgent(ws, 'video-director');
+
+    expect(result.outcome).toBe('conflict');
+    expect(await readFile(dest, 'utf-8')).toBe('USER WROTE THIS');
+    expect(await sourceDirLeftovers()).toEqual([]);
+  });
+
+  it('refuses a slug that is not in the quarantine record', async () => {
+    await quarantineForeignAgents();
+
+    const kept = await service.restoreQuarantinedAgent(ws, 'figma-designer');
+    const unknown = await service.restoreQuarantinedAgent(ws, 'nobody');
+
+    expect(kept.outcome).toBe('not-quarantined');
+    expect(unknown.outcome).toBe('not-quarantined');
+    expect(await exists(join(sourceDir, 'figma-designer.md'))).toBe(false);
+    expect(await exists(join(sourceDir, 'nobody.md'))).toBe(false);
+  });
+
+  it('refuses a relative workspace root rather than resolving it against cwd', async () => {
+    await expect(
+      service.restoreQuarantinedAgent('relative/ws', 'video-director'),
+    ).rejects.toThrow('absolute workspace root');
+    await expect(service.listQuarantinedAgents('')).rejects.toThrow(
+      'absolute workspace root',
+    );
+  });
 });

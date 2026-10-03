@@ -1,6 +1,6 @@
 import { injectable, inject } from 'tsyringe';
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { join, basename, isAbsolute } from 'path';
 import { mkdir, readdir, stat } from 'fs/promises';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import {
@@ -35,11 +35,22 @@ import {
   UserLayerSeedQuarantine,
   readAgentSourceListing,
 } from './user-layer-seed-quarantine';
-import type { AgentSourceListing } from './user-layer-seed-quarantine';
+import type {
+  AgentSourceListing,
+  QuarantinedAgentsListing,
+  QuarantineRestoreResult,
+} from './user-layer-seed-quarantine';
 
 const ORIGIN_SIDECAR_SUFFIX = '.ptah-origin.json';
 
 export type { UserLayerRoots } from './origin-sidecar.types';
+export type {
+  QuarantinedAgentItem,
+  QuarantinedAgentState,
+  QuarantinedAgentsListing,
+  QuarantineRestoreOutcome,
+  QuarantineRestoreResult,
+} from './user-layer-seed-quarantine';
 export type {
   OrphanedClone,
   ReapResult,
@@ -372,6 +383,54 @@ export class UserLayerMirrorService {
       ...result,
     });
     return result;
+  }
+
+  /**
+   * The agents the one-time seed quarantine moved out of this workspace's
+   * scoped root, with their derived state. `workspaceRoot` is the root the
+   * mirror pass keys the scoped agents dir by (the harness-resolved root), and
+   * its `.claude/agents` is the source a Restore writes into. Read-only.
+   */
+  async listQuarantinedAgents(
+    workspaceRoot: string,
+  ): Promise<QuarantinedAgentsListing> {
+    return this.seedQuarantine.listQuarantined(
+      this.quarantineLocation(workspaceRoot),
+    );
+  }
+
+  /**
+   * Restore one quarantined agent as the workspace source file
+   * `{workspaceRoot}/.claude/agents/<slug>.md`, from its quarantine snapshot,
+   * under the same agent slug lock every other agent write takes. Never
+   * overwrites, never deletes, never changes agent-sync consent.
+   */
+  async restoreQuarantinedAgent(
+    workspaceRoot: string,
+    slug: string,
+  ): Promise<QuarantineRestoreResult> {
+    return this.seedQuarantine.restore({
+      ...this.quarantineLocation(workspaceRoot),
+      slug,
+      withSlugLock: (lockSlug, fn) => this.withSlugLock('agent', lockSlug, fn),
+    });
+  }
+
+  private quarantineLocation(workspaceRoot: string): {
+    scopedAgentsRoot: string;
+    agentSourceDir: string;
+  } {
+    // A relative root would resolve the restore destination against the
+    // process cwd, and an empty one would address the unscoped flat base.
+    if (!isAbsolute(workspaceRoot)) {
+      throw new Error(
+        `[UserLayerMirror] quarantine needs an absolute workspace root: ${JSON.stringify(workspaceRoot)}`,
+      );
+    }
+    return {
+      scopedAgentsRoot: this.getUserLayerRoots(workspaceRoot).agents,
+      agentSourceDir: join(workspaceRoot, '.claude', 'agents'),
+    };
   }
 
   async listClones(workspaceRoot?: string): Promise<CloneEntry[]> {
