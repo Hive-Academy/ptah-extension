@@ -50,6 +50,10 @@ import type {
   HarnessDesiredMcpServer,
   HarnessDesiredState,
 } from '../manifest/desired-state.types';
+import {
+  desiredAgentModel,
+  desiredAgentSourceHash,
+} from '../manifest/harness-manifest.builder';
 import { errorCode } from '../fs/windows-retry';
 import {
   entrySourceHash,
@@ -168,7 +172,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     const ownership = this.ownershipOracle(workspaceRoot, baseEntries);
     const desiredEntries = this.desiredEntries(desired);
 
-    const writes: HarnessPlanWrite[] = [];
+    const writes: AgentModelPlanWrite[] = [];
     const foreign: string[] = [];
     const blocked: string[] = [];
     const unchangedAgents: string[] = [];
@@ -217,6 +221,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         isDirectory: entry.isDirectory,
         reason: outcome.reason,
         overwritesLocalEdit: outcome.overwritesLocalEdit,
+        ...(entry.model === undefined ? {} : { model: entry.model }),
       });
     }
 
@@ -383,19 +388,22 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     const transformer = this.options.agentTransformer;
     if (transformer !== undefined) {
       for (const agent of desired.agents) {
+        const model = desiredAgentModel(agent, this.id);
         const rendered = this.renderAgent(
           transformer,
           agent.slug,
           agent.sourceFile,
+          model,
         );
         if (rendered === null) continue;
         entries.set(transformer.relPathFor(agent.slug), {
           kind: 'agent',
           source: agent.sourceFile,
-          sourceHash: agent.contentHash,
+          sourceHash: desiredAgentSourceHash(agent, this.id),
           outputHash: hashContent(rendered),
           isDirectory: false,
           transformed: true,
+          ...(model === undefined ? {} : { model }),
         });
       }
     }
@@ -408,11 +416,13 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     transformer: IHarnessAgentTransformer,
     agentId: string,
     sourceFile: string,
+    model: string | undefined,
   ): string | null {
     try {
       return transformer.transform({
         agentId,
         content: readFileSync(sourceFile, 'utf-8'),
+        ...(model === undefined ? {} : { model }),
       });
     } catch {
       return null;
@@ -1021,9 +1031,14 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       if (transformer === undefined) {
         throw new Error(`Target "${this.id}" has no agent transformer`);
       }
+      const model =
+        'model' in write && typeof write.model === 'string'
+          ? write.model
+          : undefined;
       const content = transformer.transform({
         agentId: basenameWithoutSuffix(write.relPath, transformer),
         content: readFileSync(write.source, 'utf-8'),
+        ...(model === undefined ? {} : { model }),
       });
       await withWindowsRetry(() =>
         mkdir(dirname(absolute), { recursive: true }),
@@ -1067,7 +1082,15 @@ interface DesiredEntry {
   outputHash: string;
   isDirectory: boolean;
   transformed: boolean;
+  /** Agents only: the model the copy carries. Absent writes no model field. */
+  model?: string;
 }
+
+/**
+ * A plan write that also carries the agent model, so `apply` renders the same
+ * bytes `plan` hashed. Only this target creates and reads the field.
+ */
+type AgentModelPlanWrite = HarnessPlanWrite & { model?: string };
 
 interface OwnershipOracle {
   entryFor(relPath: string): ManagedEntries[string] | undefined;
@@ -1185,7 +1208,12 @@ async function snapshotBeforeOverwrite(
   if (actual === null) {
     throw new Error(`${write.relPath} is not readable`);
   }
-  await snapshotLocalEdit(workspaceRoot, write.relPath, write.isDirectory, actual);
+  await snapshotLocalEdit(
+    workspaceRoot,
+    write.relPath,
+    write.isDirectory,
+    actual,
+  );
   return true;
 }
 
