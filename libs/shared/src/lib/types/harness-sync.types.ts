@@ -170,6 +170,28 @@ export interface HarnessTargetHealth {
    * of this type must keep compiling.
    */
   adopted?: string[];
+  /**
+   * Manifest-owned paths, of any facet, whose on-disk copy no longer matches
+   * what Ptah wrote — a hand edit. On a read-only report these are what a
+   * repair WOULD overwrite; on a `full` report they are what this pass found
+   * edited, whether or not the overwrite then landed (see
+   * {@link overwrittenLocalEdit} for the ones that did). Every overwrite saves
+   * the edited copy to `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>`
+   * first (TASK_2026_609).
+   *
+   * Optional for the same reason as {@link adopted}.
+   */
+  localEdit?: string[];
+  /**
+   * Agent copies (workspace-relative paths, as {@link harnessAgentRelPath}
+   * builds them) that are on disk with exactly the content Ptah would write:
+   * unchanged this pass, or written successfully by it. A disabled agent is
+   * never listed, because it is not desired. This is the only evidence a UI may
+   * read as "in sync" for one agent on one target.
+   *
+   * Optional for the same reason as {@link adopted}.
+   */
+  agentsInSync?: string[];
   durationMs: number;
 }
 
@@ -376,6 +398,59 @@ export function blockedTargetPaths(target: HarnessTargetHealth): string[] {
     blocked.push(relPath);
   }
   return blocked;
+}
+
+// ---------------------------------------------------------------------------
+// Per-agent copy paths (TASK_2026_609)
+// ---------------------------------------------------------------------------
+
+/**
+ * Targets an agent card shows a sync chip for, in display order.
+ *
+ * Every CLI surface, including the ones that cannot carry agents: Claude reads
+ * its agents from the source directory itself (`source-managed`) and
+ * Antigravity documents no subagent format (`unsupported`), and a chip that
+ * says so answers "why is it not there" without a second surface. `vscode` is
+ * left out because it has no agent concept at all.
+ */
+export const HARNESS_AGENT_CHIP_TARGETS = [
+  'claude',
+  'codex',
+  'copilot',
+  'cursor',
+  'opencode',
+  'antigravity',
+] as const satisfies readonly HarnessTargetId[];
+
+/**
+ * Workspace-relative POSIX path of the copy one target writes for one agent, or
+ * `null` when the target writes no agent copy (Claude, whose agents directory
+ * is the source; Antigravity and VS Code, which carry none).
+ *
+ * The backend transformers (`harness-sync/.../transformers/*-agent-transformer.ts`,
+ * `relPathFor`) are the producers; this is the same rule restated where the
+ * webview can read it, and `agent-rel-path.guard.spec.ts` fails the moment the
+ * two disagree. Matching {@link HarnessTargetHealth.agentsInSync} against it is
+ * how a card decides whether one agent is in sync on one target.
+ */
+export function harnessAgentRelPath(
+  target: HarnessTargetId,
+  slug: string,
+): string | null {
+  switch (target) {
+    case 'codex':
+      return `.codex/agents/${slug}.toml`;
+    case 'copilot':
+      return `.github/agents/${slug}.agent.md`;
+    case 'cursor':
+      return `.cursor/agents/${slug}.md`;
+    case 'opencode':
+      return `.opencode/agent/${slug}.md`;
+    case 'claude':
+    case 'antigravity':
+    case 'vscode':
+      return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -74,6 +74,8 @@ export function plannedTargetHealth(
     overwrittenLocalEdit: [],
     removed: [],
     adopted: [...plan.adopted],
+    localEdit: localEditPaths(plan),
+    agentsInSync: [...(plan.unchangedAgents ?? [])],
     durationMs,
   };
 }
@@ -116,8 +118,29 @@ export function appliedTargetHealth(
     removed: [...result.removed],
     removedLocalEdit: [...(result.removedLocalEdit ?? [])],
     adopted: [...plan.adopted],
+    localEdit: localEditPaths(plan),
+    agentsInSync: [
+      ...(plan.unchangedAgents ?? []),
+      ...Object.entries(result.written)
+        .filter(([, entry]) => entry.kind === 'agent')
+        .map(([relPath]) => relPath),
+    ],
     durationMs,
   };
+}
+
+/**
+ * Owned copies the plan found hand-edited, across every facet (TASK_2026_609).
+ *
+ * Read off the plan rather than the apply result so a read-only verify and the
+ * reconcile that follows it name the same paths: these are what a repair
+ * overwrites (after saving each one), and a user deciding whether to run it
+ * needs the list before anything is touched.
+ */
+function localEditPaths(plan: HarnessPlan): string[] {
+  return plan.writes
+    .filter((write) => write.overwritesLocalEdit)
+    .map((write) => write.relPath);
 }
 
 /**

@@ -145,6 +145,15 @@ export interface HarnessPlan {
   baseEntries: ManagedEntries;
   /** Desired entries already correct on disk. */
   unchanged: number;
+  /**
+   * The `kind: 'agent'` subset of {@link unchanged}, as workspace-relative
+   * paths. Feeds `agentsInSync` in health (TASK_2026_609).
+   *
+   * Optional because only `WorkspaceHarnessTarget` writes agent copies; the
+   * Claude target's agents directory is the source itself, and every other
+   * producer of this type keeps compiling unchanged.
+   */
+  unchangedAgents?: string[];
   /** Total desired entries this target is responsible for. */
   expected: number;
 }

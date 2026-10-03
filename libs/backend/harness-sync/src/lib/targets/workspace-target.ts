@@ -171,6 +171,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     const writes: HarnessPlanWrite[] = [];
     const foreign: string[] = [];
     const blocked: string[] = [];
+    const unchangedAgents: string[] = [];
     let unchanged = 0;
 
     for (const [relPath, entry] of desiredEntries) {
@@ -203,6 +204,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
           entry.sourceHash,
         );
         unchanged++;
+        if (entry.kind === 'agent') unchangedAgents.push(relPath);
         continue;
       }
       if (outcome.adopted) adopted.push(relPath);
@@ -233,6 +235,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
       adopted,
       baseEntries,
       unchanged: unchanged + mcpPlan.unchanged,
+      unchangedAgents,
       expected: desiredEntries.size + mcpPlan.expected,
     };
   }
@@ -955,12 +958,29 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     }
   }
 
+  /**
+   * Write one artifact. A hand-edited copy is saved first (TASK_2026_609): if
+   * the save fails nothing is written, the edit stays on disk byte-unchanged,
+   * and the path lands in `writeFailed` for the next pass to retry.
+   */
   private async applyWrite(
     write: HarnessPlanWrite,
     workspaceRoot: string,
     result: HarnessApplyResult,
   ): Promise<void> {
     const absolute = toAbsolute(workspaceRoot, write.relPath);
+    let editSaved = false;
+    if (write.overwritesLocalEdit) {
+      try {
+        editSaved = await snapshotBeforeOverwrite(workspaceRoot, write);
+      } catch (error: unknown) {
+        result.writeFailed.push({
+          relPath: write.relPath,
+          reason: `could not save local edit before overwrite: ${describeError(error)}`,
+        });
+        return;
+      }
+    }
     try {
       const outputHash = await this.writeArtifact(write, absolute);
       // Recorded ONLY after the write succeeded: a manifest entry for a file
@@ -971,9 +991,7 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
         write.kind,
         write.sourceHash,
       );
-      if (write.overwritesLocalEdit) {
-        result.overwrittenLocalEdit.push(write.relPath);
-      }
+      if (editSaved) result.overwrittenLocalEdit.push(write.relPath);
     } catch (error: unknown) {
       result.writeFailed.push({
         relPath: write.relPath,
@@ -1108,7 +1126,7 @@ function hashArtifact(
  * `<ts>` is created with a NON-recursive `mkdir`, so a directory that already
  * exists is never reused or overwritten: EEXIST moves on to `<ts>-1`, `<ts>-2`.
  * The snapshot counts only when it re-hashes to `expectedHash`, the hash of
- * the copy about to be removed. Throws on any failure.
+ * the copy about to be removed or overwritten. Throws on any failure.
  */
 async function snapshotLocalEdit(
   workspaceRoot: string,
@@ -1144,6 +1162,31 @@ async function snapshotLocalEdit(
       `snapshot at ${destination} does not match the copy on disk`,
     );
   }
+}
+
+/**
+ * Save the hand-edited copy a write is about to replace. `true` once a verified
+ * snapshot exists; `false` when the path vanished after the plan, so there is
+ * no edit left to save or to report overwritten. Throws when the copy exists
+ * but cannot be saved — including a path that became a link, which is never
+ * followed.
+ */
+async function snapshotBeforeOverwrite(
+  workspaceRoot: string,
+  write: HarnessPlanWrite,
+): Promise<boolean> {
+  const absolute = toAbsolute(workspaceRoot, write.relPath);
+  const stat = lstatSyncOrNull(absolute);
+  if (stat === null) return false;
+  if (stat.isSymbolicLink()) {
+    throw new Error(`${write.relPath} is a symbolic link`);
+  }
+  const actual = await hashArtifact(absolute, write.isDirectory);
+  if (actual === null) {
+    throw new Error(`${write.relPath} is not readable`);
+  }
+  await snapshotLocalEdit(workspaceRoot, write.relPath, write.isDirectory, actual);
+  return true;
 }
 
 /** `.codex/agents/a2.toml` -> `a2`; skill dir `.agents/skills/foo` -> `foo`. */
