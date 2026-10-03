@@ -52,7 +52,7 @@ export function collectJsonlFiles(
     }
   };
   walk(root);
-  return files.sort();
+  return files.sort((a, b) => a.localeCompare(b));
 }
 
 export interface JsonlContent {
