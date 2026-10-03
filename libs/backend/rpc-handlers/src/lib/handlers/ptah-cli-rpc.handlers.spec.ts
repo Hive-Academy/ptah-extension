@@ -601,14 +601,7 @@ describe('PtahCliRpcHandlers', () => {
     const leakyError = () =>
       new Error(`write ${FAKE_PATH} failed for key ${FAKE_KEY}`);
 
-    it.each<
-      [
-        string,
-        (h: Harness) => void,
-        Record<string, unknown>,
-        string,
-      ]
-    >([
+    it.each<[string, (h: Harness) => void, Record<string, unknown>, string]>([
       [
         'ptahCli:create',
         (h) => h.registry.createAgent.mockRejectedValue(leakyError()),
@@ -639,27 +632,110 @@ describe('PtahCliRpcHandlers', () => {
         { id: 'a1' },
         'Could not load the model list.',
       ],
-    ])('%s returns fixed text and no key or path', async (method, arrange, params, fixed) => {
-      const h = makeHarness();
-      arrange(h);
-      h.handlers.register();
+    ])(
+      '%s returns fixed text and no key or path',
+      async (method, arrange, params, fixed) => {
+        const h = makeHarness();
+        arrange(h);
+        h.handlers.register();
 
-      const response = await h.rpcHandler.handleMessage({
-        method,
-        params,
-        correlationId: 'corr-leak',
-      });
+        const response = await h.rpcHandler.handleMessage({
+          method,
+          params,
+          correlationId: 'corr-leak',
+        });
 
-      const serialized = JSON.stringify(response);
-      expect(serialized).not.toContain(FAKE_KEY);
-      expect(serialized).not.toContain('someone');
-      expect(serialized).not.toContain('settings.json');
-      expect((response.data as { error?: string }).error).toBe(fixed);
-      // The error object still reaches Sentry for diagnosis.
-      expect(h.sentry.captureException).toHaveBeenCalledWith(
-        expect.objectContaining({ message: expect.stringContaining('failed') }),
-        expect.anything(),
+        const serialized = JSON.stringify(response);
+        expect(serialized).not.toContain(FAKE_KEY);
+        expect(serialized).not.toContain('someone');
+        expect(serialized).not.toContain('settings.json');
+        expect((response.data as { error?: string }).error).toBe(fixed);
+        // Sentry still gets a capture for diagnosis, by error type only.
+        expect(h.sentry.captureException).toHaveBeenCalledWith(
+          expect.objectContaining({ message: `${method} failed (Error)` }),
+          expect.anything(),
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Final review S-1: the thrown text never reaches the log or Sentry
+  // -------------------------------------------------------------------------
+
+  describe('a thrown error carrying the key never reaches the logger or Sentry (final review S-1)', () => {
+    const FAKE_KEY = 'sk-test-FAKEKEY123';
+    const leakyError = () =>
+      new Error(`registry rejected request with key ${FAKE_KEY}`);
+
+    /** Every logger call and Sentry capture, Error messages and stacks included. */
+    function diagnostics(h: Harness): string {
+      const calls: unknown[] = [
+        ...h.logger.debug.mock.calls,
+        ...h.logger.info.mock.calls,
+        ...h.logger.warn.mock.calls,
+        ...h.logger.error.mock.calls,
+        ...h.sentry.captureException.mock.calls,
+      ];
+      return JSON.stringify(calls, (_key, value: unknown) =>
+        value instanceof Error
+          ? { name: value.name, message: value.message, stack: value.stack }
+          : value,
       );
-    });
+    }
+
+    it.each<[string, (h: Harness) => void, Record<string, unknown>]>([
+      [
+        'ptahCli:list',
+        (h) => h.registry.listAgents.mockRejectedValue(leakyError()),
+        {},
+      ],
+      [
+        'ptahCli:create',
+        (h) => h.registry.createAgent.mockRejectedValue(leakyError()),
+        { name: 'A', providerId: 'z-ai', apiKey: FAKE_KEY },
+      ],
+      [
+        'ptahCli:update',
+        (h) => h.registry.updateAgent.mockRejectedValue(leakyError()),
+        { id: 'a1', apiKey: FAKE_KEY },
+      ],
+      [
+        'ptahCli:delete',
+        (h) => h.registry.deleteAgent.mockRejectedValue(leakyError()),
+        { id: 'a1' },
+      ],
+      [
+        'ptahCli:testConnection',
+        (h) => h.registry.testConnection.mockRejectedValue(leakyError()),
+        { id: 'a1' },
+      ],
+      [
+        'ptahCli:listModels',
+        (h) => h.registry.listAgents.mockRejectedValue(leakyError()),
+        { id: 'a1' },
+      ],
+    ])(
+      '%s logs and captures the error type only',
+      async (method, arrange, params) => {
+        const h = makeHarness();
+        arrange(h);
+        h.handlers.register();
+
+        await h.rpcHandler.handleMessage({
+          method,
+          params,
+          correlationId: 'corr-s1',
+        });
+
+        const text = diagnostics(h);
+        expect(text).not.toContain(FAKE_KEY);
+        expect(text).not.toContain('registry rejected');
+        expect(h.logger.error).toHaveBeenCalledWith(`RPC: ${method} failed`, {
+          errorType: 'Error',
+        });
+        expect(h.sentry.captureException).toHaveBeenCalledTimes(1);
+      },
+    );
   });
 });

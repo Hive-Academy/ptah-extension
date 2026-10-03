@@ -268,7 +268,9 @@ describe('AuthRpcHandlers — auth:deleteStoredKey', () => {
     });
 
     expect(response.success).toBe(true);
-    expect(response.data).toEqual({ success: true } as AuthDeleteStoredKeyResult);
+    expect(response.data).toEqual({
+      success: true,
+    } as AuthDeleteStoredKeyResult);
     expect(h.authSecrets.setCredential).toHaveBeenCalledWith('apiKey', '');
     expect(h.authSecrets.deleteProviderKey).not.toHaveBeenCalled();
   });
@@ -286,7 +288,9 @@ describe('AuthRpcHandlers — auth:deleteStoredKey', () => {
     });
 
     expect(response.success).toBe(true);
-    expect(response.data).toEqual({ success: true } as AuthDeleteStoredKeyResult);
+    expect(response.data).toEqual({
+      success: true,
+    } as AuthDeleteStoredKeyResult);
     expect(h.authSecrets.deleteProviderKey).toHaveBeenCalledWith('openrouter');
     expect(h.authSecrets.setCredential).not.toHaveBeenCalled();
   });
@@ -297,7 +301,9 @@ describe('AuthRpcHandlers — auth:deleteStoredKey', () => {
 
     const response = await h.rpcHandler.handleMessage({
       method: 'auth:deleteStoredKey',
-      params: { providerId: 'unknown-fake-provider' } as AuthDeleteStoredKeyParams,
+      params: {
+        providerId: 'unknown-fake-provider',
+      } as AuthDeleteStoredKeyParams,
       correlationId: 'del-unknown-1',
     });
 
@@ -386,6 +392,83 @@ describe('AuthRpcHandlers — auth:deleteStoredKey', () => {
     } as AuthDeleteStoredKeyResult);
   });
 
+  describe('error text carrying a key never reaches the logger or Sentry (batch 55a follow-up)', () => {
+    const fakeKey = 'sk-or-FAKE-delete-key-123456';
+
+    function diagnostics(h: ReturnType<typeof makeHarness>): string {
+      return JSON.stringify(
+        [
+          ...h.logger.debug.mock.calls,
+          ...h.logger.info.mock.calls,
+          ...h.logger.warn.mock.calls,
+          ...h.logger.error.mock.calls,
+          ...h.sentry.captureException.mock.calls,
+        ],
+        (_key, value: unknown) =>
+          value instanceof Error
+            ? { message: value.message, stack: value.stack }
+            : value,
+      );
+    }
+
+    it('a secret-store rejection is logged with fixed text and not sent to Sentry', async () => {
+      const h = makeHarness();
+      h.authSecrets.deleteProviderKey.mockRejectedValueOnce(
+        new Error(`could not delete secret "${fakeKey}" from the store`),
+      );
+      h.handlers.register();
+
+      const response = await h.rpcHandler.handleMessage({
+        method: 'auth:deleteStoredKey',
+        params: { providerId: 'openrouter' } as AuthDeleteStoredKeyParams,
+        correlationId: 'del-reject-3',
+      });
+
+      expect(response.data).toEqual({
+        success: false,
+        error: 'Could not delete the stored key.',
+      } as AuthDeleteStoredKeyResult);
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: auth:deleteStoredKey secret deletion failed',
+      );
+      expect(diagnostics(h)).not.toContain(fakeKey);
+      expect(diagnostics(h)).not.toContain('could not delete secret');
+    });
+
+    it('any other unexpected throw is logged and captured by error type only', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      // The handler's first statement; stands in for any unexpected throw.
+      h.logger.debug.mockImplementationOnce(() => {
+        throw new Error(`unexpected failure near ${fakeKey}`);
+      });
+
+      const response = await h.rpcHandler.handleMessage({
+        method: 'auth:deleteStoredKey',
+        params: { providerId: 'openrouter' } as AuthDeleteStoredKeyParams,
+        correlationId: 'del-reject-4',
+      });
+
+      expect(response.data).toEqual({
+        success: false,
+        error: 'Could not delete the stored key.',
+      } as AuthDeleteStoredKeyResult);
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: auth:deleteStoredKey failed',
+        { errorType: 'Error' },
+      );
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'auth:deleteStoredKey failed (Error)',
+        }),
+        { errorSource: 'AuthRpcHandlers.registerDeleteStoredKey' },
+      );
+      // The thrown Error sits in the mock's results, not its calls.
+      expect(diagnostics(h)).not.toContain(fakeKey);
+      expect(diagnostics(h)).not.toContain('unexpected failure');
+    });
+  });
+
   it('clears provider models cache and invalidates auth status cache', async () => {
     const h = makeHarness();
     h.handlers.register();
@@ -415,7 +498,9 @@ describe('AuthRpcHandlers — auth:deleteStoredKey', () => {
     });
 
     expect(response.success).toBe(true);
-    expect(response.data).toEqual({ success: true } as AuthDeleteStoredKeyResult);
+    expect(response.data).toEqual({
+      success: true,
+    } as AuthDeleteStoredKeyResult);
     expect(h.authSecrets.deleteProviderKey).toHaveBeenCalledWith('openrouter');
     expect(h.logger.warn).toHaveBeenCalledWith(
       'RPC: auth:deleteStoredKey cache invalidation failed',
@@ -433,6 +518,8 @@ describe('AuthRpcHandlers — auth:deleteStoredKey', () => {
     });
 
     expect(response.success).toBe(true);
-    expect(response.data).toEqual({ success: true } as AuthDeleteStoredKeyResult);
+    expect(response.data).toEqual({
+      success: true,
+    } as AuthDeleteStoredKeyResult);
   });
 });

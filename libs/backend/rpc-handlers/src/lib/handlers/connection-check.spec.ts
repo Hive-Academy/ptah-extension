@@ -328,6 +328,74 @@ describe('ConnectionChecker — key-carrying connections', () => {
     expect(verify).toHaveBeenCalledTimes(2);
   });
 
+  it('a check started after the key was replaced does not join the old check and records its own result (final review M-1)', async () => {
+    const releases: Array<() => void> = [];
+    const verify = jest.fn(
+      () =>
+        new Promise<AuthVerifyDraftConnectionResult>((resolve) => {
+          const latencyMs = 100 + releases.length;
+          releases.push(() => resolve(draftResult({ latencyMs })));
+        }),
+    );
+    const { checker, recorder } = makeChecker({ verify });
+
+    const oldKeyCheck = checker.check('moonshot', 'apiKey');
+    recorder.clear('moonshot'); // the key was replaced while the check ran
+    const newKeyCheck = checker.check('moonshot', 'apiKey');
+
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect(newKeyCheck).not.toBe(oldKeyCheck);
+
+    releases[1]();
+    const fresh = await newKeyCheck;
+    releases[0]();
+    await oldKeyCheck;
+
+    expect(fresh.latencyMs).toBe(101);
+    // The old-key result finished last but is not recorded.
+    expect(recorder.get('moonshot')).toBe(fresh);
+
+    // A caller that arrives while the new check runs still joins it.
+    const joined = [checker.check('moonshot', 'apiKey')];
+    joined.push(checker.check('moonshot', 'apiKey'));
+    expect(joined[0]).toBe(joined[1]);
+    releases[2]();
+    await Promise.all(joined);
+    expect(verify).toHaveBeenCalledTimes(3);
+  });
+
+  it('a check started after the key was deleted records a fresh result, not the pre-delete verdict', async () => {
+    let releaseOld!: () => void;
+    const verify = jest
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<AuthVerifyDraftConnectionResult>((resolve) => {
+            releaseOld = () => resolve(draftResult({}));
+          }),
+      )
+      .mockImplementationOnce(async () =>
+        draftResult({
+          outcome: 'failed',
+          reason: 'no-stored-credential',
+          latencyMs: null,
+        }),
+      );
+    const { checker, recorder } = makeChecker({ verify });
+
+    const before = checker.check('moonshot', 'apiKey');
+    recorder.clear('moonshot');
+    const after = await checker.check('moonshot', 'apiKey');
+    releaseOld();
+    await before;
+
+    expect(after).toMatchObject({
+      status: 'failed',
+      reason: 'no-stored-credential',
+    });
+    expect(recorder.get('moonshot')).toBe(after);
+  });
+
   it('different connections are checked independently', async () => {
     const { checker, verify } = makeChecker();
     await Promise.all([

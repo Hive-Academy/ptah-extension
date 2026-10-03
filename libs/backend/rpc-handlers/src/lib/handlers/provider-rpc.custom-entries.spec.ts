@@ -71,8 +71,13 @@ interface Suite {
   recorder: ConnectionCheckRecorder;
 }
 
-function buildSuite(): Suite {
+function buildSuite(activeProviderId = 'anthropic'): Suite {
   const logger = createMockLogger();
+  const configManager = {
+    getWithDefault: jest.fn((key: string, fallback: unknown) =>
+      key === 'anthropicProviderId' ? activeProviderId : fallback,
+    ),
+  };
   const rpc = createMockRpcHandler();
   const secrets = createMockAuthSecretsService();
 
@@ -101,7 +106,7 @@ function buildSuite(): Suite {
   const handlers = new ProviderRpcHandlers(
     logger as unknown as Logger,
     rpc as unknown as RpcHandler,
-    noop as unknown as ConfigManager,
+    configManager as unknown as ConfigManager,
     secrets,
     providerModels as never,
     noop,
@@ -441,6 +446,33 @@ describe('provider:removeCustomEntry', () => {
 
     expect(result).toEqual({ removed: false });
     expect(secrets.__dumpProviderKeys().has('ghost')).toBe(false);
+  });
+
+  it('refuses to remove the main agent current connection with CONNECTION_IN_USE and changes nothing (final review M-5)', async () => {
+    const { rpc, store, secrets, recorder } = buildSuite('my-gateway');
+    await secrets.setProviderKey('my-gateway', 'sk-existing');
+    recorder.complete(recorder.begin('my-gateway'), {
+      status: 'verified',
+      reason: null,
+      latencyMs: 90,
+      checkedAt: '2026-10-01T00:00:00.000Z',
+    });
+
+    const attempt = getHandler(
+      rpc,
+      'provider:removeCustomEntry',
+    )({ id: 'my-gateway' });
+
+    await expect(attempt).rejects.toMatchObject({
+      name: 'RpcUserError',
+      errorCode: 'CONNECTION_IN_USE',
+      message:
+        'This connection runs the main agent. Switch the main agent to another connection before removing it.',
+    });
+    expect(store.remove).not.toHaveBeenCalled();
+    expect(secrets.deleteProviderKey).not.toHaveBeenCalled();
+    expect(secrets.__dumpProviderKeys().has('my-gateway')).toBe(true);
+    expect(recorder.get('my-gateway')?.status).toBe('verified');
   });
 });
 

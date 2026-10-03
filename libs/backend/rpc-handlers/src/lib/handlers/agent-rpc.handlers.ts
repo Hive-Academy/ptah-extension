@@ -78,14 +78,18 @@ import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
  * Returns the first invalid field, or null.
  */
 function invalidReasoningEffort(params: AgentSetConfigParams): string | null {
-  const checks: ReadonlyArray<[keyof AgentSetConfigParams, readonly string[]]> = [
-    ['codexReasoningEffort', CLI_REASONING_EFFORT_VALUES],
-    ['copilotReasoningEffort', CLI_REASONING_EFFORT_VALUES],
-    ['piReasoningEffort', PI_REASONING_EFFORT_VALUES],
-  ];
+  const checks: ReadonlyArray<[keyof AgentSetConfigParams, readonly string[]]> =
+    [
+      ['codexReasoningEffort', CLI_REASONING_EFFORT_VALUES],
+      ['copilotReasoningEffort', CLI_REASONING_EFFORT_VALUES],
+      ['piReasoningEffort', PI_REASONING_EFFORT_VALUES],
+    ];
   for (const [field, allowed] of checks) {
     const value = params[field];
-    if (value !== undefined && (typeof value !== 'string' || !allowed.includes(value))) {
+    if (
+      value !== undefined &&
+      (typeof value !== 'string' || !allowed.includes(value))
+    ) {
       return field;
     }
   }
@@ -323,24 +327,10 @@ export class AgentRpcHandlers {
           await this.setAgentCfg('piModel', params.piModel);
         }
         if (params.cursorApiKey !== undefined) {
-          const value = params.cursorApiKey.trim();
-          try {
-            if (value) {
-              await this.authSecrets.setProviderKey('cursor', value);
-            } else {
-              await this.authSecrets.deleteProviderKey('cursor');
-            }
-          } catch {
-            // Secret-store errors can carry credentials; discard their details.
-            this.logger.error('RPC: agent:setConfig Cursor API key update failed');
-            return { success: false, error: 'Failed to update the Cursor API key' };
-          }
-          await this.workspace.setConfiguration(
-            'ptah',
-            'provider.cursor.apiKey',
-            undefined,
+          const failure = await this.writeCursorApiKey(
+            params.cursorApiKey.trim(),
           );
-          this.cliDetection.invalidateCache();
+          if (failure) return { success: false, error: failure };
         }
         if (params.copilotAutoApprove !== undefined) {
           await this.setAgentCfg(
@@ -402,12 +392,12 @@ export class AgentRpcHandlers {
         this.logger.debug('RPC: agent:setConfig success');
         return { success: true };
       } catch (error: unknown) {
-        this.logger.error(
-          'RPC: agent:setConfig failed',
-          error instanceof Error ? error : new Error(String(error)),
-        );
-        // Raw errors can carry paths or credentials, so the client gets fixed
-        // text. SettingsPersistError's message is fixed by construction.
+        // Raw errors can carry paths or credentials (params may hold
+        // cursorApiKey), so the log gets the error type and the client gets
+        // fixed text. SettingsPersistError's message is fixed by construction.
+        this.logger.error('RPC: agent:setConfig failed', {
+          errorType: error instanceof Error ? error.name : 'unknown',
+        });
         return {
           success: false,
           error:
@@ -417,6 +407,70 @@ export class AgentRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * Store (non-blank) or delete (blank) the Cursor key in the secret store
+   * and remove the legacy plain `provider.cursor.apiKey` copy. Returns fixed
+   * failure text, or `undefined` when the key is in the state the user asked
+   * for. Secret-store and settings errors can carry credentials, so only
+   * their type is logged.
+   *
+   * - Store: the secret is written first. Clearing the legacy copy afterwards
+   *   is best-effort: the stored key wins on every read, and the startup
+   *   migration clears a legacy copy that sits beside a stored key. A failed
+   *   clear therefore never reports "not saved" for a key that was saved.
+   * - Delete: the legacy copy is cleared FIRST. The startup migration would
+   *   re-import a legacy copy into an empty store, so if the clear fails the
+   *   stored key is left alone and the result says nothing was removed.
+   */
+  private async writeCursorApiKey(value: string): Promise<string | undefined> {
+    const clearLegacy = () =>
+      this.workspace.setConfiguration(
+        'ptah',
+        'provider.cursor.apiKey',
+        undefined,
+      );
+    const errorType = (error: unknown) =>
+      error instanceof Error ? error.name : 'unknown';
+
+    if (value) {
+      try {
+        await this.authSecrets.setProviderKey('cursor', value);
+      } catch {
+        // Secret-store errors can carry credentials; discard their details.
+        this.logger.error('RPC: agent:setConfig Cursor API key update failed');
+        return 'Failed to update the Cursor API key';
+      }
+      try {
+        await clearLegacy();
+      } catch (error: unknown) {
+        this.logger.warn(
+          'RPC: agent:setConfig Cursor key stored; legacy plain copy not cleared (cleared at next start)',
+          { errorType: errorType(error) },
+        );
+      }
+      this.cliDetection.invalidateCache();
+      return undefined;
+    }
+
+    try {
+      await clearLegacy();
+    } catch (error: unknown) {
+      this.logger.error(
+        'RPC: agent:setConfig Cursor key not removed; legacy plain copy could not be cleared',
+        { errorType: errorType(error) },
+      );
+      return 'Could not remove the Cursor API key.';
+    }
+    try {
+      await this.authSecrets.deleteProviderKey('cursor');
+    } catch {
+      this.logger.error('RPC: agent:setConfig Cursor API key update failed');
+      return 'Failed to update the Cursor API key';
+    }
+    this.cliDetection.invalidateCache();
+    return undefined;
   }
 
   private registerDetectClis(): void {

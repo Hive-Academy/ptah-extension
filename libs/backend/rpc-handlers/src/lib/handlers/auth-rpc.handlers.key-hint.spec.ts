@@ -286,9 +286,45 @@ describe('AuthRpcHandlers — auth:getApiKeyStatus keyHint', () => {
     expect(text).not.toContain('\u2022');
   });
 
-  it('a key-store read failure is a fixed error: no hint, no key text, no raw store message', async () => {
+  it('one unreadable key marks only its entry; the other providers still load (final review M-6)', async () => {
     const h = makeHarness({ providerKeysSeed: seeded });
-    h.authSecrets.getProviderKey.mockRejectedValueOnce(
+    const readKey = h.authSecrets.getProviderKey.getMockImplementation();
+    h.authSecrets.getProviderKey.mockImplementation(async (id: string) => {
+      if (id === 'moonshot') {
+        throw new Error(
+          `secrets.json decrypt failed near "${LONG_KEY}" at C:\\Users\\someone\\.ptah`,
+        );
+      }
+      return readKey ? readKey(id) : undefined;
+    });
+
+    const response = await rpc(h, 'auth:getApiKeyStatus');
+    const result = response.data as AuthGetApiKeyStatusResult;
+    const byId = new Map(result.providers.map((p) => [p.provider, p]));
+
+    expect(response.success).toBe(true);
+    expect(byId.get('moonshot')).toMatchObject({
+      hasApiKey: false,
+      keyUnreadable: true,
+    });
+    expect(byId.get('moonshot')).not.toHaveProperty('keyHint');
+    expect(byId.get('openrouter')).toMatchObject({ hasApiKey: true });
+    expect(byId.get('openrouter')).not.toHaveProperty('keyUnreadable');
+    expect(byId.get('z-ai')?.keyHint).toBe(
+      `${BULLETS} ${TWELVE_KEY.slice(-4)}`,
+    );
+    const serialised = JSON.stringify(response);
+    expect(serialised).not.toContain('decrypt');
+    expect(serialised).not.toContain('someone');
+    expectNoKeyMaterial(serialised, [LONG_KEY]);
+    const diagnostics = diagnosticsText(h);
+    expect(diagnostics).not.toContain('decrypt');
+    expectNoKeyMaterial(diagnostics, Object.values(seeded));
+  });
+
+  it('when no key can be read it is a fixed error: no hint, no key text, no raw store message', async () => {
+    const h = makeHarness({ providerKeysSeed: seeded });
+    h.authSecrets.getProviderKey.mockRejectedValue(
       new Error(
         `secrets.json decrypt failed near "${LONG_KEY}" at C:\\Users\\someone\\.ptah`,
       ),

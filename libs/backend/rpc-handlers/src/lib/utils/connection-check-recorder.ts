@@ -48,10 +48,18 @@ export class ConnectionCheckRecorder {
     ticket: ConnectionCheckTicket,
     record: ConnectionCheckRecord,
   ): boolean {
-    const current = this.records.get(ticket.providerId);
-    if (current && current.sequence > ticket.sequence) return false;
+    if (!this.isCurrent(ticket)) return false;
     this.records.set(ticket.providerId, { sequence: ticket.sequence, record });
     return true;
+  }
+
+  /**
+   * True while {@link complete} would still store this ticket's result: no
+   * later check and no {@link clear} has been recorded for the connection.
+   */
+  isCurrent(ticket: ConnectionCheckTicket): boolean {
+    const current = this.records.get(ticket.providerId);
+    return !current || current.sequence <= ticket.sequence;
   }
 
   /**

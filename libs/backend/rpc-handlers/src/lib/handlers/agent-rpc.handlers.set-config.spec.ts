@@ -234,33 +234,84 @@ describe('agent:setConfig Cursor secrets', () => {
     expect(h.authSecrets.deleteProviderKey).not.toHaveBeenCalled();
   });
 
-  it.each(['setProviderKey', 'deleteProviderKey'] as const)(
-    'keeps the plain copy and hides credential-bearing %s errors',
-    async (operation) => {
-      const h = makeHarness();
-      const key = 'cursor-sensitive-test-key';
-      h.settings.set('ptah.provider.cursor.apiKey', key);
-      h.authSecrets[operation].mockRejectedValue(new Error(key));
-      const result = await h.setConfig({
-        cursorApiKey: operation === 'setProviderKey' ? key : '',
-      });
-      expect(result).toEqual({
-        success: false,
-        error: 'Failed to update the Cursor API key',
-      });
-      expect(h.settings.get('ptah.provider.cursor.apiKey')).toBe(key);
-      expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
-      expect(h.logger.error).toHaveBeenCalledWith(
-        'RPC: agent:setConfig Cursor API key update failed',
-      );
-      for (const fn of Object.values(h.logger)) {
-        if (jest.isMockFunction(fn)) {
-          for (const call of fn.mock.calls)
-            expect(call.map(String).join(' ')).not.toContain(key);
-        }
+  it('keeps the plain copy and hides credential-bearing setProviderKey errors', async () => {
+    const h = makeHarness();
+    const key = 'cursor-sensitive-test-key';
+    h.settings.set('ptah.provider.cursor.apiKey', key);
+    h.authSecrets.setProviderKey.mockRejectedValue(new Error(key));
+    const result = await h.setConfig({ cursorApiKey: key });
+    expect(result).toEqual({
+      success: false,
+      error: 'Failed to update the Cursor API key',
+    });
+    expect(h.settings.get('ptah.provider.cursor.apiKey')).toBe(key);
+    expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: agent:setConfig Cursor API key update failed',
+    );
+    expect(JSON.stringify(h.logger.error.mock.calls)).not.toContain(key);
+  });
+
+  it('a delete clears the plain copy first, then hides a credential-bearing deleteProviderKey error', async () => {
+    const h = makeHarness();
+    const key = 'cursor-sensitive-test-key';
+    h.settings.set('ptah.provider.cursor.apiKey', key);
+    h.authSecrets.deleteProviderKey.mockRejectedValue(new Error(key));
+    const result = await h.setConfig({ cursorApiKey: '' });
+    expect(result).toEqual({
+      success: false,
+      error: 'Failed to update the Cursor API key',
+    });
+    // The plain copy is gone, so the startup migration cannot re-import it.
+    expect(h.settings.has('ptah.provider.cursor.apiKey')).toBe(false);
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: agent:setConfig Cursor API key update failed',
+    );
+    expect(JSON.stringify(h.logger.error.mock.calls)).not.toContain(key);
+  });
+
+  it('a stored key is reported saved even when the legacy plain copy cannot be cleared (final review M-3)', async () => {
+    const h = makeHarness();
+    const key = 'cursor-new-test-key-9876';
+    h.settings.set('ptah.provider.cursor.apiKey', 'legacy-key');
+    h.workspace.setConfiguration.mockImplementation(async (_s, k) => {
+      if (k === 'provider.cursor.apiKey') {
+        throw new SettingsPersistError('EACCES');
       }
-    },
-  );
+    });
+    const result = await h.setConfig({
+      cursorApiKey: key,
+      workflowsDisabled: true,
+    });
+    expect(result).toEqual({ success: true });
+    expect(h.authSecrets.setProviderKey).toHaveBeenCalledWith('cursor', key);
+    // Fields after the Cursor key in the same request still run.
+    expect(h.workspace.setConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'workflows.disabled',
+      true,
+    );
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'RPC: agent:setConfig Cursor key stored; legacy plain copy not cleared (cleared at next start)',
+      { errorType: 'SettingsPersistError' },
+    );
+    expect(JSON.stringify(h.logger.warn.mock.calls)).not.toContain(key);
+  });
+
+  it('a delete whose legacy plain copy cannot be cleared removes nothing and says so (final review M-3)', async () => {
+    const h = makeHarness();
+    h.workspace.setConfiguration.mockImplementation(async (_s, k) => {
+      if (k === 'provider.cursor.apiKey') {
+        throw new SettingsPersistError('EACCES');
+      }
+    });
+    const result = await h.setConfig({ cursorApiKey: '' });
+    expect(result).toEqual({
+      success: false,
+      error: 'Could not remove the Cursor API key.',
+    });
+    expect(h.authSecrets.deleteProviderKey).not.toHaveBeenCalled();
+  });
 
   it('reports unrelated field errors with fixed text in a request that also updates the Cursor key', async () => {
     const h = makeHarness();
@@ -285,10 +336,9 @@ describe('agent:setConfig Cursor secrets', () => {
       success: false,
       error: 'Could not save the orchestration settings.',
     });
-    expect(h.logger.error).toHaveBeenCalledWith(
-      'RPC: agent:setConfig failed',
-      error,
-    );
+    expect(h.logger.error).toHaveBeenCalledWith('RPC: agent:setConfig failed', {
+      errorType: 'Error',
+    });
   });
 });
 
@@ -307,10 +357,38 @@ describe('agent:setConfig outer-catch error text (TASK_2026_555 Batch 12c)', () 
     });
     expect(JSON.stringify(result)).not.toContain(fakeKey);
     expect(JSON.stringify(result)).not.toContain('someone');
-    expect(h.logger.error).toHaveBeenCalledWith(
-      'RPC: agent:setConfig failed',
-      error,
+    expect(h.logger.error).toHaveBeenCalledWith('RPC: agent:setConfig failed', {
+      errorType: 'Error',
+    });
+  });
+
+  it('a thrown error carrying the Cursor key never reaches the logger (final review S-1)', async () => {
+    const h = makeHarness();
+    const cursorKey = 'crsr_live_FAKE-s1-key-123456';
+    h.workspace.setConfiguration.mockImplementation(async (_s, key) => {
+      if (key === 'workflows.disabled') {
+        throw new Error(`persist failed; request held ${cursorKey}`);
+      }
+    });
+    const result = await h.setConfig({
+      cursorApiKey: cursorKey,
+      workflowsDisabled: true,
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Could not save the orchestration settings.',
+    });
+    const logged = JSON.stringify(
+      Object.values(h.logger).flatMap((fn) =>
+        jest.isMockFunction(fn) ? fn.mock.calls : [],
+      ),
+      (_k, value: unknown) =>
+        value instanceof Error
+          ? { message: value.message, stack: value.stack }
+          : value,
     );
+    expect(logged).not.toContain(cursorKey);
+    expect(logged).not.toContain('persist failed');
   });
 
   it('passes a SettingsPersistError through (fixed text by construction)', async () => {

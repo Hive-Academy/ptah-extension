@@ -17,6 +17,7 @@ import {
   TOKENS,
   ConfigManager,
   IAuthSecretsService,
+  RpcUserError,
 } from '@ptah-extension/vscode-core';
 import {
   ProviderListModelsSchema,
@@ -826,6 +827,11 @@ export class ProviderRpcHandlers {
    * The secret is deleted even when the entry was already absent: a stale
    * `ptah.auth.provider.<id>` secret left behind after a partial delete would
    * otherwise be re-adopted by any future entry that reuses the id.
+   *
+   * Refused with `CONNECTION_IN_USE` (fixed text, nothing removed) while the
+   * entry is the main agent's current connection (`anthropicProviderId`): the
+   * webview checks this from its route snapshot, but that snapshot can be
+   * stale and other RPC clients do not check at all.
    */
   private registerRemoveCustomEntry(): void {
     this.rpcHandler.registerMethod<
@@ -833,6 +839,12 @@ export class ProviderRpcHandlers {
       ProviderRemoveCustomEntryResult
     >('provider:removeCustomEntry', async (params) => {
       const validated = ProviderRemoveCustomEntrySchema.parse(params);
+      if (this.resolveProviderId() === validated.id) {
+        throw new RpcUserError(
+          'This connection runs the main agent. Switch the main agent to another connection before removing it.',
+          'CONNECTION_IN_USE',
+        );
+      }
       try {
         const removed = await this.customProviders.remove(validated.id);
         await this.authSecretsService.deleteProviderKey(validated.id);

@@ -1441,13 +1441,12 @@ export class AuthRpcHandlers {
         }
 
         return { success: true };
-      } catch (error) {
-        this.logger.error(
-          'RPC: auth:deleteStoredKey failed',
-          error instanceof Error ? error : new Error(String(error)),
-        );
+      } catch (error: unknown) {
+        // A secret-store error can echo the key: log and report its type only.
+        const errorType = error instanceof Error ? error.name : 'unknown';
+        this.logger.error('RPC: auth:deleteStoredKey failed', { errorType });
         this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
+          new Error(`auth:deleteStoredKey failed (${errorType})`),
           { errorSource: 'AuthRpcHandlers.registerDeleteStoredKey' },
         );
         return {
@@ -1504,39 +1503,63 @@ export class AuthRpcHandlers {
    *
    * Shared by all three apps (VS Code, Electron, CLI) via
    * `registerAllRpcHandlers()`; each host's `IAuthSecretsService` reads its own
-   * secret store. A store read failure is an error with fixed text, never an
-   * empty list that would read as "no keys stored".
+   * secret store. Each provider's key is read on its own: an unreadable one
+   * is listed with `keyUnreadable: true` and the rest still load. Only when no
+   * key can be read is it an error with fixed text, never an empty list that
+   * would read as "no keys stored".
    */
   private registerGetApiKeyStatus(): void {
     this.rpcHandler.registerMethod<
       Record<string, never>,
       AuthGetApiKeyStatusResult
     >('auth:getApiKeyStatus', async () => {
-      try {
-        const activeProvider = this.configManager.getWithDefault<string>(
-          'anthropicProviderId',
-          DEFAULT_PROVIDER_ID,
+      const activeProvider = this.configManager.getWithDefault<string>(
+        'anthropicProviderId',
+        DEFAULT_PROVIDER_ID,
+      );
+      const all = getAllAnthropicProviders();
+      // Read once per provider for presence and hint; values stay in this scope.
+      const reads = await Promise.allSettled(
+        all.map((p) => this.authSecretsService.getProviderKey(p.id)),
+      );
+      const failures = reads.flatMap((read, index) =>
+        read.status === 'rejected'
+          ? [{ providerId: all[index].id, reason: read.reason as unknown }]
+          : [],
+      );
+      if (failures.length > 0 && failures.length === reads.length) {
+        throw this.keyStoreReadFailure(
+          'auth:getApiKeyStatus',
+          failures[0].reason,
         );
-        const providers = await Promise.all(
-          getAllAnthropicProviders().map(
-            async (p): Promise<AuthApiKeyStatusEntry> => {
-              // Read once for presence and hint; the value stays in this scope.
-              const key = await this.authSecretsService.getProviderKey(p.id);
-              const keyHint = maskKeyHint(key);
-              return {
-                provider: p.id,
-                displayName: p.name,
-                hasApiKey: !!key && key.length > 0,
-                isDefault: p.id === activeProvider,
-                ...(keyHint ? { keyHint } : {}),
-              };
-            },
-          ),
-        );
-        return { providers };
-      } catch (error: unknown) {
-        throw this.keyStoreReadFailure('auth:getApiKeyStatus', error);
       }
+      if (failures.length > 0) {
+        // Store errors can carry key material: provider ids and types only.
+        this.logger.warn('RPC: auth:getApiKeyStatus could not read some keys', {
+          failures: failures.map(({ providerId, reason }) => ({
+            providerId,
+            errorType: reason instanceof Error ? reason.name : 'unknown',
+          })),
+        });
+      }
+      const providers = all.map((p, index): AuthApiKeyStatusEntry => {
+        const read = reads[index];
+        const entry = {
+          provider: p.id,
+          displayName: p.name,
+          isDefault: p.id === activeProvider,
+        };
+        if (read.status === 'rejected') {
+          return { ...entry, hasApiKey: false, keyUnreadable: true };
+        }
+        const keyHint = maskKeyHint(read.value);
+        return {
+          ...entry,
+          hasApiKey: !!read.value && read.value.length > 0,
+          ...(keyHint ? { keyHint } : {}),
+        };
+      });
+      return { providers };
     });
   }
 

@@ -97,6 +97,17 @@ describe('ConnectionCheckRecorder', () => {
       expect(recorder.get('moonshot')?.reason).toBe('credential-rejected');
     });
 
+    it('isCurrent turns false for a ticket taken before a clear (final review M-1)', () => {
+      const recorder = new ConnectionCheckRecorder();
+      const inFlight = recorder.begin('moonshot');
+      expect(recorder.isCurrent(inFlight)).toBe(true);
+
+      recorder.clear('moonshot');
+
+      expect(recorder.isCurrent(inFlight)).toBe(false);
+      expect(recorder.isCurrent(recorder.begin('moonshot'))).toBe(true);
+    });
+
     it('clearing a connection that was never checked is harmless', () => {
       const recorder = new ConnectionCheckRecorder();
       recorder.clear('moonshot');

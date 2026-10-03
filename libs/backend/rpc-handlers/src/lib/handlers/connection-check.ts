@@ -16,7 +16,8 @@
  * Every outcome is recorded in {@link ConnectionCheckRecorder} and returned.
  * A check never rejects: a probe that throws records `failed`/`unclassified`.
  * Concurrent checks of one connection JOIN the one in flight, so a double
- * click never sends two provider requests.
+ * click never sends two provider requests; a check started after the key
+ * changed never joins one started before it (see `check`).
  *
  * SECURITY: the stored key is read inside `DraftVerificationService` or passed
  * straight to `probeCustomProvider`; it is never logged or returned. The
@@ -43,7 +44,10 @@ import type {
   CustomProviderEntry,
   ProviderTestCustomEntryResult,
 } from '@ptah-extension/shared';
-import type { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
+import type {
+  ConnectionCheckRecorder,
+  ConnectionCheckTicket,
+} from '../utils/connection-check-recorder';
 import {
   probeCustomProvider,
   type CustomProviderProbeResult,
@@ -85,31 +89,47 @@ export interface ConnectionCheckerDeps {
 }
 
 export class ConnectionChecker {
-  /** One in-flight check per connection; later callers join it. */
-  private readonly inFlight = new Map<string, Promise<ConnectionCheckRecord>>();
+  /** One in-flight check per connection; later callers join it while it is current. */
+  private readonly inFlight = new Map<
+    string,
+    {
+      readonly ticket: ConnectionCheckTicket;
+      readonly result: Promise<ConnectionCheckRecord>;
+    }
+  >();
 
   constructor(private readonly deps: ConnectionCheckerDeps) {}
 
-  /** `kind` comes from {@link connectionCheckKind}; the caller validated the id. */
+  /**
+   * `kind` comes from {@link connectionCheckKind}; the caller validated the id.
+   *
+   * A caller joins the running check only while its result would still be
+   * recorded. After the key was replaced or deleted (`recorder.clear`), or a
+   * newer check was recorded, the running check describes an old key, so a
+   * new check starts and records its own result.
+   */
   check(
     providerId: string,
     kind: ConnectionCheckKind,
   ): Promise<ConnectionCheckRecord> {
     const running = this.inFlight.get(providerId);
-    if (running) return running;
-    const pending = this.run(providerId, kind).finally(() => {
-      if (this.inFlight.get(providerId) === pending)
+    if (running && this.deps.recorder.isCurrent(running.ticket)) {
+      return running.result;
+    }
+    const ticket = this.deps.recorder.begin(providerId);
+    const result = this.run(ticket, kind).finally(() => {
+      if (this.inFlight.get(providerId)?.result === result)
         this.inFlight.delete(providerId);
     });
-    this.inFlight.set(providerId, pending);
-    return pending;
+    this.inFlight.set(providerId, { ticket, result });
+    return result;
   }
 
   private async run(
-    providerId: string,
+    ticket: ConnectionCheckTicket,
     kind: ConnectionCheckKind,
   ): Promise<ConnectionCheckRecord> {
-    const ticket = this.deps.recorder.begin(providerId);
+    const { providerId } = ticket;
     let record: ConnectionCheckRecord;
     try {
       record = await this.probe(providerId, kind, ticket.sequence);
