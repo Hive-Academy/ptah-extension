@@ -312,6 +312,38 @@ describe('buildAgentSpawnTool — role', () => {
   });
 });
 
+describe('buildAgentSpawnTool — effort', () => {
+  const effortProperty = (): { type?: string; description?: string } =>
+    (
+      buildAgentSpawnTool().inputSchema.properties as Record<
+        string,
+        { type?: string; description?: string }
+      >
+    )['effort'] ?? {};
+
+  it('advertises an optional string effort and still requires only task', () => {
+    expect(effortProperty().type).toBe('string');
+    expect(buildAgentSpawnTool().inputSchema.required).toEqual(['task']);
+  });
+
+  it('lists the effort levels and says it wins over the setting', () => {
+    const description = effortProperty().description ?? '';
+    for (const level of ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']) {
+      expect(description).toMatch(new RegExp(`\\b${level}\\b`));
+    }
+    expect(description).toMatch(/Wins over the per-CLI setting/);
+    expect(description).toMatch(/ignored/);
+  });
+
+  it('keeps the effort description short and names no CLI vendor', () => {
+    const description = effortProperty().description ?? '';
+    expect(description.length).toBeLessThanOrEqual(220);
+    for (const cli of SYSTEM_CLI_TYPES) {
+      expect(description).not.toMatch(new RegExp(`\\b${cli}\\b`, 'i'));
+    }
+  });
+});
+
 describe('buildAgentReportTool', () => {
   it('takes NO agentId — identity comes from the connection', () => {
     const tool = buildAgentReportTool();
