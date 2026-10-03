@@ -529,8 +529,7 @@ export type ProbeFailureReason =
  * never crosses the RPC boundary in either direction.
  */
 export type DraftProbeCredential =
-  | { kind: 'apiKey'; value: string }
-  | { kind: 'stored' };
+  { kind: 'apiKey'; value: string } | { kind: 'stored' };
 
 /** Parameters for auth:verifyDraftConnection RPC method */
 export interface AuthVerifyDraftConnectionParams {
@@ -606,14 +605,21 @@ export interface AuthApiKeyStatusEntry {
   isDefault: boolean;
   /** Masked hint of this provider's stored key; see {@link StoredKeyHint}. */
   keyHint?: StoredKeyHint;
+  /**
+   * Present (`true`) when this provider's stored key could not be read. The
+   * entry then has `hasApiKey: false` and no `keyHint`: whether a key is
+   * stored is unknown, not "no key".
+   */
+  keyUnreadable?: true;
 }
 
 /**
  * Response from auth:getApiKeyStatus RPC method.
  *
  * SECURITY: never contains a key value; `keyHint` is the only key-derived
- * field. A key-store read failure is an RPC error with fixed text, never a
- * partial list.
+ * field. Each provider is read on its own: one unreadable key marks only its
+ * entry (`keyUnreadable`). When no provider's key can be read, the call fails
+ * with fixed text ("Could not read the stored keys.") instead of a list.
  */
 export interface AuthGetApiKeyStatusResult {
   providers: AuthApiKeyStatusEntry[];
@@ -624,4 +630,3 @@ export interface AuthDeleteStoredKeyResult {
   success: boolean;
   error?: string;
 }
-
