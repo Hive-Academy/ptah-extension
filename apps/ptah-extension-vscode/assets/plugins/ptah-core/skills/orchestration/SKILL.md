@@ -13,31 +13,31 @@ correction in agent-lanes §6; any code you change is independently reviewed bef
 
 1. **Classify** the request. When several rows match, the higher row wins.
 
-   | Keywords | Type |
-   | --- | --- |
-   | new SaaS, multi-tenant, scaffold workspace | SAAS_INIT |
-   | CI/CD, pipeline, Docker, Kubernetes, deploy | DEVOPS |
-   | landing page, marketing, brand, visual | CREATIVE |
-   | implement, add, create, build | FEATURE |
-   | fix, bug, error, issue | BUGFIX |
-   | refactor, improve, optimize | REFACTORING |
-   | document, readme, guide | DOCUMENTATION |
-   | research, investigate, analyze | RESEARCH |
+   | Keywords                                    | Type          |
+   | ------------------------------------------- | ------------- |
+   | new SaaS, multi-tenant, scaffold workspace  | SAAS_INIT     |
+   | CI/CD, pipeline, Docker, Kubernetes, deploy | DEVOPS        |
+   | landing page, marketing, brand, visual      | CREATIVE      |
+   | implement, add, create, build               | FEATURE       |
+   | fix, bug, error, issue                      | BUGFIX        |
+   | refactor, improve, optimize                 | REFACTORING   |
+   | document, readme, guide                     | DOCUMENTATION |
+   | research, investigate, analyze              | RESEARCH      |
 
 2. **Pick depth**: Full (unclear scope), Partial (known requirements), Minimal (one developer or
    reviewer). Two types equally plausible, or none fits → ask the user.
 3. **Announce** type, depth and the planned agent sequence. Then proceed.
 
-| Type | Flow |
-| --- | --- |
-| FEATURE | PM → [research] → [designer → prototype → Gate 1.7] → architect → team-leader → QA |
-| BUGFIX | [research] → team-leader → QA |
-| REFACTORING | architect → team-leader → QA |
-| DOCUMENTATION | PM → developer → style reviewer |
-| RESEARCH | researcher → [switch to FEATURE] |
-| DEVOPS | PM → architect → devops-engineer → QA |
-| SAAS_INIT | discovery → PM → architect → team-leader |
-| CREATIVE | [designer → prototype → Gate 1.7] → content writer → frontend developer |
+| Type          | Flow                                                                               |
+| ------------- | ---------------------------------------------------------------------------------- |
+| FEATURE       | PM → [research] → [designer → prototype → Gate 1.7] → architect → team-leader → QA |
+| BUGFIX        | [research] → team-leader → QA                                                      |
+| REFACTORING   | architect → team-leader → QA                                                       |
+| DOCUMENTATION | PM → developer → style reviewer                                                    |
+| RESEARCH      | researcher → [switch to FEATURE]                                                   |
+| DEVOPS        | PM → architect → devops-engineer → QA                                              |
+| SAAS_INIT     | discovery → PM → architect → team-leader                                           |
+| CREATIVE      | [designer → prototype → Gate 1.7] → content writer → frontend developer            |
 
 Any flow adding or redesigning a UI surface inserts [designer → prototype → cross-side review → Gate 1.7] before the next phase of the flow (architect, team-leader, or content writer). Complete any required inventory first (Task folder below). Any UI change that adds or redesigns no surface requires no prototype and skips the designer and Gate 1.7; its completion requires before/after screenshots (dark + light) of the affected screen instead of a prototype — capture the before screenshots from the base commit (or before the first batch / before the fix lands) with the visual-reviewer.
 
@@ -58,16 +58,16 @@ Any flow adding or redesigning a UI surface inserts [designer → prototype → 
 
 ## Gates (all yours — subagents and lanes cannot reach the user)
 
-| Gate | When | How |
-| --- | --- | --- |
-| 0.1 CLI lanes | Start, when `ptah_agent_list` shows a spawnable lane | `AskUserQuestion` |
-| 0 Scope | Before PM, if the request is ambiguous | `AskUserQuestion` |
-| 1 Requirements | After `task-description.md` | **Plain message**, wait for `APPROVED` |
-| 1.5 Technical | Before architect, if several valid approaches | `AskUserQuestion` |
-| 1.7 Design | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | **Plain message**, wait for `APPROVED` |
-| 2 Architecture | After `implementation-plan.md` | **Plain message**, wait for `APPROVED` |
-| 3 QA choice | After team-leader completion | `AskUserQuestion` |
-| SR Clarification | An agent returned `## Clarifications Needed` | Ask, then re-invoke with `## User Decisions` |
+| Gate             | When                                                                                                                                                                                            | How                                          |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| 0.1 CLI lanes    | Start, when `ptah_agent_list` shows a spawnable lane                                                                                                                                            | `AskUserQuestion`                            |
+| 0 Scope          | Before PM, if the request is ambiguous                                                                                                                                                          | `AskUserQuestion`                            |
+| 1 Requirements   | After `task-description.md`                                                                                                                                                                     | **Plain message**, wait for `APPROVED`       |
+| 1.5 Technical    | Before architect, if several valid approaches                                                                                                                                                   | `AskUserQuestion`                            |
+| 1.7 Design       | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | **Plain message**, wait for `APPROVED`       |
+| 2 Architecture   | After `implementation-plan.md`                                                                                                                                                                  | **Plain message**, wait for `APPROVED`       |
+| 3 QA choice      | After team-leader completion                                                                                                                                                                    | `AskUserQuestion`                            |
+| SR Clarification | An agent returned `## Clarifications Needed`                                                                                                                                                    | Ask, then re-invoke with `## User Decisions` |
 
 **Cross-side review before Gates 1, 1.7 and 2**: you invoke an independent reviewer on the
 other execution side (routing and disclosed fallback per [agent-lanes §6](../agent-lanes/SKILL.md)),
@@ -114,17 +114,32 @@ Every tool call in any agent or lane resends its whole thread, so cost is reques
 - Use `ptah_ast_analyze` / `ptah_context_enrich_file` before a full `Read`; read whole files only
   when editing them.
 
+## Lean orchestration rules
+
+1. **Fresh team-leader per Mode 2/3 call.** Give it only the batch report path and the review
+   path. Never resume a long-lived team-leader.
+2. **Resume only inside the cache window.** Resume a developer or reviewer only when its last
+   activity was under 5 minutes ago. Otherwise start a fresh one with the batch section and the
+   report paths.
+3. **Risk-based review.** No per-batch review: each batch passes its scoped typecheck, lint and
+   tests before commit. One code-logic review per phase, on the combined diff. Batches that change
+   only types, tests, docs or measurement get no review. Add a style review only for new public API.
+4. **One fix round.** Blocking and Serious are fixed in one round. Moderate is fixed only if it can
+   break a lane config or lose data; otherwise it becomes a named later task. Minor is recorded,
+   not fixed. After the round, one short re-review scoped to the fixes.
+5. **Short updates.** Keep orchestrator messages brief; no status message per notification.
+
 ## References — load on demand, never all at once
 
-| Reference | Load when |
-| --- | --- |
-| [strategies.md](references/strategies.md) | Running a strategy's phases |
-| [checkpoints.md](references/checkpoints.md) | Presenting any gate |
-| [agent-catalog.md](references/agent-catalog.md) | Choosing or invoking an agent |
-| [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader or acting on its return |
-| [task-tracking.md](references/task-tracking.md) | Creating or continuing a task folder |
-| [lane-assignment.md](references/lane-assignment.md) | Gate 0.1 enabled lanes, or the user pinned a phase to a lane |
-| [git-standards.md](references/git-standards.md) | Writing a commit or handling a hook failure |
+| Reference                                               | Load when                                                    |
+| ------------------------------------------------------- | ------------------------------------------------------------ |
+| [strategies.md](references/strategies.md)               | Running a strategy's phases                                  |
+| [checkpoints.md](references/checkpoints.md)             | Presenting any gate                                          |
+| [agent-catalog.md](references/agent-catalog.md)         | Choosing or invoking an agent                                |
+| [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader or acting on its return                 |
+| [task-tracking.md](references/task-tracking.md)         | Creating or continuing a task folder                         |
+| [lane-assignment.md](references/lane-assignment.md)     | Gate 0.1 enabled lanes, or the user pinned a phase to a lane |
+| [git-standards.md](references/git-standards.md)         | Writing a commit or handling a hook failure                  |
 
 ## Requires
 

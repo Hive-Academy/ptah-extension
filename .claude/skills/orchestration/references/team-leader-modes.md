@@ -23,9 +23,22 @@ Task({
 
 **Task Folder**: <absolute path>
 **MODE**: <1 - DECOMPOSITION | 2 - VERIFY AND COMMIT | 3 - COMPLETION>
-<Mode 2 only — paste the executor report or the reviewer verdict verbatim>`,
+<Mode 2 only — the executor report path and the review path, with the one-line verdict>`,
 });
 ```
+
+## Lean orchestration rules
+
+- Every Mode 2/3 call is a **fresh** team-leader `Task()`. In Mode 2, give it the batch report path
+  and the review path rather than resuming an earlier team-leader with its long thread.
+- "Re-invoke the same executor" (below) means resume it only if its last activity was under
+  5 minutes ago; otherwise start a fresh one with the batch section and the report paths.
+- Risk-based review: no per-batch review; each batch passes its scoped typecheck, lint and tests
+  before commit. One code-logic review per phase on the combined diff; none for type, test, doc or
+  measurement-only batches; a style review only for new public API.
+- At most one fix round: Blocking and Serious fixed; Moderate only if it can break a lane config or
+  lose data (else a named later task); Minor recorded, not fixed. Then one re-review scoped to the
+  fixes.
 
 ## Completion checks
 
