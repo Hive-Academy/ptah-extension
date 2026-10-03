@@ -392,6 +392,20 @@ describe('SpotEditorComponent', () => {
       expect(saveCalls()[1]?.['expectedSha256']).toBe(SHA_B);
     });
 
+    it('marks a dirty buffer "Unsaved" until it is saved (V-7)', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      expect(byTestId(fixture, 'spot-editor-dirty')).toBeNull();
+
+      type(fixture, '// edit\n');
+      expect(byTestId(fixture, 'spot-editor-dirty')?.textContent).toContain(
+        'Unsaved',
+      );
+
+      await clickSave(fixture);
+      expect(byTestId(fixture, 'spot-editor-dirty')).toBeNull();
+    });
+
     it('A12: saves CRLF files with CRLF, including new lines the user adds', async () => {
       routeRpc([viewResult({ content: 'a\r\nb\r\n' })]);
       const fixture = await render(undefined, true);
@@ -649,7 +663,11 @@ describe('SpotEditorComponent', () => {
       await settle(fixture);
       expect(readPaths()).toHaveLength(1);
       expect(editorView(fixture).state.sliceDoc()).toBe('const a = 1;\nx');
-      expect(byTestId(fixture, 'spot-editor-stale')).not.toBeNull();
+      const stale = byTestId(fixture, 'spot-editor-stale');
+      expect(stale).not.toBeNull();
+      // A quiet left-accent strip, not a solid warning band (V-7).
+      expect(stale?.className).toContain('border-l-warning');
+      expect(stale?.className).not.toMatch(/\balert-warning\b|\bbg-warning\b/);
     });
 
     it('Discard and reload drops the edits for the version on disk', async () => {

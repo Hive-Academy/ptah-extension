@@ -25,10 +25,7 @@ import type {
 } from '@ptah-extension/shared';
 import { GitBranchesService } from '../services/git-branches.service';
 import { GitOperationOutputService } from '../services/git-operation-output.service';
-import {
-  GitStatusService,
-  isRpcTimeout,
-} from '../services/git-status.service';
+import { GitStatusService, isRpcTimeout } from '../services/git-status.service';
 import { SourceControlService } from '../services/source-control.service';
 import {
   type CommitBaseline,
@@ -274,7 +271,7 @@ let instanceCount = 0;
            region adds no gap. -->
       <div class="flex flex-col">
         <textarea
-          class="textarea textarea-bordered w-full font-mono text-sm"
+          class="textarea textarea-bordered w-full font-mono text-sm focus-visible:outline-[oklch(var(--s))]"
           rows="4"
           data-testid="commit-message"
           [id]="messageId"
@@ -559,7 +556,9 @@ export class CommitComposerComponent {
   protected readonly showLog = computed(() => {
     if (this.isRunning()) return true;
     const kind = this.outcome()?.kind;
-    return kind !== undefined && kind !== 'success' && this.renderedLog() !== '';
+    return (
+      kind !== undefined && kind !== 'success' && this.renderedLog() !== ''
+    );
   });
 
   constructor() {
@@ -626,8 +625,10 @@ export class CommitComposerComponent {
     this.running.set(run);
     this.lastOutcome.set(null);
     this.log.set({ workspaceRoot, text: '', trimmed: false });
-    this.releaseOutput = this.operationOutput.listen(run.operationId, (output) =>
-      this.log.update((log) => (log ? appendCapped(log, output.chunk) : log)),
+    this.releaseOutput = this.operationOutput.listen(
+      run.operationId,
+      (output) =>
+        this.log.update((log) => (log ? appendCapped(log, output.chunk) : log)),
     );
 
     let outcome: CommitOutcome;
@@ -746,7 +747,9 @@ export class CommitComposerComponent {
    * The commit reply timed out, but git may still be running it (MOD-1):
    * keep it running (Cancel stays) while the status is re-read, then decide.
    */
-  private async checkTimedOutCommit(run: RunningCommit): Promise<CommitOutcome> {
+  private async checkTimedOutCommit(
+    run: RunningCommit,
+  ): Promise<CommitOutcome> {
     this.running.update((current) =>
       current?.operationId === run.operationId
         ? { ...current, checking: true }

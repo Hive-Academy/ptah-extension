@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { VSCodeService } from '@ptah-extension/core';
 import type { EditorTarget } from '@ptah-extension/shared';
@@ -56,6 +58,27 @@ describe('OpenInButtonComponent', () => {
     expect(
       fixture.nativeElement.querySelector('[data-testid="open-in-caret"]'),
     ).toBeNull();
+  });
+
+  it('gives the dropdown caret the same visible focus ring as its siblings (V-3)', () => {
+    render([vscode]);
+    const caret = fixture.nativeElement.querySelector(
+      '[data-testid="open-in-caret"]',
+    ) as HTMLElement;
+    expect(caret.classList).toContain('open-in-caret');
+    // daisyUI's `.dropdown > *:not(summary):focus` makes the outline
+    // transparent; the component rule must outrank it with an opaque ring.
+    const source = readFileSync(
+      join(__dirname, 'open-in-button.component.ts'),
+      'utf8',
+    );
+    const css = source.slice(source.indexOf('styles: ['));
+    expect(css).toMatch(
+      /\.open-in-caret:focus-visible\s*\{[^}]*outline:\s*2px solid oklch\(var\(--s\)\)/,
+    );
+    expect(css).toMatch(
+      /anubis-light[^{]*\.open-in-caret:focus-visible\s*\{[^}]*--ptah-gold-strong/,
+    );
   });
 
   it('opens the only detected editor directly and still offers the caret', () => {

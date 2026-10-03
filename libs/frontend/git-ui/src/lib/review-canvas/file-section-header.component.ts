@@ -82,11 +82,37 @@ const FOCUS_RING =
   // from the header's own buttons; every action is also a button.
   host: {
     class:
-      'sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-base-content/10 bg-base-200/95 px-2 py-1.5 text-xs backdrop-blur-sm',
+      'sticky top-0 z-10 flex flex-nowrap items-center gap-2 border-b border-base-content/10 bg-base-200/95 px-2 py-1.5 text-xs backdrop-blur-sm',
     'aria-keyshortcuts': 'Delete',
     'data-testid': 'file-section-header',
     '(keydown)': 'onKeydown($event)',
   },
+  // One row at every width (V-6): the path truncates from the left, the
+  // badges and actions never wrap. The host is its own size container (CSS
+  // only, no observer per section): below 480 px Comment and Edit go
+  // icon-only (their aria-labels already name them), below 360 px the
+  // per-file totals step aside for the path (the comparison bar keeps the
+  // sums).
+  styles: [
+    `
+      :host {
+        container-type: inline-size;
+      }
+      @container (max-width: 480px) {
+        .fsh-label {
+          display: none;
+        }
+        .fsh-actions {
+          gap: 0.25rem;
+        }
+      }
+      @container (max-width: 360px) {
+        .fsh-totals {
+          display: none;
+        }
+      }
+    `,
+  ],
   template: `
     <button
       #toggle
@@ -106,39 +132,49 @@ const FOCUS_RING =
       />
     </button>
     <ptah-file-status-badge
+      class="shrink-0"
       [status]="file().status"
       [conflictKind]="file().conflictKind"
     />
+    <!-- Left-truncated (dir=rtl around an ltr bdi), so the file name stays
+         in view; the title keeps the full path. -->
     <h3
-      class="min-w-0 truncate font-mono font-medium text-base-content"
+      class="m-0 min-w-0 flex-auto truncate text-left font-mono font-medium text-base-content"
+      dir="rtl"
       [attr.title]="file().path"
       data-testid="file-section-path"
     >
-      {{ file().path }}
+      <bdi dir="ltr">{{ file().path }}</bdi>
     </h3>
     @if (file().originalPath; as from) {
       <span
-        class="min-w-0 truncate text-[11px] text-base-content-muted"
+        class="min-w-0 max-w-[40%] truncate text-[11px] text-base-content-muted"
         data-testid="file-section-renamed"
+        [attr.title]="'renamed from ' + from"
       >
         renamed from {{ from }}
       </span>
     }
     @if (sideLabel(); as side) {
       <span
-        class="badge badge-outline badge-xs text-base-content"
+        class="badge badge-outline badge-xs shrink-0 whitespace-nowrap text-base-content"
         data-testid="file-section-side"
         >{{ side }}</span
       >
     }
     @for (chip of chips(); track chip) {
-      <span class="badge badge-ghost badge-xs" data-testid="file-chip">{{
-        chip
-      }}</span>
+      <span
+        class="badge badge-ghost badge-xs shrink-0 whitespace-nowrap"
+        data-testid="file-chip"
+        >{{ chip }}</span
+      >
     }
-    <span class="ml-auto flex items-center gap-2">
+    <span class="fsh-actions ml-auto flex shrink-0 items-center gap-2">
       @if (totals(); as t) {
-        <span class="whitespace-nowrap" data-testid="file-section-totals">
+        <span
+          class="fsh-totals whitespace-nowrap"
+          data-testid="file-section-totals"
+        >
           <span class="sr-only"
             >{{ t.additions }} additions, {{ t.deletions }} deletions</span
           >
@@ -165,7 +201,7 @@ const FOCUS_RING =
             class="h-3 w-3"
             aria-hidden="true"
           />
-          Comment
+          <span class="fsh-label">Comment</span>
         </button>
       }
       @if (canEdit()) {
@@ -177,7 +213,7 @@ const FOCUS_RING =
           (click)="edit.emit()"
         >
           <lucide-angular [img]="EditIcon" class="h-3 w-3" aria-hidden="true" />
-          Edit
+          <span class="fsh-label">Edit</span>
         </button>
       }
       @if (editorTargets().length > 0) {

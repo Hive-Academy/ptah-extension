@@ -514,6 +514,29 @@ describe('GitHubPrStatusReader', () => {
       expect(result).toEqual({ status: 'unavailable', reason: 'not-github' });
     });
 
+    // gh 2.96 stderr, verbatim: its hint names `gh auth login`, which must
+    // not read as a sign-in failure.
+    it('maps the full non-GitHub remote message (with its gh auth login hint) to not-github', async () => {
+      nextProcessOptions = {
+        exitCode: 1,
+        stderr:
+          'none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`',
+      };
+      const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
+      const result = await reader.read(root, 'feat/x');
+
+      expect(result).toEqual({ status: 'unavailable', reason: 'not-github' });
+    });
+
+    // gh 2.96 stderr in a repository without any remote (TASK_2026_576 V-9).
+    it('maps a repository with no remote to not-github', async () => {
+      nextProcessOptions = { exitCode: 1, stderr: 'no git remotes found' };
+      const reader = new GitHubPrStatusReader({ spawner: fakeSpawner });
+      const result = await reader.read(root, 'feat/x');
+
+      expect(result).toEqual({ status: 'unavailable', reason: 'not-github' });
+    });
+
     it('maps unrecognized non-zero exit code to failed', async () => {
       nextProcessOptions = {
         exitCode: 2,

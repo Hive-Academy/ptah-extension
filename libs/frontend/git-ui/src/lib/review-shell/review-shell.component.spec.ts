@@ -44,7 +44,9 @@ let ReviewShellComponent: typeof ShellType;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: '',
 })
-class MockGitDockHeader {}
+class MockGitDockHeader {
+  readonly compact = input(false);
+}
 
 @Component({
   selector: 'ptah-review-canvas',
@@ -880,6 +882,36 @@ describe('ReviewShellComponent', () => {
     observer.resize(520);
     await settle(fixture);
     expect(canvas(fixture)?.stacked()).toBe(false);
+  });
+
+  it('turns the header and tab strip compact below 400 px from the same observer (V-1)', async () => {
+    const fixture = await render();
+    const observer = FakeResizeObserver.instances[0];
+    const header = (): MockGitDockHeader =>
+      fixture.debugElement.query(By.directive(MockGitDockHeader))
+        .componentInstance as MockGitDockHeader;
+    const strip = (): Element | null =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        'ptah-native-tab-group',
+      );
+    expect(header().compact()).toBe(false);
+    expect(strip()?.classList.contains('review-shell-tabs-compact')).toBe(
+      false,
+    );
+
+    observer.resize(319);
+    await settle(fixture);
+    expect(header().compact()).toBe(true);
+    expect(strip()?.classList.contains('review-shell-tabs-compact')).toBe(true);
+    expect(FakeResizeObserver.instances).toHaveLength(1);
+
+    observer.resize(0);
+    await settle(fixture);
+    expect(header().compact()).toBe(true);
+
+    observer.resize(400);
+    await settle(fixture);
+    expect(header().compact()).toBe(false);
   });
 
   it('keeps one observer across body swaps and disconnects it on destroy', async () => {

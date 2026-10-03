@@ -526,6 +526,49 @@ describe('ReviewCanvasComponent', () => {
         ),
       ).toBe(true);
     });
+
+    it('shows unified while the list is under 600 px, and keeps Split once the user presses it (V-5)', async () => {
+      FakeResizeObserver.instances = [];
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver =
+        FakeResizeObserver;
+      try {
+        await create();
+        const observerOfList = FakeResizeObserver.instances.at(-1);
+        const list = byTestId('review-canvas-list');
+        if (!observerOfList || !list) throw new Error('list not observed');
+        const reportWidth = async (width: number): Promise<void> => {
+          observerOfList.callback(
+            [{ target: list, contentRect: { width, height: 400 } }] as never,
+            observerOfList as unknown as ResizeObserver,
+          );
+          await settle();
+        };
+        const layouts = (): string[] =>
+          sectionInstances().map((section) => section.diffStyle());
+        const pressed = (id: string): string | null | undefined =>
+          byTestId(id)?.getAttribute('aria-pressed');
+
+        await reportWidth(420);
+        expect(new Set(layouts())).toEqual(new Set(['unified']));
+        expect(pressed('layout-unified')).toBe('true');
+        expect(pressed('layout-split')).toBe('false');
+
+        await reportWidth(800);
+        expect(new Set(layouts())).toEqual(new Set(['split']));
+
+        // Hidden (0 wide) keeps the last real layout.
+        await reportWidth(420);
+        await reportWidth(0);
+        expect(new Set(layouts())).toEqual(new Set(['unified']));
+
+        byTestId<HTMLButtonElement>('layout-split')?.click();
+        await settle();
+        expect(new Set(layouts())).toEqual(new Set(['split']));
+        expect(pressed('layout-split')).toBe('true');
+      } finally {
+        delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+      }
+    });
   });
 
   describe('window (A9)', () => {

@@ -232,7 +232,7 @@ let instanceCount = 0;
             <input
               #branchInput
               type="text"
-              class="input input-bordered input-xs w-full"
+              class="input input-bordered input-xs w-full focus-visible:outline-[oklch(var(--s))]"
               aria-label="Branch name"
               placeholder="Branch name"
               data-testid="task-worktree-branch"
@@ -243,7 +243,7 @@ let instanceCount = 0;
             />
             <input
               type="text"
-              class="input input-bordered input-xs w-full"
+              class="input input-bordered input-xs w-full focus-visible:outline-[oklch(var(--s))]"
               aria-label="Custom path (optional)"
               placeholder="Custom path (optional)"
               data-testid="task-worktree-path"
@@ -372,9 +372,15 @@ let instanceCount = 0;
                     [class.text-primary]="isActiveWorktree(wt)"
                     aria-hidden="true"
                   />
-                  <span class="truncate font-medium">{{
-                    branchLabel(wt)
-                  }}</span>
+                  <!-- Truncation priority (V-8): the branch keeps its full
+                       width first; the path (flex-1, basis 0) takes only what
+                       is left and truncates from the left. -->
+                  <span
+                    class="min-w-0 truncate font-medium"
+                    data-testid="task-worktree-branch-label"
+                    [title]="branchLabel(wt)"
+                    >{{ branchLabel(wt) }}</span
+                  >
                   @if (wt.isMain) {
                     <span class="badge badge-xs badge-ghost flex-shrink-0"
                       >main</span
@@ -400,8 +406,11 @@ let instanceCount = 0;
                     >
                   }
                   <span
-                    class="ml-auto min-w-0 truncate font-mono text-base-content-muted"
-                    >{{ wt.path }}</span
+                    class="min-w-0 flex-1 truncate text-right font-mono text-base-content-muted"
+                    dir="rtl"
+                    data-testid="task-worktree-row-path"
+                    [title]="wt.path"
+                    ><bdi dir="ltr">{{ wt.path }}</bdi></span
                   >
                 </button>
                 @if (!wt.isMain) {

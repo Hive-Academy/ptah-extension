@@ -297,7 +297,7 @@ function splitLines(text: string): string[] {
               <input
                 type="number"
                 min="1"
-                class="input input-bordered input-xs w-20"
+                class="input input-bordered input-xs w-20 focus-visible:outline-[oklch(var(--s))]"
                 data-testid="comment-from"
                 [value]="draft.from"
                 (input)="patchComposer({ from: numberValue($event) })"
@@ -308,7 +308,7 @@ function splitLines(text: string): string[] {
               <input
                 type="number"
                 min="1"
-                class="input input-bordered input-xs w-20"
+                class="input input-bordered input-xs w-20 focus-visible:outline-[oklch(var(--s))]"
                 data-testid="comment-to"
                 [value]="draft.to"
                 (input)="patchComposer({ to: numberValue($event) })"
@@ -317,7 +317,7 @@ function splitLines(text: string): string[] {
             <label class="flex min-w-[12rem] flex-1 flex-col gap-0.5">
               <span class="text-base-content-muted">Comment</span>
               <textarea
-                class="textarea textarea-bordered textarea-xs"
+                class="textarea textarea-bordered textarea-xs focus-visible:outline-[oklch(var(--s))]"
                 rows="2"
                 data-testid="comment-body"
                 [value]="draft.body"

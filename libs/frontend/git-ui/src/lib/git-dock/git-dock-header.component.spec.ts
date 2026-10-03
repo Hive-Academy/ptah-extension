@@ -130,6 +130,66 @@ describe('GitDockHeaderComponent', () => {
     expect(status.textContent?.trim()).toBe('main');
   });
 
+  it('truncates a long branch name and keeps the full name in the title (V-2)', () => {
+    const long =
+      'feat/task-2026-576-with-a-rather-long-branch-name-for-truncation';
+    gitBranches.currentBranch.set(long);
+    try {
+      const fixture = TestBed.createComponent(GitDockHeaderComponent);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      const trigger = root.querySelector<HTMLButtonElement>(
+        '[data-testid="current-branch-button"]',
+      );
+      const label = root.querySelector('[data-testid="current-branch-label"]');
+      expect(trigger?.title).toBe(long);
+      expect(trigger?.className).toMatch(/\bmin-w-0\b/);
+      expect(trigger?.className).toMatch(/\bmax-w-\[14rem\]/);
+      expect(label?.className).toMatch(/\btruncate\b/);
+      expect(label?.textContent?.trim()).toBe(long);
+    } finally {
+      gitBranches.currentBranch.set('main');
+    }
+  });
+
+  it('wraps the sync group under the branch group instead of clipping it (V-1)', () => {
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const row = root.querySelector('[data-testid="git-dock-header"]');
+    const branchGroup = root.querySelector(
+      '[data-testid="git-dock-header-branch-group"]',
+    );
+    const syncGroup = root.querySelector(
+      '[data-testid="git-dock-header-sync-group"]',
+    );
+    expect(row?.className).toMatch(/\bflex-wrap\b/);
+    expect(branchGroup?.className).toMatch(/\bmin-w-0\b/);
+    expect(syncGroup?.className).toMatch(/\bflex-shrink-0\b/);
+    for (const id of [
+      'git-fetch-button',
+      'git-pull-button',
+      'git-push-button',
+    ]) {
+      expect(syncGroup?.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
+    }
+  });
+
+  it('shows Open in icon-only when compact, keeping its accessible name (V-1)', () => {
+    const fixture = TestBed.createComponent(GitDockHeaderComponent);
+    fixture.detectChanges();
+    const primary = (): HTMLButtonElement | null =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[data-testid="open-in-primary"]',
+      );
+    expect(primary()?.textContent).toContain('Open in Kiro');
+
+    fixture.componentRef.setInput('compact', true);
+    fixture.detectChanges();
+    expect(primary()?.textContent?.trim()).toBe('');
+    expect(primary()?.getAttribute('aria-label')).toBe('Open in Kiro');
+  });
+
   it('hides the rail toggle in historical review mode', () => {
     reviewMode.set('branch-review');
     const fixture = TestBed.createComponent(GitDockHeaderComponent);

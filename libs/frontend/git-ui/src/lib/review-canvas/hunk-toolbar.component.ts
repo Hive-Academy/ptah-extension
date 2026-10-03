@@ -130,9 +130,14 @@ function focusNearestHunkStop(container: HTMLElement, ordinal: number): void {
       class="flex flex-wrap items-center justify-between gap-1 bg-base-200/60 px-2 py-1 text-[11px] border-y border-base-content/5"
       data-testid="hunk-toolbar-row"
     >
-      <span class="flex min-w-0 items-center gap-2">
+      <!-- One row (V-5): the @@ header takes no intrinsic width (w-0 grow)
+           and truncates first; the row wraps only when "Hunk i of n" and the
+           buttons no longer fit side by side, and the buttons never wrap
+           among themselves. -->
+      <span class="flex flex-1 items-center gap-2">
         <span
-          class="font-mono truncate text-base-content-muted"
+          class="w-0 min-w-0 flex-1 truncate font-mono text-base-content-muted"
+          data-testid="hunk-header"
           [attr.title]="hunk().header"
           >{{ hunk().header }}</span
         >
@@ -172,7 +177,7 @@ function focusNearestHunkStop(container: HTMLElement, ordinal: number): void {
              receives the bubbled arrow keys. -->
         <!-- eslint-disable-next-line @angular-eslint/template/interactive-supports-focus -->
         <div
-          class="flex flex-wrap items-center gap-1"
+          class="flex flex-shrink-0 flex-nowrap items-center gap-1"
           role="toolbar"
           aria-orientation="horizontal"
           [attr.aria-label]="positionLabel() + ' actions'"

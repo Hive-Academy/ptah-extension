@@ -7,6 +7,8 @@
  * stash popover (parity §5 rows 105-113) with its confirmed drop, and axe.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import axe from 'axe-core';
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -314,6 +316,30 @@ describe('HistoryTimelineComponent', () => {
     expect(time?.querySelector('.sr-only')?.textContent).toContain(absolute);
   });
 
+  it('lets the subject win the row: full subject in its title, author visually hidden below 400 px (V-8)', async () => {
+    await render();
+    const row = queryAll('history-commit')[0];
+    const subject = row.querySelector('[data-testid="history-commit-subject"]');
+    const author = row.querySelector('[data-testid="history-commit-author"]');
+    expect(subject?.getAttribute('title')).toBe('feat: add hunk toolbar');
+    expect(subject?.classList).toContain('truncate');
+    expect(author?.classList).toContain('history-author');
+    expect(author?.classList).toContain('flex-shrink-0');
+
+    const source = readFileSync(
+      join(__dirname, 'history-timeline.component.ts'),
+      'utf8',
+    );
+    const css = source.slice(source.indexOf('styles: ['));
+    expect(css).toMatch(/container-type:\s*inline-size/);
+    const tier = css.slice(css.indexOf('@container (max-width: 400px)'));
+    expect(tier).toMatch(
+      /\.history-author\s*\{[^}]*clip:\s*rect\(0, 0, 0, 0\)/,
+    );
+    // Visually hidden, never display:none: a screen reader still reads it.
+    expect(tier).not.toMatch(/display:\s*none/);
+  });
+
   it('heads the list "Recent commits" on the base branch', async () => {
     readLog.mockResolvedValue(
       sinceBase([C1], { mode: 'recent', base: null, branch: 'main' }),
@@ -551,9 +577,9 @@ describe('HistoryTimelineComponent', () => {
     expect(text('history-stash-drop-notice')).toBe(
       'stash@{0} is no longer there, so nothing was dropped. The list was refreshed.',
     );
-    expect(
-      query('history-stash-drop-notice')?.closest('[role="status"]'),
-    ).toBe(query('history-stash-status'));
+    expect(query('history-stash-drop-notice')?.closest('[role="status"]')).toBe(
+      query('history-stash-status'),
+    );
     expect(stash.loadList).toHaveBeenCalledTimes(2);
   });
 

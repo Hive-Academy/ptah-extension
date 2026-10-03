@@ -337,19 +337,24 @@ export function selectBranchPr(
   };
 }
 
-/** The quiet reason for a non-zero `gh` exit, from its stderr. */
+/**
+ * The quiet reason for a non-zero `gh` exit, from its stderr. "No GitHub
+ * remote" is checked first: gh's non-GitHub-remote message ends with a hint to
+ * run `gh auth login`, which is not a sign-in failure. A repository with no
+ * remote at all ("no git remotes found") is the same case for the PR panel.
+ */
 export function classifyGhFailure(stderr: string): GitPrUnavailableReason {
   const lower = stderr.toLowerCase();
+  if (
+    lower.includes('no git remotes found') ||
+    (lower.includes('none of the git remotes') && lower.includes('github host'))
+  ) {
+    return 'not-github';
+  }
   if (lower.includes('gh auth login') || lower.includes('not logged in')) {
     return 'not-authenticated';
   }
   if (lower.includes('no pull requests found')) return 'no-pr';
-  if (
-    lower.includes('none of the git remotes') &&
-    lower.includes('github host')
-  ) {
-    return 'not-github';
-  }
   if (
     lower.includes('gh: command not found') ||
     lower.includes('is not recognized as an internal or external command')

@@ -33,6 +33,23 @@ const NO_EDITOR_TITLE = 'No supported editor found on this machine';
   imports: [LucideAngularModule, EditorBrandIconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:click)': 'onDocumentClick($event)' },
+  // The caret is a direct child of daisyUI's `.dropdown`, whose
+  // `.dropdown > *:not(summary):focus` rule (0,2,1) sets a transparent
+  // outline and beats both the global `button:focus-visible` ring and a
+  // `focus-visible:outline-*` utility (V-3). This rule restores the ring the
+  // sibling buttons show: `--s` in dark, the deepened gold in anubis-light
+  // (styles.css, same pairing as the global focus rule).
+  styles: [
+    `
+      .open-in-caret:focus-visible {
+        outline: 2px solid oklch(var(--s));
+        outline-offset: -2px;
+      }
+      :host-context([data-theme='anubis-light']) .open-in-caret:focus-visible {
+        outline-color: var(--ptah-gold-strong);
+      }
+    `,
+  ],
   template: `
     <div class="join join-horizontal" data-testid="open-in-button">
       <button
@@ -72,7 +89,7 @@ const NO_EDITOR_TITLE = 'No supported editor found on this machine';
           <button
             #caret
             type="button"
-            class="btn btn-ghost btn-xs join-item px-1"
+            class="open-in-caret btn btn-ghost btn-xs join-item px-1"
             data-testid="open-in-caret"
             aria-haspopup="menu"
             aria-label="Choose where to open"

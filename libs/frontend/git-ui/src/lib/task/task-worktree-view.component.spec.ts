@@ -330,6 +330,31 @@ describe('TaskWorktreeViewComponent', () => {
     expect(textOf(rows[2])).toContain('prunable');
   });
 
+  it('lets the branch win the row and truncates the path from the left, full values in titles (V-8)', async () => {
+    const branch = 'agent/visual-review-with-a-long-branch-name';
+    worktreeStub.worktrees.set([
+      MAIN,
+      worktree('/r/very/long/parent/folders/wt/576', branch, false),
+    ]);
+    await render();
+
+    const row = switchButtons()[1];
+    const label = row.querySelector(
+      '[data-testid="task-worktree-branch-label"]',
+    );
+    const path = row.querySelector('[data-testid="task-worktree-row-path"]');
+    expect(label?.getAttribute('title')).toBe(branch);
+    // The branch keeps its natural width; only the path grows into what is left.
+    expect(label?.classList).not.toContain('flex-1');
+    expect(path?.classList).toContain('flex-1');
+    expect(path?.classList).toContain('truncate');
+    expect(path?.getAttribute('dir')).toBe('rtl');
+    expect(path?.querySelector('bdi')?.getAttribute('dir')).toBe('ltr');
+    expect(path?.getAttribute('title')).toBe(
+      '/r/very/long/parent/folders/wt/576',
+    );
+  });
+
   it('shows a spinner while the first list loads, and an empty state after (parity §4 row 93)', async () => {
     worktreeStub.worktrees.set([]);
     worktreeStub.isLoading.set(true);
@@ -780,7 +805,7 @@ describe('TaskWorktreeViewComponent', () => {
     it.each<[GitPrUnavailableReason, string]>([
       ['gh-missing', 'GitHub CLI not available — PR status hidden.'],
       ['not-authenticated', 'GitHub CLI is not signed in — PR status hidden.'],
-      ['not-github', 'This repository is not on GitHub — PR status hidden.'],
+      ['not-github', 'No GitHub remote — PR status hidden.'],
       ['no-pr', 'No pull request found for this branch.'],
       ['timeout', 'GitHub did not answer in time — PR status hidden.'],
       ['failed', 'PR status could not be read.'],

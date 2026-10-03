@@ -77,6 +77,12 @@ const ESTIMATED_CHROME_PX = 72;
 const UNKNOWN_SIZE_PX = 240;
 
 /**
+ * Below this diff-list width split has under 300 px a side and its hunk
+ * toolbar stacks, so the list shows unified unless the user picks Split.
+ */
+export const SPLIT_MIN_WIDTH_PX = 600;
+
+/**
  * ReviewCanvasComponent — the Changes tab body (implementation-plan
  * Component 24, design-spec §6.1; Requirement 6): the comparison bar, the
  * changed-file tree, every changed file in one scrolling list, and the
@@ -125,6 +131,8 @@ const UNKNOWN_SIZE_PX = 240;
       [filter]="filter()"
       [totals]="totals()"
       [(sideBySide)]="sideBySide"
+      [autoUnified]="autoUnified()"
+      (layoutPicked)="splitPicked.set($event)"
       (filterChange)="filter.set($event)"
     />
 
@@ -206,7 +214,22 @@ export class ReviewCanvasComponent {
   readonly stacked = input(false);
 
   protected readonly filter = signal('');
+  /** The stored Split / Unified preference (`diff.renderSideBySide`). */
   protected readonly sideBySide = signal(true);
+  /**
+   * The diff list is narrower than {@link SPLIT_MIN_WIDTH_PX}, measured by the
+   * list's existing `ResizeObserver`; a hidden list keeps the last value.
+   */
+  private readonly narrowList = signal(false);
+  /** The user pressed Split this session: it wins over the narrow default. */
+  protected readonly splitPicked = signal(false);
+  /**
+   * Split preferred, but the list is too narrow for two columns and the user
+   * has not pressed Split: show unified (V-5).
+   */
+  protected readonly autoUnified = computed(
+    () => this.sideBySide() && this.narrowList() && !this.splitPicked(),
+  );
   /** The file in view: its path and whether it is the staged entry. */
   private readonly active = signal<{ path: string; staged: boolean } | null>(
     null,
@@ -261,7 +284,7 @@ export class ReviewCanvasComponent {
   );
 
   protected readonly diffStyle = computed<PierreDiffStyle>(() =>
-    this.sideBySide() ? 'split' : 'unified',
+    this.sideBySide() && !this.autoUnified() ? 'split' : 'unified',
   );
 
   protected readonly themeType = computed<PierreThemeMode>(() =>
@@ -684,6 +707,7 @@ export class ReviewCanvasComponent {
   private onResize(entries: readonly ResizeObserverEntry[]): void {
     const box = entries.at(-1)?.contentRect;
     if (!box) return;
+    if (box.width > 0) this.narrowList.set(box.width < SPLIT_MIN_WIDTH_PX);
     const shown = box.width > 0 || box.height > 0;
     if (shown === this.shown) return;
     this.shown = shown;

@@ -268,6 +268,37 @@ describe('ComparisonBarComponent', () => {
       expect(warn).toHaveBeenCalled();
       warn.mockRestore();
     });
+
+    it('reads as Unified while the canvas is auto-unified, and reports a Split press without re-persisting (V-5)', async () => {
+      create();
+      await settle();
+      fixture.componentRef.setInput('autoUnified', true);
+      fixture.detectChanges();
+      expect(byTestId('layout-unified')?.getAttribute('aria-pressed')).toBe(
+        'true',
+      );
+      expect(byTestId('layout-split')?.getAttribute('aria-pressed')).toBe(
+        'false',
+      );
+      expect(byTestId('layout-split')?.getAttribute('title')).toContain(
+        'narrow',
+      );
+
+      const picked: boolean[] = [];
+      fixture.componentInstance.layoutPicked.subscribe((value) =>
+        picked.push(value),
+      );
+      mockRpcCall.mockClear();
+      byTestId<HTMLButtonElement>('layout-split')?.click();
+      await settle();
+      expect(picked).toEqual([true]);
+      // The stored preference is already split: nothing to write.
+      expect(mockRpcCall).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'settings:set',
+        expect.anything(),
+      );
+    });
   });
 
   describe('totals', () => {

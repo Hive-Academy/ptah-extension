@@ -133,6 +133,20 @@ interface DialogCopy {
         [title]="file()?.absolutePath ?? request().path"
         ><bdi>{{ displayPath() }}</bdi></span
       >
+      @if (modified()) {
+        <!-- Dirty marker (V-7): the word carries it, the dot is decoration. -->
+        <span
+          class="inline-flex flex-shrink-0 items-center gap-1 text-xs text-base-content"
+          data-testid="spot-editor-dirty"
+          title="This file has unsaved changes"
+        >
+          <span
+            class="h-1.5 w-1.5 rounded-full bg-warning"
+            aria-hidden="true"
+          ></span>
+          Unsaved
+        </span>
+      }
       @if (!editable()) {
         <span class="badge badge-ghost badge-xs" data-testid="spot-editor-ro"
           >Read only</span
@@ -200,12 +214,16 @@ interface DialogCopy {
       </p>
     }
     @if (stale()) {
+      <!-- A quiet strip, not a solid warning band (V-7): the same left-accent
+           treatment as the shell's stale-status notice. -->
       <div
-        class="alert alert-warning flex-shrink-0 rounded-none px-3 py-1 text-xs"
+        class="flex flex-shrink-0 items-center gap-2 border-b border-l-2 border-base-content/10 border-l-warning bg-base-200 px-3 py-1 text-xs text-base-content"
         role="status"
         data-testid="spot-editor-stale"
       >
-        <span>This file changed on disk since you opened it.</span>
+        <span class="min-w-0 flex-1"
+          >This file changed on disk since you opened it.</span
+        >
         <button
           type="button"
           class="btn btn-ghost btn-xs"
@@ -281,7 +299,11 @@ interface DialogCopy {
             data-testid="spot-editor-read-error"
           >
             <span>{{ current.failure?.message }}</span>
-            <button type="button" class="btn btn-ghost btn-xs" (click)="retry()">
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              (click)="retry()"
+            >
               Retry
             </button>
           </div>
@@ -382,7 +404,9 @@ export class SpotEditorComponent {
 
   protected readonly displayPath = computed(() => {
     const current = this.file();
-    return current?.relativePath ?? current?.absolutePath ?? this.request().path;
+    return (
+      current?.relativePath ?? current?.absolutePath ?? this.request().path
+    );
   });
 
   protected readonly isMarkdown = computed(

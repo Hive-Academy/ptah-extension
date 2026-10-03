@@ -125,6 +125,18 @@ describe('HunkToolbarComponent', () => {
       );
     });
 
+    it('keeps the toolbar on one row: the @@ header truncates first, the buttons never wrap (V-5)', () => {
+      const header = q('hunk-header');
+      expect(header?.getAttribute('title')).toBe(
+        '@@ -12,6 +12,9 @@ function run()',
+      );
+      expect(header?.classList).toContain('truncate');
+      expect(header?.classList).toContain('w-0');
+      const toolbar = q('hunk-toolbar');
+      expect(toolbar?.classList).toContain('flex-nowrap');
+      expect(toolbar?.classList).toContain('flex-shrink-0');
+    });
+
     it('worktree offers Accept and Reject', () => {
       expect(q('hunk-stage')?.textContent?.trim()).toBe('Accept');
       expect(q('hunk-revert')?.textContent?.trim()).toBe('Reject');
