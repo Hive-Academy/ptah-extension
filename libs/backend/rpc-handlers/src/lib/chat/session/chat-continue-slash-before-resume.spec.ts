@@ -71,6 +71,7 @@ import type { ModelSettings } from '@ptah-extension/settings-core';
 
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
+import { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
 const OPEN_FOLDER = '/c/projects/qa3elhamor';
@@ -80,6 +81,7 @@ const SLASH_PROMPT = '/orchestrate  asset-audit';
 
 interface Harness {
   service: ChatSessionService;
+  startChatSession: jest.Mock;
   resumeSession: jest.Mock;
   sendMessageToSession: jest.Mock;
   endSession: jest.Mock;
@@ -119,12 +121,18 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
       /* no events */
     })(),
   );
+  const startChatSession = jest.fn().mockResolvedValue(
+    (async function* () {
+      /* no events */
+    })(),
+  );
   const sendMessageToSession = jest.fn().mockResolvedValue(undefined);
   const endSession = jest.fn().mockResolvedValue(undefined);
   const interruptSession = jest.fn().mockResolvedValue(undefined);
   const interruptCurrentTurn = jest.fn().mockResolvedValue(true);
 
   const sdkAdapter = {
+    startChatSession,
     isSessionActive: jest.fn().mockReturnValue(opts.registered),
     resumeSession,
     sendMessageToSession,
@@ -230,6 +238,7 @@ function makeHarness(opts: SessionState, autopilot = false): Harness {
 
   return {
     service,
+    startChatSession,
     resumeSession,
     sendMessageToSession,
     endSession,
@@ -491,4 +500,81 @@ it('reports failed interruption as not delivered rather than sending to retired 
     success: false,
     error: expect.stringContaining('Your follow-up was not sent'),
   });
+});
+
+describe('Apps MCP tool profile threading', () => {
+  it.each(['apps', undefined] as const)(
+    'forwards %s to a new SDK session without adding absent keys',
+    async (mcpToolProfile) => {
+      const h = makeHarness(NO_RECORD);
+      const result = await h.service.startSession({
+        tabId: TAB_ID,
+        prompt: 'Build an app',
+        workspacePath: OPEN_FOLDER,
+        ...(mcpToolProfile ? { mcpToolProfile } : {}),
+      });
+      expect(result.success).toBe(true);
+      expect(h.startChatSession).toHaveBeenCalledTimes(1);
+      const [config] = h.startChatSession.mock.calls[0];
+      if (mcpToolProfile) expect(config.mcpToolProfile).toBe('apps');
+      else expect(config).not.toHaveProperty('mcpToolProfile');
+    },
+  );
+
+  it.each(['apps', undefined] as const)(
+    'forwards %s on inactive-session resume',
+    async (mcpToolProfile) => {
+      const h = makeHarness(NO_RECORD);
+      const result = await h.service.continueSession({
+        ...params('Add a chart'),
+        ...(mcpToolProfile ? { mcpToolProfile } : {}),
+      });
+      expect(result.success).toBe(true);
+      expect(h.resumeSession).toHaveBeenCalledTimes(1);
+      const [, config] = h.resumeSession.mock.calls[0];
+      if (mcpToolProfile) expect(config.mcpToolProfile).toBe('apps');
+      else expect(config).not.toHaveProperty('mcpToolProfile');
+    },
+  );
+
+  it.each(['apps', undefined] as const)(
+    'forwards %s inside the slash query sessionConfig',
+    async (mcpToolProfile) => {
+      const executeSlashCommand = jest.fn().mockResolvedValue(
+        (async function* () {
+          /* no events */
+        })(),
+      );
+      const router = new ChatSlashCommandRouterService(
+        createMockLogger() as unknown as Logger,
+        { broadcastMessage: jest.fn() } as never,
+        createMockModelSettings() as unknown as ModelSettings,
+        { executeSlashCommand } as unknown as IAgentAdapter,
+        {
+          intercept: jest
+            .fn()
+            .mockReturnValue({ action: 'new-query', rawCommand: SLASH_PROMPT }),
+        } as never,
+        {
+          isMcpServerRunning: jest.fn().mockReturnValue(true),
+          resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
+        } as never,
+        { streamEventsToWebview: jest.fn() } as never,
+      );
+      const h = makeHarness(NO_RECORD);
+      h.routeFollowUpSlashCommand.mockImplementation(
+        router.routeFollowUpSlashCommand.bind(router),
+      );
+      const result = await h.service.continueSession({
+        ...params(SLASH_PROMPT),
+        ...(mcpToolProfile ? { mcpToolProfile } : {}),
+      });
+      expect(result.success).toBe(true);
+      expect(h.resumeSession).not.toHaveBeenCalled();
+      expect(executeSlashCommand).toHaveBeenCalledTimes(1);
+      const [, , { sessionConfig }] = executeSlashCommand.mock.calls[0];
+      if (mcpToolProfile) expect(sessionConfig.mcpToolProfile).toBe('apps');
+      else expect(sessionConfig).not.toHaveProperty('mcpToolProfile');
+    },
+  );
 });

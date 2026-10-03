@@ -123,10 +123,17 @@ import {
   buildSurfaceUpdateTool,
 } from './surface-tools';
 import { handleSurfaceToolCall } from './surface-tool-handlers';
+import type { McpToolProfile } from '@ptah-extension/shared';
+import {
+  APPS_ONLY_TOOL_NAMES,
+  appsOnlyToolMessage,
+  resolveMcpToolProfile,
+} from './mcp-tool-profile';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 import { buildServerInstructions } from './server-instructions';
 import {
+  getCallerToolProfile,
   getCallerAgentId,
   getCallerSessionId,
   getCallerWorkspaceRoot,
@@ -264,6 +271,7 @@ export async function handleMCPRequest(
             callerSessionId: request._callerSessionId,
             callerWorkspaceRoot: request._callerWorkspaceRoot,
             callerAgentId: caller.agentId,
+            callerToolProfile: resolveMcpToolProfile(request),
           },
           () => handleToolsCall(request, deps, caller.kind),
         );
@@ -334,6 +342,9 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
  *   carrier is machine-owned metadata, prose is agent-owned, and a
  *   section-writer would collapse that boundary.
  *
+ * Apps-only profile group: ptah_dashboard_propose_spec, ptah_surface_update,
+ * ptah_surface_get_state (never listed under coding).
+ *
  * Namespace-toggleable tool groups (disabled via disabledMcpNamespaces):
  * - 'ide': ptah_lsp_references, ptah_lsp_definitions, ptah_get_dirty_files
  *          (also requires hasIDECapabilities === true)
@@ -356,9 +367,10 @@ function handleToolsList(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies,
 ): MCPResponse {
-  const tools = buildToolSet(resolveMcpCaller(request), deps);
+  const profile = resolveMcpToolProfile(request);
+  const tools = buildToolSet(resolveMcpCaller(request), profile, deps);
 
-  markEagerTools(tools, deps);
+  markEagerTools(tools, deps, profile);
   declareResultBudgets(tools);
 
   return {
@@ -372,21 +384,22 @@ function handleToolsList(
  * The ordered tool list for one caller — the single composition point for
  * per-caller tool sets.
  *
- * Every caller kind, `anonymous` included, gets the host's full set today (no
- * user decision licenses narrowing any caller's tools), so the list is
- * byte-identical across callers and stays prompt-cache stable. A per-caller
- * or per-workspace effective set layers on here, keyed on
- * `(caller.kind, caller.workspaceRoot, caller.agentId)`; it must keep the
- * order `buildToolDefinitions` produces.
+ * The profile keys the per-caller set: coding drops the Apps-only tools.
+ * Every caller kind receives a byte-stable list within its profile, keeping
+ * the order produced by buildToolDefinitions for prompt-cache stability.
  */
 function buildToolSet(
   caller: McpCaller,
+  profile: McpToolProfile,
   deps: Pick<
     ProtocolHandlerDependencies,
     'hasIDECapabilities' | 'disabledMcpNamespaces'
   >,
 ): MCPToolDefinition[] {
-  return buildToolDefinitions(deps);
+  const all = buildToolDefinitions(deps);
+  return profile === 'apps'
+    ? all
+    : all.filter((tool) => !APPS_ONLY_TOOL_NAMES.has(tool.name));
 }
 
 /** The tool definitions this host lists, after namespace and capability gating. */
@@ -412,15 +425,8 @@ function buildToolDefinitions(
     buildTaskGetTool(),
     buildTaskListTool(),
     buildTaskCheckTool(),
-    // Always-on for the same reason as the task tools, and with no namespace
-    // toggle (TASK_2026_493_9f58): the tool's success result is a plain-text
-    // rendering of the dashboard, so it is the answer on a host with no
-    // dashboard page rather than a dead end. An agent that cannot rely on it
-    // being present writes a markdown table instead — the exact improvisation
-    // `ptah_harness_propose_config` was added to remove.
+    // Listed only under the apps profile (TASK_2026_595), filtered in buildToolSet.
     buildDashboardProposeSpecTool(),
-    // Always-on for the same reason (TASK_2026_538): an anonymous or headless
-    // caller still gets validation and a plain-text rendering.
     buildSurfaceUpdateTool(),
     buildSurfaceGetStateTool(),
     ...(deps.hasIDECapabilities === true && !disabled.has('ide')
@@ -619,13 +625,18 @@ function describeZodIssues(error: z.ZodError): string {
 
 /**
  * Stamp `_meta['anthropic/alwaysLoad'] = true` onto the runtime-aware eager
- * subset so the SDK loads them up front. Tools left untouched stay deferred.
+ * subset so the SDK loads them up front. Apps adds its three core tools.
+ * Tools left untouched stay deferred.
  */
 function markEagerTools(
   tools: MCPToolDefinition[],
   deps: ProtocolHandlerDependencies,
+  profile: McpToolProfile,
 ): void {
   const eager = new Set<string>(ALWAYS_EAGER_TOOLS);
+  if (profile === 'apps') {
+    for (const name of APPS_ONLY_TOOL_NAMES) eager.add(name);
+  }
   if (deps.hasIDECapabilities === true) {
     for (const name of IDE_EAGER_TOOLS) eager.add(name);
   }
@@ -837,6 +848,9 @@ async function dispatchToolsCall(
   }
 
   const { name, arguments: args } = params;
+  if (APPS_ONLY_TOOL_NAMES.has(name) && getCallerToolProfile() !== 'apps') {
+    return toolErrorResponse(request, appsOnlyToolMessage(name));
+  }
   const individualResult = await handleIndividualTool(
     name,
     args || {},

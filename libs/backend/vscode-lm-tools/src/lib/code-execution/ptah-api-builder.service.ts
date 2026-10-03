@@ -104,7 +104,9 @@ import {
 } from './namespace-builders/harness-namespace.builder';
 import { TASK_SPECS_TOKENS } from '@ptah-extension/task-specs';
 import { buildSessionAwareWorkspaceProvider } from './session-aware-workspace-provider';
+import { withAppsNamespaceProfile } from './mcp-core/mcp-tool-profile';
 import {
+  getCallerToolProfile,
   getCallerSessionId,
   getCallerWorkspaceRoot,
 } from './mcp-core/mcp-request-context';
@@ -856,30 +858,38 @@ export class PtahAPIBuilder {
           logger: this.logger,
         });
       }),
-      dashboard: this.buildNamespaceSafe('dashboard', () => {
-        // Captured exactly as the harness namespace above does it: the
-        // callback outlives this call and must not re-read the field.
-        const webviewManager = this.webviewManager;
-        const surfaceStateService = this.surfaceStateService;
-        return buildDashboardNamespace({
-          // With the surface service, v1 proposals are stored per session and
-          // pushed as `surface:updated` (plan Component 11). Without it
-          // (defensive), `createDashboardBroadcast` keeps the pre-538 direct
-          // `dashboard:spec-proposed` push so v1 never regresses; an absent
-          // manager there is a `no-surface` SUCCESS (TASK_2026_493 rev. 1).
-          broadcast: surfaceStateService
-            ? createDashboardSurfaceBridge(surfaceStateService)
-            : createDashboardBroadcast(() => webviewManager, this.logger),
-          logger: this.logger,
-        });
-      }),
-      surface: this.buildNamespaceSafe('surface', () =>
-        buildSurfaceNamespace({
-          service: this.surfaceStateService,
-          logger: this.logger,
+      dashboard: withAppsNamespaceProfile(
+        'dashboard',
+        this.buildNamespaceSafe('dashboard', () => {
+          // Captured exactly as the harness namespace above does it: the
+          // callback outlives this call and must not re-read the field.
+          const webviewManager = this.webviewManager;
+          const surfaceStateService = this.surfaceStateService;
+          return buildDashboardNamespace({
+            // With the surface service, v1 proposals are stored per session and
+            // pushed as `surface:updated` (plan Component 11). Without it
+            // (defensive), `createDashboardBroadcast` keeps the pre-538 direct
+            // `dashboard:spec-proposed` push so v1 never regresses; an absent
+            // manager there is a `no-surface` SUCCESS (TASK_2026_493 rev. 1).
+            broadcast: surfaceStateService
+              ? createDashboardSurfaceBridge(surfaceStateService)
+              : createDashboardBroadcast(() => webviewManager, this.logger),
+            logger: this.logger,
+          });
         }),
+        getCallerToolProfile,
       ),
-      help: buildHelpMethod(),
+      surface: withAppsNamespaceProfile(
+        'surface',
+        this.buildNamespaceSafe('surface', () =>
+          buildSurfaceNamespace({
+            service: this.surfaceStateService,
+            logger: this.logger,
+          }),
+        ),
+        getCallerToolProfile,
+      ),
+      help: buildHelpMethod({ getCallerToolProfile }),
     };
   }
 

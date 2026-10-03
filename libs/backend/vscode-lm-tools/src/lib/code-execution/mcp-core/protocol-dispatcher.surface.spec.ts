@@ -158,7 +158,38 @@ describe('surface tools over HTTP — caller identity is transport-owned (F1)', 
     return setup;
   }
 
-  it.each(['/', '/workspace/ws-plain'])(
+  it.each(['/', '/workspace/ws-plain', '/session/attacker', '/session/victim'])(
+    'refuses plain coding URL %s despite a forged session, without leaking or mutating state',
+    async (url) => {
+      const { service, surface } = await seedVictim();
+      const before = service.read('victim', 'profile');
+      const update = jest.spyOn(surface, 'update');
+      const getState = jest.spyOn(surface, 'getState');
+      const forged = { _callerSessionId: 'victim' };
+      const read = await post(
+        url,
+        toolCall('ptah_surface_get_state', { surfaceId: 'profile' }, forged),
+      );
+      const write = await post(
+        url,
+        toolCall(
+          'ptah_surface_update',
+          { operation: 'delete', surfaceId: 'profile', baseRevision: 1 },
+          forged,
+        ),
+      );
+      for (const result of [read, write]) {
+        expect(result.isError).toBe(true);
+        expect(result.text).toContain('available on the Apps page only');
+        expect(result.text).not.toContain(SECRET);
+      }
+      expect(update).not.toHaveBeenCalled();
+      expect(getState).not.toHaveBeenCalled();
+      expect(service.read('victim', 'profile')).toEqual(before);
+    },
+  );
+
+  it.each(['/profile/apps', '/workspace/ws-plain/profile/apps'])(
     'treats a forged body session on %s as anonymous',
     async (path) => {
       await seedVictim();
@@ -193,7 +224,7 @@ describe('surface tools over HTTP — caller identity is transport-owned (F1)', 
     const { service } = await seedVictim();
 
     const read = await post(
-      '/session/attacker',
+      '/session/attacker/profile/apps',
       toolCall(
         'ptah_surface_get_state',
         { surfaceId: 'profile' },
@@ -208,11 +239,28 @@ describe('surface tools over HTTP — caller identity is transport-owned (F1)', 
     });
   });
 
+  it('refuses a forged body Apps profile on a coding URL without changing state', async () => {
+    const { service } = await seedVictim();
+    const reply = await post(
+      '/session/victim',
+      toolCall(
+        'ptah_surface_update',
+        { operation: 'delete', surfaceId: 'profile', baseRevision: 1 },
+        { _callerToolProfile: 'apps' },
+      ),
+    );
+    expect(reply.isError).toBe(true);
+    expect(reply.text).toContain('available on the Apps page only');
+    expect(service.read('victim', 'profile')).toMatchObject({
+      status: 'found',
+    });
+  });
+
   it('still serves the legitimate /session/{id} caller', async () => {
     await seedVictim();
 
     const read = await post(
-      '/session/victim',
+      '/session/victim/profile/apps',
       toolCall('ptah_surface_get_state', { surfaceId: 'profile' }),
     );
 
@@ -226,7 +274,7 @@ describe('surface tools at handleMCPRequest — failures stay internal (F2, F3)'
     toolCall(
       'ptah_surface_update',
       { operation: 'create', surface: snapshot('Ada') },
-      { id, _callerSessionId: 'tab-a' },
+      { id, _callerSessionId: 'tab-a', _callerToolProfile: 'apps' },
     ) as unknown as MCPRequest;
 
   afterEach(() => {
@@ -259,7 +307,11 @@ describe('surface tools at handleMCPRequest — failures stay internal (F2, F3)'
     const { deps } = surfaceDeps(undefined, { logger });
 
     const res = await handleMCPRequest(
-      toolCall('ptah_surface_get_state', {}) as unknown as MCPRequest,
+      toolCall(
+        'ptah_surface_get_state',
+        {},
+        { _callerToolProfile: 'apps' },
+      ) as unknown as MCPRequest,
       deps,
     );
 

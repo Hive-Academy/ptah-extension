@@ -49,6 +49,9 @@ export interface MCPRequest {
    * attributed to a guess.
    */
   _callerAgentId?: string;
+
+  /** Decoded URL profile, transport-owned; resolved by resolveMcpToolProfile. */
+  _callerToolProfile?: string;
 }
 
 /**

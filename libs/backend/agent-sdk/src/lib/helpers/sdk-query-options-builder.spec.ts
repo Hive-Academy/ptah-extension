@@ -32,6 +32,7 @@ import type {
   AISessionConfig,
   AuthEnv,
   McpHttpServerOverride,
+  McpToolProfile,
 } from '@ptah-extension/shared';
 
 // ---------------------------------------------------------------------------
@@ -272,6 +273,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
   }
 
   interface BuildOverrides {
+    mcpToolProfile?: McpToolProfile;
     enableFileCheckpointing?: boolean;
     permissionMode?: SdkQueryOptions['permissionMode'];
     forwardSubagentText?: boolean;
@@ -287,8 +289,13 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
    * that a naming fallback emits.
    */
   async function buildWithLogger(overrides: BuildOverrides = {}) {
-    const { sessionName, sessionTitle, resumeSessionId, ...inputOverrides } =
-      overrides;
+    const {
+      sessionName,
+      sessionTitle,
+      resumeSessionId,
+      mcpToolProfile,
+      ...inputOverrides
+    } = overrides;
     const logger = makeSpecLogger();
     const builder = makeFullBuilder(logger);
     const sessionConfig: AISessionConfig = {
@@ -297,6 +304,7 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
       // Every real interactive session carries a tabId; it is the routing id
       // the MCP `/session/{id}` segment is built from (TASK_2026_295).
       tabId: 'tab-fixture',
+      ...(mcpToolProfile ? { mcpToolProfile } : {}),
       ...(sessionName === undefined ? {} : { sessionName }),
       ...(sessionTitle === undefined ? {} : { sessionTitle }),
     } as AISessionConfig;
@@ -313,6 +321,15 @@ describe('SdkQueryOptionsBuilder.build — file checkpointing wiring', () => {
     });
     return { options: cfg.options, logger };
   }
+
+  it('builds the Apps MCP URL from sessionConfig', async () => {
+    const options = await buildWith({ mcpToolProfile: 'apps' });
+    expect(options.mcpServers?.['ptah']).toEqual(
+      expect.objectContaining({
+        url: expect.stringMatching(/\/session\/tab-fixture\/profile\/apps$/),
+      }),
+    );
+  });
 
   async function buildWith(overrides: BuildOverrides = {}) {
     const { options } = await buildWithLogger(overrides);
@@ -1994,6 +2011,7 @@ describe('SdkQueryOptionsBuilder.buildMcpServers — caller session segment (TAS
     buildMcpServers(
       mcpServerRunning?: boolean,
       routingSessionId?: string,
+      toolProfile?: McpToolProfile,
     ): Record<string, McpHttpServerConfig>;
   }
 
@@ -2009,6 +2027,31 @@ describe('SdkQueryOptionsBuilder.buildMcpServers — caller session segment (TAS
     ) => SdkQueryOptionsBuilder;
     return new ctor(logger) as unknown as BuilderWithMcp;
   }
+
+  it('appends the apps profile after the routing id', () => {
+    expect(
+      makeMcpBuilder().buildMcpServers(true, 'tab-abc', 'apps')['ptah'].url,
+    ).toMatch(/\/session\/tab-abc\/profile\/apps$/);
+  });
+
+  it.each(['coding', undefined] as const)(
+    'preserves the exact default URL for %s',
+    (profile) => {
+      const builder = makeMcpBuilder();
+      expect(builder.buildMcpServers(true, 'tab-abc', profile)).toEqual(
+        builder.buildMcpServers(true, 'tab-abc'),
+      );
+      expect(
+        builder.buildMcpServers(true, 'tab-abc', profile)['ptah'].url,
+      ).toMatch(/\/session\/tab-abc$/);
+    },
+  );
+
+  it('returns no MCP servers for apps when the server is stopped', () => {
+    expect(makeMcpBuilder().buildMcpServers(false, 'tab-abc', 'apps')).toEqual(
+      {},
+    );
+  });
 
   it('encodes the routing id as a /session/{id} segment', () => {
     const config = makeMcpBuilder().buildMcpServers(true, 'tab-abc');

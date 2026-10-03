@@ -321,14 +321,14 @@ describe('buildFilesNamespace — list', () => {
 
 describe('buildHelpMethod', () => {
   it('returns the "overview" doc when called with no topic', async () => {
-    const help = buildHelpMethod();
+    const help = buildHelpMethod({ getCallerToolProfile: () => 'apps' });
     const out = await help();
     expect(out).toBe(HELP_DOCS['overview']);
     expect(out).toMatch(/Ptah IDE Access/);
   });
 
   it('returns the matching doc for a known topic', async () => {
-    const help = buildHelpMethod();
+    const help = buildHelpMethod({ getCallerToolProfile: () => 'coding' });
 
     expect(await help('workspace')).toBe(HELP_DOCS['workspace']);
     expect(await help('ide')).toBe(HELP_DOCS['ide']);
@@ -336,7 +336,7 @@ describe('buildHelpMethod', () => {
   });
 
   it('never claims the ide namespace is exclusive to VS Code (Batch 27 honesty: 24c review finding 3)', async () => {
-    const help = buildHelpMethod();
+    const help = buildHelpMethod({ getCallerToolProfile: () => 'coding' });
 
     // ptah.ide.lsp has a real Electron fallback (Batch 26a/26b); the parent
     // topic must not tell a desktop agent the whole namespace is unavailable.
@@ -355,7 +355,7 @@ describe('buildHelpMethod', () => {
   // testing off-host. The help text must name the CLI's actual behaviour, not
   // a fallback that only Electron has.
   it('names the desktop app (not the CLI) as the LSP fallback host, and the CLI as having no IDE host at all (R27-05)', async () => {
-    const help = buildHelpMethod();
+    const help = buildHelpMethod({ getCallerToolProfile: () => 'coding' });
     const ideDoc = await help('ide');
 
     expect(ideDoc).toMatch(/desktop.*fallback|fallback.*desktop/is);
@@ -364,14 +364,14 @@ describe('buildHelpMethod', () => {
   });
 
   it('rewrites legacy "ai.ide.*" topics to "ide.*"', async () => {
-    const help = buildHelpMethod();
+    const help = buildHelpMethod({ getCallerToolProfile: () => 'coding' });
 
     await expect(help('ai.ide.editor')).resolves.toBe(HELP_DOCS['ide.editor']);
     await expect(help('ai.ide.lsp')).resolves.toBe(HELP_DOCS['ide.lsp']);
   });
 
   it('returns a "not found" message listing available topics for unknown input', async () => {
-    const help = buildHelpMethod();
+    const help = buildHelpMethod({ getCallerToolProfile: () => 'coding' });
 
     const out = await help('nonexistent');
 
@@ -414,4 +414,37 @@ describe('HELP_DOCS — Batch 24c', () => {
     expect(doc).toContain("parseStatus 'ok' | 'recovered' | 'unknown'");
     expect(doc).not.toContain('currently: javascript, typescript');
   });
+});
+
+describe('profile-aware help', () => {
+  const codingHelp = buildHelpMethod({ getCallerToolProfile: () => 'coding' });
+  it.each([undefined, 'overview'])(
+    'hides Apps lines in coding overview (%s)',
+    async (topic) => {
+      const overview = await codingHelp(topic);
+      expect(overview.split('\n')[0]).toBe('Ptah IDE Access - Namespaces:');
+      expect(overview).toContain('TASKS:');
+      expect(overview).not.toMatch(
+        /DASHBOARD:|SURFACE:|ptah\.(dashboard|surface)|ptah_(dashboard|surface)/,
+      );
+    },
+  );
+  it.each(['surface', 'dashboard'])(
+    'explains why %s is unavailable',
+    async (topic) => {
+      expect(await codingHelp(topic)).toBe(
+        `ptah.${topic} is available on the Apps page only.`,
+      );
+    },
+  );
+  it('omits Apps topics from the unknown-topic list', async () => {
+    expect(await codingHelp('unknown')).not.toMatch(/dashboard|surface/);
+  });
+  it.each(['surface', 'dashboard'])(
+    'keeps apps help for %s unchanged',
+    async (topic) => {
+      const help = buildHelpMethod({ getCallerToolProfile: () => 'apps' });
+      expect(await help(topic)).toBe(HELP_DOCS[topic]);
+    },
+  );
 });

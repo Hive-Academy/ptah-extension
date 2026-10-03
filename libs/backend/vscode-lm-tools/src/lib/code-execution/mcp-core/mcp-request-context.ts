@@ -16,6 +16,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { McpToolProfile } from '@ptah-extension/shared';
 
 /** Data carried for the lifetime of a single MCP tool call. */
 export interface McpRequestContext {
@@ -37,9 +38,16 @@ export interface McpRequestContext {
    * to it and to nothing else.
    */
   readonly callerAgentId?: string;
+  /** Effective tool profile resolved from the transport-owned URL field. */
+  readonly callerToolProfile?: McpToolProfile;
 }
 
 const storage = new AsyncLocalStorage<McpRequestContext>();
+
+/** Coding is the default both inside an unprofiled call and outside MCP. */
+export function getCallerToolProfile(): McpToolProfile {
+  return storage.getStore()?.callerToolProfile ?? 'coding';
+}
 
 /**
  * Run `fn` with `context` bound as the current MCP request context. The context

@@ -1004,7 +1004,9 @@ describe('ptah_task_list — pages fit the MCP result budget whole', () => {
   });
 
   it('states count vs total in ptah.help("tasks")', async () => {
-    const help = await buildHelpMethod()('tasks');
+    const help = await buildHelpMethod({
+      getCallerToolProfile: () => 'coding',
+    })('tasks');
 
     for (const phrase of [
       'ptah.tasks.list',

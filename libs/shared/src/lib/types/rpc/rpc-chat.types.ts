@@ -6,7 +6,11 @@
  */
 
 import type { SessionId } from '../branded.types';
-import type { ThinkingConfig, EffortLevel } from '../ai-provider.types';
+import type {
+  ThinkingConfig,
+  EffortLevel,
+  McpToolProfile,
+} from '../ai-provider.types';
 import type { FlatStreamEventUnion } from '../execution';
 import type { AskUserQuestionRequest } from '../permission.types';
 import type { SubagentRecord } from '../subagent-registry.types';
@@ -57,6 +61,8 @@ export interface ChatStartParams {
    * streaming payloads so the consuming surface can route events to its own UI.
    */
   surfaceMode?: boolean;
+  /** Ptah MCP tool profile for this session. Absent means `coding`. */
+  mcpToolProfile?: McpToolProfile;
   /** Additional options */
   options?: {
     model?: string;
@@ -144,6 +150,11 @@ export interface ChatContinueParams {
    * streaming payloads so the consuming surface can route events to its own UI.
    */
   surfaceMode?: boolean;
+  /**
+   * Ptah MCP tool profile, re-sent each turn so a resumed session keeps it.
+   * Absent means `coding`.
+   */
+  mcpToolProfile?: McpToolProfile;
 }
 
 /** Response from chat:continue RPC method */

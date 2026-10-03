@@ -116,6 +116,7 @@ interface AutoResumePreflight {
   thinking?: ChatContinueParams['thinking'];
   effort?: ChatContinueParams['effort'];
   surfaceMode?: ChatContinueParams['surfaceMode'];
+  mcpToolProfile?: ChatContinueParams['mcpToolProfile'];
 }
 
 @injectable()
@@ -571,6 +572,9 @@ export class ChatSessionService {
         mcpServersOverride,
         providerProfile,
         ...outputStyle,
+        ...(params.mcpToolProfile
+          ? { mcpToolProfile: params.mcpToolProfile }
+          : {}),
       });
       this.streamBroadcaster.streamEventsToWebview(
         tabId as SessionId,
@@ -1258,6 +1262,9 @@ export class ChatSessionService {
         prompt,
         providerProfile,
         ...outputStyle,
+        ...(params.mcpToolProfile
+          ? { mcpToolProfile: params.mcpToolProfile }
+          : {}),
       });
       this.streamBroadcaster.streamEventsToWebview(
         sessionId,

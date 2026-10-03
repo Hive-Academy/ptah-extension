@@ -442,7 +442,7 @@ describe('the tool definition', () => {
  * the detail is asserted on what `ptah.help` really returns.
  */
 describe("ptah.help('dashboard')", () => {
-  const help = buildHelpMethod();
+  const help = buildHelpMethod({ getCallerToolProfile: () => 'apps' });
 
   it('teaches each kind, the actions and the text rule', async () => {
     const doc = await help('dashboard');
@@ -480,7 +480,7 @@ describe("ptah.help('dashboard')", () => {
  * specs walk that schema independently of the renderer.
  */
 describe("ptah.help('dashboard') states every rule zod enforces", () => {
-  const help = buildHelpMethod();
+  const help = buildHelpMethod({ getCallerToolProfile: () => 'apps' });
   const generated = z.toJSONSchema(DashboardProposeSpecInputSchema, {
     io: 'input',
     target: 'draft-7',
@@ -755,9 +755,19 @@ describe('the structural drift checker', () => {
 });
 
 describe('tools/list', () => {
+  it('omits the dashboard tool under coding', async () => {
+    const res = await handleMCPRequest(
+      request({ method: 'tools/list' }),
+      buildDeps(),
+    );
+    const tools = (res.result as { tools: Array<{ name: string }> }).tools;
+    expect(tools.map((tool) => tool.name)).not.toContain(
+      DASHBOARD_PROPOSE_SPEC_TOOL_NAME,
+    );
+  });
   it('lists the tool with no namespace toggle and no IDE capability', async () => {
     const res = await handleMCPRequest(
-      request({ id: 'list', method: 'tools/list' }),
+      request({ id: 'list', method: 'tools/list', _callerToolProfile: 'apps' }),
       buildDeps(),
     );
     const names = (res.result as { tools: Array<{ name: string }> }).tools.map(
@@ -770,7 +780,7 @@ describe('tools/list', () => {
   it('stays listed even when every namespace toggle is off', async () => {
     const deps = buildDeps();
     const res = await handleMCPRequest(
-      request({ id: 'list', method: 'tools/list' }),
+      request({ id: 'list', method: 'tools/list', _callerToolProfile: 'apps' }),
       {
         ...deps,
         disabledMcpNamespaces: [
@@ -801,6 +811,7 @@ describe('tools/call routing', () => {
     return handleMCPRequest(
       request({
         id: 'call-99',
+        _callerToolProfile: 'apps',
         method: 'tools/call',
         params: { name: DASHBOARD_PROPOSE_SPEC_TOOL_NAME, arguments: args },
       }),

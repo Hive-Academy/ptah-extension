@@ -364,6 +364,28 @@ describe('ChatRpcHandlers (Wave C7e thin facade)', () => {
   // chat:start mcpServersOverride passthrough — verifies the RPC facade does not strip the field.
   // -------------------------------------------------------------------------
 
+  describe('chat:start MCP tool profile forwarding', () => {
+    it.each(['apps', undefined] as const)(
+      'preserves %s through the facade',
+      async (mcpToolProfile) => {
+        const suite = buildSuite();
+        suite.handlers.register();
+        const params = {
+          tabId: TAB_UUID,
+          prompt: 'hi',
+          ...(mcpToolProfile ? { mcpToolProfile } : {}),
+        };
+        await getHandler(suite.rpc, 'chat:start')(params);
+        expect(suite.session.startSession).toHaveBeenCalledWith(params);
+        if (!mcpToolProfile) {
+          expect(
+            suite.session.startSession.mock.calls[0][0],
+          ).not.toHaveProperty('mcpToolProfile');
+        }
+      },
+    );
+  });
+
   describe('ChatRpcHandlers chat:start (mcpServersOverride passthrough)', () => {
     it('forwards mcpServersOverride from RPC params to ChatSessionService.startSession', async () => {
       const suite = buildSuite();

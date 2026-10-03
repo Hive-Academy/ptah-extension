@@ -285,12 +285,15 @@ function extractCallerAgentId(url: string | undefined): string | undefined {
  *   /session/{id}/workspace/{root}     → session + workspace, session first
  *   /agent/{id}/workspace/{root}       → agent + workspace, agent first
  *
- * A leading segment and a terminal workspace segment is the ONLY combined
+ * Optional terminal /profile/{name} follows any shape above, or stands alone.
+ * Writer: SdkQueryOptionsBuilder.buildMcpServers (agent-sdk).
+ *
+ * A leading segment and a workspace segment is the ONLY combined
  * order, and the two leading kinds are mutually exclusive: a spawned agent
  * carries no session id and a chat session carries no agent id.
  *
- * The workspace segment must be TERMINAL (only a trailing slash or a query
- * string may follow), so `/workspace/{root}/session/{id}` and
+ * The workspace segment must be followed only by an optional /profile/{name},
+ * a trailing slash or a query string, so `/workspace/{root}/session/{id}` and
  * `/workspace/{root}/agent/{id}` are fully rejected rather than half-parsed.
  * `{root}` is `encodeURIComponent`-encoded by the writer, so a Windows root
  * (`D:\projects\x` → `D%3A%5Cprojects%5Cx`) contains no `/` or `?` and
@@ -301,7 +304,16 @@ function extractCallerWorkspaceRoot(
 ): string | undefined {
   if (!url) return undefined;
   const match = url.match(
-    /^(?:\/session\/[^/?]+|\/agent\/[^/?]+)?\/workspace\/([^/?]+)\/?(?:\?.*)?$/,
+    /^(?:\/session\/[^/?]+|\/agent\/[^/?]+)?\/workspace\/([^/?]+)(?:\/profile\/[^/?]+)?\/?(?:\?.*)?$/,
+  );
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
+
+/** Read the terminal profile within the closed grammar above (not caller identity). */
+function extractCallerToolProfile(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const match = url.match(
+    /^(?:\/session\/[^/?]+|\/agent\/[^/?]+)?(?:\/workspace\/[^/?]+)?\/profile\/([^/?]+)\/?(?:\?.*)?$/,
   );
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
@@ -368,17 +380,19 @@ async function handleHttpRequest(
       // Caller identity is transport-owned (TASK_2026_538 review F1): the
       // reserved `_caller*` fields are dropped from the body and set ONLY from
       // the URL, unconditionally — `undefined` when the URL carries none — so
-      // a body can never forge a session, agent or workspace scope.
+      // a body can never forge a session, agent, workspace scope or tool profile.
       const {
         _callerSessionId: _ignoredBodySession,
         _callerAgentId: _ignoredBodyAgent,
         _callerWorkspaceRoot: _ignoredBodyWorkspace,
+        _callerToolProfile: _ignoredBodyProfile,
         ...envelope
       } = parsed;
       const mcpRequest = envelope as unknown as MCPRequest;
       mcpRequest._callerSessionId = extractCallerSessionId(req.url);
       mcpRequest._callerAgentId = extractCallerAgentId(req.url);
       mcpRequest._callerWorkspaceRoot = extractCallerWorkspaceRoot(req.url);
+      mcpRequest._callerToolProfile = extractCallerToolProfile(req.url);
 
       const mcpResponse = await onMCPRequest(mcpRequest);
 

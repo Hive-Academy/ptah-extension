@@ -9,6 +9,7 @@
 
 import {
   runWithMcpRequestContext,
+  getCallerToolProfile,
   getCallerAgentId,
   getCallerSessionId,
   getCallerWorkspaceRoot,
@@ -190,5 +191,27 @@ describe('mcp-request-context', () => {
       runWithMcpRequestContext({}, () => isMcpRequestInFlight());
       expect(isMcpRequestInFlight()).toBe(false);
     });
+  });
+});
+
+describe('getCallerToolProfile', () => {
+  it('defaults to coding outside a context and with an empty context', () => {
+    expect(getCallerToolProfile()).toBe('coding');
+    expect(runWithMcpRequestContext({}, getCallerToolProfile)).toBe('coding');
+  });
+  it('carries apps across awaits, isolates overlapping calls and does not leak', async () => {
+    const seen = await Promise.all([
+      runWithMcpRequestContext({ callerToolProfile: 'apps' }, async () => {
+        expect(getCallerToolProfile()).toBe('apps');
+        await Promise.resolve();
+        return getCallerToolProfile();
+      }),
+      runWithMcpRequestContext({}, async () => {
+        await Promise.resolve();
+        return getCallerToolProfile();
+      }),
+    ]);
+    expect(seen).toEqual(['apps', 'coding']);
+    expect(getCallerToolProfile()).toBe('coding');
   });
 });
