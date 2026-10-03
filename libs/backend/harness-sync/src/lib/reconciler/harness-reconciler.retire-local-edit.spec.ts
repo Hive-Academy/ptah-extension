@@ -11,20 +11,23 @@
  * cannot be read or saved is left on disk and stays owned for the next pass.
  *
  * Source-under-test: `WorkspaceHarnessTarget.apply` via the real
- * `HarnessReconcilerService`, with the real Codex and Copilot targets.
+ * `HarnessReconcilerService`, with the real Codex and Copilot targets. The
+ * retirement rule itself (detach, then decide) is `targets/artifact-retirement`.
  */
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'fs';
-import { tmpdir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import type {
   HarnessHealth,
@@ -45,6 +48,12 @@ import {
   createCopilotTarget,
 } from '../targets/rival-targets';
 import { HarnessReconcilerService } from './harness-reconciler.service';
+
+// Every home lookup lands in the per-test temp home, never the real one.
+jest.mock('os', () => ({
+  ...jest.requireActual<typeof import('os')>('os'),
+  homedir: jest.fn(),
+}));
 
 function fakeLogger(): Logger {
   return {
@@ -72,11 +81,15 @@ describe('HarnessReconcilerService — retiring a hand-edited copy (TASK_2026_60
   const COPILOT_ONE = '.github/agents/agent-one.agent.md';
   const COPILOT_TWO = '.github/agents/agent-two.agent.md';
   const HISTORY = '.ptah/harness/.history';
+  let savedCodexHome: string | undefined;
 
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'harness-retire-ws-'));
     sourcesRoot = mkdtempSync(join(tmpdir(), 'harness-retire-src-'));
     home = mkdtempSync(join(tmpdir(), 'harness-retire-home-'));
+    jest.mocked(homedir).mockReturnValue(home);
+    savedCodexHome = process.env['CODEX_HOME'];
+    delete process.env['CODEX_HOME'];
     mkdirSync(join(sourcesRoot, 'skills'), { recursive: true });
     writeAgentSources('agent-one', 'agent-two');
     new HarnessStateStore().save(ws, {
@@ -87,6 +100,9 @@ describe('HarnessReconcilerService — retiring a hand-edited copy (TASK_2026_60
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
+    if (savedCodexHome === undefined) delete process.env['CODEX_HOME'];
+    else process.env['CODEX_HOME'] = savedCodexHome;
     for (const dir of [ws, sourcesRoot, home]) {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -305,7 +321,7 @@ describe('HarnessReconcilerService — retiring a hand-edited copy (TASK_2026_60
     expect(exists(HISTORY)).toBe(false);
   });
 
-  it('5. when the snapshot cannot be written the hand-edited copy is kept and stays owned, while unchanged copies are still removed', async () => {
+  it('5. when the history store cannot be written nothing is retired: edited and unchanged copies alike are kept and stay owned', async () => {
     await reconcile();
     writeFileSync(abs(CODEX_TWO), 'HAND EDITED', 'utf-8');
     // A regular FILE where the history directory must go.
@@ -321,10 +337,16 @@ describe('HarnessReconcilerService — retiring a hand-edited copy (TASK_2026_60
     expect(failure?.reason).toMatch(/could not save local edit before removal/);
     expect(ownedPaths('codex')).toContain(CODEX_TWO);
 
-    // The unchanged Copilot copy in the same pass needs no snapshot.
-    expect(exists(COPILOT_TWO)).toBe(false);
-    expect(row(health, 'copilot').removed).toContain(COPILOT_TWO);
-    expect(ownedPaths('copilot')).not.toContain(COPILOT_TWO);
+    // Detach-then-decide stages EVERY retirement in the history store
+    // (batches.md A-FIX-1, design adjustment 2), so an unwritable store stops
+    // the unchanged Copilot copy too. Conservative: it is retried next pass.
+    expect(exists(COPILOT_TWO)).toBe(true);
+    const copilot = row(health, 'copilot');
+    expect(copilot.removed).not.toContain(COPILOT_TWO);
+    expect(
+      copilot.writeFailed.find((f) => f.relPath === COPILOT_TWO)?.reason,
+    ).toMatch(/could not save local edit before removal/);
+    expect(ownedPaths('copilot')).toContain(COPILOT_TWO);
   });
 
   it('6. a rival skill directory: unchanged is removed plainly (A8), hand-edited is snapshotted whole, then removed', async () => {
@@ -423,5 +445,98 @@ describe('HarnessReconcilerService — retiring a hand-edited copy (TASK_2026_60
       expect(target.writeFailed).toEqual([]);
     }
     expect(snapshotStamps('agent-two')).toHaveLength(1);
+  });
+
+  it('10. F1: a skill whose SKILL.md is untouched but which holds the only copy of .history/notes.md is kept, notes included', async () => {
+    writeSkillSource('tuned');
+    await reconcile();
+    const SKILL = '.agents/skills/tuned';
+    mkdirSync(abs(`${SKILL}/.history`), { recursive: true });
+    writeFileSync(abs(`${SKILL}/.history/notes.md`), 'only copy', 'utf-8');
+
+    rmSync(join(sourcesRoot, 'skills', 'tuned'), { recursive: true });
+    const health = await reconcile();
+
+    const codex = row(health, 'codex');
+    expect(exists(SKILL)).toBe(false);
+    expect(codex.removed).toContain(SKILL);
+    expect(codex.removedLocalEdit).toEqual([SKILL]);
+    expect(codex.writeFailed).toEqual([]);
+    expect(ownedPaths('codex')).not.toContain(SKILL);
+    const stamps = snapshotStamps('tuned');
+    expect(stamps).toHaveLength(1);
+    expect(
+      read(`${HISTORY}/tuned/${stamps[0]}/${SKILL}/.history/notes.md`),
+    ).toBe('only copy');
+  });
+
+  it('11. F1: a _candidates entry and a symlink inside an otherwise unchanged skill are kept; the link is not followed', async () => {
+    writeSkillSource('tuned');
+    await reconcile();
+    const SKILL = '.agents/skills/tuned';
+    mkdirSync(abs(`${SKILL}/_candidates`), { recursive: true });
+    writeFileSync(abs(`${SKILL}/_candidates/draft.md`), 'a draft', 'utf-8');
+    const outside = mkdtempSync(join(tmpdir(), 'harness-retire-outside-'));
+    try {
+      writeFileSync(join(outside, 'precious.md'), 'outside bytes', 'utf-8');
+      symlinkSync(outside, abs(`${SKILL}/linked`), 'junction');
+
+      rmSync(join(sourcesRoot, 'skills', 'tuned'), { recursive: true });
+      const health = await reconcile();
+
+      expect(exists(SKILL)).toBe(false);
+      expect(row(health, 'codex').removedLocalEdit).toEqual([SKILL]);
+      const stamps = snapshotStamps('tuned');
+      expect(stamps).toHaveLength(1);
+      const saved = `${HISTORY}/tuned/${stamps[0]}/${SKILL}`;
+      expect(read(`${saved}/_candidates/draft.md`)).toBe('a draft');
+      expect(lstatSync(abs(`${saved}/linked`)).isSymbolicLink()).toBe(true);
+      expect(readFileSync(join(outside, 'precious.md'), 'utf-8')).toBe(
+        'outside bytes',
+      );
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('12. a detach that fails (EXDEV) removes nothing, leaves no history, keeps the entry owned, and the next pass retires it', async () => {
+    await reconcile();
+    const target = abs(CODEX_TWO);
+    // The module object the retirement code itself calls into, so the spy
+    // reaches it; a namespace import is a frozen copy.
+    const fsPromises =
+      jest.requireActual<typeof import('fs/promises')>('fs/promises');
+    const realRename = fsPromises.rename;
+    const spy = jest
+      .spyOn(fsPromises, 'rename')
+      .mockImplementation(async (from, to) => {
+        if (from === target) {
+          throw Object.assign(new Error('EXDEV: cross-device link'), {
+            code: 'EXDEV',
+          });
+        }
+        return realRename(from, to);
+      });
+
+    deleteAgentSource('agent-two');
+    const blocked = await reconcile();
+    spy.mockRestore();
+
+    expect(read(CODEX_TWO)).toContain('agent-two');
+    const codex = row(blocked, 'codex');
+    expect(codex.removed).not.toContain(CODEX_TWO);
+    expect(
+      codex.writeFailed.find((f) => f.relPath === CODEX_TWO)?.reason,
+    ).toMatch(/could not detach for removal: EXDEV/);
+    expect(ownedPaths('codex')).toContain(CODEX_TWO);
+    expect(exists(HISTORY)).toBe(false);
+
+    const retried = await reconcile();
+
+    expect(exists(CODEX_TWO)).toBe(false);
+    expect(row(retried, 'codex').removed).toContain(CODEX_TWO);
+    expect(row(retried, 'codex').writeFailed).toEqual([]);
+    expect(ownedPaths('codex')).not.toContain(CODEX_TWO);
+    expect(exists(HISTORY)).toBe(false);
   });
 });

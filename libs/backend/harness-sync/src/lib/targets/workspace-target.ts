@@ -31,8 +31,8 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'fs';
 import type { Stats } from 'fs';
-import { cp, rm, unlink, writeFile, mkdir, readFile } from 'fs/promises';
-import { basename, dirname, join } from 'path';
+import { rm, unlink, writeFile, mkdir, readFile } from 'fs/promises';
+import { dirname, join } from 'path';
 import type {
   HarnessFacetMatrix,
   HarnessTargetHealth,
@@ -54,10 +54,8 @@ import {
   desiredAgentModel,
   desiredAgentSourceHash,
 } from '../manifest/harness-manifest.builder';
-import { errorCode } from '../fs/windows-retry';
 import {
   entrySourceHash,
-  HARNESS_STATE_DIR,
   managedEntry,
   ManagedManifestStore,
   type ManagedEntries,
@@ -70,9 +68,13 @@ import {
   copySingleFile,
   describeError,
   hashTransformedDir,
-  removeManaged,
   withWindowsRetry,
 } from './copy-engine';
+import {
+  hashArtifact,
+  retireOwnedArtifact,
+  snapshotLocalEdit,
+} from './artifact-retirement';
 import type {
   HarnessApplyResult,
   HarnessMigration,
@@ -853,27 +855,16 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
   // ------------------------------------------------------------------- apply
 
   /**
-   * Retire one manifest-owned copy without losing a hand edit (TASK_2026_609).
+   * Retire one manifest-owned copy without losing a byte the user put there
+   * (TASK_2026_609). Every retirement funnels through here — a deleted source,
+   * an agent that left the desired set or was disabled, and the explicit
+   * uninstall pass (`HarnessReconcilerService.remove`, E22).
    *
-   * Every retirement funnels through here — a deleted source, an agent that
-   * left the desired set or was disabled, and the explicit uninstall pass
-   * (`HarnessReconcilerService.remove`, E22). The manifest proves Ptah WROTE the
-   * path, not that the bytes there are still Ptah's: a user who tuned
-   * `.codex/agents/<slug>.toml` by hand used to lose that work silently.
-   *
-   * The rule, in order:
-   * 1. Absent path: plain remove (ENOENT tolerated). A symlink is unlinked and
-   *    never followed or snapshotted.
-   * 2. The copy cannot be hashed as the kind the manifest recorded: NOT removed.
-   *    "Unknown is not unchanged", so the entry stays owned and is retried.
-   * 3. Hash equals the recorded one (or nothing was recorded): plain remove.
-   * 4. Hash differs: copy it to `{ws}/.ptah/harness/.history/<slug>/<ts>/
-   *    <relPath>`, re-hash the snapshot, and remove only once the two match.
-   *    The path is then reported in BOTH `removed` and `removedLocalEdit`.
-   *
-   * Any failure lands in `writeFailed` and keeps the path out of `removed`, which
-   * is what keeps its manifest entry alive for the next pass — the reconciler
-   * prunes only `result.removed`.
+   * The rule (detach first, decide on the detached object) lives in
+   * `artifact-retirement.ts`. This maps its outcome: a kept local edit is in
+   * BOTH `removed` and `removedLocalEdit`; a failure lands in `writeFailed` and
+   * stays out of `removed`, which keeps its manifest entry alive for the next
+   * pass — the reconciler prunes only `result.removed`.
    */
   private async retireOwned(
     removal: HarnessPlanRemove,
@@ -883,61 +874,18 @@ export class WorkspaceHarnessTarget implements IHarnessTarget {
     removedLocalEdit: string[],
   ): Promise<void> {
     const { relPath, isDirectory } = removal;
-    const absolute = toAbsolute(workspaceRoot, relPath);
-    const fail = (reason: string): void => {
-      result.writeFailed.push({ relPath, reason });
-    };
-
-    const stat = lstatSyncOrNull(absolute);
-    if (stat === null || stat.isSymbolicLink()) {
-      try {
-        if (stat === null) {
-          await removeManaged(absolute, isDirectory);
-        } else {
-          await withWindowsRetry(() => unlink(absolute));
-        }
-        result.removed.push(relPath);
-      } catch (error: unknown) {
-        fail(`failed to remove: ${describeError(error)}`);
-      }
-      return;
-    }
-
-    // Hashed as the kind the manifest recorded, not as whatever sits there now:
-    // a directory where a file was written is a state nobody can call unchanged.
-    const actual = await hashArtifact(absolute, isDirectory);
-    if (actual === null) {
-      fail(
-        `cannot read to check for local edits: ${relPath} is not a readable ${
-          isDirectory ? 'directory' : 'file'
-        }`,
-      );
-      return;
-    }
-
-    const owned = baseEntries[relPath];
-    const edited = owned !== undefined && actual !== owned.hash;
-    if (edited) {
-      try {
-        await snapshotLocalEdit(workspaceRoot, relPath, isDirectory, actual);
-      } catch (error: unknown) {
-        fail(
-          `could not save local edit before removal: ${describeError(error)}`,
-        );
-        return;
-      }
-    }
-
-    try {
-      await removeManaged(absolute, isDirectory);
-    } catch (error: unknown) {
-      // A snapshot taken above stays: it is a correct copy of the edit, and the
-      // next pass retries with a fresh `<ts>` directory.
-      fail(`failed to remove: ${describeError(error)}`);
+    const outcome = await retireOwnedArtifact({
+      workspaceRoot,
+      relPath,
+      isDirectory,
+      ownedHash: baseEntries[relPath]?.hash,
+    });
+    if (outcome.kind === 'failed') {
+      result.writeFailed.push({ relPath, reason: outcome.reason });
       return;
     }
     result.removed.push(relPath);
-    if (edited) removedLocalEdit.push(relPath);
+    if (outcome.kind === 'removed-local-edit') removedLocalEdit.push(relPath);
   }
 
   private async applyMigrations(
@@ -1122,71 +1070,6 @@ function basenameWithoutSuffix(
   return relPath.slice(prefix.length, relPath.length - suffix.length);
 }
 
-/** Directory under `.ptah/harness` holding copies saved before retirement. */
-const LOCAL_EDIT_HISTORY_DIR = '.history';
-
-/** Upper bound on `<ts>-N` suffixes tried when one millisecond is already taken. */
-const MAX_SNAPSHOT_SUFFIX = 100;
-
-/** Hash an artifact as the kind the manifest recorded; `null` when unreadable as that kind. */
-function hashArtifact(
-  absolute: string,
-  isDirectory: boolean,
-): Promise<string | null> {
-  return isDirectory ? hashDir(absolute) : hashFile(absolute);
-}
-
-/**
- * Save a hand-edited copy to
- * `{ws}/.ptah/harness/.history/<slug>/<ts>/<relPath>` and prove the save.
- *
- * Lives beside the harness manifests, outside every CLI's read directory, so a
- * snapshot is never read back as a skill, an agent, or a `foreign` finding;
- * `.history` is also in the content-hash ignore set. Keeping `relPath` under
- * `<ts>` stops two targets retiring the same slug in one pass from colliding,
- * and tells the user exactly where the file came from.
- *
- * `<ts>` is created with a NON-recursive `mkdir`, so a directory that already
- * exists is never reused or overwritten: EEXIST moves on to `<ts>-1`, `<ts>-2`.
- * The snapshot counts only when it re-hashes to `expectedHash`, the hash of
- * the copy about to be removed or overwritten. Throws on any failure.
- */
-async function snapshotLocalEdit(
-  workspaceRoot: string,
-  relPath: string,
-  isDirectory: boolean,
-  expectedHash: string,
-): Promise<void> {
-  const slugRoot = join(
-    workspaceRoot,
-    HARNESS_STATE_DIR,
-    LOCAL_EDIT_HISTORY_DIR,
-    historySlug(relPath),
-  );
-  await withWindowsRetry(() => mkdir(slugRoot, { recursive: true }));
-  const stampDir = await createUniqueDir(
-    slugRoot,
-    new Date().toISOString().replace(/[:.]/g, '-'),
-  );
-
-  const destination = join(stampDir, ...relPath.split('/'));
-  await withWindowsRetry(() =>
-    mkdir(dirname(destination), { recursive: true }),
-  );
-  await withWindowsRetry(() =>
-    cp(toAbsolute(workspaceRoot, relPath), destination, {
-      recursive: isDirectory,
-    }),
-  );
-
-  const saved = await hashArtifact(destination, isDirectory);
-  if (saved !== expectedHash) {
-    throw new Error(
-      `snapshot at ${destination} does not match the copy on disk`,
-    );
-  }
-}
-
 /**
  * Save the hand-edited copy a write is about to replace. `true` once a verified
  * snapshot exists; `false` when the path vanished after the plan, so there is
@@ -1215,26 +1098,6 @@ async function snapshotBeforeOverwrite(
     actual,
   );
   return true;
-}
-
-/** `.codex/agents/a2.toml` -> `a2`; skill dir `.agents/skills/foo` -> `foo`. */
-function historySlug(relPath: string): string {
-  const name = basename(relPath);
-  const dot = name.indexOf('.');
-  return dot > 0 ? name.slice(0, dot) : name;
-}
-
-async function createUniqueDir(parent: string, name: string): Promise<string> {
-  for (let attempt = 0; attempt <= MAX_SNAPSHOT_SUFFIX; attempt++) {
-    const candidate = join(parent, attempt === 0 ? name : `${name}-${attempt}`);
-    try {
-      await withWindowsRetry(() => mkdir(candidate));
-      return candidate;
-    } catch (error: unknown) {
-      if (errorCode(error) !== 'EEXIST') throw error;
-    }
-  }
-  throw new Error(`no free snapshot directory under ${parent} for ${name}`);
 }
 
 function lstatSyncOrNull(path: string): Stats | null {
