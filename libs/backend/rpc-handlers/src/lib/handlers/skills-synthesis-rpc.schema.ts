@@ -488,6 +488,21 @@ export const SkillInvocationStatsParamsSchema = z.object({
   slug: SlugSchema,
 });
 
+/** The quarantine listing reads the open workspace; it takes no input. */
+export const SkillListQuarantinedAgentsParamsSchema = z
+  .object({})
+  .strict()
+  .optional();
+
+/**
+ * The slug becomes a path segment under `{ws}/.claude/agents`, so the shared
+ * `SlugSchema` (no `..`, no separators) is the first gate; the restore itself
+ * re-checks it before any path join.
+ */
+export const SkillRestoreQuarantinedAgentParamsSchema = z
+  .object({ slug: SlugSchema })
+  .strict();
+
 export const getScorecardsParamsSchema = z.object({
   slugs: z.array(z.string().min(1).max(200)).max(500),
 });

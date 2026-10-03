@@ -298,3 +298,62 @@ export interface SkillSynthesisGetScorecardDetailResult {
   /** MAX_FINDINGS_CHARS-bounded review excerpt, detail-only; null when absent. */
   findingsExcerpt: string | null;
 }
+
+/**
+ * Whether the workspace's agent-sync consent is on, as read by the RPC
+ * handler from the harness agent-sync gate. `'unknown'` when the gate is not
+ * registered on this host or could not be read — never guessed as `'enabled'`.
+ */
+export type QuarantineAgentSyncState = 'enabled' | 'disabled' | 'unknown';
+
+/**
+ * `quarantined`: the workspace source `.claude/agents/<slug>.md` is absent.
+ * `source-restored`: the source is back but the scoped clone has not been
+ * re-created yet (propagation pending, failed, or agent sync off).
+ */
+export type QuarantinedAgentEntryState = 'quarantined' | 'source-restored';
+
+export interface QuarantinedAgentEntry {
+  slug: string;
+  state: QuarantinedAgentEntryState;
+  /** The selected snapshot's time as ISO; `null` means "date unknown". */
+  quarantinedAt: string | null;
+  hasSnapshot: boolean;
+  /** `{ws}/.claude/agents/<slug>.md` — where Restore writes. */
+  sourcePath: string;
+}
+
+export type SkillSynthesisListQuarantinedAgentsParams = Record<string, never>;
+export interface SkillSynthesisListQuarantinedAgentsResult {
+  /** The harness-resolved workspace root, `null` when no folder is open. */
+  workspaceRoot: string | null;
+  agentSync: QuarantineAgentSyncState;
+  /** Present only when the quarantine record exists but failed validation. */
+  recordUnreadable?: true;
+  quarantined: QuarantinedAgentEntry[];
+  /** Kept foreign clones (local work / unprovable) still in the scoped root. */
+  notOwned: string[];
+}
+
+export type QuarantinedAgentRestoreOutcome =
+  | 'restored'
+  | 'already-restored'
+  | 'conflict'
+  | 'not-quarantined'
+  | 'no-snapshot'
+  | 'copy-failed';
+
+export interface SkillSynthesisRestoreQuarantinedAgentParams {
+  slug: string;
+}
+export interface SkillSynthesisRestoreQuarantinedAgentResult {
+  outcome: QuarantinedAgentRestoreOutcome;
+  /** The file the outcome is about (the source, or a conflicting clone). */
+  path: string;
+  reason?: string;
+  /**
+   * Agent-sync consent at the time of the restore. Restore never changes it:
+   * with `'disabled'` the source is back but no clone is re-created.
+   */
+  agentSync: QuarantineAgentSyncState;
+}

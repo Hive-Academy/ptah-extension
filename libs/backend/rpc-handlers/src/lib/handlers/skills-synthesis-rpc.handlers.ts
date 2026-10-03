@@ -62,7 +62,16 @@ import {
   type CronScheduler,
   type JobRun,
 } from '@ptah-extension/cron-scheduler';
-import type { UserLayerMirrorService } from '@ptah-extension/agent-generation';
+import type {
+  UserLayerMirrorService,
+  QuarantinedAgentItem,
+  QuarantineRestoreResult,
+} from '@ptah-extension/agent-generation';
+import {
+  HARNESS_SYNC_TOKENS,
+  resolveHarnessWorkspaceRoot,
+  type AgentConsentReader,
+} from '@ptah-extension/harness-sync';
 import type {
   RpcMethodName,
   SkillAnalyzeNowParams,
@@ -135,6 +144,12 @@ import type {
   SkillSynthesisGetScorecardsResult,
   SkillSynthesisGetScorecardDetailParams,
   SkillSynthesisGetScorecardDetailResult,
+  SkillSynthesisListQuarantinedAgentsParams,
+  SkillSynthesisListQuarantinedAgentsResult,
+  SkillSynthesisRestoreQuarantinedAgentParams,
+  SkillSynthesisRestoreQuarantinedAgentResult,
+  QuarantinedAgentEntry,
+  QuarantineAgentSyncState,
   SkillSynthesisListSuggestionsParams,
   SkillSynthesisListSuggestionsResult,
   SkillSynthesisAcceptSuggestionParams,
@@ -198,6 +213,8 @@ import {
   SkillKeepCloneParamsSchema,
   SkillSaveCloneBodyParamsSchema,
   SkillInvocationStatsParamsSchema,
+  SkillListQuarantinedAgentsParamsSchema,
+  SkillRestoreQuarantinedAgentParamsSchema,
   SkillListCandidatesParamsSchema,
   SkillListSuggestionsParamsSchema,
   SkillAcceptSuggestionParamsSchema,
@@ -268,6 +285,8 @@ export class SkillsSynthesisRpcHandlers {
     'skillSynthesis:rebaseClone',
     'skillSynthesis:keepClone',
     'skillSynthesis:saveCloneBody',
+    'skillSynthesis:listQuarantinedAgents',
+    'skillSynthesis:restoreQuarantinedAgent',
     'skillSynthesis:invocationStats',
     'skillSynthesis:getScorecards',
     'skillSynthesis:getScorecardDetail',
@@ -347,6 +366,13 @@ export class SkillsSynthesisRpcHandlers {
       isOptional: true,
     })
     private readonly gapCurator: SkillGapCuratorService | null,
+    // Optional for the same construction-site reason as the gap curator, and
+    // because it is only ever READ here: the quarantine surface reports
+    // agent-sync consent, it never grants it (Restore must not turn agent sync
+    // on). Typed as the read-only `AgentConsentReader`, so `enable` is not
+    // reachable from this class. Absent means `agentSync: 'unknown'`.
+    @inject(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, { isOptional: true })
+    private readonly agentSyncGate: AgentConsentReader | null,
   ) {}
 
   register(): void {
@@ -377,6 +403,8 @@ export class SkillsSynthesisRpcHandlers {
     this.registerRebaseClone();
     this.registerKeepClone();
     this.registerSaveCloneBody();
+    this.registerListQuarantinedAgents();
+    this.registerRestoreQuarantinedAgent();
     this.registerInvocationStats();
     this.registerGetScorecards();
     this.registerGetScorecardDetail();
@@ -1416,6 +1444,106 @@ export class SkillsSynthesisRpcHandlers {
     });
   }
 
+  /**
+   * The agents the one-time seed quarantine moved out of this workspace's
+   * scoped clone root, with their derived state. Read-only.
+   *
+   * No mirror service is an explicit error rather than an empty list: an empty
+   * list would tell the user nothing was quarantined when this host simply
+   * cannot tell. No open folder IS a real answer (nothing can be quarantined
+   * for no workspace) and comes back empty with `workspaceRoot: null`.
+   */
+  private registerListQuarantinedAgents(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisListQuarantinedAgentsParams,
+      SkillSynthesisListQuarantinedAgentsResult
+    >('skillSynthesis:listQuarantinedAgents', async (params) => {
+      this.parseParams(
+        SkillListQuarantinedAgentsParamsSchema,
+        params,
+        'skillSynthesis:listQuarantinedAgents',
+      );
+      try {
+        const mirror = this.requireDesktop(this.mirror);
+        const workspaceRoot = this.quarantineWorkspaceRoot();
+        if (workspaceRoot === null) {
+          return {
+            workspaceRoot: null,
+            agentSync: 'unknown',
+            quarantined: [],
+            notOwned: [],
+          };
+        }
+        const listing = await mirror.listQuarantinedAgents(workspaceRoot);
+        return {
+          workspaceRoot,
+          agentSync: this.readAgentSync(workspaceRoot),
+          ...(listing.recordUnreadable
+            ? { recordUnreadable: true as const }
+            : {}),
+          quarantined: listing.quarantined.map(toQuarantinedAgentEntry),
+          notOwned: [...listing.notOwned],
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerListQuarantinedAgents',
+        );
+        throw this.toUserError('skillSynthesis:listQuarantinedAgents');
+      }
+    });
+  }
+
+  /**
+   * Restore one quarantined agent's workspace source file from its snapshot.
+   *
+   * The schema's `SlugSchema` is the first gate on the slug (no `..`, no
+   * separators); the mirror re-checks it before any path join. Every refusal
+   * (`conflict`, `not-quarantined`, `no-snapshot`, `copy-failed`) is a result
+   * the surface renders, not an error. A THROWN failure is never mapped to a
+   * success outcome. `agentSync` is read after the restore and never changed:
+   * with consent off the source is back but no clone is re-created, which the
+   * list then reports as `source-restored`.
+   */
+  private registerRestoreQuarantinedAgent(): void {
+    this.rpcHandler.registerMethod<
+      SkillSynthesisRestoreQuarantinedAgentParams,
+      SkillSynthesisRestoreQuarantinedAgentResult
+    >('skillSynthesis:restoreQuarantinedAgent', async (params) => {
+      const parsed = this.parseParams(
+        SkillRestoreQuarantinedAgentParamsSchema,
+        params,
+        'skillSynthesis:restoreQuarantinedAgent',
+      );
+      try {
+        const mirror = this.requireDesktop(this.mirror);
+        const workspaceRoot = this.quarantineWorkspaceRoot();
+        if (workspaceRoot === null) {
+          throw new RpcUserError(
+            'Open a workspace folder to restore a quarantined agent.',
+            'INVALID_PARAMS',
+          );
+        }
+        const result: QuarantineRestoreResult =
+          await mirror.restoreQuarantinedAgent(workspaceRoot, parsed.slug);
+        return {
+          outcome: result.outcome,
+          path: result.path,
+          ...(result.reason !== undefined ? { reason: result.reason } : {}),
+          agentSync: this.readAgentSync(workspaceRoot),
+        };
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        this.report(
+          error,
+          'SkillsSynthesisRpcHandlers.registerRestoreQuarantinedAgent',
+        );
+        throw this.toUserError('skillSynthesis:restoreQuarantinedAgent');
+      }
+    });
+  }
+
   private registerInvocationStats(): void {
     this.rpcHandler.registerMethod<
       SkillSynthesisInvocationStatsParams,
@@ -2036,6 +2164,39 @@ export class SkillsSynthesisRpcHandlers {
     }
   }
 
+  /**
+   * The root the quarantine is keyed by: the harness-resolved workspace root,
+   * the same one the mirror pass and the agent-sync gate use
+   * (`resolveAgentMirrorSource`). Absolute by construction (`path.resolve`),
+   * which the mirror facade requires. `null` when no folder is open.
+   */
+  private quarantineWorkspaceRoot(): string | null {
+    const raw = this.agentScope();
+    return raw === undefined ? null : resolveHarnessWorkspaceRoot(raw);
+  }
+
+  /**
+   * Agent-sync consent for `harnessRoot`, read through `resolve` only.
+   * `'unknown'` when the gate is not registered on this host or the read
+   * throws, never guessed as enabled or disabled.
+   */
+  private readAgentSync(harnessRoot: string): QuarantineAgentSyncState {
+    if (!this.agentSyncGate) return 'unknown';
+    try {
+      return this.agentSyncGate.resolve(harnessRoot).enabled
+        ? 'enabled'
+        : 'disabled';
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - consent is reported, not
+      // acted on, by this surface; an unreadable gate is stated as 'unknown'
+      // rather than failing the listing or the completed restore.
+      this.logger.warn('[skill-synthesis] could not read agent-sync consent', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 'unknown';
+    }
+  }
+
   private async readOrphanFlags(
     mirror: UserLayerMirrorService,
   ): Promise<ReadonlyMap<string, boolean>> {
@@ -2574,6 +2735,18 @@ function toDigestItem(item: DigestItem): SkillDigestItem {
       counts: { ...item.evidence.counts },
       winRate: item.evidence.winRate,
     },
+  };
+}
+
+function toQuarantinedAgentEntry(
+  item: QuarantinedAgentItem,
+): QuarantinedAgentEntry {
+  return {
+    slug: item.slug,
+    state: item.state,
+    quarantinedAt: item.quarantinedAt,
+    hasSnapshot: item.hasSnapshot,
+    sourcePath: item.sourcePath,
   };
 }
 

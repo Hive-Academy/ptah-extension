@@ -16,6 +16,8 @@ import {
   SkillKeepCloneParamsSchema,
   SkillSaveCloneBodyParamsSchema,
   SkillInvocationStatsParamsSchema,
+  SkillListQuarantinedAgentsParamsSchema,
+  SkillRestoreQuarantinedAgentParamsSchema,
   getScorecardsParamsSchema,
   getScorecardDetailParamsSchema,
   SkillQueueParamsSchema,
@@ -1353,6 +1355,61 @@ describe('SkillSetLanesParamsSchema', () => {
   it('rejects an id field — lane identity is the map key, not writable', () => {
     expect(() =>
       SkillSetLanesParamsSchema.parse({ lanes: { judge: { id: 'judge' } } }),
+    ).toThrow();
+  });
+});
+
+describe('SkillListQuarantinedAgentsParamsSchema', () => {
+  it.each([
+    ['undefined', undefined],
+    ['an empty object', {}],
+  ])('accepts %s', (_label, params) => {
+    expect(() =>
+      SkillListQuarantinedAgentsParamsSchema.parse(params),
+    ).not.toThrow();
+  });
+
+  it('rejects an unknown key (the listing takes no input)', () => {
+    expect(() =>
+      SkillListQuarantinedAgentsParamsSchema.parse({ workspaceRoot: '/x' }),
+    ).toThrow();
+  });
+});
+
+describe('SkillRestoreQuarantinedAgentParamsSchema', () => {
+  it('accepts a plain agent slug', () => {
+    expect(
+      SkillRestoreQuarantinedAgentParamsSchema.parse({
+        slug: 'backend-developer',
+      }),
+    ).toEqual({ slug: 'backend-developer' });
+  });
+
+  // PR4: the slug becomes a path segment under `{ws}/.claude/agents`.
+  it.each([
+    ['parent traversal', '../evil'],
+    ['embedded traversal', 'a..b'],
+    ['bare dot', '.'],
+    ['bare dot-dot', '..'],
+    ['forward slash', 'a/b'],
+    ['backslash', 'a\\b'],
+    ['absolute posix path', '/etc/passwd'],
+    ['windows drive path', 'C:\\x'],
+    ['empty', ''],
+    ['over 128 chars', 'a'.repeat(129)],
+  ])('rejects a %s slug', (_label, slug) => {
+    expect(() =>
+      SkillRestoreQuarantinedAgentParamsSchema.parse({ slug }),
+    ).toThrow();
+  });
+
+  it('rejects a missing slug and unknown keys', () => {
+    expect(() => SkillRestoreQuarantinedAgentParamsSchema.parse({})).toThrow();
+    expect(() =>
+      SkillRestoreQuarantinedAgentParamsSchema.parse({
+        slug: 'ok',
+        workspaceRoot: '/other',
+      }),
     ).toThrow();
   });
 });

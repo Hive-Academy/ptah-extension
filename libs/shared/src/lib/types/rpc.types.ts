@@ -504,6 +504,10 @@ import type {
   SkillSynthesisGetScorecardsResult,
   SkillSynthesisGetScorecardDetailParams,
   SkillSynthesisGetScorecardDetailResult,
+  SkillSynthesisListQuarantinedAgentsParams,
+  SkillSynthesisListQuarantinedAgentsResult,
+  SkillSynthesisRestoreQuarantinedAgentParams,
+  SkillSynthesisRestoreQuarantinedAgentResult,
 } from './rpc/rpc-skill-clone.types';
 
 import type {
@@ -1992,6 +1996,14 @@ export interface RpcMethodRegistry {
   'skillSynthesis:saveCloneBody': {
     params: SkillSynthesisSaveCloneBodyParams;
     result: SkillSynthesisSaveCloneBodyResult;
+  };
+  'skillSynthesis:listQuarantinedAgents': {
+    params: SkillSynthesisListQuarantinedAgentsParams;
+    result: SkillSynthesisListQuarantinedAgentsResult;
+  };
+  'skillSynthesis:restoreQuarantinedAgent': {
+    params: SkillSynthesisRestoreQuarantinedAgentParams;
+    result: SkillSynthesisRestoreQuarantinedAgentResult;
   };
   'skillSynthesis:invocationStats': {
     params: SkillSynthesisInvocationStatsParams;
@@ -3979,6 +3991,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:rebaseClone': true,
   'skillSynthesis:keepClone': true,
   'skillSynthesis:saveCloneBody': true,
+  'skillSynthesis:listQuarantinedAgents': true,
+  'skillSynthesis:restoreQuarantinedAgent': true,
   'skillSynthesis:invocationStats': true,
   'skillSynthesis:getScorecards': true,
   'skillSynthesis:getScorecardDetail': true,
