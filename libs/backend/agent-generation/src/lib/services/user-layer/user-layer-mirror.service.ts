@@ -31,6 +31,11 @@ import {
   emptyReapResult,
 } from './user-layer-orphan-reaper';
 import type { OrphanedClone, ReapResult } from './user-layer-orphan-reaper';
+import {
+  UserLayerSeedQuarantine,
+  readAgentSourceListing,
+} from './user-layer-seed-quarantine';
+import type { AgentSourceListing } from './user-layer-seed-quarantine';
 
 const ORIGIN_SIDECAR_SUFFIX = '.ptah-origin.json';
 
@@ -266,10 +271,12 @@ export class UserLayerMirrorService {
    */
   private readonly fsOps: UserLayerFsOps;
   private readonly reaper: UserLayerOrphanReaper;
+  private readonly seedQuarantine: UserLayerSeedQuarantine;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     this.fsOps = new UserLayerFsOps(logger);
     this.reaper = new UserLayerOrphanReaper(logger, this.fsOps);
+    this.seedQuarantine = new UserLayerSeedQuarantine(logger, this.fsOps);
   }
 
   /**
@@ -339,7 +346,25 @@ export class UserLayerMirrorService {
     }
 
     if (sources.agentSourceDir) {
-      await this.seedLegacyAgents(sources.workspaceRoot, roots.agents);
+      // Read once: the seed and the quarantine must agree on which slugs this
+      // workspace owns.
+      const agentSource = await readAgentSourceListing(
+        sources.agentSourceDir,
+        this.fsOps,
+      );
+      await this.seedLegacyAgents(
+        sources.workspaceRoot,
+        roots.agents,
+        agentSource,
+      );
+      const quarantine = await this.seedQuarantine.run({
+        workspaceRoot: sources.workspaceRoot,
+        scopedAgentsRoot: roots.agents,
+        legacyAgentsRoot: this.legacyAgentsRoot(),
+        source: agentSource,
+        withSlugLock: (slug, fn) => this.withSlugLock('agent', slug, fn),
+      });
+      result.errors += quarantine.failed.length;
       await this.mirrorAgents(sources.agentSourceDir, roots.agents, result);
     }
 
@@ -1804,34 +1829,39 @@ export class UserLayerMirrorService {
   }
 
   /**
-   * Carry the pre-key clones into a workspace's own directory, once.
+   * Carry the pre-key clones of the agents THIS workspace owns into its own
+   * directory, once.
    *
-   * Agents are MANIFEST-OWNED downstream, so a desired state that goes empty is
-   * a deletion of every `.codex/agents/*.toml` and `.github/agents/*.agent.md`
-   * the workspace has. Introducing the key without this step would empty the
-   * scoped directory on the first pass after the upgrade and reap all of them,
-   * silently, reported as an ordinary clean pass — the same failure mode the
-   * `agentSyncEnabled` and `skillSyncMode` migrations exist to avoid.
+   * The flat `~/.ptah/user/agents` predates the workspace key, so it holds the
+   * interleaved clones of every project on the machine. Copying all of it — the
+   * TASK_2026_365 rule — handed each newly scoped workspace the other projects'
+   * agents, and the reconciler then fanned those into this workspace's
+   * `.codex`, `.github`, `.cursor` and `.opencode` agent directories: the
+   * cross-workspace leak of TASK_2026_609. A slug is therefore seeded only when
+   * the workspace's agent source (`{ws}/.claude/agents`) has a `<slug>.md`.
    *
-   * So the flat clones are copied in as a SEED. The mirror and reconcile that
-   * run immediately after converge that seed onto the workspace's own
-   * `{ws}/.claude/agents`, which is the truth for this project. A workspace with
-   * no `.claude/agents` keeps exactly what it has today, now private to it.
+   * The seed still exists for the owned slugs because a flat clone can carry
+   * work the source does not — an enhancement, a hand edit — and the mirror and
+   * reconcile that run right after converge it onto the source the normal way
+   * (fast-forward, or diverged and offered for rebase) instead of discarding it.
    *
-   * Three deliberate limits:
+   * Limits:
    *
    * - It runs only when the scoped directory does not exist. Once the workspace
    *   has one, the flat base is never read again.
+   * - An agent source that is absent or unreadable seeds NOTHING and is logged
+   *   with the number of flat clones left behind. Unknown ownership is not
+   *   ownership; the flat originals stay on disk and the rival copies are
+   *   derivatives, so nothing is lost by waiting for a source.
    * - It copies `.md` clones and their sidecars, and NOT `.history`. That
-   *   history is the interleaved record of every workspace on the machine, so
-   *   copying it into one project would assert an edit trail that project never
-   *   had.
-   * - It never deletes the flat originals. Cleanup of a user's files is not
-   *   automatic here, on the quarantine precedent.
+   *   history is the record of every workspace on the machine, so copying it
+   *   into one project would assert an edit trail that project never had.
+   * - It never deletes the flat originals.
    */
   private async seedLegacyAgents(
     workspaceRoot: string | undefined,
     scopedAgentsRoot: string,
+    agentSource: AgentSourceListing,
   ): Promise<void> {
     const legacyRoot = this.legacyAgentsRoot();
     if (workspaceRoot === undefined || scopedAgentsRoot === legacyRoot) return;
@@ -1847,9 +1877,34 @@ export class UserLayerMirrorService {
     }
     if (names.length === 0) return;
 
+    if (agentSource.status !== 'ok') {
+      this.logger.info(
+        '[UserLayerMirror] legacy agent seed skipped: agent source not readable',
+        {
+          workspaceRoot,
+          agentSourceDir: agentSource.dir,
+          sourceStatus: agentSource.status,
+          flatClonesNotSeeded: names.length,
+        },
+      );
+      return;
+    }
+
+    const owned = names.filter((fileName) =>
+      agentSource.slugs.has(fileName.replace(/\.md$/, '')),
+    );
+    const notOwned = names.length - owned.length;
+    if (owned.length === 0) {
+      this.logger.info(
+        '[UserLayerMirror] legacy agent seed skipped: no flat clone is owned by this workspace',
+        { workspaceRoot, flatClonesNotSeeded: notOwned },
+      );
+      return;
+    }
+
     this.assertUnderUserLayer(scopedAgentsRoot);
     let seeded = 0;
-    for (const fileName of names) {
+    for (const fileName of owned) {
       const slug = fileName.replace(/\.md$/, '');
       const sidecarName = `${slug}${ORIGIN_SIDECAR_SUFFIX}`;
       try {
@@ -1879,6 +1934,7 @@ export class UserLayerMirrorService {
       workspaceRoot,
       scopedAgentsRoot,
       seeded,
+      flatClonesNotSeeded: notOwned,
     });
   }
 
