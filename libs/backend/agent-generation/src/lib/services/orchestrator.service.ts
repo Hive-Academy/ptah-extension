@@ -17,8 +17,18 @@ import { existsSync } from 'fs';
 import * as path from 'path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
-import { Result } from '@ptah-extension/shared';
-import type { GenerationAgentOutcome } from '@ptah-extension/shared';
+import {
+  Result,
+  isAgentModelEmittable,
+  matchesAgentModelSyntax,
+  resolveAgentModel,
+} from '@ptah-extension/shared';
+import type {
+  AgentModelLayers,
+  GenerationAgentOutcome,
+} from '@ptah-extension/shared';
+import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
+import type { AgentModelSettings } from '@ptah-extension/settings-core';
 import {
   ProjectType,
   WorkspaceAnalyzerService,
@@ -256,6 +266,10 @@ export class AgentGenerationOrchestratorService {
     private readonly sentryService: SentryService,
     @inject(AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE)
     private readonly outputValidation: IOutputValidationService,
+    // Optional: a host without the settings repository registered (tests, a
+    // stripped-down runtime) still generates, with every template's own model.
+    @inject(SETTINGS_TOKENS.AGENT_MODEL_SETTINGS, { isOptional: true })
+    private readonly agentModelSettings?: AgentModelSettings,
   ) {
     this.logger.debug('AgentGenerationOrchestratorService initialized');
   }
@@ -753,6 +767,8 @@ export class AgentGenerationOrchestratorService {
       pluginPaths: options.pluginPaths,
       abortSignal: signal,
     };
+    // Read once per run, so every agent in it sees the same settings snapshot.
+    const agentModelLayers = this.readAgentModelLayers(options.workspacePath);
 
     const record = async (outcome: GenerationAgentOutcome): Promise<void> => {
       outcomes.push(outcome);
@@ -809,6 +825,7 @@ export class AgentGenerationOrchestratorService {
       }
 
       const template = templateResult.value!;
+      const model = this.resolveClaudeModel(agentModelLayers, template);
       // A template that parsed AND was selected must always yield a written
       // agent file. LLM content generation and output validation are quality
       // advisors here, not drop gates (see resolveAgentContent).
@@ -819,6 +836,7 @@ export class AgentGenerationOrchestratorService {
           context,
           sdkConfig,
           options,
+          model,
           warnings,
         );
       } catch (error: unknown) {
@@ -902,6 +920,7 @@ export class AgentGenerationOrchestratorService {
    * @param context - Project analysis context
    * @param sdkConfig - SDK configuration for content generation
    * @param options - Generation options (for variable overrides)
+   * @param model - The `model:` value to emit (see resolveClaudeModel)
    * @param warnings - Aggregated warnings surfaced in the generation summary
    * @returns Final file content (never empty) with its section counts
    * @private
@@ -911,6 +930,7 @@ export class AgentGenerationOrchestratorService {
     context: AgentProjectContext,
     sdkConfig: ContentGenerationSdkConfig,
     options: OrchestratorGenerationOptions,
+    model: string | undefined,
     warnings?: string[],
   ): Promise<ResolvedAgentContent> {
     const contentResult = await this.contentGenerator.generateContent(
@@ -919,7 +939,12 @@ export class AgentGenerationOrchestratorService {
       sdkConfig,
     );
     const fallback = (): ResolvedAgentContent => ({
-      content: this.renderStaticFallbackContent(template, context, options),
+      content: this.renderStaticFallbackContent(
+        template,
+        context,
+        options,
+        model,
+      ),
       rejectedSections: 0,
       tailoredSections: 0,
     });
@@ -945,7 +970,7 @@ export class AgentGenerationOrchestratorService {
       warnings?.push(warning);
     }
     const candidate: ResolvedAgentContent = {
-      content: this.buildAgentFileContent(rawContent, template),
+      content: this.buildAgentFileContent(rawContent, template, model),
       rejectedSections,
       tailoredSections,
     };
@@ -1032,6 +1057,7 @@ export class AgentGenerationOrchestratorService {
    * @param template - Source template
    * @param context - Project analysis context
    * @param options - Generation options (for variable overrides)
+   * @param model - The `model:` value to emit (see resolveClaudeModel)
    * @returns Final file content built from the authored template body
    * @private
    */
@@ -1039,6 +1065,7 @@ export class AgentGenerationOrchestratorService {
     template: AgentTemplate,
     context: AgentProjectContext,
     options: OrchestratorGenerationOptions,
+    model: string | undefined,
   ): string {
     // No marker stripping here. It used to blank the `LLM`/`VAR` markers with
     // an inline `replace(..., '')`, which emptied the line instead of removing
@@ -1051,7 +1078,60 @@ export class AgentGenerationOrchestratorService {
     for (const [key, value] of Object.entries(variables)) {
       body = body.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'), value);
     }
-    return this.buildAgentFileContent(body, template);
+    return this.buildAgentFileContent(body, template, model);
+  }
+
+  /**
+   * The `agentGeneration.models` layers for this run's workspace, or `null`
+   * when they cannot be read. A missing repository, an empty path (which
+   * `layersForPath` refuses) or a failing store must never cost an agent, so
+   * every such case degrades to the templates' own models.
+   */
+  private readAgentModelLayers(workspacePath: string): AgentModelLayers | null {
+    if (!this.agentModelSettings) return null;
+    try {
+      return this.agentModelSettings.layersForPath(workspacePath);
+    } catch (error: unknown) {
+      this.logger.warn(
+        'Could not read agentGeneration.models; using each template model',
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      return null;
+    }
+  }
+
+  /**
+   * The Claude `model:` value for one agent: the user's override when Claude
+   * Code accepts it, otherwise the template's own (trimmed), otherwise none.
+   *
+   * Precedence (workspace slug, workspace `*`, machine slug, machine `*`) and
+   * tolerance of malformed settings belong to `resolveAgentModel`. The value is
+   * trimmed before the check and the trimmed form is what gets emitted; only
+   * `opus`, `sonnet`, `haiku` and `inherit` pass, because Claude Code rejects
+   * an agent file whose `model:` it does not know.
+   */
+  private resolveClaudeModel(
+    layers: AgentModelLayers | null,
+    template: AgentTemplate,
+  ): string | undefined {
+    const templateModel = template.model?.trim() || undefined;
+    const override = layers
+      ? resolveAgentModel(layers, template.name, 'claude')?.value
+      : undefined;
+    if (override === undefined) return templateModel;
+
+    const candidate = override.trim();
+    if (
+      isAgentModelEmittable('claude', candidate) &&
+      matchesAgentModelSyntax('claude', candidate)
+    ) {
+      return candidate;
+    }
+    this.logger.warn(
+      `Ignoring the Claude model override for ${template.name}: expected opus, sonnet, haiku or inherit; using the template model`,
+      { value: JSON.stringify(override), templateModel },
+    );
+    return templateModel;
   }
 
   /**
@@ -1066,11 +1146,13 @@ export class AgentGenerationOrchestratorService {
    *
    * @param rawContent - Content from ContentGenerationService
    * @param template - Source template with metadata
+   * @param model - The `model:` value to emit, already resolved; none when undefined
    * @returns Content with proper frontmatter prepended
    */
   private buildAgentFileContent(
     rawContent: string,
     template: AgentTemplate,
+    model: string | undefined,
   ): string {
     // Defensive only. This used to strip the template's SECOND frontmatter
     // block (`---name/description---`), which no longer exists — templates carry
@@ -1107,8 +1189,8 @@ export class AgentGenerationOrchestratorService {
       `name: ${template.name}`,
       `description: "${safeDescription}"`,
     ];
-    if (template.model && template.model.trim().length > 0) {
-      frontmatterLines.push(`model: ${template.model.trim()}`);
+    if (model) {
+      frontmatterLines.push(`model: ${model}`);
     }
     const disallowedToolsLine = formatDisallowedToolsFrontmatter(template.name);
     if (disallowedToolsLine) {
