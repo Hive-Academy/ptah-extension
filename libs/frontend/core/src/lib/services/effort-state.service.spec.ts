@@ -121,7 +121,7 @@ describe('EffortStateService', () => {
       // Optimistic: value is visible before the RPC resolves.
       expect(harness.signal('currentEffort')).toBe('max');
 
-      await pending;
+      await expect(pending).resolves.toBe(true);
 
       expect(rpc.call).toHaveBeenCalledWith('config:effort-set', {
         effort: 'max',
@@ -140,7 +140,7 @@ describe('EffortStateService', () => {
       const consoleError = jest.spyOn(console, 'error').mockImplementation();
       rpc.call.mockResolvedValueOnce(rpcError('rejected'));
 
-      await service.setEffort('high');
+      await expect(service.setEffort('high')).resolves.toBe(false);
 
       expect(harness.signal('currentEffort')).toBe('low');
       consoleError.mockRestore();
@@ -158,7 +158,7 @@ describe('EffortStateService', () => {
       const consoleError = jest.spyOn(console, 'error').mockImplementation();
       rpc.call.mockRejectedValueOnce(new Error('offline'));
 
-      await service.setEffort('low');
+      await expect(service.setEffort('low')).resolves.toBe(false);
 
       expect(harness.signal('currentEffort')).toBe('medium');
       consoleError.mockRestore();

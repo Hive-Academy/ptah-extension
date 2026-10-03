@@ -1,0 +1,29 @@
+{
+ "uninstalledRows": 2,
+ "toggleFocusKept": "cli-matrix-uninstalled-toggle",
+ "cursorFocusReturn": "cli-matrix-credentials-cursor",
+ "collapsedRows": 0,
+ "moreOpenFocus": "cli-matrix-edit-glm-instance-1",
+ "provBox": {
+  "x": 396.5625,
+  "y": 288,
+  "width": 57.671875,
+  "height": 16
+ },
+ "provTrunc": "82>58 ellipsis",
+ "provTitle": "OpenAI Codex",
+ "provTabbable": -1,
+ "closedDialogs": [
+  "modal display=grid inert=false focusables=1 text=close",
+  "modal display=grid inert=false focusables=1 text=close",
+  "modal display=none inert=true focusables=7 text=Add Ptah CLI Agent InstanceInstance name",
+  "modal display=none inert=true focusables=3 text=Instance Tier Model MappingDoneclose"
+ ],
+ "axeClosed": [
+  ".gap-1\\.5.min-w-0.flex-1 > .font-semibold.whitespace-nowrap.text-base-content-muted => Element has insufficient color contrast of 4.45 (foreground color: #81636e, background color: #efeae6, font size: 9.0pt ",
+  ".gap-x-2.gap-y-1.mb-2 > .text-base-content-muted.text-xs[_ngcontent-ng-c1878847182=\"\"] => Element has insufficient color contrast of 4.45 (foreground color: #81636e, background color: #efeae6, font size: 9.0pt "
+ ],
+ "order": [
+  "SPAN.flex min-w-0 flex-1 items-center gap-1 o 442>254"
+ ]
+}

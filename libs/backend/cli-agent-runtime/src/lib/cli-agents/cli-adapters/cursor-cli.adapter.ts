@@ -34,7 +34,7 @@ import {
   createBufferedEmitter,
 } from './cli-adapter.utils';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
-import { summarizeCliSdkError } from './sdk-error-summary';
+import { summarizeCliSdkError, redactSecrets } from './sdk-error-summary';
 
 /**
  * Minimal local types for the dynamically imported `@cursor/sdk` package.
@@ -154,6 +154,40 @@ async function getCursorSdk(): Promise<CursorSdkModule> {
   const mod = (await import('@cursor/sdk')) as unknown as CursorSdkModule;
   cursorSdkModule = mod;
   return mod;
+}
+
+/**
+ * Redact every text field of a stream segment: `content`, `toolArgs`, and the
+ * raw `toolInput`. The input is round-tripped through JSON only when its JSON
+ * text contains a secret; a value that cannot be serialised is dropped rather
+ * than emitted unchecked (the redacted `toolArgs` preview still renders).
+ */
+function redactSegment(
+  value: CliOutputSegment,
+  secrets: readonly string[],
+): CliOutputSegment {
+  if (!secrets.some((secret) => secret.trim().length > 0)) return value;
+  const redacted: CliOutputSegment = {
+    ...value,
+    content: redactSecrets(value.content, secrets),
+    ...(value.toolArgs === undefined
+      ? {}
+      : { toolArgs: redactSecrets(value.toolArgs, secrets) }),
+  };
+  if (value.toolInput === undefined) return redacted;
+  try {
+    const json = JSON.stringify(value.toolInput);
+    const clean = redactSecrets(json, secrets);
+    return clean === json
+      ? redacted
+      : {
+          ...redacted,
+          toolInput: JSON.parse(clean) as Record<string, unknown>,
+        };
+  } catch {
+    // Not serialisable, so it cannot be checked: drop it instead of leaking it.
+    return { ...redacted, toolInput: undefined };
+  }
 }
 
 export class CursorCliAdapter implements CliAdapter {
@@ -286,9 +320,20 @@ export class CursorCliAdapter implements CliAdapter {
     let activeRun: CursorRun | undefined;
     let activeTurn: Promise<number> | undefined;
     let agent: CursorSdkAgent | undefined;
+    // Secrets redacted from every error path in this handle's scope. Set by
+    // the turn that resolved the key, so `interrupt` — which runs outside the
+    // turn — still redacts with the same value (551).
+    let secretRedactions: readonly string[] = [];
 
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
+    // Streamed run text (status errors, thinking, tool calls and results,
+    // assistant text) gets the same redaction as the error paths: the SDK that
+    // echoes the request in a rejection can echo it in a stream message too.
+    const emitStreamOutput = (data: string): void =>
+      output.emit(redactSecrets(data, secretRedactions));
+    const emitStreamSegment = (value: CliOutputSegment): void =>
+      segment.emit(redactSegment(value, secretRedactions));
 
     const onAbort = (): void => {
       if (activeRun) {
@@ -317,6 +362,7 @@ export class CursorCliAdapter implements CliAdapter {
         segment.emit({ type: 'error', content: msg });
         return 1;
       }
+      secretRedactions = [apiKey];
 
       try {
         if (!agent) {
@@ -365,8 +411,8 @@ export class CursorCliAdapter implements CliAdapter {
           }
           this.handleMessage(
             message,
-            output.emit,
-            segment.emit,
+            emitStreamOutput,
+            emitStreamSegment,
             textTracker,
             seenToolCalls,
           );
@@ -377,12 +423,16 @@ export class CursorCliAdapter implements CliAdapter {
         if (abortController.signal.aborted) {
           return 1;
         }
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
+        // 551: the SDK error text can echo the request and carry the key, so
+        // the log detail and the streamed summary both get the redacted text.
+        const errorMessage = redactSecrets(
+          error instanceof Error ? error.message : String(error),
+          secretRedactions,
+        );
         this.logger?.error('[CursorCliAdapter] SDK run failed', {
           detail: errorMessage,
         });
-        const summary = summarizeCliSdkError(error, 'Cursor');
+        const summary = summarizeCliSdkError(error, 'Cursor', secretRedactions);
         output.emit(`\n${summary}\n`);
         segment.emit({ type: 'error', content: summary });
         return 1;
@@ -426,13 +476,19 @@ export class CursorCliAdapter implements CliAdapter {
       try {
         await run.cancel();
       } catch (error: unknown) {
-        const detail = error instanceof Error ? error.message : String(error);
+        // 551: cancel failures can echo the request and carry the key. The
+        // logged detail and the rethrown message both carry the redacted
+        // text; a fresh Error also keeps the leaked text out of the stack.
+        const detail = redactSecrets(
+          error instanceof Error ? error.message : String(error),
+          secretRedactions,
+        );
         this.logger?.error('[CursorCliAdapter] run.cancel() failed', {
           detail,
         });
         // Rethrow: the router must report `unsupported` with this reason rather
         // than a false `interrupt-resume` for a turn that is still running.
-        throw error instanceof Error ? error : new Error(detail);
+        throw new Error(detail);
       }
       if (turn) {
         await turn;

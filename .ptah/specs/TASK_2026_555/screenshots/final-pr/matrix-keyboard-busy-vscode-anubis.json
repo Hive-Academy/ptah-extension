@@ -1,0 +1,15 @@
+{
+ "kbBusy": {
+  "popover": 1,
+  "focus": "INPUT[provider-model-picker-search]",
+  "aria": "true"
+ },
+ "kbEsc": {
+  "popover": 0,
+  "focus": "BODY"
+ },
+ "afterRelease": {
+  "popover": 0,
+  "focus": "BODY"
+ }
+}

@@ -1,0 +1,58 @@
+{
+ "Providers": {
+  "violations": [
+   {
+    "id": "nested-interactive",
+    "impact": "serious",
+    "count": 1,
+    "nodes": [
+     {
+      "t": "div[data-tone=\"warning\"]",
+      "s": "Element has focusable descendants"
+     }
+    ]
+   }
+  ],
+  "coloured": [],
+  "overflow": 0,
+  "stops": 18,
+  "noRing": [],
+  "lastStops": [
+   "button:Browse catalog →",
+   "BODY"
+  ]
+ },
+ "Agent Orchestration": {
+  "violations": [],
+  "coloured": [],
+  "overflow": 0,
+  "stops": 27,
+  "noRing": [],
+  "lastStops": [
+   "summary#background-roles-summary:Background Model Roles6 rolesM",
+   "BODY"
+  ]
+ },
+ "Advanced": {
+  "violations": [],
+  "coloured": [],
+  "overflow": 0,
+  "stops": 27,
+  "noRing": [],
+  "lastStops": [
+   "select#vscode-lm-model-select:VS Code LM model",
+   "BODY"
+  ]
+ },
+ "Search & Voice": {
+  "violations": [],
+  "coloured": [],
+  "overflow": 0,
+  "stops": 14,
+  "noRing": [],
+  "lastStops": [
+   "input#settings-web-search-max-results:",
+   "BODY"
+  ]
+ }
+}

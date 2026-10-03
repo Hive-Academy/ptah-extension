@@ -1,18 +1,19 @@
 /**
- * ProviderConnectionCardComponent specs — TASK_2026_523_c3df, Batch D-i.
+ * ProviderConnectionCardComponent specs — TASK_2026_555 Batch 24 (compact card, plan :627-636).
  *
- * Full coverage of design-spec.md ("3. Your connections", "State table (state -> visual -> copy)",
- * "Accessibility notes") and implementation-plan.md:
- * - One spec case per row of the design spec's state table (active, connected, needs-key,
- *   unauthenticated, unreachable, not-installed, not-configured, checking, not-checked,
- *   check-unavailable).
- * - Safety rule: A status that is not a confirmed success is never shown as Connected
- *   (unknown -> Not checked, skipped -> Check unavailable, missing -> Not configured,
- *   connected with positiveProbeEvidence=false -> Not checked, reachable without probe -> Not checked).
- * - Blocked main route displays "Main agent · Needs attention" and exact failure, never the healthy badge.
- * - Non-truncation of provider name and auth modality.
- * - Accessibility: 36 px minimum control height (min-h-9), 2 px focus outlines, and explicit aria-labels.
- * - Scope row embedding and intent emission.
+ * The state table itself (label, copy, tone, dot, primary action) is pinned in
+ * `provider-connection-card.state.spec.ts`. These specs pin what the component renders from it:
+ * - the whole card is one activation target: click, Enter and Space emit `detailsRequested`, a click
+ *   on the inline action never does (RUX-4: every card opens its drawer);
+ * - two rows: initials avatar, name, provenance, auth-modality badge; status dot + label, at most one
+ *   inline action (`btn-xs`), "Used by N";
+ * - each state's single inline action emits its own output, with an accessible name naming the
+ *   provider; Active and Checking carry none;
+ * - the state-table copy is the card's accessible name and tooltip;
+ * - never Connected without confirmed evidence; a blocked main route says it needs attention;
+ * - colour on the dot, avatar and badges only; the kept testids (provider-connection-card,
+ *   provider-name, status-copy, auth-modality) are present;
+ * - a D16 scope badge forwards its intents; "Used by" is hidden while unknown.
  */
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
@@ -41,12 +42,19 @@ function query(
   return fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
 }
 
-function button(
-  fixture: ComponentFixture<ProviderConnectionCardComponent>,
-  testId: string,
-): HTMLButtonElement | null {
-  return query(fixture, testId) as HTMLButtonElement | null;
+/** The card's activation surface (`NativeCardComponent` root, role=button). */
+function surface(fixture: ComponentFixture<ProviderConnectionCardComponent>): HTMLElement {
+  const root = fixture.nativeElement.querySelector('[role="button"]') as HTMLElement | null;
+  if (!root) throw new Error('No card surface');
+  return root;
 }
+
+/** Buttons inside the card surface (the surface itself is role=button, not a <button>). */
+function buttons(fixture: ComponentFixture<ProviderConnectionCardComponent>): HTMLButtonElement[] {
+  return Array.from(fixture.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
+}
+
+const MOONSHOT = { providerId: 'moonshot', providerName: 'Moonshot (Kimi)', authModality: 'apiKey' };
 
 describe('ProviderConnectionCardComponent', () => {
   beforeEach(async () => {
@@ -55,708 +63,230 @@ describe('ProviderConnectionCardComponent', () => {
     }).compileComponents();
   });
 
-  describe('State Table (one spec case per row of design-spec.md)', () => {
-    it('row 1 [active]: renders secondary spine, CheckCircle, Active for main agent badge, exact copy, and Change main provider button', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'active',
-      });
-
-      const card = query(fixture, 'provider-connection-card');
-      const spine = card?.querySelector('[data-testid="native-card-spine"]');
-      expect(spine).not.toBeNull();
-      expect(card?.querySelector('[data-tone="secondary"]')).not.toBeNull();
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Active for main agent');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe('Used for new main-agent requests.');
-
-      const changeBtn = button(fixture, 'btn-change-main');
-      expect(changeBtn).not.toBeNull();
-      expect(changeBtn?.textContent?.trim()).toBe('Change main provider');
-
-      let changeEmitted = false;
-      fixture.componentInstance.changeMainProviderRequested.subscribe(() => {
-        changeEmitted = true;
-      });
-      changeBtn?.click();
-      expect(changeEmitted).toBe(true);
+  describe('whole-card trigger (RUX-4)', () => {
+    it('a click, Enter or Space on the card emits detailsRequested', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'connected', positiveProbeEvidence: true });
+      const emitted = jest.fn();
+      fixture.componentInstance.detailsRequested.subscribe(emitted);
+      query(fixture, 'provider-name')?.click();
+      surface(fixture).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      surface(fixture).dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      expect(emitted).toHaveBeenCalledTimes(3);
+      expect(surface(fixture).getAttribute('tabindex')).toBe('0');
     });
 
-    it('row 2 [connected]: renders neutral card, CheckCircle, Connected · Available badge, exact copy, and Use for main agent / Manage buttons', () => {
-      const fixture = createComponent({
-        providerId: 'openai',
-        providerName: 'OpenAI',
-        status: 'connected',
-        positiveProbeEvidence: true,
-      });
-
-      const card = query(fixture, 'provider-connection-card');
-      const spine = card?.querySelector('[data-testid="native-card-spine"]');
-      expect(spine).toBeNull();
-      expect(card?.querySelector('[data-tone="neutral"]')).not.toBeNull();
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Connected · Available');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe('Connected and available to use.');
-
-      const activateBtn = button(fixture, 'btn-activate-main');
-      expect(activateBtn).not.toBeNull();
-      expect(activateBtn?.textContent?.trim()).toBe('Use for main agent');
-
-      const manageBtn = button(fixture, 'btn-manage');
-      expect(manageBtn).not.toBeNull();
-      expect(manageBtn?.textContent?.trim()).toBe('Manage');
-
-      let activateEmitted = false;
-      let manageEmitted = false;
-      fixture.componentInstance.activateMainRequested.subscribe(() => {
-        activateEmitted = true;
-      });
-      fixture.componentInstance.manageRequested.subscribe(() => {
-        manageEmitted = true;
-      });
-
-      activateBtn?.click();
-      expect(activateEmitted).toBe(true);
-
-      manageBtn?.click();
-      expect(manageEmitted).toBe(true);
+    it('the inline action emits its own output, never detailsRequested', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'unreachable' });
+      const details = jest.fn();
+      const retry = jest.fn();
+      fixture.componentInstance.detailsRequested.subscribe(details);
+      fixture.componentInstance.retryRequested.subscribe(retry);
+      (query(fixture, 'btn-retry') as HTMLButtonElement).click();
+      expect(retry).toHaveBeenCalledTimes(1);
+      expect(details).not.toHaveBeenCalled();
     });
 
-    it('row 3 [needs-key]: renders warning spine, Key, Needs API key badge, exact copy, and Add API key button', () => {
-      const fixture = createComponent({
-        providerId: 'gemini',
-        providerName: 'Google Gemini',
-        status: 'needs-key',
-      });
-
-      const card = query(fixture, 'provider-connection-card');
-      const spine = card?.querySelector('[data-testid="native-card-spine"]');
-      expect(spine).not.toBeNull();
-      expect(card?.querySelector('[data-tone="warning"]')).not.toBeNull();
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Needs API key');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe(
-        'Add an API key to connect Google Gemini.',
+    it('its accessible name and tooltip carry the status and the state-table copy', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'unreachable' });
+      expect(surface(fixture).getAttribute('aria-label')).toBe(
+        'Moonshot (Kimi): Unreachable. Could not reach Moonshot (Kimi); check the connection and retry. Open connection details.',
       );
-
-      const addKeyBtn = button(fixture, 'btn-add-key');
-      expect(addKeyBtn).not.toBeNull();
-      expect(addKeyBtn?.textContent?.trim()).toBe('Add API key');
-
-      let addKeyEmitted = false;
-      fixture.componentInstance.addKeyRequested.subscribe(() => {
-        addKeyEmitted = true;
-      });
-      addKeyBtn?.click();
-      expect(addKeyEmitted).toBe(true);
-    });
-
-    it('row 4a [unauthenticated - sign-in]: renders LogOut, Sign-in required badge, exact copy, and Sign in button for CLI/OAuth', () => {
-      const fixture = createComponent({
-        providerId: 'claude-cli',
-        providerName: 'Claude',
-        authModality: 'cli',
-        status: 'unauthenticated',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Sign-in required');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe(
-        'Your credential is missing or expired; authenticate again.',
-      );
-
-      const signInBtn = button(fixture, 'btn-sign-in');
-      expect(signInBtn).not.toBeNull();
-      expect(signInBtn?.textContent?.trim()).toBe('Sign in');
-
-      let signInEmitted = false;
-      fixture.componentInstance.signInRequested.subscribe(() => {
-        signInEmitted = true;
-      });
-      signInBtn?.click();
-      expect(signInEmitted).toBe(true);
-    });
-
-    it('row 4b [unauthenticated - credential rejected]: renders LogOut, Credential rejected badge, exact copy, and Replace key button for API key', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        authModality: 'api-key',
-        status: 'unauthenticated',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Credential rejected');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe(
-        'Your credential is missing or expired; authenticate again.',
-      );
-
-      const replaceKeyBtn = button(fixture, 'btn-replace-key');
-      expect(replaceKeyBtn).not.toBeNull();
-      expect(replaceKeyBtn?.textContent?.trim()).toBe('Replace key');
-
-      let replaceKeyEmitted = false;
-      fixture.componentInstance.replaceKeyRequested.subscribe(() => {
-        replaceKeyEmitted = true;
-      });
-      replaceKeyBtn?.click();
-      expect(replaceKeyEmitted).toBe(true);
-    });
-
-    it('row 5 [unreachable]: renders warning spine, AlertTriangle, Unreachable badge, exact copy, and Retry / Edit connection buttons', () => {
-      const fixture = createComponent({
-        providerId: 'ollama',
-        providerName: 'Ollama',
-        status: 'unreachable',
-      });
-
-      const card = query(fixture, 'provider-connection-card');
-      const spine = card?.querySelector('[data-testid="native-card-spine"]');
-      expect(spine).not.toBeNull();
-      expect(card?.querySelector('[data-tone="warning"]')).not.toBeNull();
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Unreachable');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe(
-        'Could not reach Ollama; check the connection and retry.',
-      );
-
-      const retryBtn = button(fixture, 'btn-retry');
-      expect(retryBtn).not.toBeNull();
-      expect(retryBtn?.textContent?.trim()).toBe('Retry');
-
-      const editBtn = button(fixture, 'btn-edit-connection');
-      expect(editBtn).not.toBeNull();
-      expect(editBtn?.textContent?.trim()).toBe('Edit connection');
-
-      let retryEmitted = false;
-      let editEmitted = false;
-      fixture.componentInstance.retryRequested.subscribe(() => {
-        retryEmitted = true;
-      });
-      fixture.componentInstance.editConnectionRequested.subscribe(() => {
-        editEmitted = true;
-      });
-
-      retryBtn?.click();
-      expect(retryEmitted).toBe(true);
-
-      editBtn?.click();
-      expect(editEmitted).toBe(true);
-    });
-
-    it('row 6 [not-installed]: renders Terminal, Not installed badge, exact copy, and Installation instructions / Check again buttons', () => {
-      const fixture = createComponent({
-        providerId: 'claude-cli',
-        providerName: 'Claude',
-        cliName: 'Claude CLI',
-        status: 'not-installed',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Not installed');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe(
-        'Install Claude CLI to use this connection.',
-      );
-
-      const installBtn = button(fixture, 'btn-install-instructions');
-      expect(installBtn).not.toBeNull();
-      expect(installBtn?.textContent?.trim()).toBe('Installation instructions');
-
-      const checkAgainBtn = button(fixture, 'btn-check-again');
-      expect(checkAgainBtn).not.toBeNull();
-      expect(checkAgainBtn?.textContent?.trim()).toBe('Check again');
-
-      let installEmitted = false;
-      let checkAgainEmitted = false;
-      fixture.componentInstance.installInstructionsRequested.subscribe(() => {
-        installEmitted = true;
-      });
-      fixture.componentInstance.checkAgainRequested.subscribe(() => {
-        checkAgainEmitted = true;
-      });
-
-      installBtn?.click();
-      expect(installEmitted).toBe(true);
-
-      checkAgainBtn?.click();
-      expect(checkAgainEmitted).toBe(true);
-    });
-
-    it('row 7 [not-configured]: renders neutral card, Plus, Not configured badge, exact copy, and Set up button', () => {
-      const fixture = createComponent({
-        providerId: 'mistral',
-        providerName: 'Mistral',
-        status: 'not-configured',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Not configured');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe(
-        'Set up Mistral when you are ready.',
-      );
-
-      const setupBtn = button(fixture, 'btn-setup');
-      expect(setupBtn).not.toBeNull();
-      expect(setupBtn?.textContent?.trim()).toBe('Set up');
-
-      let setupEmitted = false;
-      fixture.componentInstance.setupRequested.subscribe(() => {
-        setupEmitted = true;
-      });
-      setupBtn?.click();
-      expect(setupEmitted).toBe(true);
-    });
-
-    it('row 8 [checking]: renders Loader2 icon, Checking… badge, exact copy, and no interactive buttons', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'checking',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Checking…');
-
-      const spinner = badge?.querySelector('.animate-spin');
-      expect(spinner).not.toBeNull();
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe('Checking Anthropic…');
-
-      // No action buttons while actively checking
-      expect(button(fixture, 'btn-change-main')).toBeNull();
-      expect(button(fixture, 'btn-activate-main')).toBeNull();
-      expect(button(fixture, 'btn-setup')).toBeNull();
-    });
-
-    it('row 9 [not-checked]: renders HelpCircle, Not checked badge, exact copy, and Check connection button', () => {
-      const fixture = createComponent({
-        providerId: 'openai',
-        providerName: 'OpenAI',
-        status: 'not-checked',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Not checked');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe('Connection has not been verified.');
-
-      const checkBtn = button(fixture, 'btn-check-connection');
-      expect(checkBtn).not.toBeNull();
-      expect(checkBtn?.textContent?.trim()).toBe('Check connection');
-
-      let checkEmitted = false;
-      fixture.componentInstance.checkConnectionRequested.subscribe(() => {
-        checkEmitted = true;
-      });
-      checkBtn?.click();
-      expect(checkEmitted).toBe(true);
-    });
-
-    it('row 10 [check-unavailable]: renders AlertCircle, Check unavailable badge, exact copy, and Retry button', () => {
-      const fixture = createComponent({
-        providerId: 'openrouter',
-        providerName: 'OpenRouter',
-        status: 'check-unavailable',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Check unavailable');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe(
-        'Could not check this connection. Retry.',
-      );
-
-      const retryBtn = button(fixture, 'btn-retry');
-      expect(retryBtn).not.toBeNull();
-      expect(retryBtn?.textContent?.trim()).toBe('Retry');
-
-      let retryEmitted = false;
-      fixture.componentInstance.retryRequested.subscribe(() => {
-        retryEmitted = true;
-      });
-      retryBtn?.click();
-      expect(retryEmitted).toBe(true);
-    });
-  });
-
-  describe('Enforcement rule: A status that is not confirmed success is NEVER shown as Connected', () => {
-    it('maps "unknown" directly to Not checked (Connection has not been verified.), NEVER Connected', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'unknown',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Not checked');
-      expect(badge?.textContent?.trim()).not.toContain('Connected');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe('Connection has not been verified.');
-      // Not checkable is not failed: activation stays available (TASK_2026_534 R2.5).
-      expect(button(fixture, 'btn-activate-main')).not.toBeNull();
-    });
-
-    it('maps "skipped" directly to Check unavailable (Could not check this connection. Retry.), NEVER Connected', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'skipped',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Check unavailable');
-      expect(badge?.textContent?.trim()).not.toContain('Connected');
-
-      const copy = query(fixture, 'status-copy');
-      expect(copy?.textContent?.trim()).toBe(
-        'Could not check this connection. Retry.',
-      );
-      // Local servers report `skipped`; they must stay activatable (TASK_2026_534 R2.5).
-      expect(button(fixture, 'btn-activate-main')).not.toBeNull();
-    });
-
-    it('does not offer activation for uncheckable status when activation is disabled', () => {
-      const fixture = createComponent({
-        providerId: 'ollama',
-        providerName: 'Ollama',
-        status: 'skipped',
-        canActivateMain: false,
-      });
-      expect(button(fixture, 'btn-activate-main')).toBeNull();
-    });
-
-    it('maps "missing" directly to Not configured, NEVER Connected', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'missing',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Not configured');
-      expect(badge?.textContent?.trim()).not.toContain('Connected');
-    });
-
-    it('downgrades status "connected" to "Not checked" if positiveProbeEvidence is explicitly false', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'connected',
-        positiveProbeEvidence: false,
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Not checked');
-      expect(badge?.textContent?.trim()).not.toContain('Connected');
-      expect(button(fixture, 'btn-activate-main')).toBeNull();
-    });
-
-    it('downgrades candidate "active" to "Not checked" if positiveProbeEvidence is explicitly false', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'active',
-        positiveProbeEvidence: false,
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Not checked');
-      expect(badge?.textContent?.trim()).not.toContain('Active');
-    });
-
-    it('downgrades status "reachable" to "Not checked" when positive probe evidence is absent', () => {
-      const fixture = createComponent({
-        providerId: 'ollama',
-        providerName: 'Ollama',
-        status: 'reachable',
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Not checked');
-      expect(badge?.textContent?.trim()).not.toContain('Connected');
-    });
-
-    it('promotes status "reachable" to "Connected · Available" only when positive probe evidence is explicitly confirmed', () => {
-      const fixture = createComponent({
-        providerId: 'ollama',
-        providerName: 'Ollama',
-        status: 'reachable',
-        positiveProbeEvidence: true,
-      });
-
-      const badge = query(fixture, 'status-badge');
-      expect(badge?.textContent?.trim()).toContain('Connected · Available');
-    });
-  });
-
-  describe('Main Agent Blocked State Invariant', () => {
-    it('displays "Main agent · Needs attention" and failure badge when active route is blocked/unreachable', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'unreachable',
-        isActive: true,
-      });
-
-      const blockedBadge = query(fixture, 'blocked-main-badge');
-      expect(blockedBadge).not.toBeNull();
-      expect(blockedBadge?.textContent?.trim()).toContain(
-        'Main agent · Needs attention',
-      );
-
-      const statusBadge = query(fixture, 'status-badge');
-      expect(statusBadge?.textContent?.trim()).toContain('Unreachable');
-
-      // MUST NEVER get the healthy active badge while blocked
-      expect(statusBadge?.textContent?.trim()).not.toContain(
-        'Active for main agent',
-      );
-
-      // Warning tone applied to card
-      const card = query(fixture, 'provider-connection-card');
-      expect(card?.querySelector('[data-tone="warning"]')).not.toBeNull();
-    });
-
-    it('displays "Main agent · Needs attention" when isBlocked flag is explicitly set', () => {
-      const fixture = createComponent({
-        providerId: 'openai',
-        providerName: 'OpenAI',
-        status: 'needs-key',
-        isBlocked: true,
-      });
-
-      const blockedBadge = query(fixture, 'blocked-main-badge');
-      expect(blockedBadge).not.toBeNull();
-      expect(blockedBadge?.textContent?.trim()).toContain(
-        'Main agent · Needs attention',
-      );
-      expect(query(fixture, 'status-badge')?.textContent?.trim()).toContain(
-        'Needs API key',
+      expect(query(fixture, 'provider-connection-card')?.getAttribute('title')).toBe(
+        'Could not reach Moonshot (Kimi); check the connection and retry.',
       );
     });
   });
 
-  describe('Identity, Auth Modality and Layout Non-truncation', () => {
-    it('renders provider name and explicit auth modality label without truncation classes', () => {
-      const fixture = createComponent({
-        providerId: 'claude-cli',
-        providerName: 'Claude',
-        authModality: 'cli',
-      });
-
-      const nameEl = query(fixture, 'provider-name');
-      expect(nameEl?.textContent?.trim()).toBe('Claude');
-      expect(nameEl?.classList.contains('truncate')).toBe(false);
-
-      const modalityEl = query(fixture, 'auth-modality');
-      expect(modalityEl?.textContent?.trim()).toBe('CLI subscription');
-      expect(modalityEl?.classList.contains('truncate')).toBe(false);
+  describe('compact layout (≤ 80 px, prototype .conn-card)', () => {
+    it('renders the avatar, name, provenance and auth-modality badge on row 1', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'connected', positiveProbeEvidence: true, sourceLabel: 'Key stored on this machine' });
+      expect(query(fixture, 'card-avatar')?.textContent?.trim()).toBe('MK');
+      expect(query(fixture, 'card-avatar')?.className).toContain('text-base-content');
+      expect(query(fixture, 'provider-name')?.textContent?.trim()).toBe('Moonshot (Kimi)');
+      expect(query(fixture, 'card-subtitle')?.textContent?.trim()).toBe('Key stored on this machine');
+      expect(query(fixture, 'auth-modality')?.textContent?.trim()).toBe('API key');
     });
 
-    it('formats recognized auth modalities accurately', () => {
-      const testCases: [string, string][] = [
-        ['api-key', 'API key'],
-        ['apiKey', 'API key'],
-        ['cli', 'CLI subscription'],
-        ['oauth', 'OAuth'],
-        ['local', 'Local endpoint'],
-        ['local-native', 'Local endpoint'],
-      ];
+    it('falls back to the last connected / failed time, then the full modality, for the provenance line', () => {
+      expect(query(createComponent({ ...MOONSHOT, lastConnectedText: '2 hours ago' }), 'card-subtitle')?.textContent?.trim())
+        .toBe('Last connected 2 hours ago');
+      expect(query(createComponent({ ...MOONSHOT, lastFailedText: '5 minutes ago' }), 'card-subtitle')?.textContent?.trim())
+        .toBe('Last check failed 5 minutes ago');
+      const cli = createComponent({ providerId: 'claude-cli', providerName: 'Claude (Subscription)', authModality: 'cli' });
+      expect(query(cli, 'card-subtitle')?.textContent?.trim()).toBe('CLI subscription');
+      expect(query(cli, 'auth-modality')?.textContent?.trim()).toBe('CLI');
+      expect(query(createComponent({ providerId: 'x', providerName: 'X' }), 'card-subtitle')).toBeNull();
+    });
 
-      for (const [modality, expected] of testCases) {
-        const fixture = createComponent({
-          providerId: 'test',
-          authModality: modality,
-        });
-        expect(query(fixture, 'auth-modality')?.textContent?.trim()).toBe(
-          expected,
-        );
+    it('a preformatted modality (the page passes "Custom" for a custom gateway) replaces the badge text', () => {
+      expect(query(createComponent({ ...MOONSHOT, authModalityText: 'Custom' }), 'auth-modality')?.textContent?.trim()).toBe('Custom');
+    });
+
+    it('never truncates the name or the modality', () => {
+      const fixture = createComponent({ ...MOONSHOT, providerName: 'A very long provider name that wraps', status: 'connected' });
+      for (const id of ['provider-name', 'auth-modality']) {
+        expect(query(fixture, id)?.className).not.toMatch(/truncate|line-clamp|text-ellipsis/);
       }
     });
 
-    it('renders preformatted authModalityText verbatim when supplied', () => {
-      const fixture = createComponent({
-        providerId: 'custom-corp',
-        authModality: 'custom',
-        authModalityText: 'Custom SSO (Enterprise)',
-      });
-
-      expect(query(fixture, 'auth-modality')?.textContent?.trim()).toBe(
-        'Custom SSO (Enterprise)',
-      );
+    it('row 2 holds the status dot and label, the inline action and "Used by N"', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'connected', positiveProbeEvidence: true, usedByCount: 2 });
+      expect(query(fixture, 'status-copy')?.textContent?.trim()).toBe('Connected');
+      expect(query(fixture, 'status-badge')?.querySelector('.bg-success')).not.toBeNull();
+      expect(query(fixture, 'status-badge')?.className).toContain('text-base-content');
+      expect(query(fixture, 'used-by-count')?.textContent?.trim()).toBe('Used by 2');
     });
 
-    it('suppresses "Use for main agent" when canActivateMain is false (CLI-only integration)', () => {
-      const fixture = createComponent({
-        providerId: 'claude-cli',
-        providerName: 'Claude CLI',
-        status: 'connected',
-        positiveProbeEvidence: true,
-        canActivateMain: false,
-      });
-
-      expect(button(fixture, 'btn-activate-main')).toBeNull();
-      expect(button(fixture, 'btn-manage')).not.toBeNull();
+    it('"Used by" is hidden while the count is unknown, and shows 0 when known and unused', () => {
+      expect(query(createComponent({ ...MOONSHOT, usedByCount: null }), 'used-by-count')).toBeNull();
+      expect(query(createComponent({ ...MOONSHOT, usedByCount: 0 }), 'used-by-count')?.textContent?.trim()).toBe('Used by 0');
     });
   });
 
-  describe('Timestamps and Diagnostics', () => {
-    it('renders prior success "Last connected {time}" alongside failure status', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'unreachable',
-        lastConnectedText: '2 hours ago',
-      });
-
-      const lastConn = query(fixture, 'last-connected');
-      expect(lastConn?.textContent?.trim()).toBe('Last connected 2 hours ago');
+  describe('one inline action per state (every other action lives in the drawer)', () => {
+    it.each([
+      ['needs-key', {}, 'btn-add-key', 'addKeyRequested', 'Add API key for Moonshot (Kimi)'],
+      ['unauthenticated', {}, 'btn-replace-key', 'replaceKeyRequested', 'Replace key for Moonshot (Kimi)'],
+      ['unauthenticated', { authModality: 'oauth' }, 'btn-sign-in', 'signInRequested', 'Sign in to Moonshot (Kimi)'],
+      ['unreachable', {}, 'btn-retry', 'retryRequested', 'Retry connection to Moonshot (Kimi)'],
+      ['not-installed', { cliName: 'Claude CLI' }, 'btn-check-again', 'checkAgainRequested', 'Check again for Claude CLI'],
+      ['not-configured', {}, 'btn-setup', 'setupRequested', 'Set up Moonshot (Kimi)'],
+      ['connected', { positiveProbeEvidence: false }, 'btn-check-connection', 'checkConnectionRequested', 'Check connection for Moonshot (Kimi)'],
+      ['skipped', {}, 'btn-retry', 'retryRequested', 'Retry connection to Moonshot (Kimi)'],
+    ] as const)('%s %j → %s', (status, extra, testId, outputName, ariaLabel) => {
+      const fixture = createComponent({ ...MOONSHOT, status, ...extra });
+      const card = fixture.componentInstance as unknown as Record<string, { subscribe(fn: () => void): unknown }>;
+      const emitted = jest.fn();
+      card[outputName].subscribe(emitted);
+      expect(buttons(fixture)).toHaveLength(1);
+      const action = query(fixture, testId) as HTMLButtonElement;
+      expect(action.getAttribute('aria-label')).toBe(ariaLabel);
+      expect(action.className).toContain('btn-xs');
+      expect(action.className).toContain('focus-visible:outline-2');
+      action.click();
+      expect(emitted).toHaveBeenCalledTimes(1);
     });
 
-    it('renders last failed check timestamp when supplied', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'unreachable',
-        lastFailedText: '5 minutes ago',
-      });
-
-      const lastFailed = query(fixture, 'last-failed');
-      expect(lastFailed?.textContent?.trim()).toBe(
-        'Last check failed 5 minutes ago',
-      );
-    });
-  });
-
-  describe('Scope Row Embedding and Provenance', () => {
-    it('embeds SettingScopeRowComponent when scope input is provided', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        scope: 'workspace' as SettingScopeDisplay,
-        workspaceName: 'ptah-extension',
-      });
-
-      const scopeWrapper = query(fixture, 'card-scope-wrapper');
-      expect(scopeWrapper).not.toBeNull();
-      const scopeBadge = query(fixture, 'scope-source-badge');
-      expect(scopeBadge?.textContent?.trim()).toContain(
-        'From Workspace · ptah-extension',
-      );
+    it.each(['active', 'checking'] as const)('%s carries no inline action', (status) => {
+      expect(buttons(createComponent({ ...MOONSHOT, status }))).toHaveLength(0);
     });
 
-    it('forwards scope actions to component outputs', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        scope: 'global' as SettingScopeDisplay,
-        supportedTargets: ['global', 'workspace'],
-        hasOverride: false,
-      });
-
-      let overrideEmitted = false;
-      fixture.componentInstance.scopeOverrideRequested.subscribe(() => {
-        overrideEmitted = true;
-      });
-
-      const overrideBtn = button(fixture, 'scope-override');
-      expect(overrideBtn).not.toBeNull();
-      overrideBtn?.click();
-      expect(overrideEmitted).toBe(true);
-    });
-
-    it('renders simple source-strip when sourceLabel is supplied without scope', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        sourceLabel: 'From Workspace · ptah-extension',
-      });
-
-      const sourceStrip = query(fixture, 'source-strip');
-      expect(sourceStrip?.textContent?.trim()).toBe(
-        'From Workspace · ptah-extension',
-      );
-    });
-  });
-
-  describe('Accessibility Requirements', () => {
-    it('enforces min-h-9 (36 px) and 2 px focus outline classes on every action button', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'connected',
-        positiveProbeEvidence: true,
-      });
-
-      const buttons = fixture.nativeElement.querySelectorAll('button');
-      expect(buttons.length).toBeGreaterThan(0);
-
-      for (const btn of Array.from(buttons) as HTMLButtonElement[]) {
-        expect(btn.classList.contains('min-h-9')).toBe(true);
-        expect(btn.classList.contains('focus-visible:outline-2')).toBe(true);
-        expect(btn.getAttribute('aria-label')).toBeTruthy();
+    // Gate V 28 (prototype cards): no "Use for main agent" on the face; the Main Agent popover changes the main
+    // agent, and its provider select offers the same usable connections (parity #3).
+    it('a connected card, or a not-checkable one, carries no inline action and no "Use for main agent"', () => {
+      for (const extra of [{ status: 'connected', positiveProbeEvidence: true }, { status: 'unknown' }] as const) {
+        const fixture = createComponent({ ...MOONSHOT, ...extra });
+        expect(buttons(fixture)).toHaveLength(0);
+        expect(fixture.nativeElement.textContent).not.toContain('Use for main agent');
       }
     });
 
-    it('includes provider name in all action button aria-labels', () => {
-      const fixture = createComponent({
-        providerId: 'anthropic',
-        providerName: 'Anthropic',
-        status: 'connected',
-        positiveProbeEvidence: true,
-      });
+    it('no longer renders Manage, Change main provider, Edit connection or Installation instructions', () => {
+      for (const status of ['active', 'connected', 'unreachable', 'not-installed', 'not-checked'] as const) {
+        const fixture = createComponent({ ...MOONSHOT, status, positiveProbeEvidence: true });
+        for (const id of ['btn-manage', 'btn-change-main', 'btn-edit-connection', 'btn-install-instructions']) {
+          expect(query(fixture, id)).toBeNull();
+        }
+      }
+    });
+  });
 
-      const activateBtn = button(fixture, 'btn-activate-main');
-      expect(activateBtn?.getAttribute('aria-label')).toBe(
-        'Use Anthropic for main agent',
-      );
+  describe('never Connected without confirmed evidence', () => {
+    it.each([
+      ['unknown', null, 'Not checked'],
+      ['skipped', null, 'Check unavailable'],
+      ['missing', null, 'Not configured'],
+      ['connected', false, 'Not checked'],
+      ['active', false, 'Not checked'],
+      ['reachable', null, 'Not checked'],
+      ['reachable', true, 'Connected'],
+    ] as const)('%s (evidence %s) reads %s', (status, positiveProbeEvidence, label) => {
+      const fixture = createComponent({ ...MOONSHOT, status, positiveProbeEvidence });
+      expect(query(fixture, 'status-copy')?.textContent?.trim()).toBe(label);
+    });
+  });
 
-      const manageBtn = button(fixture, 'btn-manage');
-      expect(manageBtn?.getAttribute('aria-label')).toBe('Manage Anthropic');
+  describe('main agent', () => {
+    it('the active card has the primary spine (prototype; Gate V 28) and "Active for main agent"', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'connected', positiveProbeEvidence: true, isActive: true });
+      expect(query(fixture, 'status-copy')?.textContent?.trim()).toBe('Active for main agent');
+      expect(query(fixture, 'native-card-spine')).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('primary');
     });
 
-    it('includes CLI name in not-installed button aria-labels', () => {
+    it('a blocked main route says it needs attention, with a warning tone, never the healthy label', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'unreachable', isActive: true });
+      expect(query(fixture, 'blocked-main-badge')?.textContent).toContain('Main agent · Needs attention');
+      expect(query(fixture, 'status-copy')?.textContent?.trim()).toBe('Unreachable');
+      expect(fixture.nativeElement.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('warning');
+      expect(surface(fixture).getAttribute('aria-label')).toContain('main agent needs attention');
+    });
+
+    it('isBlocked alone marks the card', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'connected', positiveProbeEvidence: true, isBlocked: true });
+      expect(query(fixture, 'blocked-main-badge')).not.toBeNull();
+    });
+  });
+
+  describe('scope badge (D16)', () => {
+    it('shows an overridden scope as a badge and forwards its popover actions', () => {
       const fixture = createComponent({
-        providerId: 'claude-cli',
-        providerName: 'Claude',
-        cliName: 'Claude CLI',
-        status: 'not-installed',
+        ...MOONSHOT, scope: 'workspace' as SettingScopeDisplay, hasOverride: true, supportedTargets: ['global', 'workspace'],
       });
+      const clear = jest.fn();
+      fixture.componentInstance.scopeClearRequested.subscribe(clear);
+      const badge = query(fixture, 'scope-badge') as HTMLButtonElement;
+      expect(badge.getAttribute('data-field')).toBe('Moonshot (Kimi)');
+      badge.click();
+      fixture.detectChanges();
+      (query(fixture, 'scope-clear-override') as HTMLButtonElement).click();
+      expect(clear).toHaveBeenCalledTimes(1);
+    });
 
-      const installBtn = button(fixture, 'btn-install-instructions');
-      expect(installBtn?.getAttribute('aria-label')).toBe(
-        'Installation instructions for Claude CLI',
-      );
+    it('an inherited scope renders nothing', () => {
+      const fixture = createComponent({ ...MOONSHOT, scope: 'global' as SettingScopeDisplay, supportedTargets: ['global', 'workspace'] });
+      expect(query(fixture, 'scope-badge')).toBeNull();
+    });
+  });
 
-      const checkAgainBtn = button(fixture, 'btn-check-again');
-      expect(checkAgainBtn?.getAttribute('aria-label')).toBe(
-        'Check again for Claude CLI',
-      );
+  describe('unreadable stored key (final review M-6)', () => {
+    it('shows "Could not read the stored key." with Retry, never "Not set" or "Add API key", even when the route says needs-key', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'needs-key', keyUnreadable: true });
+      const text = query(fixture, 'card-key-unreadable');
+      expect(text?.textContent?.trim()).toBe('Could not read the stored key.');
+      expect(text?.className ?? '').not.toMatch(/text-(warning|error|success|info)/);
+      const retry = query(fixture, 'card-key-unreadable-retry') as HTMLButtonElement;
+      expect(retry.textContent?.trim()).toBe('Retry');
+      expect(retry.className).toContain('focus-visible:outline-base-content');
+      expect(retry.getAttribute('aria-label')).toBe('Retry reading the stored key for Moonshot (Kimi)');
+      expect(query(fixture, 'btn-add-key')).toBeNull();
+      expect(query(fixture, 'status-copy')).toBeNull();
+      const all = (fixture.nativeElement as HTMLElement).textContent ?? '';
+      expect(all).not.toContain('Not set');
+      expect(all).not.toContain('Add API key');
+      expect(all).not.toContain('Needs API key');
+      expect(surface(fixture).getAttribute('aria-label')).toContain('Could not read the stored key.');
+      expect(surface(fixture).getAttribute('aria-label')).not.toContain('Add an API key');
+      // Colour sits on the icon only.
+      expect(fixture.nativeElement.querySelector('lucide-angular.text-warning')).not.toBeNull();
+    });
+
+    it('Retry emits keyRetryRequested only, never detailsRequested or addKeyRequested', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'needs-key', keyUnreadable: true });
+      const retry = jest.fn(), details = jest.fn(), addKey = jest.fn();
+      fixture.componentInstance.keyRetryRequested.subscribe(retry);
+      fixture.componentInstance.detailsRequested.subscribe(details);
+      fixture.componentInstance.addKeyRequested.subscribe(addKey);
+      (query(fixture, 'card-key-unreadable-retry') as HTMLButtonElement).click();
+      expect(retry).toHaveBeenCalledTimes(1);
+      expect(details).not.toHaveBeenCalled();
+      expect(addKey).not.toHaveBeenCalled();
+    });
+
+    it('a readable connection renders no unreadable state', () => {
+      const fixture = createComponent({ ...MOONSHOT, status: 'needs-key' });
+      expect(query(fixture, 'card-key-unreadable')).toBeNull();
+      expect(query(fixture, 'btn-add-key')).not.toBeNull();
     });
   });
 });

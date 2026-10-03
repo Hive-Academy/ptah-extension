@@ -1,0 +1,121 @@
+{
+ "Providers": {
+  "violations": [
+   {
+    "id": "color-contrast",
+    "impact": "serious",
+    "count": 2,
+    "nodes": [
+     {
+      "t": ".truncate.text-sm[_ngcontent-ng-c1005044397=\"\"]",
+      "s": "Element has insufficient color contrast of 2.96 (foreground color: #2563eb, background color: #242430, font size: 10.5pt (14px), font weight: normal). Expected "
+     },
+     {
+      "t": "button[title=\"Hide Workspaces\"] > .tab-label--flip.tab-label.tracking-widest",
+      "s": "Element has insufficient color contrast of 3.45 (foreground color: #2563eb, background color: #17171c, font size: 7.5pt (10px), font weight: normal). Expected c"
+     }
+    ]
+   },
+   {
+    "id": "nested-interactive",
+    "impact": "serious",
+    "count": 1,
+    "nodes": [
+     {
+      "t": "div[data-tone=\"warning\"]",
+      "s": "Element has focusable descendants"
+     }
+    ]
+   }
+  ],
+  "coloured": [],
+  "overflow": 0,
+  "stops": 18,
+  "noRing": [],
+  "lastStops": [
+   "button:Browse catalog →",
+   "OUT:button:Toggle Git panel"
+  ]
+ },
+ "Agent Orchestration": {
+  "violations": [
+   {
+    "id": "color-contrast",
+    "impact": "serious",
+    "count": 2,
+    "nodes": [
+     {
+      "t": ".text-sm.truncate[_ngcontent-ng-c1005044397=\"\"]",
+      "s": "Element has insufficient color contrast of 2.96 (foreground color: #2563eb, background color: #242430, font size: 10.5pt (14px), font weight: normal). Expected "
+     },
+     {
+      "t": "button[title=\"Hide Workspaces\"] > .tab-label--flip.tab-label.tracking-widest",
+      "s": "Element has insufficient color contrast of 3.45 (foreground color: #2563eb, background color: #17171c, font size: 7.5pt (10px), font weight: normal). Expected c"
+     }
+    ]
+   }
+  ],
+  "coloured": [],
+  "overflow": 0,
+  "stops": 27,
+  "noRing": [],
+  "lastStops": [
+   "summary#background-roles-summary:Background Model Roles6 rolesM",
+   "OUT:button:Toggle Git panel"
+  ]
+ },
+ "Advanced": {
+  "violations": [
+   {
+    "id": "color-contrast",
+    "impact": "serious",
+    "count": 2,
+    "nodes": [
+     {
+      "t": ".text-sm.truncate[_ngcontent-ng-c1005044397=\"\"]",
+      "s": "Element has insufficient color contrast of 2.96 (foreground color: #2563eb, background color: #242430, font size: 10.5pt (14px), font weight: normal). Expected "
+     },
+     {
+      "t": "button[title=\"Hide Workspaces\"] > .tab-label--flip.tab-label.tracking-widest",
+      "s": "Element has insufficient color contrast of 3.45 (foreground color: #2563eb, background color: #17171c, font size: 7.5pt (10px), font weight: normal). Expected c"
+     }
+    ]
+   }
+  ],
+  "coloured": [],
+  "overflow": 0,
+  "stops": 27,
+  "noRing": [],
+  "lastStops": [
+   "select#vscode-lm-model-select:VS Code LM model",
+   "OUT:button:Toggle Git panel"
+  ]
+ },
+ "Search & Voice": {
+  "violations": [
+   {
+    "id": "color-contrast",
+    "impact": "serious",
+    "count": 2,
+    "nodes": [
+     {
+      "t": ".truncate.text-sm[_ngcontent-ng-c1005044397=\"\"]",
+      "s": "Element has insufficient color contrast of 2.96 (foreground color: #2563eb, background color: #242430, font size: 10.5pt (14px), font weight: normal). Expected "
+     },
+     {
+      "t": "button[title=\"Hide Workspaces\"] > .tab-label--flip.tab-label.tracking-widest",
+      "s": "Element has insufficient color contrast of 3.45 (foreground color: #2563eb, background color: #17171c, font size: 7.5pt (10px), font weight: normal). Expected c"
+     }
+    ]
+   }
+  ],
+  "coloured": [],
+  "overflow": 0,
+  "stops": 19,
+  "noRing": [],
+  "lastStops": [
+   "input#go-vet-consent-toggle:",
+   "OUT:button:Toggle Git panel"
+  ]
+ }
+}

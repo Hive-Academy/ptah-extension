@@ -2,15 +2,10 @@ import { Injectable, computed, effect, inject, signal, untracked } from '@angula
 import {
   SCOPED_SETTING_KEYS,
   getAllAnthropicProviders,
-  getAnthropicProvider,
   setCustomProviderEntries,
-  CustomProviderEntryInputSchema,
   type AuthCancelDraftVerificationParams,
   type AuthCancelDraftVerificationResult,
-  type AuthGetEffectiveRouteResult,
-  type AuthSaveSettingsParams,
   type AuthVerifyDraftConnectionParams,
-  type AuthVerifyDraftConnectionResult,
   type ConfigGetScopesResult,
   type ConfigClearScopeOverrideResult,
   type RpcMethodName,
@@ -18,200 +13,105 @@ import {
   type RpcMethodResult,
   type ScopedSettingEntry,
   type SettingScope,
-  type SkillLaneIdDto,
-  type SkillSynthesisSettingsDto,
-  type SkillSynthesisSettingsWriteDto,
   type PtahCliConfig,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { EffortSettingsChangeService } from './effort-settings-change.service';
+import { ProvidersCommitService, type ProvidersCommitHooks, type ProvidersModelTier } from './providers-commit.service';
+import {
+  ProvidersConnectionSetupService,
+  type ProvidersConnectionSetupHooks,
+} from './providers-connection-setup.service';
+import {
+  createSectionStore,
+  effortFreshSectionView,
+  hostKeyHint,
+  readSection,
+  requireRpcData,
+  sectionView,
+  type SectionStore,
+} from './providers-settings-sections';
+import type {
+  ProvidersCliModels,
+  ProvidersConnection,
+  ProvidersConnectionDraft,
+  ProvidersEditContext,
+  ProvidersEffectiveRoute,
+  ProvidersExternalAuthAction,
+  ProvidersJudgingSettings,
+  ProvidersMainSources,
+  ProvidersCliTest,
+  ProvidersCustomEntry,
+  ProvidersDetectedClis,
+  ProvidersOrchestration,
+  ProvidersSettingsPatch,
+  SaveOperation,
+} from './providers-settings.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
-export interface ProvidersSettingsSection<T> {
-  readonly status: 'unloaded' | 'loading' | 'ready' | 'error';
-  /** null means not loaded; an empty collection is a successful empty read. */
-  readonly data: T | null;
-  readonly error: 'Could not load this section. Retry.' | null;
-}
+export type {
+  ProvidersSettingsSection,
+  ProvidersEffectiveRoute,
+  ProvidersJudgingSettings,
+  ProvidersJudgingPatch,
+  ProvidersEditContext,
+  ProvidersSettingsCommit,
+  ProvidersSettingsPatch,
+  ProvidersConnection,
+  ProvidersCliModels,
+  ProvidersMainSources,
+  ProvidersConnectionDraft,
+  ProvidersExternalAuthAction,
+  ProvidersExternalAuth,
+  ProvidersOrchestration,
+  ProvidersCliTest,
+  ProvidersCustomEntry,
+  ProvidersDetectedClis,
+} from './providers-settings.types';
 
-/** No raw stored auth method, including in resolver blocker strings. */
-export type ProvidersEffectiveRoute = Omit<
-  AuthGetEffectiveRouteResult,
-  'storedAuthMethodDiagnostic'
->;
-export type ProvidersJudgingSettings = Pick<
-  SkillSynthesisSettingsDto,
-  'judgeProvider' | 'judgeModel' | 'enhanceTimeoutMs'
->;
-export type ProvidersJudgingPatch = Partial<
-  Pick<
-    SkillSynthesisSettingsWriteDto,
-    'judgeProvider' | 'judgeModel' | 'enhanceTimeoutMs'
-  >
->;
-export interface ProvidersEditContext {
-  readonly scopeKey: string;
-  readonly activePath: string | null;
-}
-export interface ProvidersSettingsCommit {
-  readonly status:
-    | 'idle'
-    | 'saving'
-    | 'saved'
-    | 'partial'
-    | 'failed'
-    | 'unconfirmed'
-    | 'blocked';
-  readonly saved: readonly string[];
-  readonly unsaved: readonly string[];
-  /** A rejected/timeout RPC can have written before failing. Never call it rolled back. */
-  readonly unconfirmed: readonly string[];
-  readonly refreshFailed: boolean;
-  readonly message: string | null;
-}
-
-type OrchestrationField =
-  | 'codexModel'
-  | 'copilotModel'
-  | 'cursorModel'
-  | 'antigravityModel'
-  | 'opencodeModel'
-  | 'piModel'
-  | 'codexReasoningEffort'
-  | 'copilotReasoningEffort'
-  | 'piReasoningEffort';
-export interface ProvidersSettingsPatch {
-  readonly auth?: AuthSaveSettingsParams;
-  readonly model?: RpcMethodParams<'config:model-switch'>;
-  readonly effort?: RpcMethodParams<'config:effort-set'>;
-  readonly memory?: { curatorProvider?: string; curatorModel?: string };
-  readonly lanes?: Partial<
-    Record<SkillLaneIdDto, { provider?: string; model?: string }>
-  >;
-  readonly judging?: ProvidersJudgingPatch;
-  readonly orchestration?: Partial<
-    Pick<RpcMethodParams<'agent:setConfig'>, OrchestrationField>
-  >;
-  readonly tiers?: readonly RpcMethodParams<'provider:setModelTier'>[];
-  readonly cli?: readonly (
-    | { action: 'create'; params: RpcMethodParams<'ptahCli:create'> }
-    | { action: 'update'; params: RpcMethodParams<'ptahCli:update'> }
-    | { action: 'delete'; params: RpcMethodParams<'ptahCli:delete'> }
-  )[];
-}
-
-/** Non-secret connection metadata. Connectivity comes separately from route/probe evidence. */
-export interface ProvidersConnection {
-  readonly id: string;
-  readonly name: string;
-  readonly hasKey: boolean;
-  readonly configured: boolean;
-  readonly custom: boolean;
-  readonly defaultsResolvable: boolean;
-  readonly authMode: AuthVerifyDraftConnectionParams['authMode'];
-}
-export type ProvidersCliModels = Readonly<Record<string, Pick<PtahCliConfig, 'selectedModel' | 'tierMappings'>>>;
-export type ProvidersMainSources = Readonly<Partial<Record<'model' | 'effort', ScopedSettingEntry>>>;
-/** Transient wizard command. The service never retains its credential in a signal. */
-export interface ProvidersConnectionDraft {
-  readonly providerId: string;
-  readonly displayName: string;
-  readonly authMode: AuthVerifyDraftConnectionParams['authMode'];
-  readonly customName: string | null;
-  readonly customProtocol: 'openai' | 'anthropic' | null;
-  readonly credential: { kind: 'apiKey'; value: string } | null;
-  readonly baseUrl: string | null;
-  readonly verified: { readonly probeId: string } | null;
-  readonly tiers: { readonly everyday: string; readonly complex: string; readonly fast: string };
-  /** Stored main-agent tiers as the wizard loaded them; the compare-and-set baseline for edits. */
-  readonly tierSnapshot: { readonly everyday: string | null; readonly complex: string | null; readonly fast: string | null };
-  /** Tiers the user changed from the snapshot. Only these are written. */
-  readonly editedTiers: readonly ('everyday' | 'complex' | 'fast')[];
-  readonly saveTo: SettingScope;
-  readonly activation: 'connect-only' | 'use-main-agent';
-}
-export type ProvidersExternalAuthAction = 'sign-in' | 'sign-in-cancel' | 'cli-login' | 'cli-check';
-export interface ProvidersExternalAuth {
-  readonly providerId: string | null;
-  readonly signInState: 'idle' | 'in-flight' | 'signed-in' | 'failed';
-  readonly accountLabel: string | null;
-  readonly cliInstalled: boolean | null;
-  readonly message: string | null;
-}
-
-function section<T>() {
-  return {
-    value: signal<ProvidersSettingsSection<T>>({
-      status: 'unloaded',
-      data: null,
-      error: null,
-    }),
-    generation: 0,
-    scopeKey: '',
-  };
-}
-type SectionStore<T> = ReturnType<typeof section<T>>;
-interface SaveOperation {
-  readonly fields: readonly string[];
-  /** `'conflict'`: nothing was written because the stored value changed since the draft was read. */
-  readonly write: () => Promise<boolean | 'conflict'>;
-  readonly readBack?: () => Promise<boolean>;
-  /** Connection creation must not activate an incomplete setup. */
-  readonly dependsOnPrevious?: boolean;
-}
-const LOAD_ERROR = 'Could not load this section. Retry.';
 /** Route statuses that do not block a driver. `unknown`/`skipped` mean "not checkable", not "failed". */
 const ACTIVATABLE_STATUSES: ReadonlySet<string> = new Set(['connected', 'reachable', 'unknown', 'skipped']);
-/**
- * Native Anthropic auth (Claude API key, Claude subscription CLI). Activation sends no
- * `anthropicProviderId` ('anthropic' is virtual and fails AuthSettingsSchema; the pre-#575 UI
- * never sent one for either) and writes no main-agent tiers (those pin ANTHROPIC_DEFAULT_*_MODEL).
- */
-const NATIVE_ANTHROPIC_IDS: ReadonlySet<string> = new Set(['anthropic', 'claude-cli']);
-const EMPTY_COMMIT: ProvidersSettingsCommit = {
-  status: 'idle',
-  saved: [],
-  unsaved: [],
-  unconfirmed: [],
-  refreshFailed: false,
-  message: null,
+
+/** Above the host's own 30 s abort of `ptahCli:testConnection` (`ptah-cli-registry.ts`). */
+const CLI_TEST_TIMEOUT_MS = 45_000;
+/** The registry's own FIXED test errors → fixed copy. Any other text (pattern-redacted host text) is dropped (M1). */
+const CLI_TEST_REASONS: Readonly<Record<string, string>> = {
+  'API key not configured': 'No API key is stored for this instance.',
+  'No response received from provider': 'The provider did not respond.',
+  'Agent configuration not found': 'This instance was not found. Refresh and try again.',
 };
 
 /** Page-owned lifecycle: call open() on entry. No constructor I/O or polling. */
 @Injectable({ providedIn: 'root' })
 export class ProvidersSettingsStateService {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly commits = inject(ProvidersCommitService);
+  private readonly setup = inject(ProvidersConnectionSetupService);
   private readonly effortChanges = inject(EffortSettingsChangeService);
   private readonly opened = signal(false);
   private readonly effortRevision = signal(0);
   private readonly sourcesRevision = signal(0);
   private readonly workspace = inject(WorkspaceScopeService);
-  private readonly routeStore = section<ProvidersEffectiveRoute>();
-  private readonly scopesStore = section<ConfigGetScopesResult>();
-  private readonly modelStore = section<RpcMethodResult<'config:model-get'>>();
+  private readonly routeStore = createSectionStore<ProvidersEffectiveRoute>();
+  private readonly scopesStore = createSectionStore<ConfigGetScopesResult>();
+  private readonly modelStore = createSectionStore<RpcMethodResult<'config:model-get'>>();
   private readonly effortStore =
-    section<RpcMethodResult<'config:effort-get'>>();
+    createSectionStore<RpcMethodResult<'config:effort-get'>>();
   private readonly memoryStore =
-    section<RpcMethodResult<'memory:getTriggers'>['triggers']>();
+    createSectionStore<RpcMethodResult<'memory:getTriggers'>['triggers']>();
   private readonly lanesStore =
-    section<RpcMethodResult<'skillSynthesis:getLanes'>['lanes']>();
-  private readonly judgingStore = section<ProvidersJudgingSettings>();
+    createSectionStore<RpcMethodResult<'skillSynthesis:getLanes'>['lanes']>();
+  private readonly judgingStore = createSectionStore<ProvidersJudgingSettings>();
   private readonly cliStore =
-    section<RpcMethodResult<'ptahCli:list'>['agents']>();
-  private readonly orchestrationStore =
-    section<Pick<RpcMethodResult<'agent:getConfig'>, OrchestrationField>>();
+    createSectionStore<RpcMethodResult<'ptahCli:list'>['agents']>();
+  private readonly orchestrationStore = createSectionStore<ProvidersOrchestration>();
+  private readonly customEntriesStore = createSectionStore<readonly ProvidersCustomEntry[]>();
+  private readonly detectionStore = createSectionStore<ProvidersDetectedClis>();
   private readonly tiersStore =
-    section<RpcMethodResult<'provider:getModelTiers'>>();
-  private readonly probeStore = section<AuthVerifyDraftConnectionResult>();
-  private readonly connectionsStore = section<readonly ProvidersConnection[]>();
-  private readonly cliModelsStore = section<ProvidersCliModels>();
-  private readonly mainSourcesStore = section<ProvidersMainSources>();
-  private readonly externalAuthStore = section<ProvidersExternalAuth>();
-  private externalAuthGeneration = 0;
-  private readonly commitState = signal<ProvidersSettingsCommit>(EMPTY_COMMIT);
-  private probeGeneration = 0;
-  private probeId: string | null = null;
-  private verifiedProviderId: string | null = null;
+    createSectionStore<RpcMethodResult<'provider:getModelTiers'>>();
+  private readonly connectionsStore = createSectionStore<readonly ProvidersConnection[]>();
+  private readonly cliModelsStore = createSectionStore<ProvidersCliModels>();
+  private readonly mainSourcesStore = createSectionStore<ProvidersMainSources>();
   private scopeKeys: readonly string[] = Object.keys(
     SCOPED_SETTING_KEYS,
   ).filter((key) => !key.includes('<'));
@@ -226,13 +126,16 @@ export class ProvidersSettingsStateService {
   readonly judging = this.view(this.judgingStore);
   readonly cliAgents = this.view(this.cliStore);
   readonly orchestration = this.view(this.orchestrationStore);
+  /** Last explicit CLI re-detection (`redetectClis`); `loading` while it runs. */
+  readonly cliDetection = this.view(this.detectionStore);
+  private readonly customEntries = this.view(this.customEntriesStore);
   readonly tiers = this.view(this.tiersStore);
-  readonly verification = this.view(this.probeStore);
+  readonly verification = this.setup.verification;
   readonly connections = this.view(this.connectionsStore);
   readonly cliModels = this.view(this.cliModelsStore);
   readonly mainSources = this.freshEffortView(this.mainSourcesStore, this.sourcesRevision);
-  readonly externalAuth = this.view(this.externalAuthStore);
-  readonly commit = this.commitState.asReadonly();
+  readonly externalAuth = this.setup.externalAuth;
+  readonly commit = this.commits.commit;
   /**
    * A scalar identity makes two active badges impossible. Derived from the effective route
    * (`driverProviderId` of a ready, resolved route). `auth:getEffectiveRoute` never reports
@@ -324,7 +227,7 @@ export class ProvidersSettingsStateService {
    * Tiers are the MAIN-AGENT mapping: the wizard's Models step edits what the main agent uses on this
    * connection. CLI sub-agent tiers (`cliAgent`) belong to the CLI agent editor, not to connection setup.
    */
-  private readonly setupStore = section<{ providerId: string; baseUrl: string | null; customName?: string; customProtocol?: 'openai' | 'anthropic'; tiers: { sonnet: string | null; opus: string | null; haiku: string | null } }>();
+  private readonly setupStore = createSectionStore<{ providerId: string; baseUrl: string | null; customName?: string; customProtocol?: 'openai' | 'anthropic'; tiers: { sonnet: string | null; opus: string | null; haiku: string | null } }>();
   readonly connectionSetup = this.view(this.setupStore);
   async refreshConnectionSetup(providerId: string): Promise<void> {
     this.setupStore.value.set({ status: 'unloaded', data: null, error: null });
@@ -346,32 +249,76 @@ export class ProvidersSettingsStateService {
    * CLI names, not provider-registry ids, so they come from agent:listCliModels, never provider:listModels.
    * Loaded on demand: the host may fetch remote catalogues.
    */
-  private readonly delegatedModelsStore = section<RpcMethodResult<'agent:listCliModels'>>();
+  private readonly delegatedModelsStore = createSectionStore<RpcMethodResult<'agent:listCliModels'>>();
   readonly delegatedModelOptions = this.view(this.delegatedModelsStore);
   async refreshDelegatedModelOptions(): Promise<void> {
     await this.read(this.delegatedModelsStore, () => this.require('agent:listCliModels', undefined));
   }
 
-  private readonly cliTestStore = section<{ id: string; success: boolean }>();
+  private readonly cliTestStore = createSectionStore<ProvidersCliTest>();
   readonly cliTest = this.view(this.cliTestStore);
+  /** The instance the current (or last) Test ran for. */
+  private cliTestRunId: string | null = null;
+  /**
+   * One run's result only (Gate V 36 S1): the previous result is dropped before the call and never retained after a
+   * failure, so a failed or timed-out run can never show an earlier pass. The RPC timeout is above the host's own 30 s
+   * abort, so a slow host answer is still this run's. `reason` is fixed copy for the registry's own fixed strings and
+   * `null` otherwise (M1): `sanitizeErrorMessage` is pattern-based, so host text never enters state.
+   */
   async testCliConnection(id: string): Promise<void> {
-    await this.read(this.cliTestStore, async () => ({ id, success: (await this.require('ptahCli:testConnection', { id })).success }));
+    this.cliTestStore.value.set({ status: 'unloaded', data: null, error: null });
+    this.cliTestRunId = id;
+    await readSection(this.cliTestStore, this.workspace, async () => {
+      const result = await this.require('ptahCli:testConnection', { id }, CLI_TEST_TIMEOUT_MS);
+      return { id, success: result.success, latencyMs: result.latencyMs ?? null,
+        reason: result.success ? null : CLI_TEST_REASONS[result.error ?? ''] ?? null };
+    }, false);
   }
-  async saveCursorCredential(apiKey: string, context: ProvidersEditContext): Promise<void> {
-    await this.runCommit([{ fields: ['Cursor credential'], write: async () => (await this.require('agent:setConfig', { cursorApiKey: apiKey })).success,
-      readBack: async () => (await this.require('agent:getConfig', undefined)).cursorApiKeyConfigured === !!apiKey.trim(),
-    }], context, () => true);
+  /**
+   * M8: the last Test describes the key, name and tiers it ran with; a write to any of them drops it (and discards an
+   * in-flight run for that instance, which started before the change).
+   */
+  clearCliTest(id: string): void {
+    if (this.cliTestRunId !== id) return;
+    this.cliTestRunId = null;
+    this.cliTestStore.generation += 1;
+    this.cliTestStore.value.set({ status: 'unloaded', data: null, error: null });
+  }
+  /**
+   * An empty key clears the stored secret. Read-back checks the secrets store alone
+   * (`cursorApiKeyStored`): `cursorApiKeyConfigured` also counts `CURSOR_API_KEY`, which would make
+   * a successful clear read back as a failure while the env var is set (TASK_2026_551).
+   */
+  async saveCursorCredential(apiKey: string, context: ProvidersEditContext): Promise<boolean> {
+    const stored = !!apiKey.trim();
+    return this.runCommit([{ fields: ['Cursor credential'], write: async () => (await this.require('agent:setConfig', { cursorApiKey: apiKey })).success,
+      readBack: async () => (await this.require('agent:getConfig', undefined)).cursorApiKeyStored === stored,
+    }], context);
+  }
+
+  /** Non-secret metadata of a user-defined connection, read with the connections; null until loaded. */
+  customEntry(id: string): ProvidersCustomEntry | null {
+    return this.customEntries().data?.find((entry) => entry.id === id) ?? null;
   }
 
   async refreshConnections(): Promise<void> {
+    // One host read feeds both sections; each keeps its own generation and workspace scope.
+    const custom = this.require('provider:listCustomEntries', {})
+      .then((result) => setCustomProviderEntries(result.entries).accepted);
+    await Promise.all([
+      this.read(this.customEntriesStore, async () => (await custom).map(({ id, name, baseUrl, lane, modelsEndpoint, helpUrl, pricing }) =>
+        ({ id, name, baseUrl, lane, modelsEndpoint, helpUrl, pricing }))),
+      this.readConnections(custom),
+    ]);
+  }
+  private async readConnections(custom: Promise<readonly ProvidersCustomEntry[]>): Promise<void> {
     await this.read(this.connectionsStore, async (): Promise<readonly ProvidersConnection[]> => {
-      const [status, custom, auth] = await Promise.all([
+      const [status, accepted, auth] = await Promise.all([
         this.require('auth:getApiKeyStatus', {}),
-        this.require('provider:listCustomEntries', {}),
+        custom,
         this.require('auth:getAuthStatus', {}),
       ]);
-      const validated = setCustomProviderEntries(custom.entries);
-      const customIds = new Set(validated.accepted.map((entry) => entry.id));
+      const customIds = new Set(accepted.map((entry) => entry.id));
       const entries = getAllAnthropicProviders();
       const savedSetupIds = new Set(await Promise.all(entries.filter((entry) => entry.isLocal).map(async (entry) => {
         const endpoint = await this.require('llm:getProviderBaseUrl', { provider: entry.id });
@@ -384,169 +331,86 @@ export class ProvidersSettingsStateService {
           : entry.id === 'openai-codex' ? auth.codexAuthenticated === true && !auth.codexTokenStale
           : entry.nativeAuth ? auth.claudeCliInstalled === true : false;
         return {
-          id: entry.id, name: entry.name, hasKey: host?.hasApiKey === true,
-          configured: host?.hasApiKey === true || customIds.has(entry.id) || savedSetupIds.has(entry.id) || authenticated,
+          id: entry.id, name: entry.name, hasKey: host?.hasApiKey === true, ...hostKeyHint(host?.hasApiKey ? host.keyHint : undefined),
+          // An unreadable key (M-6) is unknown, not absent: configured, with no hint and `hasKey` false.
+          ...(host?.keyUnreadable === true ? { keyUnreadable: true } : {}),
+          configured: host?.hasApiKey === true || host?.keyUnreadable === true || customIds.has(entry.id) || savedSetupIds.has(entry.id) || authenticated,
           custom: customIds.has(entry.id), defaultsResolvable: !!entry.defaultTiers,
           authMode: entry.nativeAuth ? 'cli' : entry.authType === 'oauth' ? 'oauth'
             : entry.isLocal ? entry.requiresProxy ? 'local-proxy' : 'local-native' : 'apiKey',
+          accountLabel: entry.id === 'github-copilot' && auth.copilotAuthenticated === true ? auth.copilotUsername ?? null : null,
+          tokenStale: entry.id === 'openai-codex' && auth.codexTokenStale === true,
         };
       });
       connections.unshift({ id: 'anthropic', name: 'Claude API', authMode: 'apiKey',
-        hasKey: auth.hasApiKey, configured: auth.hasApiKey, custom: false, defaultsResolvable: false });
+        hasKey: auth.hasApiKey, configured: auth.hasApiKey, custom: false, defaultsResolvable: false,
+        accountLabel: null, tokenStale: false, ...hostKeyHint(auth.hasApiKey ? auth.apiKeyHint : undefined) });
       return connections;
     });
   }
 
+  /** The drawer's "Check connection": the host check when it has one, then the route re-read carrying `lastCheck`. */
+  readonly connectionCheck = this.setup.connectionCheck;
+  checkProviderConnection(providerId: string): Promise<void> { return this.setup.checkConnection(providerId, this.setupHooks); }
   /** Only supported host login operations run; launch acknowledgements are not authentication. */
-  async performExternalAuth(providerId: string | null, action: ProvidersExternalAuthAction): Promise<void> {
-    const generation = ++this.externalAuthGeneration;
-    const empty: ProvidersExternalAuth = { providerId, signInState: 'idle', accountLabel: null, cliInstalled: null, message: null };
-    if (action === 'sign-in-cancel' || !providerId ||
-      !['github-copilot', 'openai-codex', 'claude-cli'].includes(providerId) ||
-      (providerId === 'claude-cli' && action !== 'cli-check')) {
-      ++this.externalAuthStore.generation;
-      this.externalAuthStore.scopeKey = this.workspace.scopeKey();
-      this.externalAuthStore.value.set({ status: 'ready', error: null, data: {
-        ...empty, message: action === 'sign-in-cancel'
-          ? 'This host cannot cancel external sign-in. Close the external sign-in window to stop it.'
-          : !providerId ? 'Choose the named sign-in action on the Providers page. The setup dialog does not identify the requested account.'
-          : providerId === 'claude-cli' ? 'Run claude login in your terminal, then choose Check again. If missing, install with npm install -g @anthropic-ai/claude-code.' : 'Complete login outside Ptah, then check again.',
-      } });
-      return;
-    }
-    this.externalAuthStore.scopeKey = this.workspace.scopeKey();
-    this.externalAuthStore.value.set({ status: 'loading', error: null, data: { ...empty, signInState: 'in-flight' } });
-    await this.read(this.externalAuthStore, async (): Promise<ProvidersExternalAuth> => {
-      if (action !== 'cli-check') {
-        const result = providerId === 'github-copilot'
-          ? await this.require('auth:copilotLogin', {}, 310000)
-          : await this.require('auth:codexLogin', {}, 310000);
-        if (!result.success) throw new Error('Sign-in unavailable');
-      }
-      const result = await this.require('auth:getAuthStatus', { providerId });
-      if (generation !== this.externalAuthGeneration) throw new Error('Superseded sign-in');
-      const signedIn = providerId === 'github-copilot' ? result.copilotAuthenticated === true
-        : providerId === 'openai-codex' ? result.codexAuthenticated === true && !result.codexTokenStale : false;
-      return { ...empty, signInState: signedIn ? 'signed-in' : 'idle',
-        cliInstalled: providerId === 'claude-cli' ? result.claudeCliInstalled ?? null : null,
-        message: signedIn ? 'Sign-in detected. Verify the connection before using it.'
-          : 'Login has not been confirmed. Complete external login, then check again.',
-      };
-    });
-    await Promise.all([this.refreshConnections(), this.refreshRoute()]);
+  performExternalAuth(providerId: string | null, action: ProvidersExternalAuthAction): Promise<void> {
+    return this.setup.performExternalAuth(providerId, action, this.setupHooks);
   }
-
-  /** Store setup without selecting it, then optionally activate only after all earlier writes succeed. */
-  async connectProvider(draft: ProvidersConnectionDraft, context: ProvidersEditContext): Promise<void> {
-    const probe = this.verification();
-    const invalid = (draft.providerId === 'anthropic' && draft.activation === 'connect-only') || draft.saveTo !== 'global' || this.connections().status !== 'ready' ||
-      probe.status !== 'ready' || probe.data?.outcome !== 'verified' || probe.data.probeId !== draft.verified?.probeId ||
-      this.verifiedProviderId !== draft.providerId;
-    if (invalid) {
-      this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Connection'],
-        message: 'Verify this draft and review Global setup storage before saving.' });
-      return;
-    }
-    const operations: SaveOperation[] = [];
-    const custom = draft.authMode === 'custom';
-    const mappings = { sonnet: draft.tiers.everyday, opus: draft.tiers.complex, haiku: draft.tiers.fast };
-    if (custom) {
-      const parsed = CustomProviderEntryInputSchema.safeParse({
-        id: draft.providerId, name: draft.customName, baseUrl: draft.baseUrl, lane: draft.customProtocol,
-        defaultTiers: mappings,
-      });
-      if (!parsed.success) {
-        this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Custom connection'],
-          message: 'Use a lower-case connection ID with dashes, an HTTP(S) endpoint and explicit models for all three tiers.' });
-        return;
-      }
-      const exists = this.connections().data?.some((entry) => entry.id === draft.providerId && entry.custom);
-      operations.push({ fields: ['Custom connection'], write: async () => {
-        if (exists) await this.require('provider:updateCustomEntry', { id: draft.providerId, changes: parsed.data });
-        else await this.require('provider:addCustomEntry', { entry: parsed.data });
-        return true;
-      } });
-    }
-    if (draft.providerId !== 'anthropic' && draft.credential?.value.trim()) {
-      // llm:setApiKey ALSO selects the main route. auth:setApiKey only stores the provider key.
-      operations.push({ fields: ['Connection credential'], dependsOnPrevious: true,
-        write: async () => (await this.require('auth:setApiKey', { provider: draft.providerId, apiKey: draft.credential?.value ?? '' })).success });
-    }
-    if (!custom && draft.baseUrl) operations.push({ fields: ['Connection endpoint'], dependsOnPrevious: true,
-      write: async () => (await this.require('llm:setProviderBaseUrl', { provider: draft.providerId, baseUrl: draft.baseUrl ?? '' })).success });
-    // Native Anthropic auth keeps the SDK's own model defaults: no tiers are collected, validated or written.
-    const nativeAnthropic = NATIVE_ANTHROPIC_IDS.has(draft.providerId) || draft.authMode === 'cli';
-    const tiers = Object.entries(mappings) as [RpcMethodParams<'provider:setModelTier'>['tier'], string][];
-    const defaults = getAnthropicProvider(draft.providerId)?.defaultTiers;
-    if (!nativeAnthropic && !custom && tiers.some(([tier, model]) => !model && !defaults?.[tier])) {
-      this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Connection models'], message: 'Choose explicit models where no provider default is available.' });
-      return;
-    }
-    // Main-agent tiers, for Connect only as well as activation: provider:setModelTier persists
-    // provider.<id>.mainAgent.modelTier.<tier> and changes the running env only when <id> is the active
-    // provider (ProviderModelsService.setModelTier). Only tiers the user EDITED in the wizard are sent;
-    // unchanged tiers are left to the host's fill-if-unset auto-map. No `cliAgent` writes: those are
-    // read by PtahCliRegistry.resolveEffectiveTiers for every CLI agent on this provider.
-    if (!nativeAnthropic && !custom) {
-      const wizardKey = { sonnet: 'everyday', opus: 'complex', haiku: 'fast' } as const;
-      for (const [tier, model] of tiers) {
-        const key = wizardKey[tier];
-        if (!draft.editedTiers.includes(key)) continue;
-        operations.push({ fields: [`Main agent ${tier} model`], dependsOnPrevious: true,
-          write: async () => {
-            // Compare-and-set: the edit was made against the snapshot the wizard loaded. If another
-            // window changed the stored value since, report a conflict instead of overwriting it.
-            const stored = await this.require('provider:getModelTiers', { providerId: draft.providerId, scope: 'mainAgent' });
-            if ((stored[tier] ?? null) !== (draft.tierSnapshot[key] ?? null)) return 'conflict';
-            if (!model) return (await this.require('provider:clearModelTier', { providerId: draft.providerId, tier, scope: 'mainAgent' })).success;
-            return (await this.require('provider:setModelTier', { providerId: draft.providerId, tier, modelId: model, scope: 'mainAgent' })).success;
-          },
-          readBack: async () => {
-            const stored = await this.require('provider:getModelTiers', { providerId: draft.providerId, scope: 'mainAgent' });
-            return (stored[tier] ?? '') === model;
-          } });
-      }
-    }
-    // Activate LAST. auth:saveSettings auto-maps UNSET tiers, so running it first would fill a tier the
-    // wizard snapshot saw as empty and turn the user's own edit into a false conflict. Writing the edits
-    // first is safe (an inactive provider's tiers never touch the running env), and a failed or
-    // conflicting tier write stops activation through dependsOnPrevious.
-    if (draft.activation === 'use-main-agent') {
-      operations.push(...this.operations({ auth: this.activationAuth(draft.providerId, draft.authMode, draft.saveTo,
-        draft.providerId === 'anthropic' ? draft.credential?.value : undefined) })
-        .map((operation) => ({ ...operation, dependsOnPrevious: true })));
-    }
-    await this.runCommit(operations, context, () => draft.activation !== 'use-main-agent' ||
-      this.authWritable(draft.saveTo, !nativeAnthropic));
+  /**
+   * Store setup without selecting it, then optionally activate only after all earlier writes succeed.
+   * Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`).
+   */
+  connectProvider(draft: ProvidersConnectionDraft, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.connectProvider(draft, context, this.setupHooks);
   }
-
   /**
    * Select an existing connection for the main agent. Tier mapping is left to `auth:saveSettings`,
    * whose autoMapProviderTiers fills only UNSET main-agent tiers; the user's existing tiers stay.
    */
-  async activateConnection(providerId: string, applyTo: SettingScope, context: ProvidersEditContext): Promise<void> {
-    if (this.commit().status === 'saving') return;
-    const connection = this.connections().data?.find((entry) => entry.id === providerId);
-    if (!connection || this.connections().status !== 'ready') {
-      this.commitState.set({ ...EMPTY_COMMIT, status: 'blocked', unsaved: ['Main agent connection'],
-        message: 'Refresh this connection before activating it.' });
-      return;
-    }
-    const auth = this.activationAuth(providerId, connection.authMode, applyTo);
-    await this.runCommit(this.operations({ auth }), context,
-      () => this.authWritable(applyTo, auth.anthropicProviderId !== undefined));
+  activateConnection(providerId: string, applyTo: SettingScope, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.activateConnection(providerId, applyTo, context, this.setupHooks);
+  }
+  /** Probe is non-mutating. A caller-owned credential is never copied into a signal. */
+  verifyDraft(params: AuthVerifyDraftConnectionParams): Promise<void> {
+    return this.setup.verifyDraft(params);
+  }
+  cancelVerification(params?: AuthCancelDraftVerificationParams): Promise<AuthCancelDraftVerificationResult> {
+    return this.setup.cancelVerification(params);
   }
 
-  private activationAuth(providerId: string, authMode: ProvidersConnection['authMode'], applyTo: SettingScope,
-    anthropicApiKey?: string): AuthSaveSettingsParams {
-    if (providerId === 'anthropic') return { authMethod: 'apiKey', ...(anthropicApiKey !== undefined ? { anthropicApiKey } : {}), applyTo };
-    if (authMode === 'cli' || NATIVE_ANTHROPIC_IDS.has(providerId)) return { authMethod: 'claudeCli', applyTo };
-    return { authMethod: 'thirdParty', anthropicProviderId: providerId, applyTo };
+  // Writes for the redesigned surface. Each resolves `false` when refused because another save is
+  // in flight, and reports through `commit()` like every other save (D15).
+  /** D4: deletes one stored key without changing the auth method or resetting the SDK. */
+  deleteStoredKey(providerId: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.deleteStoredKey(providerId, context, this.setupHooks);
   }
-
-  private authWritable(target: SettingScope, withProvider: boolean): boolean {
-    return this.writeScopes('authMethod').includes(target) &&
-      (!withProvider || this.writeScopes('anthropicProviderId').includes(target));
+  disconnectCopilot(context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.disconnectCopilot(context, this.setupHooks);
+  }
+  /** Blocked with "Switch the main agent first." while the connection drives the main agent. */
+  removeCustomEntry(id: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.removeCustomEntry(id, context, this.setupHooks);
+  }
+  /** Help URL and pricing: metadata, saved without a connection check. */
+  updateCustomEntryFields(id: string, changes: Partial<Pick<ProvidersCustomEntry, 'helpUrl' | 'pricing'>>,
+    context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.updateCustomEntryFields(id, changes, context, this.setupHooks);
+  }
+  /** D7: base URL and/or models endpoint, saved only with a verified probe of this connection. */
+  updateCustomEntryEndpoint(id: string, changes: Partial<Pick<ProvidersCustomEntry, 'baseUrl' | 'modelsEndpoint'>>,
+    probeId: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.updateCustomEntryEndpoint(id, changes, probeId, context, this.setupHooks);
+  }
+  updateLocalBaseUrl(providerId: string, baseUrl: string, probeId: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.setup.updateLocalBaseUrl(providerId, baseUrl, probeId, context, this.setupHooks);
+  }
+  /** An empty `modelId` clears the stored main-agent tier (the provider default applies). */
+  setMainAgentTier(providerId: string, tier: ProvidersModelTier, modelId: string, context: ProvidersEditContext): Promise<boolean> {
+    return this.runCommit([this.commits.mainAgentTierOperation(providerId, tier, modelId)], context);
+  }
+  /** D5: the instance's own tier mapping, always written as the full object. */
+  setCliInstanceTiers(id: string, tiers: Partial<Record<ProvidersModelTier, string>>, context: ProvidersEditContext): Promise<boolean> {
+    return this.runCommit([this.commits.cliInstanceTiersOperation(id, tiers)], context);
   }
 
   /** Supply concrete provider/auth-key paths, never the allowlist's <...> families. */
@@ -639,21 +503,40 @@ export class ProvidersSettingsStateService {
       return { model: scopes.entries.find((entry) => entry.key === model), effort: scopes.entries.find((entry) => entry.key === effort) };
     });
   }
+  /**
+   * A failed read drops the previous value: a stale Cursor flag would read as a current "Set".
+   * The section shows its error and Retry instead.
+   */
   async refreshOrchestration(): Promise<void> {
-    await this.read(this.orchestrationStore, async () => {
+    await readSection(this.orchestrationStore, this.workspace, async (): Promise<ProvidersOrchestration> => {
       const config = await this.require('agent:getConfig', undefined);
       return {
-        codexModel: config.codexModel,
-        copilotModel: config.copilotModel,
-        cursorModel: config.cursorModel,
-        antigravityModel: config.antigravityModel,
-        opencodeModel: config.opencodeModel,
-        piModel: config.piModel,
-        codexReasoningEffort: config.codexReasoningEffort,
-        copilotReasoningEffort: config.copilotReasoningEffort,
+        codexModel: config.codexModel, copilotModel: config.copilotModel, cursorModel: config.cursorModel,
+        antigravityModel: config.antigravityModel, opencodeModel: config.opencodeModel, piModel: config.piModel,
+        codexReasoningEffort: config.codexReasoningEffort, copilotReasoningEffort: config.copilotReasoningEffort,
         piReasoningEffort: config.piReasoningEffort,
+        detectedClis: config.detectedClis, disabledClis: config.disabledClis,
+        preferredAgentOrder: config.preferredAgentOrder, maxConcurrentAgents: config.maxConcurrentAgents,
+        copilotAutoApprove: config.copilotAutoApprove,
+        cursorApiKeyConfigured: config.cursorApiKeyConfigured, cursorApiKeyStored: config.cursorApiKeyStored,
+        cursorApiKeyEnvSet: config.cursorApiKeyEnvSet,
       };
+    }, false);
+  }
+  /**
+   * Re-detects installed CLIs, then rereads everything derived from them. A failed detection
+   * leaves `cliDetection()` in error and rereads nothing. Each call decides on its own detection
+   * result, not the shared section, which an overlapping call may have replaced.
+   */
+  async redetectClis(): Promise<void> {
+    let detected = false;
+    await this.read(this.detectionStore, async () => {
+      const { clis } = await this.require('agent:detectClis', undefined);
+      detected = true;
+      return clis;
     });
+    if (!detected) return;
+    await Promise.all([this.refreshOrchestration(), this.refreshCliAgents(), this.refreshCliModels()]);
   }
   async refreshTiers(
     params: RpcMethodParams<'provider:getModelTiers'>,
@@ -705,13 +588,17 @@ export class ProvidersSettingsStateService {
       : null;
   }
 
-  /** Commands never retain credentials in service state; only field names enter commit feedback. */
+  /**
+   * Commands never retain credentials in service state; only field names enter commit feedback.
+   * Every commit command resolves `false` when refused because another save is in flight (nothing
+   * was written and `commit()` still describes the in-flight save), otherwise `true`.
+   */
   async saveSettings(
     patch: ProvidersSettingsPatch,
     context: ProvidersEditContext,
-  ): Promise<void> {
-    const operations = this.operations(patch);
-    await this.runCommit(operations, context, () => {
+  ): Promise<boolean> {
+    const operations = this.commits.operations(patch);
+    return this.runCommit(operations, context, () => {
       const authTarget = patch.auth?.applyTo ?? 'global';
       if (
         patch.auth &&
@@ -729,8 +616,8 @@ export class ProvidersSettingsStateService {
     });
   }
 
-  async clearWorkspaceOverride(context: ProvidersEditContext): Promise<void> {
-    await this.runCommit(
+  async clearWorkspaceOverride(context: ProvidersEditContext): Promise<boolean> {
+    return this.runCommit(
       [
         {
           fields: ['Main agent authentication overrides'],
@@ -746,9 +633,9 @@ export class ProvidersSettingsStateService {
     key: string,
     target: 'nearest' | 'all-above-global',
     context: ProvidersEditContext,
-  ): Promise<void> {
+  ): Promise<boolean> {
     let clearedResult: ConfigClearScopeOverrideResult | null = null;
-    await this.runCommit(
+    return this.runCommit(
       [
         {
           fields: [key],
@@ -786,306 +673,12 @@ export class ProvidersSettingsStateService {
     );
   }
 
-  /** Probe is non-mutating. A caller-owned credential is never copied into a signal. */
-  async verifyDraft(params: AuthVerifyDraftConnectionParams): Promise<void> {
-    const generation = ++this.probeGeneration;
-    const previous = this.probeId;
-    this.probeId = params.probeId;
-    this.verifiedProviderId = null;
-    // A failed best-effort abort cannot publish an old result: both generations are checked below.
-    if (previous) void this.abortProbe(previous);
-    this.probeStore.value.set({ status: 'unloaded', data: null, error: null });
-    await this.read(this.probeStore, async () => {
-      const result = await this.require(
-        'auth:verifyDraftConnection',
-        params,
-        Math.max(30000, params.timeoutMs ?? 30000) + 5000,
-      );
-      if (
-        generation !== this.probeGeneration ||
-        result.probeId !== params.probeId
-      )
-        throw new Error('Superseded check');
-      return result;
-    });
-    if (generation === this.probeGeneration) {
-      this.probeId = null;
-      if (this.verification().data?.outcome === 'verified') this.verifiedProviderId = params.providerId;
-    }
-  }
-  async cancelVerification(params?: AuthCancelDraftVerificationParams): Promise<AuthCancelDraftVerificationResult> {
-    const id = params?.probeId ?? this.probeId;
-    if (params && id !== this.probeId) return this.require('auth:cancelDraftVerification', params);
-    const generation = ++this.probeGeneration;
-    ++this.probeStore.generation;
-    this.probeId = null;
-    this.verifiedProviderId = null;
-    this.probeStore.scopeKey = this.workspace.scopeKey();
-    this.probeStore.value.set({ status: 'unloaded', data: null, error: null });
-    try {
-      return id ? await this.require('auth:cancelDraftVerification', { probeId: id }) : { cancelled: false };
-    } catch (error: unknown) {
-      void error;
-      if (generation === this.probeGeneration) {
-      this.probeStore.value.set({
-        status: 'error',
-        data: null,
-        error: LOAD_ERROR,
-      });
-      }
-      throw new Error('Could not cancel this check.');
-    }
-  }
-
-  private operations(patch: ProvidersSettingsPatch): SaveOperation[] {
-    const operations: SaveOperation[] = [];
-    if (patch.auth) {
-      const params = { ...patch.auth };
-      operations.push({
-        fields: Object.entries(params)
-          .filter(([key, value]) => key !== 'applyTo' && value !== undefined)
-          .map(([key]) => key),
-        write: async () =>
-          (await this.require('auth:saveSettings', params)).success,
-      });
-    }
-    if (patch.model) {
-      const params = { ...patch.model };
-      operations.push({
-        fields: ['Main agent model'],
-        write: async () => {
-          await this.require('config:model-switch', params);
-          return true;
-        },
-        readBack: async () =>
-          (await this.require('config:model-get', {})).model === params.model,
-      });
-    }
-    if (patch.effort) {
-      const params = { ...patch.effort };
-      operations.push({
-        fields: ['Main agent reasoning effort'],
-        write: async () => {
-          await this.require('config:effort-set', params);
-          return true;
-        },
-        readBack: async () =>
-          (await this.require('config:effort-get', {})).effort ===
-          params.effort,
-      });
-    }
-    for (const field of ['curatorProvider', 'curatorModel'] as const) {
-      const value = patch.memory?.[field];
-      if (value !== undefined)
-        operations.push({
-          fields: [`memory.${field}`],
-          write: async () => {
-            await this.require('memory:setTriggers', {
-              triggers: { [field]: value },
-            });
-            return true;
-          },
-          readBack: async () =>
-            (await this.require('memory:getTriggers', {})).triggers[field] ===
-            value,
-        });
-    }
-    for (const lane of [
-      'archaeologist',
-      'synthesis',
-      'judge',
-      'replay',
-    ] as const) {
-      for (const field of ['provider', 'model'] as const) {
-        const value = patch.lanes?.[lane]?.[field];
-        if (value !== undefined)
-          operations.push({
-            fields: [`skillSynthesis.${lane}.${field}`],
-            write: async () => {
-              await this.require('skillSynthesis:setLanes', {
-                lanes: { [lane]: { [field]: value } },
-              });
-              return true;
-            },
-            readBack: async () =>
-              (await this.require('skillSynthesis:getLanes', {})).lanes[lane][
-                field
-              ] === value,
-          });
-      }
-    }
-    for (const field of [
-      'judgeProvider',
-      'judgeModel',
-      'enhanceTimeoutMs',
-    ] as const) {
-      const requested = patch.judging?.[field];
-      if (requested === undefined) continue;
-      // model-resolver.ts:171 recognizes only 'inherit', not the picker's ''.
-      const value =
-        field === 'judgeModel' && typeof requested === 'string'
-          ? requested.trim() || 'inherit'
-          : requested;
-      operations.push({
-        fields: [`skillSynthesis.${field}`],
-        write: async () => {
-          const settings = { [field]: value };
-          return (
-            await this.require('skillSynthesis:updateSettings', { settings })
-          ).updated;
-        },
-        readBack: async () => {
-          const settings = (
-            await this.require('skillSynthesis:getSettings', {})
-          ).settings;
-          return (
-            (field === 'enhanceTimeoutMs'
-              ? settings.enhanceTimeoutMs.value
-              : settings[field]) === value
-          );
-        },
-      });
-    }
-    for (const field of [
-      'codexModel',
-      'copilotModel',
-      'cursorModel',
-      'antigravityModel',
-      'opencodeModel',
-      'piModel',
-      'codexReasoningEffort',
-      'copilotReasoningEffort',
-      'piReasoningEffort',
-    ] as const) {
-      const value = patch.orchestration?.[field];
-      if (value !== undefined)
-        operations.push({
-          fields: [`agentOrchestration.${field}`],
-          write: async () =>
-            (await this.require('agent:setConfig', { [field]: value })).success,
-          readBack: async () =>
-            (await this.require('agent:getConfig', undefined))[field] === value,
-        });
-    }
-    for (const tier of patch.tiers ?? []) {
-      const params = { ...tier };
-      operations.push({
-        fields: [
-          `provider.${params.providerId ?? 'active'}.modelTier.${params.tier}`,
-        ],
-        write: async () =>
-          (await this.require('provider:setModelTier', params)).success,
-        readBack: async () =>
-          (
-            await this.require('provider:getModelTiers', {
-              providerId: params.providerId,
-              scope: params.scope,
-            })
-          )[params.tier] === params.modelId,
-      });
-    }
-    for (const command of patch.cli ?? []) {
-      const key = `ptahCliAgents.${'id' in command.params ? command.params.id : 'new'}`;
-      const fields =
-        command.action === 'delete'
-          ? [key]
-          : Object.entries(command.params)
-              .filter(([field, value]) => field !== 'id' && value !== undefined)
-              .map(([field]) => `${key}.${field}`);
-      operations.push({
-        fields,
-        write: async () => {
-          switch (command.action) {
-            case 'create':
-              // Existing PtahCliConfigComponent's host contract: OAuth instances carry this non-secret marker.
-              return (await this.require('ptahCli:create', { ...command.params,
-                apiKey: command.params.providerId === 'github-copilot' ? 'copilot-oauth' : command.params.apiKey,
-              })).success;
-            case 'update':
-              return (await this.require('ptahCli:update', command.params))
-                .success;
-            case 'delete':
-              return (await this.require('ptahCli:delete', command.params))
-                .success;
-          }
-        },
-      });
-    }
-    return operations;
-  }
-
-  private async runCommit(
-    operations: readonly SaveOperation[],
-    context: ProvidersEditContext,
-    allowed = () => true,
-  ): Promise<void> {
-    if (this.commit().status === 'saving') return;
-    this.commitState.set({ ...EMPTY_COMMIT, status: 'saving' });
-    await this.refreshScopes();
-    if (!this.contextMatches(context) || !allowed()) {
-      this.commitState.set({
-        ...EMPTY_COMMIT,
-        status: 'blocked',
-        unsaved: operations.flatMap((operation) => operation.fields),
-        message:
-          'Review the current workspace and supported save target before saving.',
-      });
-      return;
-    }
-    const saved: string[] = [],
-      unsaved: string[] = [],
-      unconfirmed: string[] = [],
-      conflicted: string[] = [];
-    for (const operation of operations) {
-      if (operation.dependsOnPrevious && (unsaved.length || unconfirmed.length)) {
-        unsaved.push(...operation.fields);
-        continue;
-      }
-      if (!this.contextMatches(context)) {
-        unsaved.push(...operation.fields);
-        continue;
-      }
-      let acknowledged = false;
-      try {
-        const outcome = await operation.write();
-        if (outcome === 'conflict') {
-          // Nothing was written: surface the conflict instead of overwriting a newer value.
-          conflicted.push(...operation.fields);
-          unsaved.push(...operation.fields);
-          continue;
-        }
-        acknowledged = outcome;
-      } catch (error: unknown) {
-        // RPC errors may contain credentials. Neither their message nor object enters UI state.
-        void error;
-      }
-      if (operation.readBack && this.contextMatches(context)) {
-        try {
-          const matches = await operation.readBack();
-          (this.contextMatches(context)
-            ? matches
-              ? saved
-              : unsaved
-            : unconfirmed
-          ).push(...operation.fields);
-        } catch (error: unknown) {
-          void error;
-          unconfirmed.push(...operation.fields);
-        }
-      } else {
-        (acknowledged && this.contextMatches(context)
-          ? saved
-          : unconfirmed
-        ).push(...operation.fields);
-      }
-    }
-    // Always refresh, even after rejection: host handlers can fail after a partial write.
-    await this.refresh();
-    if (!this.contextMatches(context)) {
-      unconfirmed.push(...saved);
-      saved.length = 0;
-    }
-    const refreshFailed = [
+  /** The commit pipeline reads and refreshes the sections this facade owns, in this order. */
+  private readonly commitHooks: ProvidersCommitHooks = {
+    refreshScopes: () => this.refreshScopes(),
+    refresh: () => this.refresh(),
+    scopes: () => this.scopes(),
+    sectionsReady: () => [
       this.route(),
       this.scopes(),
       this.mainSources(),
@@ -1098,103 +691,39 @@ export class ProvidersSettingsStateService {
       this.cliModels(),
       this.orchestration(),
       this.connections(),
-    ].some((state) => state.status !== 'ready');
-    const status = unconfirmed.length
-      ? 'unconfirmed'
-      : unsaved.length
-        ? saved.length
-          ? 'partial'
-          : 'failed'
-        : 'saved';
-    this.commitState.set({
-      status,
-      saved,
-      unsaved,
-      unconfirmed,
-      refreshFailed,
-      message: [
-        conflicted.length
-          ? `Changed elsewhere since setup opened, not overwritten: ${conflicted.join(', ')}. Reopen setup to review the current value.`
-          : '',
-        refreshFailed ? 'Some settings could not be refreshed. Retry those sections.' : '',
-      ].filter(Boolean).join(' ') || null,
-    });
-  }
-
-  private contextMatches(context: ProvidersEditContext): boolean {
-    return (
-      this.workspace.scopeKey() === context.scopeKey &&
-      this.scopes().status === 'ready' &&
-      this.scopes().data?.activePath === context.activePath
-    );
+    ].every((state) => state.status === 'ready'),
+  };
+  /** Connection setup reads the catalogue and write targets, and commits through the same hooks. */
+  private readonly setupHooks: ProvidersConnectionSetupHooks = {
+    connections: () => this.connections(),
+    writeScopes: (key) => this.writeScopes(key),
+    commit: this.commitHooks,
+    refreshConnections: () => this.refreshConnections(),
+    refreshRoute: () => this.refreshRoute(),
+    route: () => this.route(),
+  };
+  /** Resolves `false` when refused because another save is in flight (see `ProvidersCommitService.run`). */
+  private runCommit(
+    operations: readonly SaveOperation[],
+    context: ProvidersEditContext,
+    allowed?: () => boolean,
+  ): Promise<boolean> {
+    return this.commits.run(operations, context, this.commitHooks, allowed);
   }
   private freshEffortView<T>(store: SectionStore<T>, readRevision: () => number) {
-    const scoped = this.view(store);
-    return computed<ProvidersSettingsSection<T>>(() => {
-      const state = scoped();
-      if (state.status === 'unloaded') return state;
-      if (this.effortChanges.pending() || readRevision() !== this.effortChanges.revision()) {
-        return { status: 'loading', data: null, error: null };
-      }
-      return state.status === 'ready' ? state : { ...state, data: null };
-    });
+    return effortFreshSectionView(store, readRevision, this.workspace, this.effortChanges);
   }
   private view<T>(store: SectionStore<T>) {
-    return computed<ProvidersSettingsSection<T>>(() => {
-      const state = store.value();
-      return store.scopeKey === this.workspace.scopeKey()
-        ? state
-        : { status: 'unloaded', data: null, error: null };
-    });
+    return sectionView(store, this.workspace);
   }
-  private async read<T>(
-    store: SectionStore<T>,
-    request: () => Promise<T>,
-  ): Promise<void> {
-    const generation = ++store.generation;
-    const scopeKey = this.workspace.scopeKey();
-    const previous = store.scopeKey === scopeKey ? store.value().data : null;
-    store.scopeKey = scopeKey;
-    store.value.set({ status: 'loading', data: previous, error: null });
-    try {
-      const data = await request();
-      if (
-        generation === store.generation &&
-        scopeKey === this.workspace.scopeKey()
-      )
-        store.value.set({ status: 'ready', data, error: null });
-    } catch (error: unknown) {
-      void error;
-      if (
-        generation === store.generation &&
-        scopeKey === this.workspace.scopeKey()
-      )
-        store.value.set({ status: 'error', data: previous, error: LOAD_ERROR });
-    }
+  private read<T>(store: SectionStore<T>, request: () => Promise<T>): Promise<void> {
+    return readSection(store, this.workspace, request);
   }
-  private async require<T extends RpcMethodName>(
+  private require<T extends RpcMethodName>(
     method: T,
     params: RpcMethodParams<T>,
     timeout?: number,
   ): Promise<RpcMethodResult<T>> {
-    const result = await this.rpc.call(
-      method,
-      params,
-      timeout ? { timeout } : undefined,
-    );
-    if (!result.isSuccess()) throw new Error('Settings request failed');
-    return result.data;
-  }
-  /** Best-effort abort. A failure cannot publish a stale result: generations are re-checked. */
-  private async abortProbe(probeId: string): Promise<void> {
-    try {
-      await this.require('auth:cancelDraftVerification', { probeId });
-    } catch (error: unknown) {
-      // `require()` throws a fixed message, so no credential is logged.
-      console.warn(
-        '[ProvidersSettingsStateService] Draft verification abort failed:',
-        error,
-      );
-    }
+    return requireRpcData(this.rpc, method, params, timeout);
   }
 }

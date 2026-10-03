@@ -20,6 +20,7 @@ import {
   SessionLifecycleNotifier,
   GitChangeSetRpcHandlers,
 } from './handlers';
+import { ConnectionCheckRecorder } from './utils/connection-check-recorder';
 import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorder.service';
 import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
 
@@ -52,6 +53,10 @@ export function registerSharedRpcHandlers(
   container.registerSingleton(EnhancedPromptsRpcHandlers);
   container.registerSingleton(LlmRpcHandlers);
   container.registerSingleton(SessionLifecycleNotifier);
+  // Not a handler: the one in-memory store of connection checks that
+  // AuthRpcHandlers (writer + route reader) and ProviderRpcHandlers (custom
+  // entry test) must share. A second instance would hide their records.
+  container.registerSingleton(ConnectionCheckRecorder);
   container.registerSingleton(TurnChangeSetStore);
   container.registerSingleton(TurnChangeSetRecorder);
   container.registerSingleton(GitChangeSetRpcHandlers);

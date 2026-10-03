@@ -1,0 +1,1611 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — Providers | Ptah</title>
+  <!-- Tailwind & daisyUI 4 CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Custom Prototype Styles (Extended anubis tokens) -->
+  <link rel="stylesheet" href="assets/app.css">
+  <script>
+    tailwind.config = {
+      darkMode: ['class', '[data-theme="anubis"]'],
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              primary: 'var(--brand-primary)',
+              base100: 'var(--brand-base-100)',
+              base200: 'var(--brand-base-200)',
+              base300: 'var(--brand-base-300)',
+              content: 'var(--brand-content)',
+              contentMuted: 'var(--brand-content-muted)'
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-base-100 text-base-content antialiased flex flex-col min-h-screen">
+
+  <!-- Prototype Toolbar (BRIEF item 7: dedicated helper strip, visually distinct from product UI) -->
+  <aside class="proto-toolbar flex items-center justify-between" aria-label="Prototype Evaluation Controls">
+    <div class="flex items-center gap-2">
+      <span class="font-mono text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">
+        PROTOTYPE · FINAL
+      </span>
+      <span class="text-[11px] text-gray-400">Jump:</span>
+      <a href="index.html" class="text-[11px] font-semibold text-primary underline underline-offset-2">Providers</a>
+      <span class="text-gray-600">·</span>
+      <a href="orchestration.html" class="text-[11px] text-gray-400 hover:text-gray-200">Agent Orchestration</a>
+    </div>
+
+    <div class="flex items-center gap-2.5">
+      <!-- 1024x768 Frame Toggle -->
+      <button id="btnFrameToggle" class="btn btn-xs btn-outline py-0 h-6 min-h-0 text-[11px] flex items-center gap-1" title="Constrain page to 1024x768 to verify fold budget">
+        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <span id="frameToggleLabel">1024×768 Frame: Off</span>
+      </button>
+
+      <!-- Theme Toggle -->
+      <button id="btnThemeToggle" class="btn btn-xs btn-outline py-0 h-6 min-h-0 text-[11px] flex items-center gap-1" title="Toggle dark/light theme">
+        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <span id="themeLabel">anubis (dark)</span>
+      </button>
+
+      <!-- Quick Inspection Demos -->
+      <div class="dropdown dropdown-end">
+        <label tabindex="0" class="btn btn-xs btn-ghost py-0 h-6 min-h-0 text-[11px] text-gray-300 hover:text-white flex items-center gap-1 cursor-pointer">
+          Quick Demos
+          <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </label>
+        <ul tabindex="0" class="dropdown-content z-50 menu p-1 shadow-lg bg-base-200 border border-base-300 rounded-box w-56 text-xs">
+          <li><a onclick="openPaletteModal()">+ Connect Provider Catalog</a></li>
+          <li><a onclick="openConnDrawer('claude')">Open Drawer: Claude (Subscription)</a></li>
+          <li><a onclick="openConnDrawer('moonshot')">Open Drawer: Moonshot (Kimi)</a></li>
+          <li><a onclick="openConnDrawer('openai')">Open Drawer: OpenAI Codex</a></li>
+          <li><a onclick="openConnDrawer('ollama')">Open Drawer: Ollama Cloud (Failed)</a></li>
+          <li><a onclick="openConnDrawer('sovereigneg')">Open Drawer: Sovereigneg (Custom)</a></li>
+          <li><a onclick="showToast('Model switched to Claude 3.7 Sonnet', true)">Trigger Toast with Undo</a></li>
+        </ul>
+      </div>
+    </div>
+  </aside>
+
+  <!-- App Wrapper (Product UI) -->
+  <main id="appContainer" class="flex-1 flex flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 py-3 transition-all">
+
+    <!-- Settings Shell Header & Context (Real Product UI) -->
+    <section class="mb-3">
+      <div class="flex items-center justify-between pb-2 border-b border-base-300">
+        <div class="flex items-center gap-2.5">
+          <button class="btn btn-xs btn-ghost text-base-content-muted hover:text-base-content p-1" title="Back to Chat">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <h1 class="text-base font-bold tracking-tight text-base-content">Settings</h1>
+        </div>
+        <div class="text-xs text-base-content-muted flex items-center gap-1.5">
+          <span>Workspace: <strong class="text-base-content font-medium">ptah-extension</strong></span>
+          <span class="text-base-content-muted">·</span>
+          <span>App: <strong class="text-base-content font-medium">Desktop</strong></span>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="tabs tabs-bordered mt-1.5" role="tablist" aria-label="Settings Sections">
+        <a href="index.html" role="tab" class="tab tab-active" aria-selected="true">
+          <svg class="w-3.5 h-3.5 mr-1.5 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          Providers
+        </a>
+        <a href="orchestration.html" role="tab" class="tab" aria-selected="false">
+          <svg class="w-3.5 h-3.5 mr-1.5 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12"/></svg>
+          Agent Orchestration
+        </a>
+        <button role="tab" class="tab opacity-50 cursor-not-allowed" aria-selected="false" disabled>
+          Advanced
+        </button>
+        <button role="tab" class="tab opacity-50 cursor-not-allowed" aria-selected="false" disabled>
+          Search &amp; Voice
+        </button>
+      </nav>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- SECTION 1: ROUTING OVERVIEW (Calm visual tone, no truncation)         -->
+    <!-- "Which model does what?" Compact work nodes with active routing       -->
+    <!-- ==================================================================== -->
+    <section class="routing-flow-card mb-3.5" aria-labelledby="routingOverviewHeading">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <h2 id="routingOverviewHeading" class="text-xs font-semibold uppercase tracking-wider text-base-content-muted flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+            Routing Map
+          </h2>
+          <span class="text-[11px] text-base-content-muted">Click any work node to reassign model or effort</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-[11px] text-success flex items-center gap-1 font-medium bg-success/10 px-2 py-0.5 rounded border border-success/20">
+            <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+            Operational
+          </span>
+        </div>
+      </div>
+
+      <!-- Work Nodes Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+        <!-- Work Node 1: Main Agent (Two full lines, NO truncation) -->
+        <div id="nodeMainAgent" class="routing-work-node flex flex-col justify-between" tabindex="0" role="button" aria-haspopup="dialog" aria-expanded="false" onclick="toggleMainAgentPopover(event)">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-success" title="Active"></span>
+              <span class="text-xs font-bold text-base-content uppercase tracking-wider">Main Agent</span>
+            </div>
+            <!-- Scope Badges: shown only when overridden -->
+            <div class="flex items-center gap-1" onclick="event.stopPropagation()">
+              <button class="scope-badge scope-badge-app" title="Scope: App override (Desktop). Click to configure" onclick="openScopePopover(event, 'App override', 'Main Provider', 'Desktop app', 'Default')">
+                App override
+              </button>
+              <button class="scope-badge" title="Scope: Workspace override. Click to configure" onclick="openScopePopover(event, 'Workspace override', 'Reasoning Effort', 'Workspace ptah-extension', 'medium')">
+                Workspace override
+              </button>
+            </div>
+          </div>
+
+          <!-- Two full lines: Provider and Model with no clipping -->
+          <div class="my-2 space-y-1">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[11px] text-base-content-muted uppercase tracking-wider font-semibold">Provider:</span>
+              <span class="text-sm font-semibold text-primary" id="mainRouteProvider">Claude (Subscription)</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[11px] text-base-content-muted uppercase tracking-wider font-semibold">Model:</span>
+              <span class="text-xs text-base-content font-medium font-mono" id="mainRouteModel">Default (chosen by Claude)</span>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] text-base-content-muted pt-1 border-t border-base-content/10">
+            <div class="flex items-center gap-2">
+              <span>Effort: <strong class="text-base-content font-medium font-mono" id="mainRouteEffort">medium</strong></span>
+              <span class="text-base-content-muted">•</span>
+              <span>Next request target</span>
+            </div>
+            <span class="text-primary text-[11px] font-medium flex items-center gap-0.5">
+              Reassign
+              <svg class="w-3 h-3 text-primary inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- Work Node 2: Background Roles (6 Collapsed, calm summary) -->
+        <div id="nodeBackgroundRoles" class="routing-work-node flex flex-col justify-between" tabindex="0" role="button" aria-haspopup="dialog" aria-expanded="false" onclick="toggleBackgroundRolesPopover(event)">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-info" title="Configured"></span>
+              <span class="text-xs font-bold text-base-content uppercase tracking-wider">Background Roles</span>
+            </div>
+            <span class="text-[11px] px-1.5 py-0.2 rounded bg-base-300 text-base-content font-medium">6 roles active</span>
+          </div>
+
+          <div class="my-2 space-y-1 text-xs">
+            <div class="flex items-center justify-between text-base-content">
+              <span>Memory curator</span>
+              <span class="text-base-content-muted font-mono text-[11px]">OpenAI Codex</span>
+            </div>
+            <div class="flex items-center justify-between text-base-content">
+              <span>Judge lane</span>
+              <span class="text-base-content-muted font-mono text-[11px]">Moonshot</span>
+            </div>
+            <div class="flex items-center justify-between text-base-content">
+              <span>Archaeologist, Synthesis, Replay</span>
+              <span class="text-primary text-[11px]">Follows main agent →</span>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] text-base-content-muted pt-1 border-t border-base-content/10">
+            <span>6 autonomous background tasks</span>
+            <span class="text-primary text-[11px] font-medium flex items-center gap-0.5">
+              Inspect
+              <svg class="w-3 h-3 text-primary inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- Work Node 3: CLI & Subagents -->
+        <div id="nodeCliAgents" class="routing-work-node flex flex-col justify-between" tabindex="0" role="button" aria-haspopup="dialog" aria-expanded="false" onclick="window.location.href='orchestration.html'">
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-warning" title="1 Quota Alert"></span>
+              <span class="text-xs font-bold text-base-content uppercase tracking-wider">CLI Agents &amp; Matrix</span>
+            </div>
+            <span class="text-[10px] text-warning bg-warning/10 px-1.5 py-0.5 rounded border border-warning/20 font-medium">1 Quota Reached</span>
+          </div>
+
+          <div class="my-2 text-xs text-base-content">
+            <span class="text-base-content-muted block mb-1">Execution priority:</span>
+            <div class="flex items-center gap-1 text-[11px]">
+              <strong class="text-primary">Codex</strong>
+              <span class="text-base-content-muted">→</span>
+              <strong class="text-base-content">Antigravity</strong>
+              <span class="text-base-content-muted">→</span>
+              <strong class="text-base-content">Glm</strong>
+              <span class="text-base-content-muted">→</span>
+              <span class="text-base-content-muted">Copilot</span>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] text-base-content-muted pt-1 border-t border-base-content/10">
+            <span>4 active system CLIs · 1 Ptah instance</span>
+            <span class="text-primary text-[11px] font-medium flex items-center gap-0.5">
+              Manage Matrix
+              <svg class="w-3 h-3 text-primary inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            </span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- SECTION 2: CONNECTIONS (≤ 80px cards in 2-3 column grid)            -->
+    <!-- All 5 configured providers visible above the fold at 1024x768        -->
+    <!-- ==================================================================== -->
+    <section class="flex-1" aria-labelledby="connectionsHeading">
+      <div class="flex items-center justify-between mb-2.5">
+        <div class="flex items-center gap-2">
+          <h2 id="connectionsHeading" class="text-sm font-semibold tracking-tight text-base-content flex items-center gap-2">
+            Connections
+            <span class="text-xs font-normal text-base-content-muted bg-base-200 px-2 py-0.5 rounded-full border border-base-300">
+              5 configured · 10 available in catalog
+            </span>
+          </h2>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <!-- Connection Search Filter -->
+          <div class="relative w-48">
+            <input type="text" id="connSearchInput" placeholder="Filter connections..." class="input input-xs w-full pl-7 bg-base-200 border-base-300 text-xs" onkeyup="filterConnections(this.value)">
+            <svg class="w-3.5 h-3.5 absolute left-2 top-1.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </div>
+
+          <!-- Single primary action per region (BRIEF hard requirement #4) -->
+          <button id="btnOpenConnectModal" class="btn btn-xs btn-primary flex items-center gap-1.5" onclick="openPaletteModal()">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Connect provider
+          </button>
+        </div>
+      </div>
+
+      <!-- Connections Grid: 5 configured providers (Clicking card opens side drawer) -->
+      <div id="connectionsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+
+        <!-- Card 1: Claude (Subscription) -->
+        <article class="conn-card is-active-main" tabindex="0" role="button" aria-label="Claude Subscription connection details" onclick="openConnDrawer('claude')" onkeydown="if(event.key==='Enter')openConnDrawer('claude')">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold text-xs border border-amber-500/20">
+                CL
+              </div>
+              <div>
+                <h3 class="text-xs font-bold text-base-content leading-tight">Claude (Subscription)</h3>
+                <span class="text-[10px] text-base-content-muted">CLI login · Anthropic</span>
+              </div>
+            </div>
+            <span class="badge badge-xs bg-primary/10 text-primary border-primary/20 text-[10px] font-medium">CLI auth</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] pt-1">
+            <span class="text-success flex items-center gap-1 font-medium">
+              <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+              Active for main agent
+            </span>
+            <span class="text-base-content-muted font-mono text-[10px]">Used by 4</span>
+          </div>
+        </article>
+
+        <!-- Card 2: Moonshot (Kimi) -->
+        <article class="conn-card" tabindex="0" role="button" aria-label="Moonshot Kimi connection details" onclick="openConnDrawer('moonshot')" onkeydown="if(event.key==='Enter')openConnDrawer('moonshot')">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded bg-purple-500/10 text-purple-400 flex items-center justify-center font-bold text-xs border border-purple-500/20">
+                KM
+              </div>
+              <div>
+                <h3 class="text-xs font-bold text-base-content leading-tight">Moonshot (Kimi)</h3>
+                <span class="text-[10px] text-base-content-muted">API key · Stored locally</span>
+              </div>
+            </div>
+            <span class="badge badge-xs bg-base-300 text-base-content text-[10px]">API Key</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] pt-1">
+            <span class="text-success flex items-center gap-1 font-medium">
+              <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+              Connected
+            </span>
+            <span class="text-base-content-muted font-mono text-[10px]">Used by 1 (Judge)</span>
+          </div>
+        </article>
+
+        <!-- Card 3: OpenAI Codex -->
+        <article class="conn-card" tabindex="0" role="button" aria-label="OpenAI Codex connection details" onclick="openConnDrawer('openai')" onkeydown="if(event.key==='Enter')openConnDrawer('openai')">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-xs border border-emerald-500/20">
+                OA
+              </div>
+              <div>
+                <h3 class="text-xs font-bold text-base-content leading-tight">OpenAI Codex</h3>
+                <span class="text-[10px] text-base-content-muted">OAuth session active</span>
+              </div>
+            </div>
+            <span class="badge badge-xs bg-info/10 text-info border-info/20 text-[10px]">OAuth</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] pt-1">
+            <span class="text-success flex items-center gap-1 font-medium">
+              <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+              Connected
+            </span>
+            <span class="text-base-content-muted font-mono text-[10px]">Used by 2</span>
+          </div>
+        </article>
+
+        <!-- Card 4: Ollama Cloud (Check failed) -->
+        <article class="conn-card is-failed" tabindex="0" role="button" aria-label="Ollama Cloud connection details" onclick="openConnDrawer('ollama')" onkeydown="if(event.key==='Enter')openConnDrawer('ollama')">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded bg-red-500/10 text-red-400 flex items-center justify-center font-bold text-xs border border-red-500/20">
+                OL
+              </div>
+              <div>
+                <h3 class="text-xs font-bold text-base-content leading-tight">Ollama Cloud</h3>
+                <span class="text-[10px] text-base-content-muted">API key · Cloud endpoint</span>
+              </div>
+            </div>
+            <span class="badge badge-xs bg-error/10 text-error border-error/20 text-[10px]">Check failed</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] pt-1">
+            <span class="text-error flex items-center gap-1 font-medium">
+              <span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+              Check failed
+              <button class="btn btn-link btn-xs p-0 text-error underline text-[11px] ml-1" onclick="event.stopPropagation(); retryConnection('ollama')">Retry</button>
+            </span>
+            <span class="text-base-content-muted font-mono text-[10px]">Used by 1 (Glm)</span>
+          </div>
+        </article>
+
+        <!-- Card 5: sovereigneg (Custom endpoint) -->
+        <article class="conn-card" tabindex="0" role="button" aria-label="sovereigneg custom connection details" onclick="openConnDrawer('sovereigneg')" onkeydown="if(event.key==='Enter')openConnDrawer('sovereigneg')">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded bg-cyan-500/10 text-cyan-400 flex items-center justify-center font-bold text-xs border border-cyan-500/20">
+                SV
+              </div>
+              <div>
+                <h3 class="text-xs font-bold text-base-content leading-tight">sovereigneg</h3>
+                <span class="text-[10px] text-base-content-muted truncate max-w-[120px]">custom gateway</span>
+              </div>
+            </div>
+            <span class="badge badge-xs bg-base-300 text-base-content text-[10px]">Custom</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] pt-1">
+            <span class="text-success flex items-center gap-1 font-medium">
+              <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+              Connected
+            </span>
+            <span class="text-base-content-muted font-mono text-[10px]">Used by 0 (Idle)</span>
+          </div>
+        </article>
+
+        <!-- Add Provider Tile directly in grid for convenience -->
+        <div class="border border-dashed border-base-300 rounded-lg p-3 flex items-center justify-center gap-2 text-base-content-muted hover:text-base-content hover:border-primary cursor-pointer transition-colors max-h-[80px]" onclick="openPaletteModal()">
+          <svg class="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          <span class="text-xs font-medium">+ Connect another provider</span>
+        </div>
+
+      </div>
+
+      <!-- Quick Catalog Hints below grid -->
+      <div class="mt-3 p-2.5 rounded-lg bg-base-200 border border-base-300 text-xs text-base-content-muted flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="font-semibold text-base-content">10 catalog providers ready to add:</span>
+          <span>Anthropic API, OpenAI API, OpenRouter, Google Gemini, GitHub Copilot, DeepSeek, Groq, Mistral, xAI, Z.ai</span>
+        </div>
+        <button class="btn btn-ghost btn-xs text-primary" onclick="openPaletteModal()">Browse Catalog →</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================================================================== -->
+  <!-- SIDE DRAWER FOR CONNECTION MANAGEMENT (Borrowed from Variant A)       -->
+  <!-- Overview & Used By / Credentials / Models & Tiers / Advanced         -->
+  <!-- ==================================================================== -->
+  <div id="drawerOverlay" class="drawer-overlay is-hidden" onclick="closeConnDrawer()"></div>
+  <aside id="drawerConnDetails" class="drawer-panel is-hidden" role="dialog" aria-modal="true" aria-labelledby="drawerConnTitle">
+    <!-- Drawer Header -->
+    <div class="drawer-header">
+      <div class="flex items-center gap-2.5">
+        <div id="drawerConnIcon" class="w-8 h-8 rounded bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/20">
+          PR
+        </div>
+        <div>
+          <h3 id="drawerConnTitle" class="text-sm font-semibold text-base-content">Provider Connection</h3>
+          <p id="drawerConnSubtitle" class="text-[11px] text-base-content-muted">Managed via Ptah core</p>
+        </div>
+      </div>
+      <button class="btn btn-xs btn-ghost p-1 text-base-content-muted hover:text-base-content" onclick="closeConnDrawer()" aria-label="Close drawer">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <!-- Drawer Tabs (Overview / Credentials / Models / Advanced) -->
+    <div class="drawer-tabs" role="tablist">
+      <button class="drawer-tab is-active" aria-selected="true" onclick="switchDrawerTab('overview', event)">Overview &amp; Used By</button>
+      <button class="drawer-tab" aria-selected="false" onclick="switchDrawerTab('credentials', event)">Credentials</button>
+      <button class="drawer-tab" aria-selected="false" onclick="switchDrawerTab('models', event)">Models &amp; Tiers</button>
+      <button class="drawer-tab" aria-selected="false" id="drawerTabAdvanced" onclick="switchDrawerTab('advanced', event)">Advanced</button>
+    </div>
+
+    <!-- Drawer Body -->
+    <div class="drawer-body space-y-4 text-xs">
+
+      <!-- TAB 1: OVERVIEW & USED BY (Data-driven per provider) -->
+      <div id="drawerContentOverview" class="space-y-4">
+        <!-- Status & Verification Banner -->
+        <div class="bg-base-200 p-3 rounded border border-base-300">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-base-content-muted font-medium block">Connection Status</span>
+              <span id="drawerAuthStatusText" class="text-success font-medium flex items-center gap-1.5 mt-0.5">
+                <span class="w-2 h-2 rounded-full bg-success"></span>
+                Connected &amp; verified on this machine
+              </span>
+            </div>
+            <button id="btnDrawerTestConn" class="btn btn-xs btn-outline flex items-center gap-1.5" onclick="runConnectionCheck()">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span id="btnDrawerTestConnText">Check connection</span>
+            </button>
+          </div>
+          <!-- Error details box (shown when status check fails) -->
+          <div id="drawerErrorAlert" class="p-2.5 rounded bg-error/10 border border-error/20 text-error text-[11px] mt-2.5 is-hidden">
+            <strong>Endpoint check failed:</strong> <span id="drawerErrorAlertText">Remote endpoint timed out after 3000ms.</span>
+          </div>
+        </div>
+
+        <!-- Auth Method details -->
+        <div class="p-3 bg-base-200/50 rounded border border-base-300 space-y-1.5">
+          <div class="flex items-center justify-between">
+            <span class="text-base-content-muted">Authentication Mode:</span>
+            <span class="font-medium text-base-content" id="drawerAuthMethodVal">CLI subscription</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-base-content-muted">Credential Storage:</span>
+            <span class="font-mono text-base-content text-[11px]" id="drawerKeyLabelVal">Claude CLI login session</span>
+          </div>
+        </div>
+
+        <!-- Used By List -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-base-content">Used By in Workspace</span>
+            <span class="text-[11px] text-base-content-muted" id="drawerUsedByCountLabel">Active routes</span>
+          </div>
+          <ul id="drawerUsedByList" class="space-y-1.5">
+            <!-- Dynamically populated per provider -->
+          </ul>
+        </div>
+      </div>
+
+      <!-- TAB 2: CREDENTIALS (Data-driven: CLI, API Key, or OAuth) -->
+      <div id="drawerContentCredentials" class="space-y-4 is-hidden">
+        <!-- Mode A: CLI Subscription (Claude) -->
+        <div id="drawerCredCli" class="space-y-3 is-hidden">
+          <div class="p-3 rounded bg-base-200 border border-base-300 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-base-content flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                CLI Subscription Session
+              </span>
+              <span class="badge badge-xs bg-success/10 text-success border-success/20">CLI Session Active</span>
+            </div>
+            <p class="text-[11px] text-base-content-muted">
+              Sign-in is managed directly by the Claude CLI (`claude login`). No local API key is required on this machine.
+            </p>
+            <div class="bg-base-100 p-2 rounded font-mono text-[11px] flex items-center justify-between border border-base-300">
+              <span>claude login</span>
+              <button class="btn btn-ghost btn-xs text-primary py-0 h-5" onclick="navigator.clipboard.writeText('claude login'); showToast('Copied claude login')">Copy</button>
+            </div>
+            <span class="text-[10px] text-base-content-muted block" id="drawerCliExpiryText">Session valid · expires in 28 days</span>
+          </div>
+
+          <div class="pt-2 flex items-center justify-between border-t border-base-300">
+            <div>
+              <span class="font-semibold text-base-content block">Disconnect CLI Session</span>
+              <span class="text-[11px] text-base-content-muted">Revokes local Anthropic session tokens</span>
+            </div>
+            <button class="btn btn-xs btn-outline btn-error" onclick="disconnectCliSession()">Disconnect</button>
+          </div>
+        </div>
+
+        <!-- Mode B: Stored API Key (Moonshot, Ollama, sovereigneg) -->
+        <div id="drawerCredApiKey" class="space-y-3 is-hidden">
+          <div class="space-y-2">
+            <label class="font-semibold text-base-content block" id="drawerApiKeyLabel">Stored API Key</label>
+            <div class="flex items-center gap-2">
+              <div class="relative flex-1">
+                <input type="password" id="drawerKeyInput" value="" class="input input-xs w-full pr-8 font-mono text-xs" readonly>
+                <button type="button" class="absolute right-2 top-1.5 text-base-content-muted hover:text-base-content" onclick="togglePasswordVisibility('drawerKeyInput')" title="Show / hide API key">
+                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+              <button class="btn btn-xs btn-outline" onclick="replaceStoredKey()">Replace</button>
+              <button class="btn btn-xs btn-outline btn-error" onclick="deleteStoredKey()" title="Remove stored key from machine">Delete key</button>
+            </div>
+            <p id="drawerKeyHelpText" class="text-[11px] text-base-content-muted">
+              Keys start with <code class="font-mono text-base-content">sk-...</code>
+            </p>
+          </div>
+          <div class="p-2.5 rounded bg-base-200 border border-base-300 flex items-center justify-between text-[11px]">
+            <span class="text-base-content-muted">Storage:</span>
+            <span class="font-mono text-base-content">OS Secure Credential Vault (Local)</span>
+          </div>
+        </div>
+
+        <!-- Mode C: OAuth Session (OpenAI Codex) -->
+        <div id="drawerCredOAuth" class="space-y-3 is-hidden">
+          <div class="p-3 rounded bg-base-200 border border-base-300 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-base-content flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                OAuth 2.0 Session
+              </span>
+              <span class="badge badge-xs bg-success/10 text-success border-success/20">Authenticated</span>
+            </div>
+            <div class="text-[11px] space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-base-content-muted">Connected Account:</span>
+                <span class="font-medium text-base-content" id="drawerOAuthAccount">developer@organization.io</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-base-content-muted">Token Status:</span>
+                <span class="font-mono text-base-content" id="drawerOAuthToken">••••••••••••••••oa-987</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-2 flex items-center justify-between border-t border-base-300">
+            <div>
+              <span class="font-semibold text-base-content block">Sign out of OpenAI Codex</span>
+              <span class="text-[11px] text-base-content-muted">Revokes active OAuth session on this machine</span>
+            </div>
+            <button class="btn btn-xs btn-outline btn-error" onclick="signOutOAuth()">Sign out</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: MODELS & TIERS -->
+      <div id="drawerContentModels" class="space-y-4 is-hidden">
+        <div class="flex items-center justify-between">
+          <span class="font-semibold text-base-content">Tier Model Mapping</span>
+          <span id="drawerModelsCompatPill" class="tool-compat-pill bg-info/10 text-info border border-info/20">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+            <span id="drawerModelsCompatPillText">24 models · 18 support tool use</span>
+          </span>
+        </div>
+
+        <!-- Searchable Model Autocomplete Input -->
+        <div class="space-y-1">
+          <label class="text-[11px] text-base-content-muted font-medium">Search &amp; assign model</label>
+          <div class="relative">
+            <input type="text" id="drawerModelSearchInput" placeholder="Search models by name or ID..." class="input input-xs w-full pl-7 text-xs" onkeyup="filterDrawerModels(this.value)">
+            <svg class="w-3.5 h-3.5 absolute left-2 top-1.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </div>
+        </div>
+
+        <!-- Tier List: Dynamic per provider -->
+        <div class="space-y-2 border border-base-300 rounded p-3 bg-base-200/50">
+          <!-- Tier 1 -->
+          <div class="flex items-center justify-between py-1.5 border-b border-base-300">
+            <div>
+              <span class="font-bold text-base-content block" id="drawerTier1Label">Sonnet tier (General work &amp; coding)</span>
+              <span class="text-[10px] text-base-content-muted flex items-center gap-1">
+                Mapped to: <strong class="text-primary font-mono" id="drawerTierSonnetVal">claude-3-7-sonnet-latest</strong>
+                <span class="badge badge-xs bg-success/10 text-success">Tool use: Yes</span>
+              </span>
+            </div>
+            <div class="flex items-center gap-1">
+              <button class="btn btn-xs btn-outline" onclick="selectTierModel('tier1')">Change</button>
+              <button class="btn btn-xs btn-ghost text-base-content-muted" onclick="resetTier('tier1')" title="Reset to default">Default</button>
+            </div>
+          </div>
+
+          <!-- Tier 2 -->
+          <div class="flex items-center justify-between py-1.5 border-b border-base-300">
+            <div>
+              <span class="font-bold text-base-content block" id="drawerTier2Label">Opus tier (Deep reasoning)</span>
+              <span class="text-[10px] text-base-content-muted flex items-center gap-1">
+                Mapped to: <strong class="text-primary font-mono" id="drawerTierOpusVal">claude-3-opus-latest</strong>
+                <span class="badge badge-xs bg-success/10 text-success">Tool use: Yes</span>
+              </span>
+            </div>
+            <div class="flex items-center gap-1">
+              <button class="btn btn-xs btn-outline" onclick="selectTierModel('tier2')">Change</button>
+              <button class="btn btn-xs btn-ghost text-base-content-muted" onclick="resetTier('tier2')">Default</button>
+            </div>
+          </div>
+
+          <!-- Tier 3 -->
+          <div class="flex items-center justify-between py-1.5">
+            <div>
+              <span class="font-bold text-base-content block" id="drawerTier3Label">Haiku tier (Fast subagents &amp; triage)</span>
+              <span class="text-[10px] text-base-content-muted flex items-center gap-1">
+                Mapped to: <strong class="text-primary font-mono" id="drawerTierHaikuVal">claude-3-5-haiku-latest</strong>
+                <span class="badge badge-xs bg-success/10 text-success">Tool use: Yes</span>
+              </span>
+            </div>
+            <div class="flex items-center gap-1">
+              <button class="btn btn-xs btn-outline" onclick="selectTierModel('tier3')">Change</button>
+              <button class="btn btn-xs btn-ghost text-base-content-muted" onclick="resetTier('tier3')">Default</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom model ID -->
+        <div class="p-2.5 rounded bg-base-200 border border-base-300">
+          <span class="font-semibold text-base-content block mb-1">Not listed? Enter custom model ID</span>
+          <div class="flex gap-2">
+            <input type="text" id="drawerCustomModelIdInput" placeholder="e.g. custom/model-identifier" class="input input-xs flex-1 font-mono text-xs">
+            <button class="btn btn-xs btn-primary" onclick="applyCustomModelId()">Apply</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: ADVANCED & CUSTOM -->
+      <div id="drawerContentAdvanced" class="space-y-4 is-hidden">
+        <!-- Custom Provider Form (Visible ONLY for sovereigneg) -->
+        <div id="drawerAdvCustomContent" class="space-y-4 is-hidden">
+          <div class="space-y-2">
+            <label class="font-semibold text-base-content block">Custom Base Server URL</label>
+            <input type="text" id="drawerAdvBaseUrlInput" value="https://gateway.sovereigneg.internal/v1" class="input input-xs w-full font-mono text-xs">
+          </div>
+
+          <!-- Custom Models Endpoint (Restores #27) -->
+          <div class="space-y-1">
+            <label class="font-semibold text-base-content block">Models Endpoint</label>
+            <input type="text" id="drawerAdvModelsEndpointInput" value="/v1/models" class="input input-xs w-full font-mono text-xs" placeholder="e.g. /v1/models">
+            <span class="text-[10px] text-base-content-muted">Path used to query model capabilities and listing.</span>
+          </div>
+
+          <!-- Custom Help URL (Restores #28) -->
+          <div class="space-y-1">
+            <label class="font-semibold text-base-content block">Documentation URL</label>
+            <input type="text" id="drawerAdvHelpUrlInput" value="https://docs.sovereigneg.internal/ai" class="input input-xs w-full text-xs" placeholder="e.g. https://gateway.internal/docs">
+          </div>
+
+          <!-- Custom Provider Pricing (Restores #30) -->
+          <div class="p-3 bg-base-200 border border-base-300 rounded space-y-2">
+            <span class="font-semibold text-base-content block">Token Pricing (per 1M tokens)</span>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-[10px] text-base-content-muted">Input price ($ / 1M)</label>
+                <input type="number" step="0.01" id="drawerAdvInputPrice" value="0.50" class="input input-xs w-full font-mono text-xs">
+              </div>
+              <div>
+                <label class="text-[10px] text-base-content-muted">Output price ($ / 1M)</label>
+                <input type="number" step="0.01" id="drawerAdvOutputPrice" value="1.50" class="input input-xs w-full font-mono text-xs">
+              </div>
+            </div>
+            <span class="text-[10px] text-base-content-muted block">Used for real-time session cost tracking and estimation.</span>
+          </div>
+
+          <!-- Delete Custom Provider with Confirmation (Restores #25) -->
+          <div class="pt-3 border-t border-error/30 flex items-center justify-between">
+            <div>
+              <span class="text-error font-semibold block">Delete Custom Provider</span>
+              <span class="text-[11px] text-base-content-muted">Permanently remove this custom gateway and credentials</span>
+            </div>
+            <button class="btn btn-xs btn-outline btn-error" onclick="deleteProviderConnection()">
+              Delete provider
+            </button>
+          </div>
+        </div>
+
+        <!-- Standard Provider Notice (Visible for Claude, Moonshot, OpenAI Codex, Ollama) -->
+        <div id="drawerAdvStandardNotice" class="p-6 rounded bg-base-200 border border-base-300 text-center space-y-2.5">
+          <div class="w-9 h-9 rounded-full bg-base-300 flex items-center justify-center mx-auto text-base-content-muted">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <span class="font-bold text-base-content block text-sm">Standard Built-in Provider</span>
+          <p class="text-xs text-base-content-muted max-w-xs mx-auto">
+            This provider is natively managed by the Ptah core adapter. Custom gateway endpoints, models listing path, and manual deletion are only applicable to custom providers.
+          </p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Drawer Footer -->
+    <div class="drawer-footer">
+      <span class="text-[11px] text-base-content-muted">Esc to close</span>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-xs btn-ghost" onclick="closeConnDrawer()">Close</button>
+        <button class="btn btn-xs btn-primary" id="btnDrawerSave" onclick="saveDrawerChanges()">Save Changes</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ==================================================================== -->
+  <!-- MODALS & POPOVERS (Accessible, vanilla JS, focus trap, Esc closes)     -->
+  <!-- ==================================================================== -->
+
+  <!-- 1. COMMAND-PALETTE STYLE "+ CONNECT PROVIDER" MODAL -->
+  <div id="modalPalette" class="modal-backdrop-custom is-hidden" role="dialog" aria-modal="true" aria-labelledby="paletteTitle">
+    <div class="modal-box-custom max-w-lg">
+      <div class="p-3 border-b border-base-300 bg-base-200 flex items-center gap-2">
+        <svg class="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="paletteSearch" placeholder="Type provider name (15 in catalog)..." class="input input-xs flex-1 bg-transparent border-none text-xs focus:outline-none" onkeyup="filterPalette(this.value)">
+        <kbd class="kbd kbd-xs">ESC</kbd>
+      </div>
+
+      <div class="p-3 overflow-y-auto max-h-[50vh] space-y-3 text-xs" id="paletteResults">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-base-content-muted px-2">Available in Catalog (10 unconfigured)</span>
+        
+        <div class="space-y-1">
+          <div class="p-2 rounded hover:bg-base-300 flex items-center justify-between cursor-pointer" onclick="setupCatalogProvider('Anthropic API')">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded bg-amber-500/10 text-amber-500 font-bold flex items-center justify-center text-[10px]">AN</span>
+              <div>
+                <span class="font-bold text-base-content">Anthropic API</span>
+                <span class="text-[10px] text-base-content-muted block">Direct API key · Claude 3.7 Sonnet / Opus</span>
+              </div>
+            </div>
+            <button class="btn btn-xs btn-outline btn-primary">Connect</button>
+          </div>
+
+          <div class="p-2 rounded hover:bg-base-300 flex items-center justify-between cursor-pointer" onclick="setupCatalogProvider('OpenRouter')">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded bg-blue-500/10 text-blue-500 font-bold flex items-center justify-center text-[10px]">OR</span>
+              <div>
+                <span class="font-bold text-base-content">OpenRouter</span>
+                <span class="text-[10px] text-base-content-muted block">200+ models aggregator · Single API key</span>
+              </div>
+            </div>
+            <button class="btn btn-xs btn-outline btn-primary">Connect</button>
+          </div>
+
+          <div class="p-2 rounded hover:bg-base-300 flex items-center justify-between cursor-pointer" onclick="setupCatalogProvider('Google Gemini')">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded bg-indigo-500/10 text-indigo-500 font-bold flex items-center justify-center text-[10px]">GM</span>
+              <div>
+                <span class="font-bold text-base-content">Google Gemini</span>
+                <span class="text-[10px] text-base-content-muted block">Gemini 2.5 Flash &amp; Pro via Google AI Studio</span>
+              </div>
+            </div>
+            <button class="btn btn-xs btn-outline btn-primary">Connect</button>
+          </div>
+
+          <div class="p-2 rounded hover:bg-base-300 flex items-center justify-between cursor-pointer" onclick="setupCatalogProvider('GitHub Copilot')">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded bg-purple-500/10 text-purple-500 font-bold flex items-center justify-center text-[10px]">CP</span>
+              <div>
+                <span class="font-bold text-base-content">GitHub Copilot</span>
+                <span class="text-[10px] text-base-content-muted block">OAuth device code sign-in</span>
+              </div>
+            </div>
+            <button class="btn btn-xs btn-outline btn-primary">Connect</button>
+          </div>
+
+          <div class="p-2 rounded hover:bg-base-300 flex items-center justify-between cursor-pointer" onclick="setupCatalogProvider('DeepSeek')">
+            <div class="flex items-center gap-2">
+              <span class="w-5 h-5 rounded bg-cyan-500/10 text-cyan-500 font-bold flex items-center justify-center text-[10px]">DS</span>
+              <div>
+                <span class="font-bold text-base-content">DeepSeek</span>
+                <span class="text-[10px] text-base-content-muted block">DeepSeek-V3 and R1 reasoning models</span>
+              </div>
+            </div>
+            <button class="btn btn-xs btn-outline btn-primary">Connect</button>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-base-300">
+          <div class="p-2 rounded bg-base-200 hover:bg-base-300 flex items-center justify-between cursor-pointer" onclick="setupCatalogProvider('Custom Provider')">
+            <div class="flex items-center gap-2">
+              <svg class="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              <div>
+                <span class="font-bold text-base-content">Custom Endpoint Gateway</span>
+                <span class="text-[10px] text-base-content-muted block">OpenAI or Anthropic compatible self-hosted endpoint</span>
+              </div>
+            </div>
+            <button class="btn btn-xs btn-outline">Configure</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. MAIN AGENT REASSIGN POPOVER -->
+  <div id="popoverMainAgent" class="popover-custom is-hidden p-3 space-y-3" role="dialog" aria-label="Reassign Main Agent Model &amp; Effort">
+    <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
+      <span class="font-bold text-xs text-base-content">Reassign Main Agent</span>
+      <button class="text-base-content-muted hover:text-base-content text-xs" onclick="closeAllPopovers()">✕</button>
+    </div>
+
+    <!-- Provider Selection -->
+    <div>
+      <label class="text-[10px] text-base-content-muted block font-semibold mb-1">Provider Connection</label>
+      <select id="popoverProviderSelect" class="select select-xs w-full" onchange="updateMainRoutePreview()">
+        <option value="Claude (Subscription)" selected>Claude (Subscription) · CLI login</option>
+        <option value="Moonshot (Kimi)">Moonshot (Kimi) · API key</option>
+        <option value="OpenAI Codex">OpenAI Codex · OAuth</option>
+        <option value="sovereigneg">sovereigneg · Custom endpoint</option>
+      </select>
+    </div>
+
+    <!-- Model Selection with tool use indicator -->
+    <div>
+      <label class="text-[10px] text-base-content-muted block font-semibold mb-1">Model Selection</label>
+      <select id="popoverModelSelect" class="select select-xs w-full font-mono text-[11px]" onchange="updateMainRoutePreview()">
+        <option value="Default (chosen by Claude)" selected>Default (chosen by Claude) [Tool: Yes]</option>
+        <option value="claude-3-7-sonnet-latest">claude-3-7-sonnet-latest [Tool: Yes]</option>
+        <option value="claude-3-5-haiku-latest">claude-3-5-haiku-latest [Tool: Yes]</option>
+        <option value="claude-3-opus-latest">claude-3-opus-latest [Tool: Yes]</option>
+      </select>
+    </div>
+
+    <!-- Reasoning Effort Segmented Control -->
+    <div>
+      <label class="text-[10px] text-base-content-muted block font-semibold mb-1">Reasoning Effort</label>
+      <div class="grid grid-cols-4 gap-1">
+        <button class="btn btn-xs btn-outline text-[10px] popover-effort-btn" onclick="selectEffort('none', this)">none</button>
+        <button class="btn btn-xs btn-outline text-[10px] popover-effort-btn" onclick="selectEffort('low', this)">low</button>
+        <button class="btn btn-xs btn-primary text-[10px] popover-effort-btn" onclick="selectEffort('medium', this)">medium</button>
+        <button class="btn btn-xs btn-outline text-[10px] popover-effort-btn" onclick="selectEffort('high', this)">high</button>
+      </div>
+    </div>
+
+    <!-- Save Target Scope (BRIEF item 3) -->
+    <div class="pt-2 border-t border-base-300">
+      <div class="flex items-center justify-between text-[10px] text-base-content-muted mb-1.5">
+        <span>Save to:</span>
+        <select class="select select-xs text-[10px] h-6 py-0 px-1 bg-base-300">
+          <option selected>This workspace (override)</option>
+          <option>Desktop app default</option>
+          <option>All Ptah apps (global)</option>
+        </select>
+      </div>
+      <button class="btn btn-xs btn-primary w-full" onclick="applyMainAgentChanges()">Apply &amp; Save (Saves immediately)</button>
+    </div>
+  </div>
+
+  <!-- 3. SCOPE PROVENANCE POPOVER (BRIEF item 3) -->
+  <div id="popoverScope" class="popover-custom is-hidden p-3 space-y-3" role="dialog" aria-label="Scope Provenance Breakdown">
+    <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
+      <span class="font-bold text-xs text-base-content" id="scopePopoverTitle">Scope Provenance</span>
+      <button class="text-base-content-muted hover:text-base-content text-xs" onclick="closeAllPopovers()">✕</button>
+    </div>
+
+    <div class="space-y-1.5 text-xs">
+      <div class="flex items-center justify-between text-base-content-muted">
+        <span>Global default:</span>
+        <span class="font-mono text-base-content" id="scopeGlobalVal">provider default</span>
+      </div>
+      <div class="flex items-center justify-between text-base-content-muted">
+        <span>Desktop app:</span>
+        <span class="font-mono text-base-content" id="scopeAppVal">inherited</span>
+      </div>
+      <div class="flex items-center justify-between font-semibold text-primary bg-primary/10 p-1.5 rounded border border-primary/20">
+        <span id="scopeActiveLayer">Workspace override:</span>
+        <span class="font-mono" id="scopeActiveVal">medium</span>
+      </div>
+    </div>
+
+    <div class="pt-2 border-t border-base-300 space-y-1.5">
+      <button class="btn btn-xs btn-outline btn-warning w-full" onclick="clearWorkspaceOverride()">
+        Clear workspace override
+      </button>
+      <button class="btn btn-xs btn-ghost text-base-content-muted hover:text-base-content w-full" onclick="useGlobalDefault()">
+        Use global default
+      </button>
+    </div>
+  </div>
+
+  <!-- 4. BACKGROUND ROLES OVERVIEW POPOVER (NO Edit buttons; each row triggers inspect) -->
+  <div id="popoverBackgroundRoles" class="popover-custom is-hidden p-3 space-y-3 max-w-sm" role="dialog" aria-label="Background Model Roles">
+    <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
+      <span class="font-bold text-xs text-base-content">Background Roles Routing</span>
+      <button class="text-base-content-muted hover:text-base-content text-xs" onclick="closeAllPopovers()">✕</button>
+    </div>
+
+    <div class="space-y-1.5 text-xs">
+      <div class="p-2 bg-base-100 rounded border border-base-300 hover:border-primary cursor-pointer flex items-center justify-between transition-colors" onclick="window.location.href='orchestration.html'">
+        <div>
+          <span class="font-bold block text-base-content">Memory Curator</span>
+          <span class="text-[10px] text-base-content-muted">OpenAI Codex · gpt-5.6-luna</span>
+        </div>
+        <svg class="w-3.5 h-3.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      </div>
+
+      <div class="p-2 bg-base-100 rounded border border-base-300 hover:border-primary cursor-pointer flex items-center justify-between transition-colors" onclick="window.location.href='orchestration.html'">
+        <div>
+          <span class="font-bold block text-base-content">Judge Lane</span>
+          <span class="text-[10px] text-base-content-muted">Moonshot · kimi-k2.5</span>
+        </div>
+        <svg class="w-3.5 h-3.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      </div>
+
+      <div class="p-2 bg-base-100 rounded border border-base-300 hover:border-primary cursor-pointer flex items-center justify-between transition-colors" onclick="window.location.href='orchestration.html'">
+        <div>
+          <span class="font-bold block text-base-content">Archaeologist / Synthesis / Replay</span>
+          <span class="text-[10px] text-base-content-muted">Follows main agent (Haiku / Sonnet)</span>
+        </div>
+        <svg class="w-3.5 h-3.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      </div>
+    </div>
+
+    <div class="pt-2 border-t border-base-300">
+      <button class="btn btn-xs btn-primary w-full flex items-center justify-center gap-1" onclick="window.location.href='orchestration.html'">
+        Open Agent Orchestration Matrix
+        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <!-- Vanilla JS Interactive Behavior -->
+  <script>
+    // Theme Switcher
+    const htmlEl = document.documentElement;
+    const btnThemeToggle = document.getElementById('btnThemeToggle');
+    const themeLabel = document.getElementById('themeLabel');
+    btnThemeToggle.addEventListener('click', () => {
+      const current = htmlEl.getAttribute('data-theme');
+      const next = current === 'anubis' ? 'anubis-light' : 'anubis';
+      htmlEl.setAttribute('data-theme', next);
+      themeLabel.textContent = next === 'anubis' ? 'anubis (dark)' : 'anubis-light';
+      showToast(`Switched theme to ${next}`);
+    });
+
+    // 1024x768 Viewport Boundary Toggle
+    const btnFrameToggle = document.getElementById('btnFrameToggle');
+    const frameToggleLabel = document.getElementById('frameToggleLabel');
+    const appContainer = document.getElementById('appContainer');
+    btnFrameToggle.addEventListener('click', () => {
+      const isActive = document.body.classList.toggle('frame-1024-active');
+      if (isActive) {
+        appContainer.classList.add('frame-1024-container');
+        frameToggleLabel.textContent = '1024×768 Frame: ON';
+        showToast('1024×768 Viewport constraint enabled. All controls fit above fold.');
+      } else {
+        appContainer.classList.remove('frame-1024-container');
+        frameToggleLabel.textContent = '1024×768 Frame: Off';
+        showToast('1024×768 Viewport constraint disabled.');
+      }
+    });
+
+    // Toast with Undo Capability
+    function showToast(msg, withUndo = false, undoCallback = null) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'toast-msg';
+      toast.innerHTML = `
+        <span>${msg}</span>
+        ${withUndo ? '<button class="btn btn-xs btn-warning ml-2 font-bold px-2 py-0.5" id="toastUndoBtn">Undo</button>' : ''}
+      `;
+      container.appendChild(toast);
+
+      if (withUndo && undoCallback) {
+        const undoBtn = toast.querySelector('#toastUndoBtn');
+        undoBtn.addEventListener('click', () => {
+          undoCallback();
+          toast.remove();
+          showToast('Action reverted successfully.');
+        });
+      }
+
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(10px)';
+          setTimeout(() => toast.remove(), 200);
+        }
+      }, 4000);
+    }
+
+    // Data-driven connection drawer specifications (BRIEF.md aligned)
+    const PROVIDER_DRAWER_DATA = {
+      claude: {
+        id: 'claude',
+        title: 'Claude (Subscription)',
+        subtitle: 'CLI login · Anthropic',
+        iconText: 'CL',
+        iconClass: 'bg-amber-500/10 text-amber-500 border border-amber-500/20',
+        authMethod: 'CLI subscription',
+        keyStorage: 'Claude CLI login session',
+        statusHtml: '<span class="w-2 h-2 rounded-full bg-success"></span> Active for main agent',
+        isFailed: false,
+        errorMessage: null,
+        usedBy: [
+          { name: 'Main Agent', desc: 'Direct interactive chat execution', badge: 'Active', isFollows: false },
+          { name: 'Archaeologist Lane', desc: 'Haiku tier follows main agent', badge: null, isFollows: true },
+          { name: 'Synthesis Lane', desc: 'Sonnet tier follows main agent', badge: null, isFollows: true },
+          { name: 'Replay Lane', desc: 'Haiku tier follows main agent', badge: null, isFollows: true },
+          { name: 'Judging & enhancement', desc: 'Inherits main provider (time limit 120s)', badge: null, isFollows: true }
+        ],
+        credentialsType: 'cli',
+        cliData: {
+          command: 'claude login',
+          expiry: 'Session valid · expires in 28 days'
+        },
+        modelsCountText: '24 models · 18 support tool use',
+        tiers: {
+          tier1Label: 'Sonnet tier (General work & coding)',
+          tier1Model: 'claude-3-7-sonnet-latest',
+          tier2Label: 'Opus tier (Deep reasoning)',
+          tier2Model: 'claude-3-opus-latest',
+          tier3Label: 'Haiku tier (Fast subagents & triage)',
+          tier3Model: 'claude-3-5-haiku-latest'
+        },
+        isCustom: false
+      },
+      moonshot: {
+        id: 'moonshot',
+        title: 'Moonshot (Kimi)',
+        subtitle: 'API key · Stored locally',
+        iconText: 'KM',
+        iconClass: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
+        authMethod: 'API key',
+        keyStorage: '•••• 8f21 (stored on this machine)',
+        statusHtml: '<span class="w-2 h-2 rounded-full bg-success"></span> Connected & verified (92ms)',
+        isFailed: false,
+        errorMessage: null,
+        usedBy: [
+          { name: 'Judge Lane', desc: 'Tribunal verdict & adversarial verification (model: kimi-k2.5)', badge: 'Active (Judge)', isFollows: false }
+        ],
+        credentialsType: 'apikey',
+        apiKeyData: {
+          label: 'Stored Moonshot API Key',
+          keyVal: 'sk-ms-kimi-sample-key-8f21',
+          helpText: 'Keys start with <code class="font-mono text-base-content">sk-ms-</code>. Stored securely in OS credential vault.'
+        },
+        modelsCountText: '8 models · 6 support tool use',
+        tiers: {
+          tier1Label: 'Primary model (Kimi 2.5)',
+          tier1Model: 'kimi-k2.5',
+          tier2Label: 'Math & reasoning tier',
+          tier2Model: 'kimi-k2-math',
+          tier3Label: 'Fast triage tier',
+          tier3Model: 'kimi-latest'
+        },
+        isCustom: false
+      },
+      openai: {
+        id: 'openai',
+        title: 'OpenAI Codex',
+        subtitle: 'OAuth session active · OpenAI',
+        iconText: 'OA',
+        iconClass: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+        authMethod: 'OAuth session',
+        keyStorage: 'OAuth access token',
+        statusHtml: '<span class="w-2 h-2 rounded-full bg-success"></span> Connected & verified (78ms)',
+        isFailed: false,
+        errorMessage: null,
+        usedBy: [
+          { name: 'Memory Curator', desc: 'Context compaction & long-term memory store (model: gpt-5.6-luna)', badge: 'Active (Memory)', isFollows: false },
+          { name: 'Codex CLI', desc: 'CLI agent execution lane (model: gpt-5.5-codex, effort: medium)', badge: 'Active (CLI)', isFollows: false }
+        ],
+        credentialsType: 'oauth',
+        oauthData: {
+          account: 'developer@organization.io',
+          tokenMasked: '••••••••••••••••oa-987'
+        },
+        modelsCountText: '32 models · 28 support tool use',
+        tiers: {
+          tier1Label: 'Memory role model',
+          tier1Model: 'gpt-5.6-luna',
+          tier2Label: 'Deep reasoning model',
+          tier2Model: 'o3-mini',
+          tier3Label: 'Coding tier model',
+          tier3Model: 'gpt-5.5-codex'
+        },
+        isCustom: false
+      },
+      ollama: {
+        id: 'ollama',
+        title: 'Ollama Cloud',
+        subtitle: 'API key · Cloud endpoint',
+        iconText: 'OL',
+        iconClass: 'bg-red-500/10 text-red-400 border border-red-500/20',
+        authMethod: 'API key',
+        keyStorage: '•••• c003 (stored on this machine)',
+        statusHtml: '<span class="w-2 h-2 rounded-full bg-error"></span> Check failed: HTTP 503 (Endpoint unreachable)',
+        isFailed: true,
+        errorMessage: 'Remote endpoint <code>https://cloud.ollama.ai/v1</code> timed out after 3000ms. Check endpoint availability or proxy settings.',
+        usedBy: [
+          { name: 'Glm (Ptah CLI instance)', desc: 'Ptah CLI subprocess instance using glm-5.3:cloud', badge: 'Check Failed (Glm)', isFollows: false, badgeClass: 'bg-error/10 text-error border-error/20' }
+        ],
+        credentialsType: 'apikey',
+        apiKeyData: {
+          label: 'Stored Ollama Cloud API Key',
+          keyVal: 'sk-ol-cloud-c003',
+          helpText: 'Keys start with <code class="font-mono text-base-content">sk-ol-</code>. Managed by Ollama Cloud gateway.'
+        },
+        modelsCountText: '12 models · 8 support tool use',
+        tiers: {
+          tier1Label: 'Glm default model',
+          tier1Model: 'glm-5.3:cloud',
+          tier2Label: 'Heavy reasoning tier',
+          tier2Model: 'deepseek-r1:cloud',
+          tier3Label: 'Fast inference tier',
+          tier3Model: 'llama3.3:70b'
+        },
+        isCustom: false
+      },
+      sovereigneg: {
+        id: 'sovereigneg',
+        title: 'sovereigneg',
+        subtitle: 'Custom gateway · OpenAI-compatible',
+        iconText: 'SV',
+        iconClass: 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20',
+        authMethod: 'API key (custom endpoint)',
+        keyStorage: '•••• 41aa (stored on this machine)',
+        statusHtml: '<span class="w-2 h-2 rounded-full bg-success"></span> Connected (42ms) · Custom gateway online',
+        isFailed: false,
+        errorMessage: null,
+        usedBy: [],
+        credentialsType: 'apikey',
+        apiKeyData: {
+          label: 'Custom Gateway Bearer Key',
+          keyVal: 'sk-sov-41aa-key',
+          helpText: 'Custom gateway authorization bearer token stored on this machine.'
+        },
+        modelsCountText: '4 custom models discovered via /v1/models',
+        tiers: {
+          tier1Label: 'Primary model',
+          tier1Model: 'sovereign-deep-v2',
+          tier2Label: 'Fast model',
+          tier2Model: 'sovereign-fast',
+          tier3Label: 'Code model',
+          tier3Model: 'sovereign-code'
+        },
+        isCustom: true,
+        customData: {
+          baseUrl: 'https://gateway.sovereigneg.internal/v1',
+          modelsEndpoint: '/v1/models',
+          helpUrl: 'https://docs.sovereigneg.internal/ai',
+          inputPrice: '0.50',
+          outputPrice: '1.50'
+        }
+      }
+    };
+
+    let currentConnId = 'claude';
+    function openConnDrawer(connId) {
+      closeAllPopovers();
+      currentConnId = connId;
+      const data = PROVIDER_DRAWER_DATA[connId] || PROVIDER_DRAWER_DATA.claude;
+      const overlay = document.getElementById('drawerOverlay');
+      const drawer = document.getElementById('drawerConnDetails');
+
+      // 1. Header
+      document.getElementById('drawerConnTitle').textContent = data.title;
+      document.getElementById('drawerConnSubtitle').textContent = data.subtitle;
+      const iconEl = document.getElementById('drawerConnIcon');
+      iconEl.textContent = data.iconText;
+      iconEl.className = `w-8 h-8 rounded flex items-center justify-center font-bold text-xs ${data.iconClass}`;
+
+      // 2. Tab 1: Overview
+      const statusText = document.getElementById('drawerAuthStatusText');
+      statusText.innerHTML = data.statusHtml;
+
+      const btnTestText = document.getElementById('btnDrawerTestConnText');
+      const errorAlert = document.getElementById('drawerErrorAlert');
+      const errorAlertText = document.getElementById('drawerErrorAlertText');
+
+      if (data.isFailed) {
+        btnTestText.textContent = 'Retry check';
+        errorAlert.classList.remove('is-hidden');
+        errorAlertText.innerHTML = data.errorMessage;
+      } else {
+        btnTestText.textContent = 'Check connection';
+        errorAlert.classList.add('is-hidden');
+      }
+
+      document.getElementById('drawerAuthMethodVal').textContent = data.authMethod;
+      document.getElementById('drawerKeyLabelVal').textContent = data.keyStorage;
+
+      // Used By List
+      const usedByContainer = document.getElementById('drawerUsedByList');
+      usedByContainer.innerHTML = '';
+      if (!data.usedBy || data.usedBy.length === 0) {
+        document.getElementById('drawerUsedByCountLabel').textContent = '0 active routes';
+        usedByContainer.innerHTML = `
+          <li class="p-4 rounded bg-base-200/50 border border-dashed border-base-300 text-center">
+            <span class="text-xs font-semibold text-base-content-muted block">Not used yet</span>
+            <span class="text-[11px] text-base-content-muted mt-0.5 block">No active agents or lanes are currently routed through this provider.</span>
+          </li>
+        `;
+      } else {
+        document.getElementById('drawerUsedByCountLabel').textContent = `${data.usedBy.length} active routes`;
+        data.usedBy.forEach(item => {
+          const li = document.createElement('li');
+          li.className = 'p-2.5 rounded bg-base-200 border border-base-300 flex items-center justify-between';
+          if (item.isFollows) {
+            li.innerHTML = `
+              <div>
+                <span class="font-bold text-base-content block">${item.name}</span>
+                <span class="text-[11px] text-base-content-muted">${item.desc}</span>
+              </div>
+              <button class="follows-chip" onclick="window.location.href='orchestration.html'">Follows main agent →</button>
+            `;
+          } else {
+            const badgeClass = item.badgeClass || 'bg-success/10 text-success border-success/20';
+            li.innerHTML = `
+              <div>
+                <span class="font-bold text-base-content block">${item.name}</span>
+                <span class="text-[11px] text-base-content-muted">${item.desc}</span>
+              </div>
+              <span class="badge badge-xs ${badgeClass} font-medium">${item.badge}</span>
+            `;
+          }
+          usedByContainer.appendChild(li);
+        });
+      }
+
+      // 3. Tab 2: Credentials
+      document.getElementById('drawerCredCli').classList.add('is-hidden');
+      document.getElementById('drawerCredApiKey').classList.add('is-hidden');
+      document.getElementById('drawerCredOAuth').classList.add('is-hidden');
+
+      if (data.credentialsType === 'cli') {
+        document.getElementById('drawerCredCli').classList.remove('is-hidden');
+        document.getElementById('drawerCliExpiryText').textContent = data.cliData.expiry;
+      } else if (data.credentialsType === 'apikey') {
+        document.getElementById('drawerCredApiKey').classList.remove('is-hidden');
+        document.getElementById('drawerApiKeyLabel').textContent = data.apiKeyData.label;
+        document.getElementById('drawerKeyInput').value = data.apiKeyData.keyVal;
+        document.getElementById('drawerKeyHelpText').innerHTML = data.apiKeyData.helpText;
+      } else if (data.credentialsType === 'oauth') {
+        document.getElementById('drawerCredOAuth').classList.remove('is-hidden');
+        document.getElementById('drawerOAuthAccount').textContent = data.oauthData.account;
+        document.getElementById('drawerOAuthToken').textContent = data.oauthData.tokenMasked;
+      }
+
+      // 4. Tab 3: Models & Tiers
+      document.getElementById('drawerModelsCompatPillText').textContent = data.modelsCountText;
+      document.getElementById('drawerTier1Label').textContent = data.tiers.tier1Label;
+      document.getElementById('drawerTierSonnetVal').textContent = data.tiers.tier1Model;
+      document.getElementById('drawerTier2Label').textContent = data.tiers.tier2Label;
+      document.getElementById('drawerTierOpusVal').textContent = data.tiers.tier2Model;
+      document.getElementById('drawerTier3Label').textContent = data.tiers.tier3Label;
+      document.getElementById('drawerTierHaikuVal').textContent = data.tiers.tier3Model;
+
+      // 5. Tab 4: Advanced
+      const customAdv = document.getElementById('drawerAdvCustomContent');
+      const standardNotice = document.getElementById('drawerAdvStandardNotice');
+      if (data.isCustom) {
+        customAdv.classList.remove('is-hidden');
+        standardNotice.classList.add('is-hidden');
+        document.getElementById('drawerAdvBaseUrlInput').value = data.customData.baseUrl;
+        document.getElementById('drawerAdvModelsEndpointInput').value = data.customData.modelsEndpoint;
+        document.getElementById('drawerAdvHelpUrlInput').value = data.customData.helpUrl;
+        document.getElementById('drawerAdvInputPrice').value = data.customData.inputPrice;
+        document.getElementById('drawerAdvOutputPrice').value = data.customData.outputPrice;
+      } else {
+        customAdv.classList.add('is-hidden');
+        standardNotice.classList.remove('is-hidden');
+      }
+
+      // Reset to overview tab
+      switchDrawerTab('overview');
+
+      overlay.classList.remove('is-hidden');
+      drawer.classList.remove('is-hidden');
+      trapFocus(drawer);
+    }
+
+    function closeConnDrawer() {
+      document.getElementById('drawerOverlay').classList.add('is-hidden');
+      document.getElementById('drawerConnDetails').classList.add('is-hidden');
+    }
+
+    function switchDrawerTab(tabId, ev) {
+      document.querySelectorAll('.drawer-tab').forEach(b => {
+        b.classList.remove('is-active', 'border-primary', 'text-base-content');
+        b.classList.add('text-base-content-muted');
+        b.setAttribute('aria-selected', 'false');
+      });
+      if (ev && ev.currentTarget) {
+        ev.currentTarget.classList.add('is-active', 'text-base-content');
+        ev.currentTarget.setAttribute('aria-selected', 'true');
+      } else {
+        const tabBtn = Array.from(document.querySelectorAll('.drawer-tab')).find(b => b.getAttribute('onclick')?.includes(tabId));
+        if (tabBtn) {
+          tabBtn.classList.add('is-active', 'text-base-content');
+          tabBtn.setAttribute('aria-selected', 'true');
+        }
+      }
+
+      document.getElementById('drawerContentOverview').classList.add('is-hidden');
+      document.getElementById('drawerContentCredentials').classList.add('is-hidden');
+      document.getElementById('drawerContentModels').classList.add('is-hidden');
+      document.getElementById('drawerContentAdvanced').classList.add('is-hidden');
+
+      if (tabId === 'overview') document.getElementById('drawerContentOverview').classList.remove('is-hidden');
+      if (tabId === 'credentials') document.getElementById('drawerContentCredentials').classList.remove('is-hidden');
+      if (tabId === 'models') document.getElementById('drawerContentModels').classList.remove('is-hidden');
+      if (tabId === 'advanced') document.getElementById('drawerContentAdvanced').classList.remove('is-hidden');
+    }
+
+    // Modal Control: Command-Palette
+    function openPaletteModal() {
+      closeAllPopovers();
+      closeConnDrawer();
+      const modal = document.getElementById('modalPalette');
+      modal.classList.remove('is-hidden');
+      const input = document.getElementById('paletteSearch');
+      input.value = '';
+      setTimeout(() => input.focus(), 50);
+      trapFocus(modal);
+    }
+    function closePaletteModal() {
+      document.getElementById('modalPalette').classList.add('is-hidden');
+    }
+    function setupCatalogProvider(name) {
+      closePaletteModal();
+      showToast(`Initiating connection wizard for ${name}...`);
+      openConnDrawer('claude');
+    }
+
+    // Popover Controls
+    function toggleMainAgentPopover(ev) {
+      ev.stopPropagation();
+      const popover = document.getElementById('popoverMainAgent');
+      const isVisible = !popover.classList.contains('is-hidden');
+      closeAllPopovers();
+      if (!isVisible) {
+        const rect = ev.currentTarget.getBoundingClientRect();
+        popover.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+        popover.style.left = (rect.left + window.scrollX) + 'px';
+        popover.classList.remove('is-hidden');
+      }
+    }
+
+    function toggleBackgroundRolesPopover(ev) {
+      ev.stopPropagation();
+      const popover = document.getElementById('popoverBackgroundRoles');
+      const isVisible = !popover.classList.contains('is-hidden');
+      closeAllPopovers();
+      if (!isVisible) {
+        const rect = ev.currentTarget.getBoundingClientRect();
+        popover.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+        popover.style.left = Math.min(rect.left + window.scrollX, window.innerWidth - 340) + 'px';
+        popover.classList.remove('is-hidden');
+      }
+    }
+
+    function openScopePopover(ev, layerName, propertyName, scopeDesc, activeVal) {
+      ev.stopPropagation();
+      closeAllPopovers();
+      const popover = document.getElementById('popoverScope');
+      document.getElementById('scopePopoverTitle').textContent = `${propertyName} (${layerName})`;
+      document.getElementById('scopeActiveLayer').textContent = `${layerName}:`;
+      document.getElementById('scopeActiveVal').textContent = activeVal;
+
+      const rect = ev.currentTarget.getBoundingClientRect();
+      popover.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+      popover.style.left = Math.min(rect.left + window.scrollX, window.innerWidth - 300) + 'px';
+      popover.classList.remove('is-hidden');
+    }
+
+    function closeAllPopovers() {
+      document.querySelectorAll('.popover-custom').forEach(p => p.classList.add('is-hidden'));
+    }
+
+    // Popover Action Handlers
+    let currentEffort = 'medium';
+    function selectEffort(effort, btn) {
+      currentEffort = effort;
+      document.querySelectorAll('.popover-effort-btn').forEach(b => {
+        b.classList.remove('btn-primary');
+        b.classList.add('btn-outline');
+      });
+      btn.classList.add('btn-primary');
+      btn.classList.remove('btn-outline');
+    }
+
+    function applyMainAgentChanges() {
+      const p = document.getElementById('popoverProviderSelect').value;
+      const m = document.getElementById('popoverModelSelect').value;
+      const prevP = document.getElementById('mainRouteProvider').textContent;
+      const prevM = document.getElementById('mainRouteModel').textContent;
+      const prevE = document.getElementById('mainRouteEffort').textContent;
+
+      document.getElementById('mainRouteProvider').textContent = p;
+      document.getElementById('mainRouteModel').textContent = m.split(' ')[0];
+      document.getElementById('mainRouteEffort').textContent = currentEffort;
+
+      closeAllPopovers();
+      showToast(`Main agent updated to ${p} · ${currentEffort} effort.`, true, () => {
+        document.getElementById('mainRouteProvider').textContent = prevP;
+        document.getElementById('mainRouteModel').textContent = prevM;
+        document.getElementById('mainRouteEffort').textContent = prevE;
+      });
+    }
+
+    function clearWorkspaceOverride() {
+      closeAllPopovers();
+      showToast('Cleared workspace override (reverted to global default)', true, () => {
+        showToast('Restored workspace override.');
+      });
+    }
+
+    function useGlobalDefault() {
+      closeAllPopovers();
+      showToast('Set to use global default');
+    }
+
+    // Credential operations
+    function togglePasswordVisibility(inputId) {
+      const input = document.getElementById(inputId);
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+
+    function replaceStoredKey() {
+      const data = PROVIDER_DRAWER_DATA[currentConnId] || { title: 'provider' };
+      const newKey = prompt(`Enter new API key for ${data.title} (starts with sk-...):`, '');
+      if (newKey) {
+        document.getElementById('drawerKeyInput').value = newKey;
+        showToast(`API key for ${data.title} replaced and verified (saved to machine).`, true);
+      }
+    }
+
+    function deleteStoredKey() {
+      const data = PROVIDER_DRAWER_DATA[currentConnId] || { title: 'provider' };
+      if (confirm(`Are you sure you want to remove the stored API key for ${data.title} from this machine?`)) {
+        document.getElementById('drawerKeyInput').value = '';
+        showToast(`Stored API key for ${data.title} deleted from this machine.`);
+      }
+    }
+
+    function signOutOAuth() {
+      if (confirm('Sign out of OpenAI Codex OAuth session? This revokes active tokens on this machine.')) {
+        closeConnDrawer();
+        showToast('Signed out of OpenAI Codex session.');
+      }
+    }
+
+    function disconnectCliSession() {
+      if (confirm('Disconnect local Claude CLI login session?')) {
+        closeConnDrawer();
+        showToast('Claude CLI login session disconnected.');
+      }
+    }
+
+    function deleteProviderConnection() {
+      const data = PROVIDER_DRAWER_DATA[currentConnId] || { title: 'provider' };
+      if (confirm(`Delete custom provider "${data.title}" for good? This permanently removes all endpoints and credentials.`)) {
+        closeConnDrawer();
+        showToast(`Custom provider "${data.title}" deleted permanently.`);
+      }
+    }
+
+    function runConnectionCheck() {
+      const data = PROVIDER_DRAWER_DATA[currentConnId] || { id: 'claude', isFailed: false };
+      const btn = document.getElementById('btnDrawerTestConn');
+      const btnText = document.getElementById('btnDrawerTestConnText');
+      btnText.textContent = 'Checking...';
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.disabled = false;
+        if (data.isFailed) {
+          // If was failed, retry succeeds!
+          data.isFailed = false;
+          data.statusHtml = '<span class="w-2 h-2 rounded-full bg-success"></span> Connected & verified (112ms)';
+          document.getElementById('drawerAuthStatusText').innerHTML = data.statusHtml;
+          document.getElementById('drawerErrorAlert').classList.add('is-hidden');
+          btnText.textContent = 'Check connection';
+          showToast(`Connection re-test passed: latency 112ms`);
+        } else {
+          btnText.textContent = 'Check connection';
+          showToast(`Connection verified successfully: latency 84ms`);
+        }
+      }, 700);
+    }
+
+    function retryConnection(id) {
+      showToast(`Retrying connection check for ${id}...`);
+      setTimeout(() => {
+        if (PROVIDER_DRAWER_DATA[id]) {
+          PROVIDER_DRAWER_DATA[id].isFailed = false;
+          PROVIDER_DRAWER_DATA[id].statusHtml = '<span class="w-2 h-2 rounded-full bg-success"></span> Connected & verified (112ms)';
+        }
+        showToast(`Connection re-test complete: 112ms`);
+      }, 800);
+    }
+
+    function saveDrawerChanges() {
+      closeConnDrawer();
+      showToast('Connection settings & tiers saved successfully.');
+    }
+
+    // Filter connections
+    function filterConnections(query) {
+      const q = query.toLowerCase();
+      document.querySelectorAll('#connectionsGrid .conn-card').forEach(card => {
+        const text = card.textContent.toLowerCase();
+        card.style.display = text.includes(q) ? 'flex' : 'none';
+      });
+    }
+
+    // Filter Palette
+    function filterPalette(query) {
+      const q = query.toLowerCase();
+      document.querySelectorAll('#paletteResults > div > div').forEach(item => {
+        const text = item.textContent.toLowerCase();
+        item.style.display = text.includes(q) ? 'flex' : 'none';
+      });
+    }
+
+    function filterDrawerModels(query) {
+      // Model search inside drawer
+    }
+
+    function selectTierModel(tier) {
+      showToast(`Selected tier ${tier} for model change.`);
+    }
+
+    function resetTier(tier) {
+      showToast(`Reset ${tier} tier to default.`);
+    }
+
+    function applyCustomModelId() {
+      const id = document.getElementById('drawerCustomModelIdInput').value;
+      if (id) {
+        showToast(`Applied custom model ID: ${id}`);
+      }
+    }
+
+    // Global Key Listener: Esc closes drawer, modals & popovers
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeConnDrawer();
+        closePaletteModal();
+        closeAllPopovers();
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.popover-custom') && !e.target.closest('.routing-work-node') && !e.target.closest('.scope-badge')) {
+        closeAllPopovers();
+      }
+    });
+
+    // Accessible Focus Trap helper
+    function trapFocus(element) {
+      const focusableElements = element.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (focusableElements.length === 0) return;
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+      element.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') {
+          if (e.shiftKey) {
+            if (document.activeElement === first) {
+              last.focus();
+              e.preventDefault();
+            }
+          } else {
+            if (document.activeElement === last) {
+              first.focus();
+              e.preventDefault();
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>

@@ -21,6 +21,7 @@ import type { FSWatcher } from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { homedir } from 'os';
+import { SettingsPersistError } from './file-settings-errors';
 
 export interface FileSettingsDefaults {
   [key: string]: unknown;
@@ -35,6 +36,18 @@ export interface ISettingsWatchHandle {
 const CROSS_PROCESS_WATCH_MAX_RETRIES = 3;
 /** Debounce window in milliseconds — coalesces multiple change events from a single atomic rename. */
 const CROSS_PROCESS_WATCH_DEBOUNCE_MS = 50;
+/**
+ * Age after which a persist() temp file of another process is treated as a
+ * crash orphan. A live write lasts milliseconds, so ten minutes is far past
+ * any in-flight write (including the bounded rename retries).
+ */
+const STALE_TEMP_FILE_AGE_MS = 10 * 60 * 1000;
+/**
+ * Process-wide counter that keeps each persist()'s temp file name unique. It is
+ * shared by every instance: two managers on one file in one process would
+ * otherwise both write `<pid>.1.tmp`, and the second rename would fail.
+ */
+let persistTempSequence = 0;
 
 /** Whether the active cross-process watcher is on the file or the directory. */
 type CrossProcessWatchMode = 'file' | 'directory' | null;
@@ -47,6 +60,13 @@ export class PtahFileSettingsManager {
   private readonly defaults: FileSettingsDefaults;
   /** Write serialization — prevents concurrent persist() calls from corrupting the file */
   private writePromise: Promise<void> = Promise.resolve();
+  /**
+   * Latest set() generation per key. A failed set() rolls the key back only
+   * while its generation is still the latest one (write ownership).
+   */
+  private readonly writeGenerations = new Map<string, number>();
+  /** Bumped whenever a cross-process reload replaces the in-memory map. */
+  private reloadEpoch = 0;
   /**
    * In-process listeners for individual setting keys.
    * Cross-process fs.watch() layers on top of these.
@@ -93,14 +113,44 @@ export class PtahFileSettingsManager {
   /**
    * Set a setting value. Updates in-memory cache, persists to disk atomically,
    * then fires in-process listeners registered via watch().
+   *
+   * When the write fails, the previous in-memory value is restored (so memory
+   * matches disk), no listener fires, and the call rejects with
+   * {@link SettingsPersistError}. The write queue keeps accepting writes.
    */
   async set(key: string, value: unknown): Promise<void> {
+    const hadPrevious = Object.prototype.hasOwnProperty.call(
+      this.settings,
+      key,
+    );
+    const previous = this.settings[key];
+    const generation = (this.writeGenerations.get(key) ?? 0) + 1;
+    this.writeGenerations.set(key, generation);
+    const epoch = this.reloadEpoch;
     this.settings[key] = value;
-    this.writePromise = this.writePromise.then(
+    const write = this.writePromise.then(
       () => this.persist(),
       () => this.persist(),
     );
-    await this.writePromise;
+    this.writePromise = write;
+    try {
+      await write;
+    } catch (error: unknown) {
+      // Restore only while this call still owns the key: a later set() on the
+      // same key (even with an identical value) or a cross-process reload of
+      // the map owns it otherwise. Ownership is by write generation, not value.
+      if (
+        this.writeGenerations.get(key) === generation &&
+        this.reloadEpoch === epoch
+      ) {
+        if (hadPrevious) {
+          this.settings[key] = previous;
+        } else {
+          delete this.settings[key];
+        }
+      }
+      throw error;
+    }
     this.listeners.get(key)?.forEach((cb) => {
       cb(value);
     });
@@ -444,6 +494,7 @@ export class PtahFileSettingsManager {
       return;
     }
     this.settings = freshSettings;
+    this.reloadEpoch += 1;
     for (const key of changedKeys) {
       const newVal = freshSettings[key];
       this.listeners.get(key)?.forEach((cb) => {
@@ -458,6 +509,7 @@ export class PtahFileSettingsManager {
    * Handles corrupted JSON gracefully (logs warning, starts with empty settings).
    */
   private loadSync(): void {
+    this.sweepStaleTempFiles();
     try {
       const raw = fs.readFileSync(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw);
@@ -476,11 +528,57 @@ export class PtahFileSettingsManager {
   }
 
   /**
+   * Remove `settings.json.<pid>.<n>.tmp` files that a crashed writer left
+   * behind (process death between writeFile and rename). Only files older
+   * than STALE_TEMP_FILE_AGE_MS are removed, so another process's in-flight
+   * write is never touched, and files of this process are always skipped.
+   * Best-effort: any fs error is logged and ignored.
+   */
+  private sweepStaleTempFiles(): void {
+    const tempName = new RegExp(
+      `^${escapeRegExp(path.basename(this.filePath))}\\.(\\d+)\\.\\d+\\.tmp$`,
+    );
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(this.dirPath);
+    } catch {
+      // degradation-audit: optional-capability - the stale temp-file sweep is
+      // best-effort cleanup; an absent (first run) or unreadable directory
+      // leaves nothing to sweep, and the next read or write reports its own error.
+      return;
+    }
+    const cutoff = Date.now() - STALE_TEMP_FILE_AGE_MS;
+    for (const name of entries) {
+      const match = tempName.exec(name);
+      if (!match || Number(match[1]) === process.pid) continue;
+      const fullPath = path.join(this.dirPath, name);
+      try {
+        if (fs.statSync(fullPath).mtimeMs < cutoff) {
+          fs.unlinkSync(fullPath);
+        }
+      } catch (err: unknown) {
+        console.warn(
+          `[PtahFileSettingsManager] Could not remove stale temp file ${fullPath}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  }
+
+  /**
    * Persist settings to disk using atomic write (temp file + rename).
    * Creates ~/.ptah/ directory if it doesn't exist.
    * Unflattens dot-notation keys to nested JSON for human readability.
+   *
+   * The temp file name is unique per write (pid + counter): several processes
+   * (VS Code, Electron, CLI) share settings.json, and a shared temp name lets
+   * one process rename another's temp file away mid-write.
+   *
+   * @throws SettingsPersistError when any step of the write fails. The error
+   *   carries only the filesystem code, never a settings value.
    */
   private async persist(): Promise<void> {
+    const tmpPath = `${this.filePath}.${process.pid}.${++persistTempSequence}.tmp`;
     try {
       await fsPromises.mkdir(this.dirPath, { recursive: true });
       const nested = unflattenObject(this.settings);
@@ -491,16 +589,66 @@ export class PtahFileSettingsManager {
       };
 
       const json = JSON.stringify(output, null, 2);
-      const tmpPath = this.filePath + '.tmp';
       await fsPromises.writeFile(tmpPath, json, 'utf-8');
-      await fsPromises.rename(tmpPath, this.filePath);
+      await renameWithRetry(tmpPath, this.filePath);
     } catch (error: unknown) {
       console.warn(
         `[PtahFileSettingsManager] Failed to persist settings to ${this.filePath}:`,
         error instanceof Error ? error.message : String(error),
       );
+      // Best-effort: a unique temp name would otherwise stay behind as an orphan.
+      // degradation-audit: reported - the write failure itself is logged above
+      // and rethrown as SettingsPersistError below; only the temp cleanup is optional.
+      await fsPromises.rm(tmpPath, { force: true }).catch(() => undefined);
+      throw new SettingsPersistError(fsErrorCode(error));
     }
   }
+}
+
+/** Escape a literal string for use inside a RegExp. */
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** fs codes a Windows rename returns while another process or a scanner holds the target. */
+const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+/** Backoff before each rename retry; bounded so a real lock still fails fast. */
+const RENAME_RETRY_DELAYS_MS = [20, 60, 150];
+
+/**
+ * Rename the temp file over the target. On Windows a concurrent rename onto
+ * the same file (another Ptah process) or an antivirus/OneDrive handle makes
+ * the rename fail transiently; the rename is idempotent, so it is retried
+ * with backoff before the failure is reported.
+ */
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fsPromises.rename(from, to);
+      return;
+    } catch (error: unknown) {
+      const delay = RENAME_RETRY_DELAYS_MS[attempt];
+      if (
+        delay === undefined ||
+        !TRANSIENT_RENAME_CODES.has(fsErrorCode(error))
+      ) {
+        throw error;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+/**
+ * Read the fs error code structurally: errors raised by Node core can come
+ * from another realm (e.g. a test VM), where `instanceof Error` is false.
+ */
+function fsErrorCode(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string' && code.length > 0) return code;
+  }
+  return 'UNKNOWN';
 }
 
 /**

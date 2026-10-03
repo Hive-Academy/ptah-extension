@@ -1,0 +1,1 @@
+add backdrop 5,5: stillOpen=0, add backdrop 1020,740: stillOpen=1, add backdrop 512,750: stillOpen=0, add backdrop 1020,5: stillOpen=1, add backdrop 5,740: stillOpen=0, model focus on open: INPUT combobox exp=true, after esc1 popover visible=1, after esc2 popover visible=0 focusOnCell=true

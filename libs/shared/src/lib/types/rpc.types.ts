@@ -175,6 +175,11 @@ import type {
   AuthVerifyDraftConnectionResult,
   AuthCancelDraftVerificationParams,
   AuthCancelDraftVerificationResult,
+  AuthDeleteStoredKeyParams,
+  AuthDeleteStoredKeyResult,
+  AuthGetApiKeyStatusResult,
+  AuthCheckConnectionParams,
+  AuthCheckConnectionResult,
 } from './rpc/rpc-auth.types';
 
 import type {
@@ -932,6 +937,10 @@ export interface RpcMethodRegistry {
     params: AuthGetEffectiveRouteParams;
     result: AuthGetEffectiveRouteResult;
   };
+  'auth:checkConnection': {
+    params: AuthCheckConnectionParams;
+    result: AuthCheckConnectionResult;
+  };
   'config:getScopes': {
     params: ConfigGetScopesParams;
     result: ConfigGetScopesResult;
@@ -1542,20 +1551,17 @@ export interface RpcMethodRegistry {
     params: { provider: string; apiKey: string };
     result: { success: boolean; error?: string };
   };
+  'auth:deleteStoredKey': {
+    params: AuthDeleteStoredKeyParams;
+    result: AuthDeleteStoredKeyResult;
+  };
   'auth:getStatus': {
     params: Record<string, never>;
     result: { isAuthenticated: boolean; provider: string; hasApiKey: boolean };
   };
   'auth:getApiKeyStatus': {
     params: Record<string, never>;
-    result: {
-      providers: Array<{
-        provider: string;
-        displayName: string;
-        hasApiKey: boolean;
-        isDefault: boolean;
-      }>;
-    };
+    result: AuthGetApiKeyStatusResult;
   };
   'settings:get': {
     params: { key: string };
@@ -3712,6 +3718,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'auth:copilotStatus': true,
   'auth:codexLogin': true,
   'auth:getEffectiveRoute': true,
+  'auth:checkConnection': true,
   'config:getScopes': true,
   'config:clearScopeOverride': true,
   'auth:getScope': true,
@@ -3839,6 +3846,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'file:save-dialog': true,
   'config:model-set': true,
   'auth:setApiKey': true,
+  'auth:deleteStoredKey': true,
   'auth:getStatus': true,
   'auth:getApiKeyStatus': true,
   'settings:get': true,

@@ -37,13 +37,13 @@ import type { HarnessSetSkillSelectionParams } from '@ptah-extension/shared';
 import { HarnessSkillSelectionRpcService } from './harness-skill-selection-rpc.service';
 
 /**
- * A temp workspace with its OWN `.git` marker, so
+ * A temp workspace with its OWN highest-priority `.ptah` marker, so
  * `resolveHarnessWorkspaceRoot` resolves to it at depth zero — no ancestor
  * walk, and nothing under the real home directory is ever touched or written.
  */
 function makeWorkspace(): string {
   const root = mkdtempSync(join(tmpdir(), 'ptah-skill-selection-ws-'));
-  mkdirSync(join(root, '.git'));
+  mkdirSync(join(root, '.ptah'));
   return root;
 }
 
@@ -100,7 +100,8 @@ afterEach(() => {
 describe('HarnessSkillSelectionRpcService', () => {
   describe('harness:get-skill-selection', () => {
     it('never writes state.json — a derived decision is not a write', async () => {
-      const root = resolveHarnessWorkspaceRoot(track(makeWorkspace()));
+      const root = track(makeWorkspace());
+      expect(resolveHarnessWorkspaceRoot(root)).toBe(root);
       const gate = new SkillSyncGate(new ManagedManifestStore());
       const service = new HarnessSkillSelectionRpcService(
         fakeLogger(),

@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="anubis">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — Agent Orchestration | Ptah (Variant C: Routing Map)</title>
+  <!-- Tailwind & daisyUI 4 CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Custom Prototype Styles (Extended anubis tokens) -->
+  <link rel="stylesheet" href="assets/app.css">
+  <script>
+    tailwind.config = {
+      darkMode: ['class', '[data-theme="anubis"]'],
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              primary: 'var(--brand-primary)',
+              base100: 'var(--brand-base-100)',
+              base200: 'var(--brand-base-200)',
+              base300: 'var(--brand-base-300)',
+              content: 'var(--brand-content)',
+              contentMuted: 'var(--brand-content-muted)'
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-base-100 text-base-content antialiased flex flex-col min-h-screen">
+
+  <!-- Prototype Toolbar (BRIEF item 7: dedicated helper strip, visually distinct from product UI) -->
+  <aside class="proto-toolbar flex items-center justify-between" aria-label="Prototype Evaluation Controls">
+    <div class="flex items-center gap-2">
+      <span class="font-mono text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">
+        PROTOTYPE · VARIANT C (Routing Map)
+      </span>
+      <span class="text-[11px] text-gray-400">Jump:</span>
+      <a href="index.html" class="text-[11px] text-gray-400 hover:text-gray-200">Providers</a>
+      <span class="text-gray-600">·</span>
+      <a href="orchestration.html" class="text-[11px] font-semibold text-primary underline underline-offset-2">Agent Orchestration</a>
+    </div>
+
+    <div class="flex items-center gap-2.5">
+      <!-- 1024x768 Frame Toggle -->
+      <button id="btnFrameToggle" class="btn btn-xs btn-outline py-0 h-6 min-h-0 text-[11px] flex items-center gap-1" title="Constrain page to 1024x768 to verify fold budget">
+        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <span id="frameToggleLabel">1024×768 Frame: Off</span>
+      </button>
+
+      <!-- Theme Toggle -->
+      <button id="btnThemeToggle" class="btn btn-xs btn-outline py-0 h-6 min-h-0 text-[11px] flex items-center gap-1" title="Toggle dark/light theme">
+        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <span id="themeLabel">anubis (dark)</span>
+      </button>
+
+      <!-- Quick Action Demo Links -->
+      <button class="btn btn-xs btn-ghost py-0 h-6 min-h-0 text-[11px] text-gray-300 hover:text-white" onclick="openAddPtahCliModal()">+ Add Ptah CLI</button>
+      <button class="btn btn-xs btn-ghost py-0 h-6 min-h-0 text-[11px] text-gray-300 hover:text-white" onclick="openTierModal('Glm')">Glm Tiers</button>
+    </div>
+  </aside>
+
+  <!-- App Wrapper (Product UI) -->
+  <main id="appContainer" class="flex-1 flex flex-col w-full max-w-7xl mx-auto px-4 sm:px-6 py-3 transition-all">
+
+    <!-- Settings Shell Header & Tabs (Real Product UI) -->
+    <section class="mb-3">
+      <div class="flex items-center justify-between pb-2 border-b border-base-300">
+        <div class="flex items-center gap-2.5">
+          <button class="btn btn-xs btn-ghost text-base-content-muted hover:text-base-content p-1" title="Back to Chat (Restores #82)" onclick="window.location.href='index.html'">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base font-bold tracking-tight text-base-content">Settings</h1>
+            <span class="text-[10px] text-base-content-muted bg-base-200 px-1.5 py-0.2 rounded border border-base-300">v2.4.0</span>
+          </div>
+        </div>
+        <div class="text-xs text-base-content-muted flex items-center gap-1.5">
+          <span>Workspace: <code class="font-mono text-base-content text-[11px]">ptah-extension</code></span>
+          <span class="text-base-content-muted">·</span>
+          <span>App: <code class="font-mono text-base-content text-[11px]">Desktop</code></span>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="tabs tabs-bordered mt-1.5" role="tablist" aria-label="Settings Sections">
+        <a href="index.html" role="tab" class="tab" aria-selected="false">
+          <svg class="w-3.5 h-3.5 mr-1.5 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          Providers
+        </a>
+        <a href="orchestration.html" role="tab" class="tab tab-active" aria-selected="true">
+          <svg class="w-3.5 h-3.5 mr-1.5 inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12"/></svg>
+          Agent Orchestration
+        </a>
+        <a href="#" role="tab" class="tab" aria-selected="false" onclick="event.preventDefault(); showToast('Advanced tab unchanged per brief.')">
+          Advanced & License
+        </a>
+        <a href="#" role="tab" class="tab" aria-selected="false" onclick="event.preventDefault(); showToast('Search & Voice tab unchanged per brief.')">
+          Search & Voice
+        </a>
+      </nav>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- SECTION 1: ORCHESTRATION POLICY COMPACT HEADER BAR                  -->
+    <!-- Max concurrency, preferred order drag chips, re-detect              -->
+    <!-- ==================================================================== -->
+    <section class="routing-flow-card py-2 px-3 mb-2.5" aria-labelledby="policyHeading">
+      <div class="flex items-center justify-between gap-3 text-xs flex-wrap">
+        <!-- Concurrency Slider (Restores #74) -->
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold text-base-content whitespace-nowrap">Max Concurrent:</span>
+          <span class="badge badge-xs bg-primary/10 text-primary font-mono font-bold" id="concurrencyVal">3</span>
+          <input type="range" min="1" max="20" value="3" class="range range-xs range-primary w-24 h-3.5" oninput="updateConcurrency(this.value)">
+          <span class="text-[10px] text-base-content-muted whitespace-nowrap">lanes</span>
+        </div>
+
+        <!-- Preferred Agent Order (Restores #73) -->
+        <div class="flex items-center gap-1.5 overflow-hidden">
+          <span class="text-base-content-muted font-semibold text-[11px] whitespace-nowrap">Preferred Order:</span>
+          <div id="preferredOrderChips" class="flex items-center gap-1 text-[11px]">
+            <span class="px-1.5 py-0.5 rounded bg-base-100 border border-base-300 font-bold text-primary whitespace-nowrap flex items-center gap-0.5 cursor-grab" title="Drag to adjust rank">
+              1. Codex
+            </span>
+            <span class="text-base-content-muted text-[10px]">→</span>
+            <span class="px-1.5 py-0.5 rounded bg-base-100 border border-base-300 font-bold text-base-content whitespace-nowrap cursor-grab">
+              2. Antigravity
+            </span>
+            <span class="text-base-content-muted text-[10px]">→</span>
+            <span class="px-1.5 py-0.5 rounded bg-base-100 border border-base-300 font-bold text-base-content whitespace-nowrap cursor-grab">
+              3. Glm
+            </span>
+            <span class="text-base-content-muted text-[10px]">→</span>
+            <span class="px-1.5 py-0.5 rounded bg-base-100 border border-base-300 font-bold text-base-content-muted whitespace-nowrap cursor-grab">
+              4. Copilot
+            </span>
+          </div>
+        </div>
+
+        <!-- Re-detect CLIs Button (Restores #72) -->
+        <div>
+          <button id="btnRedetect" class="btn btn-xs btn-outline py-0 h-6 min-h-0 text-[11px] flex items-center gap-1" onclick="runRedetectClis()">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            Re-detect CLIs
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- SECTION 2: CLI AGENTS & PTAH INSTANCES MATRIX                        -->
+    <!-- All settings editable via popovers directly in table cells           -->
+    <!-- ==================================================================== -->
+    <section class="card bg-base-200 border border-base-300 p-3 mb-2.5" aria-labelledby="cliMatrixHeading">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <h2 id="cliMatrixHeading" class="text-xs font-bold uppercase tracking-wider text-base-content flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            CLI Agents & Custom Instances Matrix
+          </h2>
+          <span class="text-[10px] text-base-content-muted">Click model or effort cells to reassign in place</span>
+        </div>
+
+        <button class="btn btn-xs btn-primary py-0 h-6 min-h-0 text-[11px] flex items-center gap-1" onclick="openAddPtahCliModal()">
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Ptah CLI Instance
+        </button>
+      </div>
+
+      <div class="overflow-x-auto rounded border border-base-300 bg-base-100">
+        <table class="matrix-table" aria-label="CLI Agents Matrix">
+          <thead>
+            <tr>
+              <th style="width: 40px;" class="py-1 px-2">On</th>
+              <th class="py-1 px-2.5">Agent / Instance</th>
+              <th class="py-1 px-2.5">Status</th>
+              <th class="py-1 px-2.5">Provider</th>
+              <th class="py-1 px-2.5">Model</th>
+              <th class="py-1 px-2.5">Effort</th>
+              <th class="py-1 px-2.5">Permissions & Safety (Restores #70)</th>
+              <th class="py-1 px-2.5 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Row 1: Codex -->
+            <tr>
+              <td class="py-1.5 px-2">
+                <input type="checkbox" checked class="checkbox checkbox-xs checkbox-primary" title="Enable/disable Codex">
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="font-bold text-base-content flex items-center gap-1.5">
+                  Codex
+                  <span class="text-[10px] text-base-content-muted font-normal">v1.4</span>
+                </div>
+                <span class="text-[10px] text-base-content-muted block">System CLI · ~/.codex/auth.json</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-success/10 text-success border-success/20 font-medium inline-flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+                  Ready
+                </span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="text-xs font-medium">OpenAI Codex</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-primary text-xs" onclick="openMatrixModelPicker(event, 'Codex', 'gpt-5.5-codex')">
+                  gpt-5.5-codex
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs" onclick="openMatrixEffortPicker(event, 'Codex', 'medium')">
+                  medium
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="inline-flex items-center gap-1">
+                  <span class="badge badge-xs whitespace-nowrap bg-warning/10 text-warning border-warning/20 font-medium">
+                    Full auto
+                  </span>
+                  <button class="btn btn-ghost btn-xs p-0 text-base-content-muted hover:text-base-content" onclick="openPermissionInfoPopover(event, 'Codex', 'Autonomous execution mode. Operates without interactive user approval prompts on shell or file changes.')" title="Permission & safety details" aria-label="Permission details">ℹ️</button>
+                </div>
+              </td>
+              <td class="py-1.5 px-2.5 text-right">
+                <button class="btn btn-ghost btn-xs py-0 h-5 text-primary text-[11px]" onclick="showToast('Codex status: Connected')">Test</button>
+              </td>
+            </tr>
+
+            <!-- Row 2: Copilot (Disabled) -->
+            <tr class="opacity-75 bg-base-200/30">
+              <td class="py-1.5 px-2">
+                <input type="checkbox" class="checkbox checkbox-xs" title="Enable/disable Copilot" onchange="showToast('Copilot enabled')">
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="font-bold text-base-content flex items-center gap-1.5">
+                  Copilot
+                  <span class="text-[10px] text-base-content-muted font-normal">v1.8</span>
+                </div>
+                <span class="text-[10px] text-base-content-muted block">System CLI · GitHub OAuth</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content-muted font-medium">Disabled</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="text-xs text-base-content-muted">GitHub Copilot</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs text-base-content-muted" onclick="openMatrixModelPicker(event, 'Copilot', 'provider default')">
+                  provider default
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs text-base-content-muted" onclick="openMatrixEffortPicker(event, 'Copilot', 'default')">
+                  default
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="inline-flex items-center gap-1">
+                  <span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content-muted">Auto-approve: Off</span>
+                  <button class="btn btn-ghost btn-xs p-0 text-base-content-muted hover:text-base-content" onclick="openPermissionInfoPopover(event, 'Copilot', 'Auto-approve is currently Off. Requires explicit user prompt approval before executing tool actions.')" title="Permission & safety details" aria-label="Permission details">ℹ️</button>
+                </div>
+              </td>
+              <td class="py-1.5 px-2.5 text-right">
+                <button class="btn btn-ghost btn-xs py-0 h-5 text-base-content-muted text-[11px]" onclick="showToast('Copilot is currently disabled')">Test</button>
+              </td>
+            </tr>
+
+            <!-- Row 3: Antigravity -->
+            <tr>
+              <td class="py-1.5 px-2">
+                <input type="checkbox" checked class="checkbox checkbox-xs checkbox-primary" title="Enable/disable Antigravity">
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="font-bold text-base-content flex items-center gap-1.5">
+                  Antigravity
+                  <span class="text-[10px] text-base-content-muted font-normal">v2.0</span>
+                </div>
+                <span class="text-[10px] text-base-content-muted block">Built-in agent engine</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-success/10 text-success border-success/20 font-medium inline-flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+                  Ready
+                </span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="text-xs font-medium">Claude (Subscription)</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-primary text-xs" onclick="openMatrixModelPicker(event, 'Antigravity', 'claude-sonnet-4-6 Thinking')">
+                  claude-sonnet-4-6 Thinking
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs" onclick="openMatrixEffortPicker(event, 'Antigravity', 'high')">
+                  high
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="inline-flex items-center gap-1">
+                  <span class="badge badge-xs whitespace-nowrap bg-warning/10 text-warning border-warning/20 font-medium">
+                    Full auto
+                  </span>
+                  <button class="btn btn-ghost btn-xs p-0 text-base-content-muted hover:text-base-content" onclick="openPermissionInfoPopover(event, 'Antigravity', 'Full autonomous agent execution with auto-approved MCP tool calls and subagent spawning.')" title="Permission & safety details" aria-label="Permission details">ℹ️</button>
+                </div>
+              </td>
+              <td class="py-1.5 px-2.5 text-right">
+                <button class="btn btn-ghost btn-xs py-0 h-5 text-primary text-[11px]" onclick="showToast('Antigravity checked: responsive (62ms)')">Test</button>
+              </td>
+            </tr>
+
+            <!-- Row 4: OpenCode (Quota Reached Alert) -->
+            <tr>
+              <td class="py-1.5 px-2">
+                <input type="checkbox" checked class="checkbox checkbox-xs checkbox-primary" title="Enable/disable OpenCode">
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="font-bold text-base-content flex items-center gap-1.5">
+                  OpenCode
+                  <span class="text-[10px] text-base-content-muted font-normal">v0.9</span>
+                </div>
+                <span class="text-[10px] text-base-content-muted block">Free tier router</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-error/10 text-error border-error/20 font-medium inline-flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+                  Quota reached
+                </span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="text-xs font-medium">OpenCode Gateway</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs text-error" onclick="openMatrixModelPicker(event, 'OpenCode', 'opencode/nemotron-3-ultra-free')">
+                  opencode/nemotron-3-ultra-free
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="text-xs font-mono text-base-content-muted">n/a</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="inline-flex items-center gap-1">
+                  <span class="badge badge-xs whitespace-nowrap bg-info/10 text-info border-info/20 font-medium">
+                    --auto flag
+                  </span>
+                  <button class="btn btn-ghost btn-xs p-0 text-base-content-muted hover:text-base-content" onclick="openPermissionInfoPopover(event, 'OpenCode', 'Passes --auto flag on command-line invocation to bypass interactive approval prompts.')" title="Permission & safety details" aria-label="Permission details">ℹ️</button>
+                </div>
+              </td>
+              <td class="py-1.5 px-2.5 text-right">
+                <button class="btn btn-ghost btn-xs py-0 h-5 text-error underline text-[11px]" onclick="showToast('HTTP 429: Daily rate limit reached for Nemotron tier.')">Details</button>
+              </td>
+            </tr>
+
+            <!-- Row 5: Glm (Ptah CLI Instance with Tiers & Key Status) -->
+            <tr class="bg-primary/5">
+              <td class="py-1.5 px-2">
+                <input type="checkbox" checked class="checkbox checkbox-xs checkbox-primary" title="Enable/disable Glm">
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="font-bold text-primary flex items-center gap-1.5">
+                  Glm
+                  <span class="badge badge-xs whitespace-nowrap bg-primary/20 text-primary border-primary/30">Ptah CLI Instance</span>
+                </div>
+                <!-- Key status & Tier badges (Restores #44, #54) -->
+                <div class="flex items-center gap-1 mt-0.5 flex-wrap">
+                  <span class="badge badge-xs whitespace-nowrap bg-success/10 text-success text-[9px]">Key set (Restores #44)</span>
+                  <span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content text-[9px]">Sonnet: glm-5.3</span>
+                  <span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content text-[9px]">Opus: glm-4.7</span>
+                  <span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content text-[9px]">Haiku: glm-4.5</span>
+                </div>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-success/10 text-success border-success/20 font-medium inline-flex items-center gap-1" title="Ready (Restores #43)">
+                  <span class="w-1.5 h-1.5 rounded-full bg-success"></span>
+                  Ready (112ms)
+                </span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="text-xs font-medium">Ollama Cloud</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-primary text-xs" onclick="openMatrixModelPicker(event, 'Glm', 'glm-5.3:cloud')">
+                  glm-5.3:cloud
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="text-xs font-mono text-base-content-muted">mapped</span>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <div class="inline-flex items-center gap-1">
+                  <span class="badge badge-xs whitespace-nowrap bg-success/10 text-success border-success/20 font-medium">
+                    Sandboxed Port
+                  </span>
+                  <button class="btn btn-ghost btn-xs p-0 text-base-content-muted hover:text-base-content" onclick="openPermissionInfoPopover(event, 'Glm (Ptah CLI)', 'Runs in an isolated child process over JSON-RPC stdio. Access restricted to configured workspace root.')" title="Permission & safety details" aria-label="Permission details">ℹ️</button>
+                </div>
+              </td>
+              <td class="py-1.5 px-2.5 text-right">
+                <div class="flex items-center justify-end gap-1">
+                  <!-- Tier mapping modal button (Restores #53) -->
+                  <button class="btn btn-ghost btn-xs py-0 h-5 text-primary text-[11px]" onclick="openTierModal('Glm')" title="Configure Tier Mappings">Tiers</button>
+                  <button class="btn btn-ghost btn-xs py-0 h-5 text-error text-[11px]" onclick="deletePtahInstance('Glm')" title="Delete Instance (Restores #55)">Delete</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Section for Uninstalled CLIs (Restores #71: Grouped & cleanly separated) -->
+            <tr class="bg-base-300/40">
+              <td colspan="8" class="py-1 px-3 text-[10px] font-bold uppercase tracking-wider text-base-content-muted">
+                Uninstalled CLI Agents (Restores #71 — grouped and hidden from active routing until installed)
+              </td>
+            </tr>
+
+            <!-- Row 6: Cursor (Not installed) -->
+            <tr class="opacity-60 bg-base-200/20">
+              <td class="py-1 px-2">
+                <input type="checkbox" disabled class="checkbox checkbox-xs">
+              </td>
+              <td class="py-1 px-2.5">
+                <div class="font-bold text-base-content-muted">Cursor</div>
+                <span class="text-[10px] text-base-content-muted">Needs API key & CLI binary</span>
+              </td>
+              <td class="py-1 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content-muted font-medium">Not installed</span>
+              </td>
+              <td class="py-1 px-2.5"><span class="text-xs text-base-content-muted">None</span></td>
+              <td class="py-1 px-2.5"><span class="text-xs text-base-content-muted font-mono">—</span></td>
+              <td class="py-1 px-2.5"><span class="text-xs text-base-content-muted font-mono">—</span></td>
+              <td class="py-1 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content-muted font-medium">
+                  Full auto (when installed)
+                </span>
+              </td>
+              <td class="py-1 px-2.5 text-right">
+                <button class="btn btn-ghost btn-xs py-0 h-5 text-primary underline text-[11px]" onclick="showInstallHelp('Cursor', 'curl -sSL https://cursor.com/install.sh')">Install Guide</button>
+              </td>
+            </tr>
+
+            <!-- Row 7: Pi (Not installed) -->
+            <tr class="opacity-60 bg-base-200/20">
+              <td class="py-1 px-2">
+                <input type="checkbox" disabled class="checkbox checkbox-xs">
+              </td>
+              <td class="py-1 px-2.5">
+                <div class="font-bold text-base-content-muted">Pi</div>
+                <span class="text-[10px] text-base-content-muted">Inflection CLI engine</span>
+              </td>
+              <td class="py-1 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content-muted font-medium">Not installed</span>
+              </td>
+              <td class="py-1 px-2.5"><span class="text-xs text-base-content-muted">None</span></td>
+              <td class="py-1 px-2.5"><span class="text-xs text-base-content-muted font-mono">—</span></td>
+              <td class="py-1 px-2.5"><span class="text-xs text-base-content-muted font-mono">—</span></td>
+              <td class="py-1 px-2.5">
+                <div class="inline-flex items-center gap-1">
+                  <span class="badge badge-xs whitespace-nowrap bg-error/10 text-error border-error/20 font-medium">
+                    No MCP / gate
+                  </span>
+                  <button class="btn btn-ghost btn-xs p-0 text-base-content-muted hover:text-base-content" onclick="openPermissionInfoPopover(event, 'Pi Engine', 'Pi CLI engine operates with no interactive approval gate and has no MCP support. Unconstrained execution.')" title="Permission & safety details" aria-label="Permission details">ℹ️</button>
+                </div>
+              </td>
+              <td class="py-1 px-2.5 text-right">
+                <button class="btn btn-ghost btn-xs py-0 h-5 text-primary underline text-[11px]" onclick="showInstallHelp('Pi', 'npm install -g @inflection/pi-cli')">Install Guide</button>
+              </td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- SECTION 3: BACKGROUND MODEL ROLES MATRIX (Collapsible, NO Edit button)-->
+    <!-- Memory curator, archaeologist, synthesis, judge, replay, enhancement -->
+    <!-- ==================================================================== -->
+    <details id="rolesDetails" open class="card bg-base-200 border border-base-300 p-3 group">
+      <summary class="flex items-center justify-between cursor-pointer list-none select-none">
+        <div class="flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 text-info transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+          <h2 id="rolesMatrixHeading" class="text-xs font-bold uppercase tracking-wider text-base-content">
+            Background Model Roles Matrix
+          </h2>
+          <span class="badge badge-xs whitespace-nowrap bg-info/10 text-info border-info/20 font-medium">6 roles active</span>
+        </div>
+        <span class="text-[10px] text-base-content-muted">Click any model/tier to reassign in popover · Click header to collapse</span>
+      </summary>
+
+      <div class="overflow-x-auto rounded border border-base-300 bg-base-100 mt-2">
+        <table class="matrix-table" aria-label="Background Roles Matrix">
+          <thead>
+            <tr>
+              <th class="py-1 px-2.5">Role</th>
+              <th class="py-1 px-2.5">Purpose</th>
+              <th class="py-1 px-2.5">Assigned Provider & Model (Click to reassign)</th>
+              <th class="py-1 px-2.5">Tier / Fallback</th>
+              <th class="py-1 px-2.5">Scope / Time Limit</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Role 1: Memory Curator -->
+            <tr>
+              <td class="py-1.5 px-2.5 font-bold text-base-content">Memory curator</td>
+              <td class="py-1.5 px-2.5 text-xs text-base-content-muted">Context compaction & long-term memory store</td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs text-primary" onclick="openRoleReassignPopover(event, 'Memory curator', 'OpenAI Codex', 'gpt-5.6-luna')">
+                  OpenAI Codex · gpt-5.6-luna
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5"><span class="text-xs font-mono text-base-content-muted">direct model</span></td>
+              <td class="py-1.5 px-2.5"><span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content">App default</span></td>
+            </tr>
+
+            <!-- Role 2: Archaeologist lane -->
+            <tr>
+              <td class="py-1.5 px-2.5 font-bold text-base-content">Archaeologist lane</td>
+              <td class="py-1.5 px-2.5 text-xs text-base-content-muted">Repo history & commit archaeological analysis</td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs text-base-content" onclick="openRoleReassignPopover(event, 'Archaeologist lane', 'Claude (Subscription)', 'haiku tier')">
+                  Follows main agent (Claude)
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-info/10 text-info border-info/20 font-mono">haiku tier</span>
+              </td>
+              <td class="py-1.5 px-2.5"><span class="text-xs text-base-content-muted">inherited</span></td>
+            </tr>
+
+            <!-- Role 3: Synthesis lane -->
+            <tr>
+              <td class="py-1.5 px-2.5 font-bold text-base-content">Synthesis lane</td>
+              <td class="py-1.5 px-2.5 text-xs text-base-content-muted">Multi-agent transcript reconciliation</td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs text-base-content" onclick="openRoleReassignPopover(event, 'Synthesis lane', 'Claude (Subscription)', 'sonnet tier')">
+                  Follows main agent (Claude)
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-info/10 text-info border-info/20 font-mono">sonnet tier</span>
+              </td>
+              <td class="py-1.5 px-2.5"><span class="text-xs text-base-content-muted">inherited</span></td>
+            </tr>
+
+            <!-- Role 4: Judge lane -->
+            <tr>
+              <td class="py-1.5 px-2.5 font-bold text-base-content">Judge lane</td>
+              <td class="py-1.5 px-2.5 text-xs text-base-content-muted">Tribunal verdict & adversarial verification</td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs text-primary" onclick="openRoleReassignPopover(event, 'Judge lane', 'Moonshot (Kimi)', 'kimi-k2.5')">
+                  Moonshot · kimi-k2.5
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5"><span class="text-xs font-mono text-base-content-muted">direct model</span></td>
+              <td class="py-1.5 px-2.5"><span class="badge badge-xs whitespace-nowrap bg-base-300 text-base-content">Global default</span></td>
+            </tr>
+
+            <!-- Role 5: Replay lane -->
+            <tr>
+              <td class="py-1.5 px-2.5 font-bold text-base-content">Replay lane</td>
+              <td class="py-1.5 px-2.5 text-xs text-base-content-muted">Deterministic step reproduction & regression check</td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs text-base-content" onclick="openRoleReassignPopover(event, 'Replay lane', 'Claude (Subscription)', 'haiku tier')">
+                  Follows main agent (Claude)
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5">
+                <span class="badge badge-xs whitespace-nowrap bg-info/10 text-info border-info/20 font-mono">haiku tier</span>
+              </td>
+              <td class="py-1.5 px-2.5"><span class="text-xs text-base-content-muted">inherited</span></td>
+            </tr>
+
+            <!-- Role 6: Judging & enhancement -->
+            <tr>
+              <td class="py-1.5 px-2.5 font-bold text-base-content">Judging & enhancement</td>
+              <td class="py-1.5 px-2.5 text-xs text-base-content-muted">Post-run benchmark scoring</td>
+              <td class="py-1.5 px-2.5">
+                <button class="matrix-cell-interactive font-mono text-xs text-base-content" onclick="openRoleReassignPopover(event, 'Judging & enhancement', 'Inherit main', '120 s limit')">
+                  Inherit main agent
+                  <svg class="w-2.5 h-2.5 text-base-content-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </td>
+              <td class="py-1.5 px-2.5"><span class="text-xs font-mono text-base-content-muted">inherit</span></td>
+              <td class="py-1.5 px-2.5"><span class="badge badge-xs whitespace-nowrap bg-warning/10 text-warning border-warning/20 font-mono">120 s limit</span></td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+  </main>
+
+  <!-- ==================================================================== -->
+  <!-- MODALS & POPOVERS (Accessible, vanilla JS, focus trap, Esc closes)     -->
+  <!-- ==================================================================== -->
+
+  <!-- 1. CELL POPOVER FOR MATRIX MODEL PICKER -->
+  <div id="popoverMatrixModel" class="popover-custom is-hidden p-3 space-y-2" role="dialog" aria-label="Select Model">
+    <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
+      <span class="font-bold text-xs text-base-content" id="matrixModelPopoverTitle">Select Model for Agent</span>
+      <button class="text-base-content-muted hover:text-base-content text-xs" onclick="closeAllPopovers()">✕</button>
+    </div>
+    <div class="space-y-1">
+      <input type="text" id="matrixModelSearch" placeholder="Search models (e.g. gpt-5, sonnet)..." class="input input-xs w-full text-xs" onkeyup="filterCellModels(this.value)">
+    </div>
+    <div id="matrixModelList" class="max-h-36 overflow-y-auto space-y-1 text-xs">
+      <div class="p-1 rounded hover:bg-base-300 cursor-pointer font-mono" onclick="applyMatrixModel('gpt-5.5-codex')">gpt-5.5-codex</div>
+      <div class="p-1 rounded hover:bg-base-300 cursor-pointer font-mono" onclick="applyMatrixModel('claude-sonnet-4-6 Thinking')">claude-sonnet-4-6 Thinking</div>
+      <div class="p-1 rounded hover:bg-base-300 cursor-pointer font-mono" onclick="applyMatrixModel('glm-5.3:cloud')">glm-5.3:cloud</div>
+      <div class="p-1 rounded hover:bg-base-300 cursor-pointer font-mono" onclick="applyMatrixModel('kimi-k2.5')">kimi-k2.5</div>
+      <div class="p-1 rounded hover:bg-base-300 cursor-pointer font-mono" onclick="applyMatrixModel('provider default')">provider default</div>
+    </div>
+  </div>
+
+  <!-- 2. CELL POPOVER FOR MATRIX EFFORT PICKER -->
+  <div id="popoverMatrixEffort" class="popover-custom is-hidden p-3 space-y-2" role="dialog" aria-label="Select Reasoning Effort">
+    <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
+      <span class="font-bold text-xs text-base-content">Reasoning Effort</span>
+      <button class="text-base-content-muted hover:text-base-content text-xs" onclick="closeAllPopovers()">✕</button>
+    </div>
+    <div class="grid grid-cols-2 gap-1 text-xs">
+      <button class="btn btn-xs btn-outline" onclick="applyMatrixEffort('none')">none</button>
+      <button class="btn btn-xs btn-outline" onclick="applyMatrixEffort('low')">low</button>
+      <button class="btn btn-xs btn-outline" onclick="applyMatrixEffort('medium')">medium</button>
+      <button class="btn btn-xs btn-outline" onclick="applyMatrixEffort('high')">high</button>
+    </div>
+  </div>
+
+  <!-- 3. PERMISSION & SAFETY INFO POPOVER (Defect 3) -->
+  <div id="popoverPermission" class="popover-custom is-hidden p-3 space-y-2 max-w-xs" role="dialog" aria-label="Permission Safety Details">
+    <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
+      <span class="font-bold text-xs text-base-content flex items-center gap-1.5" id="permissionPopoverTitle">
+        <svg class="w-3.5 h-3.5 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Safety & Permissions
+      </span>
+      <button class="text-base-content-muted hover:text-base-content text-xs" onclick="closeAllPopovers()">✕</button>
+    </div>
+    <p class="text-[11px] text-base-content leading-relaxed" id="permissionPopoverContent">
+      Permission detail text
+    </p>
+  </div>
+
+  <!-- 4. ROLE REASSIGN POPOVER (Defect 4: in-place cell popover, replaces Edit button) -->
+  <div id="popoverRoleReassign" class="popover-custom is-hidden p-3 space-y-3" role="dialog" aria-label="Reassign Background Role">
+    <div class="flex items-center justify-between border-b border-base-300 pb-1.5">
+      <span class="font-bold text-xs text-base-content" id="rolePopoverTitle">Reassign Role Target</span>
+      <button class="text-base-content-muted hover:text-base-content text-xs" onclick="closeAllPopovers()">✕</button>
+    </div>
+
+    <div class="space-y-2 text-xs">
+      <div>
+        <label class="text-[10px] text-base-content-muted block font-semibold mb-1">Provider Connection</label>
+        <select id="roleProviderSelect" class="select select-xs w-full text-xs">
+          <option value="Claude (Subscription)">Claude (Subscription)</option>
+          <option value="OpenAI Codex">OpenAI Codex</option>
+          <option value="Moonshot (Kimi)">Moonshot (Kimi)</option>
+          <option value="Ollama Cloud">Ollama Cloud</option>
+          <option value="sovereigneg">sovereigneg (Custom)</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="text-[10px] text-base-content-muted block font-semibold mb-1">Target Model / Tier</label>
+        <select id="roleModelSelect" class="select select-xs w-full font-mono text-[11px]">
+          <option value="gpt-5.6-luna">gpt-5.6-luna</option>
+          <option value="kimi-k2.5">kimi-k2.5</option>
+          <option value="claude-3-7-sonnet-latest">claude-3-7-sonnet-latest (Sonnet tier)</option>
+          <option value="claude-3-5-haiku-latest">claude-3-5-haiku-latest (Haiku tier)</option>
+          <option value="claude-3-opus-latest">claude-3-opus-latest (Opus tier)</option>
+          <option value="follows main agent">follows main agent</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="pt-2 border-t border-base-300">
+      <button class="btn btn-xs btn-primary w-full" onclick="applyRoleReassign()">Apply (Saves instantly with Undo)</button>
+    </div>
+  </div>
+
+  <!-- 5. ADD PTAH CLI INSTANCE MODAL (Restores #46, #47, #49, #53) -->
+  <div id="modalAddPtahCli" class="modal-backdrop-custom is-hidden" role="dialog" aria-modal="true" aria-labelledby="addPtahCliTitle">
+    <div class="modal-box-custom max-w-md">
+      <div class="px-5 py-3 border-b border-base-300 flex items-center justify-between bg-base-200">
+        <h3 id="addPtahCliTitle" class="text-sm font-bold text-base-content">Add Ptah CLI Agent Instance</h3>
+        <button class="btn btn-xs btn-ghost p-1" onclick="closeAddPtahCliModal()">✕</button>
+      </div>
+
+      <div class="p-5 space-y-3 text-xs">
+        <div>
+          <label class="font-semibold block mb-1">Instance Name</label>
+          <input type="text" id="addCliName" placeholder="e.g. Glm-Secondary, Llama-Local" class="input input-xs w-full text-xs">
+        </div>
+
+        <div>
+          <label class="font-semibold block mb-1">Provider Connection</label>
+          <select id="addCliProvider" class="select select-xs w-full text-xs" onchange="toggleAddCliProviderSpecifics(this.value)">
+            <option value="ollama">Ollama Cloud · API key</option>
+            <option value="claude">Claude (Subscription)</option>
+            <option value="copilot">GitHub Copilot (Needs OAuth)</option>
+            <option value="openai">OpenAI Codex</option>
+          </select>
+        </div>
+
+        <!-- Inline GitHub Login for Copilot (Restores #47) -->
+        <div id="inlineCopilotLoginBox" class="p-3 bg-base-200 rounded border border-base-300 space-y-2 is-hidden">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-base-content">Inline GitHub Login (Restores #47)</span>
+            <span class="badge badge-xs whitespace-nowrap badge-warning" id="copilotLoginBadge">Awaiting Auth</span>
+          </div>
+          <p class="text-[11px] text-base-content-muted">Sign in with GitHub device code to enable Copilot for this CLI instance.</p>
+          <div class="flex gap-2">
+            <button class="btn btn-xs btn-primary flex-1" onclick="triggerInlineGithubLogin()">Login with GitHub</button>
+            <button class="btn btn-xs btn-ghost text-base-content-muted" onclick="retryInlineGithubLogin()">Retry</button>
+          </div>
+        </div>
+
+        <!-- API Key with show/hide (Restores #49) -->
+        <div id="addCliKeyBox" class="space-y-1">
+          <label class="font-semibold block">API Key (Optional / Keyless hints supported)</label>
+          <div class="relative">
+            <input type="password" id="addCliKeyInput" placeholder="sk-..." class="input input-xs w-full pr-8 font-mono text-xs">
+            <button type="button" class="absolute right-2 top-1.5 text-base-content-muted" onclick="togglePasswordVisibility('addCliKeyInput')" title="Show/hide key (Restores #49)">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <span class="text-[10px] text-base-content-muted">Leave empty for keyless providers or subscription sign-in.</span>
+        </div>
+
+        <!-- Model selection -->
+        <div>
+          <label class="font-semibold block mb-1">Default Model</label>
+          <input type="text" id="addCliModel" value="glm-5.3:cloud" class="input input-xs w-full font-mono text-xs">
+        </div>
+      </div>
+
+      <div class="px-5 py-3 border-t border-base-300 flex items-center justify-between bg-base-200">
+        <button class="btn btn-xs btn-ghost" onclick="closeAddPtahCliModal()">Cancel</button>
+        <button class="btn btn-xs btn-primary" onclick="saveNewPtahCli()">Create Instance</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. CLI TIER MAPPING MODAL (Restores #53, #54) -->
+  <div id="modalTierMapping" class="modal-backdrop-custom is-hidden" role="dialog" aria-modal="true" aria-labelledby="tierMapTitle">
+    <div class="modal-box-custom max-w-md">
+      <div class="px-5 py-3 border-b border-base-300 flex items-center justify-between bg-base-200">
+        <h3 id="tierMapTitle" class="text-sm font-bold text-base-content">Glm Tier Model Mapping</h3>
+        <button class="btn btn-xs btn-ghost p-1" onclick="closeTierModal()">✕</button>
+      </div>
+
+      <div class="p-5 space-y-3 text-xs">
+        <p class="text-base-content-muted">Assign tier models specifically for this Ptah CLI instance (`scope: 'cliAgent'`).</p>
+
+        <div class="space-y-2">
+          <div>
+            <label class="font-bold text-base-content block mb-1">Sonnet Tier</label>
+            <input type="text" value="glm-5.3:cloud" class="input input-xs w-full font-mono text-xs">
+          </div>
+          <div>
+            <label class="font-bold text-base-content block mb-1">Opus Tier</label>
+            <input type="text" value="glm-4.7:opus" class="input input-xs w-full font-mono text-xs">
+          </div>
+          <div>
+            <label class="font-bold text-base-content block mb-1">Haiku Tier</label>
+            <input type="text" value="glm-4.5:flash" class="input input-xs w-full font-mono text-xs">
+          </div>
+        </div>
+      </div>
+
+      <div class="px-5 py-3 border-t border-base-300 flex items-center justify-between bg-base-200">
+        <button class="btn btn-xs btn-ghost" onclick="closeTierModal()">Cancel</button>
+        <button class="btn btn-xs btn-primary" onclick="saveTierMapping()">Apply Tier Mapping</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <!-- Vanilla JS Interactive Behavior -->
+  <script>
+    // Theme Switcher
+    const htmlEl = document.documentElement;
+    const btnThemeToggle = document.getElementById('btnThemeToggle');
+    const themeLabel = document.getElementById('themeLabel');
+    btnThemeToggle.addEventListener('click', () => {
+      const current = htmlEl.getAttribute('data-theme');
+      const next = current === 'anubis' ? 'anubis-light' : 'anubis';
+      htmlEl.setAttribute('data-theme', next);
+      themeLabel.textContent = next === 'anubis' ? 'anubis (dark)' : 'anubis-light';
+      showToast(`Switched theme to ${next}`);
+    });
+
+    // 1024x768 Viewport Boundary Toggle
+    const btnFrameToggle = document.getElementById('btnFrameToggle');
+    const frameToggleLabel = document.getElementById('frameToggleLabel');
+    const appContainer = document.getElementById('appContainer');
+    btnFrameToggle.addEventListener('click', () => {
+      const isActive = document.body.classList.toggle('frame-1024-active');
+      if (isActive) {
+        appContainer.classList.add('frame-1024-container');
+        frameToggleLabel.textContent = '1024×768 Frame: ON';
+        showToast('1024×768 Viewport constraint enabled. CLI matrix sits fully above fold.');
+      } else {
+        appContainer.classList.remove('frame-1024-container');
+        frameToggleLabel.textContent = '1024×768 Frame: Off';
+        showToast('1024×768 Viewport constraint disabled.');
+      }
+    });
+
+    // Toast
+    function showToast(msg, withUndo = false, undoCallback = null) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'toast-msg';
+      toast.innerHTML = `
+        <span>${msg}</span>
+        ${withUndo ? '<button class="btn btn-xs btn-warning ml-2 font-bold px-2 py-0.5" id="toastUndoBtn">Undo</button>' : ''}
+      `;
+      container.appendChild(toast);
+
+      if (withUndo && undoCallback) {
+        const undoBtn = toast.querySelector('#toastUndoBtn');
+        undoBtn.addEventListener('click', () => {
+          undoCallback();
+          toast.remove();
+          showToast('Action reverted successfully.');
+        });
+      }
+
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(10px)';
+          setTimeout(() => toast.remove(), 200);
+        }
+      }, 4000);
+    }
+
+    // Policy updates
+    function updateConcurrency(val) {
+      document.getElementById('concurrencyVal').textContent = val;
+      showToast(`Max concurrent agents updated to ${val}`);
+    }
+
+    function runRedetectClis() {
+      const btn = document.getElementById('btnRedetect');
+      btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Detecting...';
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.innerHTML = '<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Re-detect CLIs';
+        btn.disabled = false;
+        showToast('CLI Detection complete: 4 active, 2 not installed');
+      }, 800);
+    }
+
+    // Popover Cell Handlers
+    let activeCellTarget = null;
+    function openMatrixModelPicker(ev, agentName, currentModel) {
+      ev.stopPropagation();
+      closeAllPopovers();
+      activeCellTarget = ev.currentTarget;
+      const popover = document.getElementById('popoverMatrixModel');
+      document.getElementById('matrixModelPopoverTitle').textContent = `Model for ${agentName}`;
+      const rect = ev.currentTarget.getBoundingClientRect();
+      popover.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+      popover.style.left = Math.min(rect.left + window.scrollX, window.innerWidth - 280) + 'px';
+      popover.classList.remove('is-hidden');
+    }
+
+    function applyMatrixModel(modelName) {
+      if (activeCellTarget) {
+        const oldVal = activeCellTarget.textContent.trim();
+        activeCellTarget.childNodes[0].textContent = modelName + ' ';
+        closeAllPopovers();
+        showToast(`Model updated to ${modelName}`, true, () => {
+          activeCellTarget.childNodes[0].textContent = oldVal + ' ';
+        });
+      }
+    }
+
+    function openMatrixEffortPicker(ev, agentName, currentEffort) {
+      ev.stopPropagation();
+      closeAllPopovers();
+      activeCellTarget = ev.currentTarget;
+      const popover = document.getElementById('popoverMatrixEffort');
+      const rect = ev.currentTarget.getBoundingClientRect();
+      popover.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+      popover.style.left = Math.min(rect.left + window.scrollX, window.innerWidth - 240) + 'px';
+      popover.classList.remove('is-hidden');
+    }
+
+    function applyMatrixEffort(effort) {
+      if (activeCellTarget) {
+        const oldVal = activeCellTarget.textContent.trim();
+        activeCellTarget.childNodes[0].textContent = effort + ' ';
+        closeAllPopovers();
+        showToast(`Effort set to ${effort}`, true, () => {
+          activeCellTarget.childNodes[0].textContent = oldVal + ' ';
+        });
+      }
+    }
+
+    function openPermissionInfoPopover(ev, agentName, details) {
+      ev.stopPropagation();
+      closeAllPopovers();
+      const popover = document.getElementById('popoverPermission');
+      document.getElementById('permissionPopoverTitle').innerHTML = `
+        <svg class="w-3.5 h-3.5 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        ${agentName} Permissions
+      `;
+      document.getElementById('permissionPopoverContent').textContent = details;
+      const rect = ev.currentTarget.getBoundingClientRect();
+      popover.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+      popover.style.left = Math.min(rect.left + window.scrollX - 100, window.innerWidth - 260) + 'px';
+      popover.classList.remove('is-hidden');
+    }
+
+    let activeRoleTarget = null;
+    let activeRoleName = '';
+    function openRoleReassignPopover(ev, roleName, provider, modelOrTier) {
+      ev.stopPropagation();
+      closeAllPopovers();
+      activeRoleTarget = ev.currentTarget;
+      activeRoleName = roleName;
+      const popover = document.getElementById('popoverRoleReassign');
+      document.getElementById('rolePopoverTitle').textContent = `Reassign ${roleName}`;
+      const rect = ev.currentTarget.getBoundingClientRect();
+      popover.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+      popover.style.left = Math.min(rect.left + window.scrollX, window.innerWidth - 300) + 'px';
+      popover.classList.remove('is-hidden');
+    }
+
+    function applyRoleReassign() {
+      const p = document.getElementById('roleProviderSelect').value;
+      const m = document.getElementById('roleModelSelect').value;
+      if (activeRoleTarget) {
+        const oldVal = activeRoleTarget.textContent.trim();
+        activeRoleTarget.childNodes[0].textContent = `${p} · ${m} `;
+        closeAllPopovers();
+        showToast(`${activeRoleName} reassigned to ${p} · ${m}`, true, () => {
+          activeRoleTarget.childNodes[0].textContent = oldVal + ' ';
+        });
+      }
+    }
+
+    function closeAllPopovers() {
+      document.querySelectorAll('.popover-custom').forEach(p => p.classList.add('is-hidden'));
+    }
+
+    // Modals
+    function openAddPtahCliModal() {
+      closeAllPopovers();
+      document.getElementById('modalAddPtahCli').classList.remove('is-hidden');
+    }
+    function closeAddPtahCliModal() {
+      document.getElementById('modalAddPtahCli').classList.add('is-hidden');
+    }
+
+    function toggleAddCliProviderSpecifics(val) {
+      const box = document.getElementById('inlineCopilotLoginBox');
+      if (val === 'copilot') {
+        box.classList.remove('is-hidden');
+      } else {
+        box.classList.add('is-hidden');
+      }
+    }
+
+    function triggerInlineGithubLogin() {
+      const badge = document.getElementById('copilotLoginBadge');
+      badge.textContent = 'Authorizing...';
+      badge.className = 'badge badge-xs whitespace-nowrap badge-info';
+      setTimeout(() => {
+        badge.textContent = 'Authenticated (copilot-user)';
+        badge.className = 'badge badge-xs whitespace-nowrap badge-success';
+        showToast('GitHub Copilot OAuth handshake confirmed');
+      }, 900);
+    }
+
+    function retryInlineGithubLogin() {
+      showToast('Retrying GitHub authorization handshake...');
+    }
+
+    function togglePasswordVisibility(id) {
+      const input = document.getElementById(id);
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+
+    function saveNewPtahCli() {
+      const name = document.getElementById('addCliName').value || 'New-Instance';
+      closeAddPtahCliModal();
+      showToast(`Ptah CLI instance '${name}' created and ready.`);
+    }
+
+    function openTierModal(instanceName) {
+      closeAllPopovers();
+      document.getElementById('modalTierMapping').classList.remove('is-hidden');
+    }
+    function closeTierModal() {
+      document.getElementById('modalTierMapping').classList.add('is-hidden');
+    }
+    function saveTierMapping() {
+      closeTierModal();
+      showToast('Glm tier model mapping saved successfully.');
+    }
+
+    function deletePtahInstance(name) {
+      if (confirm(`Are you sure you want to delete Ptah CLI instance '${name}'? (Restores #55)`)) {
+        showToast(`Instance '${name}' deleted successfully.`);
+      }
+    }
+
+    function showInstallHelp(name, cmd) {
+      alert(`Install instructions for ${name}:\n\nRun in your terminal:\n${cmd}`);
+    }
+
+    // Global Key Listener
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeAddPtahCliModal();
+        closeTierModal();
+        closeAllPopovers();
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.popover-custom') && !e.target.closest('.matrix-cell-interactive')) {
+        closeAllPopovers();
+      }
+    });
+  </script>
+</body>
+</html>

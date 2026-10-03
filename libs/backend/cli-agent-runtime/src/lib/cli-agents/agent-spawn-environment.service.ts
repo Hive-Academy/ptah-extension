@@ -122,8 +122,8 @@ export class AgentSpawnEnvironment {
     if (cli === 'pi') {
       const piEffort =
         this.workspace.getConfiguration<string>(
-          'ptah.agentOrchestration',
-          'piReasoningEffort',
+          'ptah',
+          'agentOrchestration.piReasoningEffort',
           '',
         ) ?? '';
       return piEffort || undefined;
@@ -145,8 +145,8 @@ export class AgentSpawnEnvironment {
       cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
     const effort =
       this.workspace.getConfiguration<string>(
-        'ptah.agentOrchestration',
-        effortKey,
+        'ptah',
+        `agentOrchestration.${effortKey}`,
         '',
       ) ?? '';
     return AgentSpawnEnvironment.mapEffortToCli(effort);
@@ -156,8 +156,8 @@ export class AgentSpawnEnvironment {
     if (cli === 'codex') return undefined;
     if (cli !== 'copilot') return undefined;
     return this.workspace.getConfiguration<boolean>(
-      'ptah.agentOrchestration',
-      'copilotAutoApprove',
+      'ptah',
+      'agentOrchestration.copilotAutoApprove',
       true,
     );
   }
@@ -171,8 +171,8 @@ export class AgentSpawnEnvironment {
     if (!configKey) return requestModel;
     const configuredModel =
       this.workspace.getConfiguration<string>(
-        'ptah.agentOrchestration',
-        configKey,
+        'ptah',
+        `agentOrchestration.${configKey}`,
         '',
       ) ?? '';
     return configuredModel || requestModel;

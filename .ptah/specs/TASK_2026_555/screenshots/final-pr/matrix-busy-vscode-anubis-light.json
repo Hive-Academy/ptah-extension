@@ -1,0 +1,21 @@
+{
+ "popoverBusy": {
+  "popoverOpen": 1,
+  "focus": "BODY",
+  "searchAria": "true"
+ },
+ "popoverBusyAfterEsc": {
+  "popoverOpen": 1,
+  "focus": "BODY"
+ },
+ "toggleBusy": {
+  "focus": "INPUT[cli-matrix-toggle-codex]",
+  "aria": "true",
+  "native": false
+ },
+ "toggleBusyAfterTab": "BUTTON",
+ "afterRelease": {
+  "toggleAria": null,
+  "calls": 1
+ }
+}

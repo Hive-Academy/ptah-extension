@@ -1,0 +1,26 @@
+{
+ "uninstalledRows": 2,
+ "toggleFocusKept": "cli-matrix-uninstalled-toggle",
+ "cursorFocusReturn": "cli-matrix-credentials-cursor",
+ "collapsedRows": 0,
+ "moreOpenFocus": "cli-matrix-edit-glm-instance-1",
+ "provBox": {
+  "x": 396.5625,
+  "y": 288,
+  "width": 57.671875,
+  "height": 16
+ },
+ "provTrunc": "82>58 ellipsis",
+ "provTitle": "OpenAI Codex",
+ "provTabbable": -1,
+ "closedDialogs": [
+  "modal display=grid inert=false focusables=1 text=close",
+  "modal display=grid inert=false focusables=1 text=close",
+  "modal display=none inert=true focusables=7 text=Add Ptah CLI Agent InstanceInstance name",
+  "modal display=none inert=true focusables=3 text=Instance Tier Model MappingDoneclose"
+ ],
+ "axeClosed": [],
+ "order": [
+  "SPAN.flex min-w-0 flex-1 items-center gap-1 o 442>256"
+ ]
+}

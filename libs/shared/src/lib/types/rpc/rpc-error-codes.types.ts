@@ -18,4 +18,6 @@ export type RpcUserErrorCode =
   | 'SEND_TIMEOUT'
   | 'SESSION_ATTACHED_TO_GATEWAY'
   | 'OUTPUT_CURSOR_STALE'
-  | 'HISTORY_CURSOR_STALE';
+  | 'HISTORY_CURSOR_STALE'
+  /** The connection is the main agent's current driver and cannot be removed. */
+  | 'CONNECTION_IN_USE';

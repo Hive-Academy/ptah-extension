@@ -77,12 +77,13 @@ const SUCCESS_MESSAGE_MS = 3000;
   host: { class: 'block', '[class.mt-4]': 'visible()' },
   template: `
     @if (visible()) {
+      <!-- P2 section card (pattern map V26-V29). -->
       <section
-        class="border border-secondary/30 rounded-md bg-secondary/5"
+        class="card bg-base-200 border border-base-300 p-3"
         aria-labelledby="go-vet-consent-title"
         data-testid="go-vet-consent-card"
       >
-        <div class="p-3">
+        <div>
           <div class="flex items-center gap-1.5 mb-2">
             <lucide-angular
               [img]="ShieldCheckIcon"
@@ -91,13 +92,13 @@ const SUCCESS_MESSAGE_MS = 3000;
             />
             <h2
               id="go-vet-consent-title"
-              class="text-xs font-medium uppercase tracking-wide"
+              class="text-xs font-bold uppercase tracking-wider text-base-content"
             >
-              Run <code class="normal-case">go vet</code> for this workspace
+              Diagnostics: <code class="normal-case">go vet</code>
             </h2>
           </div>
 
-          <p class="text-[10px] text-base-content-muted mb-3">
+          <p class="text-xs text-base-content-muted mb-2">
             When on, Ptah's diagnostics tools run your installed Go toolchain
             (<code>go vet</code>) on the Go packages they are asked to check. It
             reads the module source and module cache and writes the build cache.
@@ -108,93 +109,114 @@ const SUCCESS_MESSAGE_MS = 3000;
             the Go binary changes.
           </p>
 
-          @if (consent(); as c) {
-            <dl class="text-[10px] mb-2 space-y-1">
-              <div class="flex gap-1">
-                <dt class="text-base-content-muted shrink-0">Workspace:</dt>
-                <dd
-                  class="font-mono break-all"
-                  data-testid="go-vet-consent-root"
-                >
-                  {{ c.workspace?.root ?? 'No workspace folder is open' }}
-                </dd>
-              </div>
-              <div class="flex gap-1">
-                <dt class="text-base-content-muted shrink-0">Go binary:</dt>
-                <dd
-                  class="font-mono break-all"
-                  data-testid="go-vet-consent-binary"
-                >
-                  {{ c.goBinary ?? 'none found on PATH' }}
-                </dd>
-              </div>
-            </dl>
-          }
-
-          <div
-            class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-base-200/50 transition-colors"
-          >
-            <div class="flex-1 min-w-0 flex items-center gap-2">
-              <label for="go-vet-consent-toggle" class="text-xs font-medium">
-                Allow <code>go vet</code> in this workspace
-              </label>
-              <!-- Text stays base-content (AA in both themes); the state
-                   colour is carried by the dot, never by the text. -->
-              <span
-                class="badge badge-xs badge-outline gap-1 text-base-content"
-                data-testid="go-vet-consent-state"
-              >
-                <span
-                  class="inline-block w-1.5 h-1.5 rounded-full"
-                  [class.bg-success]="badgeView() === 'on'"
-                  [class.bg-warning]="badgeView() === 'stale'"
-                  [class.bg-info]="badgeView() === 'pending'"
-                  [class.bg-base-content-muted]="badgeView() === 'off'"
-                  aria-hidden="true"
-                ></span>
-                {{ badgeLabel() }}
-              </span>
-            </div>
-            <!-- 24×24 px hit area around the xs switch (WCAG 2.5.8); the
-                 visual size matches the neighbouring cards' toggle-xs. -->
-            <label
-              class="inline-flex items-center justify-center min-w-6 min-h-6 px-1"
-              [class.cursor-pointer]="!toggleDisabled()"
-              data-testid="go-vet-consent-toggle-target"
-            >
-              <input
-                #toggle
-                id="go-vet-consent-toggle"
-                type="checkbox"
-                role="switch"
-                class="toggle toggle-xs toggle-primary"
-                [checked]="toggleChecked()"
-                [attr.aria-checked]="toggleChecked()"
-                [disabled]="toggleDisabled()"
-                aria-describedby="go-vet-consent-status"
-                (change)="onToggle($event)"
-                data-testid="go-vet-consent-toggle"
-              />
-            </label>
-          </div>
+          <!-- P4 detail rows (V26) + the "On" row (V27). -->
+          <table class="table table-xs" data-testid="go-vet-consent-table">
+            <tbody>
+              @if (consent(); as c) {
+                <tr>
+                  <th
+                    scope="row"
+                    class="w-24 align-top font-medium text-base-content"
+                  >
+                    Workspace
+                  </th>
+                  <td
+                    class="align-top font-mono break-all text-base-content"
+                    data-testid="go-vet-consent-root"
+                  >
+                    {{ c.workspace?.root ?? 'No workspace folder is open' }}
+                  </td>
+                </tr>
+                <tr>
+                  <th
+                    scope="row"
+                    class="w-24 align-top font-medium text-base-content"
+                  >
+                    Go binary
+                  </th>
+                  <td
+                    class="align-top font-mono break-all text-base-content"
+                    data-testid="go-vet-consent-binary"
+                  >
+                    {{ c.goBinary ?? 'none found on PATH' }}
+                  </td>
+                </tr>
+              }
+              <!-- The switch row spans both columns so its label reads on one
+                   line while Workspace / Go binary keep the narrow label column. -->
+              <tr>
+                <td colspan="2" class="align-middle">
+                  <div class="flex items-center justify-between gap-3">
+                    <label
+                      for="go-vet-consent-toggle"
+                      class="font-medium whitespace-nowrap text-base-content"
+                    >
+                      Allow <code>go vet</code> in this workspace
+                    </label>
+                    <div class="flex items-center gap-2">
+                      <!-- P10: plain text state; the colour is carried by the
+                           dot only. -->
+                      <span
+                        class="inline-flex items-center gap-1 whitespace-nowrap text-base-content"
+                        data-testid="go-vet-consent-state"
+                      >
+                        <span
+                          class="inline-block w-1.5 h-1.5 rounded-full"
+                          [class.bg-success]="badgeView() === 'on'"
+                          [class.bg-warning]="badgeView() === 'stale'"
+                          [class.bg-info]="badgeView() === 'pending'"
+                          [class.bg-base-content-muted]="badgeView() === 'off'"
+                          aria-hidden="true"
+                        ></span>
+                        {{ badgeLabel() }}
+                      </span>
+                      <!-- 24×24 px hit area around the switch (WCAG 2.5.8);
+                           role="switch" keeps the on/off semantics (G1). -->
+                      <label
+                        class="inline-flex items-center justify-center min-w-6 min-h-6"
+                        [class.cursor-pointer]="!toggleDisabled()"
+                        data-testid="go-vet-consent-toggle-target"
+                      >
+                        <input
+                          #toggle
+                          id="go-vet-consent-toggle"
+                          type="checkbox"
+                          role="switch"
+                          class="toggle toggle-sm toggle-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                          [checked]="toggleChecked()"
+                          [attr.aria-checked]="toggleChecked()"
+                          [disabled]="toggleDisabled()"
+                          aria-describedby="go-vet-consent-status"
+                          (change)="onToggle($event)"
+                          data-testid="go-vet-consent-toggle"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
           <div id="go-vet-consent-status" aria-live="polite" class="mt-1">
             @if (loading()) {
               <p
-                class="text-[10px] text-base-content-muted"
+                class="text-xs text-base-content-muted"
                 data-testid="go-vet-consent-loading"
               >
                 Checking the go vet setting…
               </p>
             }
+            <!-- V29: the stale reason is safety-relevant, so it stays in the
+                 card rather than only in a toast. -->
             @if (staleText(); as reason) {
               <p
-                class="flex items-start gap-1 text-[10px] text-base-content"
+                class="flex items-start gap-1 text-xs text-base-content"
                 data-testid="go-vet-consent-stale"
               >
                 <lucide-angular
                   [img]="AlertTriangleIcon"
-                  class="w-3 h-3 shrink-0 text-warning"
+                  class="w-3.5 h-3.5 shrink-0 text-warning"
                   aria-hidden="true"
                 />
                 <span>
@@ -205,12 +227,12 @@ const SUCCESS_MESSAGE_MS = 3000;
             }
             @if (successMessage(); as message) {
               <p
-                class="flex items-start gap-1 text-[10px] text-base-content"
+                class="flex items-start gap-1 text-xs text-base-content"
                 data-testid="go-vet-consent-success"
               >
                 <lucide-angular
                   [img]="CheckCircleIcon"
-                  class="w-3 h-3 shrink-0 text-success"
+                  class="w-3.5 h-3.5 shrink-0 text-success"
                   aria-hidden="true"
                 />
                 <span>{{ message }}</span>
@@ -219,58 +241,67 @@ const SUCCESS_MESSAGE_MS = 3000;
           </div>
 
           @if (errorMessage(); as message) {
-            <!-- Text in base-content on a light error tint: AA in both
-                 themes (bare text-error measured 3.35-3.55:1). -->
-            <p
-              class="flex items-start gap-1 mt-1 px-2 py-1 rounded border border-error/50 bg-error/10 text-[10px] text-base-content"
+            <!-- P2 inline alert: colour on the icon and border only. -->
+            <div
+              class="mt-2 flex items-start gap-1.5 rounded border border-error/40 p-2 text-xs text-base-content"
               role="alert"
               data-testid="go-vet-consent-error"
             >
               <lucide-angular
                 [img]="AlertCircleIcon"
-                class="w-3 h-3 shrink-0 text-error"
+                class="w-3.5 h-3.5 shrink-0 text-error"
                 aria-hidden="true"
               />
               <span>{{ message }}</span>
-            </p>
+            </div>
           }
 
           @if (confirmingRoot(); as root) {
+            <!-- P8 inline confirm (V28): names the exact root; Cancel gets
+                 initial focus, Esc cancels, focus returns to the switch. -->
             <div
-              class="mt-2 p-2 rounded border border-warning/40 bg-warning/10"
+              class="mt-2 space-y-2 rounded border border-base-300 p-3"
               role="group"
               aria-labelledby="go-vet-confirm-title"
               aria-describedby="go-vet-confirm-root"
-              (keydown.escape)="cancelEnable()"
+              (keydown.escape)="cancelEnable($event)"
               data-testid="go-vet-consent-confirm"
             >
-              <p id="go-vet-confirm-title" class="text-xs font-medium mb-1">
+              <p
+                id="go-vet-confirm-title"
+                class="flex items-center gap-1.5 text-xs font-medium text-base-content"
+              >
+                <lucide-angular
+                  [img]="AlertTriangleIcon"
+                  class="w-3.5 h-3.5 shrink-0 text-warning"
+                  aria-hidden="true"
+                />
                 Allow go vet to run in this folder?
               </p>
               <p
                 id="go-vet-confirm-root"
-                class="text-[10px] font-mono break-all mb-2"
+                class="text-xs font-mono break-all text-base-content"
                 data-testid="go-vet-consent-confirm-root"
               >
                 {{ root }}
               </p>
-              <div class="flex justify-end gap-2">
-                <button
-                  #cancelButton
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  (click)="cancelEnable()"
-                  data-testid="go-vet-consent-cancel"
-                >
-                  Cancel
-                </button>
+              <div class="flex gap-2">
                 <button
                   type="button"
-                  class="btn btn-primary btn-xs"
+                  class="btn btn-primary btn-sm"
                   (click)="confirmEnable()"
                   data-testid="go-vet-consent-allow"
                 >
                   Allow go vet
+                </button>
+                <button
+                  #cancelButton
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  (click)="cancelEnable()"
+                  data-testid="go-vet-consent-cancel"
+                >
+                  Cancel
                 </button>
               </div>
             </div>
@@ -433,8 +464,10 @@ export class GoVetConsentConfigComponent {
     void this.submit(true, root, token);
   }
 
-  cancelEnable(): void {
+  /** Cancel and Esc close the confirm; Esc stops here only when it closed it (P8). */
+  cancelEnable(event?: Event): void {
     if (this.confirmingRoot() === null) return;
+    event?.stopPropagation();
     this.confirmingRoot.set(null);
     this.confirmingToken = undefined;
     this.focusToggle();

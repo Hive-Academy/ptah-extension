@@ -32,11 +32,13 @@ export class EffortStateService {
    *
    * @param effort - Effort level, or undefined for SDK default
    * @param sessionId - Active session ID for live SDK sync (optional)
+   * @returns Whether this write landed: `false` when it failed and the effort was rolled back. A caller must use this,
+   *   not a read-back of the effort, which cannot tell a failed write from one whose old value was the same.
    */
   async setEffort(
     effort: EffortLevel | undefined,
     sessionId?: SessionId | null,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const finishWrite = this.changes.beginWrite();
     const previous = this._currentEffort();
     this._currentEffort.set(effort);
@@ -52,10 +54,13 @@ export class EffortStateService {
           result.error,
         );
         this._currentEffort.set(previous);
+        return false;
       }
+      return true;
     } catch (error: unknown) {
       console.error('[EffortStateService] Error saving effort:', error);
       this._currentEffort.set(previous);
+      return false;
     } finally {
       finishWrite();
     }

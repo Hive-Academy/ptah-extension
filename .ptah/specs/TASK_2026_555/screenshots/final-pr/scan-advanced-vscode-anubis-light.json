@@ -1,0 +1,123 @@
+{
+ "name": "advanced-vscode-anubis-light",
+ "axe": [],
+ "coloured": {
+  "tokens": {
+   "primary": [
+    68,
+    235,
+    211,
+    1
+   ],
+   "secondary": [
+    167,
+    108,
+    0,
+    1
+   ],
+   "accent": [
+    255,
+    214,
+    167,
+    1
+   ],
+   "info": [
+    0,
+    164,
+    242,
+    1
+   ],
+   "success": [
+    0,
+    186,
+    123,
+    1
+   ],
+   "warning": [
+    247,
+    127,
+    0,
+    1
+   ],
+   "error": [
+    175,
+    0,
+    25,
+    1
+   ]
+  },
+  "hits": []
+ },
+ "disabled": [
+  {
+   "label": "Edit Explanatory",
+   "testid": "output-style-edit-button",
+   "opacity": 0.4,
+   "ratio": 1.17,
+   "kind": "icon"
+  },
+  {
+   "label": "Delete Explanatory",
+   "testid": "output-style-delete-button",
+   "opacity": 0.4,
+   "ratio": 1.17,
+   "kind": "icon"
+  },
+  {
+   "label": "Edit Learning",
+   "testid": "output-style-edit-button",
+   "opacity": 0.4,
+   "ratio": 1.17,
+   "kind": "icon"
+  },
+  {
+   "label": "Delete Learning",
+   "testid": "output-style-delete-button",
+   "opacity": 0.4,
+   "ratio": 1.17,
+   "kind": "icon"
+  },
+  {
+   "label": "Save MCP port",
+   "testid": "mcp-port-save-btn",
+   "opacity": 1,
+   "ratio": 1.47,
+   "kind": "text"
+  }
+ ],
+ "alerts": [],
+ "stops": 70,
+ "noRing": [],
+ "lowRing": [
+  "INPUT Toggle Enhanced System Prompt | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle dynamic workflows | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle Ultracode mode | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Activate concise-reviewer | 1.4 | 68,235,211 | solid 2px off 2px | radio radio-xs radio-primary cursor-pointer disabled:cursor-not-allowed | box=oklch(0.97788 0.004 56.375) 0px 0px 0px 4px inset,",
+  "INPUT Toggle Browser Automation name | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle CLI Agents namespace | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle Git Worktree namespace | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle IDE / LSP namespace | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle JSON Validation namespa | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Allow localhost access for bro | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle Enhanced System Prompt | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle dynamic workflows | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle Ultracode mode | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Activate concise-reviewer | 1.4 | 68,235,211 | solid 2px off 2px | radio radio-xs radio-primary cursor-pointer disabled:cursor-not-allowed | box=oklch(0.97788 0.004 56.375) 0px 0px 0px 4px inset,",
+  "INPUT Toggle Browser Automation name | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle CLI Agents namespace | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle Git Worktree namespace | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle IDE / LSP namespace | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Toggle JSON Validation namespa | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Allow localhost access for bro | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box="
+ ],
+ "ringCols": [
+  "122,92,105",
+  "135,78,0",
+  "68,235,211",
+  "16,16,16",
+  "40,20,50",
+  "41,19,52"
+ ],
+ "minRing": 1.4,
+ "maxRing": 17.84
+}

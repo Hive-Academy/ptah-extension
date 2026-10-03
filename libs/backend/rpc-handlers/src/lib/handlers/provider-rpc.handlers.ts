@@ -17,6 +17,7 @@ import {
   TOKENS,
   ConfigManager,
   IAuthSecretsService,
+  RpcUserError,
 } from '@ptah-extension/vscode-core';
 import {
   ProviderListModelsSchema,
@@ -33,9 +34,14 @@ import {
   SETTINGS_TOKENS,
   CustomProviderStore,
 } from '@ptah-extension/settings-core';
-import { probeCustomProvider } from '../utils/custom-provider-probe';
+import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
+import {
+  customEntryEditStalesCheck,
+  testCustomEntryAndRecord,
+} from './connection-check';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
+import { SettingsPersistError } from '@ptah-extension/platform-core';
 import {
   SdkAgentAdapter,
   SDK_TOKENS,
@@ -81,6 +87,15 @@ import {
 } from '@ptah-extension/shared';
 import type { AuthEnv } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
+
+/**
+ * Client-facing text for a failed tier write. Raw errors can carry paths or
+ * credentials, so only SettingsPersistError (fixed text by construction)
+ * passes through; everything else gets the per-RPC fixed message.
+ */
+function clientTierError(error: unknown, fixedMessage: string): string {
+  return error instanceof SettingsPersistError ? error.message : fixedMessage;
+}
 
 /**
  * RPC handlers for provider model operations
@@ -129,6 +144,8 @@ export class ProviderRpcHandlers {
     private readonly sentryService: SentryService,
     @inject(SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE)
     private readonly customProviders: CustomProviderStore,
+    @inject(ConnectionCheckRecorder)
+    private readonly connectionChecks: ConnectionCheckRecorder,
   ) {}
 
   /**
@@ -613,7 +630,7 @@ export class ProviderRpcHandlers {
         );
         return {
           success: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: clientTierError(error, 'Could not save the model tier.'),
         };
       }
     });
@@ -705,7 +722,7 @@ export class ProviderRpcHandlers {
         );
         return {
           success: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: clientTierError(error, 'Could not reset the model tier.'),
         };
       }
     });
@@ -797,6 +814,9 @@ export class ProviderRpcHandlers {
         return { entry };
       } catch (error: unknown) {
         throw this.describeCustomEntryFailure('updateCustomEntry', error);
+      } finally {
+        // Also after a partial write: the old result may no longer apply.
+        this.clearStaleCheck(validated);
       }
     });
   }
@@ -807,6 +827,11 @@ export class ProviderRpcHandlers {
    * The secret is deleted even when the entry was already absent: a stale
    * `ptah.auth.provider.<id>` secret left behind after a partial delete would
    * otherwise be re-adopted by any future entry that reuses the id.
+   *
+   * Refused with `CONNECTION_IN_USE` (fixed text, nothing removed) while the
+   * entry is the main agent's current connection (`anthropicProviderId`): the
+   * webview checks this from its route snapshot, but that snapshot can be
+   * stale and other RPC clients do not check at all.
    */
   private registerRemoveCustomEntry(): void {
     this.rpcHandler.registerMethod<
@@ -814,6 +839,12 @@ export class ProviderRpcHandlers {
       ProviderRemoveCustomEntryResult
     >('provider:removeCustomEntry', async (params) => {
       const validated = ProviderRemoveCustomEntrySchema.parse(params);
+      if (this.resolveProviderId() === validated.id) {
+        throw new RpcUserError(
+          'This connection runs the main agent. Switch the main agent to another connection before removing it.',
+          'CONNECTION_IN_USE',
+        );
+      }
       try {
         const removed = await this.customProviders.remove(validated.id);
         await this.authSecretsService.deleteProviderKey(validated.id);
@@ -824,6 +855,8 @@ export class ProviderRpcHandlers {
         return { removed };
       } catch (error: unknown) {
         throw this.describeCustomEntryFailure('removeCustomEntry', error);
+      } finally {
+        this.connectionChecks.clear(validated.id);
       }
     });
   }
@@ -849,27 +882,24 @@ export class ProviderRpcHandlers {
         };
       }
 
-      const apiKey = await this.authSecretsService.getProviderKey(entry.id);
-      const result = await probeCustomProvider(entry, apiKey);
-
-      this.logger.info('RPC: provider:testCustomEntry completed', {
-        providerId: entry.id,
-        lane: entry.lane,
-        ok: result.ok,
-        failure: result.failure,
-        latencyMs: result.latencyMs,
-      });
-
-      // `failure` is an internal classification for logs and tests — the wire
-      // contract is exactly { ok, message, latencyMs? }.
-      return {
-        ok: result.ok,
-        message: result.message,
-        ...(result.latencyMs === undefined
-          ? {}
-          : { latencyMs: result.latencyMs }),
-      };
+      // Probes, records the entry's last check, and shapes the wire result.
+      return testCustomEntryAndRecord(
+        this.connectionChecks,
+        this.logger,
+        entry,
+        () => this.authSecretsService.getProviderKey(entry.id),
+      );
     });
+  }
+
+  /** An edit to the endpoint, lane, models or key makes the last check stale. */
+  private clearStaleCheck(edit: {
+    readonly id: string;
+    readonly changes: object;
+    readonly apiKey?: string;
+  }): void {
+    if (customEntryEditStalesCheck(edit.changes, edit.apiKey))
+      this.connectionChecks.clear(edit.id);
   }
 
   /** Write (or clear) the SecretStorage key for a custom entry. */

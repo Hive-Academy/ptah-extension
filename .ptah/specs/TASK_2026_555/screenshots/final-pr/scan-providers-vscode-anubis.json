@@ -1,0 +1,89 @@
+{
+ "name": "providers-vscode-anubis",
+ "axe": [
+  {
+   "id": "nested-interactive",
+   "nodes": [
+    "div[data-tone=\"warning\"]"
+   ]
+  }
+ ],
+ "coloured": {
+  "tokens": {
+   "primary": [
+    37,
+    99,
+    235,
+    1
+   ],
+   "secondary": [
+    212,
+    175,
+    55,
+    1
+   ],
+   "accent": [
+    251,
+    191,
+    36,
+    1
+   ],
+   "info": [
+    59,
+    130,
+    246,
+    1
+   ],
+   "success": [
+    22,
+    163,
+    74,
+    1
+   ],
+   "warning": [
+    249,
+    115,
+    22,
+    1
+   ],
+   "error": [
+    248,
+    113,
+    113,
+    1
+   ]
+  },
+  "hits": []
+ },
+ "disabled": [],
+ "alerts": [],
+ "stops": 70,
+ "noRing": [],
+ "lowRing": [
+  "DIV Claude (Subscription): Active  | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV Moonshot (Kimi): Connected. Co | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV OpenAI Codex: Connected. Conne | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV Ollama Cloud: Unreachable. Cou | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV sovereigneg: Connected. Connec | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV Claude (Subscription): Active  | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV Moonshot (Kimi): Connected. Co | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV OpenAI Codex: Connected. Conne | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV Ollama Cloud: Unreachable. Cou | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV sovereigneg: Connected. Connec | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV Claude (Subscription): Active  | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV Moonshot (Kimi): Connected. Co | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV OpenAI Codex: Connected. Conne | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV Ollama Cloud: Unreachable. Cou | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV sovereigneg: Connected. Connec | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 ",
+  "DIV Claude (Subscription): Active  | 1.13 | 0,0,0 | solid 2px off 2px | relative flex flex-col overflow-hidden rounded-xl border transition-colors duration-150 bg | box=rgb(255, 255, 255) 0px 0px 0px 0px, oklch(0.54615 "
+ ],
+ "ringCols": [
+  "146,139,139",
+  "232,230,225 (base-content class)",
+  "0,0,0",
+  "212,175,55",
+  "232,230,225"
+ ],
+ "minRing": 1.13,
+ "maxRing": 14.86
+}

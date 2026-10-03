@@ -4,16 +4,18 @@ import {
   computed,
   input,
   output,
+  signal,
 } from '@angular/core';
-import { LucideAngularModule, Cpu, Folder, Globe } from 'lucide-angular';
+import { LucideAngularModule, Cpu, Folder } from 'lucide-angular';
 import type { LucideIconData } from 'lucide-angular';
 import type { SettingScope } from '@ptah-extension/shared';
+import { NativePopoverComponent } from '@ptah-extension/ui';
+import { injectAppScopeName, type AppScopeName } from './app-scope-label';
 
 /**
- * Source of one setting's effective value, as `design-spec.md`'s
- * "Scope affordance spec" requires it to be shown. `'mixed'` marks a group of
- * fields that does not share one scope — the row then shows **Mixed sources**
- * instead of a guessed group scope.
+ * Source of one setting's effective value. `'mixed'` marks a group of fields that does not share one
+ * scope, or a value whose source is not known: the badge then says **Mixed sources** instead of a
+ * guessed scope.
  */
 export type SettingScopeDisplay = SettingScope | 'mixed';
 
@@ -29,138 +31,147 @@ export interface ScopeFallbackPreview {
   value: unknown;
 }
 
-const FALLBACK_BADGE_TEXT = 'App default · Not configured';
+interface ScopeLayer {
+  readonly scope: SettingScope;
+  readonly label: string;
+  readonly note: string;
+  readonly active: boolean;
+}
+
+export interface BadgeView {
+  readonly text: string;
+  readonly icon: LucideIconData | null;
+  readonly tone: string;
+  readonly iconTone: string;
+}
+
+const LAYER_ORDER: readonly SettingScope[] = ['global', 'app', 'workspace'];
+
+const BADGE_BASE =
+  'badge badge-sm h-auto min-h-6 gap-1 px-2 py-0.5 font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 
 /**
- * Presentational scope row for one settings field
- * (`design-spec.md` "Scope affordance spec", component inventory row for
- * `SettingScopeRowComponent`).
+ * A scope badge's colour and icon per layer: App info + chip, Workspace secondary + folder, Global and Mixed neutral.
+ * Shared by the field badges here and the Main Agent's per-layer badges (Batch 52.6).
+ */
+export function scopeBadgeLook(scope: SettingScopeDisplay): Pick<BadgeView, 'icon' | 'iconTone' | 'tone'> {
+  if (scope === 'app') return { icon: Cpu, iconTone: 'h-3 w-3 text-info', tone: `${BADGE_BASE} border-info/40 bg-info/10` };
+  if (scope === 'workspace') {
+    return { icon: Folder, iconTone: 'h-3 w-3 text-secondary', tone: `${BADGE_BASE} border-secondary/40 bg-secondary/10` };
+  }
+  return { icon: null, iconTone: '', tone: `${BADGE_BASE} badge-outline border-base-content-muted bg-base-100` };
+}
+
+/** Whether a field renders a badge at all: an override, or a mixed/unknown source (an inherited value shows none). */
+export function scopeBadgeShown(scope: SettingScopeDisplay | null, hasOverride: boolean): boolean {
+  return scope === 'mixed' || (hasOverride && scope !== null);
+}
+const ACTION =
+  'btn btn-ghost btn-sm min-h-9 w-full justify-start text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
+
+/**
+ * Scope badge for one settings field (design-spec §3.2, plan D16). Same selector, inputs and outputs as
+ * the old always-visible scope strip; the template is now:
+ * - **nothing** while the value is inherited (`hasOverride` false), so a page shows provenance only
+ *   where a narrower layer wins (RUX-6);
+ * - a badge "{short field} · {Workspace|App}" for an override, with `data-testid="scope-badge"` and
+ *   `data-field` naming the field it governs (D16); a neutral "{short field} · Mixed sources" badge
+ *   when the source is mixed or unknown (never a guessed scope);
+ * - a popover (`NativePopoverComponent`, transparent backdrop) headed by the full field name, with the
+ *   Global / App / Workspace layers and the existing Clear override / Use global value / Copy global
+ *   actions, which still only emit: the host owns the review-then-confirm and every write. The App
+ *   layer is named after the running host ("VS Code" or "Desktop app", `app-scope-label.ts`).
  *
- * Shows where a field's current value comes from, offers an override action
- * and a clear action where the backend supports those targets, and previews
- * what a clear would change before it is taken. Every intent is emitted
- * through an output — this component performs no RPC call and owns no
- * persistence. The host composition owns the "Save to" radio group, the
- * inline reviews for Use global value, and save/clear state copy
- * (**Saving…** / "Saved to {scope}." / "Could not save.").
- *
- * Rules honoured here:
- * - `supportedTargets` `['global']` hides every override and clear control —
- *   scope is generic for reads but honest about writes.
- * - A fallback value is rendered from `fallbackValueLabel` when the host
- *   supplies one, because raw stored values such as the stored auth method
- *   are diagnostic data and must never be rendered (implementation plan,
- *   Decision 1). Without it, primitive values render as-is and anything
- *   else renders as "the previous value".
- * - Credentials stay separate from scope: a scope strip never claims that a
- *   workspace override relocates a secret.
+ * Colour sits on the badge border, fill and icon only; text stays `text-base-content` (deviation 6).
+ * `overrideRequested` and `defaultLabel` stay in the API, but an inherited value renders no control:
+ * the host offers its own "Save to" targets instead (RUX-5).
  */
 @Component({
   selector: 'ptah-setting-scope-row',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, NativePopoverComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div
-      class="flex flex-wrap items-center gap-2 rounded-md bg-base-100 px-2 py-1 text-xs"
-      data-testid="setting-scope-row"
-    >
-      <span
-        class="badge badge-outline text-xs font-medium gap-1 bg-base-100 text-base-content border-base-content-muted"
-        data-testid="scope-source-badge"
-      >
-        @if (sourceBadge().icon; as icon) {
-          <lucide-angular [img]="icon" class="h-3 w-3" aria-hidden="true" />
-        }
-        {{ sourceBadge().text }}
-      </span>
-
-      @if (canClear()) {
-        <button
-          type="button"
-          class="btn btn-ghost btn-sm min-h-9 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-          [attr.aria-label]="clearAriaLabel()"
-          [disabled]="disabled()"
-          (click)="clearRequested.emit()"
-          data-testid="scope-clear-override"
-        >
-          Clear override
+    @if (badge(); as view) {
+      <!-- bottom-start: the prototype anchors the popover at the badge's left edge (openScopePopover). -->
+      <ptah-native-popover [isOpen]="open()" placement="bottom-start" [hasBackdrop]="true" backdropClass="transparent"
+        (closed)="open.set(false)">
+        <button trigger type="button" [class]="view.tone" data-testid="scope-badge" [attr.data-field]="fieldName()"
+          aria-haspopup="dialog" [attr.aria-expanded]="open()" (click)="open.set(!open())">
+          @if (view.icon; as icon) {
+            <lucide-angular [img]="icon" [class]="view.iconTone" aria-hidden="true" />
+          }
+          {{ view.text }}<span class="sr-only">, {{ fieldName() }} scope details</span>
         </button>
-        @if (hasIntermediateAppLayer()) {
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm min-h-9 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-            [attr.aria-label]="useGlobalAriaLabel()"
-            [disabled]="disabled()"
-            (click)="useGlobalRequested.emit()"
-            data-testid="scope-use-global"
-          >
-            Use global value
-          </button>
-        }
-        @if (showCopyGlobal()) {
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm min-h-9 text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-            [attr.aria-label]="copyGlobalAriaLabel()"
-            [disabled]="disabled()"
-            (click)="copyGlobalRequested.emit()"
-            data-testid="scope-copy-global"
-          >
-            Copy global value to this workspace
-          </button>
-        }
-        @if (clearPreviewText(); as preview) {
-          <span
-            class="text-base-content-muted"
-            data-testid="scope-clear-preview"
-            >{{ preview }}</span
-          >
-        }
-      } @else if (canOverride()) {
-        <button
-          type="button"
-          class="btn btn-outline btn-sm min-h-9 border-base-content-muted bg-base-100 text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-          [attr.aria-label]="overrideAriaLabel()"
-          [disabled]="disabled()"
-          (click)="overrideRequested.emit()"
-          data-testid="scope-override"
-        >
-          {{ overrideLabel() }}
-        </button>
-      }
-
-      @if (credentialLine(); as line) {
-        <span class="text-base-content-muted" data-testid="scope-credential">{{
-          line
-        }}</span>
-      }
-
-      @if (disabled() && disabledReason(); as reason) {
-        <span
-          class="text-base-content-muted"
-          data-testid="scope-disabled-reason"
-          >{{ reason }}</span
-        >
-      }
-    </div>
+        <div content role="dialog" [attr.aria-label]="fieldName() + ' scope'" class="w-72 space-y-3 p-3 text-xs"
+          data-testid="scope-popover">
+          <p class="border-b border-base-300 pb-1.5 font-semibold text-base-content" data-testid="scope-popover-title">
+            {{ fieldName() }}
+          </p>
+          @if (scope() === 'mixed') {
+            <p class="text-base-content" data-testid="scope-mixed-note">
+              These values come from more than one scope, or their source is not known.
+            </p>
+          }
+          <ul class="space-y-1" aria-label="Where this value can be set">
+            @for (layer of layers(); track layer.scope) {
+              <li [attr.data-layer]="layer.scope" [attr.aria-current]="layer.active ? 'true' : null"
+                [class]="layer.active
+                  ? 'flex items-center justify-between gap-2 rounded border border-primary/30 bg-primary/10 px-2 py-1 font-semibold text-base-content'
+                  : 'flex items-center justify-between gap-2 px-2 py-1 text-base-content-muted'">
+                <span class="min-w-0 break-words">{{ layer.label }}</span>
+                @if (layer.note) { <span class="shrink-0 text-base-content">{{ layer.note }}</span> }
+              </li>
+            }
+          </ul>
+          @if (clearPreviewText(); as preview) {
+            <p class="text-base-content-muted" data-testid="scope-clear-preview">{{ preview }}</p>
+          }
+          @if (credentialLine(); as line) {
+            <p class="text-base-content-muted" data-testid="scope-credential">{{ line }}</p>
+          }
+          @if (canClear()) {
+            <div class="space-y-1 border-t border-base-300 pt-2">
+              <button type="button" [class]="action" [attr.aria-label]="'Clear override: ' + fieldName()" [disabled]="disabled()"
+                (click)="emit(clearRequested)" data-testid="scope-clear-override">Clear override</button>
+              @if (hasIntermediateAppLayer()) {
+                <button type="button" [class]="action" [attr.aria-label]="'Use global value: ' + fieldName()" [disabled]="disabled()"
+                  (click)="emit(useGlobalRequested)" data-testid="scope-use-global">Use global value</button>
+              }
+              @if (showCopyGlobal()) {
+                <button type="button" [class]="action" [attr.aria-label]="'Copy global value to this workspace: ' + fieldName()"
+                  [disabled]="disabled()" (click)="emit(copyGlobalRequested)" data-testid="scope-copy-global">
+                  Copy global value to this workspace
+                </button>
+              }
+            </div>
+          }
+          @if (disabled() && disabledReason(); as reason) {
+            <p class="text-base-content-muted" data-testid="scope-disabled-reason">{{ reason }}</p>
+          }
+        </div>
+      </ptah-native-popover>
+    }
   `,
 })
 export class SettingScopeRowComponent {
-  protected readonly GlobeIcon = Globe;
-  protected readonly CpuIcon = Cpu;
-  protected readonly FolderIcon = Folder;
+  protected readonly action = ACTION;
+  /** The running host's App layer: its own `app.<platform>` keys, never another app's. */
+  private readonly appScope = injectAppScopeName();
 
-  /** Human field name included in button accessible names, where buttons repeat labels. */
+  /** Full field name: the popover header, `data-field`, and every action's accessible name (D16). */
   readonly fieldName = input<string>('');
 
-  /** Winning scope of the current value, or `'mixed'` for a mixed group. */
+  /** Short field name for the badge text ("Effort · Workspace"); falls back to `fieldName`. */
+  readonly shortFieldName = input<string | null>(null);
+
+  /** Winning scope of the current value, or `'mixed'` for a mixed group or an unknown source. */
   readonly scope = input<SettingScopeDisplay | null>(null);
 
   /** True when the winning layer is an override rather than the deepest stored base. */
   readonly hasOverride = input<boolean>(false);
 
-  /** Write targets the backend supports for this key. Unknown targets hide the actions. */
+  /** Write targets the backend supports for this key. `['global']` hides every clear action. */
   readonly supportedTargets = input<readonly SettingScope[]>([]);
 
   /** DTO preview of what a clear would reveal. */
@@ -169,13 +180,13 @@ export class SettingScopeRowComponent {
   /** Parent-preformatted fallback value copy, rendered verbatim when set. */
   readonly fallbackValueLabel = input<string | null>(null);
 
-  /** Workspace name used in the Workspace badge and workspace fallback preview. */
+  /** Workspace name used in the Workspace layer and the workspace fallback preview. */
   readonly workspaceName = input<string | null>(null);
 
   /** True when the workspace source is cross-app. */
   readonly workspaceCrossApp = input<boolean>(false);
 
-  /** Copy shown when nothing is stored. Defaults to "App default · Not configured". */
+  /** Kept for API stability: nothing renders while a value is inherited, so no default copy shows. */
   readonly defaultLabel = input<string | null>(null);
 
   /** Credential provenance from `ScopedSettingEntry.credentialSource`. */
@@ -190,13 +201,13 @@ export class SettingScopeRowComponent {
   /** True when the host offers **Copy global value to this workspace** here. */
   readonly showCopyGlobal = input<boolean>(false);
 
-  /** True while the host commits or cannot commit an action. */
+  /** True while the host commits or cannot commit an action: the badge stays, its actions are disabled. */
   readonly disabled = input<boolean>(false);
 
-  /** Explanatory copy kept visible beside disabled controls. */
+  /** Explanatory copy kept visible beside disabled actions. */
   readonly disabledReason = input<string | null>(null);
 
-  /** The user asked to override the inherited value. */
+  /** Kept for API stability; an inherited value renders no control, so this is not emitted here. */
   readonly overrideRequested = output<void>();
 
   /** The user asked to clear the winning override (`target: 'nearest'`). */
@@ -208,64 +219,47 @@ export class SettingScopeRowComponent {
   /** The user asked to copy the global value into this workspace. */
   readonly copyGlobalRequested = output<void>();
 
+  protected readonly open = signal(false);
+
+  protected readonly badge = computed<BadgeView | null>(() => {
+    const scope = this.scope();
+    const name = this.shortFieldName() || this.fieldName();
+    if (scope === null || !scopeBadgeShown(scope, this.hasOverride())) return null;
+    const look = scopeBadgeLook(scope);
+    const layer = scope === 'mixed' ? 'Mixed sources' : scope === 'app' ? 'App' : scope === 'workspace' ? 'Workspace' : 'Global';
+    return { text: `${name} · ${layer}`, ...look };
+  });
+
+  /** Global, then App and Workspace where they can hold this value; the winning layer is marked. */
+  protected readonly layers = computed<readonly ScopeLayer[]>(() => {
+    const scope = this.scope();
+    const fallback = this.fallbackPreview()?.scope ?? null;
+    const targets = this.supportedTargets();
+    return LAYER_ORDER
+      .filter((layer) => layer === 'global' || targets.includes(layer) || layer === scope || layer === fallback)
+      .map((layer) => ({
+        scope: layer,
+        label: this.layerLabel(layer),
+        active: layer === scope,
+        note: layer === scope ? 'In use' : layer === fallback ? 'Used after clear' : '',
+      }));
+  });
+
   private readonly isGlobalOnly = computed<boolean>(() => {
     const targets = this.supportedTargets();
     return targets.length === 1 && targets[0] === 'global';
   });
 
-  /** Override control exists only for inherited values with a non-global write target. */
-  protected readonly canOverride = computed<boolean>(() => {
-    const targets = this.supportedTargets();
-    return (
-      !this.isGlobalOnly() &&
-      !this.hasOverride() &&
-      this.scope() !== 'mixed' &&
-      targets.length > 0
-    );
-  });
-
   protected readonly canClear = computed<boolean>(
-    () => !this.isGlobalOnly() && this.hasOverride(),
+    () => !this.isGlobalOnly() && this.hasOverride() && this.scope() !== 'mixed',
   );
-
-  protected readonly overrideLabel = computed<string>(() => {
-    const targets = this.supportedTargets();
-    return targets.includes('workspace')
-      ? 'Override for this workspace'
-      : 'Override for this app';
-  });
-
-  protected readonly sourceBadge = computed<{
-    icon: LucideIconData | null;
-    text: string;
-  }>(() => {
-    const scope = this.scope();
-    if (scope === 'mixed') return { icon: null, text: 'Mixed sources' };
-    if (scope === null) {
-      return { icon: null, text: this.defaultLabel() ?? FALLBACK_BADGE_TEXT };
-    }
-    if (scope === 'global') {
-      return { icon: Globe, text: 'From Global · All Ptah apps' };
-    }
-    if (scope === 'app') {
-      return { icon: Cpu, text: 'From App · Desktop' };
-    }
-    const workspace = this.workspaceName() ?? 'workspace';
-    const suffix = this.workspaceCrossApp()
-      ? '(All Ptah apps)'
-      : '(Desktop)';
-    return {
-      icon: Folder,
-      text: `From Workspace · ${workspace} ${suffix}`,
-    };
-  });
 
   /** Copy shown beside **Clear override**, before the action is taken. */
   protected readonly clearPreviewText = computed<string | null>(() => {
     const preview = this.fallbackPreview();
-    if (!preview) return null;
+    if (!preview || !this.canClear()) return null;
     const value = this.fallbackValueLabel() ?? formatFallbackValue(preview.value);
-    return `Will use ${value} from ${fallbackSourceLabel(preview.scope, this.workspaceName())}.`;
+    return `Will use ${value} from ${fallbackSourceLabel(preview.scope, this.workspaceName(), this.appScope)}.`;
   });
 
   protected readonly credentialLine = computed<string | null>(() => {
@@ -279,25 +273,18 @@ export class SettingScopeRowComponent {
     return null;
   });
 
-  protected readonly overrideAriaLabel = computed<string>(() =>
-    this.ariaLabelWith(this.overrideLabel()),
-  );
+  /** Closes the popover (focus returns to the badge) and hands the intent to the host's review. */
+  protected emit(target: { emit(value: void): void }): void {
+    this.open.set(false);
+    target.emit();
+  }
 
-  protected readonly clearAriaLabel = computed<string>(() =>
-    this.ariaLabelWith('Clear override'),
-  );
-
-  protected readonly useGlobalAriaLabel = computed<string>(() =>
-    this.ariaLabelWith('Use global value'),
-  );
-
-  protected readonly copyGlobalAriaLabel = computed<string>(() =>
-    this.ariaLabelWith('Copy global value to this workspace'),
-  );
-
-  private ariaLabelWith(action: string): string {
-    const field = this.fieldName();
-    return field ? `${action}: ${field}` : action;
+  private layerLabel(layer: SettingScope): string {
+    if (layer === 'global') return 'Global · all Ptah apps';
+    if (layer === 'app') return this.appScope.label;
+    const name = this.workspaceName();
+    if (!name) return 'This workspace';
+    return `Workspace · ${name}${this.workspaceCrossApp() ? ' (All Ptah apps)' : ''}`;
   }
 }
 
@@ -313,8 +300,9 @@ function formatFallbackValue(value: unknown): string {
 function fallbackSourceLabel(
   scope: SettingScope,
   workspaceName: string | null,
+  app: AppScopeName,
 ): string {
   if (scope === 'global') return 'Global';
-  if (scope === 'app') return 'the Desktop app';
+  if (scope === 'app') return app.inSentence;
   return workspaceName ? `Workspace ${workspaceName}` : 'Workspace';
 }

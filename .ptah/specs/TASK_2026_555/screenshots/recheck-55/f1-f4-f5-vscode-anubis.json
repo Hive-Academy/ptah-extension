@@ -1,0 +1,1516 @@
+{
+ "advanced": {
+  "count": 43,
+  "minRing": 13.89,
+  "kinds": [
+   "checkbox",
+   "radio"
+  ],
+  "worst": {
+   "tag": "INPUT",
+   "testid": null,
+   "cls": "checkbox checkbox-xs checkbox-primary",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    26,
+    26,
+    32
+   ],
+   "ring": 13.89,
+   "idx": 7
+  },
+  "stops": [
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 7
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 10
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 11
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "radio radio-xs radio-primary cursor-pointer disabled:cursor-not-allowed",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "oklab(0.188562 0.00216513 -0.00775337) 0px 0px 0px 3.84437px inset, oklab(0.188562 0.00216513 -0.00775337) 0px 0px 0px 3.84437px inset",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 13
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-browser",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 21
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-agent",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 22
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-git",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 23
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-ide",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 24
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-json",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 25
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-browser-allow-localhost",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 26
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 39
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 42
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 43
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "radio radio-xs radio-primary cursor-pointer disabled:cursor-not-allowed",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "oklch(0.188562 0.00805 285.602) 0px 0px 0px 4px inset, oklch(0.188562 0.00805 285.602) 0px 0px 0px 4px inset",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 45
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-browser",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 53
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-agent",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 54
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-git",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 55
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-ide",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 56
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-json",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 57
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-browser-allow-localhost",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 58
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 71
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 74
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 75
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "radio radio-xs radio-primary cursor-pointer disabled:cursor-not-allowed",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "oklch(0.188562 0.00805 285.602) 0px 0px 0px 4px inset, oklch(0.188562 0.00805 285.602) 0px 0px 0px 4px inset",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 77
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-browser",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 85
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-agent",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 86
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-git",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 87
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-ide",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 88
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-json",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 89
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-browser-allow-localhost",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 90
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 103
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 106
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 107
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "radio radio-xs radio-primary cursor-pointer disabled:cursor-not-allowed",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "oklch(0.188562 0.00805 285.602) 0px 0px 0px 4px inset, oklch(0.188562 0.00805 285.602) 0px 0px 0px 4px inset",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 109
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-browser",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 117
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-agent",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 118
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-git",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 119
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-ide",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 120
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-mcp-namespace-json",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 121
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-browser-allow-localhost",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 122
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 135
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 138
+   },
+   {
+    "tag": "INPUT",
+    "testid": null,
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 139
+   }
+  ]
+ },
+ "search-voice": {
+  "count": 21,
+  "minRing": 13.89,
+  "kinds": [
+   "checkbox"
+  ],
+  "worst": {
+   "tag": "INPUT",
+   "testid": "settings-toggle-web-search-provider-tavily",
+   "cls": "checkbox checkbox-xs checkbox-primary",
+   "outlineStyle": "solid",
+   "outlineWidth": "2px",
+   "outlineOffset": "2px",
+   "outlineColor": [
+    232,
+    230,
+    225,
+    1
+   ],
+   "boxShadow": "none",
+   "parentBg": [
+    26,
+    26,
+    32
+   ],
+   "ring": 13.89,
+   "idx": 8
+  },
+  "stops": [
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-tavily",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 8
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-serper",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 12
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-exa",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 15
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-tavily",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 27
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-serper",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 31
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-exa",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 34
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-tavily",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 46
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-serper",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 50
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-exa",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 53
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-tavily",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 65
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-serper",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 69
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-exa",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 72
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-tavily",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 84
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-serper",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 88
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-exa",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 91
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-tavily",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 103
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-serper",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 107
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-exa",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 110
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-tavily",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 122
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-serper",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 126
+   },
+   {
+    "tag": "INPUT",
+    "testid": "settings-toggle-web-search-provider-exa",
+    "cls": "checkbox checkbox-xs checkbox-primary",
+    "outlineStyle": "solid",
+    "outlineWidth": "2px",
+    "outlineOffset": "2px",
+    "outlineColor": [
+     232,
+     230,
+     225,
+     1
+    ],
+    "boxShadow": "none",
+    "parentBg": [
+     26,
+     26,
+     32
+    ],
+    "ring": 13.89,
+    "idx": 129
+   }
+  ]
+ },
+ "F5": {
+  "tag": "SUMMARY",
+  "testid": "output-style-parity-summary",
+  "cls": "cursor-pointer rounded font-medium select-none text-xs text-base-content focus-visible:out",
+  "outlineStyle": "solid",
+  "outlineWidth": "2px",
+  "outlineOffset": "2px",
+  "outlineColor": [
+   232,
+   230,
+   225,
+   1
+  ],
+  "boxShadow": "none",
+  "parentBg": [
+   26,
+   26,
+   32
+  ],
+  "ring": 13.89
+ },
+ "F4": [
+  {
+   "testid": "output-style-edit-button",
+   "opacity": 0.5,
+   "ratio": 4.39
+  },
+  {
+   "testid": "output-style-delete-button",
+   "opacity": 0.5,
+   "ratio": 4.39
+  },
+  {
+   "testid": "output-style-edit-button",
+   "opacity": 0.5,
+   "ratio": 4.39
+  },
+  {
+   "testid": "output-style-delete-button",
+   "opacity": 0.5,
+   "ratio": 4.39
+  }
+ ]
+}

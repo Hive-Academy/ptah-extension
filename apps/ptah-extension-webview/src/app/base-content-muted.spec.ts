@@ -190,6 +190,16 @@ describe('base-content-muted (--bcm)', () => {
     });
   });
 
+  // TASK_2026_555 Batch 51: in the two shipped themes muted text also sits on base-200 and base-300 (table headers,
+  // the Uninstalled group header, cards), so it must clear AA on every base surface, not only base-100.
+  describe.each(EAGER_THEMES)('theme "%s" on every base surface', (name) => {
+    const source = customThemes[name] as unknown as ThemeSource;
+    const muted = oklch(`oklch(${bcm.get(name)})`);
+    it.each(['base-100', 'base-200', 'base-300'])(`clears ${AA_NORMAL}:1 against %s`, (surface) => {
+      expect(wcagContrast(muted, source[surface])).toBeGreaterThanOrEqual(AA_NORMAL);
+    });
+  });
+
   it('falls back to var(--bc) so an unmeasured theme cannot fail contrast', () => {
     // The single most important line in the token. A theme with no `--bcm`
     // renders at FULL base-content contrast — "not visually muted" is a

@@ -1,0 +1,254 @@
+# Visual Review - Gate V 36, Agent Orchestration tab (TASK_2026_555)
+
+**Disclosure: same-side review.** The authors of this tab were in-process subagents, and no image-capable CLI lane
+was available, so this review is by the same side that wrote the code. Evidence is from committed captures read as
+images, a fresh webview build, the committed Playwright specs, and a throwaway probe spec (deleted after the run).
+
+## Summary
+
+| Metric            | Value                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------- |
+| Verdict           | **FAIL** (maps to NEEDS_REVISION: 0 visual-breaking, 4 serious; all four fixes are small) |
+| Overall score     | 6/10                                                                                    |
+| Visual breaking   | 0                                                                                       |
+| Serious           | 4 (V36-1 .. V36-4)                                                                      |
+| Moderate          | 3                                                                                       |
+| Minor             | 3                                                                                       |
+| Viewports tested  | 1024x768 only, vscode and electron hosts, anubis and anubis-light (4 combinations)      |
+| Captures examined | 22 committed `current-orchestration-*` images + 2 prototype images + 1 probe screenshot |
+| Components tested | policy bar, order popover, matrix, model / effort / permission / Copilot / Cursor popovers, tier and add modals, roles `<details>`, role popover |
+
+The structure, density and fold work is sound. The four serious items are one real keyboard-access bug, two
+legibility issues (size and contrast) and one coloured-text case that breaks approved deviation 6.
+
+## Environment
+
+- Worktree `D:\projects\ptah-extension\.claude-worktrees\task-555-settings-redesign`, head `e75a1cf31`.
+- Build confirmed: `npx nx build ptah-extension-webview --skip-nx-cache` (fresh, exit 0, 52 s) before any browser run,
+  served by the harness fixture server (`useAppBuild: true`).
+- Harness run as specified: `settings-orchestration` + `settings-visual` specs, `--workers=2`: **36 passed**. The run
+  logged the fold lines quoted below.
+- Probe spec (temporary, removed): 16 + 4 + 4 + 4 scenes over the same 4 host/theme combinations: DOM text audit,
+  Tab walk, axe-core 4.x, Esc / backdrop checks for 8 overlays.
+- All 96 `current-*` files were backed up to `/tmp/g36-backup` before the runs and restored afterwards; `git status`
+  shows no modified tracked file and no `baseline-*` touched. Probe outputs are kept in
+  `screenshots/gate-v36/` (not `current-*`).
+- Sizes: the repository's gate size is 1024x768 (batches.md Batch 36). No other widths were opened, so no claim is
+  made for other widths. Standard applied: WCAG 2.2 AA (4.5:1 normal text, 3:1 components, 24x24 targets) plus the
+  gate's own rules (helper text >= 12 px, no coloured text, table-xs).
+
+## Fold, density and structure (checked)
+
+| Check                                              | Result                                                                                         |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Order policy bar -> matrix -> roles `<details>`     | Matches the prototype in all 4 combinations                                                    |
+| `table-xs` on the matrix and the roles table        | Yes, both (`table table-xs w-full`); row heights 33-95 px VS Code, 43-113 px Electron          |
+| Roles `<details>` closed by default                 | Yes (captures; spec 36.1 asserts it)                                                           |
+| VS Code fold (<= 660 px)                            | PASS: policy bar 125, matrix header 206, first row 247, roles summary 643, both themes         |
+| Electron fold                                       | 779 px, 119 px over 660; logged, not enforced. **User item 4 / Batch 31 (a) / Batch 33 (a); not re-raised** |
+| One primary action per region                       | Yes: bar none (Re-detect is outline), matrix `Add Ptah CLI Instance`, roles none; modals: `Done` / `Create Instance` only |
+| Coloured TEXT (`text-primary/error/warning/success/info`) in the tab's own components | None. Colour is on icons, dots and badges only (deviation 6). Exception: V36-4, in the shared picker |
+| Esc closes every overlay and returns focus          | Effort, permission, Copilot, Cursor, order, role, tier modal, add modal: yes. Model popover: two Esc (V36-5) |
+| Backdrop click closes every overlay and returns focus | Yes for all 8 (clicks at x=1020 hit the headless page scrollbar and were discarded; the same clicks at other points closed the modals) |
+| axe `nested-interactive`                            | 0 violations (also with every popover and modal open; no new nested-interactive)               |
+| Visible focus ring on in-tab stops                  | Yes, every stop has a 2 px outline (VS Code and Electron, both themes; see V36-1 for the stops that are invisible by construction) |
+
+## Defect table
+
+| ID     | Severity | Capture / scene                                                                                       | What is wrong                                                                                                                                                                                                                                                                                                                                                                                                            | What the prototype / pattern requires                                                                                                                                                       |
+| ------ | -------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V36-1  | Serious  | Probe "hidden dialog focus", all 4 combos. Evidence `screenshots/gate-v36/hidden-vscode-anubis.txt`, `hiddenfocus-vscode-anubis.png`, `focus-vscode-anubis.json` | Keyboard focus enters the **closed** add-instance and tier-mapping dialogs. After the last matrix control (Install guide for Pi), Tab lands on `Close`, the Instance name input, the provider select, `Cancel`, a full-viewport `close` backdrop button, then the tier dialog's `Close` and `Done`, about 10 stops in total. The dialogs have no `open` attribute but compute `display:grid; visibility:visible; opacity:0; pointer-events:none`, so the controls are focusable and invisible. The screenshot at that moment shows no focus indicator anywhere. Cause: the shared `NativeModalComponent` template (`libs/frontend/ui/src/lib/native/modal/native-modal.component.ts:75-89`, class `modal`) uses daisyUI `.modal`, whose `display:grid` overrides the UA `dialog:not([open]){display:none}`. | A closed dialog is not in the tab order or the accessibility tree (WCAG 2.4.3, 2.4.7). Fix in the shared modal (e.g. `dialog.modal:not([open]){display:none}` or `inert` while closed). The same component serves the Providers modals, so re-check them. |
+| V36-2  | Serious  | `current-orchestration-*` (all); probe `dom2-*.json`                                                   | Non-badge helper text is below 12 px. 10 px: matrix subtitle "Click model or effort cells..." (matrix `:83` area), version and provider sublines ("v1.4.0", "OpenAI Codex"), "Uninstalled CLI agents" group header, the roles-summary list, the Judging & enhancement note, the Test result line (`cli-orchestration-matrix.component.ts:270`), the order arrows. 11 px: "Order:" label and the five order chips (custom `text-[11px]`, not badges), the roles-table helper line. **In Electron the Provider column is hidden and the provider name survives only as the 10 px subline** ("OpenAI Codex", "Ollama Cloud", "GitHub Copilot" in `current-orchestration-electron-anubis-1024x768.png`), so a data value is carried at 10 px. Accepted and not counted: badges (9 px `badge-xs`), `btn-xs` labels (11 px), shared `table-xs` column headings (11 px). | Helper text >= 12 px (gate rule). Move these to `text-xs` (12 px); the provider name in the narrow layout should be at least 12 px. |
+| V36-3  | Serious  | `current-orchestration-vscode-anubis-light-*`, `electron-anubis-light-*`, `...-anubis-1024x768` (header); probe `axefull-*.txt` | Muted text fails AA at the small sizes. Light: "Order:" label 4.45:1 (#81636e on #efeae6, 11 px), matrix subtitle 4.45:1 (10 px), "Uninstalled CLI agents" header **4.14:1** (#81636e on #e7e2df, 10 px), roles-table helper line 4.45:1 (11 px). Dark: the same "Uninstalled" header **4.39:1** (#8e8887 on #242430, 10 px), in both hosts. | 4.5:1 for normal text. Gate V 50 decision 4 (shared muted token raised in anubis-light, after the merge) covers the three light 4.45 cases, but **not** the 4.14 header (darker row background) and **not** the dark 4.39 header. Use `text-base-content` (as the roles summary already does, deviation 6 comment) or raise the dark token too. |
+| V36-4  | Serious  | `current-orchestration-role-popover-vscode-anubis-light-1024x768.png` and `...-electron-anubis-light-...`; probe axe (judge popover open) | The "3 models . 2 support tool use" pill in the role popover is **coloured text**: `text-xs text-info` on `bg-info/10` (`libs/frontend/ui/src/lib/native/provider-model-picker/provider-model-picker.component.ts:246`). Measured 2.35:1 in light (#00a4f2 on the tint). | Deviation 6 (approved): colour on icons/dots/badges, text stays `text-base-content`. AA 4.5:1. Fix: keep the info tint and icon, set the label to `text-base-content`. The pill is shared with the Providers drawers. |
+| V36-5  | Moderate | Probe "overlays", all 4 combos                                                                         | The Model popover (compact searchable field) needs **two Esc** to close: the first closes the field's list (focus is on a `combobox` with `aria-expanded=true`), the second closes the popover and returns focus to the cell (verified, second Esc returns focus). The same family as user item 8 (tier modal), but this one is not on the user list. | Esc closes the overlay (one press), or the two-step is accepted once for all searchable fields. Add to item 8's decision. |
+| V36-6  | Moderate | `current-orchestration-roles-open-*`                                                                  | The roles table has a **Scope** column heading with an empty cell in every role row, both hosts. The prototype's roles table has no such column.                                                                                                                                                                                                                                                                         | A column that never shows content should not take a heading and width; show it only when a workspace override exists, or hide the header. |
+| V36-7  | Moderate | `current-orchestration-electron-anubis-*`                                                              | Electron matrix: Status and Provider collapse into the Agent cell (acceptable), but the Ptah-instance Actions stack to three lines (Tiers+Edit / Test / Delete), driving the Glm row to 113 px and the Cursor/Antigravity rows to 61 px. Fold overrun contributor (see item 4).                                                                                                                                                        | Prototype row is a single line; no action wrapping. Part of user item 4's decision, listed here so the decision sees the cause. |
+| V36-8  | Minor    | Probe axe, order popover open                                                                          | `heading-order` (moderate in axe): the popover title `#policy-order-title` skips a level.                                                                                                                                                                                                                                                                                                                              | Heading levels do not skip; or use a non-heading title.                                                                                                                                     |
+| V36-9  | Minor    | `current-orchestration-popover-model-vscode-anubis-1024x768.png`                                      | The model search field's placeholder is cut off at the right edge ("Search models (e.g. gpt-5, sonnet").                                                                                                                                                                                                                                                                                                                | Shorter placeholder or smaller example text.                                                                                                                                                |
+| V36-10 | Minor    | `current-orchestration-vscode-anubis-1024x768.png`                                                     | The Actions column is empty for Codex, Antigravity, Copilot and OpenCode; the prototype shows a per-row Test (and Details). Only Ptah instances have Test. It reads as an empty column.                                                                                                                                                                                                                                  | Confirm with the user (item below); no capability exists for Test on system CLIs.                                                                                                            |
+
+## Prototype fidelity
+
+- Approved prototype: `prototypes/final/orchestration.html`, `screenshots/orchestration-{anubis,anubis-light}-1024x768.png`.
+- Fidelity assessment: **MATCHES** in structure and hierarchy, with recorded deviations (all approved or on the
+  user list). Not a unapproved substitution of badges, tooltips or hints.
+- Matches: policy bar above the matrix above a collapsed Background Model Roles; badge components for status,
+  permission and tier; "i" info buttons beside permission badges; "Uninstalled CLI agents" group with Install guide;
+  Ptah CLI row with tier badges and Tiers/Delete; one primary button.
+- Deviations: density is table-xs (41-61 px rows) against the prototype's 56 px (plan 1049-1052, not a defect);
+  "Order:" instead of "Preferred Order:" and no "lanes" suffix (Batch 33 (c), user list); Electron order chips fade
+  after the third chip (Batch 33 (b), user list); the prototype's "Sandboxed Port" copy is replaced by "Follows
+  Autopilot" (item 2, user list); Copilot and Ptah-instance permission copy (item 1, user list); Pi package name
+  (item 3); install-guide copy (item 4 of Batch 30); Edit and Credentials actions are additions the prototype does
+  not show; the prototype's per-row Test and "Quota reached / Ready (112ms)" statuses are fixture-dependent and not
+  rendered in the captures (V36-10).
+- Both themes and the narrow (Electron, ~660 px content) versus wide (VS Code, 830 px content) layouts compared.
+
+## Viewport results
+
+| Combination                  | Elements checked                                   | Status | Evidence                                                    |
+| ---------------------------- | -------------------------------------------------- | ------ | ----------------------------------------------------------- |
+| vscode / anubis, 1024x768    | tab, 6 popovers, 2 modals, roles open, fold         | pass with V36-2/3 | `current-orchestration-*-vscode-anubis-*` |
+| vscode / anubis-light        | same                                               | pass with V36-2/3/4 | `...-vscode-anubis-light-*`                          |
+| electron / anubis            | same plus fold                                     | fold 779 px (item 4); V36-2/7 | `...-electron-anubis-*`                         |
+| electron / anubis-light      | same                                               | same plus V36-3/4 | `...-electron-anubis-light-*`                        |
+
+No horizontal scroll in the harness fold lines (`scroll 0/0`). No other viewport was opened.
+
+## Component and interaction results
+
+| Component                  | States tested                                              | Status                         |
+| -------------------------- | ---------------------------------------------------------- | ------------------------------ |
+| Order popover              | open, Esc, backdrop, disabled ends, held-save focus (spec) | pass (V36-8 minor)             |
+| Model / effort popovers    | open, Esc, backdrop, focus return                          | model: 2 Esc (V36-5); effort pass |
+| Permission, Copilot, Cursor popovers | open, Esc, backdrop, focus return                | pass                           |
+| Tier and add modals        | open, Esc, backdrop, focus return, Tab containment         | pass when open; V36-1 when closed |
+| Roles details / role popover | closed default, open, Esc, backdrop                      | pass (V36-4 pill, V36-6)       |
+| Matrix focus walk          | 44-stop Tab order in VS Code, DOM order, ring on each      | pass; V36-1 appended stops     |
+
+## Accessibility audit
+
+- axe (scoped to the tab, closed and with roles open): VS Code dark 1 `color-contrast` (V36-3 header); light 3-4
+  (V36-3); Electron the same. 0 `nested-interactive`, 0 label or name failures. With overlays open the only extras
+  were V36-4 and `heading-order` (V36-8).
+- Targets (probe focus walk): ghost `btn-xs` actions 24 px tall (>= 24 AA); the `i` info buttons 20x20 (below the
+  24x24 AA minimum, but spaced from neighbours by the 24 px spacing exception); toggles and model/effort text buttons 16 px
+  tall (inline controls inside 41 px rows; spacing exception applies). Recorded, not filed. The 44 px figure is vendor
+  guidance and is not applied.
+- Focus: ring width 2 px on every in-tab control. V36-1 is the only keyboard defect.
+
+## Design system compliance
+
+- Colour-only-on-icons (deviation 6): honoured in `cli-orchestration-matrix`, `orchestration-settings`,
+  `provider-consumer-assignments`; violated once in the shared picker (V36-4).
+- Density `table-xs`: honoured (class check in the probe).
+- Helper-text size: violated, see V36-2.
+
+## Visual performance
+
+No layout shift was observed in the harness runs (`scroll 0/0`, settled before capture). The matrix loads from a
+deferred chunk with a 22 rem placeholder (`orchestration-settings.component.ts:45`), so a loading state is visible.
+Animation was not measured.
+
+## Items for the user's review
+
+Not re-raised as defects (already on the Batch 36 list in batches.md): 1 Copilot and Ptah-instance permission copy; 2
+the dropped "Sandboxed Port" copy; 3 Pi package name; 4 (Batch 30) install-guide copy, and open item 4, the Electron
+fold (779 px); Batch 31 (a)-(c) (Cursor stacking, Undo then Esc, Cursor key without a check); item 8 (two Esc in the
+tier modal); Batch 33 (a)-(c) (fold, order chips clip, "Order:" label); Batch 34 copy (#45 model count, "Test
+failed: {reason}").
+
+New for the user:
+
+1. **Model popover Esc (V36-5):** extend the item 8 decision to every searchable field: one Esc or two?
+2. **Per-row Test on system CLIs (V36-10):** the prototype shows Test for Codex, Antigravity, Copilot; the build has it
+   only for Ptah instances. Keep as is (no capability) or add?
+3. **Provider name in Electron (V36-2):** once it is at 12 px the Agent cell grows further, which adds to item 4. The
+   user's fold choice should be made with that in view.
+4. **V36-1 and V36-4 touch shared components** (`NativeModalComponent`, `provider-model-picker`) used by the Providers
+   tab; the fix needs a Providers re-check.
+
+## Verdict
+
+- Recommendation: **REVISE** (FAIL: 4 serious, 0 visual-breaking).
+- Confidence: HIGH for V36-1 to V36-4 (measured, reproduced in all 4 combinations); MEDIUM on the overall score.
+- Key concern: V36-1, keyboard users tab through about ten invisible controls from the two closed modals.
+- Score: 6/10 (works with real gaps). What separates it from 7-8: a reproducible keyboard-access bug and AA misses in
+  both themes. What separates it from 4-5: structure, density, fold (VS Code), overlay behaviour and axe
+  `nested-interactive` are clean.
+
+
+## Re-check 1 (2026-10-02, visual-reviewer subagent — same-side, disclosed)
+
+Scope: head `8fb6dfe25` (batch 36b, `21e29b3e7..8fb6dfe25`) in worktree `task-555-settings-redesign`, webview dist current. The
+working tree also holds uncommitted edits by another party (matrix `onCreated` / `closeCredentials`, add modal, main-agent
+popover, roles table, visual spec); I could not tell whether the dist includes them, and none touches the findings below.
+Evidence: committed `current-orchestration-*` captures read as images, plus a throwaway Playwright probe (deleted after the
+run) over 4 combinations (vscode / electron x anubis / anubis-light, 1024x768). New evidence is under
+`screenshots/gate-v36r1/` (`probe*-<host>-<theme>.json`, `uninstalled-open-*`, `more-open-*`, `roles-open-*`,
+`role-popover-*`). I did not run the committed specs, so no `current-*.png` was rewritten (`git status` shows none).
+
+### Fold (measured, both themes identical)
+
+| Host | Policy bar | Matrix header | First row | Roles summary | Budget 660 |
+| --- | --- | --- | --- | --- | --- |
+| VS Code | 125 | 206 | 247 | 550 | pass |
+| Electron | 165 | 266 | 309 | 600 | pass (matches decision: 600 px) |
+
+Matrix overflow 0 px in all four. Row actions Tiers / Test / More sit on one line (y equal), 24 px high.
+
+### V36 findings
+
+| ID | Result | Evidence |
+| --- | --- | --- |
+| V36-1 closed dialogs in Tab order | **fixed** for the Settings dialogs | Add and tier dialogs compute `display: none` and `inert` closed, in all 4 combos; 40-stop Tab walk from Add reaches no Settings-dialog control. Residual, outside the tab and already recorded as a follow-up: two app-shell `<dialog>` (`PTAH-CONFIRMATION-DIALOG`, `PTAH-SUBAGENT-TRANSCRIPT-OVERLAY`) stay `display: grid`, not inert, each with a hidden "close" Tab stop (2 stops in the VS Code walk). Carried open, not this task's files. |
+| V36-2 helper text < 12 px | **fixed** | Text scan of the tab: nothing non-badge under 12 px. Remaining under 12: `btn-xs` labels and `table-xs` headings at 11 px (accepted in the original review) and 9 px badges (excluded). |
+| V36-3 muted contrast | **deferred** (muted-token batch, Gate V 50 decision 4) | axe in dark: 0 violations (the Uninstalled header is now `text-base-content`; the 4.39:1 dark case is gone from the scan). Light: only 4.45:1 `#81636e` on `#efeae6` on "Order:", the matrix subtitle and the roles copy. Recorded, not failed. |
+| V36-4 picker pill coloured text | **fixed** | `current-orchestration-role-popover-*-light` and `role-popover-electron-anubis-light.png`: pill text is base content (`oklch(0.236...)`), info colour only on the icon and border; axe clean for the popover. |
+| V36-5 model Esc twice | **accepted (decision 3)** | Model popover: Esc 1 leaves the popover open, Esc 2 closes it and focus returns to `cli-matrix-model-codex` (both hosts). Tier modal: no list opens on focus (0 expanded comboboxes), first Esc closes the modal, focus returns to the Tiers button. |
+| V36-6 empty Scope column | **fixed** | Roles table headers: ROLE / PROVIDER & MODEL / TIER only (all 4 combos). |
+| V36-7 three-line actions | **fixed, with a new defect (N1)** | One-line actions confirmed. The More menu that replaced Edit / Delete renders wrongly, see N1. |
+| V36-8 heading order | **fixed** | The order popover title is now `<p id="policy-order-title">` (`agent-orchestration-config.component.ts:87`); no `heading-order` in axe with roles open. |
+| V36-9 placeholder clipped | **fixed** | "Search models": scrollWidth 246 = clientWidth 246, both hosts. |
+| V36-10 empty Actions column | **accepted (decision 4)** | Test stays on Ptah instances only. |
+| Item 4 Electron fold | **fixed** | 600 px, enforced. Uninstalled group: Enter, Space and click toggle `aria-expanded`, focus stays on the 24 px button, 2 rows appear expanded and 0 collapsed, the Cursor Credentials popover returns focus to its trigger on Esc (`uninstalled-open-*.png`). |
+
+### New defects
+
+**N1 (Serious). The "More actions" menu is laid out sideways and spills out of its panel, all 4 combinations.**
+- File: `libs/frontend/chat/src/lib/settings/ptah-ai/cli-orchestration-matrix.component.ts:295-299` (`div role="group"
+  class="w-40 p-1 text-left"` holding the two `MENU_ITEM` buttons with no column layout).
+- Evidence: `more-open-vscode-anubis-light.png`, `more-open-electron-anubis.png`; probe3: panel 162 px wide (x 748-910),
+  content 307 px; "Edit name or key" 751-907 and "Delete" 903-1059 on the same row, overlapping by 4 px. In VS Code Delete runs
+  35 px past the 1024 px viewport; in Electron it ends at 1091 (67 px past), outside the panel background in both.
+- Impact: the destructive Delete item sits outside the menu, partly off screen, overlapping Edit. It is still focusable and
+  clickable, but the menu reads as broken, and the V36-7 fix is not visually complete.
+- Fix: stack the items (`flex flex-col` on the group, items `w-full justify-start`), or widen to content. The harness
+  paths pass because they click by test id and never assert the panel's box.
+
+N2 (Minor, new from the fold round, accepted trade-off). In Electron the provider name truncates ("OpenAI …", "GitHu…")
+and the full name is a native `title` only (`tabindex -1`), so keyboard and touch users cannot see it; the text is complete
+in the DOM for screen readers. This is the disclosed orchestrator step, recorded as a note.
+
+Not defects: the Electron order chips fade after the third chip (user list, Batch 33 (b)); the 9 px tier and status badges.
+
+### Verdict
+
+**FAIL**, score **7/10** (was 6/10). Nine of ten original findings are fixed, accepted by decision, or deferred as agreed,
+and the fold is met in both hosts and themes. One new Serious (N1) is a one-line layout fix; with it fixed this is
+PASS WITH NOTES (carried notes: V36-3 light muted contrast deferred, two app-shell dialogs as hidden Tab stops, N2).
+Open items: N1; the app-shell dialog Tab stops (follow-up).
+
+
+## Re-check 2 (2026-10-02, visual-reviewer subagent — same-side, disclosed)
+
+Scope: head `493baad02` (batch 36c), webview dist current. Throwaway Playwright probe (deleted after the run), 4 combinations
+(vscode / electron x anubis / anubis-light) at 1024x768. Evidence in `screenshots/gate-v36r2/` (`probe-*.json`,
+`more-open-*.png`, `checkbox8x-*.png`). I ran no committed spec, so no `current-*.png` was rewritten (`git status` clean for
+captures; no source file touched).
+
+| Item | Result | Evidence |
+| --- | --- | --- |
+| N1 More actions menu | **fixed** | Edit and Delete are stacked (Delete top = Edit bottom), both inside the panel (about 3-5 px inset) and inside the 1024x768 viewport, panel 162 px, no content overflow. VS Code panel x 748-910 (light) / 748-910, Electron x 780-942; right edges all under 1024. Opening focuses Edit; Esc returns focus to the More trigger (all 4). `more-open-electron-anubis-light.png` read as an image: a clean two-row menu. |
+| On checkbox | **fixed** | Box 18x18 in all 4; with animations settled `background-position` is `-1px 0` (the tick is centred); `checkbox8x-vscode-anubis-light.png` and `checkbox8x-electron-anubis.png` show a centred tick. Caveat: my crops came out at 1x (about 26 px; the device-scale override did not upscale), so the centring is also confirmed by the computed offset and by the full-page capture above, not by an 8x zoom. |
+| Fold | **confirmed** | VS Code 125 / 206 / 247 / 550; Electron 165 / 266 / 309 / 600; all <= 660, both themes. |
+| Focus after Cursor key removal | **not verifiable in the harness** | The fixture has no stored-key read-back: a Save reports "The key was not saved." and the Remove button never shows, so the row cannot move into the Uninstalled group. The fallback to `cli-matrix-uninstalled-toggle` rests on Jest (`cli-matrix.component.spec.ts:481`) only. |
+
+### New defect
+
+**N3 (Moderate).** In the Cursor Credentials popover, a Save that does not succeed leaves keyboard focus on `body` and Esc then does not
+close the popover (probe, all 4 combos: focus `BODY` before and after Esc, popover still open). The key, Save and Remove buttons
+are natively `disabled` while busy (`cursor-credential-popover.component.ts:65`, `:76`, `:79`), so the focused control loses
+focus when the save starts, and nothing returns it. The order popover and role cells already avoid this with `aria-disabled`
+(Batch 36 / 36b M-2). Impact: a keyboard user who presses Save and gets a failure must Tab back in, and cannot Esc out. A
+successful save closes the popover, so this is the failure path only. Fix: `aria-disabled` plus a guard, or refocus the key
+input when the save ends. Not a fold or layout issue.
+
+Carried, unchanged: V36-3 light muted contrast (deferred, muted-token batch); two app-shell `<dialog>` elements outside Settings
+that are hidden Tab stops (recorded follow-up); N2 Electron provider names truncated with a mouse-only tooltip.
+
+### Verdict
+
+**PASS WITH NOTES**, score **8/10** (was 7/10). N1 and the checkbox are fixed and the fold holds in both hosts and themes. Notes: N3
+(Moderate), the unverifiable removal-focus fallback, V36-3 deferred, the app-shell dialog Tab stops, N2.

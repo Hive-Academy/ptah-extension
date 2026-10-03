@@ -1,0 +1,43 @@
+{
+ "viewport": {
+  "w": 1024,
+  "h": 768,
+  "theme": "anubis"
+ },
+ "axe Providers": [
+  "nested-interactive x1: div[data-tone=\"warning\"] | Element has focusable descendants"
+ ],
+ "overflow Providers": 0,
+ "rowsvisible Providers": 1183,
+ "axe Agent Orchestration": [],
+ "overflow Agent Orchestration": 0,
+ "rowsvisible Agent Orchestration": 977,
+ "axe Advanced": [],
+ "overflow Advanced": 0,
+ "rowsvisible Advanced": 2944,
+ "axe Search & Voice": [],
+ "overflow Search & Voice": 0,
+ "rowsvisible Search & Voice": 1716,
+ "overlays": {
+  "catalogEsc": {
+   "focus": "button#connect-provider:Connect provider",
+   "open": 0
+  },
+  "catalogBackdrop": {
+   "focus": "button#connect-provider:Connect provider",
+   "open": 0
+  },
+  "mainPopoverEsc": {
+   "focus": "button#routing-node-action:Reassign the main agent:",
+   "open": 0
+  },
+  "drawerEsc": {
+   "focus": "div#:OpenAI Codex: Active for",
+   "open": 0
+  }
+ },
+ "nativeDialogs": {
+  "Export": "ERR locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('ptah-settings').getByRole('button', { name: 'Export', exact: true }).first()\u001b[22m",
+  "Import": "ERR locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('ptah-settings').getByRole('button', { name: 'Import', exact: true }).first()\u001b[22m"
+ }
+}

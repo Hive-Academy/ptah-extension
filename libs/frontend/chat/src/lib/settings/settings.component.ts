@@ -2,40 +2,46 @@ import {
   Component,
   inject,
   ChangeDetectionStrategy,
+  computed,
   signal,
   OnInit,
-  viewChild,
   effect,
   untracked,
 } from '@angular/core';
-import {
-  LucideAngularModule,
-  ArrowLeft,
-  Sparkles,
-  Key,
-  Cpu,
-  Download,
-  Upload,
-  ArrowLeftRight,
-  Globe,
-} from 'lucide-angular';
+import { LucideAngularModule, ArrowLeft, Sparkles, Key, Cpu, Globe } from 'lucide-angular';
+import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
 import { ProvidersSettingsComponent, type ProvidersSettingsFocusTarget } from './providers/providers-settings.component';
-import { LicenseStatusCardComponent } from './license/license-status-card.component';
-import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
-import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
-import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
-import { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
-import { OutputStyleConfigComponent } from './output-style/output-style-config.component';
-import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
-import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
-import { VoiceConfigComponent } from './ptah-ai/voice-config.component';
-import { GoVetConsentConfigComponent } from './ptah-ai/go-vet-consent-config.component';
+import { ProvidersModelsLoader } from './providers/providers-models-loader.service';
+import { SettingsSaveFeedbackService } from './feedback/settings-save-feedback.service';
+import { SettingsToastComponent } from './feedback/settings-toast.component';
+import {
+  OrchestrationSettingsComponent,
+  type OrchestrationSettingsFocusTarget,
+} from './ptah-ai/orchestration-settings.component';
+import { AdvancedSettingsComponent } from './advanced-settings.component';
+import { SearchVoiceSettingsComponent } from './search-voice-settings.component';
 import {
   AppStateManager,
-  ClaudeRpcService,
   AuthStateService,
+  ProvidersSettingsStateService,
   VSCodeService,
+  type PendingSettingsTab,
 } from '@ptah-extension/core';
+
+type PendingSection = NonNullable<PendingSettingsTab['section']>;
+
+const PROVIDERS_SECTIONS: ReadonlySet<string> = new Set<ProvidersSettingsFocusTarget>([
+  'main-agent', 'main-model', 'main-effort', 'connections', 'more-providers',
+]);
+const ORCHESTRATION_SECTIONS: ReadonlySet<string> = new Set<OrchestrationSettingsFocusTarget>([
+  'background-models', 'cli-agents',
+  'memory-curator', 'archaeologist', 'synthesis', 'judge', 'replay', 'judging-enhancement',
+]);
+
+const isProvidersSection = (section: PendingSection | undefined): section is ProvidersSettingsFocusTarget =>
+  section !== undefined && PROVIDERS_SECTIONS.has(section);
+const isOrchestrationSection = (section: PendingSection | undefined): section is OrchestrationSettingsFocusTarget =>
+  section !== undefined && ORCHESTRATION_SECTIONS.has(section);
 
 /**
  * SettingsComponent - Main settings page container
@@ -57,53 +63,51 @@ import {
  * - Conditional visibility: Show additional sections only after auth configured
  *
  * Child Components:
- * - LicenseStatusCardComponent: Membership status, user profile, actions
- * - EnhancedPromptsConfigComponent: System prompt mode, preview, regenerate
- * - AgentOrchestrationConfigComponent: CLI detection, model selectors, concurrency
+ * - ProvidersSettingsComponent: Providers tab
+ * - OrchestrationSettingsComponent: Agent Orchestration tab (policy, background roles, CLI agents)
+ * - AdvancedSettingsComponent: Advanced tab (membership, data portability, agent behaviour, MCP, VS Code LM)
+ * - SearchVoiceSettingsComponent: Search & Voice tab (web search, voice, go vet consent)
+ *
+ * Deep links (`AppStateManager.requestSettingsTab`) are routed by section to the tab that owns
+ * it (implementation-plan.md Component 10); an unknown or missing section opens the requested tab.
  */
 @Component({
   selector: 'ptah-settings',
   standalone: true,
   imports: [
     ProvidersSettingsComponent,
-    LicenseStatusCardComponent,
-    EnhancedPromptsConfigComponent,
-    VscodeLmConfigComponent,
-    McpPortConfigComponent,
-    WorkflowsConfigComponent,
-    OutputStyleConfigComponent,
-    AgentOrchestrationConfigComponent,
-    WebSearchConfigComponent,
-    VoiceConfigComponent,
-    GoVetConsentConfigComponent,
+    OrchestrationSettingsComponent,
+    // Used only inside `@defer` in the template, so each tab compiles to its own lazy chunk.
+    // Referencing either class anywhere else in this file would make it eager again.
+    AdvancedSettingsComponent,
+    SearchVoiceSettingsComponent,
+    SettingsToastComponent,
     LucideAngularModule,
+  ],
+  // Page-scoped: the toast timer dies with the page; one models loader for every tab.
+  providers: [
+    SettingsSaveFeedbackService,
+    { provide: PROVIDER_MODELS_LOADER, useClass: ProvidersModelsLoader },
   ],
   templateUrl: './settings.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
-  private readonly rpcService = inject(ClaudeRpcService);
   private readonly vscodeService = inject(VSCodeService);
+  private readonly providersState = inject(ProvidersSettingsStateService);
   readonly authState = inject(AuthStateService);
-  readonly agentOrchestrationConfig = viewChild(
-    AgentOrchestrationConfigComponent,
-  );
   readonly ArrowLeftIcon = ArrowLeft;
   readonly SparklesIcon = Sparkles;
   readonly KeyIcon = Key;
   readonly CpuIcon = Cpu;
-  readonly DownloadIcon = Download;
-  readonly UploadIcon = Upload;
-  readonly ArrowLeftRightIcon = ArrowLeftRight;
   readonly GlobeIcon = Globe;
-  readonly isExporting = signal(false);
-  readonly isImporting = signal(false);
   readonly activeSettingsTab = signal<
     'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools'
   >('claude-auth');
 
   readonly providersTarget = signal<ProvidersSettingsFocusTarget | null>(null);
+  readonly orchestrationTarget = signal<OrchestrationSettingsFocusTarget | null>(null);
 
   /**
    * Provider id carried by a deep-link into the settings page (e.g. the
@@ -113,6 +117,13 @@ export class SettingsComponent implements OnInit {
   readonly requestedProviderId = signal<string | undefined>(undefined);
 
   readonly isElectron = this.vscodeService.isElectron;
+  /** Header "App: …" label. */
+  readonly appLabel = this.isElectron ? 'Desktop' : 'VS Code';
+  /** Header workspace path (full, for `title`); null until setting sources load or with no folder open. */
+  readonly workspacePath = computed(() => this.providersState.scopes().data?.activePath ?? null);
+  readonly workspaceName = computed(
+    () => this.workspacePath()?.split(/[\\/]/).filter(Boolean).pop() ?? null,
+  );
 
   /**
    * Initialize: Load auth status on component mount.
@@ -140,12 +151,28 @@ export class SettingsComponent implements OnInit {
     if (this.requestedProviderId() === providerId) this.requestedProviderId.set(undefined);
   }
 
+  /**
+   * Routing table: implementation-plan.md Component 10. `cli-agents` lands on Orchestration, which focuses the CLI
+   * matrix table (`[data-testid="cli-matrix"]`, the S6 row; Batch 34 retired the interim CLI manager heading).
+   */
   private applyPendingTab(): void {
     const pending = this.appState.consumePendingSettingsTab();
     if (!pending) return;
-    this.setActiveTab(pending.providerId || pending.section ? 'providers' : pending.tab);
-    this.providersTarget.set(pending.section ?? (pending.tab === 'orchestration' && pending.providerId ? 'cli-agents' : 'main-agent'));
-    this.requestedProviderId.set(pending.providerId);
+    const { section, providerId } = pending;
+    this.requestedProviderId.set(providerId);
+    if (providerId || isProvidersSection(section)) {
+      this.setActiveTab('providers');
+      this.providersTarget.set(isProvidersSection(section) ? section : null);
+      this.orchestrationTarget.set(null);
+    } else if (isOrchestrationSection(section)) {
+      this.setActiveTab('orchestration');
+      this.orchestrationTarget.set(section);
+      this.providersTarget.set(null);
+    } else {
+      this.setActiveTab(pending.tab);
+      this.providersTarget.set(null);
+      this.orchestrationTarget.set(null);
+    }
   }
 
   /**
@@ -154,47 +181,15 @@ export class SettingsComponent implements OnInit {
   setActiveTab(
     tab: 'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools',
   ): void {
-    this.activeSettingsTab.set(tab === 'providers' ? 'claude-auth' : tab);
-  }
-
-  /**
-   * Export settings to a JSON file.
-   * Uses platform-aware RPC: command:execute for VS Code, settings:export for Electron.
-   */
-  async exportSettings(): Promise<void> {
-    if (this.isExporting()) return;
-    this.isExporting.set(true);
-    try {
-      if (this.vscodeService.isElectron) {
-        await this.rpcService.call('settings:export' as never, {} as never);
-      } else {
-        await this.rpcService.call('command:execute', {
-          command: 'ptah.exportSettings',
-        });
-      }
-    } finally {
-      this.isExporting.set(false);
+    const next = tab === 'providers' ? 'claude-auth' : tab;
+    if (next !== this.activeSettingsTab()) {
+      // A deep-link target belongs to the visit it opened: a tab is torn down when left and rebuilt on return, and a
+      // kept target would re-open the roles (or a role's popover) and take focus again (Batch 35 revise, R3).
+      // applyPendingTab sets the new target after this call.
+      this.providersTarget.set(null);
+      this.orchestrationTarget.set(null);
     }
-  }
-
-  /**
-   * Import settings from a JSON file.
-   * Uses platform-aware RPC: command:execute for VS Code, settings:import for Electron.
-   */
-  async importSettings(): Promise<void> {
-    if (this.isImporting()) return;
-    this.isImporting.set(true);
-    try {
-      if (this.vscodeService.isElectron) {
-        await this.rpcService.call('settings:import' as never, {} as never);
-      } else {
-        await this.rpcService.call('command:execute', {
-          command: 'ptah.importSettings',
-        });
-      }
-    } finally {
-      this.isImporting.set(false);
-    }
+    this.activeSettingsTab.set(next);
   }
 
   /**
@@ -205,22 +200,10 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * Open an external page (Ptah Builders / community) in the browser.
-   * Uses the `command:execute` RPC to run the host `ptah.openPricing` command;
-   * the target URL is resolved host-side. Reused by the Builders promotion card.
-   */
-  async openPricing(): Promise<void> {
-    await this.rpcService.call('command:execute', {
-      command: 'ptah.openPricing',
-    });
-  }
-
-  /**
-   * Called when LLM providers config emits modelChanged.
-   * Delegates to AgentOrchestrationConfigComponent to re-detect CLIs.
+   * A VS Code LM model change can change which CLIs are usable (#84). Re-detect through the
+   * shared state: the Orchestration tab is never mounted while Advanced is shown.
    */
   onModelChanged(): void {
-    this.agentOrchestrationConfig()?.redetectClis();
+    void this.providersState.redetectClis();
   }
-
 }

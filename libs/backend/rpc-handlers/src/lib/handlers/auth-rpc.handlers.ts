@@ -46,7 +46,10 @@ import type {
   ICodexAuthService,
   ModelResolver,
 } from '@ptah-extension/auth-providers';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  ANTHROPIC_DIRECT_PROVIDER_ID,
+  MESSAGE_TYPES,
+} from '@ptah-extension/shared';
 import type { AuthDeviceCodePayload } from '@ptah-extension/shared';
 import { resolveScopeFromKey } from './setting-scope';
 import { asAuthCommandRunner } from './auth-command-runner';
@@ -68,8 +71,21 @@ import type {
   AuthVerifyDraftConnectionResult,
   AuthCancelDraftVerificationParams,
   AuthCancelDraftVerificationResult,
+  AuthDeleteStoredKeyParams,
+  AuthDeleteStoredKeyResult,
+  AuthApiKeyStatusEntry,
+  AuthGetApiKeyStatusResult,
+  AuthCheckConnectionResult,
+  AuthTestConnectionResponse,
 } from '@ptah-extension/shared';
-import { AuthSettingsSchema } from './auth-rpc.schema';
+import { maskKeyHint } from '../utils/mask-key-hint';
+import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
+import { ConnectionChecker, connectionCheckKind } from './connection-check';
+import {
+  AuthSettingsSchema,
+  AuthDeleteStoredKeySchema,
+  AuthCheckConnectionSchema,
+} from './auth-rpc.schema';
 import type { RpcMethodName } from '@ptah-extension/shared';
 
 /** Provider registry ids used to tag interactive-login push events. */
@@ -142,6 +158,8 @@ interface CodexProbeResult {
 /** Secret-store half of the status payload. */
 interface SecretProbeResult {
   hasApiKey: boolean;
+  /** Masked hint of the Claude API key (`maskKeyHint`); never logged. */
+  apiKeyHint: string | undefined;
   hasOpenRouterKey: boolean;
   hasAnyProviderKey: boolean;
 }
@@ -155,9 +173,11 @@ export class AuthRpcHandlers {
     'auth:getHealth',
     'auth:getAuthStatus',
     'auth:getEffectiveRoute',
+    'auth:checkConnection',
     'auth:getStatus',
     'auth:saveSettings',
     'auth:setApiKey',
+    'auth:deleteStoredKey',
     'auth:testConnection',
     'auth:copilotLogin',
     'auth:copilotLogout',
@@ -225,6 +245,9 @@ export class AuthRpcHandlers {
    */
   private cacheGeneration = 0;
 
+  /** Runs `auth:checkConnection`; see `connection-check.ts`. */
+  private readonly connectionChecker: ConnectionChecker;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -254,6 +277,9 @@ export class AuthRpcHandlers {
     private readonly scopeResolver: WorkspaceScopeResolver,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_DRAFT_VERIFICATION)
     private readonly draftVerification: DraftVerificationService,
+    /** Last explicit check per connection (registered in `registerSharedRpcHandlers`). */
+    @inject(ConnectionCheckRecorder)
+    private readonly connectionChecks: ConnectionCheckRecorder,
     /**
      * Optional: absent in unit harnesses and in any host that has not wired a
      * webview manager. Used only to broadcast interactive-login progress
@@ -271,7 +297,17 @@ export class AuthRpcHandlers {
     private readonly adapterEvents?: SdkAdapterEvents,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_MODEL_RESOLVER, { isOptional: true })
     private readonly modelResolver?: ModelResolver,
-  ) {}
+  ) {
+    this.connectionChecker = new ConnectionChecker({
+      recorder: connectionChecks,
+      draftVerification,
+      copilotAuth,
+      codexAuth,
+      cliDetector,
+      readProviderKey: (id) => authSecretsService.getProviderKey(id),
+      logger,
+    });
+  }
 
   /**
    * Register all auth RPC methods
@@ -280,9 +316,11 @@ export class AuthRpcHandlers {
     this.registerGetHealth();
     this.registerGetAuthStatus();
     this.registerGetEffectiveRoute();
+    this.registerCheckConnection();
     this.registerGetStatus();
     this.registerSaveSettings();
     this.registerSetApiKey();
+    this.registerDeleteStoredKey();
     this.registerTestConnection();
     this.registerCopilotLogin();
     this.registerCopilotLogout();
@@ -304,9 +342,11 @@ export class AuthRpcHandlers {
       methods: [
         'auth:getHealth',
         'auth:getAuthStatus',
+        'auth:checkConnection',
         'auth:getStatus',
         'auth:saveSettings',
         'auth:setApiKey',
+        'auth:deleteStoredKey',
         'auth:testConnection',
         'auth:copilotLogin',
         'auth:copilotLogout',
@@ -500,6 +540,11 @@ export class AuthRpcHandlers {
             },
             providers,
           );
+          // Read-only: the route never records a check (it probes nothing).
+          const providersWithChecks = providers.map((provider) => {
+            const lastCheck = this.connectionChecks.get(provider.id);
+            return lastCheck ? { ...provider, lastCheck } : provider;
+          });
           const authKey = resolveAuthProviderKey(
             storedAuthMethodDiagnostic ?? '',
             anthropicProviderId ?? '',
@@ -537,7 +582,7 @@ export class AuthRpcHandlers {
             resolvedModel,
             storedAuthMethodDiagnostic,
             storedAuthMethodScope,
-            providers,
+            providers: providersWithChecks,
             // These status sources prove configuration/installation, not a successful inference request.
             // Never manufacture connection timestamps from credential presence or cache age.
             lastSuccessfulProbeAt: null,
@@ -552,6 +597,42 @@ export class AuthRpcHandlers {
           });
           throw new Error('Unable to read the effective route');
         }
+      },
+    );
+  }
+
+  /**
+   * auth:checkConnection - Check one SAVED connection now and record the result
+   * (status, latency, time) for `auth:getEffectiveRoute` `providers[].lastCheck`.
+   * Key-carrying connections send one minimal request through the stored-key
+   * probe; sign-in and CLI connections re-read their token or detection.
+   * Probe failures are a `failed` record, not an RPC error.
+   */
+  private registerCheckConnection(): void {
+    this.rpcHandler.registerMethod<unknown, AuthCheckConnectionResult>(
+      'auth:checkConnection',
+      async (raw: unknown) => {
+        const parsed = AuthCheckConnectionSchema.safeParse(raw);
+        if (!parsed.success) {
+          // The lib's standard invalid-params text; "Unknown provider id" is
+          // kept for a well-formed id that names no connection.
+          throw new RpcUserError(
+            'Invalid parameters for auth:checkConnection',
+            'INVALID_PARAMS',
+          );
+        }
+        const { providerId } = parsed.data;
+        const kind = connectionCheckKind(providerId);
+        if (kind === undefined) {
+          throw new RpcUserError('Unknown provider id', 'INVALID_PARAMS');
+        }
+        if (kind === null) {
+          throw new RpcUserError(
+            'This connection cannot be checked here.',
+            'INVALID_PARAMS',
+          );
+        }
+        return this.connectionChecker.check(providerId, kind);
       },
     );
   }
@@ -729,6 +810,7 @@ export class AuthRpcHandlers {
 
     return {
       hasApiKey: secrets.hasApiKey,
+      ...(secrets.apiKeyHint ? { apiKeyHint: secrets.apiKeyHint } : {}),
       hasOpenRouterKey: secrets.hasOpenRouterKey,
       hasAnyProviderKey: secrets.hasAnyProviderKey,
       authMethod,
@@ -751,22 +833,52 @@ export class AuthRpcHandlers {
     checkProviderId: string,
     allProviders: ReadonlyArray<{ id: string }>,
   ): Promise<SecretProbeResult> {
-    const [hasApiKey, hasOpenRouterKey] = await Promise.all([
-      this.authSecretsService.hasCredential('apiKey'),
-      this.authSecretsService.hasProviderKey(checkProviderId),
-    ]);
+    try {
+      // The Claude API key is read once for presence AND its masked hint; the
+      // value never leaves this scope.
+      const [apiKey, hasOpenRouterKey] = await Promise.all([
+        this.authSecretsService.getCredential('apiKey'),
+        this.authSecretsService.hasProviderKey(checkProviderId),
+      ]);
 
-    let hasAnyProviderKey = hasOpenRouterKey;
-    if (!hasAnyProviderKey) {
-      for (const p of allProviders) {
-        if (await this.authSecretsService.hasProviderKey(p.id)) {
-          hasAnyProviderKey = true;
-          break;
+      let hasAnyProviderKey = hasOpenRouterKey;
+      if (!hasAnyProviderKey) {
+        for (const p of allProviders) {
+          if (await this.authSecretsService.hasProviderKey(p.id)) {
+            hasAnyProviderKey = true;
+            break;
+          }
         }
       }
-    }
 
-    return { hasApiKey, hasOpenRouterKey, hasAnyProviderKey };
+      return {
+        hasApiKey: !!apiKey && apiKey.length > 0,
+        apiKeyHint: maskKeyHint(apiKey),
+        hasOpenRouterKey,
+        hasAnyProviderKey,
+      };
+    } catch (error: unknown) {
+      throw this.keyStoreReadFailure('auth:getAuthStatus', error);
+    }
+  }
+
+  /**
+   * A key-store read failed. Store errors can carry key material, so only the
+   * error's type is logged and the caller gets fixed text (Batch 7 / 12b rule).
+   */
+  private keyStoreReadFailure(method: string, error: unknown): RpcUserError {
+    const errorType = error instanceof Error ? error.name : 'unknown';
+    this.logger.error(`RPC: ${method} could not read the key store`, {
+      errorType,
+    });
+    this.sentryService.captureException(
+      new Error(`${method}: key store read failed (${errorType})`),
+      { errorSource: `AuthRpcHandlers.${method}` },
+    );
+    return new RpcUserError(
+      'Could not read the stored keys.',
+      'PERSISTENCE_UNAVAILABLE',
+    );
   }
 
   /**
@@ -967,6 +1079,7 @@ export class AuthRpcHandlers {
           } else {
             await this.authSecretsService.deleteCredential('apiKey');
           }
+          this.connectionChecks.clear(ANTHROPIC_DIRECT_PROVIDER_ID);
         }
         if (validated.providerApiKey !== undefined) {
           const targetProviderId =
@@ -982,6 +1095,7 @@ export class AuthRpcHandlers {
           } else {
             await this.authSecretsService.deleteProviderKey(targetProviderId);
           }
+          this.connectionChecks.clear(targetProviderId);
           this.providerModels.clearCache(targetProviderId);
         }
         if (validated.anthropicProviderId !== undefined) {
@@ -1029,7 +1143,7 @@ export class AuthRpcHandlers {
   private registerTestConnection(): void {
     this.rpcHandler.registerMethod<
       void,
-      { success: boolean; health: unknown; errorMessage?: string }
+      AuthTestConnectionResponse
     >('auth:testConnection', async () => {
       try {
         this.logger.debug('RPC: auth:testConnection called');
@@ -1044,7 +1158,7 @@ export class AuthRpcHandlers {
           if (health.status === 'available') {
             const result = {
               success: true,
-              health,
+              health: { ...health, errorMessage: undefined },
               errorMessage: undefined,
             };
             this.logger.info('RPC: auth:testConnection completed', {
@@ -1062,8 +1176,17 @@ export class AuthRpcHandlers {
         const finalHealth = this.sdkAdapter.getHealth();
         const result = {
           success: finalHealth.status === 'available',
-          health: finalHealth,
-          errorMessage: finalHealth.errorMessage || 'Connection test timed out',
+          health: {
+            ...finalHealth,
+            errorMessage: finalHealth.errorMessage
+              ? 'Could not test the connection.'
+              : undefined,
+          },
+          errorMessage: finalHealth.status === 'available'
+            ? undefined
+            : finalHealth.status === 'error'
+              ? 'Could not test the connection.'
+              : 'Connection test timed out',
         };
 
         this.logger.info(
@@ -1071,16 +1194,18 @@ export class AuthRpcHandlers {
           { result },
         );
         return result;
-      } catch (error) {
-        this.logger.error(
-          'RPC: auth:testConnection failed',
-          error instanceof Error ? error : new Error(String(error)),
-        );
+      } catch (error: unknown) {
+        const errorType = error instanceof Error ? error.name : 'unknown';
+        this.logger.error('RPC: auth:testConnection failed', { errorType });
         this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
+          new Error(`auth:testConnection failed (${errorType})`),
           { errorSource: 'AuthRpcHandlers.registerTestConnection' },
         );
-        throw error;
+        return {
+          success: false,
+          health: null,
+          errorMessage: 'Could not test the connection.',
+        };
       }
     });
   }
@@ -1131,9 +1256,12 @@ export class AuthRpcHandlers {
           error instanceof Error ? error : new Error(String(error)),
           { errorSource: 'AuthRpcHandlers.registerCopilotLogin' },
         );
+        // Fixed copy: a thrown error's text can carry tokens or local paths.
+        // The known user-actionable outcomes (device code expired, access
+        // denied) resolve `false` above and never reach this catch.
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Login failed',
+          error: 'GitHub sign-in failed. Try again.',
         };
       }
     });
@@ -1238,29 +1366,104 @@ export class AuthRpcHandlers {
             error: 'provider is required',
           };
         }
-        if (params.apiKey?.trim()) {
-          await this.authSecretsService.setProviderKey(
-            params.provider,
-            params.apiKey,
-          );
-        } else {
-          await this.authSecretsService.deleteProviderKey(params.provider);
+        try {
+          if (params.apiKey?.trim()) {
+            await this.authSecretsService.setProviderKey(
+              params.provider,
+              params.apiKey,
+            );
+          } else {
+            await this.authSecretsService.deleteProviderKey(params.provider);
+          }
+        } finally {
+          // A replaced or cleared key makes the last check stale. Cleared after
+          // the write (also when it failed), so no check of the old key survives.
+          this.connectionChecks.clear(params.provider);
         }
         this.providerModels.clearCache(params.provider);
         this.invalidateAuthStatusCache();
         return { success: true };
-      } catch (error) {
-        this.logger.error(
-          'RPC: auth:setApiKey failed',
-          error instanceof Error ? error : new Error(String(error)),
-        );
+      } catch (error: unknown) {
+        const errorType = error instanceof Error ? error.name : 'unknown';
+        this.logger.error('RPC: auth:setApiKey failed', { errorType });
         this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
+          new Error(`auth:setApiKey failed (${errorType})`),
           { errorSource: 'AuthRpcHandlers.registerSetApiKey' },
+        );
+        // Fixed copy: a secret-store error can echo the key it was given.
+        return {
+          success: false,
+          error: params.apiKey?.trim()
+            ? 'Could not save the API key.'
+            : 'Could not delete the stored key.',
+        };
+      }
+    });
+  }
+
+  /**
+   * auth:deleteStoredKey - Delete one stored credential without activating, re-scoping or resetting.
+   */
+  private registerDeleteStoredKey(): void {
+    this.rpcHandler.registerMethod<
+      AuthDeleteStoredKeyParams,
+      AuthDeleteStoredKeyResult
+    >('auth:deleteStoredKey', async (params) => {
+      try {
+        this.logger.debug('RPC: auth:deleteStoredKey called', {
+          providerId: params?.providerId,
+        });
+
+        const parsed = AuthDeleteStoredKeySchema.safeParse(params);
+        if (!parsed.success) {
+          this.logger.warn('RPC: auth:deleteStoredKey rejected invalid params');
+          return {
+            success: false,
+            error: 'Unknown provider id',
+          };
+        }
+
+        const { providerId } = parsed.data;
+        try {
+          if (providerId === 'anthropic') {
+            await this.authSecretsService.setCredential('apiKey', '');
+          } else {
+            await this.authSecretsService.deleteProviderKey(providerId);
+          }
+          // The key is gone: its last check no longer describes the connection.
+          this.connectionChecks.clear(providerId);
+        } catch {
+          // The store may be half-written; forget the check either way.
+          this.connectionChecks.clear(providerId);
+          // Secret-store errors can carry credentials; discard their details (D4 / 555).
+          this.logger.error('RPC: auth:deleteStoredKey secret deletion failed');
+          return {
+            success: false,
+            error: 'Could not delete the stored key.',
+          };
+        }
+
+        try {
+          this.providerModels.clearCache(providerId);
+          this.invalidateAuthStatusCache();
+        } catch {
+          this.logger.warn(
+            'RPC: auth:deleteStoredKey cache invalidation failed',
+          );
+        }
+
+        return { success: true };
+      } catch (error: unknown) {
+        // A secret-store error can echo the key: log and report its type only.
+        const errorType = error instanceof Error ? error.name : 'unknown';
+        this.logger.error('RPC: auth:deleteStoredKey failed', { errorType });
+        this.sentryService.captureException(
+          new Error(`auth:deleteStoredKey failed (${errorType})`),
+          { errorSource: 'AuthRpcHandlers.registerDeleteStoredKey' },
         );
         return {
           success: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: 'Could not delete the stored key.',
         };
       }
     });
@@ -1307,51 +1510,68 @@ export class AuthRpcHandlers {
   }
 
   /**
-   * auth:getApiKeyStatus - List all providers with their key presence
+   * auth:getApiKeyStatus - List all providers with their key presence and the
+   * masked `keyHint` of each stored key (read path only; see `maskKeyHint`).
    *
-   * Lifted from
-   * `apps/ptah-electron/src/services/rpc/handlers/config-extended-rpc.handlers.ts`
-   * so all three apps (VS Code, Electron, CLI) consume it via
-   * `registerAllRpcHandlers()`. Body is a verbatim port; the only mechanical
-   * change is `container.resolve<...>(...)` → `this.<field>` (constructor-injected).
+   * Shared by all three apps (VS Code, Electron, CLI) via
+   * `registerAllRpcHandlers()`; each host's `IAuthSecretsService` reads its own
+   * secret store. Each provider's key is read on its own: an unreadable one
+   * is listed with `keyUnreadable: true` and the rest still load. Only when no
+   * key can be read is it an error with fixed text, never an empty list that
+   * would read as "no keys stored".
    */
   private registerGetApiKeyStatus(): void {
     this.rpcHandler.registerMethod<
       Record<string, never>,
-      {
-        providers: Array<{
-          provider: string;
-          displayName: string;
-          hasApiKey: boolean;
-          isDefault: boolean;
-        }>;
-      }
+      AuthGetApiKeyStatusResult
     >('auth:getApiKeyStatus', async () => {
-      try {
-        const activeProvider = this.configManager.getWithDefault<string>(
-          'anthropicProviderId',
-          DEFAULT_PROVIDER_ID,
+      const activeProvider = this.configManager.getWithDefault<string>(
+        'anthropicProviderId',
+        DEFAULT_PROVIDER_ID,
+      );
+      const all = getAllAnthropicProviders();
+      // Read once per provider for presence and hint; values stay in this scope.
+      const reads = await Promise.allSettled(
+        all.map((p) => this.authSecretsService.getProviderKey(p.id)),
+      );
+      const failures = reads.flatMap((read, index) =>
+        read.status === 'rejected'
+          ? [{ providerId: all[index].id, reason: read.reason as unknown }]
+          : [],
+      );
+      if (failures.length > 0 && failures.length === reads.length) {
+        throw this.keyStoreReadFailure(
+          'auth:getApiKeyStatus',
+          failures[0].reason,
         );
-        const providers = await Promise.all(
-          getAllAnthropicProviders().map(async (p) => ({
-            provider: p.id,
-            displayName: p.name,
-            hasApiKey: await this.authSecretsService.hasProviderKey(p.id),
-            isDefault: p.id === activeProvider,
-          })),
-        );
-        return { providers };
-      } catch (error) {
-        this.logger.error(
-          'RPC: auth:getApiKeyStatus failed',
-          error instanceof Error ? error : new Error(String(error)),
-        );
-        this.sentryService.captureException(
-          error instanceof Error ? error : new Error(String(error)),
-          { errorSource: 'AuthRpcHandlers.registerGetApiKeyStatus' },
-        );
-        return { providers: [] };
       }
+      if (failures.length > 0) {
+        // Store errors can carry key material: provider ids and types only.
+        this.logger.warn('RPC: auth:getApiKeyStatus could not read some keys', {
+          failures: failures.map(({ providerId, reason }) => ({
+            providerId,
+            errorType: reason instanceof Error ? reason.name : 'unknown',
+          })),
+        });
+      }
+      const providers = all.map((p, index): AuthApiKeyStatusEntry => {
+        const read = reads[index];
+        const entry = {
+          provider: p.id,
+          displayName: p.name,
+          isDefault: p.id === activeProvider,
+        };
+        if (read.status === 'rejected') {
+          return { ...entry, hasApiKey: false, keyUnreadable: true };
+        }
+        const keyHint = maskKeyHint(read.value);
+        return {
+          ...entry,
+          hasApiKey: !!read.value && read.value.length > 0,
+          ...(keyHint ? { keyHint } : {}),
+        };
+      });
+      return { providers };
     });
   }
 

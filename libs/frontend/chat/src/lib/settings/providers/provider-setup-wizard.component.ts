@@ -58,6 +58,7 @@ import type {
   ProviderModelTier,
   SettingScope,
 } from '@ptah-extension/shared';
+import { injectAppScopeName, saveTargetLabels } from './app-scope-label';
 
 /** One of the five wizard steps. */
 export type WizardStepId = 'provider' | 'credential' | 'verify' | 'models' | 'scope';
@@ -204,12 +205,6 @@ const AUTH_MODE_LABELS: Readonly<Record<WizardAuthMode, string>> = {
   'local-native': 'Local server',
   'local-proxy': 'Local server (proxied)',
   custom: 'Custom endpoint',
-};
-
-const SAVE_TARGET_LABELS: Readonly<Record<SettingScope, string>> = {
-  global: 'Global · all apps',
-  app: 'Desktop app',
-  workspace: 'This workspace',
 };
 
 /**
@@ -1758,6 +1753,9 @@ export class ProviderSetupWizardComponent implements OnDestroy {
     return TIER_KEYS.every((key) => this._tiers[key]().length > 0);
   });
 
+  /** The App target is the running host's own layer ("VS Code" or "Desktop app"). */
+  private readonly saveTargetLabels = saveTargetLabels(injectAppScopeName());
+
   protected readonly saveTargetOptions = computed<
     readonly { scope: SettingScope; label: string; disabled: boolean; reason: string | null }[]
   >(() => {
@@ -1767,7 +1765,7 @@ export class ProviderSetupWizardComponent implements OnDestroy {
       const supported = targets.includes(scope);
       return {
         scope,
-        label: SAVE_TARGET_LABELS[scope],
+        label: this.saveTargetLabels[scope],
         disabled: !supported,
         reason:
           scope === 'workspace' && !supported

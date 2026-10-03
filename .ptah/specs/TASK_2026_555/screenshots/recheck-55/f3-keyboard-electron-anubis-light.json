@@ -1,0 +1,10 @@
+{
+ "afterPick": "INPUT#provider-model-picker-search[combobox]",
+ "popoverOpen": 1,
+ "searchAriaDisabled": "true",
+ "afterEsc": "BUTTON#cli-matrix-model-codex",
+ "popoverOpenAfterEsc": 0,
+ "cellFocusedAfterEsc": true,
+ "afterRelease": "BUTTON#cli-matrix-model-codex",
+ "cellFocusedAfterRelease": true
+}

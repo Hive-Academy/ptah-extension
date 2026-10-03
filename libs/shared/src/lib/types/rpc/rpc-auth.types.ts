@@ -55,7 +55,7 @@ export interface AuthTestConnectionResponse {
     errorMessage?: string;
     responseTime?: number;
     uptime?: number;
-  };
+  } | null;
   errorMessage?: string;
 }
 
@@ -163,14 +163,30 @@ export interface AnthropicProviderInfo {
 }
 
 /**
+ * Masked, display-only hint of a stored key: four bullets (U+2022), a space,
+ * then the LAST 4 characters of the stored secret (`'•••• 8f21'`).
+ *
+ * SECURITY: computed in the extension host from the stored secret; the full
+ * key and every other part of it stay in the host. Absent when no key is
+ * stored, when the stored key is shorter than 12 characters (the last 4 would
+ * be too large a share of it), or when the key store could not be read. The
+ * hint is never accepted as input, never logged and never echoed in an error.
+ */
+export type StoredKeyHint = string;
+
+/**
  * Response from auth:getAuthStatus RPC method
  *
- * SECURITY: This response NEVER contains actual credential values.
- * Only boolean flags indicating whether credentials are configured.
+ * SECURITY: This response NEVER contains a credential value. It carries
+ * presence flags plus, at most, the masked `apiKeyHint` ({@link StoredKeyHint}:
+ * bullets + last 4 characters, host-computed, only for keys of 12 or more
+ * characters).
  */
 export interface AuthGetAuthStatusResponse {
   /** Whether API key is configured in SecretStorage */
   hasApiKey: boolean;
+  /** Masked hint of the stored Claude API key; see {@link StoredKeyHint}. */
+  apiKeyHint?: StoredKeyHint;
   /** Whether provider API key is configured for the currently selected provider */
   hasOpenRouterKey: boolean;
   /** Whether ANY provider has a key configured (covers all third-party providers) */
@@ -238,7 +254,54 @@ export interface EffectiveRouteProvider {
     | 'missing'
     | 'unknown'
     | 'skipped';
+  /**
+   * The last explicit check of this connection in this host session
+   * (`auth:checkConnection`, `provider:testCustomEntry`). Absent until one ran.
+   */
+  lastCheck?: ConnectionCheckRecord;
 }
+
+/**
+ * Why a connection check failed: the draft-probe reasons, plus the two
+ * verdicts of connections that sign in or run a local CLI.
+ */
+export type ConnectionCheckFailureReason =
+  | ProbeFailureReason
+  | 'signed-out' // Copilot / Codex: no valid sign-in
+  | 'not-installed'; // Claude CLI: not detected
+
+/**
+ * The result of one explicit connection check, held in memory per host
+ * session (never persisted). A newer check replaces it; an older check that
+ * finishes late never does.
+ */
+export interface ConnectionCheckRecord {
+  status: 'verified' | 'failed';
+  /** `null` only when `status` is `'verified'`. */
+  reason: ConnectionCheckFailureReason | null;
+  /**
+   * Whole milliseconds around the provider request. `null` when the check
+   * failed, or when the connection has no request to time (CLI and sign-in
+   * connections are checked by detection or a token read).
+   */
+  latencyMs: number | null;
+  /** ISO 8601 time the check completed. */
+  checkedAt: string;
+}
+
+/** Parameters for auth:checkConnection RPC method */
+export interface AuthCheckConnectionParams {
+  /** Saved connection to check: a registry id, a custom entry id, or `'anthropic'`. */
+  providerId: string;
+}
+
+/**
+ * Response from auth:checkConnection RPC method: the recorded check.
+ *
+ * SECURITY: carries no credential and no provider or SDK text; a failure is
+ * the fixed `reason` union only.
+ */
+export type AuthCheckConnectionResult = ConnectionCheckRecord;
 
 export interface EffectiveRouteResult {
   /** Resolved IAuthStrategy id, or 'unresolved' when the input is unusable. */
@@ -466,8 +529,7 @@ export type ProbeFailureReason =
  * never crosses the RPC boundary in either direction.
  */
 export type DraftProbeCredential =
-  | { kind: 'apiKey'; value: string }
-  | { kind: 'stored' };
+  { kind: 'apiKey'; value: string } | { kind: 'stored' };
 
 /** Parameters for auth:verifyDraftConnection RPC method */
 export interface AuthVerifyDraftConnectionParams {
@@ -528,4 +590,43 @@ export interface AuthCancelDraftVerificationParams {
 /** Response from auth:cancelDraftVerification RPC method */
 export interface AuthCancelDraftVerificationResult {
   cancelled: boolean;
+}
+
+/** Parameters for auth:deleteStoredKey RPC method */
+export interface AuthDeleteStoredKeyParams {
+  providerId: string;
+}
+
+/** One provider row of auth:getApiKeyStatus. */
+export interface AuthApiKeyStatusEntry {
+  provider: string;
+  displayName: string;
+  hasApiKey: boolean;
+  isDefault: boolean;
+  /** Masked hint of this provider's stored key; see {@link StoredKeyHint}. */
+  keyHint?: StoredKeyHint;
+  /**
+   * Present (`true`) when this provider's stored key could not be read. The
+   * entry then has `hasApiKey: false` and no `keyHint`: whether a key is
+   * stored is unknown, not "no key".
+   */
+  keyUnreadable?: true;
+}
+
+/**
+ * Response from auth:getApiKeyStatus RPC method.
+ *
+ * SECURITY: never contains a key value; `keyHint` is the only key-derived
+ * field. Each provider is read on its own: one unreadable key marks only its
+ * entry (`keyUnreadable`). When no provider's key can be read, the call fails
+ * with fixed text ("Could not read the stored keys.") instead of a list.
+ */
+export interface AuthGetApiKeyStatusResult {
+  providers: AuthApiKeyStatusEntry[];
+}
+
+/** Response from auth:deleteStoredKey RPC method */
+export interface AuthDeleteStoredKeyResult {
+  success: boolean;
+  error?: string;
 }
