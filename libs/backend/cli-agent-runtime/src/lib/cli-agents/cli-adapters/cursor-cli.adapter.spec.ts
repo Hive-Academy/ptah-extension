@@ -917,6 +917,58 @@ describe('CursorCliAdapter', () => {
       expect(JSON.stringify(segments)).toContain('[REDACTED]');
     });
 
+    it('streamed status ERROR, thinking, tool-call and tool-result text never carries the key (final review M-2)', async () => {
+      process.env['CURSOR_API_KEY'] = SECRET;
+      const handle = await adapter.runSdk(defaultOptions);
+      const output: string[] = [];
+      const segments: unknown[] = [];
+      handle.onOutput((data) => output.push(data));
+      handle.onSegment?.((seg) => segments.push(seg));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      currentRun?.push({ type: 'thinking', text: `using key ${SECRET}` });
+      currentRun?.push({
+        type: 'tool_call',
+        status: 'running',
+        call_id: 'call-1',
+        name: 'run_terminal_command',
+        args: { command: `curl -H "Authorization: ${SECRET}"` },
+      });
+      currentRun?.push({
+        type: 'tool_call',
+        status: 'error',
+        call_id: 'call-1',
+        name: 'run_terminal_command',
+        result: { stderr: `401 for ${SECRET}` },
+      });
+      currentRun?.push({
+        type: 'status',
+        status: 'ERROR',
+        message: `request with api key ${SECRET} was rejected`,
+      });
+      currentRun?.push({ type: 'task', text: `retrying with ${SECRET}` });
+      currentRun?.end();
+      await handle.done;
+
+      const streamed = output.join('') + JSON.stringify(segments);
+      expect(streamed).not.toContain(SECRET);
+      expect(streamed).toContain('[REDACTED]');
+      expect(segments).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'error',
+            content: 'request with api key [REDACTED] was rejected',
+          }),
+          expect.objectContaining({
+            type: 'tool-call',
+            toolInput: { command: 'curl -H "Authorization: [REDACTED]"' },
+          }),
+          expect.objectContaining({ type: 'tool-result-error' }),
+        ]),
+      );
+    });
+
     it('run.cancel() rejection: the log and the rethrown error carry the marker, not the key', async () => {
       process.env['CURSOR_API_KEY'] = SECRET;
       const runs: FakeRunControls[] = [];

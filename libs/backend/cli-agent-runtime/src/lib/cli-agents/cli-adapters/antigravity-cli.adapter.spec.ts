@@ -203,7 +203,7 @@ describe('AntigravityCliAdapter', () => {
   });
 
   describe('listModels()', () => {
-    it('parses `agy models` stdout into id/name pairs', async () => {
+    it('old format: one spaced label per line still lists models', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/agy');
       const models = adapter.listModels();
 
@@ -223,6 +223,60 @@ describe('AntigravityCliAdapter', () => {
       ]);
       const [, argsArg] = mockSpawnCli.mock.calls[0] as [string, string[]];
       expect(argsArg).toEqual(['models']);
+    });
+
+    it('old format: status and error lines on stdout are ignored (final review M-4)', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/agy');
+      const models = adapter.listModels();
+      await Promise.resolve();
+      currentChild?.stdout.write(
+        [
+          'Fetching available models...',
+          'Error: not signed in',
+          'warning: cache is stale',
+          'Loading models',
+          'Loading…',
+          'Usage limit reached',
+          'Failed to refresh token',
+          'Models:',
+          'Gemini 3.1 Pro (High)',
+          '',
+        ].join('\n'),
+      );
+      currentChild?.emitClose(0);
+
+      expect(await models).toEqual([
+        { id: 'Gemini 3.1 Pro (High)', name: 'Gemini 3.1 Pro (High)' },
+      ]);
+    });
+
+    it('an error-only stdout yields no models', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/agy');
+      const models = adapter.listModels();
+      await Promise.resolve();
+      currentChild?.stdout.write('Error: not signed in. Run agy login.\n');
+      currentChild?.emitClose(1);
+      expect(await models).toEqual([]);
+    });
+
+    it('new format: when any line has a tab, only tab lines are models (final review M-4)', async () => {
+      mockResolveCliPath.mockResolvedValue('/usr/local/bin/agy');
+      const models = adapter.listModels();
+      await Promise.resolve();
+      currentChild?.stdout.write(
+        [
+          'Fetching available models...',
+          'Gemini 3.1 Pro (High)',
+          'Note this list may change',
+          'claude-sonnet-4-6\tClaude Sonnet 4.6',
+          '',
+        ].join('\n'),
+      );
+      currentChild?.emitClose(0);
+
+      expect(await models).toEqual([
+        { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+      ]);
     });
 
     it('agy 1.2 format: skips the status line and splits `id<TAB>name` (TASK_2026_555 Batch 52.2)', async () => {

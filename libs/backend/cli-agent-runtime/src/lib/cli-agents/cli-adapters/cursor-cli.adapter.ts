@@ -156,6 +156,40 @@ async function getCursorSdk(): Promise<CursorSdkModule> {
   return mod;
 }
 
+/**
+ * Redact every text field of a stream segment: `content`, `toolArgs`, and the
+ * raw `toolInput`. The input is round-tripped through JSON only when its JSON
+ * text contains a secret; a value that cannot be serialised is dropped rather
+ * than emitted unchecked (the redacted `toolArgs` preview still renders).
+ */
+function redactSegment(
+  value: CliOutputSegment,
+  secrets: readonly string[],
+): CliOutputSegment {
+  if (!secrets.some((secret) => secret.trim().length > 0)) return value;
+  const redacted: CliOutputSegment = {
+    ...value,
+    content: redactSecrets(value.content, secrets),
+    ...(value.toolArgs === undefined
+      ? {}
+      : { toolArgs: redactSecrets(value.toolArgs, secrets) }),
+  };
+  if (value.toolInput === undefined) return redacted;
+  try {
+    const json = JSON.stringify(value.toolInput);
+    const clean = redactSecrets(json, secrets);
+    return clean === json
+      ? redacted
+      : {
+          ...redacted,
+          toolInput: JSON.parse(clean) as Record<string, unknown>,
+        };
+  } catch {
+    // Not serialisable, so it cannot be checked: drop it instead of leaking it.
+    return { ...redacted, toolInput: undefined };
+  }
+}
+
 export class CursorCliAdapter implements CliAdapter {
   readonly name = 'cursor' as const;
   readonly displayName = 'Cursor';
@@ -293,6 +327,13 @@ export class CursorCliAdapter implements CliAdapter {
 
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
+    // Streamed run text (status errors, thinking, tool calls and results,
+    // assistant text) gets the same redaction as the error paths: the SDK that
+    // echoes the request in a rejection can echo it in a stream message too.
+    const emitStreamOutput = (data: string): void =>
+      output.emit(redactSecrets(data, secretRedactions));
+    const emitStreamSegment = (value: CliOutputSegment): void =>
+      segment.emit(redactSegment(value, secretRedactions));
 
     const onAbort = (): void => {
       if (activeRun) {
@@ -370,8 +411,8 @@ export class CursorCliAdapter implements CliAdapter {
           }
           this.handleMessage(
             message,
-            output.emit,
-            segment.emit,
+            emitStreamOutput,
+            emitStreamSegment,
             textTracker,
             seenToolCalls,
           );
@@ -391,11 +432,7 @@ export class CursorCliAdapter implements CliAdapter {
         this.logger?.error('[CursorCliAdapter] SDK run failed', {
           detail: errorMessage,
         });
-        const summary = summarizeCliSdkError(
-          error,
-          'Cursor',
-          secretRedactions,
-        );
+        const summary = summarizeCliSdkError(error, 'Cursor', secretRedactions);
         output.emit(`\n${summary}\n`);
         segment.emit({ type: 'error', content: summary });
         return 1;

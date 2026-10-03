@@ -196,28 +196,47 @@ function createTurnDeferred(): TurnDeferred {
   return deferred;
 }
 
+/** A legacy-format line that starts with a status or error word is never a model. */
+const AGY_STATUS_LINE_START =
+  /^(error|warning|fetching|loading|usage|failed)\b/i;
+
+/** A legacy-format line ending in an ellipsis ("...", "…") or ":" is a status line. */
+const AGY_STATUS_LINE_END = /(\.\.\.|…|:)$/;
+
 /**
- * Parse `agy models` stdout (TASK_2026_555 Batch 52.2). agy 1.2 prints a status line
- * ("Fetching available models...") and then `id<TAB>display name` per model
- * ("claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)"); the id is what `--model`
- * takes. Older builds printed one label per line ("Gemini 3.1 Pro (High)"),
- * which is both the id and the name. A tab-less line ending in "..." is a status
- * line, never a model.
+ * Parse `agy models` stdout (TASK_2026_555 Batch 52.2). Two formats:
+ *
+ * - agy 1.2: a status line ("Fetching available models...") and then
+ *   `id<TAB>display name` per model ("claude-sonnet-4-6\tClaude Sonnet 4.6
+ *   (Thinking)"). When ANY line has a tab, only tab lines are read and every
+ *   other line (status, progress, error) is ignored.
+ * - Older builds: one label per line ("Gemini 3.1 Pro (High)"), which is both
+ *   the id and the name. With no tab anywhere, a line is a model unless it is
+ *   a status or error line: ending in "...", "…" or ":", or starting with a
+ *   status/error word ({@link AGY_STATUS_LINE_START}).
+ *
+ * The spawn passes only the id (`agyModelId`).
  */
 export function parseAgyModels(stdout: string): CliModelInfo[] {
-  const models: CliModelInfo[] = [];
-  for (const line of stdout.split(/\r?\n/).map((entry) => entry.trim())) {
-    if (!line) continue;
-    const tab = line.indexOf('\t');
-    if (tab < 0) {
-      if (!line.endsWith('...')) models.push({ id: line, name: line });
-      continue;
-    }
-    const id = line.slice(0, tab).trim();
-    const name = line.slice(tab + 1).trim();
-    if (id) models.push({ id, name: name || id });
+  const lines = stdout
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (lines.some((line) => line.includes('\t'))) {
+    return lines.flatMap((line) => {
+      const tab = line.indexOf('\t');
+      if (tab < 0) return [];
+      const id = line.slice(0, tab).trim();
+      const name = line.slice(tab + 1).trim();
+      return id ? [{ id, name: name || id }] : [];
+    });
   }
-  return models;
+  return lines
+    .filter(
+      (line) =>
+        !AGY_STATUS_LINE_END.test(line) && !AGY_STATUS_LINE_START.test(line),
+    )
+    .map((line) => ({ id: line, name: line }));
 }
 
 /**
