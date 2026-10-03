@@ -7,10 +7,11 @@ import {
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
-import type {
-  HarnessHealth,
-  HarnessTargetHealth,
-  HarnessTargetId,
+import {
+  MESSAGE_TYPES,
+  type HarnessHealth,
+  type HarnessTargetHealth,
+  type HarnessTargetId,
 } from '@ptah-extension/shared';
 
 import {
@@ -20,6 +21,7 @@ import {
   ReconcileGuardComponent,
   groupLocalEdits,
   type ReconcileGuardOptions,
+  type ReconcileGuardOutcome,
 } from './reconcile-guard';
 
 /**
@@ -90,7 +92,7 @@ const fail = (error: string) => ({
 
 /**
  * A caller shaped exactly like the Sync action B-3b wires: guard first, the
- * mutation only on `true`.
+ * mutation only on `'approved'`.
  */
 @Component({
   standalone: true,
@@ -102,10 +104,12 @@ class SyncHostComponent {
   public readonly guard = viewChild.required(ReconcileGuardComponent);
   public readonly store = inject(HarnessHealthStore);
 
-  public async sync(options?: ReconcileGuardOptions): Promise<boolean> {
-    if (!(await this.guard().confirm(options))) return false;
-    await this.store.reconcile();
-    return true;
+  public async sync(
+    options?: ReconcileGuardOptions,
+  ): Promise<ReconcileGuardOutcome> {
+    const outcome = await this.guard().check(options);
+    if (outcome === 'approved') await this.store.reconcile();
+    return outcome;
   }
 }
 
@@ -169,7 +173,7 @@ describe('ReconcileGuardComponent', () => {
     fixture.detectChanges();
   }
 
-  it('cancel resolves false and performs no reconcile', async () => {
+  it('cancel resolves cancelled and performs no reconcile', async () => {
     freshReport = health([target('codex', ['.codex/agents/reviewer.toml'])]);
     const result = host.sync({ confirmLabel: 'Sync' });
     await settle();
@@ -178,28 +182,28 @@ describe('ReconcileGuardComponent', () => {
     q('reconcile-guard-cancel')?.click();
     fixture.detectChanges();
 
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('cancelled');
     expect(methods()).toEqual(['harness:health']);
     expect(q('native-modal-dialog')?.hasAttribute('open')).toBe(false);
   });
 
-  it('Escape (the native dialog cancel) resolves false and performs no reconcile', async () => {
+  it('Escape (the native dialog cancel) resolves cancelled and performs no reconcile', async () => {
     const result = host.sync();
     await settle();
 
     q('native-modal-dialog')?.dispatchEvent(new Event('cancel'));
     fixture.detectChanges();
 
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('cancelled');
     expect(methods()).not.toContain('harness:reconcile');
   });
 
-  it('confirm resolves true and the caller reconciles after the fresh read', async () => {
+  it('confirm resolves approved and the caller reconciles after the fresh read', async () => {
     const result = host.sync();
     await settle();
 
     q('reconcile-guard-confirm')?.click();
-    await expect(result).resolves.toBe(true);
+    await expect(result).resolves.toBe('approved');
     expect(methods()).toEqual(['harness:health', 'harness:reconcile']);
   });
 
@@ -236,7 +240,7 @@ describe('ReconcileGuardComponent', () => {
     ]);
 
     q('reconcile-guard-cancel')?.click();
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('cancelled');
   });
 
   it('lists unrelated skill and MCP edits, not only agent copies', async () => {
@@ -256,7 +260,7 @@ describe('ReconcileGuardComponent', () => {
     ]);
 
     q('reconcile-guard-cancel')?.click();
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('cancelled');
   });
 
   it('promises a .history snapshot only for the Codex path, not for the Claude or MCP path', async () => {
@@ -287,7 +291,7 @@ describe('ReconcileGuardComponent', () => {
     ).toHaveLength(1);
 
     q('reconcile-guard-cancel')?.click();
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('cancelled');
   });
 
   it('makes no snapshot promise at all when only a Claude path is edited', async () => {
@@ -303,7 +307,7 @@ describe('ReconcileGuardComponent', () => {
     );
 
     q('reconcile-guard-cancel')?.click();
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('cancelled');
   });
 
   it('always shows the whole-workspace notice verbatim, and says when nothing is edited', async () => {
@@ -319,11 +323,11 @@ describe('ReconcileGuardComponent', () => {
     expect(q('reconcile-guard-no-edits')).not.toBeNull();
 
     q('reconcile-guard-cancel')?.click();
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('cancelled');
   });
 
   it('onlyWhenEdits: passes without a modal when the fresh report has no edits', async () => {
-    await expect(host.sync({ onlyWhenEdits: true })).resolves.toBe(true);
+    await expect(host.sync({ onlyWhenEdits: true })).resolves.toBe('approved');
     expect(methods()).toEqual(['harness:health', 'harness:reconcile']);
     expect(rpcCall.mock.calls[0][1]).toEqual({ refresh: true });
   });
@@ -335,7 +339,7 @@ describe('ReconcileGuardComponent', () => {
 
     expect(q('native-modal-dialog')?.hasAttribute('open')).toBe(true);
     q('reconcile-guard-cancel')?.click();
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('cancelled');
     expect(methods()).not.toContain('harness:reconcile');
   });
 
@@ -351,7 +355,7 @@ describe('ReconcileGuardComponent', () => {
     );
     expect(q('reconcile-guard-confirm')).toBeNull();
     q('reconcile-guard-cancel')?.click();
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('unverified');
     expect(methods()).toEqual(['harness:health']);
   });
 
@@ -372,21 +376,76 @@ describe('ReconcileGuardComponent', () => {
 
     expect(q('reconcile-guard-unverified')).not.toBeNull();
     q('reconcile-guard-cancel')?.click();
-    await expect(result).resolves.toBe(false);
+    await expect(result).resolves.toBe('unverified');
     expect(methods()).toEqual(['harness:health']);
 
     release?.();
     await tabLoad;
   });
 
-  it('a second confirm while one is open resolves false without touching the first', async () => {
+  it('a second check while one is open resolves unverified without touching the first', async () => {
     const first = host.sync();
     await settle();
 
-    await expect(host.guard().confirm()).resolves.toBe(false);
+    await expect(host.guard().check()).resolves.toBe('unverified');
 
     q('reconcile-guard-confirm')?.click();
-    await expect(first).resolves.toBe(true);
+    await expect(first).resolves.toBe('approved');
+  });
+
+  it('a healthChanged push while the unverified modal is open keeps the outcome unverified', async () => {
+    rpcCall.mockImplementation(async (method: string) =>
+      method === 'harness:health' ? fail('workspace still opening') : ok({}),
+    );
+    const result = host.sync({ onlyWhenEdits: true });
+    await settle();
+    expect(q('reconcile-guard-unverified')).not.toBeNull();
+
+    // The workspace finishes opening: a valid report arrives by push.
+    host.store.handleMessage({
+      type: MESSAGE_TYPES.HARNESS_HEALTH_CHANGED,
+      payload: { health: health([target('codex')]) },
+    });
+    q('reconcile-guard-cancel')?.click();
+
+    await expect(result).resolves.toBe('unverified');
+    expect(methods()).not.toContain('harness:reconcile');
+  });
+
+  describe('destroyed while the fresh read is pending', () => {
+    /** Holds the next `harness:health` reply until released. */
+    function deferHealth(): (report: HarnessHealth) => void {
+      let release: ((report: HarnessHealth) => void) | undefined;
+      rpcCall.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = (report) => resolve(ok({ health: report }));
+          }),
+      );
+      return (report) => release?.(report);
+    }
+
+    it('with no edits (onlyWhenEdits) never approves', async () => {
+      const release = deferHealth();
+      const result = host.sync({ onlyWhenEdits: true });
+      fixture.destroy();
+      release(health([target('codex')]));
+
+      await expect(result).resolves.toBe('cancelled');
+      expect(methods()).toEqual(['harness:health']);
+    });
+
+    it('with edits resolves without opening a modal', async () => {
+      const release = deferHealth();
+      const result = host.sync({ onlyWhenEdits: true });
+      const guard = host.guard();
+      fixture.destroy();
+      release(health([target('codex', ['.codex/agents/reviewer.toml'])]));
+
+      await expect(result).resolves.toBe('cancelled');
+      expect(methods()).toEqual(['harness:health']);
+      expect(guard['view']()).toBeNull();
+    });
   });
 });
 

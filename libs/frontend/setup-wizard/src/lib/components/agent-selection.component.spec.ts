@@ -455,18 +455,25 @@ describe('AgentSelectionComponent', () => {
         'Preview agent generation',
       );
       expect(dialog.textContent).toContain('.claude/agents/a.md');
-      // Assert the full marker so a mangled separator fails this regression.
+      // Assert the full marker so mangled wording fails this regression. The
+      // marker is a warning badge (solid fill, warning-content text) so it
+      // stays >= 4.5:1 in the light theme.
       expect(
-        dialog.querySelector('section > ul .text-warning')?.textContent?.trim(),
-      ).toBe('— will overwrite');
+        dialog
+          .querySelector('section > ul .badge-warning')
+          ?.textContent?.trim(),
+      ).toBe('will overwrite');
       expect(dialog.textContent).toContain(preview.warning);
       const conditional = dialog.querySelector(
         '[data-testid="conditional-files"]',
       );
-      // Assert conditional punctuation as well as the overwrite wording.
+      // Assert the conditional overwrite wording.
       expect(
-        conditional?.querySelector('.text-warning')?.textContent?.trim(),
-      ).toBe('(will overwrite if written)');
+        conditional?.querySelector('.badge-warning')?.textContent?.trim(),
+      ).toBe('will overwrite if written');
+      // No warning sentence in the modal uses bare text-warning (2.46:1 on
+      // the light theme's base-100).
+      expect(dialog.querySelector('.text-warning')).toBeNull();
       expect(conditional?.textContent).toContain('May also write, if');
       expect(conditional?.textContent).toContain(
         preview.agents[0].files[1].condition,

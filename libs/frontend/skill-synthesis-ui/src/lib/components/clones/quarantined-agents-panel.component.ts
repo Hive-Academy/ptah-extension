@@ -48,6 +48,10 @@ import { NativeModalComponent } from '@ptah-extension/ui';
 
 import { SkillSynthesisRpcService } from '../../services/skill-synthesis-rpc.service';
 import { SkillClonesStateService } from '../../services/skill-clones-state.service';
+import {
+  describeWriteFailures,
+  reconcileWriteFailures,
+} from './agent-sync-chips';
 import { ReconcileGuardComponent } from './reconcile-guard';
 
 /** A message the host view shows in its toast. */
@@ -59,6 +63,9 @@ export interface QuarantineNotice {
 /** Verbatim from implementation-plan.md C4 (agent sync off). */
 export const QUARANTINE_SYNC_OFF_COPY =
   'Agent sync is off here: only Claude will see it until agent sync is enabled by the setup wizard. Ptah will not turn sync on.';
+
+/** The retry a partial reconcile failure points at (the view's Sync button). */
+export const QUARANTINE_SYNC_RETRY_COPY = 'Use Sync provider copies to retry.';
 
 /** Where Restore writes, relative to the workspace (Decision 1). */
 export function quarantineRestoreRelPath(slug: string): string {
@@ -383,7 +390,7 @@ export class QuarantinedAgentsPanelComponent implements OnInit {
     const syncOff = listing.agentSync === 'disabled';
     if (
       !syncOff &&
-      !(await this.guard().confirm({ confirmLabel: 'Restore' }))
+      (await this.guard().check({ confirmLabel: 'Restore' })) !== 'approved'
     ) {
       return;
     }
@@ -405,24 +412,14 @@ export class QuarantinedAgentsPanelComponent implements OnInit {
 
   /** `source-restored`: the source is back; only the reconcile is left. */
   protected async onFinishRestore(entry: QuarantinedAgentEntry): Promise<void> {
-    if (!(await this.guard().confirm({ confirmLabel: 'Finish restore' }))) {
-      return;
-    }
+    const outcome = await this.guard().check({
+      confirmLabel: 'Finish restore',
+    });
+    if (outcome !== 'approved') return;
     this.busySlug.set(entry.slug);
     try {
       await this.store.reconcile();
-      const error = this.store.error();
-      this.notice.emit(
-        error === null
-          ? {
-              message: `Updated provider copies for "${entry.slug}".`,
-              kind: 'success',
-            }
-          : {
-              message: `Could not update provider copies for "${entry.slug}": ${error}`,
-              kind: 'error',
-            },
-      );
+      this.notice.emit(this.reconcileNotice(entry.slug, null));
     } finally {
       this.busySlug.set(null);
     }
@@ -447,15 +444,7 @@ export class QuarantinedAgentsPanelComponent implements OnInit {
           return;
         }
         await this.store.reconcile();
-        const error = this.store.error();
-        this.notice.emit(
-          error === null
-            ? { message: `Restored "${slug}" to ${dest}.`, kind: 'success' }
-            : {
-                message: `Restored "${slug}" to ${dest}, but provider copies were not updated: ${error}`,
-                kind: 'warning',
-              },
-        );
+        this.notice.emit(this.reconcileNotice(slug, dest));
         return;
       }
       case 'conflict':
@@ -483,6 +472,42 @@ export class QuarantinedAgentsPanelComponent implements OnInit {
         });
         return;
     }
+  }
+
+  /**
+   * What the reconcile after a Restore (`dest` set) or a Finish restore
+   * (`dest` null) achieved. A returned report with `writeFailed` entries is a
+   * partial failure, not success: it names each path and reason and points at
+   * Sync, the retry.
+   */
+  private reconcileNotice(slug: string, dest: string | null): QuarantineNotice {
+    const restored = dest === null ? null : `Restored "${slug}" to ${dest}`;
+    const error = this.store.error();
+    if (error !== null) {
+      return restored === null
+        ? {
+            message: `Could not update provider copies for "${slug}": ${error}`,
+            kind: 'error',
+          }
+        : {
+            message: `${restored}, but provider copies were not updated: ${error}`,
+            kind: 'warning',
+          };
+    }
+    const failures = reconcileWriteFailures(this.store.health());
+    if (failures.length > 0) {
+      const lead =
+        restored === null
+          ? `Provider copies for "${slug}" were not fully updated`
+          : `${restored}, but provider copies were not fully updated`;
+      return {
+        message: `${lead}: ${describeWriteFailures(failures)}. ${QUARANTINE_SYNC_RETRY_COPY}`,
+        kind: 'warning',
+      };
+    }
+    return restored === null
+      ? { message: `Updated provider copies for "${slug}".`, kind: 'success' }
+      : { message: `${restored}.`, kind: 'success' };
   }
 
   /** The list is derived from files; re-read it and the clone list. */

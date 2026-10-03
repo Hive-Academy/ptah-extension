@@ -494,6 +494,9 @@ import { NativeModalComponent } from '@ptah-extension/ui';
         </button>
       </div>
     </div>
+    <!-- Warning copy in this modal uses a solid warning fill with
+         warning-content text (5.67:1 light, 6.61:1 dark): bare text-warning
+         on base-100 is 2.46:1 in the light theme. -->
     <ptah-native-modal
       [isOpen]="previewOpen()"
       ariaLabel="Preview agent generation"
@@ -509,19 +512,28 @@ import { NativeModalComponent } from '@ptah-extension/ui';
         </p>
       }
       @if (targetsChanged()) {
-        <p role="alert" class="text-xs text-warning mb-2">
+        <p
+          role="alert"
+          class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
+        >
           Targets changed since preview. Review the new list and confirm again.
         </p>
       }
       @if (previewError(); as error) {
-        <p role="alert" class="text-xs text-warning mb-2">
+        <p
+          role="alert"
+          class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
+        >
           Preview unavailable: {{ error }}. You can still generate without a
           preview.
         </p>
       }
       @if (generationPreview(); as preview) {
         @if (preview.warning) {
-          <p role="alert" class="text-xs text-warning mb-2">
+          <p
+            role="alert"
+            class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
+          >
             {{ preview.warning }}
           </p>
         }
@@ -536,7 +548,9 @@ import { NativeModalComponent } from '@ptah-extension/ui';
                 <li class="mb-2">
                   <code>{{ file.relPath }}</code>
                   @if (file.willOverwrite) {
-                    <span class="text-warning"> — will overwrite</span>
+                    <span class="badge badge-warning badge-sm ml-1"
+                      >will overwrite</span
+                    >
                   }
                 </li>
               }
@@ -557,8 +571,8 @@ import { NativeModalComponent } from '@ptah-extension/ui';
                       </p>
                       <code>{{ file.relPath }}</code>
                       @if (file.willOverwrite) {
-                        <span class="text-warning">
-                          (will overwrite if written)</span
+                        <span class="badge badge-warning badge-sm ml-1"
+                          >will overwrite if written</span
                         >
                       }
                     </li>

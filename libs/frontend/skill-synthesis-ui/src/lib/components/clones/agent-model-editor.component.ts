@@ -1,9 +1,10 @@
 /**
  * Per-agent model control on the desktop Agents tab (TASK_2026_609, plan C6).
  *
- * {@link AgentModelsStore} loads the two settings layers once per Agents-tab
- * entry, Refresh and workspace switch; {@link AgentModelEditorComponent} is the
- * inline section on each agent card that shows and edits them.
+ * {@link AgentModelsStore} (`agent-models.store.ts`) loads the two settings
+ * layers once per Agents-tab entry, Refresh and workspace switch;
+ * {@link AgentModelEditorComponent} is the inline section on each agent card
+ * that shows and edits them.
  *
  * Per provider row: the effective value and where it comes from, the server's
  * label for it, and an Edit action. An empty non-Claude row says what the
@@ -19,19 +20,33 @@
  *
  * ### Guard failure vs Cancel
  *
- * The guard resolves `false` for both, and `reconcile-guard.ts` stays as it
- * is. The editor tells them apart from the state the guard leaves behind in
- * `HarnessHealthStore`: the guard could not check when the store was busy as
- * it was called, ends with an error or no report, or still holds the report
- * from before the call (no fresh read happened). A Cancel always follows a
- * fresh, successful read, so the store then holds a new report and no error.
- * The failure keeps the typed value and offers Retry; Cancel closes silently.
+ * The guard's own per-call outcome decides: `unverified` keeps the typed
+ * value and offers Retry ({@link GUARD_FAILED_COPY}); `cancelled` closes the
+ * form silently. Nothing is inferred from `HarnessHealthStore` afterwards, so
+ * a `harness:healthChanged` push while the guard is open changes neither.
+ *
+ * ### Stale steps stop
+ *
+ * Each save captures an {@link AgentModelsTicket} (workspace identity) and an
+ * editor operation number. After every `await` it stops, writing nothing and
+ * reconciling nothing, when the editor was destroyed, the workspace changed,
+ * or a newer operation started. A workspace change also drops any open draft.
+ * The store discards load replies older than its last load or adopted save,
+ * and save results for another workspace.
+ *
+ * ### After the save
+ *
+ * The follow-up reconcile is reported on the row, with Sync as the retry,
+ * when it failed, returned per-file `writeFailed` entries, or did not run
+ * because another pass was already active (`HarnessHealthStore.reconcile`
+ * returns at once then, and that pass may have read the settings before this
+ * save).
  */
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
-  Injectable,
   Injector,
   afterNextRender,
   computed,
@@ -42,23 +57,23 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { VSCodeService } from '@ptah-extension/core';
 import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
 import {
   AGENT_MODEL_PROVIDERS,
   classifyAgentModelValue,
   resolveAgentModel,
-  type AgentListCliModelsResult,
   type AgentModelClass,
   type AgentModelProvider,
   type AgentModelSettingsScope,
   type AgentModelSettingsValue,
-  type AgentOrchestrationConfig,
-  type SkillSynthesisGetAgentModelsResult,
-  type SkillSynthesisSetAgentModelResult,
 } from '@ptah-extension/shared';
 
 import { SkillSynthesisRpcService } from '../../services/skill-synthesis-rpc.service';
+import { AgentModelsStore, type AgentModelsTicket } from './agent-models.store';
+import {
+  describeWriteFailures,
+  reconcileWriteFailures,
+} from './agent-sync-chips';
 import {
   RECONCILE_WHOLE_WORKSPACE_NOTICE,
   type ReconcileGuardComponent,
@@ -80,6 +95,9 @@ export const GUARD_FAILED_COPY =
 const NO_FOLDER_COPY = 'Open a workspace folder to set per-agent models.';
 const WORKSPACE_CHANGED_COPY =
   'The workspace changed, so nothing was saved. Models were reloaded.';
+/** The save landed but its reconcile was skipped: a pass was already active. */
+export const SYNC_SKIPPED_COPY =
+  'Saved; provider copies not updated: a sync was already running.';
 
 /** Label and badge tone for a stored value's server classification. */
 const CLASS_BADGE: Readonly<
@@ -96,132 +114,8 @@ const SOURCE_LABEL = {
   machine: { own: 'machine default', wildcard: 'machine default, all agents' },
 } as const;
 
-/** Each lane's default model in `agent:getConfig`; `''` = CLI default. */
-function laneDefaults(
-  config: AgentOrchestrationConfig,
-): Partial<Record<AgentModelProvider, string>> {
-  return {
-    codex: config.codexModel,
-    copilot: config.copilotModel,
-    cursor: config.cursorModel,
-    opencode: config.opencodeModel ?? '',
-  };
-}
-
-function suggestionIds(
-  lists: AgentListCliModelsResult,
-): Partial<Record<AgentModelProvider, readonly string[]>> {
-  const ids = (entries: readonly { id: string }[] | undefined) =>
-    (entries ?? []).map((entry) => entry.id);
-  return {
-    codex: ids(lists.codex),
-    copilot: ids(lists.copilot),
-    cursor: ids(lists.cursor),
-    opencode: ids(lists.opencode),
-  };
-}
-
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/**
- * The model settings the Agents tab shows. Provided by the Library view, so it
- * lives and dies with that surface; nothing here polls.
- */
-// eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- per-surface, provided by SkillClonesViewComponent (same as CloneBulkRebaseService).
-@Injectable()
-export class AgentModelsStore {
-  private readonly rpc = inject(SkillSynthesisRpcService);
-  private readonly vscode = inject(VSCodeService);
-
-  private readonly _snapshot =
-    signal<SkillSynthesisGetAgentModelsResult | null>(null);
-  private readonly _suggestions = signal<
-    Partial<Record<AgentModelProvider, readonly string[]>>
-  >({});
-  private readonly _laneDefaults = signal<Partial<
-    Record<AgentModelProvider, string>
-  > | null>(null);
-  private readonly _loading = signal(false);
-  private readonly _error = signal<string | null>(null);
-
-  public readonly snapshot = this._snapshot.asReadonly();
-  /** Input suggestions per provider (never used to classify). */
-  public readonly suggestions = this._suggestions.asReadonly();
-  /** `null` while `agent:getConfig` is unread or failed. */
-  public readonly laneDefaults = this._laneDefaults.asReadonly();
-  public readonly loading = this._loading.asReadonly();
-  public readonly error = this._error.asReadonly();
-
-  /** Set by the first {@link load}; a workspace switch reloads only after it. */
-  private requested = false;
-  private loadSeq = 0;
-
-  public constructor() {
-    // WORKSPACE_CHANGED updates `workspaceRoot` here; Electron does not reload
-    // the view, so the models read for the old workspace must be replaced.
-    let lastRoot: string | undefined;
-    effect(() => {
-      const root = this.vscode.config()?.workspaceRoot ?? '';
-      const changed = lastRoot !== undefined && root !== lastRoot;
-      lastRoot = root;
-      if (changed && this.requested) untracked(() => void this.load());
-    });
-  }
-
-  /** Read both layers, the suggestion lists and the lane defaults. */
-  public async load(): Promise<void> {
-    this.requested = true;
-    const seq = ++this.loadSeq;
-    this._loading.set(true);
-    // `then` turns a synchronous throw into a rejection, so `load` never rejects.
-    const attempt = <T>(call: () => Promise<T>): Promise<T> =>
-      Promise.resolve().then(call);
-    const [models, lists, config] = await Promise.allSettled([
-      attempt(() => this.rpc.getAgentModels()),
-      attempt(() => this.rpc.listCliModels()),
-      attempt(() => this.rpc.getAgentLaneConfig()),
-    ]);
-    if (seq !== this.loadSeq) return;
-    if (models.status === 'fulfilled') {
-      this._snapshot.set(models.value);
-      this._error.set(null);
-    } else {
-      this._snapshot.set(null);
-      this._error.set(messageOf(models.reason));
-    }
-    this._suggestions.set(
-      lists.status === 'fulfilled' ? suggestionIds(lists.value) : {},
-    );
-    this._laneDefaults.set(
-      config.status === 'fulfilled' ? laneDefaults(config.value) : null,
-    );
-    this._loading.set(false);
-  }
-
-  /** Adopt a successful save's re-read layers and its classification. */
-  public applySaved(
-    scope: AgentModelSettingsScope,
-    slug: string,
-    provider: AgentModelProvider,
-    result: SkillSynthesisSetAgentModelResult,
-  ): void {
-    this._snapshot.update((current) => {
-      if (current === null) return current;
-      const layer = { ...current.classification[scope] };
-      const entry = { ...(layer[slug] ?? {}) };
-      if (result.classification === 'empty') delete entry[provider];
-      else entry[provider] = result.classification;
-      layer[slug] = entry;
-      return {
-        ...current,
-        machine: result.machine,
-        workspace: result.workspace,
-        classification: { ...current.classification, [scope]: layer },
-      };
-    });
-  }
 }
 
 interface ModelRow {
@@ -547,6 +441,7 @@ export class AgentModelEditorComponent {
   protected readonly harness = inject(HarnessHealthStore);
   private readonly rpc = inject(SkillSynthesisRpcService);
   private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
 
   public readonly slug = input.required<string>();
   /** The view's one reconcile guard; every save confirms through it. */
@@ -566,6 +461,30 @@ export class AgentModelEditorComponent {
 
   private readonly modelInput =
     viewChild<ElementRef<HTMLInputElement>>('modelInput');
+
+  /**
+   * Bumped by every save/sync chain and every workspace switch; a chain whose
+   * number is no longer current stops at its next step.
+   */
+  private op = 0;
+
+  public constructor() {
+    // A draft belongs to the workspace it was typed in: a switch drops it and
+    // stops any pending save or sync chain.
+    let lastEpoch: number | undefined;
+    effect(() => {
+      const epoch = this.store.workspaceEpoch();
+      const changed = lastEpoch !== undefined && epoch !== lastEpoch;
+      lastEpoch = epoch;
+      if (!changed) return;
+      untracked(() => {
+        this.op++;
+        this.edit.set(null);
+        this.draft.set('');
+        this.notice.set(null);
+      });
+    });
+  }
 
   protected readonly rows = computed<ModelRow[]>(() => {
     const snap = this.store.snapshot();
@@ -751,22 +670,30 @@ export class AgentModelEditorComponent {
   protected async syncAgain(): Promise<void> {
     const n = this.notice();
     if (n === null) return;
-    if (!(await this.guard().confirm({ confirmLabel: 'Sync' }))) return;
-    await this.harness.reconcile();
-    this.reportReconcile(n.provider);
+    const op = ++this.op;
+    const ticket = this.store.ticket();
+    const outcome = await this.guard().check({ confirmLabel: 'Sync' });
+    if (!this.live(op, ticket) || outcome !== 'approved') return;
+    await this.reconcileAndReport(op, ticket, n.provider);
   }
 
   private async save(confirmUnlisted: boolean): Promise<void> {
     const e = this.edit();
-    const workspaceRoot = this.store.snapshot()?.workspaceRoot ?? null;
     if (e === null) return;
+    const ticket = this.store.ticket();
+    const workspaceRoot = ticket.workspaceRoot;
     if (workspaceRoot === null) {
       this.patch({ phase: 'save-failed', message: NO_FOLDER_COPY });
       return;
     }
+    const op = ++this.op;
     this.patch({ phase: 'saving', message: null, confirmed: confirmUnlisted });
 
-    const verdict = await this.runGuard();
+    const verdict = await this.guard().check({
+      onlyWhenEdits: true,
+      confirmLabel: 'Save model',
+    });
+    if (!this.live(op, ticket)) return;
     if (verdict === 'unverified') {
       this.patch({ phase: 'guard-failed' });
       return;
@@ -789,9 +716,12 @@ export class AgentModelEditorComponent {
         ...(confirmUnlisted ? { confirmUnlisted: true } : {}),
       });
     } catch (err: unknown) {
-      this.patch({ phase: 'save-failed', message: messageOf(err) });
+      if (this.live(op, ticket)) {
+        this.patch({ phase: 'save-failed', message: messageOf(err) });
+      }
       return;
     }
+    if (!this.live(op, ticket)) return;
 
     if (!outcome.ok) {
       if (outcome.code === 'MODEL_NOT_AVAILABLE') {
@@ -811,45 +741,71 @@ export class AgentModelEditorComponent {
       return;
     }
 
-    this.store.applySaved(e.scope, this.slug(), e.provider, outcome.result);
+    const adopted = this.store.applySaved(
+      ticket,
+      e.scope,
+      this.slug(),
+      e.provider,
+      outcome.result,
+    );
+    if (!adopted) return;
     this.edit.set(null);
     this.draft.set('');
+    await this.reconcileAndReport(op, ticket, e.provider);
+  }
+
+  /** Whether the chain numbered `op` may take its next step. */
+  private live(op: number, ticket: AgentModelsTicket): boolean {
+    return (
+      op === this.op &&
+      !this.destroyRef.destroyed &&
+      this.store.isCurrent(ticket)
+    );
+  }
+
+  /** Reconcile after a save or Sync, and say on the row what it achieved. */
+  private async reconcileAndReport(
+    op: number,
+    ticket: AgentModelsTicket,
+    provider: AgentModelProvider,
+  ): Promise<void> {
+    // `HarnessHealthStore.reconcile` returns at once while another pass is
+    // active (it checks this same flag synchronously on entry), and that pass
+    // may have read the settings before this save.
+    if (this.harness.reconciling()) {
+      this.notice.set({
+        provider,
+        kind: 'sync-failed',
+        text: SYNC_SKIPPED_COPY,
+      });
+      return;
+    }
     await this.harness.reconcile();
-    this.reportReconcile(e.provider);
+    if (!this.live(op, ticket)) return;
+    this.notice.set(this.reconcileNotice(provider));
   }
 
   /**
-   * The guard, with its `false` split into Cancel and "could not check" from
-   * the state it leaves in `HarnessHealthStore` (see the file header).
+   * A transport/handler error, or a returned report with `writeFailed`
+   * entries, is a failure with Sync as the retry; only a clean report clears
+   * the notice.
    */
-  private async runGuard(): Promise<'confirmed' | 'cancelled' | 'unverified'> {
-    const wasBusy = this.harness.busy();
-    const before = this.harness.health();
-    const confirmed = await this.guard().confirm({
-      onlyWhenEdits: true,
-      confirmLabel: 'Save model',
-    });
-    if (confirmed) return 'confirmed';
-    const after = this.harness.health();
-    const unverified =
-      wasBusy ||
-      this.harness.error() !== null ||
-      after === null ||
-      after === before;
-    return unverified ? 'unverified' : 'cancelled';
-  }
-
-  private reportReconcile(provider: AgentModelProvider): void {
+  private reconcileNotice(provider: AgentModelProvider): RowNotice | null {
     const error = this.harness.error();
-    this.notice.set(
-      error === null
-        ? null
-        : {
-            provider,
-            kind: 'sync-failed',
-            text: `Saved; provider copies not updated: ${error}`,
-          },
-    );
+    if (error !== null) {
+      return {
+        provider,
+        kind: 'sync-failed',
+        text: `Saved; provider copies not updated: ${error}`,
+      };
+    }
+    const failures = reconcileWriteFailures(this.harness.health());
+    if (failures.length === 0) return null;
+    return {
+      provider,
+      kind: 'sync-failed',
+      text: `Saved; provider copies not fully updated: ${describeWriteFailures(failures)}`,
+    };
   }
 
   private patch(changes: Partial<EditState>): void {

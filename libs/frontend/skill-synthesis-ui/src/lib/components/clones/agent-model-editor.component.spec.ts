@@ -7,9 +7,11 @@ import {
 } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import type {
-  HarnessHealth,
-  SkillSynthesisGetAgentModelsResult,
+import { HarnessHealthStore } from '@ptah-extension/marketplace/services';
+import {
+  MESSAGE_TYPES,
+  type HarnessHealth,
+  type SkillSynthesisGetAgentModelsResult,
 } from '@ptah-extension/shared';
 
 import {
@@ -17,11 +19,12 @@ import {
   type AgentModelSaveOutcome,
 } from '../../services/skill-synthesis-rpc.service';
 import { ReconcileGuardComponent } from './reconcile-guard';
+import { AgentModelsStore } from './agent-models.store';
 import {
   AgentModelEditorComponent,
-  AgentModelsStore,
   GUARD_FAILED_COPY,
   MACHINE_SCOPE_COPY,
+  SYNC_SKIPPED_COPY,
 } from './agent-model-editor.component';
 
 /** jsdom implements no HTMLDialogElement methods (same stub as reconcile-guard.spec). */
@@ -110,6 +113,15 @@ const fail = (error: string) => ({
   isSuccess: () => false,
   error,
 });
+
+/** A promise plus its resolver, to hold a reply until the test releases it. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
 
 const saved = (): AgentModelSaveOutcome => ({
   ok: true,
@@ -512,6 +524,182 @@ describe('AgentModelEditorComponent', () => {
 
       expect(q('agent-model-notice', row('codex'))?.textContent).toContain(
         'Saved; provider copies not updated: codex target is locked',
+      );
+      expect(q('agent-model-sync-btn', row('codex'))).not.toBeNull();
+    });
+  });
+
+  describe('lifecycle and stale replies', () => {
+    it.each([
+      ['no hand-edited files', [] as string[]],
+      ['hand-edited files', ['.codex/agents/reviewer.toml']],
+    ])(
+      'destroyed while the guard health read is pending (%s): nothing is saved or reconciled',
+      async (_label, localEdit) => {
+        setup();
+        await settle();
+        const health = deferred<unknown>();
+        healthReply = () => health.promise;
+        await editCodex('o3');
+        await click(q('agent-model-save-btn'));
+        expect(log.at(-1)).toBe('harness:health');
+
+        fixture.destroy();
+        health.resolve(ok({ health: report(localEdit) }));
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+        expect(rpc.setAgentModel).not.toHaveBeenCalled();
+        expect(log).not.toContain('harness:reconcile');
+      },
+    );
+
+    it('a save reply that arrives after a workspace switch is discarded', async () => {
+      setup();
+      await settle();
+      const save = deferred<AgentModelSaveOutcome>();
+      rpc.setAgentModel.mockImplementationOnce(() => save.promise);
+      await editCodex('o3');
+      await click(q('agent-model-save-btn'));
+      expect(rpc.setAgentModel).toHaveBeenCalledTimes(1);
+
+      rpc.getAgentModels.mockResolvedValue(
+        models({
+          workspaceRoot: '/other/resolved',
+          workspace: { reviewer: { codex: 'gpt-5' } },
+        }),
+      );
+      config.set({ isElectron: true, workspaceRoot: '/other' });
+      fixture.detectChanges();
+      await settle();
+      // The draft belonged to the old workspace.
+      expect(q('agent-model-form')).toBeNull();
+
+      save.resolve(saved());
+      await settle();
+
+      expect(q('agent-model-value', row('codex'))?.textContent).toContain(
+        'gpt-5',
+      );
+      expect(fixture.componentInstance.store.snapshot()?.workspaceRoot).toBe(
+        '/other/resolved',
+      );
+      expect(log).not.toContain('harness:reconcile');
+      expect(q('agent-model-notice')).toBeNull();
+    });
+
+    it('a workspace switch drops an open draft', async () => {
+      setup();
+      await settle();
+      await editCodex('o3');
+      expect(q('agent-model-form')).not.toBeNull();
+
+      config.set({ isElectron: true, workspaceRoot: '/other' });
+      fixture.detectChanges();
+      await settle();
+
+      expect(q('agent-model-form')).toBeNull();
+    });
+
+    it('a load that started before a successful save cannot restore the older value', async () => {
+      setup();
+      await settle();
+      const load = deferred<SkillSynthesisGetAgentModelsResult>();
+      rpc.getAgentModels.mockImplementationOnce(() => load.promise);
+      const refresh = fixture.componentInstance.store.load();
+
+      await editCodex('o3');
+      await click(q('agent-model-save-btn'));
+      expect(q('agent-model-value', row('codex'))?.textContent).toContain('o3');
+
+      load.resolve(models());
+      await refresh;
+      fixture.detectChanges();
+
+      expect(q('agent-model-value', row('codex'))?.textContent).toContain('o3');
+      expect(fixture.componentInstance.store.loading()).toBe(false);
+    });
+
+    it('guard unverified, then a healthChanged push before Close: still unverified, draft kept', async () => {
+      setup();
+      await settle();
+      // The fresh read answers with no report (workspace still opening).
+      healthReply = () => ok({ health: null });
+      await editCodex('o3');
+      await click(q('agent-model-save-btn'));
+      expect(q('reconcile-guard-unverified')).not.toBeNull();
+
+      TestBed.inject(HarnessHealthStore).handleMessage({
+        type: MESSAGE_TYPES.HARNESS_HEALTH_CHANGED,
+        payload: { health: report() },
+      });
+      await click(q('reconcile-guard-cancel'));
+
+      expect(rpc.setAgentModel).not.toHaveBeenCalled();
+      expect(q('agent-model-guard-failed')?.textContent).toContain(
+        GUARD_FAILED_COPY,
+      );
+      expect(q('agent-model-retry-btn')).not.toBeNull();
+      expect(q<HTMLInputElement>('agent-model-input')?.value).toBe('o3');
+    });
+  });
+
+  describe('after the save', () => {
+    it('a reconcile skipped because another pass is running says so and offers Sync', async () => {
+      setup();
+      await settle();
+      const harness = TestBed.inject(HarnessHealthStore);
+      const other = deferred<unknown>();
+      rpc.setAgentModel.mockImplementationOnce(
+        async (params: { value: string | null }) => {
+          log.push(`set:${params.value}`);
+          // Another surface starts a pass while this save is in flight.
+          reconcileReply = () => other.promise;
+          void harness.reconcile();
+          return saved();
+        },
+      );
+      await editCodex('o3');
+      await click(q('agent-model-save-btn'));
+
+      expect(q('agent-model-notice', row('codex'))?.textContent).toContain(
+        SYNC_SKIPPED_COPY,
+      );
+      expect(q('agent-model-sync-btn', row('codex'))).not.toBeNull();
+      expect(log.filter((m) => m === 'harness:reconcile')).toHaveLength(1);
+
+      other.resolve(ok({ health: report() }));
+      await settle();
+      expect(
+        q<HTMLButtonElement>('agent-model-sync-btn', row('codex'))?.disabled,
+      ).toBe(false);
+    });
+
+    it('a reconcile report with writeFailed is a partial failure with paths, reasons and Sync', async () => {
+      setup();
+      await settle();
+      reconcileReply = () =>
+        ok({
+          health: {
+            ...report(),
+            targets: [
+              {
+                target: 'codex',
+                localEdit: [],
+                writeFailed: [
+                  { relPath: '.codex/agents/reviewer.toml', reason: 'EACCES' },
+                ],
+              } as unknown as HarnessHealth['targets'][number],
+            ],
+          },
+        });
+      await editCodex('o3');
+      await click(q('agent-model-save-btn'));
+
+      const notice = q('agent-model-notice', row('codex'))?.textContent ?? '';
+      expect(notice).toContain('Saved; provider copies not fully updated');
+      expect(notice).toContain(
+        '1 file could not be written: .codex/agents/reviewer.toml (EACCES)',
       );
       expect(q('agent-model-sync-btn', row('codex'))).not.toBeNull();
     });

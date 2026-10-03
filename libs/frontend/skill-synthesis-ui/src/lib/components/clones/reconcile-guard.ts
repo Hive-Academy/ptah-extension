@@ -4,10 +4,10 @@
  *
  * Every caller on this surface that is about to change provider copies (Sync,
  * Restore, Finish restore, and the model save in B-6) awaits
- * {@link ReconcileGuardComponent.confirm} BEFORE it mutates anything:
+ * {@link ReconcileGuardComponent.check} BEFORE it mutates anything:
  *
  * ```ts
- * if (!(await this.guard().confirm({ confirmLabel: 'Sync' }))) return;
+ * if ((await this.guard().check({ confirmLabel: 'Sync' })) !== 'approved') return;
  * await this.store.reconcile();
  * ```
  *
@@ -18,8 +18,23 @@
  *    report, not only the agent the user clicked: a reconcile is
  *    whole-workspace.
  * 3. It shows a `NativeModalComponent` with the whole-workspace notice and the
- *    edited paths. Cancel (button, Escape, backdrop) resolves `false`; the
- *    caller then performs NO mutation. Only Confirm resolves `true`.
+ *    edited paths. Cancel (button, Escape, backdrop) resolves `'cancelled'`;
+ *    the caller then performs NO mutation. Only Confirm resolves `'approved'`.
+ *
+ * ### One outcome per call
+ *
+ * {@link ReconcileGuardOutcome} is decided by the call itself, not read back
+ * from `HarnessHealthStore` afterwards: a `harness:healthChanged` push or a
+ * later refresh can change the store while the modal is open, and must not
+ * turn a failed check into a Cancel (or the reverse).
+ *
+ * ### Destruction
+ *
+ * The guard lives on the Agents tab and is destroyed when the user leaves it,
+ * possibly while the fresh read is still pending. Every step after an `await`
+ * re-checks destruction and resolves `'cancelled'` before it would auto-approve
+ * (`onlyWhenEdits`) or open a modal on a destroyed view. A destroyed guard
+ * never approves.
  *
  * ### Snapshot wording is per target (FU-1)
  *
@@ -34,7 +49,7 @@
  *
  * If another harness call is in flight, the fresh read fails, or there is no
  * report for this workspace, the guard cannot show what would be overwritten,
- * so it says so and resolves `false`. It never lets a mutation through on
+ * so it says so and resolves `'unverified'`. It never lets a mutation through on
  * stale or missing data, including with `onlyWhenEdits`.
  */
 import {
@@ -79,9 +94,22 @@ export interface LocalEditGroups {
   readonly overwriteOnly: readonly LocalEditEntry[];
 }
 
+/**
+ * How one {@link ReconcileGuardComponent.check} call ended.
+ *
+ * - `approved`   — the user confirmed, or `onlyWhenEdits` found no edited path.
+ * - `cancelled`  — the user declined (Cancel, Escape, backdrop) after a fresh,
+ *   successful read, or the guard was destroyed before it could answer.
+ * - `unverified` — the fresh read could not run or failed, so nothing could be
+ *   listed; also a second call while one is still open.
+ *
+ * Only `approved` lets a caller mutate.
+ */
+export type ReconcileGuardOutcome = 'approved' | 'cancelled' | 'unverified';
+
 export interface ReconcileGuardOptions {
   /**
-   * Resolve `true` without showing anything when the fresh report lists no
+   * Resolve `'approved'` without showing anything when the fresh report lists no
    * hand-edited path. For the model save (B-6), whose row already carries the
    * whole-workspace line. Sync and Restore leave it off and always ask.
    */
@@ -137,7 +165,7 @@ let nextTitleId = 0;
       [isOpen]="view() !== null"
       [ariaLabelledby]="titleId"
       size="lg"
-      (closed)="settle(false)"
+      (closed)="dismiss()"
     >
       <h3 modal-header class="text-base font-semibold" [id]="titleId">
         @if (view()?.kind === 'unverified') {
@@ -207,8 +235,11 @@ let nextTitleId = 0;
                     </li>
                   }
                 </ul>
+                <!-- Solid warning fill + warning-content (5.67:1 light,
+                     6.61:1 dark); bare text-warning on base-100 is 2.46:1
+                     in the light theme. -->
                 <p
-                  class="mt-1 text-warning"
+                  class="mt-1 rounded bg-warning px-2 py-1 text-warning-content"
                   data-testid="reconcile-guard-overwrite-note"
                 >
                   {{ overwriteNote }}
@@ -223,7 +254,7 @@ let nextTitleId = 0;
           type="button"
           class="btn btn-sm btn-ghost"
           data-testid="reconcile-guard-cancel"
-          (click)="settle(false)"
+          (click)="dismiss()"
         >
           {{ view()?.kind === 'unverified' ? 'Close' : 'Cancel' }}
         </button>
@@ -232,7 +263,7 @@ let nextTitleId = 0;
             type="button"
             class="btn btn-sm btn-warning"
             data-testid="reconcile-guard-confirm"
-            (click)="settle(true)"
+            (click)="approve()"
           >
             {{ confirmLabel() }}
           </button>
@@ -253,18 +284,21 @@ export class ReconcileGuardComponent implements OnDestroy {
   protected readonly view = signal<GuardView | null>(null);
 
   private inFlight = false;
-  private resolver: ((confirmed: boolean) => void) | null = null;
+  private destroyed = false;
+  private resolver: ((outcome: ReconcileGuardOutcome) => void) | null = null;
 
   /**
    * Check, ask, and resolve whether the caller may mutate.
    *
-   * @returns `true` only when the user confirmed (or, with `onlyWhenEdits`,
-   *   when the fresh report lists no edited path). `false` on Cancel, Escape,
-   *   backdrop, destroy, an unverifiable report, or a second call while one is
-   *   still open.
+   * @returns `'approved'` only when the user confirmed (or, with
+   *   `onlyWhenEdits`, when the fresh report lists no edited path); see
+   *   {@link ReconcileGuardOutcome} for the rest.
    */
-  public async confirm(options: ReconcileGuardOptions = {}): Promise<boolean> {
-    if (this.inFlight) return false;
+  public async check(
+    options: ReconcileGuardOptions = {},
+  ): Promise<ReconcileGuardOutcome> {
+    if (this.destroyed) return 'cancelled';
+    if (this.inFlight) return 'unverified';
     this.inFlight = true;
     try {
       // `refresh` silently returns when a read is already in flight, and a
@@ -274,6 +308,8 @@ export class ReconcileGuardComponent implements OnDestroy {
         return await this.ask({ kind: 'unverified', reason: BUSY_REASON });
       }
       await this.store.refresh({ refresh: true });
+      // Left the tab while the read was pending: no auto-approval, no modal.
+      if (this.destroyed) return 'cancelled';
       const error = this.store.error();
       if (error !== null) {
         return await this.ask({ kind: 'unverified', reason: error });
@@ -285,7 +321,7 @@ export class ReconcileGuardComponent implements OnDestroy {
       const edits = groupLocalEdits(health);
       const editCount = edits.snapshotted.length + edits.overwriteOnly.length;
       if (options.onlyWhenEdits === true && editCount === 0) {
-        return true;
+        return 'approved';
       }
       return await this.ask({
         kind: 'confirm',
@@ -298,7 +334,8 @@ export class ReconcileGuardComponent implements OnDestroy {
   }
 
   public ngOnDestroy(): void {
-    this.settle(false);
+    this.destroyed = true;
+    this.finish('cancelled');
   }
 
   protected reason(): string {
@@ -321,17 +358,34 @@ export class ReconcileGuardComponent implements OnDestroy {
     return view?.kind === 'confirm' ? view.edits.overwriteOnly : [];
   }
 
-  /** Close the modal and answer the pending {@link confirm}. Idempotent. */
-  protected settle(confirmed: boolean): void {
+  /** Confirm button. */
+  protected approve(): void {
+    this.finish('approved');
+  }
+
+  /**
+   * Cancel/Close button, Escape, backdrop. The outcome follows what this call
+   * showed: a failed check stays `unverified`, a declined confirmation is
+   * `cancelled`.
+   */
+  protected dismiss(): void {
+    this.finish(
+      this.view()?.kind === 'unverified' ? 'unverified' : 'cancelled',
+    );
+  }
+
+  /** Close the modal and answer the pending {@link check}. Idempotent. */
+  private finish(outcome: ReconcileGuardOutcome): void {
     const resolve = this.resolver;
     this.resolver = null;
     this.view.set(null);
-    resolve?.(confirmed);
+    resolve?.(outcome);
   }
 
-  private ask(view: GuardView): Promise<boolean> {
+  private ask(view: GuardView): Promise<ReconcileGuardOutcome> {
+    if (this.destroyed) return Promise.resolve('cancelled');
     this.view.set(view);
-    return new Promise<boolean>((resolve) => {
+    return new Promise<ReconcileGuardOutcome>((resolve) => {
       this.resolver = resolve;
     });
   }

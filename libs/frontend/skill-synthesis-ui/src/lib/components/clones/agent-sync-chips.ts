@@ -22,11 +22,20 @@
  * "In sync" is never inferred from the absence of a problem: `agentsInSync` is
  * the only evidence the report offers that a copy matches what Ptah would
  * write, so a report that omits it (an older host) yields `not-synced`.
+ *
+ * ### Write failures after a reconcile
+ *
+ * {@link reconcileWriteFailures} is the one reading of a report's
+ * `writeFailed` entries for the Agents tab: Sync, the model save's follow-up
+ * reconcile and Restore / Finish restore all use it, so a reconcile that
+ * returned a report with per-file failures is never announced as success just
+ * because the RPC itself did not fail.
  */
 import {
   HARNESS_AGENT_CHIP_TARGETS,
   harnessAgentRelPath,
   type HarnessHealth,
+  type HarnessWriteFailure,
   type HarnessTargetHealth,
   type HarnessTargetId,
 } from '@ptah-extension/shared';
@@ -115,4 +124,36 @@ function copyState(
   if (report.missing.includes(path)) return ['missing'];
   if ((report.agentsInSync ?? []).includes(path)) return ['in-sync'];
   return ['not-synced'];
+}
+
+/** One path a reconcile could not write, with the target that owns it. */
+export interface ReconcileWriteFailure extends HarnessWriteFailure {
+  readonly target: HarnessTargetId;
+}
+
+/** Every `writeFailed` entry of a report, across targets, in report order. */
+export function reconcileWriteFailures(
+  health: HarnessHealth | null,
+): ReconcileWriteFailure[] {
+  return (health?.targets ?? []).flatMap((report) =>
+    report.writeFailed.map((failure) => ({
+      target: report.target,
+      relPath: failure.relPath,
+      reason: failure.reason,
+    })),
+  );
+}
+
+/**
+ * `N file(s) could not be written: <path> (<reason>); …` for a notice. The
+ * caller adds what was saved and how to retry.
+ */
+export function describeWriteFailures(
+  failures: readonly ReconcileWriteFailure[],
+): string {
+  const n = failures.length;
+  const list = failures
+    .map((failure) => `${failure.relPath} (${failure.reason})`)
+    .join('; ');
+  return `${n} file${n === 1 ? '' : 's'} could not be written: ${list}`;
 }

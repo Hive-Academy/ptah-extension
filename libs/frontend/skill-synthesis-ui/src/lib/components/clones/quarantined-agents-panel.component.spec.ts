@@ -13,6 +13,7 @@ import { SkillClonesStateService } from '../../services/skill-clones-state.servi
 import { ReconcileGuardComponent } from './reconcile-guard';
 import {
   QUARANTINE_SYNC_OFF_COPY,
+  QUARANTINE_SYNC_RETRY_COPY,
   QuarantinedAgentsPanelComponent,
   type QuarantineNotice,
 } from './quarantined-agents-panel.component';
@@ -101,6 +102,19 @@ const report: HarnessHealth = {
 };
 
 const ok = <T>(data: T) => ({ success: true, isSuccess: () => true, data });
+
+/** A reconcile report whose Codex copy of the agent could not be written. */
+const partialReport: HarnessHealth = {
+  ...report,
+  targets: [
+    {
+      target: 'codex',
+      writeFailed: [
+        { relPath: '.codex/agents/video-director.toml', reason: 'EACCES' },
+      ],
+    } as unknown as HarnessHealth['targets'][number],
+  ],
+};
 
 describe('QuarantinedAgentsPanelComponent', () => {
   let fixture: ComponentFixture<PanelHostComponent>;
@@ -393,6 +407,32 @@ describe('QuarantinedAgentsPanelComponent', () => {
       expect(last?.message).toContain('EACCES');
       expect(log).not.toContain('harness:reconcile');
     });
+
+    it('a reconcile report with writeFailed is a partial failure naming each path and reason, with Sync as the retry', async () => {
+      setup();
+      await settle();
+      harnessCall.mockImplementation(async (method: string) => {
+        log.push(method);
+        return ok({
+          health: method === 'harness:reconcile' ? partialReport : report,
+        });
+      });
+
+      await click('quarantine-restore-btn');
+      await click('quarantine-restore-confirm');
+      await click('reconcile-guard-confirm');
+      await settle();
+
+      const last = host.notices.at(-1);
+      expect(last?.kind).toBe('warning');
+      expect(last?.message).toContain(
+        'Restored "video-director" to .claude/agents/video-director.md, but provider copies were not fully updated',
+      );
+      expect(last?.message).toContain(
+        '.codex/agents/video-director.toml (EACCES)',
+      );
+      expect(last?.message).toContain(QUARANTINE_SYNC_RETRY_COPY);
+    });
   });
 
   describe('Restore with agent sync off', () => {
@@ -452,6 +492,29 @@ describe('QuarantinedAgentsPanelComponent', () => {
         'refreshClones',
       ]);
       expect(host.notices.at(-1)?.kind).toBe('success');
+    });
+
+    it('a reconcile report with writeFailed is not announced as updated', async () => {
+      setup(listing({ quarantined: [entry({ state: 'source-restored' })] }));
+      await settle();
+      harnessCall.mockImplementation(async (method: string) => {
+        log.push(method);
+        return ok({
+          health: method === 'harness:reconcile' ? partialReport : report,
+        });
+      });
+
+      await click('quarantine-finish-btn');
+      await click('reconcile-guard-confirm');
+      await settle();
+
+      const last = host.notices.at(-1);
+      expect(last?.kind).toBe('warning');
+      expect(last?.message).not.toContain('Updated provider copies');
+      expect(last?.message).toContain(
+        '1 file could not be written: .codex/agents/video-director.toml (EACCES)',
+      );
+      expect(last?.message).toContain(QUARANTINE_SYNC_RETRY_COPY);
     });
 
     it('cancel at the guard reconciles nothing', async () => {

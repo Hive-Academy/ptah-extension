@@ -76,9 +76,13 @@ import {
   KEEP_MINE_EXPLANATION,
   REBASE_EXPLANATION,
 } from './clone-action-gating';
-import { agentSyncChips, type AgentSyncChip } from './agent-sync-chips';
+import {
+  agentSyncChips,
+  reconcileWriteFailures,
+  type AgentSyncChip,
+} from './agent-sync-chips';
 import { ReconcileGuardComponent } from './reconcile-guard';
-import { AgentModelsStore } from './agent-model-editor.component';
+import { AgentModelsStore } from './agent-models.store';
 import {
   QuarantinedAgentsPanelComponent,
   type QuarantineNotice,
@@ -626,7 +630,7 @@ export class SkillClonesViewComponent implements OnInit {
   protected async onSync(): Promise<void> {
     const guard = this.reconcileGuard();
     if (guard === undefined || !this.onAgentTab()) return;
-    if (!(await guard.confirm({ confirmLabel: 'Sync' }))) return;
+    if ((await guard.check({ confirmLabel: 'Sync' })) !== 'approved') return;
 
     await this.harness.reconcile();
     const error = this.harness.error();
@@ -634,10 +638,7 @@ export class SkillClonesViewComponent implements OnInit {
       this.showToast(`Sync failed: ${error}`, 'error');
       return;
     }
-    const failed = (this.harness.health()?.targets ?? []).reduce(
-      (n, t) => n + t.writeFailed.length,
-      0,
-    );
+    const failed = reconcileWriteFailures(this.harness.health()).length;
     if (failed > 0) {
       this.showToast(
         `Synced, but ${failed} file${failed === 1 ? '' : 's'} could not be written. The chips name each path and reason.`,
