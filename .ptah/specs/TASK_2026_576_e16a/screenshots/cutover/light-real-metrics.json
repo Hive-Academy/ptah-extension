@@ -1,7 +1,5 @@
 {
-  "issues": [
-    "comment-composer: TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('ptah-file-diff-section').filter({ has: locator('[data-testid=\"file-section-path\"]').filter({ hasText: 'src/calc.ts' }) }).locator('[data-testid=\"file-section-comment\"]')\u001b[22m\n"
-  ],
+  "issues": [],
   "metrics": [
     {
       "name": "changes-wide",
@@ -15,18 +13,7 @@
         "height": 695
       },
       "clipped": [
-        "bdi[65..1080]",
-        "span[1148..1241]",
-        "ptah-open-in-button[1200..1241]",
-        "open-in-button[1200..1241]",
-        "div[1219..1241]",
-        "open-in-caret[1219..1241]",
-        "lucide-angular[1224..1236]",
-        "svg[1224..1236]",
-        "path[1227..1233]",
-        "span[1148..1241]",
-        "ptah-open-in-button[1200..1241]",
-        "open-in-button[1200..1241]"
+        "bdi[49..1065]"
       ]
     },
     {
@@ -41,7 +28,7 @@
         "height": 695
       },
       "clipped": [
-        "bdi[56..1072]"
+        "bdi[49..1065]"
       ]
     },
     {
@@ -56,18 +43,7 @@
         "height": 695
       },
       "clipped": [
-        "span[1144..1237]",
-        "ptah-open-in-button[1196..1237]",
-        "open-in-button[1196..1237]",
-        "div[1215..1237]",
-        "open-in-caret[1215..1237]",
-        "span[1144..1237]",
-        "ptah-open-in-button[1196..1237]",
-        "open-in-button[1196..1237]",
-        "div[1215..1237]",
-        "open-in-caret[1215..1237]",
-        "bdi[70..1085]",
-        "span[1153..1246]"
+        "bdi[49..1065]"
       ]
     },
     {
@@ -82,7 +58,7 @@
         "height": 695
       },
       "clipped": [
-        "bdi[96..1111]"
+        "bdi[104..1119]"
       ]
     },
     {
@@ -729,6 +705,78 @@
   ],
   "focus": [
     {
+      "surface": "header-caret",
+      "stop": 640,
+      "right": 1214,
+      "width": 22,
+      "listRight": 1232,
+      "focused": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)"
+    },
+    {
+      "surface": "header-caret",
+      "stop": 320,
+      "right": 1214,
+      "width": 22,
+      "listRight": 1232,
+      "focused": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)"
+    },
+    {
+      "surface": "header-caret",
+      "stop": 300,
+      "right": 1214,
+      "width": 22,
+      "listRight": 1232,
+      "focused": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)"
+    },
+    {
+      "surface": "comment",
+      "stop": 0,
+      "tag": "input",
+      "label": "comment-from",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        997,
+        549,
+        80,
+        32
+      ]
+    },
+    {
+      "surface": "comment",
+      "stop": 1,
+      "tag": "input",
+      "label": "comment-to",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        1085,
+        549,
+        80,
+        32
+      ]
+    },
+    {
+      "surface": "comment",
+      "stop": 2,
+      "tag": "textarea",
+      "label": "comment-body",
+      "focusVisible": true,
+      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "boxShadow": "none",
+      "rect": [
+        921,
+        607,
+        293,
+        60
+      ]
+    },
+    {
       "surface": "changes",
       "stop": 0,
       "tag": "button",
@@ -737,10 +785,10 @@
       "outline": "none 3px oklch(0.23574 0.066 313.189)",
       "boxShadow": "none",
       "rect": [
-        917,
-        99,
-        89,
-        34
+        673,
+        73,
+        110,
+        38
       ]
     },
     {
@@ -752,10 +800,10 @@
       "outline": "solid 2px oklch(0.58 0.132 75)",
       "boxShadow": "none",
       "rect": [
-        913,
-        134,
-        319,
-        601
+        665,
+        111,
+        567,
+        624
       ]
     },
     {
@@ -767,8 +815,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        922,
-        144,
+        674,
+        121,
         94,
         24
       ]
@@ -782,8 +830,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "none",
       "rect": [
-        1025,
-        140,
+        777,
+        117,
         192,
         32
       ]
@@ -797,8 +845,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        921,
-        180,
+        977,
+        121,
         53,
         24
       ]
@@ -812,8 +860,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        976,
-        180,
+        1032,
+        121,
         66,
         24
       ]
@@ -827,9 +875,9 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "none",
       "rect": [
-        913,
-        303,
-        309,
+        665,
+        248,
+        255,
         28
       ]
     },
@@ -842,8 +890,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1121,
-        307,
+        819,
+        252,
         24,
         20
       ]
@@ -857,8 +905,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1147,
-        307,
+        845,
+        252,
         24,
         20
       ]
@@ -872,8 +920,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1173,
-        305,
+        871,
+        250,
         20,
         20
       ]
@@ -887,8 +935,8 @@
       "outline": "solid 2px oklch(0.48 0.12 70)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1192,
-        305,
+        890,
+        250,
         22,
         24
       ]
@@ -897,15 +945,15 @@
       "surface": "changes",
       "stop": 11,
       "tag": "div",
-      "label": "Changed files",
+      "label": "Resize source control",
       "focusVisible": true,
-      "outline": "solid 2px oklch(0.48 0.12 70)",
+      "outline": "auto 1px rgb(229, 151, 0)",
       "boxShadow": "none",
       "rect": [
-        913,
-        403,
-        319,
-        332
+        921,
+        156,
+        4,
+        579
       ]
     },
     {

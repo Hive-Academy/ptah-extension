@@ -1,6 +1,6 @@
 # Batches - TASK_2026_576_e16a
 
-Total tasks: 87 | Batches: 69 | Complete: 69/69 (P5 closed; P2-P5 merged into main)
+Total tasks: 87 | Batches: 69 | Complete: 69/69 (P5 closed; P2-P5 merged into main; Cutover phase-end review closed, PR #630 ready)
 
 Branch: `feat/task-2026-576-git-review` (P1, PR #611) and stacked phase branches — see "Stacked phase branches" in P2. Base: `main` 722d921ab.
 Never commit to `main`. Stage only the files of the batch. Never stage `.ptah/specs/TASK_2026_555/**`, `research_notes/**`
@@ -2664,4 +2664,26 @@ button to `ReviewNavigationService.openFile(path, line?, { editable: true })`.
 
 ### Cutover phase-end review
 
-- [ ] Phase-end review checkpoint (Review cadence): one cross-side review lane on the Cutover phase diff, the full e2e set, visual review of every mounted surface against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
+- [x] Phase-end review checkpoint (Review cadence): one cross-side review lane on the Cutover phase diff, the full e2e set, visual review of every mounted surface against `prototype/` (dark + light); findings fixed in follow-up commits before the next phase starts.
+
+Outcome (orchestrator, 2026-10-03):
+
+- Logic review: round 0 by a Sonnet code-logic-reviewer subagent (`reviews/cutover-phase-review.md`, REVISE 7/10) →
+  fix `825a12ab0` → round 1 by a **codex lane** (cross-side, cross-family; the user allowed codex for this session;
+  antigravity at quota, Glm timed out, opencode judged too weak) `reviews/cutover-phase-review-round1.md` REVISE 7/10,
+  5 residual defects → fix `68251d0e4` → round 2 `reviews/cutover-phase-review-round2.md` **APPROVED 9/10**, none open.
+- Visual review: round 0 REVISE 6/10 (V-1..V-9) → fixes `2c7a95130`, `f5594b9c1` → round 1
+  (`reviews/cutover-visual-review-round1.md`) REVISE 8/10 (N-1 dark axe contrast, N-2..N-4) → fix `e0aeab566` →
+  round 2 REVISE 8/10 (N-5 caret clipped, N-6 light Pierre dark) → bounded correction `907a10283` (N-6 was a harness
+  theme-timing artefact; harness fixed) → round 3 (`reviews/cutover-visual-review-round3.md`) **APPROVED 9/10**.
+  Screenshots in `screenshots/cutover/` (dark + light, 567/319/299 px).
+- Code review of the visual fixes, codex lane: `reviews/cutover-visual-fix-code-review.md` REVISE (3 MOD) →
+  `-round1.md` APPROVED → `-round2.md` REVISE (caret clip) → bounded correction → `-round3.md` **APPROVED 9/10**.
+- Axe, singly: git-dock 7/7, commit-composer 7/7 (round 3); spot-editor-save, task-worktree-view,
+  conflict-and-history-axe passed in round 2 — all 0 critical/serious, dark and light. Full e2e set: CI Electron E2E,
+  Webview E2E and CLI E2E green on `e0aeab566`; the final head is checked on PR #630.
+- Accepted minors: `review-canvas.component.ts` 708/700 lines (max-lines warning, V-5 wiring); Split chosen at a 319 px
+  dock clips the hunk toolbar's right edge (scrollable); comments inside a highlighted changed-word span on an added
+  line reach ~3.9:1 in ptah-dark (axe does not flag it); a manual theme switch with the dock open was not captured
+  (the git-dock axe pass switches it and renders correctly). CI flake: `git-watcher.real-git.spec.ts` "remote-tracking
+  ref … pushes a refs change" (3 s window) failed once on `e0aeab566` with no ptah-electron change; re-run.

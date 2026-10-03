@@ -13,18 +13,7 @@
         "height": 695
       },
       "clipped": [
-        "bdi[65..1080]",
-        "span[1148..1241]",
-        "ptah-open-in-button[1200..1241]",
-        "open-in-button[1200..1241]",
-        "div[1219..1241]",
-        "open-in-caret[1219..1241]",
-        "lucide-angular[1224..1236]",
-        "svg[1224..1236]",
-        "path[1227..1233]",
-        "span[1148..1241]",
-        "ptah-open-in-button[1200..1241]",
-        "open-in-button[1200..1241]"
+        "bdi[49..1065]"
       ]
     },
     {
@@ -39,7 +28,7 @@
         "height": 695
       },
       "clipped": [
-        "bdi[56..1072]"
+        "bdi[49..1065]"
       ]
     },
     {
@@ -54,679 +43,694 @@
         "height": 695
       },
       "clipped": [
-        "span[1144..1237]",
-        "ptah-open-in-button[1196..1237]",
-        "open-in-button[1196..1237]",
-        "div[1215..1237]",
-        "open-in-caret[1215..1237]",
-        "span[1144..1237]",
-        "ptah-open-in-button[1196..1237]",
-        "open-in-button[1196..1237]",
-        "div[1215..1237]",
-        "open-in-caret[1215..1237]",
-        "bdi[70..1085]",
-        "span[1153..1246]"
+        "bdi[49..1065]"
       ]
     },
     {
       "name": "branch-review-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": [
-        "bdi[752..1767]"
+        "bdi[104..1119]"
       ]
     },
     {
       "name": "branch-review-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1119,
+        "x": 913,
         "y": 40,
-        "width": 769,
-        "height": 943
+        "width": 319,
+        "height": 695
       },
       "clipped": [
-        "bdi[634..1649]"
+        "bdi[150..1165]"
       ]
     },
     {
       "name": "branch-review-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": [
-        "bdi[752..1767]"
+        "bdi[150..1165]"
       ]
     },
     {
       "name": "spot-editor-readonly-wide",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "spot-editor-readonly-narrow",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "spot-editor-readonly-min",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "spot-editor-dirty-wide",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "spot-editor-dirty-narrow",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "spot-editor-dirty-min",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": [
-        "Contents of src/calc.ts[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]"
+        "Contents of src/calc.ts[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]"
       ]
     },
     {
       "name": "spot-editor-conflict-dialog-wide",
-      "viewport": "0x0",
-      "docScrollWidth": 1910,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1254,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": [
-        "git-confirm-dialog[0..1910]",
-        "div[763..1147]",
-        "h3[787..1123]",
-        "p[787..1123]",
-        "div[787..1123]",
-        "git-confirm-cancel[883..974]",
-        "git-confirm-secondary[982..1040]",
-        "git-confirm-confirm[1048..1123]",
-        "div[0..1910]"
+        "git-confirm-dialog[0..1254]",
+        "div[435..819]",
+        "h3[459..795]",
+        "p[459..795]",
+        "div[459..795]",
+        "git-confirm-cancel[555..646]",
+        "git-confirm-secondary[654..712]",
+        "div[0..1254]"
       ]
     },
     {
       "name": "spot-editor-conflict-dialog-narrow",
-      "viewport": "0x0",
-      "docScrollWidth": 1910,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1254,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": [
-        "git-confirm-dialog[0..1910]",
-        "div[763..1147]",
-        "h3[787..1123]",
-        "p[787..1123]",
-        "div[787..1123]",
-        "git-confirm-cancel[883..974]",
-        "git-confirm-secondary[982..1040]",
-        "git-confirm-confirm[1048..1123]",
-        "div[0..1910]"
+        "git-confirm-dialog[0..1254]",
+        "div[435..819]",
+        "h3[459..795]",
+        "p[459..795]",
+        "div[459..795]",
+        "git-confirm-cancel[555..646]",
+        "git-confirm-secondary[654..712]",
+        "git-confirm-confirm[720..795]",
+        "div[0..1254]"
       ]
     },
     {
       "name": "spot-editor-conflict-dialog-min",
-      "viewport": "0x0",
-      "docScrollWidth": 1910,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1254,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": [
-        "Contents of src/calc.ts[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]",
-        "div[1617..1902]"
+        "Contents of src/calc.ts[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]",
+        "div[961..1246]"
       ]
     },
     {
       "name": "commit-idle-wide",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-idle-narrow",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-idle-min",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-message-filled-wide",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-message-filled-narrow",
-      "viewport": "0x0",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-message-filled-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-failure-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-failure-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-failure-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-success-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-success-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "commit-success-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "history-commits-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "history-commits-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "history-commits-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "history-stashes-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "history-stashes-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "history-stashes-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "changes-empty-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "changes-empty-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "changes-empty-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "task-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": [
-        "span[2143..2200]"
+        "span[1559..1616]"
       ]
     },
     {
       "name": "task-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": [
-        "span[2463..2520]",
-        "bdi[1486..1868]",
-        "bdi[1388..1842]"
+        "span[1807..1864]",
+        "bdi[830..1212]",
+        "bdi[732..1186]"
       ]
     },
     {
       "name": "task-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": [
-        "span[2483..2540]",
-        "bdi[1486..1868]",
-        "bdi[1388..1842]"
+        "span[1827..1884]",
+        "bdi[830..1212]",
+        "bdi[732..1186]"
       ]
     },
     {
       "name": "task-add-form-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": [
-        "span[2143..2200]"
+        "span[1559..1616]"
       ]
     },
     {
       "name": "task-add-form-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": [
-        "span[2463..2520]",
-        "bdi[1486..1868]",
-        "bdi[1388..1842]"
+        "span[1807..1864]",
+        "bdi[830..1212]",
+        "bdi[732..1186]"
       ]
     },
     {
       "name": "task-add-form-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": [
-        "span[2483..2540]",
-        "bdi[1486..1868]",
-        "bdi[1388..1842]"
+        "span[1827..1884]",
+        "bdi[830..1212]",
+        "bdi[732..1186]"
       ]
     },
     {
       "name": "conflict-banner-changes-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "conflict-banner-changes-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "conflict-banner-changes-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "conflict-commit-blocked-wide",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1249,
+        "x": 665,
         "y": 40,
-        "width": 639,
-        "height": 943
+        "width": 567,
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "conflict-commit-blocked-narrow",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1569,
+        "x": 913,
         "y": 40,
         "width": 319,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     },
     {
       "name": "conflict-commit-blocked-min",
-      "viewport": "1920x983",
-      "docScrollWidth": 1920,
-      "docClientWidth": 1920,
+      "viewport": "1264x735",
+      "docScrollWidth": 1264,
+      "docClientWidth": 1264,
       "shellRect": {
-        "x": 1589,
+        "x": 933,
         "y": 40,
         "width": 299,
-        "height": 943
+        "height": 695
       },
       "clipped": []
     }
   ],
   "focus": [
+    {
+      "surface": "header-caret",
+      "stop": 640,
+      "right": 1214,
+      "width": 22,
+      "listRight": 1232,
+      "focused": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)"
+    },
+    {
+      "surface": "header-caret",
+      "stop": 320,
+      "right": 1214,
+      "width": 22,
+      "listRight": 1232,
+      "focused": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)"
+    },
+    {
+      "surface": "header-caret",
+      "stop": 300,
+      "right": 1214,
+      "width": 22,
+      "listRight": 1232,
+      "focused": true,
+      "outline": "solid 2px oklch(0.766528 0.138677 91.0594)"
+    },
     {
       "surface": "comment",
       "stop": 0,
@@ -736,8 +740,8 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1653,
-        738,
+        997,
+        549,
         80,
         32
       ]
@@ -751,8 +755,8 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1741,
-        738,
+        1085,
+        549,
         80,
         32
       ]
@@ -766,8 +770,8 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1577,
-        796,
+        921,
+        607,
         293,
         60
       ]
@@ -781,7 +785,7 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "none",
       "rect": [
-        1257,
+        673,
         73,
         110,
         38
@@ -796,10 +800,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1249,
+        665,
         111,
-        639,
-        872
+        567,
+        624
       ]
     },
     {
@@ -811,7 +815,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1257,
+        673,
         121,
         94,
         24
@@ -826,7 +830,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1359,
+        775,
         117,
         192,
         32
@@ -841,7 +845,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1559,
+        975,
         121,
         53,
         24
@@ -856,7 +860,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1614,
+        1030,
         121,
         66,
         24
@@ -871,7 +875,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1249,
+        665,
         248,
         255,
         28
@@ -886,7 +890,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1403,
+        819,
         252,
         24,
         20
@@ -901,7 +905,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1429,
+        845,
         252,
         24,
         20
@@ -916,7 +920,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1455,
+        871,
         250,
         20,
         20
@@ -931,7 +935,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1474,
+        890,
         250,
         22,
         24
@@ -946,10 +950,10 @@
       "outline": "auto 1px rgb(229, 151, 0)",
       "boxShadow": "none",
       "rect": [
-        1505,
+        921,
         156,
         4,
-        827
+        579
       ]
     },
     {
@@ -961,7 +965,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1257,
+        673,
         115,
         104,
         24
@@ -976,7 +980,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
-        1844,
+        1188,
         115,
         36,
         24
@@ -991,9 +995,9 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "none",
       "rect": [
-        1277,
-        -1054,
-        601,
+        693,
+        -1302,
+        529,
         2040
       ]
     },
@@ -1006,10 +1010,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1888,
+        1232,
         40,
         32,
-        943
+        695
       ]
     },
     {
@@ -1021,7 +1025,7 @@
       "outline": "solid 2px oklch(0.54615 0.215208 262.881)",
       "boxShadow": "none",
       "rect": [
-        723,
+        395,
         4,
         79,
         32
@@ -1036,9 +1040,9 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1261,
+        677,
         155,
-        615,
+        543,
         98
       ]
     },
@@ -1051,7 +1055,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
-        1813,
+        1157,
         261,
         63,
         32
@@ -1066,10 +1070,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1888,
+        1232,
         40,
         32,
-        943
+        695
       ]
     },
     {
@@ -1081,7 +1085,7 @@
       "outline": "solid 2px oklch(0.54615 0.215208 262.881)",
       "boxShadow": "none",
       "rect": [
-        723,
+        395,
         4,
         79,
         32
@@ -1096,7 +1100,7 @@
       "outline": "solid 2px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "none",
       "rect": [
-        802,
+        474,
         4,
         81,
         32
@@ -1111,7 +1115,7 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "none",
       "rect": [
-        1535,
+        951,
         73,
         72,
         38
@@ -1126,10 +1130,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1249,
+        665,
         111,
-        639,
-        872
+        567,
+        624
       ]
     },
     {
@@ -1141,7 +1145,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1261,
+        677,
         123,
         93,
         20
@@ -1156,9 +1160,9 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1265,
+        681,
         151,
-        501,
+        429,
         20
       ]
     },
@@ -1171,7 +1175,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1770,
+        1114,
         149,
         41,
         24
@@ -1186,7 +1190,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1815,
+        1159,
         149,
         31,
         24
@@ -1201,7 +1205,7 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1854,
+        1198,
         123,
         22,
         24
@@ -1216,7 +1220,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1261,
+        677,
         213,
         77,
         24
@@ -1231,7 +1235,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1337,
+        753,
         213,
         22,
         24
@@ -1246,7 +1250,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1828,
+        1172,
         315,
         48,
         24
@@ -1261,9 +1265,9 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1261,
+        677,
         343,
-        615,
+        543,
         24
       ]
     },
@@ -1276,9 +1280,9 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1261,
+        677,
         369,
-        589,
+        517,
         24
       ]
     },
@@ -1291,7 +1295,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1854,
+        1198,
         369,
         22,
         24
@@ -1306,10 +1310,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1888,
+        1232,
         40,
         32,
-        943
+        695
       ]
     },
     {
@@ -1321,7 +1325,7 @@
       "outline": "none 3px oklch(0.925095 0.00705 88.6451)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1783,
+        1127,
         117,
         85,
         24
@@ -1336,7 +1340,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
       "rect": [
-        1783,
+        1127,
         143,
         85,
         24
@@ -1351,7 +1355,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
-        1301,
+        717,
         175,
         118,
         24
@@ -1366,7 +1370,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px",
       "rect": [
-        1425,
+        841,
         175,
         40,
         24
@@ -1381,7 +1385,7 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1257,
+        673,
         227,
         110,
         38
@@ -1396,10 +1400,10 @@
       "outline": "solid 2px oklch(0.766528 0.138677 91.0594)",
       "boxShadow": "none",
       "rect": [
-        1249,
+        665,
         265,
-        639,
-        718
+        567,
+        470
       ]
     }
   ]

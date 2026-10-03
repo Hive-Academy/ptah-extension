@@ -305,11 +305,50 @@ function seedRichRepo(repo: ScratchRepo): void {
   repo.write('src/naïve name (copy).ts', lines(3, 'weird'));
 }
 
+/** Fail loudly when no ThemeService received the switch (see openGit). */
+async function assertThemeService(page: Page, dark: boolean): Promise<void> {
+  const seen = await page.evaluate(() => {
+    const ng = (
+      window as unknown as {
+        ng?: { getComponent(el: Element): unknown };
+      }
+    ).ng;
+    if (!ng) return null;
+    for (const el of Array.from(document.querySelectorAll('*'))) {
+      if (!el.tagName.includes('-')) continue;
+      let comp: unknown;
+      try {
+        comp = ng.getComponent(el);
+      } catch {
+        continue;
+      }
+      const svc = (
+        comp as { theme?: { isDarkMode?: () => boolean } } | null
+      )?.theme;
+      if (typeof svc?.isDarkMode === 'function') return svc.isDarkMode();
+    }
+    return null;
+  });
+  if (seen !== dark) {
+    throw new Error(
+      `ThemeService did not switch to ${dark ? 'dark' : 'light'} (saw ${String(seen)})`,
+    );
+  }
+}
+
 async function openGit(ui: UiDriver, theme: AxeTheme): Promise<void> {
   await ui.goto('git');
-  // ThemeService only becomes reachable once the shell's components exist, and
-  // Pierre reads the theme at mount, so flip the theme and remount the rail.
+  // setTheme reaches the app's ThemeService only through a mounted component
+  // that injects it (the review canvas), so wait for one before flipping, then
+  // prove the service really switched. Pierre reads the theme at mount, so the
+  // rail is remounted afterwards.
+  await ui.page
+    .locator('ptah-review-canvas')
+    .first()
+    .waitFor({ state: 'attached', timeout: 60_000 });
+  await ui.page.waitForTimeout(500);
   await setTheme(ui.page, theme);
+  await assertThemeService(ui.page, theme === 'dark');
   await ui.page
     .getByRole('button', { name: 'Toggle Git panel' })
     .first()
@@ -370,13 +409,52 @@ for (const theme of ['dark', 'light'] as const) {
           await waitSettled(page, 800);
         });
 
+        // File-section header open-in caret: visible and ringed at every dock.
+        await cap.step('header-caret', async () => {
+          for (const width of [640, 320, 300]) {
+            await cap.dock(width);
+            const section = ui.reviewFileSection(THREE_HUNK_FILE);
+            await section.scrollIntoViewIfNeeded();
+            const caret = section.locator(
+              'ptah-open-in-button button[aria-label="Choose where to open"]',
+            );
+            await caret.focus();
+            await page.keyboard.press('Shift+Tab');
+            await page.keyboard.press('Tab');
+            const info = await caret.evaluate((el) => {
+              const r = el.getBoundingClientRect();
+              const list = document
+                .querySelector('[data-testid="review-canvas-list"]')
+                ?.getBoundingClientRect();
+              const cs = getComputedStyle(el);
+              return {
+                right: Math.round(r.right),
+                width: Math.round(r.width),
+                listRight: list ? Math.round(list.right) : null,
+                focused: document.activeElement === el,
+                outline: `${cs.outlineStyle} ${cs.outlineWidth} ${cs.outlineColor}`,
+              };
+            });
+            cap.focus.push({ surface: 'header-caret', stop: width, ...info });
+            await cap.shot(`header-caret-${width}`);
+          }
+          await cap.dock(640);
+        });
+
         // Comment composer inputs: focus ring (V-4) at the narrow dock.
         await cap.step('comment-composer', async () => {
           await cap.dock(320);
+          const list = page.locator('[data-testid="review-canvas-list"]');
+          await list.evaluate((el) => {
+            el.scrollTop = 0;
+          });
+          await waitSettled(page, 800);
           const section = ui.reviewFileSection(THREE_HUNK_FILE);
+          await expect(section).toBeAttached({ timeout: 30_000 });
+          await section.scrollIntoViewIfNeeded();
           await section
             .locator('[data-testid="file-section-comment"]')
-            .click();
+            .click({ timeout: 15_000 });
           const composer = page.locator('[data-testid="comment-composer"]');
           await expect(composer).toBeVisible({ timeout: 15_000 });
           await composer.scrollIntoViewIfNeeded();
