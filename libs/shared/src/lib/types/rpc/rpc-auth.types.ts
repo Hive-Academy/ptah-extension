@@ -414,6 +414,18 @@ export const SCOPED_SETTING_KEYS: Record<
     appScopable: false,
     supportedTargets: ['global'],
   },
+  'agentOrchestration.codexAutoCompactTokens': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.codexToolOutputTokenLimit': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'agentOrchestration.codexWebSearch': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
   'agentOrchestration.copilotModel': {
     appScopable: false,
     supportedTargets: ['global'],

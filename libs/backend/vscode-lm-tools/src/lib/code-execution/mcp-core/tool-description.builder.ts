@@ -721,6 +721,13 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
             'and the spawn result reports how it was delivered. Do not paste a role ' +
             'template into task; pass its name here instead.',
         },
+        effort: {
+          type: 'string',
+          description:
+            'Reasoning effort for this lane: minimal, low, medium, high, xhigh ' +
+            'or max. Wins over the per-CLI setting and the chat effort. A value ' +
+            'the chosen CLI does not take is ignored. Omit to use the setting.',
+        },
       },
       required: ['task'],
     },

@@ -242,7 +242,9 @@ describe('OpencodeCliAdapter', () => {
       // Second probe: warm server answers with model list.
       await flush();
       expect(mockSpawnCli).toHaveBeenCalledTimes(2);
-      currentChild?.stdout.write('anthropic/claude-sonnet-4-5\nopenai/gpt-4o\n');
+      currentChild?.stdout.write(
+        'anthropic/claude-sonnet-4-5\nopenai/gpt-4o\n',
+      );
       currentChild?.emitClose(0);
 
       const models = await modelsPromise;
@@ -274,21 +276,24 @@ describe('OpencodeCliAdapter', () => {
       expect(mockSpawnCli).toHaveBeenCalledTimes(2);
     });
 
-    it.each([1, 2])('rejects partial stdout from failed attempt %i', async (attempt) => {
-      mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
-      const modelsPromise = adapter.listModels();
+    it.each([1, 2])(
+      'rejects partial stdout from failed attempt %i',
+      async (attempt) => {
+        mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
+        const modelsPromise = adapter.listModels();
 
-      await flush();
-      if (attempt === 2) {
-        currentChild?.emitClose(0);
         await flush();
-      }
-      currentChild?.stdout.write('anthropic/claude-sonnet-4-5\n');
-      currentChild?.emitClose(1);
+        if (attempt === 2) {
+          currentChild?.emitClose(0);
+          await flush();
+        }
+        currentChild?.stdout.write('anthropic/claude-sonnet-4-5\n');
+        currentChild?.emitClose(1);
 
-      expect(await modelsPromise).toEqual([]);
-      expect(mockSpawnCli).toHaveBeenCalledTimes(attempt);
-    });
+        expect(await modelsPromise).toEqual([]);
+        expect(mockSpawnCli).toHaveBeenCalledTimes(attempt);
+      },
+    );
 
     it('does not retry when the probe encounters a spawn error', async () => {
       mockResolveCliPath.mockResolvedValue('/usr/local/bin/opencode');
@@ -514,9 +519,13 @@ describe('OpencodeCliAdapter', () => {
     it('passes --standalone before the prompt when run --help lists it', async () => {
       const args = await runArgs({ ...baseOptions, mcpPort: 51820 });
 
-      expect(mockHelpProbe).toHaveBeenCalledWith('opencode', ['run', '--help'], {
-        spawner: undefined,
-      });
+      expect(mockHelpProbe).toHaveBeenCalledWith(
+        'opencode',
+        ['run', '--help'],
+        {
+          spawner: undefined,
+        },
+      );
       expect(args).toContain('--standalone');
       expect(args.indexOf('--standalone')).toBeLessThan(args.length - 1);
       expect(args[args.length - 1]).toContain('Do the thing');
@@ -612,7 +621,7 @@ describe('OpencodeCliAdapter', () => {
     const baseOptions = {
       task: 'Do the thing',
       workingDirectory: '/proj',
-      systemPrompt: 'HARNESS CONTEXT',
+      projectGuidance: 'HARNESS CONTEXT',
       model: 'anthropic/claude-sonnet-4-5',
       mcpPort: 51820,
     };
@@ -967,14 +976,21 @@ describe('OpencodeCliAdapter', () => {
     const originalArch = process.arch;
     const originalAppData = process.env['APPDATA'];
     const appData = path.join(path.sep, 'test-appdata');
-    const detectedCliPath = path.join(path.sep, 'detected-install', 'opencode.cmd');
+    const detectedCliPath = path.join(
+      path.sep,
+      'detected-install',
+      'opencode.cmd',
+    );
     const relFromBin = path.join(
       'node_modules',
       'opencode-windows-x64',
       'bin',
       'opencode.exe',
     );
-    const detectedCandidate = path.join(path.dirname(detectedCliPath), relFromBin);
+    const detectedCandidate = path.join(
+      path.dirname(detectedCliPath),
+      relFromBin,
+    );
     const nestedDetectedCandidate = path.join(
       path.dirname(detectedCliPath),
       'node_modules',
@@ -1064,9 +1080,9 @@ describe('OpencodeCliAdapter', () => {
       (_source, candidate) => {
         mockExistsSync.mockImplementation((p: string) => p === candidate);
 
-        expect(
-          resolveOpencodeNativeBinary(undefined, resolveModulePath),
-        ).toBe(candidate);
+        expect(resolveOpencodeNativeBinary(undefined, resolveModulePath)).toBe(
+          candidate,
+        );
       },
     );
 

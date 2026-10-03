@@ -1463,6 +1463,83 @@ describe('AgentGenerationOrchestratorService', () => {
       const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
       expect(writtenAgent.content).not.toContain('model:');
     });
+
+    it('emits the N3 `disallowedTools:` line for a restricted agent type', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(
+        mocks,
+        createMockTemplate({
+          id: 'code-logic-reviewer',
+          name: 'code-logic-reviewer',
+          model: 'opus',
+        }),
+      );
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      const frontmatter = writtenAgent.content.split('\n---\n')[0];
+      expect(frontmatter).toContain(
+        'disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_browser_navigate,',
+      );
+      // Inside the one frontmatter block, after `model:`.
+      expect(frontmatter.indexOf('disallowedTools:')).toBeGreaterThan(
+        frontmatter.indexOf('model: opus'),
+      );
+    });
+
+    it('omits `disallowedTools:` for a type that keeps every tool', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(
+        mocks,
+        createMockTemplate({ id: 'visual-reviewer', name: 'visual-reviewer' }),
+      );
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content).not.toContain('disallowedTools');
+    });
+
+    it('writes the line once when the generated content already carries frontmatter (re-generation)', async () => {
+      const { service, mocks } = createOrchestrator();
+      wireHappyPath(
+        mocks,
+        createMockTemplate({
+          id: 'backend-developer',
+          name: 'backend-developer',
+        }),
+      );
+      // The content pass echoes a previous generation's frontmatter.
+      mocks.contentGenerator.generateContent.mockResolvedValue(
+        Result.ok({
+          content: [
+            '---',
+            'name: backend-developer',
+            'disallowedTools: mcp__firecrawl',
+            '---',
+            '# Backend Developer',
+          ].join('\n'),
+          warnings: [],
+          rejectedSections: 0,
+          tailoredSections: 0,
+        }),
+      );
+
+      await service.generateAgents({
+        workspacePath: '/workspace/test-project',
+      });
+
+      const writtenAgent = mocks.fileWriter.writeAgent.mock.calls[0]![0];
+      expect(writtenAgent.content.match(/disallowedTools:/g)).toHaveLength(1);
+      expect(writtenAgent.content).toContain(
+        'disallowedTools: mcp__firecrawl\n---\n',
+      );
+    });
   });
 });
 

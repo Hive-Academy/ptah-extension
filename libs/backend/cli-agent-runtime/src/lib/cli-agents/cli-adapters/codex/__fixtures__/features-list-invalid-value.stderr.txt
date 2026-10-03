@@ -1,0 +1,7 @@
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "C:\\Users\\user\\AppData\\Local\\Temp\\" (codex_home: AbsolutePathBuf("C:\\Users\\user\\AppData\\Local\\Temp\\tmp.scratch"))
+Error: failed to load bootstrap configuration
+
+Caused by:
+    invalid type: string "x", expected i64
+    in `model_auto_compact_token_limit`
+    

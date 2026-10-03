@@ -27,12 +27,26 @@ function makeProvider(values: Record<string, unknown>): {
   return { provider: new CompactionConfigProvider(config, logger), warn };
 }
 
+const ENV_KEY = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW';
+let savedEnv: string | undefined;
+
+beforeEach(() => {
+  savedEnv = process.env[ENV_KEY];
+  delete process.env[ENV_KEY];
+});
+
+afterEach(() => {
+  if (savedEnv === undefined) delete process.env[ENV_KEY];
+  else process.env[ENV_KEY] = savedEnv;
+});
+
 describe('CompactionConfigProvider.getConfig', () => {
   it('unset threshold → null, with no warning', () => {
     const { provider, warn } = makeProvider({});
     expect(provider.getConfig()).toEqual({
       enabled: true,
       contextTokenThreshold: null,
+      envWindow: null,
     });
     expect(warn).not.toHaveBeenCalled();
   });
@@ -83,4 +97,57 @@ describe('CompactionConfigProvider.getConfig', () => {
     ).toBe(false);
     expect(makeProvider({}).provider.getConfig().enabled).toBe(true);
   });
+});
+
+describe('CompactionConfigProvider.getConfig — CLAUDE_CODE_AUTO_COMPACT_WINDOW (read for the log only)', () => {
+  it('a valid env window is reported and not warned about', () => {
+    process.env[ENV_KEY] = '250000';
+    const { provider, warn } = makeProvider({
+      'compaction.threshold': 150_000,
+    });
+    const config = provider.getConfig();
+    expect(config.envWindow).toBe(250_000);
+    // The setting is still read and validated on its own.
+    expect(config.contextTokenThreshold).toBe(150_000);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('an empty env value is unset, with no warning', () => {
+    process.env[ENV_KEY] = '  ';
+    const { provider, warn } = makeProvider({});
+    expect(provider.getConfig().envWindow).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(['abc', '0', '-100'])(
+    'a value the runtime ignores (%p) → null + visible warning, raw text not echoed',
+    (raw) => {
+      process.env[ENV_KEY] = raw;
+      const { provider, warn } = makeProvider({});
+      expect(provider.getConfig().envWindow).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('the runtime ignores it'),
+        { rawLength: raw.length },
+      );
+    },
+  );
+
+  it.each([
+    ['50000', 100_000],
+    ['5000000', 1_000_000],
+  ])(
+    'an out-of-range value (%p) → the clamped window + visible warning',
+    (raw, expected) => {
+      process.env[ENV_KEY] = raw;
+      const { provider, warn } = makeProvider({});
+      expect(provider.getConfig().envWindow).toBe(expected);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('the runtime clamps it'),
+        {
+          effectiveWindow: expected,
+          validRange: [100_000, 1_000_000],
+        },
+      );
+    },
+  );
 });

@@ -192,12 +192,15 @@ type CaseName =
   | 'max'
   | 'invalid-low'
   | 'invalid-high'
-  | 'style-and-window';
+  | 'style-and-window'
+  | 'env-window';
 
 const CASES: ReadonlyArray<{
   readonly name: CaseName;
   readonly values: Record<string, unknown>;
   readonly outputStyleName?: string;
+  /** `CLAUDE_CODE_AUTO_COMPACT_WINDOW` while this case is built. */
+  readonly envWindow?: string;
 }> = [
   { name: 'enabled-unset', values: {} },
   {
@@ -213,7 +216,14 @@ const CASES: ReadonlyArray<{
     values: { 'compaction.threshold': 400_000 },
     outputStyleName: 'Explanatory',
   },
+  {
+    name: 'env-window',
+    values: { 'compaction.threshold': 400_000 },
+    envWindow: '250000',
+  },
 ];
+
+const AUTO_COMPACT_ENV = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW';
 
 function makeLogger(): jest.Mocked<Logger> {
   return {
@@ -290,8 +300,12 @@ describe('interactive path — compaction settings on the real SDK argv', () => 
       options: Record<string, unknown>;
       logger: jest.Mocked<Logger>;
     }> = [];
+    const savedEnv = process.env[AUTO_COMPACT_ENV];
     for (const testCase of CASES) {
       const logger = makeLogger();
+      if (testCase.envWindow === undefined)
+        delete process.env[AUTO_COMPACT_ENV];
+      else process.env[AUTO_COMPACT_ENV] = testCase.envWindow;
       const cfg = await makeBuilder(testCase.values, logger).build({
         userMessageStream: (async function* () {
           // Intentionally empty.
@@ -317,6 +331,8 @@ describe('interactive path — compaction settings on the real SDK argv', () => 
         },
       });
     }
+    if (savedEnv === undefined) delete process.env[AUTO_COMPACT_ENV];
+    else process.env[AUTO_COMPACT_ENV] = savedEnv;
     const probes = runProbe(
       sdk.entry,
       built.map((entry) => entry.options),
@@ -397,6 +413,44 @@ describe('interactive path — compaction settings on the real SDK argv', () => 
       autoCompactWindow: 400_000,
     });
   });
+
+  it('env window → the argv keeps the setting window (output unchanged by env)', () => {
+    expect(argvSettings('env-window')).toEqual({
+      ...ALWAYS,
+      autoCompactWindow: 400_000,
+    });
+  });
+
+  function autoCompactLogLines(name: CaseName): unknown[][] {
+    const logger = results.get(name)?.logger;
+    if (!logger) throw new Error(`no logger for ${name}`);
+    return logger.info.mock.calls.filter(
+      ([message]) => message === '[SdkQueryOptionsBuilder] Auto-compact window',
+    );
+  }
+
+  it.each([
+    ['enabled-unset', true, null, 'runtime'],
+    ['disabled', false, null, 'setting'],
+    ['min', true, 100_000, 'setting'],
+    ['max', true, 1_000_000, 'setting'],
+    ['invalid-low', true, null, 'runtime'],
+    ['style-and-window', true, 400_000, 'setting'],
+    ['env-window', true, 250_000, 'env'],
+  ] as const)(
+    'logs ONE INFO line per session start with window and source (%s)',
+    (name, enabled, window, source) => {
+      const lines = autoCompactLogLines(name);
+      expect(lines).toHaveLength(1);
+      // No ANTHROPIC_BASE_URL → first-party → the claude class.
+      expect(lines[0][1]).toEqual({
+        enabled,
+        window,
+        source,
+        modelClass: 'claude',
+      });
+    },
+  );
 
   it('preserves model, setting sources and the system prompt in every case', () => {
     for (const [name, { probe, options }] of results) {

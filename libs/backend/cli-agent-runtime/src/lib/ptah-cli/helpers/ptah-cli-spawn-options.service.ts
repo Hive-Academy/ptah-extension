@@ -149,7 +149,6 @@ export class PtahCliSpawnOptions {
    *
    * @param authEnv - Isolated auth environment for the agent
    * @param cwd - Working directory
-   * @param projectGuidance - Optional project guidance text
    * @param resolvedModel - The concrete model this spawn runs on, already
    *   resolved from `modelTier` by `PtahCliRegistry.spawnAgent`. Feeds the
    *   model-identity clarification; passing the wrong value here is what made
@@ -171,7 +170,6 @@ export class PtahCliSpawnOptions {
   async assembleSpawnOptions(
     authEnv: AuthEnv,
     cwd: string,
-    projectGuidance?: string,
     resolvedModel?: string,
     sessionContext?: PtahSpawnSessionContext,
     agentId?: string,
@@ -194,12 +192,13 @@ export class PtahCliSpawnOptions {
       // already plumbed instead of silently dropping the style.
       outputStyleBody: outputStyle.outputStyleBody,
     });
+    // Project guidance reaches the prompt once, as `enhancedPromptsContent`
+    // above. A second `## Project Guidance` copy used to be appended here
+    // (TASK_2026_597, R3.4). The role goes through the shared, capped
+    // `renderRoleBlock`.
     const fullSystemPromptContent =
       [
         promptResult.content,
-        projectGuidance
-          ? `\n\n## Project Guidance\n${projectGuidance}`
-          : undefined,
         role ? renderRoleBlock(role, 'ptah-cli') : undefined,
       ]
         .filter(Boolean)

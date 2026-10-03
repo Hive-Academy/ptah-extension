@@ -25,6 +25,7 @@ import type {
 import { transformAgentBody } from '@ptah-extension/harness-sync';
 import type { CliCommandOptions } from './cli-adapter.interface';
 import { renderLaneCompletionContract } from '../lane-reporting-contract';
+import { condenseLaneRole } from './lane-role-condenser';
 
 /**
  * A buffer-until-first-subscriber emitter. Items emitted before any
@@ -462,6 +463,12 @@ function isRoleTransformTarget(cli: CliType): cli is CliTarget {
   return ROLE_TRANSFORM_TARGETS.has(cli);
 }
 
+/**
+ * The role block every lane receives, capped at `LANE_ROLE_MAX_CHARS`
+ * (TASK_2026_597). Codex `developer_instructions`, every `buildTaskPrompt`
+ * adapter and the Ptah CLI system prompt all render through here, so the cap
+ * holds on every lane type. A role within the cap renders unchanged.
+ */
 export function renderRoleBlock(
   role: AgentRoleDefinition,
   cli: CliType,
@@ -469,35 +476,84 @@ export function renderRoleBlock(
   const body = isRoleTransformTarget(cli)
     ? transformAgentBody(EMPTY_FRONTMATTER + role.body, cli)
     : role.body;
-  return (
-    `## Role: ${role.name}\n\n` +
-    `You are running as the \`${role.name}\` role; the definition below governs this task and outranks any generic persona above.\n\n` +
-    body
-  );
+  const title = `## Role: ${role.name}\n\n`;
+  return condenseLaneRole({
+    header:
+      title +
+      `You are running as the \`${role.name}\` role; the definition below governs this task and outranks any generic persona above.\n\n`,
+    headerWithoutBody:
+      title +
+      `You are running as the \`${role.name}\` role. Its definition is too large to include here: read the file named below before you start; it governs this task and outranks any generic persona above.\n\n`,
+    body,
+    sourcePath: role.sourcePath,
+  });
+}
+
+/**
+ * Which preamble blocks a lane's earlier turn carried, so a restored-context
+ * resume can leave out exactly those (TASK_2026_597, F6).
+ */
+export interface ResumeDeliveredPreambles {
+  /** The earlier turn carried `NATIVE_AGENT_TOOL_POLICY`. */
+  readonly toolPolicy: boolean;
+  /** The earlier turn carried `TWO_WAY_MESSAGING_GUIDANCE`. */
+  readonly messaging: boolean;
+}
+
+/** The messaging block exists only where its tools and attribution do. */
+function carriesMessagingBlock(options: CliCommandOptions): boolean {
+  return !!options.agentId && options.mcpPort !== undefined;
+}
+
+/**
+ * The preambles `buildTaskPrompt` puts in a prompt built WITHOUT
+ * `resumeDeliveredPreambles`: the tool policy always, the messaging block
+ * when the run has an agent id and an MCP port. An adapter records this for
+ * its first turn and passes it on that thread's later turns.
+ */
+export function fullPromptPreambles(
+  options: CliCommandOptions,
+): ResumeDeliveredPreambles {
+  return { toolPolicy: true, messaging: carriesMessagingBlock(options) };
 }
 
 /**
  * Build a task prompt string from CLI command options.
- * Optionally prepends system prompt or project-specific guidance from enhanced prompts.
- * Prefers systemPrompt (full prompt harness) over projectGuidance when available.
+ * Optionally prepends the project-specific guidance from enhanced prompts.
  * Appends the shared native-agent tool policy, file context, and task folder
  * instructions to the base task.
  *
  * History-restoring adapters opt in to omit system context and the role on
- * resume. Unknown resume behavior keeps the full prefix by default. Native
- * role channels remain the adapter's responsibility.
+ * resume. The tool policy and the two-way messaging block are each omitted
+ * only when the adapter states that an earlier turn of the same thread
+ * carried that block (`resumeDeliveredPreambles`). The completion contract is
+ * always kept. Unknown resume behavior keeps the full prefix by default.
+ * Native role channels remain the adapter's responsibility.
  */
 export function buildTaskPrompt(
   options: CliCommandOptions & {
     /** Opt in only when the adapter restores the prior conversation on resume. */
     readonly resumeRestoresContext?: boolean;
+    /**
+     * What this thread's earlier turn actually carried, per block. A lane
+     * first spawned without an agent id or MCP port never received the
+     * messaging block, so a resume must not assume it (TASK_2026_597, F6).
+     * Absent keeps both blocks on resume; ignored unless the context is
+     * restored.
+     */
+    readonly resumeDeliveredPreambles?: ResumeDeliveredPreambles;
   },
   cli?: CliType,
 ): string {
   const restoredContext =
     !!options.resumeSessionId && options.resumeRestoresContext === true;
+  const delivered = restoredContext
+    ? options.resumeDeliveredPreambles
+    : undefined;
+  const omitToolPolicy = delivered?.toolPolicy === true;
+  const omitMessaging = delivered?.messaging === true;
   let taskPrompt = '';
-  const systemContext = options.systemPrompt || options.projectGuidance;
+  const systemContext = options.projectGuidance;
   if (systemContext && !restoredContext) {
     taskPrompt += systemContext + PROMPT_SECTION_DELIMITER;
   }
@@ -511,7 +567,12 @@ export function buildTaskPrompt(
     taskPrompt += renderRoleBlock(options.role, cli) + PROMPT_SECTION_DELIMITER;
   }
 
-  taskPrompt += `${NATIVE_AGENT_TOOL_POLICY}\n\n${options.task}`;
+  // A restored-context resume whose earlier turn delivered a block already
+  // holds it in its thread history, so that block is not resent
+  // (TASK_2026_597, F6). The completion contract below is always sent.
+  taskPrompt += omitToolPolicy
+    ? options.task
+    : `${NATIVE_AGENT_TOOL_POLICY}\n\n${options.task}`;
 
   if (options.files && options.files.length > 0) {
     taskPrompt += `\n\nFocus on these files:\n${options.files
@@ -533,7 +594,7 @@ export function buildTaskPrompt(
     }
   }
 
-  if (options.agentId && options.mcpPort !== undefined) {
+  if (carriesMessagingBlock(options) && !omitMessaging) {
     taskPrompt += PROMPT_SECTION_DELIMITER + TWO_WAY_MESSAGING_GUIDANCE;
   }
 

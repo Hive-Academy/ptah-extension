@@ -253,7 +253,6 @@ interface SdkSessionLifecycleManagerLike {
 
 interface EnhancedPromptsServiceLike {
   getProjectGuidanceContent(workspacePath: string): Promise<string | null>;
-  getEnhancedPromptContent(workspacePath: string): Promise<string | null>;
 }
 
 /**
@@ -289,7 +288,6 @@ interface PtahCliRegistryLike {
     id: string,
     task: string,
     options?: {
-      projectGuidance?: string;
       workingDirectory?: string;
     },
   ): Promise<
@@ -697,24 +695,6 @@ export class PtahAPIBuilder {
               // optional add-on already gated by the enhancedPromptsService
               // presence check above; a read failure degrades to no extra
               // guidance rather than failing session setup.
-              return undefined;
-            }
-          },
-          getSystemPrompt: async () => {
-            if (!this.enhancedPromptsService) return undefined;
-            try {
-              const workspacePath = this.getWorkspaceRoot();
-              const content =
-                await this.enhancedPromptsService.getEnhancedPromptContent(
-                  workspacePath,
-                );
-              return content ?? undefined;
-            } catch {
-              // degradation-audit: optional-capability - the enhanced system
-              // prompt is an optional add-on already gated by the
-              // enhancedPromptsService presence check above; a read failure
-              // degrades to the agent's default prompt rather than failing
-              // session setup.
               return undefined;
             }
           },

@@ -96,6 +96,50 @@ function invalidReasoningEffort(params: AgentSetConfigParams): string | null {
   return null;
 }
 
+/** Codex lane token budgets: integers >= 0, where 0 = Codex runtime default. */
+const CODEX_BUDGET_TOKEN_FIELDS = [
+  'codexAutoCompactTokens',
+  'codexToolOutputTokenLimit',
+] as const;
+
+type CodexBudgetTokenField = (typeof CODEX_BUDGET_TOKEN_FIELDS)[number];
+
+/**
+ * Read-side defaults for the Codex lane budget keys. Mirrors
+ * `FILE_BASED_SETTINGS_DEFAULTS` in `platform-core`; the set-config spec pins
+ * the two against each other.
+ */
+const CODEX_BUDGET_DEFAULTS: Readonly<
+  Record<CodexBudgetTokenField, number> & { codexWebSearch: boolean }
+> = {
+  codexAutoCompactTokens: 120000,
+  codexToolOutputTokenLimit: 2500,
+  codexWebSearch: true,
+};
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * Host-boundary check for the Codex lane budget writes. An invalid value is
+ * rejected with its field name and never clamped, so the user sees exactly
+ * which setting was refused. Returns the first invalid field, or null.
+ */
+function invalidCodexBudget(params: AgentSetConfigParams): string | null {
+  for (const field of CODEX_BUDGET_TOKEN_FIELDS) {
+    const value: unknown = params[field];
+    if (value !== undefined && !isNonNegativeInteger(value)) {
+      return field;
+    }
+  }
+  const webSearch: unknown = params.codexWebSearch;
+  if (webSearch !== undefined && typeof webSearch !== 'boolean') {
+    return 'codexWebSearch';
+  }
+  return null;
+}
+
 @injectable()
 export class AgentRpcHandlers {
   /**
@@ -220,6 +264,13 @@ export class AgentRpcHandlers {
               'codexReasoningEffort',
               '',
             ),
+            codexAutoCompactTokens: this.getCodexBudgetTokens(
+              'codexAutoCompactTokens',
+            ),
+            codexToolOutputTokenLimit: this.getCodexBudgetTokens(
+              'codexToolOutputTokenLimit',
+            ),
+            codexWebSearch: this.getCodexWebSearch(),
             copilotReasoningEffort: this.getAgentCfg<string>(
               'copilotReasoningEffort',
               '',
@@ -293,6 +344,13 @@ export class AgentRpcHandlers {
             error: `Unsupported ${invalidEffort} value`,
           };
         }
+        const invalidBudget = invalidCodexBudget(params);
+        if (invalidBudget) {
+          return {
+            success: false,
+            error: `Unsupported ${invalidBudget} value`,
+          };
+        }
         if (params.preferredAgentOrder !== undefined) {
           await this.setAgentCfg(
             'preferredAgentOrder',
@@ -350,6 +408,15 @@ export class AgentRpcHandlers {
             'codexReasoningEffort',
             params.codexReasoningEffort,
           );
+        }
+        for (const field of CODEX_BUDGET_TOKEN_FIELDS) {
+          const value = params[field];
+          if (value !== undefined) {
+            await this.setAgentCfg(field, value);
+          }
+        }
+        if (params.codexWebSearch !== undefined) {
+          await this.setAgentCfg('codexWebSearch', params.codexWebSearch);
         }
         if (params.copilotReasoningEffort !== undefined) {
           await this.setAgentCfg(
@@ -1094,6 +1161,23 @@ export class AgentRpcHandlers {
         defaultValue,
       ) ?? defaultValue
     );
+  }
+
+  /**
+   * Read a Codex lane token budget. A hand-edited invalid file value (not an
+   * integer >= 0) is reported as the default, the same value the lane uses.
+   */
+  private getCodexBudgetTokens(field: CodexBudgetTokenField): number {
+    const fallback = CODEX_BUDGET_DEFAULTS[field];
+    const value = this.getAgentCfg<unknown>(field, fallback);
+    return isNonNegativeInteger(value) ? value : fallback;
+  }
+
+  /** Read the Codex lane web-search switch; a non-boolean reads as the default. */
+  private getCodexWebSearch(): boolean {
+    const fallback = CODEX_BUDGET_DEFAULTS.codexWebSearch;
+    const value = this.getAgentCfg<unknown>('codexWebSearch', fallback);
+    return typeof value === 'boolean' ? value : fallback;
   }
 
   /**

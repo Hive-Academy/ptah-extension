@@ -192,6 +192,46 @@ describe('isFileBasedSettingKey', () => {
     );
   });
 
+  describe('Codex lane budget keys (TASK_2026_597)', () => {
+    /**
+     * Read by the Codex lane config builder in every host and written through
+     * `agent:setConfig`. Unrouted, a write would be dropped silently while the
+     * read still served the default, so each key is named literally here.
+     * 0 in either token key means "use the Codex runtime default".
+     */
+    const codexBudgetDefaults = {
+      'agentOrchestration.codexAutoCompactTokens': 120000,
+      'agentOrchestration.codexToolOutputTokenLimit': 2500,
+      'agentOrchestration.codexWebSearch': true,
+    } as const;
+
+    it.each(Object.entries(codexBudgetDefaults))(
+      'registers and defaults %s to %s',
+      (key, expected) => {
+        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+        expect(isFileBasedSettingKey(key)).toBe(true);
+        expect(
+          Object.prototype.hasOwnProperty.call(
+            FILE_BASED_SETTINGS_DEFAULTS,
+            key,
+          ),
+        ).toBe(true);
+        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+      },
+    );
+
+    it('keeps the numeric budget defaults non-negative integers', () => {
+      for (const key of [
+        'agentOrchestration.codexAutoCompactTokens',
+        'agentOrchestration.codexToolOutputTokenLimit',
+      ]) {
+        const value = FILE_BASED_SETTINGS_DEFAULTS[key] as number;
+        expect(Number.isInteger(value)).toBe(true);
+        expect(value).toBeGreaterThanOrEqual(0);
+      }
+    });
+  });
+
   describe('saved Tasks-board view keys (TASK_2026_181)', () => {
     // Gate 1. These two keys have no `package.json contributes.configuration`
     // declaration behind them, so file routing is not a preference here — it is

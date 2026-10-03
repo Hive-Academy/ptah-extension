@@ -180,15 +180,18 @@ export interface SpawnAgentRequest {
   readonly deliverables?: readonly string[];
   /** Model identifier for CLI agents (e.g., 'claude-sonnet-4.6'). Passed as --model flag. */
   readonly model?: string;
+  /**
+   * Reasoning effort for this lane (TASK_2026_597, R2.3 step 1). Wins over the
+   * per-CLI setting and the in-chat effort. A value the CLI does not accept is
+   * ignored and the next step applies.
+   */
+  readonly effort?: string;
   /** Resume a previous CLI session by its CLI-native session ID */
   readonly resumeSessionId?: string;
   /** Parent Ptah Claude SDK session ID. Injected by MCP server, NOT set by callers. */
   readonly parentSessionId?: string;
   /** Project-specific guidance (enhanced prompts). Injected by MCP server, NOT set by callers. */
   readonly projectGuidance?: string;
-  /** Full system prompt content (prompt harness). Replaces projectGuidance when available.
-   *  Includes core prompt, enhanced prompts, skill catalog. Injected by MCP server, NOT set by callers. */
-  readonly systemPrompt?: string;
   /** Absolute paths to enabled plugin directories.
    *  Each directory contains skills/ subdirectory with SKILL.md files.
    *  Injected by MCP server, NOT set by callers. */

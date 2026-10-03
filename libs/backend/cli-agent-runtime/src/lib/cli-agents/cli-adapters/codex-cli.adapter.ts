@@ -10,10 +10,9 @@
  * translation proxy and the CLI workspace proxy. Main limit: no mid-turn steer
  * or interrupt, and `listModels` returns the curated static list below.
  */
-import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { homedir } from 'os';
-import path, { join } from 'path';
+import { join } from 'path';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -29,18 +28,36 @@ import type {
   SdkHandle,
 } from './cli-adapter.interface';
 import { bestMessagingCapability } from './cli-adapter.interface';
+import type { ResumeDeliveredPreambles } from './cli-adapter.utils';
 import {
   assertCommandLineWithinLimit,
   stripAnsiCodes,
   buildTaskPrompt,
+  fullPromptPreambles,
   probeCliVersion,
   resolveCliPath,
   createBufferedEmitter,
   renderRoleBlock,
-  withAsarUnpackedTwin,
 } from './cli-adapter.utils';
-import { ptahMcpServerUrl } from './ptah-mcp-url';
 import { summarizeCliSdkError } from './sdk-error-summary';
+import {
+  codexRejectionNamesUserServer,
+  codexStderrExcerpt,
+  essentialCodexConfigEntries,
+  sdkConfigRejectionStderr,
+} from './codex/codex-config-rejection';
+import { codexExecArgs } from './codex/codex-exec-args';
+import { resolveCodexLaneBudgets } from './codex/codex-lane-budgets';
+import {
+  buildCodexLaneConfig,
+  type CodexLaneConfigVariant,
+} from './codex/codex-lane-config.builder';
+import {
+  codexModelRejectionMessage,
+  codexTextExcerpt,
+} from './codex/codex-model-rejection';
+import { resolveCodexNativeBinaryInfo } from './codex/codex-native-binary';
+import { readCodexUserMcpServerNames } from './codex/codex-user-mcp-servers';
 
 /** Valid reasoning effort values for the Codex SDK. */
 const CODEX_REASONING_EFFORTS = [
@@ -50,30 +67,45 @@ const CODEX_REASONING_EFFORTS = [
   'high',
   'xhigh',
 ] as const;
-type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
-
 /**
  * Minimal local types for the dynamically imported Codex SDK.
  * These mirror the actual SDK exports but avoid importing ESM at module level.
  */
 interface CodexSdkModule {
   Codex: new (options?: {
-    apiKey?: string;
     env?: Record<string, string>;
-    config?: Record<string, unknown>;
+    /** Raw `--config key=value` entries, passed to `codex exec` unchanged. */
+    configOverrides?: string[];
     codexPathOverride?: string;
   }) => CodexClient;
 }
 
+/**
+ * Only the four options that are not config keys. Web search, approval policy
+ * and reasoning effort travel as `configOverrides`: the SDK emits thread
+ * options AFTER the overrides, so a thread option would silently win over the
+ * lane config (review N-A).
+ */
 interface CodexThreadOptions {
-  workingDirectory?: string;
-  skipGitRepoCheck?: boolean;
+  workingDirectory: string;
+  skipGitRepoCheck: true;
   model?: string;
-  approvalPolicy?: 'never' | 'on-request' | 'on-failure';
-  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access';
-  modelReasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-  webSearchEnabled?: boolean;
+  sandboxMode: 'danger-full-access';
 }
+
+/** Longest the distinct-warning memory of one adapter instance grows. */
+const MAX_REMEMBERED_LANE_WARNINGS = 256;
+
+/** A turn attempt Codex refused for its config before any event. */
+const CONFIG_REJECTED: unique symbol = Symbol('codex-config-rejected');
+
+/** Info segment for a lane that fell back to the essential config keys. */
+const CONFIG_REJECTED_NOTICE =
+  'Codex rejected the lane config; this run drops the lane budget and prefix keys, so Codex defaults and the full Codex prefix apply';
+
+/** Added to the notice when the retry has to drop the user-server entry. */
+const USER_SERVERS_ON_NOTICE =
+  'Codex named one of your MCP servers as the cause, so your own MCP servers are enabled for this lane';
 
 interface CodexClient {
   startThread(options?: CodexThreadOptions): CodexThread;
@@ -169,165 +201,6 @@ async function getCodexSdk(): Promise<CodexSdkModule> {
   const mod = (await import('@openai/codex-sdk')) as unknown as CodexSdkModule;
   codexSdkModule = mod;
   return mod;
-}
-
-/**
- * Platform binary package names used by the Codex SDK.
- * Maps target triple to npm package name (mirrors PLATFORM_PACKAGE_BY_TARGET in codex-sdk).
- */
-const CODEX_PLATFORM_PACKAGES: Record<string, string> = {
-  'x86_64-unknown-linux-musl': '@openai/codex-linux-x64',
-  'aarch64-unknown-linux-musl': '@openai/codex-linux-arm64',
-  'x86_64-apple-darwin': '@openai/codex-darwin-x64',
-  'aarch64-apple-darwin': '@openai/codex-darwin-arm64',
-  'x86_64-pc-windows-msvc': '@openai/codex-win32-x64',
-  'aarch64-pc-windows-msvc': '@openai/codex-win32-arm64',
-};
-
-/**
- * Vendor sub-directories that have carried the Codex native binary, newest
- * layout first. `@openai/codex-<platform>` >= 0.147 ships it under
- * `vendor/<triple>/bin/`; earlier releases used `vendor/<triple>/codex/`.
- * The SDK's own resolver probes the same two, in the same order.
- */
-const CODEX_VENDOR_DIRS = ['bin', 'codex'] as const;
-
-/**
- * Resolve the target triple for the current platform.
- * Returns the Rust-style target triple used by the Codex SDK binary packages.
- */
-function getTargetTriple(): string | undefined {
-  const { platform, arch } = process;
-  if (platform === 'win32') {
-    return arch === 'arm64'
-      ? 'aarch64-pc-windows-msvc'
-      : 'x86_64-pc-windows-msvc';
-  }
-  if (platform === 'darwin') {
-    return arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin';
-  }
-  if (platform === 'linux') {
-    return arch === 'arm64'
-      ? 'aarch64-unknown-linux-musl'
-      : 'x86_64-unknown-linux-musl';
-  }
-  return undefined;
-}
-
-/**
- * Cross-platform resolver for the Codex native binary.
- *
- * The Codex SDK spawns a platform-specific Rust executable directly (no shim).
- * On Windows, npm installs a `.cmd` wrapper that invokes a `.js` launcher —
- * passing either to the SDK as `codexPathOverride` produces `spawn EFTYPE`.
- * On every OS we must point to the actual native binary inside the
- * `@openai/codex-<platform>` package's vendor directory. Every candidate root
- * below is probed for both vendor layouts — current `vendor/<triple>/bin/`
- * first, legacy `vendor/<triple>/codex/` second (see CODEX_VENDOR_DIRS).
- *
- * Resolution order (first existing path wins):
- *   1. Electron packaged: `<resourcesPath>/app.asar.unpacked/node_modules/...`
- *   2. `require.resolve('@openai/codex-<platform>/package.json')` → vendor/...
- *      (works when the SDK and its optional-dep platform package are installed
- *      under the host's node_modules — covers dev/unbundled and most installs)
- *   3. Walk up from `@openai/codex-sdk/package.json`'s node_modules root
- *      (with app.asar → app.asar.unpacked rewrite, covers older Electron builds)
- *   4. npm global roots (when user did `npm i -g @openai/codex`):
- *      Win  → `%APPDATA%\npm\node_modules\...`
- *      Unix → `/usr/local/lib/node_modules`, `/usr/lib/node_modules`,
- *             `$HOME/.npm-global/lib/node_modules`,
- *             `$HOME/.nvm/versions/node/<ver>/lib/node_modules`
- *   5. Walk up from the detected CLI path (`which codex` → its sibling
- *      `node_modules/@openai/codex-<platform>/...`) — last-resort heuristic.
- *
- * Returns `undefined` if no candidate exists. Callers must NOT pass the bare
- * `detectedCliPath` (a `.cmd` or `.js` shim) to the SDK in that case — let the
- * SDK's own `findCodexPath()` surface a clearer error than EFTYPE.
- */
-function resolveCodexNativeBinary(
-  detectedCliPath?: string,
-): string | undefined {
-  const targetTriple = getTargetTriple();
-  if (!targetTriple) return undefined;
-
-  const platformPkg = CODEX_PLATFORM_PACKAGES[targetTriple];
-  if (!platformPkg) return undefined;
-
-  const binaryName = process.platform === 'win32' ? 'codex.exe' : 'codex';
-  const pkgDir = platformPkg.split('/')[1];
-  /** `vendor/<triple>/<layout>/<binary>`, relative to the platform package root. */
-  const relsFromPkg = CODEX_VENDOR_DIRS.map((vendorDir) =>
-    path.join('vendor', targetTriple, vendorDir, binaryName),
-  );
-  const relsFromNodeModules = relsFromPkg.map((rel) =>
-    path.join('@openai', pkgDir, rel),
-  );
-  const relsFromBin = relsFromNodeModules.map((rel) =>
-    path.join('node_modules', rel),
-  );
-
-  const candidates: string[] = [];
-  /** Probe `root` for every vendor layout, current layout first. */
-  const pushLayouts = (root: string, rels: readonly string[]): void => {
-    for (const rel of rels) candidates.push(path.join(root, rel));
-  };
-
-  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
-    .resourcesPath;
-  if (resourcesPath) {
-    pushLayouts(path.join(resourcesPath, 'app.asar.unpacked'), relsFromBin);
-  }
-
-  try {
-    const platformPkgJson = require.resolve(`${platformPkg}/package.json`);
-    pushLayouts(path.dirname(platformPkgJson), relsFromPkg);
-  } catch {
-    // noop
-  }
-
-  try {
-    const sdkPkgJsonPath = require.resolve('@openai/codex-sdk/package.json');
-    const nodeModulesRoot = path.resolve(sdkPkgJsonPath, '..', '..', '..');
-    for (const rel of relsFromNodeModules) {
-      candidates.push(...withAsarUnpackedTwin(path.join(nodeModulesRoot, rel)));
-    }
-  } catch {
-    // noop
-  }
-  if (process.platform === 'win32') {
-    const appData = process.env['APPDATA'];
-    if (appData) {
-      pushLayouts(path.join(appData, 'npm'), relsFromBin);
-    }
-  } else {
-    pushLayouts('/usr/local/lib', relsFromBin);
-    pushLayouts('/usr/lib', relsFromBin);
-    const home = process.env['HOME'];
-    if (home) {
-      pushLayouts(path.join(home, '.npm-global', 'lib'), relsFromBin);
-      pushLayouts(
-        path.join(home, '.nvm', 'versions', 'node', process.version, 'lib'),
-        relsFromBin,
-      );
-    }
-  }
-  if (detectedCliPath) {
-    const cliDir = path.dirname(detectedCliPath);
-    pushLayouts(cliDir, relsFromBin);
-    pushLayouts(
-      path.join(cliDir, 'node_modules', '@openai', 'codex', 'node_modules'),
-      relsFromNodeModules,
-    );
-    if (process.platform !== 'win32' && path.basename(cliDir) === 'bin') {
-      pushLayouts(path.join(path.dirname(cliDir), 'lib'), relsFromBin);
-    }
-  }
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-
-  return undefined;
 }
 
 /**
@@ -497,21 +370,25 @@ export class CodexCliAdapter implements CliAdapter {
     return stripAnsiCodes(raw);
   }
 
-  /** Fallback curated list when the Codex models API is unreachable.
-   *  Keep in sync with `codex -m` interactive model list. */
   /**
    * Codex-supported models matching the Codex CLI `/model` menu.
    * The chatgpt.com API returns a broader set (including non-Codex models),
-   * so we use this curated list instead of the API response.
+   * so we use this curated list instead of the API response. `gpt-6-sol` is
+   * Ptah's lane default when neither `agentOrchestration.codexModel` nor the
+   * spawn names a model (TASK_2026_597, D3).
    */
   private static readonly SUPPORTED_MODELS: CliModelInfo[] = [
-    { id: 'gpt-5.3-codex', name: 'GPT 5.3 Codex (current)' },
-    { id: 'gpt-5.4', name: 'GPT 5.4' },
-    { id: 'gpt-5.2-codex', name: 'GPT 5.2 Codex' },
-    { id: 'gpt-5.2', name: 'GPT 5.2' },
-    { id: 'gpt-5.1-codex-max', name: 'GPT 5.1 Codex Max' },
-    { id: 'gpt-5.1-codex-mini', name: 'GPT 5.1 Codex Mini' },
+    { id: 'gpt-6-sol', name: 'GPT 6 Sol (Ptah lane default)' },
+    { id: 'gpt-6-luna', name: 'GPT 6 Luna' },
+    { id: 'gpt-6-astra', name: 'GPT 6 Astra' },
   ];
+
+  /**
+   * Lane warnings already logged by this instance, so a condition that holds
+   * on every spawn (a deleted working directory, an odd user config) is logged
+   * once, not per spawn. Bounded: past the cap, warnings are logged again.
+   */
+  private readonly loggedLaneWarnings = new Set<string>();
 
   /**
    * Path to the Codex auth file.
@@ -591,96 +468,134 @@ export class CodexCliAdapter implements CliAdapter {
    * The SDK is ESM-only so we use a cached dynamic import().
    * Abort is achieved via AbortSignal passed to thread.runStreamed().
    *
-   * streaming via item.started/updated, toolCallId emission, and
-   * reasoning→thinking mapping.
+   * Every turn builds its own `Codex` client: the first turn of a new thread
+   * gets the `first-turn` lane config, and every resumed spawn and
+   * `continue()` turn gets the `resume` variant on `resumeThread(threadId)`
+   * (TASK_2026_597, D2). The SDK spawns one `codex exec` per turn anyway, so a
+   * client per turn adds no process.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     const sdk = await getCodexSdk();
-    const codexOptions: {
-      config?: Record<string, unknown>;
-      codexPathOverride?: string;
-      env?: Record<string, string>;
-    } = {
-      env: {
-        ...(process.env as Record<string, string>),
-        FORCE_COLOR: '0',
-        NO_COLOR: '1',
-      },
-    };
-    const config: Record<string, unknown> = {};
-    if (options.mcpPort) {
-      config['mcp_servers'] = {
-        ptah: {
-          // Scoped to the spawn's working directory so the server attributes
-          // this agent's calls to the right workspace (TASK_2026_364).
-          url: ptahMcpServerUrl(
-            options.mcpPort,
-            options.workingDirectory,
-            options.agentId,
-          ),
-        },
-      };
-      // Codex connects to this server and then hides its tools. Measured on
-      // codex-cli 0.150.1: the `ToolSearchAlwaysDeferMcpTools` feature keeps
-      // every MCP tool OUT of the model's tool list until the model runs a
-      // tool search, so an agent asked to list the `ptah` tools answers NONE
-      // and does the whole task with shell commands instead. The connection
-      // itself is fine — `rmcp` logs `Service initialized as client
-      // server_info: Implementation { name: "ptah" }` either way, which is
-      // what makes the deferral invisible from our side. Turning the feature
-      // off puts `ptah_*` and `execute_code` in the tool list from turn one.
-      config['features'] = { tool_search_always_defer_mcp_tools: false };
-    }
-    const nativeBinaryPath = resolveCodexNativeBinary(options.binaryPath);
-    if (options.role) {
-      const developerInstructions = renderRoleBlock(options.role, this.name);
-      assertCommandLineWithinLimit(nativeBinaryPath ?? 'codex', [
-        '--config',
-        `developer_instructions=${JSON.stringify(developerInstructions)}`,
-      ]);
-      config['developer_instructions'] = developerInstructions;
-    }
-    codexOptions.config = config;
-    if (nativeBinaryPath) {
-      codexOptions.codexPathOverride = nativeBinaryPath;
-    }
-
-    const codex = new sdk.Codex(codexOptions);
-    const threadOptions: CodexThreadOptions = {
-      workingDirectory: options.workingDirectory,
-      approvalPolicy: 'never',
-      sandboxMode: 'danger-full-access',
-      skipGitRepoCheck: true,
-      // `codex exec` leaves web search off unless it is asked for. Every other
-      // CLI Ptah spawns can reach the web, so leaving this unset was us
-      // removing a documented Codex capability by omission.
-      webSearchEnabled: true,
-    };
-    if (options.model) {
-      threadOptions.model = options.model;
-    }
-    if (
+    const binary = await resolveCodexNativeBinaryInfo(options.binaryPath);
+    const userServers = await readCodexUserMcpServerNames(
+      options.workingDirectory,
+    );
+    const budgets = resolveCodexLaneBudgets(options.laneBudgets);
+    const developerInstructions = options.role
+      ? renderRoleBlock(options.role, this.name)
+      : undefined;
+    const reasoningEffort =
       options.reasoningEffort &&
       (CODEX_REASONING_EFFORTS as readonly string[]).includes(
         options.reasoningEffort,
       )
-    ) {
-      threadOptions.modelReasoningEffort =
-        options.reasoningEffort as CodexReasoningEffort;
-    }
-    const thread = options.resumeSessionId
-      ? codex.resumeThread(options.resumeSessionId, threadOptions)
-      : codex.startThread(threadOptions);
+        ? options.reasoningEffort
+        : undefined;
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      FORCE_COLOR: '0',
+      NO_COLOR: '1',
+    };
+    const secrets = [env['CODEX_API_KEY'], env['OPENAI_API_KEY']].filter(
+      (value): value is string => typeof value === 'string' && value !== '',
+    );
+    const threadOptions: CodexThreadOptions = {
+      workingDirectory: options.workingDirectory,
+      sandboxMode: 'danger-full-access',
+      skipGitRepoCheck: true,
+      ...(options.model ? { model: options.model } : {}),
+    };
+    /**
+     * The stderr of the rejection that put this handle on the essential keys,
+     * or `undefined` while it runs the full lane config. It stays set for later
+     * `continue()` turns once the essential retry worked; it is cleared again
+     * when the essential config is rejected too, because that proves the cause
+     * is outside Ptah's overrides (the user's own Codex config) and dropping
+     * the budgets would buy nothing (batch 4 review M2).
+     */
+    let essentialAfter: string | undefined;
+    /** `onLaneConfigRejected` fires once per handle. */
+    let rejectionAnnounced = false;
+
+    const laneConfig = (variant: CodexLaneConfigVariant): string[] => {
+      const built = buildCodexLaneConfig({
+        variant,
+        ...budgets.budgets,
+        reasoningEffort,
+        mcpPort: options.mcpPort,
+        workingDirectory: options.workingDirectory,
+        agentId: options.agentId,
+        userMcpServerNames: userServers.names,
+        developerInstructions,
+        codexVersion: binary?.version,
+      });
+      this.logLaneWarnings(built.warnings);
+      return essentialAfter === undefined
+        ? built.entries
+        : essentialCodexConfigEntries(built.entries, essentialAfter);
+    };
+
+    /**
+     * The overrides for a turn on `threadId` (none: a new thread), checked
+     * against the command-line limit as the whole argv the SDK will spawn.
+     * Many user servers or a long role plus budgets can breach it; nothing
+     * is truncated (Batch 5 H6).
+     */
+    const turnOverrides = (threadId: string | undefined): string[] => {
+      const configOverrides = laneConfig(threadId ? 'resume' : 'first-turn');
+      assertCommandLineWithinLimit(
+        binary?.path ?? 'codex',
+        codexExecArgs({
+          configOverrides,
+          ...threadOptions,
+          resumeThreadId: threadId,
+        }),
+      );
+      return configOverrides;
+    };
+
+    const openThread = (threadId: string | undefined): CodexThread => {
+      const codex = new sdk.Codex({
+        configOverrides: turnOverrides(threadId),
+        env,
+        ...(binary ? { codexPathOverride: binary.path } : {}),
+      });
+      return threadId
+        ? codex.resumeThread(threadId, threadOptions)
+        : codex.startThread(threadOptions);
+    };
+
+    this.logLaneWarnings([...userServers.warnings, ...budgets.warnings]);
+    // A too-long command line refuses the spawn here, before any process.
+    turnOverrides(options.resumeSessionId);
+    this.logger?.info('[CodexCliAdapter] Codex lane config', {
+      codexVersion: binary?.version ?? 'unknown',
+      nativeBinary: binary?.path ?? 'sdk-resolved',
+      userServersDisabled: userServers.names.length,
+      // R3.5: while CODEX_RESUME_RESENDS_ROLE is true the role is resent as
+      // developer_instructions on every resumed spawn and continue() turn,
+      // adding this many chars (at most LANE_ROLE_MAX_CHARS) per resume.
+      // Tokens per resume are filled in from M on run C2 (S5).
+      resumeRoleChars: developerInstructions?.length ?? 0,
+    });
+
     const taskPrompt = buildTaskPrompt(
       { ...options, role: undefined, resumeRestoresContext: true },
       this.name,
     );
+    // What this handle's first turn carried; later turns on the same thread
+    // leave out exactly those blocks. A `resumeSessionId` spawn is a new
+    // process with no record of the earlier one, so its first turn above
+    // passes nothing and keeps both.
+    const firstTurnPreambles: ResumeDeliveredPreambles =
+      fullPromptPreambles(options);
     const abortController = new AbortController();
     let capturedThreadId: string | undefined;
     const itemTextTracker = new Map<string, string>();
     const itemsWithDeltas = new Set<string>();
     const output = createBufferedEmitter<string>();
     const segment = createBufferedEmitter<CliOutputSegment>();
+    const configRejection = createBufferedEmitter<void>();
     const STARTUP_TIMEOUT_MS = 30_000;
 
     /**
@@ -696,7 +611,7 @@ export class CodexCliAdapter implements CliAdapter {
      * lib's Jest run report "a worker process has failed to exit gracefully",
      * and it is the same defect class as commit 5dc525f02.
      */
-    const startStreamedTurn = async (prompt: string) => {
+    const startStreamedTurn = async (thread: CodexThread, prompt: string) => {
       let startupTimer: NodeJS.Timeout | undefined;
       try {
         return await Promise.race([
@@ -715,11 +630,47 @@ export class CodexCliAdapter implements CliAdapter {
       }
     };
 
-    const runTurn = async (prompt: string): Promise<number> => {
+    /**
+     * The F10 message when `event` is a terminal `turn.failed` saying Codex
+     * refused the model; never a retry with another model. Only the terminal
+     * event is read: a non-terminal `error` (a reconnect or capacity notice)
+     * goes through the normal path untouched. Codex's original text is logged
+     * and quoted in the message (batch 4 review S1).
+     */
+    const modelRejection = (event: CodexThreadEvent): string | undefined => {
+      if (event.type !== 'turn.failed') return undefined;
+      const message = codexModelRejectionMessage(
+        event.error.message,
+        options.model,
+        options.modelSource,
+        secrets,
+      );
+      if (message !== undefined) {
+        this.logger?.warn('[CodexCliAdapter] Codex rejected the lane model', {
+          model: options.model ?? 'codex-default',
+          modelSource: options.modelSource ?? 'unknown',
+          codexError: codexTextExcerpt(event.error.message, secrets),
+        });
+      }
+      return message;
+    };
+
+    /**
+     * One attempt at a turn. `CONFIG_REJECTED` means Codex refused the lane
+     * config before writing any event, so nothing reached a model and the
+     * caller may retry once with the essential keys.
+     */
+    const runAttempt = async (
+      prompt: string,
+      threadId: string | undefined,
+    ): Promise<number | typeof CONFIG_REJECTED> => {
+      let receivedEvent = false;
       try {
-        const streamedTurn = await startStreamedTurn(prompt);
+        const thread = openThread(threadId);
+        const streamedTurn = await startStreamedTurn(thread, prompt);
 
         for await (const event of streamedTurn.events) {
+          receivedEvent = true;
           if (abortController.signal.aborted) {
             return 1;
           }
@@ -727,13 +678,19 @@ export class CodexCliAdapter implements CliAdapter {
             capturedThreadId = event.thread_id;
           }
 
-          this.handleStreamEvent(
-            event,
-            output.emit,
-            segment.emit,
-            itemTextTracker,
-            itemsWithDeltas,
-          );
+          const rejected = modelRejection(event);
+          if (rejected === undefined) {
+            this.handleStreamEvent(
+              event,
+              output.emit,
+              segment.emit,
+              itemTextTracker,
+              itemsWithDeltas,
+            );
+          } else {
+            output.emit(`[Error] ${rejected}\n`);
+            segment.emit({ type: 'error', content: rejected });
+          }
 
           // The turn is over the moment `turn.completed` or `turn.failed`
           // arrives — never wait for the iterator to end. The SDK ends it only
@@ -767,29 +724,110 @@ export class CodexCliAdapter implements CliAdapter {
         // The full text goes to the log; the stream gets a bounded summary.
         const errorMessage =
           error instanceof Error ? error.message : String(error);
+        const rejectionStderr = receivedEvent
+          ? undefined
+          : sdkConfigRejectionStderr(errorMessage);
+        if (rejectionStderr !== undefined && essentialAfter !== undefined) {
+          // The essential keys were rejected too: the cause is not Ptah's
+          // budget or prefix keys, so later turns go back to the full lane
+          // config, and this failure is reported as a normal error below.
+          essentialAfter = undefined;
+          this.logger?.warn(
+            "[CodexCliAdapter] Codex rejected the essential lane config too; the cause is outside Ptah's overrides (check the user's Codex config.toml). Later turns use the full lane config again",
+            { stderr: codexStderrExcerpt(rejectionStderr, secrets) },
+          );
+        } else if (rejectionStderr !== undefined) {
+          essentialAfter = rejectionStderr;
+          const userServersOn =
+            userServers.names.length > 0 &&
+            codexRejectionNamesUserServer(rejectionStderr);
+          this.logger?.warn(
+            '[CodexCliAdapter] Codex rejected the lane config; retrying once with the essential keys only',
+            {
+              stderr: codexStderrExcerpt(rejectionStderr, secrets),
+              userServersReEnabled: userServersOn,
+            },
+          );
+          const notice = userServersOn
+            ? `${CONFIG_REJECTED_NOTICE}. ${USER_SERVERS_ON_NOTICE}`
+            : CONFIG_REJECTED_NOTICE;
+          output.emit(`\n[${notice}]\n`);
+          segment.emit({ type: 'info', content: notice });
+          if (!rejectionAnnounced) {
+            rejectionAnnounced = true;
+            configRejection.emit();
+          }
+          return CONFIG_REJECTED;
+        }
         this.logger?.error('[CodexCliAdapter] SDK turn failed', {
           detail: errorMessage,
         });
-        const summary = summarizeCliSdkError(error, 'Codex');
+        const summary = summarizeCliSdkError(error, 'Codex', secrets);
         output.emit(`\n${summary}\n`);
         segment.emit({ type: 'error', content: summary });
         return 1;
       }
     };
 
-    const done = runTurn(taskPrompt);
+    /** A turn with at most one retry after a config rejection. */
+    const runTurn = async (
+      prompt: string,
+      threadId: string | undefined,
+    ): Promise<number> => {
+      const first = await runAttempt(prompt, threadId);
+      if (first !== CONFIG_REJECTED) return first;
+      if (abortController.signal.aborted) return 1;
+      // `essentialAfter` is now set, so a second rejection is a normal error
+      // (and clears it again).
+      const retry = await runAttempt(prompt, threadId);
+      return retry === CONFIG_REJECTED ? 1 : retry;
+    };
+
+    const continueTurn = (message: string): Promise<number> => {
+      // Resume the thread this handle ran (or the one it was spawned to
+      // resume). With no thread to resume, the message starts a new thread
+      // and therefore carries the full prefix again.
+      const threadId = capturedThreadId ?? options.resumeSessionId;
+      const prompt = buildTaskPrompt(
+        {
+          ...options,
+          task: message,
+          files: undefined,
+          role: undefined,
+          resumeSessionId: threadId,
+          resumeRestoresContext: true,
+          resumeDeliveredPreambles: firstTurnPreambles,
+        },
+        this.name,
+      );
+      return runTurn(prompt, threadId);
+    };
+
+    const done = runTurn(taskPrompt, options.resumeSessionId);
 
     return {
       abort: abortController,
       done,
       onOutput: output.subscribe,
       onSegment: segment.subscribe,
+      onLaneConfigRejected: configRejection.subscribe,
       getSessionId: () => capturedThreadId,
       setAgentId: () => {},
       supportsContinuation: () => true,
       continue: (message: string): Promise<ContinuationOutcome> =>
-        Promise.resolve({ done: runTurn(message) }),
+        Promise.resolve({ done: continueTurn(message) }),
     };
+  }
+
+  /** Log each distinct lane warning once per adapter instance. */
+  private logLaneWarnings(warnings: readonly string[]): void {
+    for (const warning of warnings) {
+      if (this.loggedLaneWarnings.has(warning)) continue;
+      if (this.loggedLaneWarnings.size < MAX_REMEMBERED_LANE_WARNINGS) {
+        this.loggedLaneWarnings.add(warning);
+      }
+      this.logger?.warn(`[CodexCliAdapter] Codex lane config: ${warning}`);
+    }
   }
 
   /**

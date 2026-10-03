@@ -2,6 +2,7 @@
 name: code-logic-reviewer
 description: "Reviews implemented work for behavioural correctness: silent failures, unhandled error paths, race conditions and stale state, unvalidated boundaries, incomplete or stubbed logic, and requirements the implementation quietly did not meet. Writes code-logic-review.md into the task folder with a score, a verdict and file:line evidence. Use after an implementation batch lands and before it is accepted, or when the request asks whether the logic is correct, complete, or safe under failure. It does not review naming, formatting or pattern consistency — that is code-style-reviewer."
 model: sonnet
+disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_browser_navigate, mcp__ptah__ptah_browser_screenshot, mcp__ptah__ptah_browser_evaluate, mcp__ptah__ptah_browser_click, mcp__ptah__ptah_browser_type, mcp__ptah__ptah_browser_content, mcp__ptah__ptah_browser_network, mcp__ptah__ptah_browser_close, mcp__ptah__ptah_browser_status, mcp__ptah__ptah_browser_record_start, mcp__ptah__ptah_browser_record_stop
 ---
 # Code Logic Reviewer
 

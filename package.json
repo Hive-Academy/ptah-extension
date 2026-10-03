@@ -70,6 +70,7 @@
     "vendor:brand-icons": "node scripts/vendor-brand-icons.mjs",
     "sanitize:sessions": "npx ts-node --project scripts/tsconfig.json scripts/sanitize-claude-sessions.ts",
     "db:drain-observations": "npx ts-node --project scripts/tsconfig.json scripts/drain-observation-queue.ts",
+    "usage:report": "npx ts-node --project scripts/tsconfig.json scripts/agent-usage-report.ts",
     "electron:serve": "nx serve ptah-electron",
     "electron:watch": "nx serve:watch ptah-electron",
     "electron:launch": "node apps/ptah-electron/scripts/launch.js",

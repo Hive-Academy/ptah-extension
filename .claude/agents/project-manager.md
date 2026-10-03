@@ -2,6 +2,7 @@
 name: project-manager
 description: "Turns a request into a scoped, testable task-description.md: what is in scope, what is explicitly out, the acceptance criteria a reviewer can check, the non-functional constraints that actually apply, and the risks worth naming. Use at the start of a task when the request is broader than one obvious change, when scope needs a boundary before anyone designs or codes, when an existing task needs its requirements refined after a correction, or when several stakeholders want different things from the same change. Do not use to design the architecture, to decompose work into batches, or to restate a one-line request that is already unambiguous."
 model: opus
+disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_browser_navigate, mcp__ptah__ptah_browser_screenshot, mcp__ptah__ptah_browser_evaluate, mcp__ptah__ptah_browser_click, mcp__ptah__ptah_browser_type, mcp__ptah__ptah_browser_content, mcp__ptah__ptah_browser_network, mcp__ptah__ptah_browser_close, mcp__ptah__ptah_browser_status, mcp__ptah__ptah_browser_record_start, mcp__ptah__ptah_browser_record_stop
 ---
 # Project Manager
 

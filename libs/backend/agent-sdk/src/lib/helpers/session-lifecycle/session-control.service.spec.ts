@@ -315,3 +315,142 @@ describe('SessionControl.endSession — teardown failure still deregisters', () 
     expect(h.notifyAll).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('SessionControl.applyAutoCompactConfig — live compaction.threshold change (TASK_2026_597 A1)', () => {
+  type FlagSettingsQuery = NonNullable<
+    ReturnType<SessionRegistry['register']>['query']
+  >;
+
+  function attachQuery(
+    h: Harness,
+    tabId: string,
+    baseUrl: string | undefined,
+    applyFlagSettings: jest.Mock,
+  ): void {
+    const rec = h.registry.register(
+      tabId,
+      makeConfig(),
+      new AbortController(),
+      undefined,
+      {
+        usageCostSource: 'unreported',
+        authEnv: baseUrl ? { ANTHROPIC_BASE_URL: baseUrl } : {},
+      },
+    );
+    rec.query = { applyFlagSettings } as unknown as FlagSettingsQuery;
+  }
+
+  it('applies the new window to every live session through the flag layer', async () => {
+    const h = makeHarness();
+    const first = jest.fn().mockResolvedValue(undefined);
+    const second = jest.fn().mockResolvedValue(undefined);
+    attachQuery(h, 'tab_a', undefined, first);
+    attachQuery(h, 'tab_b', 'http://127.0.0.1:8123', second);
+
+    await h.control.applyAutoCompactConfig({
+      enabled: true,
+      contextTokenThreshold: 300_000,
+      envWindow: null,
+    });
+
+    expect(first).toHaveBeenCalledWith({ autoCompactWindow: 300_000 });
+    expect(second).toHaveBeenCalledWith({ autoCompactWindow: 300_000 });
+  });
+
+  it('an unset threshold clears the flag-layer window (null) while class defaults are null', async () => {
+    const h = makeHarness();
+    const apply = jest.fn().mockResolvedValue(undefined);
+    attachQuery(h, 'tab_a', undefined, apply);
+
+    await h.control.applyAutoCompactConfig({
+      enabled: true,
+      contextTokenThreshold: null,
+      envWindow: null,
+    });
+
+    expect(apply).toHaveBeenCalledWith({ autoCompactWindow: null });
+  });
+
+  it('sends nothing while auto compaction is disabled', async () => {
+    const h = makeHarness();
+    const apply = jest.fn().mockResolvedValue(undefined);
+    attachQuery(h, 'tab_a', undefined, apply);
+
+    await h.control.applyAutoCompactConfig({
+      enabled: false,
+      contextTokenThreshold: 300_000,
+      envWindow: null,
+    });
+
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('skips a registered session whose query has not started', async () => {
+    const h = makeHarness();
+    h.registry.register('tab_pending', makeConfig(), new AbortController());
+    const apply = jest.fn().mockResolvedValue(undefined);
+    attachQuery(h, 'tab_live', undefined, apply);
+
+    await h.control.applyAutoCompactConfig({
+      enabled: true,
+      contextTokenThreshold: 200_000,
+      envWindow: null,
+    });
+
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it('one session failing is logged and does not stop the others', async () => {
+    const h = makeHarness();
+    const failing = jest.fn().mockRejectedValue(new Error('control closed'));
+    const healthy = jest.fn().mockResolvedValue(undefined);
+    attachQuery(h, 'tab_fail', undefined, failing);
+    attachQuery(h, 'tab_ok', undefined, healthy);
+
+    await expect(
+      h.control.applyAutoCompactConfig({
+        enabled: true,
+        contextTokenThreshold: 200_000,
+        envWindow: null,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(healthy).toHaveBeenCalledWith({ autoCompactWindow: 200_000 });
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Failed to apply auto-compact window for tab_fail',
+      ),
+      expect.any(Error),
+    );
+  });
+
+  it('a session that never answers is abandoned after the timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = makeHarness();
+      const hung = jest
+        .fn()
+        .mockReturnValue(new Promise<void>(() => undefined));
+      attachQuery(h, 'tab_hung', undefined, hung);
+
+      const done = h.control.applyAutoCompactConfig({
+        enabled: true,
+        contextTokenThreshold: 200_000,
+        envWindow: null,
+      });
+      await jest.advanceTimersByTimeAsync(5000);
+      await done;
+
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Failed to apply auto-compact window for tab_hung',
+        ),
+        expect.objectContaining({
+          message: expect.stringContaining('timed out'),
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

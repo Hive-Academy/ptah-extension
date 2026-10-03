@@ -63,6 +63,7 @@ import {
   assertCommandLineWithinLimit,
   buildTaskPrompt,
   CliCommandLineTooLongError,
+  fullPromptPreambles,
   probeCliVersion,
   renderRoleBlock,
   resolveDirectSpawn,
@@ -125,12 +126,10 @@ describe('buildTaskPrompt', () => {
     const prompt = buildTaskPrompt({
       task: 'Implement the requested change.',
       workingDirectory: 'D:\\workspace',
-      systemPrompt: 'Existing system guidance.',
-      projectGuidance: 'Ignored fallback guidance.',
+      projectGuidance: 'Existing system guidance.',
     });
 
     expect(prompt).toContain('Existing system guidance.\n\n---\n\n');
-    expect(prompt).not.toContain('Ignored fallback guidance.');
     expect(prompt.split(toolPolicy)).toHaveLength(2);
   });
 
@@ -145,8 +144,7 @@ describe('buildTaskPrompt', () => {
     const base = {
       task: 'Continue the implementation.',
       workingDirectory: '/ws',
-      systemPrompt: 'S'.repeat(1000),
-      projectGuidance: 'PROJECT GUIDANCE',
+      projectGuidance: 'S'.repeat(1000),
       role,
       files: ['src/a.ts'],
       taskFolder: '/tf',
@@ -190,15 +188,14 @@ describe('buildTaskPrompt', () => {
       `);
       const resumed = { ...fresh, resumeSessionId: 'session-1' };
       const prompt = buildTaskPrompt(resumed, 'cursor');
-      expect(prompt).not.toContain(base.systemPrompt);
       expect(prompt).not.toContain(base.projectGuidance);
       expect(prompt).not.toContain('## Role:');
       expect(prompt).not.toContain(role.body);
+      // Without `resumeDeliveredPreambles` the tool policy is still sent.
       expect(prompt).toBe(
         buildTaskPrompt(
           {
             ...base,
-            systemPrompt: undefined,
             projectGuidance: undefined,
             role: undefined,
           },
@@ -210,10 +207,137 @@ describe('buildTaskPrompt', () => {
       expect(prompt).toContain(renderLaneCompletionContract(base));
     });
 
+    describe('preambles (TASK_2026_597, F6)', () => {
+      const messaging = { agentId: 'agent-42', mcpPort: 41739 };
+
+      const resumed = {
+        ...base,
+        ...messaging,
+        resumeRestoresContext: true,
+        resumeSessionId: 'session-1',
+      };
+
+      it('keeps both blocks and the contract on a restored-context resume when delivery is not stated', () => {
+        const prompt = buildTaskPrompt(resumed, 'opencode');
+
+        expect(prompt.split(toolPolicy)).toHaveLength(2);
+        expect(prompt).toContain('Two-way messaging:');
+        expect(
+          prompt.endsWith(`\n\n${renderLaneCompletionContract(base)}`),
+        ).toBe(true);
+      });
+
+      it('keeps both blocks when neither was delivered', () => {
+        const prompt = buildTaskPrompt(
+          {
+            ...resumed,
+            resumeDeliveredPreambles: { toolPolicy: false, messaging: false },
+          },
+          'opencode',
+        );
+
+        expect(prompt.split(toolPolicy)).toHaveLength(2);
+        expect(prompt).toContain('Two-way messaging:');
+        expect(
+          prompt.endsWith(`\n\n${renderLaneCompletionContract(base)}`),
+        ).toBe(true);
+      });
+
+      it('omits both blocks when both were delivered, and keeps the contract', () => {
+        const prompt = buildTaskPrompt(
+          {
+            ...resumed,
+            resumeDeliveredPreambles: { toolPolicy: true, messaging: true },
+          },
+          'opencode',
+        );
+
+        expect(prompt).not.toContain('Tool policy:');
+        expect(prompt).not.toContain('Cost policy');
+        expect(prompt).not.toContain('Two-way messaging:');
+        expect(prompt.startsWith(base.task)).toBe(true);
+        expect(
+          prompt.endsWith(`\n\n${renderLaneCompletionContract(base)}`),
+        ).toBe(true);
+      });
+
+      it('omits only the tool policy when the earlier turn carried it but not the messaging block', () => {
+        const prompt = buildTaskPrompt(
+          {
+            ...resumed,
+            resumeDeliveredPreambles: { toolPolicy: true, messaging: false },
+          },
+          'opencode',
+        );
+
+        expect(prompt).not.toContain('Tool policy:');
+        expect(prompt.startsWith(base.task)).toBe(true);
+        expect(prompt).toContain('Two-way messaging:');
+        expect(
+          prompt.endsWith(`\n\n${renderLaneCompletionContract(base)}`),
+        ).toBe(true);
+      });
+
+      it('keeps all three on the first turn, even if delivery is stated', () => {
+        const prompt = buildTaskPrompt(
+          {
+            ...base,
+            ...messaging,
+            resumeRestoresContext: true,
+            resumeDeliveredPreambles: { toolPolicy: true, messaging: true },
+          },
+          'opencode',
+        );
+
+        expect(prompt.split(toolPolicy)).toHaveLength(2);
+        expect(prompt).toContain('Two-way messaging:');
+        expect(
+          prompt.endsWith(`\n\n${renderLaneCompletionContract(base)}`),
+        ).toBe(true);
+      });
+
+      it('keeps all three on a resume whose adapter does not restore context, even if delivery is stated', () => {
+        const prompt = buildTaskPrompt(
+          {
+            ...base,
+            ...messaging,
+            resumeSessionId: 'session-1',
+            resumeDeliveredPreambles: { toolPolicy: true, messaging: true },
+          },
+          'opencode',
+        );
+
+        expect(prompt.split(toolPolicy)).toHaveLength(2);
+        expect(prompt).toContain('Two-way messaging:');
+      });
+
+      it('reports what a prompt built without delivery flags carries', () => {
+        expect(fullPromptPreambles({ ...base, ...messaging })).toEqual({
+          toolPolicy: true,
+          messaging: true,
+        });
+        expect(fullPromptPreambles({ ...base, agentId: 'agent-42' })).toEqual({
+          toolPolicy: true,
+          messaging: false,
+        });
+        expect(fullPromptPreambles({ ...base, mcpPort: 41739 })).toEqual({
+          toolPolicy: true,
+          messaging: false,
+        });
+        // The flag matches the prompt: messaging present exactly when reported.
+        const withBoth = buildTaskPrompt({ ...base, ...messaging }, 'opencode');
+        const withoutId = buildTaskPrompt(
+          { ...base, mcpPort: 41739 },
+          'opencode',
+        );
+        expect(withBoth).toContain('Two-way messaging:');
+        expect(withoutId).not.toContain('Two-way messaging:');
+      });
+    });
+
     it('omits project guidance when it is the restored system context', () => {
       const resumed = {
         ...base,
-        systemPrompt: undefined,
         resumeRestoresContext: true,
         resumeSessionId: 'session-1',
       };
@@ -241,6 +365,67 @@ describe('buildTaskPrompt', () => {
       expect(buildTaskPrompt(resumed, 'cursor')).not.toBe(
         buildTaskPrompt(fresh, 'cursor'),
       );
+    });
+  });
+
+  describe('guidance once (TASK_2026_597, R3.4)', () => {
+    const guidance = 'GUIDANCE_ONCE_MARKER: follow the repository rules.';
+    const role: AgentRoleDefinition = {
+      name: 'backend-developer',
+      body: 'Follow the repository patterns.',
+      sourcePath: '/ws/.claude/agents/backend-developer.md',
+      bytes: 30,
+    };
+    const occurrences = (text: string): number =>
+      text.split(guidance).length - 1;
+
+    it('the opencode prompt carries the guidance once', () => {
+      const prompt = buildTaskPrompt(
+        {
+          task: 'Ship it.',
+          workingDirectory: '/ws',
+          projectGuidance: guidance,
+          role,
+          agentId: 'agent-42',
+          mcpPort: 41739,
+        },
+        'opencode',
+      );
+
+      expect(occurrences(prompt)).toBe(1);
+    });
+
+    it('Codex developer_instructions plus its task prompt carry the guidance once', () => {
+      // The Codex adapter sends the role as `developer_instructions` and the
+      // rest through `buildTaskPrompt` with the role stripped.
+      const developerInstructions = renderRoleBlock(role, 'codex');
+      const taskPrompt = buildTaskPrompt(
+        {
+          task: 'Ship it.',
+          workingDirectory: '/ws',
+          projectGuidance: guidance,
+          role: undefined,
+          resumeRestoresContext: true,
+        },
+        'codex',
+      );
+
+      expect(occurrences(developerInstructions + taskPrompt)).toBe(1);
+    });
+
+    it('a restored-context resume carries no guidance', () => {
+      const prompt = buildTaskPrompt(
+        {
+          task: 'Ship it.',
+          workingDirectory: '/ws',
+          projectGuidance: guidance,
+          resumeRestoresContext: true,
+          resumeSessionId: 'session-1',
+        },
+        'opencode',
+      );
+
+      expect(occurrences(prompt)).toBe(0);
     });
   });
 
@@ -273,9 +458,9 @@ describe('buildTaskPrompt', () => {
     });
 
     it('system context, no role', () => {
-      expect(buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' }, 'pi')).toBe(
-        `SYSTEM\n\n---\n\n${tail}`,
-      );
+      expect(
+        buildTaskPrompt({ ...base, projectGuidance: 'SYSTEM' }, 'pi'),
+      ).toBe(`SYSTEM\n\n---\n\n${tail}`);
     });
 
     it('no system context, with role', () => {
@@ -294,8 +479,8 @@ describe('buildTaskPrompt', () => {
     });
 
     it('is byte-identical without a role whether or not a CLI is passed', () => {
-      expect(buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' })).toBe(
-        buildTaskPrompt({ ...base, systemPrompt: 'SYSTEM' }, 'codex'),
+      expect(buildTaskPrompt({ ...base, projectGuidance: 'SYSTEM' })).toBe(
+        buildTaskPrompt({ ...base, projectGuidance: 'SYSTEM' }, 'codex'),
       );
     });
 
@@ -491,6 +676,65 @@ describe('renderRoleBlock', () => {
       );
     });
   });
+});
+
+describe('renderRoleBlock — lane cap (TASK_2026_597, R3.6)', () => {
+  const SOURCE = '/ws/.claude/agents/big.md';
+
+  function sectionedBody(totalChars: number): string {
+    const intro = 'You are the big role. Your contract is below.\n\n';
+    const sections: string[] = [];
+    let length = intro.length;
+    for (let index = 1; length < totalChars; index++) {
+      const section =
+        `## Section ${index}\n\n` +
+        `${'Paragraph text. '.repeat(30)}\n\n` +
+        `${'More paragraph text. '.repeat(20)}\n\n`;
+      sections.push(section);
+      length += section.length;
+    }
+    return (intro + sections.join('')).slice(0, totalChars);
+  }
+
+  function bigRole(body: string): AgentRoleDefinition {
+    return {
+      name: 'big',
+      body,
+      sourcePath: SOURCE,
+      bytes: Buffer.byteLength(body, 'utf8'),
+    };
+  }
+
+  it.each(['codex', 'opencode', 'pi', 'ptah-cli'] as const)(
+    'renders a 5k body unchanged on the %s lane',
+    (cli) => {
+      const body = sectionedBody(5_000);
+      const rendered = renderRoleBlock(bigRole(body), cli);
+
+      expect(rendered).not.toContain('This role was condensed');
+      expect(rendered.length).toBeLessThan(6_000);
+    },
+  );
+
+  it.each([
+    [12_000, 'codex'],
+    [12_000, 'opencode'],
+    [25_000, 'codex'],
+    [25_000, 'ptah-cli'],
+  ] as const)(
+    'caps a %i-char body at 10,000 on the %s lane and points at the source',
+    (size, cli) => {
+      const rendered = renderRoleBlock(bigRole(sectionedBody(size)), cli);
+
+      expect(rendered.length).toBeLessThanOrEqual(10_000);
+      expect(rendered.startsWith('## Role: big\n\n')).toBe(true);
+      expect(rendered).toContain('You are the big role.');
+      expect(rendered).toContain(`\`${SOURCE}\``);
+      expect(
+        rendered.endsWith('read a section only when the task needs it.'),
+      ).toBe(true);
+    },
+  );
 });
 
 describe('assertCommandLineWithinLimit', () => {

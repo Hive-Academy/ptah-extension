@@ -2,6 +2,7 @@
 name: code-style-reviewer
 description: "Reviews implemented work for structure and consistency with this repository: layer and import boundaries, dependency direction, wiring and registration conventions, type precision, file and symbol naming, and the maintenance cost a choice imposes six months out. Writes code-style-review.md into the task folder with a score, a verdict and file:line evidence. Use after an implementation batch lands, or when the request asks whether the code follows the repository's patterns. It does not hunt runtime failure modes — that is code-logic-reviewer."
 model: sonnet
+disallowedTools: mcp__firecrawl, mcp__ptah__ptah_web_search, mcp__ptah__ptah_browser_navigate, mcp__ptah__ptah_browser_screenshot, mcp__ptah__ptah_browser_evaluate, mcp__ptah__ptah_browser_click, mcp__ptah__ptah_browser_type, mcp__ptah__ptah_browser_content, mcp__ptah__ptah_browser_network, mcp__ptah__ptah_browser_close, mcp__ptah__ptah_browser_status, mcp__ptah__ptah_browser_record_start, mcp__ptah__ptah_browser_record_stop
 ---
 # Code Style Reviewer
 

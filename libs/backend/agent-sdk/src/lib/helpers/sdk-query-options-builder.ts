@@ -84,6 +84,8 @@ import {
   includesUserSettingSource,
 } from '@ptah-extension/shared';
 import {
+  autoCompactModelClass,
+  isFirstPartyAnthropicBaseUrl,
   resolveAutoCompactControl,
   type AutoCompactSettings,
 } from './auto-compact-control';
@@ -1098,9 +1100,23 @@ export class SdkQueryOptionsBuilder {
       activityHold,
     );
     const compactionConfig = this.compactionConfigProvider.getConfig();
+    // The class follows the same first-party test as the 1M beta and the
+    // model pre-flight. With `A1_DEFAULT_WINDOW` all `null` it changes no
+    // key; it only names which default would apply.
+    const modelClass = autoCompactModelClass(
+      effectiveAuthEnv.ANTHROPIC_BASE_URL,
+    );
     const autoCompact = resolveAutoCompactControl({
       enabled: compactionConfig.enabled,
       windowTokens: compactionConfig.contextTokenThreshold,
+      modelClass,
+      envWindow: compactionConfig.envWindow ?? null,
+    });
+    this.logger.info('[SdkQueryOptionsBuilder] Auto-compact window', {
+      enabled: compactionConfig.enabled,
+      window: autoCompact.effectiveWindow,
+      source: autoCompact.source,
+      modelClass,
     });
     const extraArgs = this.buildExtraArgs(
       enableFileCheckpointing ?? true,
@@ -1534,9 +1550,7 @@ export class SdkQueryOptionsBuilder {
     }
     const env: AuthEnv = authEnvOverride ?? this.authEnv;
     const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
-    const isDirectAnthropic =
-      !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
-    if (isDirectAnthropic) {
+    if (isFirstPartyAnthropicBaseUrl(baseUrl)) {
       return;
     }
     if (!this.modelService.hasCachedModels()) {
@@ -1617,10 +1631,8 @@ export class SdkQueryOptionsBuilder {
   private buildBetas(authEnvOverride?: AuthEnv): SdkBeta[] | undefined {
     const env: AuthEnv = authEnvOverride ?? this.authEnv;
     const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
-    const isFirstParty =
-      !baseUrl || /^https?:\/\/api\.anthropic\.com\/?$/i.test(baseUrl);
 
-    if (!isFirstParty) {
+    if (!isFirstPartyAnthropicBaseUrl(baseUrl)) {
       this.logger.debug(
         '[SdkQueryOptionsBuilder] Skipping 1M context beta for third-party provider',
         { baseUrl },

@@ -2,6 +2,7 @@
 name: frontend-developer
 description: "Writes and changes user-interface code in this repository — components, templates, view state, styling and client-side data access — following the UI framework and conventions the repository already uses rather than a preferred stack. Use when a task assigns files in the UI, view or client layers; when the request names a component, template, view store, route, styling or design-token change, or an accessibility fix; or when a batch in batches.md is marked for frontend-developer. Not for server-side services and data access, and not for build or delivery pipelines."
 model: opus
+disallowedTools: mcp__firecrawl
 ---
 # Frontend Developer
 

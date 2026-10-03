@@ -34,7 +34,10 @@ import type {
   IStateStorage,
   IModelDiscovery,
 } from '@ptah-extension/platform-core';
-import { SettingsPersistError } from '@ptah-extension/platform-core';
+import {
+  FILE_BASED_SETTINGS_DEFAULTS,
+  SettingsPersistError,
+} from '@ptah-extension/platform-core';
 import type {
   CliDetectionService,
   AgentProcessManager,
@@ -162,6 +165,116 @@ describe('agent:setConfig reasoning-effort boundary', () => {
     expect(h.settings.get('ptah.agentOrchestration.codexReasoningEffort')).toBe(
       'xhigh',
     );
+  });
+});
+
+describe('agent:setConfig inherit effort (TASK_2026_597)', () => {
+  it.each([
+    'codexReasoningEffort',
+    'copilotReasoningEffort',
+    'piReasoningEffort',
+  ])('persists inherit for %s', async (field) => {
+    const h = makeHarness();
+    expect(await h.setConfig({ [field]: 'inherit' })).toEqual({
+      success: true,
+    });
+    expect(h.settings.get(`ptah.agentOrchestration.${field}`)).toBe('inherit');
+  });
+});
+
+describe('Codex lane budget settings (TASK_2026_597)', () => {
+  const budgetKeys = [
+    'codexAutoCompactTokens',
+    'codexToolOutputTokenLimit',
+    'codexWebSearch',
+  ] as const;
+
+  it('getConfig returns the file-settings defaults when nothing is stored', async () => {
+    const h = makeHarness();
+    const result = await h.getConfig();
+    for (const key of budgetKeys) {
+      expect(result[key]).toBe(
+        FILE_BASED_SETTINGS_DEFAULTS[`agentOrchestration.${key}`],
+      );
+    }
+    expect(result.codexAutoCompactTokens).toBe(120000);
+    expect(result.codexToolOutputTokenLimit).toBe(2500);
+    expect(result.codexWebSearch).toBe(true);
+  });
+
+  it('round-trips valid values, including 0 and false', async () => {
+    const h = makeHarness();
+    expect(
+      await h.setConfig({
+        codexAutoCompactTokens: 0,
+        codexToolOutputTokenLimit: 4000,
+        codexWebSearch: false,
+      }),
+    ).toEqual({ success: true });
+    expect(
+      h.settings.get('ptah.agentOrchestration.codexAutoCompactTokens'),
+    ).toBe(0);
+    const result = await h.getConfig();
+    expect(result.codexAutoCompactTokens).toBe(0);
+    expect(result.codexToolOutputTokenLimit).toBe(4000);
+    expect(result.codexWebSearch).toBe(false);
+  });
+
+  it.each([
+    ['codexAutoCompactTokens', -1],
+    ['codexAutoCompactTokens', 1.5],
+    ['codexAutoCompactTokens', '120000'],
+    ['codexAutoCompactTokens', null],
+    ['codexAutoCompactTokens', Number.NaN],
+    ['codexToolOutputTokenLimit', Number.POSITIVE_INFINITY],
+    ['codexToolOutputTokenLimit', -2500],
+    ['codexToolOutputTokenLimit', true],
+    ['codexWebSearch', 'false'],
+    ['codexWebSearch', 0],
+    ['codexWebSearch', null],
+  ])(
+    'rejects %s = %p with its own message and writes nothing (never clamped)',
+    async (field, value) => {
+      const h = makeHarness();
+      const result = await h.setConfig({
+        [field]: value,
+        piModel: 'openai/gpt-4o',
+      });
+      expect(result).toEqual({
+        success: false,
+        error: `Unsupported ${field} value`,
+      });
+      expect(result.error).not.toBe(
+        'Could not save the orchestration settings.',
+      );
+      expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
+      expect(h.settings.size).toBe(0);
+    },
+  );
+
+  it('a rejected budget field is not masked by the generic catch even when writes would throw', async () => {
+    const h = makeHarness();
+    h.workspace.setConfiguration.mockRejectedValue(new Error('disk full'));
+    const result = await h.setConfig({
+      codexWebSearch: false,
+      codexToolOutputTokenLimit: -1,
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Unsupported codexToolOutputTokenLimit value',
+    });
+    expect(h.logger.error).not.toHaveBeenCalled();
+  });
+
+  it('getConfig reports hand-edited invalid file values as the defaults', async () => {
+    const h = makeHarness();
+    h.settings.set('ptah.agentOrchestration.codexAutoCompactTokens', -5);
+    h.settings.set('ptah.agentOrchestration.codexToolOutputTokenLimit', 'lots');
+    h.settings.set('ptah.agentOrchestration.codexWebSearch', 'yes');
+    const result = await h.getConfig();
+    expect(result.codexAutoCompactTokens).toBe(120000);
+    expect(result.codexToolOutputTokenLimit).toBe(2500);
+    expect(result.codexWebSearch).toBe(true);
   });
 });
 

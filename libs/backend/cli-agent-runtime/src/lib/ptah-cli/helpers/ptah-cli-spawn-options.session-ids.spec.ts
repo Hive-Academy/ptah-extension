@@ -79,7 +79,7 @@ describe('PtahCliSpawnOptions — hook session ids', () => {
     it('passes the parent session id so nested subagents get registered', async () => {
       const { service, subagentCreateHooks } = buildService();
 
-      await service.assembleSpawnOptions(AUTH_ENV, '/repo', undefined, 'opus', {
+      await service.assembleSpawnOptions(AUTH_ENV, '/repo', 'opus', {
         parentSessionId: PARENT_SESSION,
       });
 
@@ -89,7 +89,7 @@ describe('PtahCliSpawnOptions — hook session ids', () => {
     it('treats a blank parent session id as absent, not as an id', async () => {
       const { service, subagentCreateHooks } = buildService();
 
-      await service.assembleSpawnOptions(AUTH_ENV, '/repo', undefined, 'opus', {
+      await service.assembleSpawnOptions(AUTH_ENV, '/repo', 'opus', {
         parentSessionId: '',
       });
 
@@ -110,7 +110,7 @@ describe('PtahCliSpawnOptions — hook session ids', () => {
     it('does not warn when a parent session id is present', async () => {
       const { service, logger } = buildService();
 
-      await service.assembleSpawnOptions(AUTH_ENV, '/repo', undefined, 'opus', {
+      await service.assembleSpawnOptions(AUTH_ENV, '/repo', 'opus', {
         parentSessionId: PARENT_SESSION,
       });
 
@@ -125,7 +125,7 @@ describe('PtahCliSpawnOptions — hook session ids', () => {
     it("passes the agent's own session id when resuming", async () => {
       const { service, compactionCreateHooks } = buildService();
 
-      await service.assembleSpawnOptions(AUTH_ENV, '/repo', undefined, 'opus', {
+      await service.assembleSpawnOptions(AUTH_ENV, '/repo', 'opus', {
         parentSessionId: PARENT_SESSION,
         ownSessionId: OWN_SESSION,
       });
@@ -136,7 +136,7 @@ describe('PtahCliSpawnOptions — hook session ids', () => {
     it("never substitutes the parent's id for the compacting session", async () => {
       const { service, compactionCreateHooks } = buildService();
 
-      await service.assembleSpawnOptions(AUTH_ENV, '/repo', undefined, 'opus', {
+      await service.assembleSpawnOptions(AUTH_ENV, '/repo', 'opus', {
         parentSessionId: PARENT_SESSION,
       });
 
@@ -155,7 +155,7 @@ describe('PtahCliSpawnOptions — hook session ids', () => {
     it('collapses a blank own session id to absent', async () => {
       const { service, compactionCreateHooks } = buildService();
 
-      await service.assembleSpawnOptions(AUTH_ENV, '/repo', undefined, 'opus', {
+      await service.assembleSpawnOptions(AUTH_ENV, '/repo', 'opus', {
         ownSessionId: '   ',
       });
 
@@ -165,7 +165,7 @@ describe('PtahCliSpawnOptions — hook session ids', () => {
     it('never hands the handler a blank string', async () => {
       const { service, compactionCreateHooks } = buildService();
 
-      await service.assembleSpawnOptions(AUTH_ENV, '/repo', undefined, 'opus', {
+      await service.assembleSpawnOptions(AUTH_ENV, '/repo', 'opus', {
         ownSessionId: '',
       });
 

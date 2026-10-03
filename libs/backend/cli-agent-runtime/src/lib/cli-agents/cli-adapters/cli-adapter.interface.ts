@@ -21,6 +21,25 @@ export interface CliModelInfo {
   readonly name: string;
 }
 
+/**
+ * Codex lane budgets read from the `agentOrchestration.codex*` settings
+ * (TASK_2026_597, R4.1, R4.2, R4.4). A token value of 0 leaves Codex's own
+ * runtime default in place.
+ */
+export interface CliLaneBudgets {
+  readonly autoCompactTokens: number;
+  readonly toolOutputTokenLimit: number;
+  readonly webSearch: boolean;
+}
+
+/**
+ * Where a lane's model came from (TASK_2026_597, R2.1, F10). `ptah-default`
+ * is Ptah's own lane default; `cli-default` means no model was passed and the
+ * CLI chose.
+ */
+export type LaneModelSource =
+  'request' | 'setting' | 'ptah-default' | 'cli-default';
+
 export interface CliCommandOptions {
   readonly task: string;
   readonly workingDirectory: string;
@@ -42,9 +61,6 @@ export interface CliCommandOptions {
   readonly resumeSessionId?: string;
   /** Project-specific guidance to provide as system context. Adapters with native system prompt support handle this natively; others prepend to task prompt via buildTaskPrompt(). */
   readonly projectGuidance?: string;
-  /** Full system prompt content (prompt harness). Replaces projectGuidance when available.
-   *  Includes core prompt, enhanced prompts, skill catalog, and MCP docs. */
-  readonly systemPrompt?: string;
   /** Reasoning effort level for the CLI agent (adapter-specific values) */
   readonly reasoningEffort?: string;
   /** Auto-approve all tool calls without user prompt (default: true). Maps to adapter-specific approval policies. */
@@ -62,6 +78,16 @@ export interface CliCommandOptions {
   readonly agentId?: string;
   /** Resolved workspace role to run as. Adapters deliver it on their own role channel; an adapter that does not use the task prompt passes `role: undefined` to buildTaskPrompt(). */
   readonly role?: AgentRoleDefinition;
+  /**
+   * Codex lane budgets. Absent: the adapter applies the defaults of
+   * `FILE_BASED_SETTINGS_DEFAULTS` (120000 / 2500 / web search on).
+   */
+  readonly laneBudgets?: CliLaneBudgets;
+  /**
+   * Source of `model`, so a rejected model names the setting to change.
+   * Absent is read as "the setting or the spawn request".
+   */
+  readonly modelSource?: LaneModelSource;
 }
 
 /**
@@ -114,6 +140,10 @@ export interface SdkHandle {
   /** PID of the live child process, if this handle spawned one. Lets the
    *  manager tree-kill the real process group on abort/timeout. */
   readonly getPid?: () => number | undefined;
+  /** Register a callback invoked once when the CLI rejected the lane's
+   *  config keys and the run continues with the essential keys only
+   *  (Codex). Buffered, so a late subscriber still hears it. */
+  readonly onLaneConfigRejected?: (callback: () => void) => void;
 }
 
 /**

@@ -139,7 +139,15 @@ type FakeCodexEvent =
 
 const mockRunStreamed = jest.fn();
 const mockStartThread = jest.fn();
+const mockResumeThread = jest.fn();
 const mockCodexConstructor = jest.fn();
+
+// The user-server reader reads the developer's real ~/.codex otherwise.
+const mockReadUserServers = jest.fn();
+jest.mock('./codex/codex-user-mcp-servers', () => ({
+  readCodexUserMcpServerNames: (...args: unknown[]) =>
+    mockReadUserServers(...args),
+}));
 
 /**
  * Mock the ESM-only @openai/codex-sdk via jest.mock.
@@ -194,13 +202,46 @@ jest.mock('fs', () => {
 // Import adapter AFTER mocks are declared
 import path from 'path';
 import { CodexCliAdapter, commandToolLabel } from './codex-cli.adapter';
-import type { SdkHandle } from './cli-adapter.interface';
+import type { CliLaneBudgets, SdkHandle } from './cli-adapter.interface';
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
-import {
-  buildTaskPrompt,
-  CliCommandLineTooLongError,
-  renderRoleBlock,
-} from './cli-adapter.utils';
+import { readFileSync } from 'fs';
+import type { Logger } from '@ptah-extension/vscode-core';
+import { buildTaskPrompt, renderRoleBlock } from './cli-adapter.utils';
+import { CODEX_RESUME_RESENDS_ROLE } from './codex/codex-lane-config.builder';
+
+function createMockLogger(): {
+  info: jest.Mock;
+  warn: jest.Mock;
+  error: jest.Mock;
+  debug: jest.Mock;
+} {
+  return {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  };
+}
+
+/** The `configOverrides` the `call`-th Codex client was constructed with. */
+function constructedOverrides(call = 0): string[] {
+  const [options] = mockCodexConstructor.mock.calls[call] as [
+    { configOverrides?: string[] },
+  ];
+  return options.configOverrides ?? [];
+}
+
+/**
+ * The value of `key` in the `call`-th client's overrides, decoded: a TOML
+ * basic string with only the short escapes is valid JSON. `undefined` when
+ * the key is absent.
+ */
+function overrideValue(key: string, call = 0): unknown {
+  const entry = constructedOverrides(call).find((e) => e.startsWith(`${key}=`));
+  return entry === undefined
+    ? undefined
+    : JSON.parse(entry.slice(key.length + 1));
+}
 
 describe('CodexCliAdapter', () => {
   let adapter: CodexCliAdapter;
@@ -208,18 +249,25 @@ describe('CodexCliAdapter', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // Default mock setup: Codex constructor returns client with startThread
+    // Default mock setup: Codex constructor returns a client with both
+    // thread entry points.
     mockCodexConstructor.mockImplementation(() => ({
       startThread: mockStartThread,
+      resumeThread: mockResumeThread,
     }));
 
-    // Default mock: startThread returns a thread with runStreamed
+    // Default mock: either entry point returns a thread with runStreamed
     mockStartThread.mockReturnValue({
+      runStreamed: mockRunStreamed,
+    });
+    mockResumeThread.mockReturnValue({
       runStreamed: mockRunStreamed,
     });
 
     // No native binary candidate exists unless a test says otherwise.
     mockExistsSync.mockReturnValue(false);
+    mockProbeCliVersion.mockResolvedValue(undefined);
+    mockReadUserServers.mockResolvedValue({ names: [], warnings: [] });
 
     adapter = new CodexCliAdapter();
   });
@@ -294,14 +342,12 @@ describe('CodexCliAdapter', () => {
       const handle: SdkHandle = await adapter.runSdk(defaultOptions);
 
       expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
-      // approvalPolicy/sandboxMode/skipGitRepoCheck trio so Codex runs
-      // non-interactively without permission hooks.
+      // Only the non-config options travel as thread options; approval and
+      // web search are config overrides (review N-A).
       expect(mockStartThread).toHaveBeenCalledWith({
         workingDirectory: '/project/root',
-        approvalPolicy: 'never',
         sandboxMode: 'danger-full-access',
         skipGitRepoCheck: true,
-        webSearchEnabled: true,
       });
       expect(handle.abort).toBeInstanceOf(AbortController);
       expect(typeof handle.done.then).toBe('function');
@@ -765,8 +811,12 @@ describe('CodexCliAdapter', () => {
       expect(handle.supportsContinuation?.()).toBe(true);
     });
 
-    it('runs the next turn on the SAME thread via runStreamed', async () => {
-      setupMockEvents([]);
+    it('runs the next turn on the SAME thread through a new client that resumes it', async () => {
+      mockRunStreamed.mockImplementation(async () => ({
+        events: createFakeEventGenerator([
+          { type: 'thread.started', thread_id: 'thread-1' },
+        ]),
+      }));
       const handle = await adapter.runSdk(defaultOptions);
       handle.onOutput(() => {
         /* drain */
@@ -782,8 +832,32 @@ describe('CodexCliAdapter', () => {
 
       expect(code).toBe(0);
       expect(mockStartThread).toHaveBeenCalledTimes(1);
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(2);
+      expect(mockResumeThread).toHaveBeenCalledWith('thread-1', {
+        workingDirectory: '/project/root',
+        sandboxMode: 'danger-full-access',
+        skipGitRepoCheck: true,
+      });
       expect(mockRunStreamed).toHaveBeenCalledTimes(2);
-      expect(mockRunStreamed.mock.calls[1][0]).toBe('Follow-up message');
+      // The tool policy reached this thread on turn one, so it is not resent;
+      // the completion contract always is.
+      const followUp = mockRunStreamed.mock.calls[1][0] as string;
+      expect(followUp.startsWith('Follow-up message')).toBe(true);
+      expect(followUp).not.toContain('Tool policy:');
+      expect(followUp).toContain('## Before you exit');
+    });
+
+    it('starts a new thread with the full prefix when the first turn never reported one', async () => {
+      setupMockEvents([]);
+      const handle = await adapter.runSdk(defaultOptions);
+      await handle.done;
+
+      const outcome = await handle.continue?.('Follow-up message');
+      await outcome?.done;
+
+      expect(mockResumeThread).not.toHaveBeenCalled();
+      expect(mockStartThread).toHaveBeenCalledTimes(2);
+      expect(mockRunStreamed.mock.calls[1][0]).toContain('Tool policy:');
     });
 
     it('streams the continued turn through the same onOutput callbacks', async () => {
@@ -932,6 +1006,7 @@ describe('CodexCliAdapter', () => {
 
     it('runs a continuation after an early return, on the same thread', async () => {
       const first = createNeverEndingEventSource([
+        { type: 'thread.started', thread_id: 'thread-1' },
         { type: 'turn.completed', usage },
       ]);
       const second = createNeverEndingEventSource([
@@ -958,8 +1033,12 @@ describe('CodexCliAdapter', () => {
 
       expect(second.wasReturned()).toBe(true);
       expect(mockStartThread).toHaveBeenCalledTimes(1);
+      expect(mockResumeThread).toHaveBeenCalledWith(
+        'thread-1',
+        expect.anything(),
+      );
       expect(mockRunStreamed).toHaveBeenCalledTimes(2);
-      expect(mockRunStreamed.mock.calls[1][0]).toBe('Follow-up message');
+      expect(mockRunStreamed.mock.calls[1][0]).toContain('Follow-up message');
       expect(output).toContain('Second turn\n');
     });
   });
@@ -1081,6 +1160,33 @@ describe('CodexCliAdapter', () => {
 
       expect(resolvedOverride()).toBe(legacyLayout);
     });
+
+    it('logs the probed version of the binary the lane runs when its package has no package.json', async () => {
+      // The synthetic tree has no `@openai/codex-win32-x64/package.json`, so
+      // the version comes from one `--version` probe of that binary; the
+      // global `codex` that detect() would probe is never asked (F2).
+      // A root of its own: the probe is cached per binary path for the life
+      // of the module, and earlier cases already probed `binLayout`.
+      const probeResources = path.join(path.sep, 'ptah-probe', 'resources');
+      (process as ResourcesProcess).resourcesPath = probeResources;
+      const probeBinary = binLayout.replace(RESOURCES, probeResources);
+      mockExistsSync.mockImplementation((p: string) => p === probeBinary);
+      mockProbeCliVersion.mockResolvedValue('codex-cli 0.155.1');
+      const logger = createMockLogger();
+      adapter = new CodexCliAdapter(logger as unknown as Logger);
+
+      await runAndSettle();
+
+      expect(mockProbeCliVersion).toHaveBeenCalledWith(probeBinary);
+      expect(mockResolveCliPath).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        '[CodexCliAdapter] Codex lane config',
+        expect.objectContaining({
+          codexVersion: '0.155.1',
+          nativeBinary: probeBinary,
+        }),
+      );
+    });
   });
 
   describe('dynamic import caching', () => {
@@ -1159,14 +1265,6 @@ describe('CodexCliAdapter', () => {
       });
     }
 
-    function constructorConfig(call = 0): Record<string, unknown> {
-      return (
-        mockCodexConstructor.mock.calls[call][0] as {
-          config: Record<string, unknown>;
-        }
-      ).config;
-    }
-
     it('declares the developer-instructions channel', () => {
       expect(adapter.roleChannel).toBe('developer-instructions');
     });
@@ -1177,7 +1275,7 @@ describe('CodexCliAdapter', () => {
       const handle = await adapter.runSdk({ ...baseOptions, role });
       await handle.done;
 
-      expect(constructorConfig()['developer_instructions']).toBe(
+      expect(overrideValue('developer_instructions')).toBe(
         renderRoleBlock(role, 'codex'),
       );
       const input = mockRunStreamed.mock.calls[0][0] as string;
@@ -1194,21 +1292,34 @@ describe('CodexCliAdapter', () => {
 
       await adapter.runSdk({ ...baseOptions, role: blockRole });
 
-      expect(constructorConfig()['developer_instructions']).toContain(
+      expect(overrideValue('developer_instructions')).toContain(
         '---\nkeep: this block\n---\nThe real instructions.',
       );
     });
 
-    it('does not re-send the role on a continuation turn', async () => {
-      setupMockEvents();
+    it('keeps the role out of a continuation input and resends it on the resume config only while CODEX_RESUME_RESENDS_ROLE', async () => {
+      mockRunStreamed.mockImplementation(async () => ({
+        events: createFakeEventGenerator([
+          { type: 'thread.started', thread_id: 'thread-r' },
+        ]),
+      }));
       const handle = await adapter.runSdk({ ...baseOptions, role });
       await handle.done;
 
       const outcome = await handle.continue?.('Follow-up');
       await outcome?.done;
 
-      expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
-      expect(mockRunStreamed.mock.calls[1][0]).toBe('Follow-up');
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(2);
+      expect(mockResumeThread).toHaveBeenCalledWith(
+        'thread-r',
+        expect.anything(),
+      );
+      const followUp = mockRunStreamed.mock.calls[1][0] as string;
+      expect(followUp.startsWith('Follow-up')).toBe(true);
+      expect(followUp).not.toContain('## Role: reviewer');
+      expect(overrideValue('developer_instructions', 1)).toBe(
+        CODEX_RESUME_RESENDS_ROLE ? renderRoleBlock(role, 'codex') : undefined,
+      );
     });
 
     it('leaves the role-less config without developer_instructions', async () => {
@@ -1216,21 +1327,29 @@ describe('CodexCliAdapter', () => {
 
       await adapter.runSdk(baseOptions);
 
-      expect(constructorConfig()).not.toHaveProperty('developer_instructions');
+      expect(overrideValue('developer_instructions')).toBeUndefined();
     });
 
-    it('rejects an oversized role before the Codex client is constructed', async () => {
+    it('caps an oversized role at 10,000 chars before it reaches the Codex client', async () => {
+      // The lane cap (TASK_2026_597) bounds every role block, so a 1.1 MB role
+      // can no longer push developer_instructions past the command-line limit.
       setupMockEvents();
-      const hugeBody = 'x'.repeat(1_100_000);
+      const identity = 'IDENTITY_PARAGRAPH: you review logic, never style.';
+      const hugeBody =
+        `${identity}\n\n` + `${'x'.repeat(999)}.\n\n`.repeat(1_100);
+      const hugeRole = { ...role, body: hugeBody, bytes: hugeBody.length };
 
-      await expect(
-        adapter.runSdk({
-          ...baseOptions,
-          role: { ...role, body: hugeBody, bytes: hugeBody.length },
-        }),
-      ).rejects.toBeInstanceOf(CliCommandLineTooLongError);
-      expect(mockCodexConstructor).not.toHaveBeenCalled();
-      expect(mockStartThread).not.toHaveBeenCalled();
+      await adapter.runSdk({ ...baseOptions, role: hugeRole });
+
+      const instructions = String(overrideValue('developer_instructions'));
+      expect(instructions).toBe(renderRoleBlock(hugeRole, 'codex'));
+      expect(hugeBody.length).toBeGreaterThan(1_000_000);
+      expect(instructions.length).toBeLessThanOrEqual(10_000);
+      // The identity paragraph survives and the pointer names the full file.
+      expect(instructions).toContain(identity);
+      expect(instructions).toContain(`\`${hugeRole.sourcePath}\``);
+      expect(instructions).toContain('This role was condensed for the lane');
+      expect(mockStartThread).toHaveBeenCalled();
     });
 
     it('does not change sandbox, approval, model or effort when a role is set', async () => {
@@ -1242,9 +1361,12 @@ describe('CodexCliAdapter', () => {
       expect(mockStartThread.mock.calls[1][0]).toEqual(
         mockStartThread.mock.calls[0][0],
       );
-      const withRole = { ...constructorConfig(1) };
-      delete withRole['developer_instructions'];
-      expect(withRole).toEqual(constructorConfig(0));
+      const withRole = constructedOverrides(1).filter(
+        (entry) => !entry.startsWith('developer_instructions='),
+      );
+      expect(withRole).toEqual(constructedOverrides(0));
+      expect(overrideValue('approval_policy', 1)).toBe('never');
+      expect(overrideValue('model_reasoning_effort', 1)).toBe('high');
     });
   });
 
@@ -1255,7 +1377,7 @@ describe('CodexCliAdapter', () => {
       });
     }
 
-    it('registers the Ptah server AND disables MCP tool deferral', async () => {
+    it('registers the Ptah server with its tool timeout and never the dead deferral flag', async () => {
       setupMockEvents([]);
 
       await adapter.runSdk({
@@ -1264,18 +1386,19 @@ describe('CodexCliAdapter', () => {
         mcpPort: 51820,
       });
 
-      const config = mockCodexConstructor.mock.calls[0][0].config;
       // The URL carries the spawn's working directory so the server can
       // attribute this agent's calls to the right workspace (TASK_2026_364).
-      expect(config.mcp_servers).toEqual({
-        ptah: { url: 'http://localhost:51820/workspace/%2Fproject' },
-      });
-      // Without this, codex-cli 0.150 connects to the server and still keeps
-      // every ptah_* tool out of the model's tool list until it runs a tool
-      // search — which the model has no reason to do, so it uses the shell.
-      expect(config.features).toEqual({
-        tool_search_always_defer_mcp_tools: false,
-      });
+      expect(overrideValue('mcp_servers.ptah.url')).toBe(
+        'http://localhost:51820/workspace/%2Fproject',
+      );
+      expect(overrideValue('mcp_servers.ptah.tool_timeout_sec')).toBe(960);
+      expect(constructedOverrides().join('\n')).not.toContain(
+        'tool_search_always_defer_mcp_tools',
+      );
+      // The SDK's own `config` flattener is bypassed entirely (N-A).
+      expect(mockCodexConstructor.mock.calls[0][0]).not.toHaveProperty(
+        'config',
+      );
     });
 
     it('leads the MCP URL with /agent/{id} when one was reserved', async () => {
@@ -1290,22 +1413,485 @@ describe('CodexCliAdapter', () => {
 
       // The agent segment is how the server learns WHICH spawn is calling
       // (TASK_2026_402) — the child never names itself.
-      const config = mockCodexConstructor.mock.calls[0][0].config;
-      expect(config.mcp_servers).toEqual({
-        ptah: {
-          url: 'http://localhost:51820/agent/agent-7/workspace/%2Fproject',
-        },
-      });
+      expect(overrideValue('mcp_servers.ptah.url')).toBe(
+        'http://localhost:51820/agent/agent-7/workspace/%2Fproject',
+      );
     });
 
-    it('sets neither key when no MCP port is available', async () => {
+    it('sets no Ptah server key when no MCP port is available', async () => {
       setupMockEvents([]);
 
       await adapter.runSdk({ task: 'Task', workingDirectory: '/project' });
 
-      const config = mockCodexConstructor.mock.calls[0][0].config;
-      expect(config.mcp_servers).toBeUndefined();
-      expect(config.features).toBeUndefined();
+      expect(
+        constructedOverrides().some((e) => e.startsWith('mcp_servers.ptah.')),
+      ).toBe(false);
+    });
+  });
+
+  // TASK_2026_597 Batch 4: what the SDK double receives, turn by turn.
+  describe('lane config on the SDK path', () => {
+    const THREAD_OPTION_KEYS = [
+      'model',
+      'sandboxMode',
+      'skipGitRepoCheck',
+      'workingDirectory',
+    ];
+    const role: AgentRoleDefinition = {
+      name: 'reviewer',
+      body: 'Review the diff before approving.',
+      sourcePath: '/project/.claude/agents/reviewer.md',
+      bytes: 33,
+    };
+    const laneOptions = {
+      task: 'Review the change',
+      workingDirectory: '/project',
+      model: 'gpt-6-sol',
+      reasoningEffort: 'high',
+      mcpPort: 51820,
+      agentId: 'agent-7',
+      role,
+    };
+    const rejectionStderr = readFileSync(
+      path.join(
+        __dirname,
+        'codex',
+        '__fixtures__',
+        'exec-invalid-value.stderr.txt',
+      ),
+      'utf-8',
+    );
+    const rejectionError = (): Error =>
+      new Error(`Codex Exec exited with code 1: ${rejectionStderr}`);
+    const usage = { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 };
+
+    function eventsOnce(events: FakeCodexEvent[]): void {
+      mockRunStreamed.mockImplementationOnce(async () => ({
+        events: createFakeEventGenerator(events),
+      }));
+    }
+
+    function threadOptionKeys(mock: jest.Mock, call = 0): string[] {
+      const args = mock.mock.calls[call] as unknown[];
+      return Object.keys(args[args.length - 1] as object).sort();
+    }
+
+    it('first turn: role, approval, effort and web search arrive only as overrides', async () => {
+      eventsOnce([]);
+
+      const handle = await adapter.runSdk(laneOptions);
+      await handle.done;
+
+      expect(overrideValue('developer_instructions')).toBe(
+        renderRoleBlock(role, 'codex'),
+      );
+      expect(overrideValue('web_search')).toBe('live');
+      expect(overrideValue('approval_policy')).toBe('never');
+      expect(overrideValue('model_reasoning_effort')).toBe('high');
+      expect(overrideValue('model_auto_compact_token_limit')).toBe(120000);
+      expect(overrideValue('tool_output_token_limit')).toBe(2500);
+      expect(threadOptionKeys(mockStartThread)).toEqual(THREAD_OPTION_KEYS);
+    });
+
+    it('codexWebSearch=false yields web_search="disabled" with no later thread-option override (N-A)', async () => {
+      eventsOnce([]);
+
+      const handle = await adapter.runSdk({
+        ...laneOptions,
+        laneBudgets: {
+          autoCompactTokens: 50000,
+          toolOutputTokenLimit: 0,
+          webSearch: false,
+        },
+      });
+      await handle.done;
+
+      expect(overrideValue('web_search')).toBe('disabled');
+      expect(overrideValue('model_auto_compact_token_limit')).toBe(50000);
+      // 0 leaves Codex's own default in place: no key at all.
+      expect(overrideValue('tool_output_token_limit')).toBeUndefined();
+      expect(threadOptionKeys(mockStartThread)).toEqual(THREAD_OPTION_KEYS);
+    });
+
+    it('a resume spawn uses the resume variant on resumeThread', async () => {
+      eventsOnce([]);
+
+      const handle = await adapter.runSdk({
+        ...laneOptions,
+        resumeSessionId: 'thread-9',
+      });
+      await handle.done;
+
+      expect(mockStartThread).not.toHaveBeenCalled();
+      expect(mockResumeThread).toHaveBeenCalledWith(
+        'thread-9',
+        expect.anything(),
+      );
+      expect(threadOptionKeys(mockResumeThread)).toEqual(THREAD_OPTION_KEYS);
+      expect(constructedOverrides()).toContain(
+        'skills.include_instructions=false',
+      );
+      expect(overrideValue('developer_instructions')).toBe(
+        CODEX_RESUME_RESENDS_ROLE ? renderRoleBlock(role, 'codex') : undefined,
+      );
+    });
+
+    it('a continue() turn builds a new client with the resume variant and drops both delivered preambles', async () => {
+      eventsOnce([{ type: 'thread.started', thread_id: 'thread-1' }]);
+      eventsOnce([]);
+
+      const handle = await adapter.runSdk(laneOptions);
+      await handle.done;
+      const outcome = await handle.continue?.('Follow-up');
+      await outcome?.done;
+
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(2);
+      expect(mockResumeThread).toHaveBeenCalledWith(
+        'thread-1',
+        expect.anything(),
+      );
+      expect(constructedOverrides(1)).toContain(
+        'skills.include_instructions=false',
+      );
+      expect(overrideValue('developer_instructions', 1)).toBe(
+        CODEX_RESUME_RESENDS_ROLE ? renderRoleBlock(role, 'codex') : undefined,
+      );
+      // The first turn carried the tool policy and (agent id + port) the
+      // messaging block, so neither is resent; the contract always is.
+      const firstInput = mockRunStreamed.mock.calls[0][0] as string;
+      const followUp = mockRunStreamed.mock.calls[1][0] as string;
+      expect(firstInput).toContain('Tool policy:');
+      expect(followUp).not.toContain('Tool policy:');
+      expect(followUp.length).toBeLessThan(firstInput.length);
+      expect(followUp).toContain('## Before you exit');
+    });
+
+    it('sends reader and builder warnings to the log once, never to the stream', async () => {
+      const logger = createMockLogger();
+      adapter = new CodexCliAdapter(logger as unknown as Logger);
+      mockReadUserServers.mockResolvedValue({
+        names: ['github'],
+        warnings: ['Could not read /project/.codex/config.toml'],
+      });
+      eventsOnce([]);
+      eventsOnce([]);
+
+      const output: string[] = [];
+      const first = await adapter.runSdk(laneOptions);
+      first.onOutput((chunk) => output.push(chunk));
+      await first.done;
+      const second = await adapter.runSdk(laneOptions);
+      await second.done;
+
+      const warned = logger.warn.mock.calls.map((call) => String(call[0]));
+      // No version answered, so the builder warns that it is unknown.
+      expect(
+        warned.filter((w) =>
+          w.includes('Could not read /project/.codex/config.toml'),
+        ),
+      ).toHaveLength(1);
+      expect(
+        warned.filter((w) => w.includes('Codex version unknown')),
+      ).toHaveLength(1);
+      expect(output.join('')).not.toContain('config.toml');
+    });
+
+    it.each([
+      ['a string', { autoCompactTokens: '120000' }, 'codexAutoCompactTokens'],
+      ['a float', { toolOutputTokenLimit: 2.5 }, 'codexToolOutputTokenLimit'],
+      ['a negative value', { autoCompactTokens: -1 }, 'codexAutoCompactTokens'],
+      [
+        'a value above MAX_SAFE_INTEGER',
+        { toolOutputTokenLimit: Number.MAX_SAFE_INTEGER + 1 },
+        'codexToolOutputTokenLimit',
+      ],
+      ['a non-boolean web search', { webSearch: 'false' }, 'codexWebSearch'],
+    ])(
+      'replaces %s from settings with the default and warns once for that key',
+      async (_label, budgets, key) => {
+        const logger = createMockLogger();
+        adapter = new CodexCliAdapter(logger as unknown as Logger);
+        eventsOnce([]);
+        eventsOnce([]);
+        // Settings import does not validate values: the lane must not trust
+        // them (Batch 3 review).
+        const laneBudgets = {
+          autoCompactTokens: 120000,
+          toolOutputTokenLimit: 2500,
+          webSearch: true,
+          ...budgets,
+        } as unknown as CliLaneBudgets;
+
+        await (
+          await adapter.runSdk({ ...laneOptions, laneBudgets })
+        ).done;
+        await (
+          await adapter.runSdk({ ...laneOptions, laneBudgets })
+        ).done;
+
+        for (const call of [0, 1]) {
+          expect(overrideValue('model_auto_compact_token_limit', call)).toBe(
+            120000,
+          );
+          expect(overrideValue('tool_output_token_limit', call)).toBe(2500);
+          expect(overrideValue('web_search', call)).toBe('live');
+        }
+        const keyWarnings = logger.warn.mock.calls
+          .map((call) => String(call[0]))
+          .filter((w) => w.includes(`agentOrchestration.${key}`));
+        expect(keyWarnings).toHaveLength(1);
+      },
+    );
+
+    it('retries a config rejection once with the essential keys, keeping effort and the user-server entry', async () => {
+      const logger = createMockLogger();
+      adapter = new CodexCliAdapter(logger as unknown as Logger);
+      mockReadUserServers.mockResolvedValue({
+        names: ['github'],
+        warnings: [],
+      });
+      mockRunStreamed.mockRejectedValueOnce(rejectionError());
+      eventsOnce([{ type: 'turn.completed', usage }]);
+
+      const handle = await adapter.runSdk(laneOptions);
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((s) => segments.push(s));
+      const rejected = jest.fn();
+      handle.onLaneConfigRejected?.(rejected);
+
+      expect(await handle.done).toBe(0);
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(2);
+      expect(
+        constructedOverrides(0).some((e) => e.startsWith('mcp_servers={')),
+      ).toBe(true);
+      // Effort (M1) and the user-server disable (M3) survive the retry.
+      expect(constructedOverrides(1).map((e) => e.split('=')[0])).toEqual([
+        'web_search',
+        'approval_policy',
+        'model_reasoning_effort',
+        'mcp_servers',
+        'mcp_servers.ptah.url',
+        'mcp_servers.ptah.tool_timeout_sec',
+        'developer_instructions',
+      ]);
+      expect(overrideValue('model_reasoning_effort', 1)).toBe('high');
+      expect(constructedOverrides(1)).toContain(
+        'mcp_servers={"github"={enabled=false}}',
+      );
+      // `--model` is a thread option and stays.
+      expect(mockStartThread.mock.calls[1][0]).toMatchObject({
+        model: 'gpt-6-sol',
+      });
+      expect(rejected).toHaveBeenCalledTimes(1);
+      expect(segments).toContainEqual({
+        type: 'info',
+        content:
+          'Codex rejected the lane config; this run drops the lane budget and prefix keys, so Codex defaults and the full Codex prefix apply',
+      });
+      const warnCall = logger.warn.mock.calls.find((call) =>
+        String(call[0]).includes('rejected the lane config'),
+      );
+      const fields = warnCall?.[1] as {
+        stderr: string;
+        userServersReEnabled: boolean;
+      };
+      expect(fields.stderr.startsWith('Error loading config.toml')).toBe(true);
+      expect(fields.stderr.length).toBeLessThanOrEqual(200);
+      expect(fields.userServersReEnabled).toBe(false);
+    });
+
+    it('drops the user-server entry only when Codex names a user server, and says so (M3)', async () => {
+      const logger = createMockLogger();
+      adapter = new CodexCliAdapter(logger as unknown as Logger);
+      mockReadUserServers.mockResolvedValue({ names: ['ghost'], warnings: [] });
+      const serverStderr = readFileSync(
+        path.join(
+          __dirname,
+          'codex',
+          '__fixtures__',
+          'exec-unloaded-server-disable.stderr.txt',
+        ),
+        'utf-8',
+      );
+      mockRunStreamed.mockRejectedValueOnce(
+        new Error(`Codex Exec exited with code 1: ${serverStderr}`),
+      );
+      eventsOnce([{ type: 'turn.completed', usage }]);
+
+      const handle = await adapter.runSdk(laneOptions);
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((s) => segments.push(s));
+
+      expect(await handle.done).toBe(0);
+      expect(
+        constructedOverrides(1).some((e) => e.startsWith('mcp_servers={')),
+      ).toBe(false);
+      expect(overrideValue('model_reasoning_effort', 1)).toBe('high');
+      const info = segments.find((s) => s.type === 'info');
+      expect(info?.content).toContain(
+        'your own MCP servers are enabled for this lane',
+      );
+      const warnCall = logger.warn.mock.calls.find((call) =>
+        String(call[0]).includes('rejected the lane config'),
+      );
+      expect(
+        (warnCall?.[1] as { userServersReEnabled: boolean })
+          .userServersReEnabled,
+      ).toBe(true);
+    });
+
+    it('reports a second rejection as a normal error and never retries again', async () => {
+      mockRunStreamed.mockRejectedValueOnce(rejectionError());
+      mockRunStreamed.mockRejectedValueOnce(rejectionError());
+
+      const handle = await adapter.runSdk(laneOptions);
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((s) => segments.push(s));
+
+      expect(await handle.done).toBe(1);
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(2);
+      expect(segments.filter((s) => s.type === 'error')).toHaveLength(1);
+    });
+
+    it("restores the full lane config for later turns when the essential config is rejected too (M2: the user's own config.toml)", async () => {
+      const logger = createMockLogger();
+      adapter = new CodexCliAdapter(logger as unknown as Logger);
+      mockRunStreamed.mockRejectedValueOnce(rejectionError());
+      mockRunStreamed.mockRejectedValueOnce(rejectionError());
+      eventsOnce([{ type: 'turn.completed', usage }]);
+
+      const handle = await adapter.runSdk(laneOptions);
+      const rejected = jest.fn();
+      handle.onLaneConfigRejected?.(rejected);
+      expect(await handle.done).toBe(1);
+
+      const next = await handle.continue?.('next step');
+      expect(await next?.done).toBe(0);
+
+      // The continue() turn carries the budgets again.
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(3);
+      expect(overrideValue('model_auto_compact_token_limit', 2)).toBe(120000);
+      expect(overrideValue('tool_output_token_limit', 2)).toBe(2500);
+      expect(rejected).toHaveBeenCalledTimes(1);
+      expect(
+        logger.warn.mock.calls.some((call) =>
+          String(call[0]).includes('essential lane config too'),
+        ),
+      ).toBe(true);
+    });
+
+    it('keeps the essential keys for later turns when the essential retry worked', async () => {
+      mockRunStreamed.mockRejectedValueOnce(rejectionError());
+      eventsOnce([{ type: 'turn.completed', usage }]);
+      eventsOnce([{ type: 'turn.completed', usage }]);
+
+      const handle = await adapter.runSdk(laneOptions);
+      expect(await handle.done).toBe(0);
+      const next = await handle.continue?.('next step');
+      expect(await next?.done).toBe(0);
+
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(3);
+      expect(
+        overrideValue('model_auto_compact_token_limit', 2),
+      ).toBeUndefined();
+      expect(overrideValue('model_reasoning_effort', 2)).toBe('high');
+    });
+
+    it("names Ptah's lane default when Codex rejects it, quotes and logs Codex's text, and never retries another model (F10)", async () => {
+      const logger = createMockLogger();
+      adapter = new CodexCliAdapter(logger as unknown as Logger);
+      eventsOnce([
+        {
+          type: 'turn.failed',
+          error: {
+            message:
+              "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account.",
+          },
+        },
+      ]);
+
+      const handle = await adapter.runSdk({
+        ...laneOptions,
+        modelSource: 'ptah-default',
+      });
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((s) => segments.push(s));
+
+      expect(await handle.done).toBe(1);
+      expect(segments).toContainEqual({
+        type: 'error',
+        content:
+          "Codex rejected `gpt-6-sol`, Ptah's lane default. Set `agentOrchestration.codexModel` to a model your account offers. Codex said: \"The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account.\"",
+      });
+      expect(mockCodexConstructor).toHaveBeenCalledTimes(1);
+      const warnCall = logger.warn.mock.calls.find((call) =>
+        String(call[0]).includes('rejected the lane model'),
+      );
+      expect(warnCall?.[1]).toMatchObject({
+        model: 'gpt-6-sol',
+        modelSource: 'ptah-default',
+        codexError:
+          "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account.",
+      });
+    });
+
+    it.each([
+      ['a capacity notice', 'The model is not available right now. Try again.'],
+      ['a bare unsupported word', 'model request unsupported: try later'],
+    ])(
+      'passes %s through untouched instead of the F10 advice (S1)',
+      async (_label, message) => {
+        eventsOnce([{ type: 'turn.failed', error: { message } }]);
+
+        const handle = await adapter.runSdk({
+          ...laneOptions,
+          modelSource: 'ptah-default',
+        });
+        const segments: CliOutputSegment[] = [];
+        handle.onSegment?.((s) => segments.push(s));
+
+        expect(await handle.done).toBe(1);
+        const text = segments.map((s) => s.content).join('\n');
+        expect(text).not.toContain('agentOrchestration.codexModel');
+      },
+    );
+
+    it('leaves a non-terminal error event with model wording to the normal path (S1)', async () => {
+      eventsOnce([
+        {
+          type: 'error',
+          message: "The 'gpt-6-sol' model is not supported right now",
+        },
+        { type: 'turn.completed', usage },
+      ]);
+
+      const handle = await adapter.runSdk({
+        ...laneOptions,
+        modelSource: 'ptah-default',
+      });
+      const segments: CliOutputSegment[] = [];
+      handle.onSegment?.((s) => segments.push(s));
+
+      expect(await handle.done).toBe(0);
+      const text = segments.map((s) => s.content).join('\n');
+      expect(text).not.toContain('agentOrchestration.codexModel');
+    });
+
+    it('refuses a spawn whose whole override argv is over the command-line limit, before any client (H6)', async () => {
+      // Enough user servers to break every platform's limit through the real
+      // reader -> builder -> argv path.
+      mockReadUserServers.mockResolvedValue({
+        names: Array.from(
+          { length: 40_000 },
+          (_, i) => `user-server-${String(i).padStart(20, '0')}`,
+        ),
+        warnings: [],
+      });
+
+      await expect(adapter.runSdk(laneOptions)).rejects.toMatchObject({
+        name: 'CliCommandLineTooLongError',
+      });
+      expect(mockCodexConstructor).not.toHaveBeenCalled();
     });
   });
 

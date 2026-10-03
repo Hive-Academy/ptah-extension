@@ -345,6 +345,7 @@ export class AgentToolDispatcher {
       ptahCliId: p.ptahCliId,
       task: p.task.substring(0, 80) + (p.task.length > 80 ? '...' : ''),
       role: p.role,
+      effort: p.effort,
     });
     try {
       const result = await this.ptahAPI.agent.spawn({
@@ -361,6 +362,7 @@ export class AgentToolDispatcher {
         resumeSessionId: p.resume_session_id,
         parentSessionId: this.callerSessionId,
         role: p.role,
+        effort: p.effort,
       });
       return await this.toolSuccess(
         request,

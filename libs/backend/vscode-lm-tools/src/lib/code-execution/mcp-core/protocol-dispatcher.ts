@@ -1095,6 +1095,7 @@ async function handleIndividualTool(
           taskFolder: spawnArgs.taskFolder,
           resumeSessionId: spawnArgs.resume_session_id,
           role: spawnArgs.role,
+          effort: spawnArgs.effort,
         });
 
         let result: Awaited<ReturnType<PtahAPI['agent']['spawn']>>;
@@ -1113,6 +1114,7 @@ async function handleIndividualTool(
             resumeSessionId: spawnArgs.resume_session_id,
             parentSessionId: request._callerSessionId,
             role: spawnArgs.role,
+            effort: spawnArgs.effort,
           });
         } catch (error: unknown) {
           if (error instanceof AgentRoleError) {

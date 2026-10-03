@@ -536,7 +536,7 @@ describe('AntigravityCliAdapter', () => {
       expect(prompt).toContain(renderRoleBlock(role, 'antigravity'));
     });
 
-    it('rejects an oversized role before writing the MCP entry or spawning', async () => {
+    it('rejects an oversized role-carrying prompt before writing the MCP entry or spawning', async () => {
       const legacy = new AntigravityCliAdapter(undefined, async () => false);
       const mcpWrite = jest
         .spyOn(
@@ -546,13 +546,16 @@ describe('AntigravityCliAdapter', () => {
           'configureMcpServer',
         )
         .mockResolvedValue(undefined);
-      const hugeBody = 'x'.repeat(1_100_000);
+      // The role block is capped (TASK_2026_597), so the oversized part of
+      // this role-carrying prompt is the task text.
+      const hugeTask = 'x'.repeat(1_100_000);
 
       await expect(
         legacy.runSdk({
           ...baseOptions,
+          task: hugeTask,
           mcpPort: 51820,
-          role: { ...role, body: hugeBody, bytes: hugeBody.length },
+          role,
         }),
       ).rejects.toBeInstanceOf(CliCommandLineTooLongError);
       expect(mcpWrite).not.toHaveBeenCalled();

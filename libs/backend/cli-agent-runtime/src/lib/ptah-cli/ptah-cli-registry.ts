@@ -579,7 +579,6 @@ export class PtahCliRegistry {
     id: string,
     task: string,
     options?: {
-      projectGuidance?: string;
       workingDirectory?: string;
       resumeSessionId?: string;
       /** Parent session ID for permission routing. Permissions from this agent
@@ -683,7 +682,6 @@ export class PtahCliRegistry {
       const assembly = await this.spawnOptionsService.assembleSpawnOptions(
         authEnv,
         cwd,
-        options?.projectGuidance,
         // The tier is already resolved above — hand the identity clarification
         // the same model the spawn runs on rather than letting it guess a tier.
         model || undefined,

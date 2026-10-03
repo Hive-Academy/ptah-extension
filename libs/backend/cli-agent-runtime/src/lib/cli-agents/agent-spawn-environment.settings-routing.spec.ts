@@ -19,11 +19,13 @@ import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
  * configuration (VS Code settings.json). A value that lives in the wrong map
  * must not resolve — that asymmetry is the bug detector.
  */
-function makeRoutingEnvironment(options: {
-  fileStore?: Record<string, unknown>;
-  hostConfig?: Record<string, unknown>;
-  effort?: string;
-} = {}): { environment: AgentSpawnEnvironment; write: jest.Mock } {
+function makeRoutingEnvironment(
+  options: {
+    fileStore?: Record<string, unknown>;
+    hostConfig?: Record<string, unknown>;
+    effort?: string;
+  } = {},
+): { environment: AgentSpawnEnvironment; write: jest.Mock } {
   const fileStore: Record<string, unknown> = { ...options.fileStore };
   // Host configuration is keyed by the full dotted path, the way VS Code
   // resolves `ptah.agentOrchestration.codexModel` in settings.json.
@@ -33,13 +35,13 @@ function makeRoutingEnvironment(options: {
     <T>(section: string, key: string, defaultValue?: T): T | undefined => {
       const fullKey = section === '' ? key : `${section}.${key}`;
       if (section === 'ptah' && isFileBasedSettingKey(key)) {
-        return (fileStore[key] !== undefined
-          ? fileStore[key]
-          : defaultValue) as T | undefined;
+        return (
+          fileStore[key] !== undefined ? fileStore[key] : defaultValue
+        ) as T | undefined;
       }
-      return (hostConfig[fullKey] !== undefined
-        ? hostConfig[fullKey]
-        : defaultValue) as T | undefined;
+      return (
+        hostConfig[fullKey] !== undefined ? hostConfig[fullKey] : defaultValue
+      ) as T | undefined;
     },
   );
   const setConfiguration = jest.fn(
@@ -98,32 +100,103 @@ describe('AgentSpawnEnvironment — agentOrchestration settings routing (D8)', (
     // The form agent:setConfig uses (agent-rpc.handlers.ts setAgentOrchestration).
     write('ptah', 'agentOrchestration.codexModel', 'gpt-5.2-codex');
 
-    expect(environment.resolveModel('codex', undefined)).toBe('gpt-5.2-codex');
+    expect(environment.resolveModel('codex', undefined)).toEqual({
+      model: 'gpt-5.2-codex',
+      source: 'setting',
+    });
   });
 
   it('reads the per-CLI effort key the writer writes when no UI effort is set', () => {
     const { environment, write } = makeRoutingEnvironment();
     write('ptah', 'agentOrchestration.copilotReasoningEffort', 'medium');
 
-    expect(environment.resolveReasoningEffort('copilot')).toBe('medium');
+    expect(environment.resolveReasoningEffort('copilot').effort).toBe('medium');
   });
 
-  it('still prefers the UI effort selection over the file-stored value', () => {
+  // Rewritten for TASK_2026_597 R2.3: the order was "UI effort first, setting
+  // second"; a concrete setting now wins, and `inherit` yields the UI effort.
+  it('lets a concrete file-stored effort win over the UI effort selection', () => {
     const { environment } = makeRoutingEnvironment({
       fileStore: { 'agentOrchestration.codexReasoningEffort': 'low' },
       effort: 'high',
     });
 
-    expect(environment.resolveReasoningEffort('codex')).toBe('high');
+    expect(environment.resolveReasoningEffort('codex')).toEqual({
+      effort: 'low',
+      step: 2,
+      ignored: [],
+    });
   });
 
-  it('reads pi effort raw from the file store and ignores the UI selection', () => {
+  it('yields the UI effort when the file-stored effort is inherit', () => {
+    const { environment } = makeRoutingEnvironment({
+      fileStore: { 'agentOrchestration.codexReasoningEffort': 'inherit' },
+      effort: 'high',
+    });
+
+    expect(environment.resolveReasoningEffort('codex')).toEqual({
+      effort: 'high',
+      step: 3,
+      ignored: [],
+    });
+  });
+
+  it.each(['codex', 'copilot'] as const)(
+    'never hands a stored inherit to %s argv',
+    (cli) => {
+      const { environment } = makeRoutingEnvironment({
+        fileStore: { [`agentOrchestration.${cli}ReasoningEffort`]: 'inherit' },
+      });
+
+      const resolved = environment.resolveReasoningEffort(cli);
+      expect(resolved.effort).toBeUndefined();
+      expect(resolved.step).toBe(6);
+    },
+  );
+
+  it('reads pi effort raw from the file store over the UI selection', () => {
     const { environment } = makeRoutingEnvironment({
       fileStore: { 'agentOrchestration.piReasoningEffort': 'max' },
       effort: 'low',
     });
 
-    expect(environment.resolveReasoningEffort('pi')).toBe('max');
+    expect(environment.resolveReasoningEffort('pi').effort).toBe('max');
+  });
+
+  it('resolves a stored pi inherit to the UI effort, never to inherit', () => {
+    const withChat = makeRoutingEnvironment({
+      fileStore: { 'agentOrchestration.piReasoningEffort': 'inherit' },
+      effort: 'high',
+    }).environment;
+    const withoutChat = makeRoutingEnvironment({
+      fileStore: { 'agentOrchestration.piReasoningEffort': 'inherit' },
+    }).environment;
+
+    expect(withChat.resolveReasoningEffort('pi')).toEqual({
+      effort: 'high',
+      step: 3,
+      ignored: [],
+    });
+    expect(withoutChat.resolveReasoningEffort('pi').effort).toBeUndefined();
+    expect(
+      withoutChat.resolveReasoningEffort('pi', { roleName: 'senior-tester' }),
+    ).toEqual({ effort: 'medium', step: 4, ignored: [] });
+  });
+
+  it('reads the Codex lane budgets from the file store', () => {
+    const { environment } = makeRoutingEnvironment({
+      fileStore: {
+        'agentOrchestration.codexAutoCompactTokens': 90000,
+        'agentOrchestration.codexToolOutputTokenLimit': 0,
+        'agentOrchestration.codexWebSearch': false,
+      },
+    });
+
+    expect(environment.resolveLaneBudgets()).toEqual({
+      autoCompactTokens: 90000,
+      toolOutputTokenLimit: 0,
+      webSearch: false,
+    });
   });
 
   it('reads copilot auto-approve from the file store', () => {
@@ -139,9 +212,17 @@ describe('AgentSpawnEnvironment — agentOrchestration settings routing (D8)', (
   it('keeps the defaults when the file store has no value', () => {
     const { environment } = makeRoutingEnvironment();
 
-    expect(environment.resolveModel('codex', undefined)).toBeUndefined();
+    expect(environment.resolveModel('codex', undefined)).toEqual({
+      model: 'gpt-6-sol',
+      source: 'ptah-default',
+    });
     expect(environment.resolveAutoApprove('copilot')).toBe(true);
-    expect(environment.resolveReasoningEffort('pi')).toBeUndefined();
+    expect(environment.resolveReasoningEffort('pi').effort).toBeUndefined();
+    expect(environment.resolveLaneBudgets()).toEqual({
+      autoCompactTokens: 120000,
+      toolOutputTokenLimit: 2500,
+      webSearch: true,
+    });
   });
 
   it('does not read the host configuration for these file-routed keys', () => {
@@ -156,7 +237,9 @@ describe('AgentSpawnEnvironment — agentOrchestration settings routing (D8)', (
       },
     });
 
-    expect(environment.resolveModel('codex', undefined)).toBeUndefined();
+    expect(environment.resolveModel('codex', undefined).source).toBe(
+      'ptah-default',
+    );
     expect(environment.resolveAutoApprove('copilot')).toBe(true);
   });
 });

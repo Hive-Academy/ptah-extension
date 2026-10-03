@@ -98,7 +98,6 @@ function makeDeps(
     getWorkspaceRoot: () => string;
     getActiveSessionId: () => string | undefined;
     getProjectGuidance: () => Promise<string | undefined>;
-    getSystemPrompt: () => Promise<string | undefined>;
     getPluginPaths: () => Promise<string[] | undefined>;
     getDisabledClis: () => string[];
     getPreferredAgentOrder: () => string[];
@@ -125,7 +124,6 @@ function makeDeps(
     getWorkspaceRoot: overrides.getWorkspaceRoot ?? (() => 'D:/ws'),
     getActiveSessionId: overrides.getActiveSessionId,
     getProjectGuidance: overrides.getProjectGuidance,
-    getSystemPrompt: overrides.getSystemPrompt,
     getPluginPaths: overrides.getPluginPaths,
     getPtahCliRegistry: registry ? () => registry as never : undefined,
     getDisabledClis: overrides.getDisabledClis,
@@ -169,7 +167,6 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
       getActiveSessionId: () => 'tab-1',
       resolveSessionId: (s) => (s === 'tab-1' ? 'session-uuid-1' : s),
       getProjectGuidance: async () => 'project rules',
-      getSystemPrompt: async () => undefined,
       getPluginPaths: async () => undefined,
     });
     mocks.processManager.spawn.mockResolvedValue({
@@ -260,9 +257,8 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
     ).rejects.toThrow(/disabled/i);
   });
 
-  it('adds systemPrompt and pluginPaths only when non-empty', async () => {
+  it('adds pluginPaths only when non-empty', async () => {
     const { deps, mocks } = makeDeps({
-      getSystemPrompt: async () => 'harness prompt',
       getPluginPaths: async () => ['/p/one', '/p/two'],
     });
     mocks.processManager.spawn.mockResolvedValue({
@@ -274,8 +270,30 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
     } as SpawnAgentRequest);
 
     const call = mocks.processManager.spawn.mock.calls[0][0];
-    expect(call.systemPrompt).toBe('harness prompt');
     expect(call.pluginPaths).toEqual(['/p/one', '/p/two']);
+    expect(call.projectGuidance).toBeUndefined();
+  });
+
+  it('gives a system-CLI lane the capped guidance once and never a system prompt (TASK_2026_597)', async () => {
+    const getProjectGuidance = jest.fn(async () => 'capped project rules');
+    const { deps, mocks } = makeDeps({ getProjectGuidance });
+    mocks.processManager.spawn.mockResolvedValue({
+      agentId: 'ok',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 't',
+      cli: 'opencode',
+    } as SpawnAgentRequest);
+
+    expect(getProjectGuidance).toHaveBeenCalledTimes(1);
+    expect(mocks.processManager.spawn).toHaveBeenCalledTimes(1);
+    const call = mocks.processManager.spawn.mock.calls[0][0];
+    expect(call.projectGuidance).toBe('capped project rules');
+    expect(call).not.toHaveProperty('systemPrompt');
+    expect(JSON.stringify(call).split('capped project rules').length - 1).toBe(
+      1,
+    );
   });
 });
 
@@ -426,12 +444,15 @@ describe('buildAgentNamespace — spawn (role)', () => {
       order.push('resolve');
       return ROLE_DEFINITION;
     });
+    // The Ptah CLI spawn-options service reads the guidance itself; the
+    // builder no longer fetches a second copy for that lane (TASK_2026_597).
+    const getProjectGuidance = jest.fn(async () => {
+      order.push('guidance');
+      return 'project rules';
+    });
     const { deps, mocks } = makeDeps({
       resolveAgentRole,
-      getProjectGuidance: async () => {
-        order.push('guidance');
-        return undefined;
-      },
+      getProjectGuidance,
     });
     mockPtahCliSpawn(mocks);
     mocks.processManager.reserveAgentId.mockImplementation(() => {
@@ -452,7 +473,12 @@ describe('buildAgentNamespace — spawn (role)', () => {
       'D:/ws',
       'code-logic-reviewer',
     );
-    expect(order).toEqual(['resolve', 'guidance', 'reserve']);
+    expect(order).toEqual(['resolve', 'reserve']);
+    expect(getProjectGuidance).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    expect(mocks.registry!.spawnAgent.mock.calls[0][2]).not.toHaveProperty(
+      'projectGuidance',
+    );
   });
 
   it('resolves the role before the rival branch spawns', async () => {
@@ -463,8 +489,8 @@ describe('buildAgentNamespace — spawn (role)', () => {
     });
     const { deps, mocks } = makeDeps({
       resolveAgentRole,
-      getSystemPrompt: async () => {
-        order.push('system-prompt-read');
+      getProjectGuidance: async () => {
+        order.push('guidance');
         return undefined;
       },
     });
@@ -479,7 +505,7 @@ describe('buildAgentNamespace — spawn (role)', () => {
       role: 'code-logic-reviewer',
     } as SpawnAgentRequest);
 
-    expect(order).toEqual(['resolve', 'system-prompt-read', 'spawn']);
+    expect(order).toEqual(['resolve', 'guidance', 'spawn']);
   });
 
   it.each([

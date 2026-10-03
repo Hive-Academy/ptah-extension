@@ -114,6 +114,21 @@ Every tool call in any agent or lane resends its whole thread, so cost is reques
 - Use `ptah_ast_analyze` / `ptah_context_enrich_file` before a full `Read`; read whole files only
   when editing them.
 
+## Lean orchestration rules
+
+1. **Fresh team-leader per Mode 2/3 call.** Give it only the batch report path, plus the
+   review path when you return with a phase review verdict. Never resume a long-lived team-leader.
+2. **Resume only inside the cache window.** Resume a developer or reviewer only when its last
+   activity was under 5 minutes ago. Otherwise start a fresh one with the batch section and the
+   report paths.
+3. **Risk-based review.** No per-batch review: each batch passes its scoped typecheck, lint and
+   tests before commit. One code-logic review per phase, on the combined diff. Batches that change
+   only types, tests, docs or measurement get no review. Add a style review only for new public API.
+4. **One fix round.** Blocking and Serious are fixed in one round. Moderate is fixed only if it can
+   break a lane config or lose data; otherwise it becomes a named later task. Minor is recorded,
+   not fixed. After the round, one short re-review scoped to the fixes.
+5. **Short updates.** Keep orchestrator messages brief; no status message per notification.
+
 ## References — load on demand, never all at once
 
 | Reference | Load when |

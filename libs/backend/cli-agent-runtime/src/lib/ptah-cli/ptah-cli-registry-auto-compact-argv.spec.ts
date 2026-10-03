@@ -77,6 +77,7 @@ jest.mock('@ptah-extension/agent-sdk', () => {
 
 import { PtahCliRegistry } from './ptah-cli-registry';
 import { PtahCliSpawnOptions } from './helpers/ptah-cli-spawn-options.service';
+import { renderRoleBlock } from '../cli-agents/cli-adapters/cli-adapter.utils';
 import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
 
 const PINNED_SDK_VERSION = '0.3.278';
@@ -352,16 +353,24 @@ type CaseName =
   | 'invalid-low'
   | 'invalid-high'
   | 'style-and-window'
-  | 'role-64kib';
+  | 'capped-role';
 
-const ROLE_MARKER = 'ROLE_64KIB_PROBE_MARKER';
-const ROLE_64KIB_BODY =
-  ROLE_MARKER + 'r'.repeat(64 * 1024 - 2 * ROLE_MARKER.length) + ROLE_MARKER;
-const ROLE_64KIB: AgentRoleDefinition = {
+const ROLE_MARKER = 'CAPPED_ROLE_PROBE_MARKER';
+// Paragraphs, so the lane cap (TASK_2026_597) keeps the opening marker and
+// cuts the rest at a paragraph break.
+const CAPPED_ROLE_PARAGRAPH = 'r'.repeat(1022) + '\n\n';
+const CAPPED_ROLE_BODY =
+  ROLE_MARKER +
+  '\n\n' +
+  CAPPED_ROLE_PARAGRAPH.repeat(
+    Math.floor((64 * 1024 - 2 * ROLE_MARKER.length - 2) / 1024),
+  ) +
+  ROLE_MARKER;
+const CAPPED_ROLE: AgentRoleDefinition = {
   name: 'probe-role',
-  body: ROLE_64KIB_BODY,
+  body: CAPPED_ROLE_BODY,
   sourcePath: '/repo/.claude/agents/probe-role.md',
-  bytes: Buffer.byteLength(ROLE_64KIB_BODY, 'utf8'),
+  bytes: Buffer.byteLength(CAPPED_ROLE_BODY, 'utf8'),
 };
 
 const CASES: ReadonlyArray<{
@@ -384,7 +393,7 @@ const CASES: ReadonlyArray<{
     values: { 'compaction.threshold': 400_000 },
     outputStyleName: 'Terse',
   },
-  { name: 'role-64kib', values: {}, role: ROLE_64KIB },
+  { name: 'capped-role', values: {}, role: CAPPED_ROLE },
 ];
 
 describe('ptah-cli spawn path — compaction settings on the real SDK argv', () => {
@@ -503,20 +512,21 @@ describe('ptah-cli spawn path — compaction settings on the real SDK argv', () 
     });
   });
 
-  it('delivers a 64 KiB role over the initialize request, never argv or env', () => {
-    const entry = results.get('role-64kib');
-    if (!entry) throw new Error('no result captured for role-64kib');
+  it('delivers a 64 KiB role, capped, over the initialize request, never argv or env', () => {
+    const entry = results.get('capped-role');
+    if (!entry) throw new Error('no result captured for capped-role');
     const { probe, options } = entry;
-    if (!probe.args) throw new Error('no argv captured for role-64kib');
-    if (!probe.env) throw new Error('no env captured for role-64kib');
+    if (!probe.args) throw new Error('no argv captured for capped-role');
+    if (!probe.env) throw new Error('no env captured for capped-role');
 
     const init = initializeRequest(probe.stdinText);
     const delivered = [init['systemPrompt'], init['appendSystemPrompt']].filter(
       (value): value is string => typeof value === 'string',
     );
-    expect(delivered.some((value) => value.includes(ROLE_64KIB_BODY))).toBe(
-      true,
-    );
+    const roleBlock = renderRoleBlock(CAPPED_ROLE, 'ptah-cli');
+    expect(roleBlock.length).toBeLessThanOrEqual(10_000);
+    expect(roleBlock).toContain(ROLE_MARKER);
+    expect(delivered.some((value) => value.includes(roleBlock))).toBe(true);
 
     for (const arg of probe.args) {
       expect(arg.includes(ROLE_MARKER)).toBe(false);
