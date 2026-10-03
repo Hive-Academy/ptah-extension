@@ -454,20 +454,31 @@ export class SkillClonesViewComponent implements OnInit {
 
   /** Whether the last effect run saw the Agents tab; detects tab ENTRY. */
   private wasOnAgentTab = false;
+  /** The workspace root the last effect run saw; detects a workspace switch. */
+  private lastWorkspaceRoot = '';
 
   public constructor() {
     effect(() => {
       if (this.divergedFilterRequest() > 0) this.divergedOnly.set(true);
     });
     // One fresh verify per ENTRY into the desktop Agents tab, never a poll:
-    // staying on the tab, or re-rendering it, does not re-read.
+    // staying on the tab, or re-rendering it, does not re-read. A workspace
+    // switch while the tab stays open re-verifies too, because Electron does
+    // not reload the view and the chips would otherwise describe the previous
+    // workspace. `AgentModelsStore` follows the root itself, so only entry
+    // loads it.
     effect(() => {
       const onAgentTab = this.onAgentTab();
+      const workspaceRoot = this.vscodeService.config()?.workspaceRoot ?? '';
+      const workspaceChanged = workspaceRoot !== this.lastWorkspaceRoot;
+      this.lastWorkspaceRoot = workspaceRoot;
       if (onAgentTab && !this.wasOnAgentTab) {
         untracked(() => {
           void this.harness.refresh({ refresh: true });
           void this.agentModels.load();
         });
+      } else if (onAgentTab && workspaceChanged) {
+        untracked(() => void this.harness.refresh({ refresh: true }));
       }
       this.wasOnAgentTab = onAgentTab;
     });

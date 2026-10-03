@@ -1024,6 +1024,34 @@ describe('SkillClonesViewComponent — Agents tab harness wiring', () => {
     expect(rpc.listQuarantinedAgents).toHaveBeenCalledTimes(2);
   });
 
+  it('re-verifies once on a workspace switch while the Agents tab is open, and not elsewhere', () => {
+    const { harness, selectTab, fixture } = setup({
+      state: makeStateStub(agents()),
+    });
+    const config = TestBed.inject(VSCodeService).config as unknown as {
+      set(value: { isElectron: boolean; workspaceRoot?: string }): void;
+    };
+    const switchWorkspace = (workspaceRoot: string): void => {
+      config.set({ isElectron: true, workspaceRoot });
+      fixture.detectChanges();
+    };
+
+    switchWorkspace('/ws-a');
+    expect(harness.refresh).not.toHaveBeenCalled();
+
+    selectTab(1);
+    expect(harness.refresh).toHaveBeenCalledTimes(1);
+
+    switchWorkspace('/ws-b');
+    fixture.detectChanges();
+    expect(harness.refresh).toHaveBeenCalledTimes(2);
+    expect(harness.refresh).toHaveBeenLastCalledWith({ refresh: true });
+
+    selectTab(0);
+    switchWorkspace('/ws-c');
+    expect(harness.refresh).toHaveBeenCalledTimes(2);
+  });
+
   it('Refresh on the Agents tab re-verifies and re-lists the quarantine once each', async () => {
     const rpc = makeRpcStub();
     const { harness, selectTab, click, state } = setup({
