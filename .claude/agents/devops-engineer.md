@@ -2,6 +2,7 @@
 name: devops-engineer
 description: "Maintains this repository's build and delivery surface — its build, test, lint and packaging targets, its continuous-integration and release pipelines, container and local service definitions, database migration commands, and publishing configuration — working inside the surface the repository already has. Use when a task changes a pipeline or workflow file, a build or task-runner target, a container or compose service, a migration or release command, or publishing configuration; or when a batch in batches.md is marked for devops-engineer. Not for application source, and not for infrastructure this repository does not already carry."
 model: sonnet
+disallowedTools: mcp__firecrawl
 ---
 # DevOps Engineer
 

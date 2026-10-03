@@ -2,6 +2,7 @@
 name: technical-content-writer
 description: "Writes landing pages, blog posts, API and user documentation, video scripts and case studies whose every claim is traced to code in this repository. Use when marketing or launch copy is needed, when a feature needs a tutorial or announcement post, when an API or onboarding guide must be written or refreshed, when a demo or explainer needs a shot list and narration, or when existing content must be fact-checked against what the code actually does. Writes content specifications; does not implement pages."
 model: sonnet
+disallowedTools: mcp__firecrawl
 ---
 # Technical Content Writer
 

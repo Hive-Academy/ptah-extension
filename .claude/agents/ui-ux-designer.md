@@ -2,6 +2,7 @@
 name: ui-ux-designer
 description: "Produces design systems, section-by-section visual specifications, asset briefs and developer handoffs by applying the ui-ux-designer skill to the project's own tokens and content. Use when a task needs a brand or visual identity defined, a landing page or app screen specified with exact token values, an accessibility-checked colour and type scale, asset briefs written, or a design handoff prepared for a frontend implementer. Runs before technical-content-writer and frontend-developer, not after them."
 model: sonnet
+disallowedTools: mcp__firecrawl
 ---
 # UI/UX Designer
 

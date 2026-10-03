@@ -2,6 +2,7 @@
 name: senior-tester
 description: "Writes and runs the tests that prove a task's acceptance criteria hold, then records the evidence in test-report.md. Use after an implementation batch lands and needs verification, when a bug fix needs a regression test that would have caught it, when a review finding needs to be pinned by a test, or when a change touches behaviour that has no coverage today. Also use to judge whether the project's test infrastructure can carry the work at all — it escalates instead of writing tests that cannot run. Do not use to write production code or to review code quality."
 model: sonnet
+disallowedTools: mcp__firecrawl
 ---
 # Senior Tester
 
