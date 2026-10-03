@@ -29,6 +29,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const byName = (a, b) => a.localeCompare(b, 'en');
+
 const GIT_UI_LIB = 'libs/frontend/git-ui/src/lib/';
 // git-ui dirs that stay in the VSIX: eager services/types and the Pierre host.
 const GIT_UI_SHARED_DIRS = new Set(['services', 'types', 'renderer']);
@@ -106,13 +108,13 @@ function classify(stats) {
     }
   }
 
-  const electronOnly = [...dropped].sort();
-  const kept = jsFiles.filter((f) => !dropped.has(f)).sort();
+  const electronOnly = [...dropped].sort(byName);
+  const kept = jsFiles.filter((f) => !dropped.has(f)).sort(byName);
   const keptPierre = kept
     .filter((f) =>
       inputsOf(f).some((i) => normalize(i).startsWith('node_modules/@pierre/')),
     )
-    .sort();
+    .sort(byName);
   return { electronOnly, kept, keptPierre };
 }
 
