@@ -139,8 +139,8 @@ const INITIAL: ReviewNavigation = {
  * emitted. A file-to-file navigation is not guarded here because the editor
  * stays mounted and asks about its own replacement; a tab-only switch is not
  * guarded because the editor stays mounted behind the other tab. While an answer is
- * pending, the latest guarded navigation wins and any other navigation
- * supersedes it.
+ * pending, the latest navigation wins: a newer guarded navigation, a newer
+ * git-reading open, a committed navigation or a workspace switch supersedes it.
  */
 @Injectable({ providedIn: 'root' })
 export class ReviewNavigationService {
@@ -149,18 +149,19 @@ export class ReviewNavigationService {
 
   private readonly _current = signal<ReviewNavigation>(INITIAL);
   private leaveGuard: ReviewLeaveGuard | null = null;
-  /** Bumped per guarded navigation, so only the latest one can land. */
-  private leaveTicket = 0;
   /**
-   * Bumped when a navigation that reads git first ({@link openHistorical},
-   * {@link openStashFile}) starts, and on a workspace reset. Only the open
-   * holding the latest ticket may land, so a slower earlier click never
-   * replaces a later one.
+   * One navigation generation, bumped when a git-reading open
+   * ({@link openHistorical}, {@link openStashFile}) starts, when a guarded
+   * navigation starts asking, and on every workspace switch or removal. A
+   * pending continuation (an RPC read or a leave-guard answer, including the
+   * workspace-reset one) lands only while it still holds the latest
+   * generation, so an older click never replaces a newer one.
    */
-  private openTicket = 0;
+  private generation = 0;
   /**
    * The workspace the current scope and target were opened in, or `null`
-   * while they hold nothing workspace-specific.
+   * while they hold nothing workspace-specific. Set when they are opened and
+   * kept while only the tab (or a retained editor's comparison) changes.
    */
   private stateWorkspace: string | null = null;
 
@@ -246,7 +247,7 @@ export class ReviewNavigationService {
     const workspaceRoot = this.gitStatus.activeWorkspacePath();
     if (!workspaceRoot) return { opened: false, error: NO_WORKSPACE_MESSAGE };
 
-    const ticket = ++this.openTicket;
+    const ticket = ++this.generation;
     const seq = this._current().seq;
     let result: GitReviewChangesResult | undefined;
     let transportError: string | undefined;
@@ -304,7 +305,7 @@ export class ReviewNavigationService {
   async openStashFile(request: ReviewStashFileRequest): Promise<void> {
     const { file } = request;
     const workspaceRoot = this.gitStatus.activeWorkspacePath();
-    const ticket = ++this.openTicket;
+    const ticket = ++this.generation;
     const seq = this._current().seq;
     const listed = workspaceRoot
       ? await this.readStashFileRow(workspaceRoot, request)
@@ -353,10 +354,11 @@ export class ReviewNavigationService {
    * stash comparison, a change set, a diff target or a spot-editor file
    * opened in another workspace would be read against the new repository, so
    * they are dropped; the tab and a generic comparison (worktree, staged,
-   * branch) stay. Opens still reading git are superseded.
+   * branch) stay. Opens still reading git, and navigations still waiting on
+   * the leave guard, are superseded.
    */
   switchWorkspace(workspacePath: string): void {
-    this.openTicket++;
+    this.generation++;
     if (this.stateWorkspace === null || this.stateWorkspace === workspacePath) {
       return;
     }
@@ -366,7 +368,7 @@ export class ReviewNavigationService {
   /** A workspace was closed; drop what was opened in it. */
   removeWorkspaceState(workspacePath: string): void {
     if (this.stateWorkspace !== workspacePath) return;
-    this.openTicket++;
+    this.generation++;
     this.resetWorkspaceState();
   }
 
@@ -374,19 +376,15 @@ export class ReviewNavigationService {
    * Point the shell back at a workspace-neutral view. A spot editor still
    * asks the leave guard before it goes: its comparison is dropped at once
    * (the editor stays mounted), and the editor itself only when the user
-   * agrees, so unsaved edits are never discarded silently.
+   * agrees, so unsaved edits are never discarded silently. A retained editor
+   * keeps the workspace it was opened in as its owner (see {@link commit}).
    */
   private resetWorkspaceState(): void {
     const { tab, scope, target } = this._current();
     const neutralScope: ReviewScope =
       scope.kind === 'historical' ? { kind: 'worktree' } : scope;
     if (target.kind === 'file') {
-      if (scope.kind === 'historical') {
-        // The file still belongs to the workspace it was opened in.
-        const owner = this.stateWorkspace;
-        this.commit(tab, neutralScope, target);
-        this.stateWorkspace = owner;
-      }
+      if (scope.kind === 'historical') this.commit(tab, neutralScope, target);
       void this.navigate(tab, neutralScope, { kind: 'none' });
       return;
     }
@@ -400,7 +398,7 @@ export class ReviewNavigationService {
     workspaceRoot: string | null,
   ): boolean {
     return (
-      ticket !== this.openTicket ||
+      ticket !== this.generation ||
       this._current().seq !== seq ||
       this.gitStatus.activeWorkspacePath() !== workspaceRoot
     );
@@ -442,25 +440,27 @@ export class ReviewNavigationService {
   ): Promise<boolean> {
     const current = this._current();
     const guard = this.leaveGuard;
+    // The workspace the request was made in owns what it opens.
+    const opened = this.gitStatus.activeWorkspacePath();
     // A tab-only switch keeps the file target: the Changes body (and the
     // editor in it) stays mounted behind the other tabs, so nothing is lost.
     const replacesEditor =
       current.target.kind === 'file' && target.kind !== 'file';
     if (!guard || !replacesEditor) {
-      this.commit(tab, scope, target);
+      this.commit(tab, scope, target, opened);
       return Promise.resolve(true);
     }
 
-    const ticket = ++this.leaveTicket;
+    const ticket = ++this.generation;
     const land = (leave: boolean): boolean => {
       if (
         !leave ||
-        ticket !== this.leaveTicket ||
+        ticket !== this.generation ||
         this._current().seq !== current.seq
       ) {
         return false;
       }
-      this.commit(tab, scope, target);
+      this.commit(tab, scope, target, opened);
       return true;
     };
     // A guard that fails keeps the editor: losing edits is the worse outcome.
@@ -479,16 +479,27 @@ export class ReviewNavigationService {
       : answer.then(land, refuse);
   }
 
+  /**
+   * Land a navigation. `opened` is the workspace the request was made in; it
+   * becomes the owner only of what is newly opened. A retained target (a
+   * tab-only switch, or a kept editor whose comparison was dropped) keeps the
+   * owner it was opened under, whatever workspace is active now.
+   */
   private commit(
     tab: ReviewTab,
     scope: ReviewScope,
     target: ReviewTarget,
+    opened: string | null = this.gitStatus.activeWorkspacePath(),
   ): void {
-    const seq = this._current().seq + 1;
-    this._current.set({ seq, tab, scope, target });
-    this.stateWorkspace =
-      scope.kind === 'historical' || target.kind !== 'none'
-        ? this.gitStatus.activeWorkspacePath()
-        : null;
+    const current = this._current();
+    const retained =
+      target === current.target &&
+      (scope === current.scope || target.kind !== 'none');
+    let owner: string | null = null;
+    if (scope.kind === 'historical' || target.kind !== 'none') {
+      owner = retained ? this.stateWorkspace : opened;
+    }
+    this._current.set({ seq: current.seq + 1, tab, scope, target });
+    this.stateWorkspace = owner;
   }
 }

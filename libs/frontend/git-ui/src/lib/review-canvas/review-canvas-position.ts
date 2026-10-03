@@ -68,10 +68,14 @@ export function rememberAnchor(
 
 /**
  * Staging or unstaging a file gives it a new id (the id carries the
- * staged/worktree kind). The returned function, given the collapsed ids and
- * each new file list, moves every collapsed id that left the list to the file
- * that newly took its path, and returns the new set (`null` when nothing
- * moved). It remembers the previous list between calls.
+ * staged/worktree kind), or merges it into the section of the same path that
+ * was already listed (a partially staged file staged or unstaged in full).
+ * The returned function, given the collapsed ids and each new file list,
+ * moves every collapsed id that left the list to the files now listed under
+ * its path, new or already present (a merged file stays collapsed if either
+ * of its sections was), drops the vanished id, and returns the new set
+ * (`null` when nothing moved). An id whose path is no longer listed at all is
+ * left alone. It remembers the previous list between calls.
  */
 export function collapsedCarrier(): (
   collapsed: ReadonlySet<string>,
@@ -86,13 +90,11 @@ export function collapsedCarrier(): (
     for (const id of collapsed) {
       const path = previous.get(id);
       if (previousPaths.has(id) || path === undefined) continue;
-      const moved = files.find(
-        (file) => file.path === path && !previous.has(file.id),
-      );
-      if (!moved) continue;
+      const survivors = files.filter((file) => file.path === path);
+      if (survivors.length === 0) continue;
       next ??= new Set(collapsed);
       next.delete(id);
-      next.add(moved.id);
+      for (const survivor of survivors) next.add(survivor.id);
     }
     return next;
   };

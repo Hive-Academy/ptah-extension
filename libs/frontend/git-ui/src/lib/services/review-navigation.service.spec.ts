@@ -575,6 +575,71 @@ describe('ReviewNavigationService', () => {
       error.mockRestore();
     });
 
+    it('an older open still waiting on the leave guard does not land over a newer open', async () => {
+      const { service } = makeService();
+      const OTHER = 'b'.repeat(40);
+      const olderAnswer = deferred();
+      const answers: (boolean | Promise<boolean>)[] = [
+        olderAnswer.promise,
+        true,
+      ];
+      service.registerLeaveGuard(() => answers.shift() ?? false);
+      service.openFile('/ws/a.ts');
+      mockRpcCall.mockResolvedValueOnce({
+        success: true,
+        data: reviewChanges(),
+      });
+      const older = service.openHistorical(SHA);
+      // Let the older read land; it now waits on the guard.
+      await new Promise((res) => setTimeout(res, 0));
+      let resolveNewer!: (value: unknown) => void;
+      mockRpcCall.mockReturnValueOnce(
+        new Promise((res) => (resolveNewer = res)),
+      );
+      const newer = service.openHistorical(OTHER);
+
+      olderAnswer.resolve(true);
+      expect(await older).toEqual({ opened: false, error: null });
+      expect(service.current().target.kind).toBe('file');
+
+      resolveNewer({
+        success: true,
+        data: reviewChanges({ head: { name: OTHER, sha: OTHER } }),
+      });
+      expect(await newer).toEqual({ opened: true });
+      expect(service.current().scope).toMatchObject({ head: { sha: OTHER } });
+    });
+
+    it('a pending workspace-reset answer does not drop an open started in the new workspace', async () => {
+      const { service, active } = makeService();
+      const resetAnswer = deferred();
+      const answers: (boolean | Promise<boolean>)[] = [
+        resetAnswer.promise,
+        true,
+      ];
+      service.registerLeaveGuard(() => answers.shift() ?? false);
+      service.openFile('/ws/a.ts');
+      active.path = '/other';
+      service.switchWorkspace('/other');
+      let resolveRead!: (value: unknown) => void;
+      mockRpcCall.mockReturnValueOnce(
+        new Promise((res) => (resolveRead = res)),
+      );
+      const open = service.openHistorical(SHA);
+
+      resetAnswer.resolve(true);
+      await resetAnswer.promise;
+      await Promise.resolve();
+      expect(service.current().target.kind).toBe('file');
+
+      resolveRead({ success: true, data: reviewChanges() });
+      expect(await open).toEqual({ opened: true });
+      expect(service.current()).toMatchObject({
+        scope: { kind: 'historical', head: { sha: SHA } },
+        target: { kind: 'none' },
+      });
+    });
+
     it('a released guard is no longer asked', () => {
       const { service } = makeService();
       const guard = jest.fn(() => false);
@@ -730,6 +795,24 @@ describe('ReviewNavigationService', () => {
         kind: 'file',
         request: { path: '/ws/a.ts' },
       });
+    });
+
+    it('a kept editor stays owned by its workspace across tab switches, so removing it still asks', () => {
+      const { service, active } = makeService();
+      const guard = jest.fn().mockReturnValueOnce(false).mockReturnValue(true);
+      service.registerLeaveGuard(guard);
+      service.openFile('/ws/a.ts');
+
+      active.path = '/other';
+      service.switchWorkspace('/other'); // Keep editing
+      service.selectTab('history');
+      service.selectTab('changes');
+      expect(service.current().target.kind).toBe('file');
+
+      service.removeWorkspaceState('/ws');
+
+      expect(guard).toHaveBeenCalledTimes(2);
+      expect(service.current().target).toEqual({ kind: 'none' });
     });
 
     it('a switch drops the spot editor after Discard', () => {

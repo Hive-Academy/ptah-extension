@@ -77,6 +77,16 @@ interface CommentComposer {
   readonly from: number;
   readonly to: number;
   readonly body: string;
+  /** {@link draftOwnerIdentity} of the owner the composer was opened for. */
+  readonly owner: string;
+}
+
+/**
+ * Who a draft belongs to: the workspace and the session together, so a
+ * composer opened for one change set is never submitted under another.
+ */
+function draftOwnerIdentity(owner: ReviewDraftOwner): string {
+  return JSON.stringify([owner.workspaceRoot, owner.ownerSessionId ?? null]);
 }
 
 /** A list label, or a read outcome that also replaces the diff body. */
@@ -319,6 +329,10 @@ function splitLines(text: string): string[] {
                 type="submit"
                 class="btn btn-primary btn-xs"
                 data-testid="comment-add"
+                [disabled]="!canComment()"
+                [attr.aria-describedby]="
+                  canComment() ? null : bodyId + '-comment-unavailable'
+                "
               >
                 Add draft
               </button>
@@ -331,6 +345,16 @@ function splitLines(text: string): string[] {
                 Cancel
               </button>
             </span>
+            @if (!canComment()) {
+              <p
+                class="basis-full text-base-content-muted"
+                [id]="bodyId + '-comment-unavailable'"
+                data-testid="comment-unavailable"
+              >
+                The diff is not available right now. Your comment is kept; add
+                it once the diff is back.
+              </p>
+            }
             @if (composerError(); as message) {
               <p
                 class="basis-full text-error"
@@ -662,17 +686,17 @@ export class FileDiffSectionComponent {
       onCleanup(() => this.reviewDiff.unmount(key));
     });
 
-    // A composer outlives neither the owner nor a read that turned out not
-    // to be commentable text. An unmounted read (the file collapsed or
-    // scrolled away) is neither: the draft and its line range are kept and
-    // come back when the body does.
+    // A composer lives as long as the owner it was opened for: it is dropped
+    // when that owner goes away or is replaced by another (a different
+    // change-set session or workspace on the same file id). An unmounted,
+    // failed or labelled read is not a reason: the text and line range are
+    // kept, submission waits for readable text, and Cancel dismisses it.
     effect(() => {
-      const diff = this.diff();
-      const unreadable =
-        diff !== null && (diff.status === 'error' || this.labelKind() !== null);
+      const owner = this.draftOwner();
+      const current = untracked(this.composer);
       if (
-        (this.draftOwner() === null || unreadable) &&
-        untracked(this.composer) !== null
+        current !== null &&
+        (owner === null || draftOwnerIdentity(owner) !== current.owner)
       ) {
         this.composer.set(null);
         this.composerError.set(null);
@@ -719,7 +743,8 @@ export class FileDiffSectionComponent {
       return;
     }
     const diff = this.diff();
-    if (!diff) return;
+    const owner = this.draftOwner();
+    if (!diff || !owner) return;
     const side: DraftSide =
       diff.modifiedRef.kind === 'absent' ? 'deletions' : 'additions';
     const first = diff.hunks[0];
@@ -730,7 +755,13 @@ export class FileDiffSectionComponent {
         )
       : 1;
     this.composerError.set(null);
-    this.composer.set({ side, from: start, to: start, body: '' });
+    this.composer.set({
+      side,
+      from: start,
+      to: start,
+      body: '',
+      owner: draftOwnerIdentity(owner),
+    });
     afterNextRender(() => this.composerStart()?.nativeElement.focus(), {
       injector: this.injector,
     });
@@ -753,7 +784,9 @@ export class FileDiffSectionComponent {
     const draft = this.composer();
     const diff = this.diff();
     const owner = this.draftOwner();
-    if (!draft || !diff || !owner) return;
+    if (!draft || !diff || !owner || !this.canComment()) return;
+    // Never submit under an owner other than the one it was written for.
+    if (draftOwnerIdentity(owner) !== draft.owner) return;
     const text = draft.side === 'additions' ? diff.modified : diff.original;
     const lines = splitLines(text);
     const { from, to } = draft;

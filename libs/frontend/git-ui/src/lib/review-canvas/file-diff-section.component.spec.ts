@@ -964,5 +964,99 @@ describe('FileDiffSectionComponent', () => {
       await settle();
       expect(byTestId('comment-composer')).toBeNull();
     });
+
+    it('drops the composer when another owner replaces it on the same file, and never submits under it', async () => {
+      const sessionA = { workspaceRoot: '/ws', ownerSessionId: 'session-a' };
+      const sessionB = { workspaceRoot: '/ws', ownerSessionId: 'session-b' };
+      await create({ near: true, draftOwner: sessionA });
+      setDiff(makeDiff());
+      await settle();
+      byTestId<HTMLButtonElement>('file-section-comment')?.click();
+      await settle();
+      type('comment-body', 'For session A');
+      fixture.componentRef.setInput('collapsed', true);
+      await settle();
+
+      fixture.componentRef.setInput('draftOwner', sessionB);
+      fixture.componentRef.setInput('collapsed', false);
+      await settle();
+
+      expect(byTestId('comment-composer')).toBeNull();
+      expect(host().textContent).not.toContain('comment in progress');
+      expect(store.draftsFor(sessionA)).toHaveLength(0);
+      expect(store.draftsFor(sessionB)).toHaveLength(0);
+    });
+
+    it('keeps the composer when an equal owner record is re-emitted', async () => {
+      await openComposer();
+      type('comment-body', 'Same owner');
+      fixture.componentRef.setInput('draftOwner', { workspaceRoot: '/ws' });
+      await settle();
+      expect(byTestId<HTMLTextAreaElement>('comment-body')?.value).toBe(
+        'Same owner',
+      );
+    });
+
+    it('keeps the comment through a failed read after expanding, with Add draft disabled, until Retry restores the diff', async () => {
+      await openComposer();
+      type('comment-to', '3');
+      type('comment-body', 'Half written');
+      fixture.componentRef.setInput('collapsed', true);
+      await settle();
+
+      setDiff(
+        makeDiff({
+          status: 'error',
+          errorMessage: 'Git could not read this file.',
+          original: '',
+          modified: '',
+          hunks: [],
+        }),
+      );
+      fixture.componentRef.setInput('collapsed', false);
+      await settle();
+
+      expect(byTestId('file-read-error')).not.toBeNull();
+      expect(byTestId<HTMLTextAreaElement>('comment-body')?.value).toBe(
+        'Half written',
+      );
+      const add = byTestId<HTMLButtonElement>('comment-add');
+      expect(add?.disabled).toBe(true);
+      expect(byTestId('comment-unavailable')).not.toBeNull();
+
+      byTestId<HTMLButtonElement>('file-read-retry')?.click();
+      expect(reviewDiff.retry).toHaveBeenCalledWith(KEY);
+      setDiff(makeDiff());
+      await settle();
+
+      expect(byTestId<HTMLInputElement>('comment-to')?.value).toBe('3');
+      expect(byTestId<HTMLTextAreaElement>('comment-body')?.value).toBe(
+        'Half written',
+      );
+      expect(byTestId<HTMLButtonElement>('comment-add')?.disabled).toBe(false);
+      byTestId<HTMLButtonElement>('comment-add')?.click();
+      await settle();
+      expect(store.draftsFor(owner)).toEqual([
+        expect.objectContaining({
+          startLine: 2,
+          endLine: 3,
+          body: 'Half written',
+        }),
+      ]);
+    });
+
+    it('keeps the comment when a read turns into a labelled row', async () => {
+      await openComposer();
+      type('comment-body', 'Kept');
+      setDiff(makeDiff({ isBinary: true, original: '', modified: '' }));
+      await settle();
+
+      expect(byTestId('file-label-row')).not.toBeNull();
+      expect(byTestId<HTMLTextAreaElement>('comment-body')?.value).toBe('Kept');
+      expect(byTestId<HTMLButtonElement>('comment-add')?.disabled).toBe(true);
+      byTestId<HTMLButtonElement>('comment-cancel')?.click();
+      await settle();
+      expect(byTestId('comment-composer')).toBeNull();
+    });
   });
 });
