@@ -71,6 +71,35 @@ describe('WizardRpcService', () => {
     });
   });
 
+  describe('previewGeneration', () => {
+    it('calls wizard:preview-generation with selectedAgentIds and returns the preview', async () => {
+      const preview = { agents: [] };
+      rpcCall.mockResolvedValue(okResult(preview));
+      await expect(service.previewGeneration(['a', 'b'])).resolves.toEqual(
+        preview,
+      );
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:preview-generation',
+        { selectedAgentIds: ['a', 'b'] },
+        { timeout: 10_000 },
+      );
+    });
+
+    it('throws the preview RPC failure reason', async () => {
+      rpcCall.mockResolvedValue(errResult('preview denied'));
+      await expect(service.previewGeneration(['a'])).rejects.toThrow(
+        'preview denied',
+      );
+    });
+
+    it('propagates a rejected preview transport error', async () => {
+      rpcCall.mockRejectedValue(new Error('transport down'));
+      await expect(service.previewGeneration(['a'])).rejects.toThrow(
+        'transport down',
+      );
+    });
+  });
+
   describe('submitAgentSelection', () => {
     const agents: AgentSelection[] = [
       {
