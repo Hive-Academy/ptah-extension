@@ -185,6 +185,7 @@ const FOCUS_RING =
 function hasNoChanges(diff: DiffTabState): boolean {
   return (
     !diff.isBinary &&
+    !diff.unrenderable &&
     diff.originalRef.kind !== 'absent' &&
     diff.modifiedRef.kind !== 'absent' &&
     diff.original === diff.modified

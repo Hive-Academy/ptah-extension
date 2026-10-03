@@ -402,6 +402,20 @@ describe('FileDiffSectionComponent', () => {
       await settle();
       expect(chipTexts()).toEqual([]);
     });
+
+    it('never calls a withheld (too large) read "no changes" although both texts are empty', async () => {
+      await create({ near: true });
+      setDiff(
+        makeDiff({
+          original: '',
+          modified: '',
+          hunks: [],
+          unrenderable: { side: 'modified', reason: 'too-large', size: 9e6 },
+        }),
+      );
+      await settle();
+      expect(chipTexts()).not.toContain('no changes');
+    });
   });
 
   describe('collapse (parity rows 39, 40: the closed diff tab)', () => {
