@@ -490,6 +490,34 @@ export function renderRoleBlock(
 }
 
 /**
+ * Which preamble blocks a lane's earlier turn carried, so a restored-context
+ * resume can leave out exactly those (TASK_2026_597, F6).
+ */
+export interface ResumeDeliveredPreambles {
+  /** The earlier turn carried `NATIVE_AGENT_TOOL_POLICY`. */
+  readonly toolPolicy: boolean;
+  /** The earlier turn carried `TWO_WAY_MESSAGING_GUIDANCE`. */
+  readonly messaging: boolean;
+}
+
+/** The messaging block exists only where its tools and attribution do. */
+function carriesMessagingBlock(options: CliCommandOptions): boolean {
+  return !!options.agentId && options.mcpPort !== undefined;
+}
+
+/**
+ * The preambles `buildTaskPrompt` puts in a prompt built WITHOUT
+ * `resumeDeliveredPreambles`: the tool policy always, the messaging block
+ * when the run has an agent id and an MCP port. An adapter records this for
+ * its first turn and passes it on that thread's later turns.
+ */
+export function fullPromptPreambles(
+  options: CliCommandOptions,
+): ResumeDeliveredPreambles {
+  return { toolPolicy: true, messaging: carriesMessagingBlock(options) };
+}
+
+/**
  * Build a task prompt string from CLI command options.
  * Optionally prepends system prompt or project-specific guidance from enhanced prompts.
  * Prefers systemPrompt (full prompt harness) over projectGuidance when available.
@@ -497,31 +525,34 @@ export function renderRoleBlock(
  * instructions to the base task.
  *
  * History-restoring adapters opt in to omit system context and the role on
- * resume. The tool policy and the two-way messaging block are omitted only when
- * the adapter also states that its first turn delivered them
- * (`resumePreamblesDelivered`). The completion contract is always kept.
- * Unknown resume behavior keeps the full prefix by default. Native role
- * channels remain the adapter's responsibility.
+ * resume. The tool policy and the two-way messaging block are each omitted
+ * only when the adapter states that an earlier turn of the same thread
+ * carried that block (`resumeDeliveredPreambles`). The completion contract is
+ * always kept. Unknown resume behavior keeps the full prefix by default.
+ * Native role channels remain the adapter's responsibility.
  */
 export function buildTaskPrompt(
   options: CliCommandOptions & {
     /** Opt in only when the adapter restores the prior conversation on resume. */
     readonly resumeRestoresContext?: boolean;
     /**
-     * Set only when this lane's first turn actually carried the tool policy
-     * and, if this run would carry it, the two-way messaging block. A lane
+     * What this thread's earlier turn actually carried, per block. A lane
      * first spawned without an agent id or MCP port never received the
      * messaging block, so a resume must not assume it (TASK_2026_597, F6).
-     * Absent keeps both blocks on resume.
+     * Absent keeps both blocks on resume; ignored unless the context is
+     * restored.
      */
-    readonly resumePreamblesDelivered?: boolean;
+    readonly resumeDeliveredPreambles?: ResumeDeliveredPreambles;
   },
   cli?: CliType,
 ): string {
   const restoredContext =
     !!options.resumeSessionId && options.resumeRestoresContext === true;
-  const omitPreambles =
-    restoredContext && options.resumePreamblesDelivered === true;
+  const delivered = restoredContext
+    ? options.resumeDeliveredPreambles
+    : undefined;
+  const omitToolPolicy = delivered?.toolPolicy === true;
+  const omitMessaging = delivered?.messaging === true;
   let taskPrompt = '';
   const systemContext = options.systemPrompt || options.projectGuidance;
   if (systemContext && !restoredContext) {
@@ -537,11 +568,10 @@ export function buildTaskPrompt(
     taskPrompt += renderRoleBlock(options.role, cli) + PROMPT_SECTION_DELIMITER;
   }
 
-  // A restored-context resume whose first turn delivered the tool policy and
-  // the messaging block already holds both in its thread history, so neither
-  // is resent (TASK_2026_597, F6). The completion contract below is always
-  // sent.
-  taskPrompt += omitPreambles
+  // A restored-context resume whose earlier turn delivered a block already
+  // holds it in its thread history, so that block is not resent
+  // (TASK_2026_597, F6). The completion contract below is always sent.
+  taskPrompt += omitToolPolicy
     ? options.task
     : `${NATIVE_AGENT_TOOL_POLICY}\n\n${options.task}`;
 
@@ -565,7 +595,7 @@ export function buildTaskPrompt(
     }
   }
 
-  if (options.agentId && options.mcpPort !== undefined && !omitPreambles) {
+  if (carriesMessagingBlock(options) && !omitMessaging) {
     taskPrompt += PROMPT_SECTION_DELIMITER + TWO_WAY_MESSAGING_GUIDANCE;
   }
 

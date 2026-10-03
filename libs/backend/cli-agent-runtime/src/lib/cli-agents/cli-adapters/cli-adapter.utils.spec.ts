@@ -63,6 +63,7 @@ import {
   assertCommandLineWithinLimit,
   buildTaskPrompt,
   CliCommandLineTooLongError,
+  fullPromptPreambles,
   probeCliVersion,
   renderRoleBlock,
   resolveDirectSpawn,
@@ -194,7 +195,7 @@ describe('buildTaskPrompt', () => {
       expect(prompt).not.toContain(base.projectGuidance);
       expect(prompt).not.toContain('## Role:');
       expect(prompt).not.toContain(role.body);
-      // Without `resumePreamblesDelivered` the tool policy is still sent.
+      // Without `resumeDeliveredPreambles` the tool policy is still sent.
       expect(prompt).toBe(
         buildTaskPrompt(
           {
@@ -231,19 +232,28 @@ describe('buildTaskPrompt', () => {
         ).toBe(true);
       });
 
-      it('keeps both blocks when the first-turn delivery is explicitly false', () => {
+      it('keeps both blocks when neither was delivered', () => {
         const prompt = buildTaskPrompt(
-          { ...resumed, resumePreamblesDelivered: false },
+          {
+            ...resumed,
+            resumeDeliveredPreambles: { toolPolicy: false, messaging: false },
+          },
           'opencode',
         );
 
         expect(prompt.split(toolPolicy)).toHaveLength(2);
         expect(prompt).toContain('Two-way messaging:');
+        expect(
+          prompt.endsWith(`\n\n${renderLaneCompletionContract(base)}`),
+        ).toBe(true);
       });
 
-      it('omits the tool policy and the messaging block when the first turn delivered them, and keeps the contract', () => {
+      it('omits both blocks when both were delivered, and keeps the contract', () => {
         const prompt = buildTaskPrompt(
-          { ...resumed, resumePreamblesDelivered: true },
+          {
+            ...resumed,
+            resumeDeliveredPreambles: { toolPolicy: true, messaging: true },
+          },
           'opencode',
         );
 
@@ -256,13 +266,30 @@ describe('buildTaskPrompt', () => {
         ).toBe(true);
       });
 
-      it('keeps all three on the first turn', () => {
+      it('omits only the tool policy when the earlier turn carried it but not the messaging block', () => {
+        const prompt = buildTaskPrompt(
+          {
+            ...resumed,
+            resumeDeliveredPreambles: { toolPolicy: true, messaging: false },
+          },
+          'opencode',
+        );
+
+        expect(prompt).not.toContain('Tool policy:');
+        expect(prompt.startsWith(base.task)).toBe(true);
+        expect(prompt).toContain('Two-way messaging:');
+        expect(
+          prompt.endsWith(`\n\n${renderLaneCompletionContract(base)}`),
+        ).toBe(true);
+      });
+
+      it('keeps all three on the first turn, even if delivery is stated', () => {
         const prompt = buildTaskPrompt(
           {
             ...base,
             ...messaging,
             resumeRestoresContext: true,
-            resumePreamblesDelivered: true,
+            resumeDeliveredPreambles: { toolPolicy: true, messaging: true },
           },
           'opencode',
         );
@@ -280,13 +307,36 @@ describe('buildTaskPrompt', () => {
             ...base,
             ...messaging,
             resumeSessionId: 'session-1',
-            resumePreamblesDelivered: true,
+            resumeDeliveredPreambles: { toolPolicy: true, messaging: true },
           },
           'opencode',
         );
 
         expect(prompt.split(toolPolicy)).toHaveLength(2);
         expect(prompt).toContain('Two-way messaging:');
+      });
+
+      it('reports what a prompt built without delivery flags carries', () => {
+        expect(fullPromptPreambles({ ...base, ...messaging })).toEqual({
+          toolPolicy: true,
+          messaging: true,
+        });
+        expect(fullPromptPreambles({ ...base, agentId: 'agent-42' })).toEqual({
+          toolPolicy: true,
+          messaging: false,
+        });
+        expect(fullPromptPreambles({ ...base, mcpPort: 41739 })).toEqual({
+          toolPolicy: true,
+          messaging: false,
+        });
+        // The flag matches the prompt: messaging present exactly when reported.
+        const withBoth = buildTaskPrompt({ ...base, ...messaging }, 'opencode');
+        const withoutId = buildTaskPrompt(
+          { ...base, mcpPort: 41739 },
+          'opencode',
+        );
+        expect(withBoth).toContain('Two-way messaging:');
+        expect(withoutId).not.toContain('Two-way messaging:');
       });
     });
 
