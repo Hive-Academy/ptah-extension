@@ -1035,6 +1035,27 @@ function staticIdsOf(file: string): string[] {
 }
 
 describe('role grants', () => {
+  it('uses tooling names from the MCP substitution source', () => {
+    const tooling = fs.readFileSync(
+      path.join(PARTIALS_DIR, partialFileName(TOOLING)),
+      'utf8',
+    );
+    const source = fs.readFileSync(
+      path.join(
+        TEMPLATES_DIR,
+        '../../../agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts',
+      ),
+      'utf8',
+    );
+    const substitutions =
+      source.match(
+        /export const PTAH_MCP_SUBSTITUTION_SECTION = `([\s\S]*?)`;/,
+      )?.[1] ?? '';
+    expect(substitutions.match(/\bptah_[a-z_]+\b/g) ?? []).toEqual(
+      expect.arrayContaining(tooling.match(/\bptah_[a-z_]+\b/g) ?? []),
+    );
+  });
+
   it('maps every template in the corpus, and nothing else', () => {
     expect(Object.keys(ROLE_PARTIALS).sort()).toEqual(
       FILES.map((file) => file.replace('.template.md', '')),
