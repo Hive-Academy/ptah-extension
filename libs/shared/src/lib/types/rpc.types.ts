@@ -247,6 +247,8 @@ import type {
   WizardCancelResponse,
   WizardRetryItemParams,
   WizardRetryItemResponse,
+  WizardPreviewGenerationParams,
+  WizardPreviewGenerationResponse,
   MultiPhaseAnalysisResponse,
   EnhancedPromptsGetStatusParams,
   EnhancedPromptsGetStatusResponse,
@@ -1004,6 +1006,10 @@ export interface RpcMethodRegistry {
   'wizard:retry-item': {
     params: WizardRetryItemParams;
     result: WizardRetryItemResponse;
+  };
+  'wizard:preview-generation': {
+    params: WizardPreviewGenerationParams;
+    result: WizardPreviewGenerationResponse;
   };
   'wizard:list-analyses': {
     params: Record<string, never>;
@@ -3746,6 +3752,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'wizard:submit-selection': true,
   'wizard:cancel': true,
   'wizard:retry-item': true,
+  'wizard:preview-generation': true,
   'wizard:list-analyses': true,
   'wizard:load-analysis': true,
   'wizard:list-agent-packs': true,
