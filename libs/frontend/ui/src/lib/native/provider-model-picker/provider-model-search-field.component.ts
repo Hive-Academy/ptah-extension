@@ -71,6 +71,7 @@ let nextPopupId = 0;
       [matchInputWidth]="true"
       (suggestionSelected)="choose($event)"
       (closed)="close()"
+      (mousedown)="keepFocusOnPick($event)"
     >
       <div autocompleteInput class="relative">
         <svg
@@ -318,6 +319,15 @@ export class ProviderModelSearchFieldComponent {
     // popover or drawer, which close on the same key (the next Esc does).
     if (event.key === 'Escape') event.stopPropagation();
     if (autocomplete.onKeyDown(event)) event.preventDefault();
+  }
+
+  /**
+   * A row is focusable (`tabindex="-1"`), so a mouse pick would move focus onto it, and the row is removed when the list
+   * closes: focus would fall to the page and Esc would no longer reach an enclosing popover while the save runs
+   * (TASK_2026_555 Batch 55b F3). Cancelling the row's mousedown keeps focus in this field; the click still selects.
+   */
+  protected keepFocusOnPick(event: MouseEvent): void {
+    if (event.target instanceof Element && event.target.closest('[role="option"]')) event.preventDefault();
   }
 
   protected choose(option: ProviderModelSearchOption): void {

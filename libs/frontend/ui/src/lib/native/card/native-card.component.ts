@@ -198,9 +198,12 @@ export class NativeCardComponent {
         'cursor-pointer',
         'hover:bg-base-200/70',
         'hover:border-base-content/20',
-        'focus-visible:outline-none',
-        'focus-visible:ring-2',
-        'focus-visible:ring-primary/60',
+        // A full-opacity base-content outline: it clears 3:1 on every surface in both themes, where a primary/60
+        // ring measured 1.3:1 (light) and about 2:1 (dark). An outline also leaves the selected ring (a box-shadow) intact.
+        'focus-visible:outline',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-2',
+        'focus-visible:outline-base-content',
       );
     }
 

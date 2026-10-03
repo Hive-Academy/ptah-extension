@@ -183,6 +183,17 @@ describe('ProviderModelSearchFieldComponent', () => {
     expect(root().querySelector('[role="listbox"]')).toBeNull();
   });
 
+  it('a mouse pick keeps focus in the field: the row\'s mousedown is cancelled, the field\'s own is not (Batch 55b F3)', () => {
+    create();
+    type('kimi');
+    const rowDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    optionEls()[0].querySelector('.truncate')?.dispatchEvent(rowDown);
+    expect(rowDown.defaultPrevented).toBe(true);
+    const fieldDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    input().dispatchEvent(fieldDown);
+    expect(fieldDown.defaultPrevented).toBe(false);
+  });
+
   it('emits the sentinel id when the default entry is chosen', () => {
     create({ selectedId: 'kimi-k2' });
     focus();

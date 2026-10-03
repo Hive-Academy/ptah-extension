@@ -111,6 +111,17 @@ describe('NativeCardComponent', () => {
     expect(host.activatedCount).toBe(1);
   });
 
+  it('draws a full-opacity base-content outline as its Tab ring, not a translucent primary ring (Batch 55b F2)', () => {
+    host.clickable.set(true);
+    fixture.detectChanges();
+    const classes = root().className.split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining([
+      'focus-visible:outline', 'focus-visible:outline-2', 'focus-visible:outline-offset-2', 'focus-visible:outline-base-content',
+    ]));
+    expect(classes.some((name) => name.startsWith('focus-visible:ring'))).toBe(false);
+    expect(classes).not.toContain('focus-visible:outline-none');
+  });
+
   it('activates on Enter and Space when the card itself has focus', () => {
     host.clickable.set(true);
     fixture.detectChanges();
