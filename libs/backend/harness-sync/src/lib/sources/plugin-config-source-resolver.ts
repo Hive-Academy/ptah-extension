@@ -281,6 +281,8 @@ export class PluginConfigSourceResolver implements IHarnessSourceResolver {
     try {
       return this.agentModelsFactory?.()?.layersForPath(workspaceRoot);
     } catch {
+      // degradation-audit: optional-capability - per-agent model overrides are
+      // optional; without them the sync keeps each agent's own model.
       // Settings may not be ready yet; models are optional and must not prevent
       // the existing source/policy resolution. This resolver has no logger.
       return undefined;

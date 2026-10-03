@@ -363,6 +363,8 @@ export class QuarantinedAgentsPanelComponent implements OnInit {
         result.workspaceRoot === null ? [] : result.notOwned,
       );
     } catch (err: unknown) {
+      // degradation-audit: reported - the panel shows the failure via
+      // loadError; the early return only drops a superseded list reply.
       if (seq !== this.loadSeq) return;
       this.listing.set(null);
       this.loadError.set(toMessage(err));

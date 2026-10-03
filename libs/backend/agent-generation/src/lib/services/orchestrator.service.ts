@@ -1092,6 +1092,9 @@ export class AgentGenerationOrchestratorService {
     try {
       return this.agentModelSettings.layersForPath(workspacePath);
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - model overrides are optional;
+      // the warn below records the read failure and every agent keeps its
+      // template model instead.
       this.logger.warn(
         'Could not read agentGeneration.models; using each template model',
         { error: error instanceof Error ? error.message : String(error) },

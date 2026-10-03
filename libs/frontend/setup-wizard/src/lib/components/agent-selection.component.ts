@@ -1059,6 +1059,8 @@ export class AgentSelectionComponent {
         await this.confirmGenerate();
       }
     } catch (error: unknown) {
+      // degradation-audit: reported - the failure is shown via previewError;
+      // the early return only drops a reply a newer preview request superseded.
       if (request !== this.previewRequest) return;
       this.generationPreview.set(null);
       this.previewError.set(

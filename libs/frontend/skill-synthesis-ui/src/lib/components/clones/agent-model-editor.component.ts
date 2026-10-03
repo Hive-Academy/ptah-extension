@@ -716,6 +716,8 @@ export class AgentModelEditorComponent {
         ...(confirmUnlisted ? { confirmUnlisted: true } : {}),
       });
     } catch (err: unknown) {
+      // degradation-audit: reported - shown in the editor as the 'save-failed'
+      // phase with the error message, unless the save was superseded.
       if (this.live(op, ticket)) {
         this.patch({ phase: 'save-failed', message: messageOf(err) });
       }

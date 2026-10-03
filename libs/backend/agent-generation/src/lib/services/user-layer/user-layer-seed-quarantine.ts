@@ -517,6 +517,9 @@ export class UserLayerSeedQuarantine {
       }
       return 'quarantine';
     } catch (error: unknown) {
+      // degradation-audit: reported - 'failed' lands in result.failed, which
+      // withholds the pass marker (so the slug is retried) and is counted into
+      // the mirror result's errors by UserLayerMirrorService.
       this.logger.warn('[UserLayerMirror] seed quarantine failed for agent', {
         slug,
         error: error instanceof Error ? error.message : String(error),
@@ -1064,6 +1067,9 @@ async function placeExclusive(
     await copyFile(tmp, dest, fsConstants.COPYFILE_EXCL);
     return 'placed';
   } catch (error: unknown) {
+    // degradation-audit: reported - EEXIST is the expected 'exists' outcome;
+    // any other copy failure is returned as { copyFailed } and the callers
+    // turn it into a failure / reason of their own.
     if (isErrnoCode(error, 'EEXIST')) return 'exists';
     return {
       copyFailed: error instanceof Error ? error : new Error(String(error)),
