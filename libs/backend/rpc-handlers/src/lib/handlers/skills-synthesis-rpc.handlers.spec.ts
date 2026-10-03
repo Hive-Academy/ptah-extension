@@ -49,6 +49,18 @@ import type {
   QuarantinedAgentsListing,
   QuarantineRestoreResult,
 } from '@ptah-extension/agent-generation';
+import {
+  AGENT_MODEL_SETTINGS_KEY,
+  AgentModelSettings,
+  SETTINGS_TOKENS,
+  WorkspaceScopeResolver,
+  type ISettingsStore,
+} from '@ptah-extension/settings-core';
+import type {
+  AgentModelEntry,
+  AgentModelProvider,
+} from '@ptah-extension/shared';
+import { CliModelListService } from '../services/cli-model-list.service';
 import { SkillsSynthesisRpcHandlers } from './skills-synthesis-rpc.handlers';
 
 function makeLogger() {
@@ -4299,5 +4311,515 @@ describe('SkillsSynthesisRpcHandlers — quarantine list / restore (C2)', () => 
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
     expect(mirror.listQuarantinedAgents).not.toHaveBeenCalled();
     expect(mirror.restoreQuarantinedAgent).not.toHaveBeenCalled();
+  });
+});
+
+describe('SkillsSynthesisRpcHandlers — agent models get / set (C6)', () => {
+  type Lists = Record<AgentModelProvider, AgentModelEntry[]>;
+
+  let tempRoot: string;
+  let ws: string;
+  let otherWs: string;
+
+  beforeEach(() => {
+    tempRoot = fs.mkdtempSync(join(tmpdir(), 'ptah-agent-models-rpc-'));
+    ws = join(tempRoot, 'project');
+    otherWs = join(tempRoot, 'other');
+    // `.ptah` marks each folder as its own harness workspace root. The specs
+    // read and write nothing under the home directory: the settings store is
+    // in memory and the model list service is a double.
+    fs.mkdirSync(join(ws, '.ptah'), { recursive: true });
+    fs.mkdirSync(join(otherWs, '.ptah'), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  /** Live Codex list (provider-reported) and curated lists elsewhere. */
+  function defaultLists(): Lists {
+    return {
+      claude: [],
+      codex: [{ id: 'gpt-5-codex' }, { id: 'gpt 5 preview' }],
+      copilot: [{ id: 'gpt-4.1', isFallback: true }],
+      cursor: [{ id: 'cursor-small', isFallback: true }],
+      opencode: [{ id: 'anthropic/claude-sonnet', isFallback: true }],
+    };
+  }
+
+  /** In-memory settings store; values are JSON-copied like a real file. */
+  function makeMemoryStore() {
+    const data = new Map<string, unknown>();
+    let failWrites = false;
+    const writeGlobal = jest.fn(async (key: string, value: unknown) => {
+      if (failWrites) throw new Error('EACCES: settings file is read-only');
+      if (value === undefined) data.delete(key);
+      else data.set(key, JSON.parse(JSON.stringify(value)));
+    });
+    const store = {
+      readGlobal: <T>(key: string): T | undefined => data.get(key) as T,
+      writeGlobal,
+      readSecret: async () => undefined,
+      writeSecret: async () => undefined,
+      deleteSecret: async () => undefined,
+      watchGlobal: () => ({ dispose: () => undefined }),
+      watchSecret: () => ({ dispose: () => undefined }),
+      flushSync: () => undefined,
+    } as unknown as ISettingsStore;
+    return {
+      store,
+      data,
+      writeGlobal,
+      failWrites: (fail: boolean) => {
+        failWrites = fail;
+      },
+      snapshot: () => JSON.stringify([...data.entries()]),
+    };
+  }
+
+  function buildAgentModelHandlers(
+    options: {
+      folders?: string[];
+      registerSettings?: boolean;
+      registerContainer?: boolean;
+      listForClassification?: jest.Mock;
+    } = {},
+  ) {
+    const rpcHandler = makeRpcHandler();
+    const sentry = makeSentry();
+    const memory = makeMemoryStore();
+    const workspaceProvider = createMockWorkspaceProvider({
+      folders: options.folders ?? [ws],
+    });
+    const resolver = new WorkspaceScopeResolver(memory.store, {
+      getActivePath: () => workspaceProvider.getWorkspaceRoot(),
+      onDidChange: () => ({ dispose: () => undefined }),
+    });
+    const settings = new AgentModelSettings(memory.store, resolver);
+    const updateSpy = jest.spyOn(settings, 'update');
+    const listForClassification =
+      options.listForClassification ??
+      jest.fn(async (): Promise<Lists> => defaultLists());
+
+    const child = container.createChildContainer();
+    child.registerInstance(TOKENS.LOGGER, makeLogger());
+    child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
+    child.registerInstance(TOKENS.SENTRY_SERVICE, sentry);
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+      makeSynthesis(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
+      makeStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
+      makeDiagnostics(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
+      makeQueueStore(),
+    );
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
+      makeBudgetStore(),
+    );
+    child.registerInstance(
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      workspaceProvider,
+    );
+    if (options.registerContainer !== false) {
+      child.registerInstance(PLATFORM_TOKENS.DI_CONTAINER, child);
+    }
+    if (options.registerSettings !== false) {
+      child.registerInstance(SETTINGS_TOKENS.AGENT_MODEL_SETTINGS, settings);
+    }
+    child.registerInstance(CliModelListService, {
+      listForClassification,
+    } as unknown as CliModelListService);
+    child.register(SkillsSynthesisRpcHandlers, {
+      useClass: SkillsSynthesisRpcHandlers,
+    });
+    child.resolve(SkillsSynthesisRpcHandlers).register();
+
+    const workspaceKey = (root: string) =>
+      resolver.inspectForPath(AGENT_MODEL_SETTINGS_KEY, root).key;
+    return {
+      rpcHandler,
+      sentry,
+      memory,
+      settings,
+      updateSpy,
+      listForClassification,
+      workspaceProvider,
+      workspaceKey,
+    };
+  }
+
+  function setParams(overrides: Record<string, unknown> = {}) {
+    return {
+      workspaceRoot: ws,
+      slug: 'backend-developer',
+      provider: 'codex',
+      scope: 'workspace',
+      value: 'gpt-5-codex',
+      ...overrides,
+    };
+  }
+
+  it('getAgentModels: returns both layers, the lists and the server classification', async () => {
+    const h = buildAgentModelHandlers();
+    h.memory.data.set(AGENT_MODEL_SETTINGS_KEY, {
+      '*': { codex: 'gpt-5-codex', cursor: 'cursor-small' },
+      junk: 'not-an-object',
+    });
+    h.memory.data.set(h.workspaceKey(ws), {
+      'backend-developer': {
+        codex: 'my-private-model',
+        opencode: 'no-slash',
+        claude: 'opus',
+        bogus: 'x',
+        copilot: 42,
+      },
+    });
+
+    const result = await h.rpcHandler.call('skillSynthesis:getAgentModels', {});
+
+    expect(result).toEqual({
+      workspaceRoot: ws,
+      machine: { '*': { codex: 'gpt-5-codex', cursor: 'cursor-small' } },
+      workspace: {
+        'backend-developer': {
+          claude: 'opus',
+          codex: 'my-private-model',
+          opencode: 'no-slash',
+        },
+      },
+      lists: defaultLists(),
+      classification: {
+        machine: { '*': { codex: 'listed', cursor: 'unverifiable' } },
+        workspace: {
+          'backend-developer': {
+            claude: 'unverifiable',
+            codex: 'unlisted',
+            opencode: 'malformed',
+          },
+        },
+      },
+      unsupportedProviders: [],
+    });
+    expect(h.listForClassification).toHaveBeenCalledTimes(1);
+  });
+
+  it('getAgentModels: no open folder is a null root with nothing to edit', async () => {
+    const h = buildAgentModelHandlers({ folders: [] });
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:getAgentModels', undefined),
+    ).resolves.toEqual({
+      workspaceRoot: null,
+      machine: null,
+      workspace: null,
+      lists: null,
+      classification: { machine: {}, workspace: {} },
+      unsupportedProviders: [],
+    });
+    expect(h.listForClassification).not.toHaveBeenCalled();
+  });
+
+  it('getAgentModels: a workspaceRoot that is not the active workspace is refused', async () => {
+    const h = buildAgentModelHandlers();
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:getAgentModels', {
+        workspaceRoot: otherWs,
+      }),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+  });
+
+  it('getAgentModels: unreadable lists degrade to null lists and unverifiable values', async () => {
+    const h = buildAgentModelHandlers({
+      listForClassification: jest.fn(async () => {
+        throw new Error('cli detection failed');
+      }),
+    });
+    h.memory.data.set(h.workspaceKey(ws), {
+      reviewer: { codex: 'gpt-5-codex' },
+    });
+
+    const result = await h.rpcHandler.call('skillSynthesis:getAgentModels', {
+      workspaceRoot: ws,
+    });
+
+    expect(result).toMatchObject({
+      lists: null,
+      classification: {
+        machine: {},
+        workspace: { reviewer: { codex: 'unverifiable' } },
+      },
+    });
+  });
+
+  it.each([
+    ['no AGENT_MODEL_SETTINGS registration', { registerSettings: false }],
+    ['no container at all', { registerContainer: false }],
+  ])(
+    'host with %s: both methods refuse with PERSISTENCE_UNAVAILABLE, nothing written',
+    async (_label, options) => {
+      const h = buildAgentModelHandlers(options);
+
+      await expect(
+        h.rpcHandler.call('skillSynthesis:getAgentModels', {}),
+      ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+      await expect(
+        h.rpcHandler.call('skillSynthesis:setAgentModel', setParams()),
+      ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+      expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['blank', '   '],
+  ])(
+    '%s workspaceRoot is refused even for machine scope; the global key is unchanged',
+    async (_label, workspaceRoot) => {
+      const h = buildAgentModelHandlers();
+      h.memory.data.set(AGENT_MODEL_SETTINGS_KEY, {
+        '*': { codex: 'gpt-5-codex' },
+      });
+      const before = h.memory.snapshot();
+      const params: Record<string, unknown> = setParams({
+        scope: 'machine',
+        value: 'gpt 5 preview',
+      });
+      if (workspaceRoot === undefined) delete params['workspaceRoot'];
+      else params['workspaceRoot'] = workspaceRoot;
+
+      await expect(
+        h.rpcHandler.call('skillSynthesis:setAgentModel', params),
+      ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(h.updateSpy).not.toHaveBeenCalled();
+      expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+      expect(h.memory.snapshot()).toBe(before);
+    },
+  );
+
+  it('no open folder: setAgentModel is refused with WORKSPACE_NOT_OPEN', async () => {
+    const h = buildAgentModelHandlers({ folders: [] });
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:setAgentModel', setParams()),
+    ).rejects.toMatchObject({ errorCode: 'WORKSPACE_NOT_OPEN' });
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it.each(['workspace', 'machine'])(
+    'workspace switched between load and save (%s scope): refused, neither workspace key nor the global key changed',
+    async (scope) => {
+      const h = buildAgentModelHandlers();
+      h.memory.data.set(h.workspaceKey(ws), {
+        reviewer: { codex: 'gpt-5-codex' },
+      });
+      h.memory.data.set(h.workspaceKey(otherWs), {
+        reviewer: { cursor: 'cursor-small' },
+      });
+      h.memory.data.set(AGENT_MODEL_SETTINGS_KEY, { '*': { codex: 'x-1' } });
+
+      const loaded = (await h.rpcHandler.call(
+        'skillSynthesis:getAgentModels',
+        {},
+      )) as { workspaceRoot: string };
+      const before = h.memory.snapshot();
+      h.workspaceProvider.__state.setFolders([otherWs]);
+
+      await expect(
+        h.rpcHandler.call(
+          'skillSynthesis:setAgentModel',
+          setParams({ workspaceRoot: loaded.workspaceRoot, scope }),
+        ),
+      ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+      expect(h.updateSpy).not.toHaveBeenCalled();
+      expect(h.memory.snapshot()).toBe(before);
+    },
+  );
+
+  it('workspace switched while the lists are read: refused before any write', async () => {
+    let switchFolders: () => void = () => undefined;
+    const h = buildAgentModelHandlers({
+      listForClassification: jest.fn(async () => {
+        switchFolders();
+        return defaultLists();
+      }),
+    });
+    switchFolders = () => h.workspaceProvider.__state.setFolders([otherWs]);
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:setAgentModel', setParams()),
+    ).rejects.toMatchObject({ errorCode: 'UNAUTHORIZED_WORKSPACE' });
+    expect(h.updateSpy).not.toHaveBeenCalled();
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it('listed value: saved to the request workspace key with update(root, slug, provider, value, scope)', async () => {
+    const h = buildAgentModelHandlers();
+    h.memory.data.set(h.workspaceKey(ws), {
+      'backend-developer': { cursor: 'cursor-small' },
+      reviewer: { codex: 'gpt-5-codex' },
+    });
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams(),
+    );
+
+    expect(h.updateSpy).toHaveBeenCalledWith(
+      ws,
+      'backend-developer',
+      'codex',
+      'gpt-5-codex',
+      'workspace',
+    );
+    expect(result).toEqual({
+      classification: 'listed',
+      machine: null,
+      workspace: {
+        'backend-developer': { cursor: 'cursor-small', codex: 'gpt-5-codex' },
+        reviewer: { codex: 'gpt-5-codex' },
+      },
+    });
+    expect(h.memory.data.has(AGENT_MODEL_SETTINGS_KEY)).toBe(false);
+  });
+
+  it('machine scope writes the global key and leaves the workspace key alone', async () => {
+    const h = buildAgentModelHandlers();
+
+    await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ scope: 'machine', slug: '*' }),
+    );
+
+    expect(h.memory.data.get(AGENT_MODEL_SETTINGS_KEY)).toEqual({
+      '*': { codex: 'gpt-5-codex' },
+    });
+    expect(h.memory.data.has(h.workspaceKey(ws))).toBe(false);
+  });
+
+  it('Unlisted without confirmUnlisted: refused "needs confirmation", nothing written', async () => {
+    const h = buildAgentModelHandlers();
+
+    const error = await h.rpcHandler
+      .call(
+        'skillSynthesis:setAgentModel',
+        setParams({ value: 'my-private-model' }),
+      )
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(RpcUserError);
+    expect((error as RpcUserError).errorCode).toBe('MODEL_NOT_AVAILABLE');
+    expect((error as Error).message).toContain('needs confirmation');
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it('Unlisted with confirmUnlisted: saved and reported as unlisted', async () => {
+    const h = buildAgentModelHandlers();
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ value: 'my-private-model', confirmUnlisted: true }),
+    );
+
+    expect(result).toMatchObject({ classification: 'unlisted' });
+    expect(h.memory.data.get(h.workspaceKey(ws))).toEqual({
+      'backend-developer': { codex: 'my-private-model' },
+    });
+  });
+
+  it('listed-but-syntax-failing Codex value is accepted and saved', async () => {
+    const h = buildAgentModelHandlers();
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ value: 'gpt 5 preview' }),
+    );
+
+    expect(result).toMatchObject({ classification: 'listed' });
+    expect(h.memory.data.get(h.workspaceKey(ws))).toEqual({
+      'backend-developer': { codex: 'gpt 5 preview' },
+    });
+  });
+
+  it('OpenCode listed-but-malformed is refused, even when provider-reported', async () => {
+    const lists = defaultLists();
+    lists.opencode = [{ id: 'no-slash' }];
+    const h = buildAgentModelHandlers({
+      listForClassification: jest.fn(async () => lists),
+    });
+
+    await expect(
+      h.rpcHandler.call(
+        'skillSynthesis:setAgentModel',
+        setParams({ provider: 'opencode', value: 'no-slash' }),
+      ),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it('a value with a control character is refused as malformed', async () => {
+    const h = buildAgentModelHandlers();
+
+    await expect(
+      h.rpcHandler.call(
+        'skillSynthesis:setAgentModel',
+        setParams({ value: 'gpt-5\nmodel: evil', confirmUnlisted: true }),
+      ),
+    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+    expect(h.memory.writeGlobal).not.toHaveBeenCalled();
+  });
+
+  it('a fallback-only list never makes a value listed or unlisted: unverifiable, saved without confirmation', async () => {
+    const h = buildAgentModelHandlers();
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ provider: 'cursor', value: 'some-new-model' }),
+    );
+
+    expect(result).toMatchObject({ classification: 'unverifiable' });
+  });
+
+  it('null value clears one provider, keeps the others, and reads no list', async () => {
+    const h = buildAgentModelHandlers();
+    h.memory.data.set(h.workspaceKey(ws), {
+      'backend-developer': { codex: 'gpt-5-codex', cursor: 'cursor-small' },
+    });
+
+    const result = await h.rpcHandler.call(
+      'skillSynthesis:setAgentModel',
+      setParams({ value: null }),
+    );
+
+    expect(result).toMatchObject({
+      classification: 'empty',
+      workspace: { 'backend-developer': { cursor: 'cursor-small' } },
+    });
+    expect(h.listForClassification).not.toHaveBeenCalled();
+  });
+
+  it('save failure: refused with PERSISTENCE_UNAVAILABLE and the prior settings bytes kept', async () => {
+    const h = buildAgentModelHandlers();
+    h.memory.data.set(h.workspaceKey(ws), {
+      'backend-developer': { codex: 'gpt 5 preview' },
+    });
+    const before = h.memory.snapshot();
+    h.memory.failWrites(true);
+
+    await expect(
+      h.rpcHandler.call('skillSynthesis:setAgentModel', setParams()),
+    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
+    expect(h.memory.snapshot()).toBe(before);
+    expect(h.sentry.captureException).toHaveBeenCalledTimes(1);
   });
 });

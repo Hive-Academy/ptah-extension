@@ -6,7 +6,11 @@
  * are coerced to numbers before validation.
  */
 import { z } from 'zod';
-import type { SkillDigestItemKind } from '@ptah-extension/shared';
+import {
+  AGENT_MODEL_PROVIDERS,
+  AGENT_MODEL_WILDCARD,
+  type SkillDigestItemKind,
+} from '@ptah-extension/shared';
 import {
   ENHANCE_TIMEOUT_DEFAULT_MS,
   ENHANCE_TIMEOUT_MAX_MS,
@@ -501,6 +505,38 @@ export const SkillListQuarantinedAgentsParamsSchema = z
  */
 export const SkillRestoreQuarantinedAgentParamsSchema = z
   .object({ slug: SlugSchema })
+  .strict();
+
+/**
+ * A workspace path sent back by the model editor. Blank is rejected here so a
+ * missing workspace can never reach a settings write (machine-scope writes do
+ * not need the path, so the handler would otherwise not notice its absence).
+ */
+const AgentModelWorkspaceRootSchema = z
+  .string()
+  .max(4096)
+  .refine((root) => root.trim().length > 0, 'workspaceRoot is required');
+
+export const SkillGetAgentModelsParamsSchema = z
+  .object({ workspaceRoot: AgentModelWorkspaceRootSchema.optional() })
+  .strict()
+  .optional();
+
+/**
+ * `slug` is an agent slug (same rule as every other slug here) or `'*'`, the
+ * entry that applies to every agent without its own value. `value` is only
+ * length-capped: whether it is a usable model id is the shared classifier's
+ * decision in the handler, which can name the reason.
+ */
+export const SkillSetAgentModelParamsSchema = z
+  .object({
+    workspaceRoot: AgentModelWorkspaceRootSchema,
+    slug: z.union([z.literal(AGENT_MODEL_WILDCARD), SlugSchema]),
+    provider: z.enum(AGENT_MODEL_PROVIDERS),
+    scope: z.enum(['machine', 'workspace']),
+    value: z.string().max(256).nullable(),
+    confirmUnlisted: z.boolean().optional(),
+  })
   .strict();
 
 export const getScorecardsParamsSchema = z.object({

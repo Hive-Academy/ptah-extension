@@ -6,6 +6,13 @@
  * literals are mirrored here rather than imported from skill-synthesis.
  */
 
+import type {
+  AgentModelClass,
+  AgentModelEntry,
+  AgentModelProvider,
+  AgentModelSettingsValue,
+} from '../agent-models.types';
+
 export type SkillCloneKind = 'skill' | 'agent' | 'command';
 export type SkillCloneStatus = 'clone' | 'authored' | 'synth' | 'diverged';
 
@@ -356,4 +363,83 @@ export interface SkillSynthesisRestoreQuarantinedAgentResult {
    * with `'disabled'` the source is back but no clone is re-created.
    */
   agentSync: QuarantineAgentSyncState;
+}
+
+/** Settings layer a per-agent model is stored in (`agentGeneration.models`). */
+export type AgentModelSettingsScope = 'machine' | 'workspace';
+
+/** One layer's stored values classified: `slug | '*'` → provider → class. */
+export type AgentModelLayerClassification = Record<
+  string,
+  Partial<Record<AgentModelProvider, AgentModelClass>>
+>;
+
+export interface SkillSynthesisGetAgentModelsParams {
+  /**
+   * Optional. When given it must be the active workspace, otherwise the call
+   * is refused; when absent the active workspace is used.
+   */
+  workspaceRoot?: string;
+}
+
+export interface SkillSynthesisGetAgentModelsResult {
+  /**
+   * The harness-resolved active workspace root (the path `setAgentModel` must
+   * send back), `null` when no folder is open. With `null`, both layers are
+   * `null` and nothing can be saved.
+   */
+  workspaceRoot: string | null;
+  /** Machine layer as stored (string leaves of known providers only). */
+  machine: AgentModelSettingsValue | null;
+  /** This workspace's layer as stored (same filtering as `machine`). */
+  workspace: AgentModelSettingsValue | null;
+  /**
+   * The server's classification lists. Entries with `isFallback: true` are
+   * curated, not provider-reported, and never make a value `listed`. `null`
+   * when the lists could not be read (every value is then `unverifiable` or
+   * `malformed`).
+   */
+  lists: Record<AgentModelProvider, AgentModelEntry[]> | null;
+  /** Server classification of every stored string value, per layer. */
+  classification: {
+    machine: AgentModelLayerClassification;
+    workspace: AgentModelLayerClassification;
+  };
+  /**
+   * Providers whose agent format cannot carry a model. `setAgentModel`
+   * refuses them, so the editor disables their rows up front.
+   */
+  unsupportedProviders: AgentModelProvider[];
+}
+
+/**
+ * Refusals (all `RpcUserError`, nothing is written):
+ * - `INVALID_PARAMS`: missing/blank `workspaceRoot`, bad slug/provider/scope,
+ *   unsupported provider ("not supported for <provider>"), malformed value;
+ * - `WORKSPACE_NOT_OPEN`: no folder is open;
+ * - `UNAUTHORIZED_WORKSPACE`: `workspaceRoot` is not the active workspace
+ *   ("workspace changed; reload");
+ * - `MODEL_NOT_AVAILABLE`: value is `unlisted` and `confirmUnlisted` is not
+ *   `true` ("needs confirmation");
+ * - `PERSISTENCE_UNAVAILABLE`: this host has no agent model settings, or the
+ *   save failed (stored settings unchanged).
+ */
+export interface SkillSynthesisSetAgentModelParams {
+  workspaceRoot: string;
+  /** Agent slug, or `'*'` for every agent without its own value. */
+  slug: string;
+  provider: AgentModelProvider;
+  scope: AgentModelSettingsScope;
+  /** `null` (or blank) clears the value. */
+  value: string | null;
+  /** Required `true` to save a value the provider's list does not contain. */
+  confirmUnlisted?: boolean;
+}
+
+export interface SkillSynthesisSetAgentModelResult {
+  /** Server classification of the saved value (`'empty'` for a clear). */
+  classification: AgentModelClass;
+  /** Both layers re-read after the save. */
+  machine: AgentModelSettingsValue | null;
+  workspace: AgentModelSettingsValue | null;
 }
