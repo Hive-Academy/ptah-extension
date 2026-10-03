@@ -1,0 +1,16 @@
+{
+ "more": {
+  "edit": "751-907 x 360-388",
+  "del": "903-1059 x 360-388",
+  "panel": "748-910 x 355-393",
+  "panelCls": "popover-panel bg-base-200 border border-base-300 rounded-lg shadow-xl z-50",
+  "panelOverflow": "310>160",
+  "vw": 1024
+ },
+ "closedDialogs": [
+  "display=grid inert=false owner=PTAH-CONFIRMATION-DIALOG text=close",
+  "display=grid inert=false owner=PTAH-SUBAGENT-TRANSCRIPT-OVERLAY text=close",
+  "display=none inert=true owner=settings text=Add Ptah CLI Agent InstanceIns",
+  "display=none inert=true owner=settings text=Instance Tier Model MappingDon"
+ ]
+}

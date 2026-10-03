@@ -31,7 +31,8 @@
  *     handler MUST call `sdkAdapter.clearModelCache()` so the next
  *     `config:models-list` picks up fresh tier env vars. On failure the
  *     error is captured to Sentry and returned structurally (never throws
- *     to RPC boundary).
+ *     to RPC boundary) with fixed text; only a SettingsPersistError's
+ *     message passes through.
  *
  *   - `provider:getModelTiers`: returns the service's tier map verbatim.
  *     A service throw is captured to Sentry and re-thrown to the RPC
@@ -65,6 +66,7 @@ import {
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
 import type { IModelDiscovery } from '@ptah-extension/platform-core';
+import { SettingsPersistError } from '@ptah-extension/platform-core';
 import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 import type {
   OllamaModelDiscoveryService,
@@ -79,7 +81,13 @@ import {
   type MockLogger,
 } from '@ptah-extension/shared/testing';
 
+import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { ProviderRpcHandlers } from './provider-rpc.handlers';
+
+// A thrown error whose text carries a credential and a user path; neither may
+// reach the RPC result (TASK_2026_555 Batch 12c).
+const FAKE_KEY = 'sk-test-FAKEKEY123';
+const LEAKY_MESSAGE = `write failed for ${FAKE_KEY} at C:\\Users\\someone\\.ptah\\settings.json`;
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces
@@ -258,6 +266,7 @@ function makeHarness(
       },
       remove: async () => false,
     } as unknown as import('@ptah-extension/settings-core').CustomProviderStore,
+    new ConnectionCheckRecorder(),
   );
 
   return {
@@ -888,11 +897,59 @@ describe('ProviderRpcHandlers', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('disk full');
+      expect(result.error).toBe('Could not save the model tier.');
       // On failure the cache is NOT cleared — a retried write must see
       // fresh context, not a stale cleared cache.
       expect(h.sdkAdapter.clearModelCache).not.toHaveBeenCalled();
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+
+    it('never returns the raw error text (key or path) to the client', async () => {
+      const h = makeHarness();
+      const error = new Error(LEAKY_MESSAGE);
+      h.providerModels.setModelTier.mockRejectedValue(error);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'provider:setModelTier',
+        {
+          tier: 'opus',
+          modelId: 'm',
+          providerId: 'openrouter',
+          scope: 'mainAgent',
+        },
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Could not save the model tier.',
+      });
+      expect(JSON.stringify(result)).not.toContain(FAKE_KEY);
+      expect(JSON.stringify(result)).not.toContain('someone');
+      // Logging and Sentry keep the original error object.
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: provider:setModelTier failed',
+        error,
+      );
+      expect(h.sentry.captureException).toHaveBeenCalledWith(error, {
+        errorSource: 'ProviderRpcHandlers.registerSetModelTier',
+      });
+    });
+
+    it('passes a SettingsPersistError through (fixed text by construction)', async () => {
+      const h = makeHarness();
+      const error = new SettingsPersistError('EACCES');
+      h.providerModels.setModelTier.mockRejectedValue(error);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'provider:setModelTier',
+        { tier: 'opus', modelId: 'm', scope: 'mainAgent' },
+      );
+
+      expect(result).toEqual({ success: false, error: error.message });
     });
   });
 
@@ -1062,9 +1119,51 @@ describe('ProviderRpcHandlers', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('write blocked');
+      expect(result.error).toBe('Could not reset the model tier.');
       expect(h.sdkAdapter.clearModelCache).not.toHaveBeenCalled();
       expect(h.sentry.captureException).toHaveBeenCalled();
+    });
+
+    it('never returns the raw error text (key or path) to the client', async () => {
+      const h = makeHarness();
+      const error = new Error(LEAKY_MESSAGE);
+      h.providerModels.clearModelTier.mockRejectedValue(error);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'provider:clearModelTier',
+        { tier: 'haiku', providerId: 'openrouter', scope: 'mainAgent' },
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Could not reset the model tier.',
+      });
+      expect(JSON.stringify(result)).not.toContain(FAKE_KEY);
+      expect(JSON.stringify(result)).not.toContain('someone');
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: provider:clearModelTier failed',
+        error,
+      );
+      expect(h.sentry.captureException).toHaveBeenCalledWith(error, {
+        errorSource: 'ProviderRpcHandlers.registerClearModelTier',
+      });
+    });
+
+    it('passes a SettingsPersistError through (fixed text by construction)', async () => {
+      const h = makeHarness();
+      const error = new SettingsPersistError('ENOSPC');
+      h.providerModels.clearModelTier.mockRejectedValue(error);
+      h.handlers.register();
+
+      const result = await call<{ success: boolean; error?: string }>(
+        h,
+        'provider:clearModelTier',
+        { tier: 'haiku', scope: 'mainAgent' },
+      );
+
+      expect(result).toEqual({ success: false, error: error.message });
     });
   });
 

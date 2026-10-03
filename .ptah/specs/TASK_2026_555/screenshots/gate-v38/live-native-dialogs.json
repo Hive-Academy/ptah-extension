@@ -1,0 +1,29 @@
+{
+ "modalOpen": 1,
+ "firstButtons": [
+  "Back to Chat",
+  "Providers",
+  "Agent Orchestration",
+  "Advanced",
+  "Search & Voice",
+  "Export settings",
+  "Import settings",
+  "Enter Membership Key",
+  "Explore Ptah Builders",
+  "Create Account",
+  "Re-enter Membership Key",
+  "System prompt details"
+ ],
+ "afterExport": [
+  "showSaveDialog"
+ ],
+ "toastAfterExport": [
+  "",
+  "Membership Key Not Active\n\nYour membership key could not be verified. Re-enter your key to restore your Ptah Builders membership. Ptah's local features remain available either way.\n\nRe-enter Membership Key"
+ ],
+ "importConfirmText": "Replace your settings from a file?",
+ "afterImport": [
+  "showSaveDialog",
+  "showOpenDialog"
+ ]
+}

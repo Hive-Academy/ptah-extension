@@ -1,0 +1,67 @@
+[
+ {
+  "width": 800,
+  "boxScroll": 462,
+  "boxClient": 462,
+  "boxRectW": 462,
+  "boxRectRight": 744,
+  "maxChildRight": 744,
+  "who": "div",
+  "docScroll": 800,
+  "docClient": 800,
+  "dpr": 1,
+  "cols": "462px"
+ },
+ {
+  "width": 801,
+  "boxScroll": 463,
+  "boxClient": 463,
+  "boxRectW": 463,
+  "boxRectRight": 745,
+  "maxChildRight": 745,
+  "who": "div",
+  "docScroll": 801,
+  "docClient": 801,
+  "dpr": 1,
+  "cols": "463px"
+ },
+ {
+  "width": 802,
+  "boxScroll": 464,
+  "boxClient": 464,
+  "boxRectW": 464,
+  "boxRectRight": 746,
+  "maxChildRight": 746,
+  "who": "div",
+  "docScroll": 802,
+  "docClient": 802,
+  "dpr": 1,
+  "cols": "464px"
+ },
+ {
+  "width": 803,
+  "boxScroll": 465,
+  "boxClient": 465,
+  "boxRectW": 465,
+  "boxRectRight": 747,
+  "maxChildRight": 747,
+  "who": "div",
+  "docScroll": 803,
+  "docClient": 803,
+  "dpr": 1,
+  "cols": "465px"
+ },
+ {
+  "width": 800,
+  "boxScroll": 462,
+  "boxClient": 462,
+  "boxRectW": 462,
+  "boxRectRight": 744,
+  "maxChildRight": 744,
+  "who": "div",
+  "docScroll": 800,
+  "docClient": 800,
+  "dpr": 1,
+  "cols": "462px"
+ }
+]

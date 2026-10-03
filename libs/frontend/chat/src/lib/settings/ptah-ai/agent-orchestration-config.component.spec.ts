@@ -1,185 +1,498 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
-  AppStateManager,
-  ClaudeRpcService,
-  ProvidersSettingsStateService,
-  RpcResult,
+  ProvidersSettingsStateService, type ProvidersOrchestration, type ProvidersSettingsCommit, type ProvidersSettingsPatch,
+  type ProvidersSettingsSection,
 } from '@ptah-extension/core';
-import type { AgentOrchestrationConfig } from '@ptah-extension/shared';
+import type { CliDetectionResult, PtahCliSummary } from '@ptah-extension/shared';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { AgentOrchestrationConfigComponent } from './agent-orchestration-config.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
-/** TASK_2026_534 R2.7 — dead or blind controls on the Agent Orchestration tab. */
-describe('AgentOrchestrationConfigComponent', () => {
+const ready = <T,>(data: T): ProvidersSettingsSection<T> => ({ status: 'ready', data, error: null });
+const unloaded = <T,>(): ProvidersSettingsSection<T> => ({ status: 'unloaded', data: null, error: null });
+const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null };
+const CONTEXT = { scopeKey: 'workspace', activePath: '/ws' };
+const HOST_ERROR = 'EACCES: permission denied, open /home/user/.config/settings.json';
+
+const detected = (cli: CliDetectionResult['cli'], installed: boolean, extra: Partial<CliDetectionResult> = {}): CliDetectionResult =>
+  ({ cli, installed, messagingMode: 'none', ...extra });
+
+/** The prototype data set (BRIEF): 4 ranked agents, OpenCode unranked, Copilot off, Cursor and Pi not installed. */
+const ORCHESTRATION = {
+  detectedClis: [
+    detected('codex', true, { version: '1.4.0' }), detected('copilot', true), detected('cursor', false),
+    detected('antigravity', true), detected('opencode', true), detected('pi', false),
+    detected('ptah-cli', true, { ptahCliId: 'glm-1', ptahCliName: 'Glm' }),
+  ],
+  disabledClis: ['copilot'], preferredAgentOrder: ['codex', 'antigravity', 'glm-1', 'copilot'], maxConcurrentAgents: 3,
+  copilotAutoApprove: false,
+  codexModel: '', copilotModel: '', cursorModel: '', antigravityModel: '', opencodeModel: '', piModel: '',
+  codexReasoningEffort: '', copilotReasoningEffort: '', piReasoningEffort: '',
+  cursorApiKeyConfigured: false, cursorApiKeyStored: false, cursorApiKeyEnvSet: false,
+} as ProvidersOrchestration;
+const GLM: PtahCliSummary = {
+  id: 'glm-1', name: 'Glm', providerName: 'Ollama Cloud', providerId: 'ollama-cloud',
+  hasApiKey: true, hasStoredKey: true, status: 'available', enabled: true, modelCount: 12,
+};
+
+/** The shared state: `saveSettings` applies the patch and records a `saved` commit, like a confirmed read-back. */
+class StateStub {
+  readonly commit = signal<ProvidersSettingsCommit>(idle);
+  readonly orchestration = signal<ProvidersSettingsSection<ProvidersOrchestration>>(ready(ORCHESTRATION));
+  readonly cliAgents = signal<ProvidersSettingsSection<PtahCliSummary[]>>(ready([GLM]));
+  readonly cliDetection = signal<ProvidersSettingsSection<CliDetectionResult[]>>(unloaded());
+  readonly scopes = signal<ProvidersSettingsSection<{ activePath: string; entries: unknown[] }>>(ready({ activePath: '/ws', entries: [] }));
+  readonly reviewContext = jest.fn(() => (this.scopes().status === 'ready' ? CONTEXT : null));
+  /** `false` makes the next writes fail without changing the saved values. */
+  persist = true;
+  readonly saveSettings = jest.fn(async (patch: ProvidersSettingsPatch, _context: unknown) => {
+    if (!this.persist) {
+      this.commit.set({ ...idle, status: 'failed', unsaved: ['Orchestration policy'], message: 'Nothing was saved.' });
+      return true;
+    }
+    const data = this.orchestration().data;
+    if (data) this.orchestration.set(ready({ ...data, ...patch.orchestration } as ProvidersOrchestration));
+    this.commit.set({ ...idle, status: 'saved', saved: ['Orchestration policy'] });
+    return true;
+  });
+  readonly redetectClis = jest.fn(async () => { this.cliDetection.set(ready([])); });
+}
+
+describe('AgentOrchestrationConfigComponent (policy bar, Batch 33)', () => {
   let fixture: ComponentFixture<AgentOrchestrationConfigComponent>;
-  let element: HTMLElement;
-  let config: AgentOrchestrationConfig;
-  const call = jest.fn();
-  const appState = { requestSettingsTab: jest.fn(), setCurrentView: jest.fn() };
-
-  beforeEach(async () => {
-    config = {
-      detectedClis: [
-        { cli: 'codex', installed: true, version: '1.0.0' },
-        { cli: 'copilot', installed: true, version: '2.0.0' },
-      ],
-      preferredAgentOrder: [],
-      disabledClis: [],
-      maxConcurrentAgents: 3,
-      copilotAutoApprove: false,
-    } as unknown as AgentOrchestrationConfig;
-    call.mockReset();
-    call.mockImplementation(async (method: string) =>
-      method === 'agent:getConfig' ? new RpcResult(true, config) : new RpcResult(true, { success: true }),
-    );
-    await TestBed.configureTestingModule({
-      imports: [AgentOrchestrationConfigComponent],
-      providers: [
-        { provide: ClaudeRpcService, useValue: { call } },
-        { provide: AppStateManager, useValue: appState },
-        {
-          provide: ProvidersSettingsStateService,
-          useValue: { refreshCliAgents: jest.fn(), refreshCliModels: jest.fn() },
-        },
-      ],
-    }).compileComponents();
-    fixture = TestBed.createComponent(AgentOrchestrationConfigComponent);
-    element = fixture.nativeElement as HTMLElement;
+  let state: StateStub;
+  let feedback: SettingsSaveFeedbackService;
+  const element = () => fixture.nativeElement as HTMLElement;
+  const q = <T extends HTMLElement = HTMLElement>(selector: string) => element().querySelector(selector) as T | null;
+  const slider = () => q<HTMLInputElement>('#agent-max-concurrent');
+  const value = () => q('[data-testid="policy-max-concurrent-value"]')?.textContent?.trim();
+  const chips = () => Array.from(element().querySelectorAll('[data-testid^="policy-order-chip-"]'))
+    .map((chip) => chip.getAttribute('data-testid')?.replace('policy-order-chip-', ''));
+  const button = (testid: string) => q<HTMLButtonElement>(`[data-testid="${testid}"]`);
+  const popover = () => q('[data-testid="policy-order-popover"]');
+  const rows = () => Array.from(element().querySelectorAll('[data-testid^="policy-order-row-"]'))
+    .map((row) => row.getAttribute('data-testid')?.replace('policy-order-row-', ''));
+  async function flush() { for (let i = 0; i < 8; i += 1) await Promise.resolve(); fixture.detectChanges(); }
+  async function openOrder() {
+    button('policy-order-edit')?.click();
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
-  });
-  afterEach(() => TestBed.resetTestingModule());
-
-  function copilotToggle(): HTMLInputElement | null {
-    return element.querySelector<HTMLInputElement>('[data-testid="copilot-auto-approve"]');
+    if (!popover()) throw new Error('Order popover did not open');
+  }
+  /**
+   * The next write stays in flight (commit `saving`, as the real state reports it) until the returned function is
+   * called; it then applies the patch like the default stub.
+   */
+  function deferNextSave(): (saved: boolean) => void {
+    let finish: (saved: boolean) => void = () => undefined;
+    state.saveSettings.mockImplementationOnce((patch) => {
+      state.commit.set({ ...idle, status: 'saving' });
+      return new Promise<boolean>((resolve) => {
+        finish = (saved) => {
+          const data = state.orchestration().data;
+          if (data) state.orchestration.set(ready({ ...data, ...patch.orchestration } as ProvidersOrchestration));
+          state.commit.set({ ...idle, status: 'saved', saved: ['Orchestration policy'] });
+          resolve(saved);
+        };
+      });
+    });
+    return (saved) => finish(saved);
+  }
+  function slide(to: number, event: 'input' | 'change') {
+    const input = slider();
+    if (!input) throw new Error('No slider');
+    input.value = String(to);
+    input.dispatchEvent(new Event(event));
   }
 
-  it('renders no Codex auto-approve control (the host ignores codexAutoApprove)', () => {
-    const text = element.textContent ?? '';
-    expect(text).not.toMatch(/codex automatic approval/i);
-    expect(element.querySelectorAll('[data-testid="copilot-auto-approve"]')).toHaveLength(1);
-  });
-
-  it('binds the Copilot auto-approve toggle to the saved value and writes the flipped value', async () => {
-    const toggle = copilotToggle();
-    expect(toggle?.type).toBe('checkbox');
-    expect(toggle?.classList.contains('toggle')).toBe(true);
-    expect(toggle?.checked).toBe(false);
-    toggle?.click();
-    await fixture.whenStable();
-    fixture.detectChanges();
-    expect(call).toHaveBeenCalledWith('agent:setConfig', { copilotAutoApprove: true });
-    expect(copilotToggle()?.checked).toBe(true);
-  });
-
-  // Review #2: agent:setConfig reports persistence failure as {success:false}
-  // INSIDE a successful envelope (agent-rpc.handlers.ts catch branch).
-  it.each([
-    ['a {success:false} payload in a successful envelope', async () => new RpcResult(true, { success: false, error: 'EACCES' })],
-    ['a failed envelope', async () => new RpcResult(false, undefined, 'failed')],
-    ['a rejected call', async () => { throw new Error('transport closed'); }],
-  ])('rolls back and shows an error after %s', async (_label, setConfig) => {
-    call.mockImplementation(async (method: string) =>
-      method === 'agent:setConfig' ? setConfig() : new RpcResult(true, config),
-    );
-    copilotToggle()?.click();
-    await fixture.whenStable();
-    fixture.detectChanges();
-    // Saved value (read back) is still false: the toggle and state show false.
-    expect(copilotToggle()?.checked).toBe(false);
-    expect(fixture.componentInstance.agentConfig()?.copilotAutoApprove).toBe(false);
-    expect(element.querySelector('[data-testid="copilot-auto-approve-error"]')?.textContent).toContain(
-      'Could not save Copilot auto-approve',
-    );
-    expect(copilotToggle()?.disabled).toBe(false);
-  });
-
-  it('PR 581: marks the setting unconfirmed when the read-back also fails, blocks writes, and recovers on a re-check', async () => {
-    let readOk = false;
-    call.mockImplementation(async (method: string) => {
-      if (method === 'agent:setConfig') return new RpcResult(true, { success: false, error: 'EACCES' });
-      if (!readOk) return new RpcResult(false, undefined, 'host unavailable');
-      return new RpcResult(true, { ...config, copilotAutoApprove: true });
+  beforeEach(() => {
+    state = new StateStub();
+    // No ClaudeRpcService is provided: the bar has no private RPC path left.
+    TestBed.configureTestingModule({
+      imports: [AgentOrchestrationConfigComponent],
+      providers: [{ provide: ProvidersSettingsStateService, useValue: state }, SettingsSaveFeedbackService],
     });
-    copilotToggle()?.click();
-    await fixture.whenStable();
+    feedback = TestBed.inject(SettingsSaveFeedbackService);
+    fixture = TestBed.createComponent(AgentOrchestrationConfigComponent);
     fixture.detectChanges();
-    // No guess: neither the pre-write nor the requested value is shown as saved.
-    expect(copilotToggle()?.indeterminate).toBe(true);
-    expect(copilotToggle()?.disabled).toBe(true);
-    expect(element.querySelector('[data-testid="copilot-auto-approve-error"]')?.textContent).toContain(
-      'Could not confirm whether Copilot auto-approve was saved',
-    );
-    // The old copy pointed at Re-detect, which does not reload this setting.
-    expect(element.querySelector('[data-testid="copilot-auto-approve-error"]')?.textContent).not.toContain('Re-detect');
-    // Further writes are blocked while unconfirmed.
-    const writes = () => call.mock.calls.filter(([method]) => method === 'agent:setConfig').length;
-    expect(writes()).toBe(1);
-    await fixture.componentInstance.toggleCopilotAutoApprove({ target: copilotToggle() } as unknown as Event);
-    expect(writes()).toBe(1);
-
-    // A failing re-check keeps it blocked.
-    (element.querySelector('[data-testid="copilot-auto-approve-recheck"]') as HTMLButtonElement).click();
-    await fixture.whenStable();
-    fixture.detectChanges();
-    expect(copilotToggle()?.disabled).toBe(true);
-
-    // A successful re-check shows the saved value and re-enables the toggle.
-    readOk = true;
-    (element.querySelector('[data-testid="copilot-auto-approve-recheck"]') as HTMLButtonElement).click();
-    await fixture.whenStable();
-    fixture.detectChanges();
-    expect(copilotToggle()?.indeterminate).toBe(false);
-    expect(copilotToggle()?.checked).toBe(true);
-    expect(copilotToggle()?.disabled).toBe(false);
-    expect(fixture.componentInstance.agentConfig()?.copilotAutoApprove).toBe(true);
-    expect(element.querySelector('[data-testid="copilot-auto-approve-error"]')).toBeNull();
-    expect(element.querySelector('[data-testid="copilot-auto-approve-recheck"]')).toBeNull();
   });
+  afterEach(() => { feedback.dismiss(); TestBed.resetTestingModule(); });
 
-  it('trusts the read-back when an uncertain write did persist', async () => {
-    call.mockImplementation(async (method: string) => {
-      if (method === 'agent:setConfig') throw new Error('response lost');
-      return new RpcResult(true, { ...config, copilotAutoApprove: true });
+  describe('structure (design-spec §1.2 item 2, deviation 5, RUX-9)', () => {
+    it('is one policy bar with the slider, the order chips and Re-detect', () => {
+      const bar = q('[data-testid="orchestration-policy-bar"]');
+      expect(bar).not.toBeNull();
+      expect(bar?.querySelector('#agent-max-concurrent')).not.toBeNull();
+      expect(bar?.querySelector('[data-testid="policy-order"]')).not.toBeNull();
+      expect(bar?.querySelector('[data-testid="policy-order-edit"]')?.className).toContain('h-6');
+      expect(button('policy-redetect')?.getAttribute('aria-label')).toBe('Re-detect CLI agents');
+      expect(button('policy-redetect')?.textContent).toContain('Re-detect CLIs');
     });
-    copilotToggle()?.click();
-    await fixture.whenStable();
-    fixture.detectChanges();
-    expect(copilotToggle()?.checked).toBe(true);
-    expect(element.querySelector('[data-testid="copilot-auto-approve-error"]')).toBeNull();
+
+    it('keeps none of the old body: no Copilot toggle, no CLI cards, no "Manage … in Providers" repeats (RUX-9)', () => {
+      const text = element().textContent ?? '';
+      expect(q('[data-testid="copilot-auto-approve"]')).toBeNull();
+      expect(text).not.toMatch(/Manage .* in Providers/);
+      expect(text).not.toMatch(/codex automatic approval/i);
+      expect(text).not.toContain('System CLIs');
+      expect(text).not.toContain('Headless agents');
+      expect(element().querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    });
+
+    it('shows the order as compact read-only chips with no move buttons on the bar (deviation 5: no grip, no drag)', () => {
+      const bar = q('[data-testid="orchestration-policy-bar"]');
+      expect(bar?.querySelectorAll('[data-testid^="policy-order-up-"], [data-testid^="policy-order-down-"]')).toHaveLength(0);
+      expect(Array.from(q('[data-testid="policy-order"]')?.children ?? []).map((node) => node.textContent?.trim()))
+        .toEqual(['1. Codex', '→', '2. Antigravity', '→', '3. Glm', '→', '4. Copilot', '→', '5. OpenCode']);
+      expect(element().innerHTML).not.toMatch(/grip/i);
+      expect(element().querySelector('[draggable="true"]')).toBeNull();
+      expect(element().querySelector('.cursor-grab')).toBeNull();
+    });
+
+    it('names the whole order on the trigger (the chips may clip in a narrow box)', () => {
+      const trigger = button('policy-order-edit');
+      expect(trigger?.getAttribute('aria-label'))
+        .toBe('Preferred order: 1. Codex, 2. Antigravity, 3. Glm, 4. Copilot (off), 5. OpenCode. Edit order');
+      expect(trigger?.getAttribute('aria-haspopup')).toBe('dialog');
+      expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+    });
   });
 
-  it('disables the toggle while a write is in flight', async () => {
-    let release!: (value: RpcResult<unknown>) => void;
-    call.mockImplementation((method: string) =>
-      method === 'agent:setConfig'
-        ? new Promise((resolve) => { release = resolve; })
-        : Promise.resolve(new RpcResult(true, config)),
-    );
-    copilotToggle()?.click();
-    fixture.detectChanges();
-    expect(copilotToggle()?.disabled).toBe(true);
-    release(new RpcResult(true, { success: true }));
-    await fixture.whenStable();
-    fixture.detectChanges();
-    expect(copilotToggle()?.disabled).toBe(false);
-    expect(copilotToggle()?.checked).toBe(true);
+  describe('max concurrent agents (#74, plan §3 row 891)', () => {
+    it('is a 1-20 range showing the saved value', () => {
+      expect(slider()?.min).toBe('1');
+      expect(slider()?.max).toBe('20');
+      expect(slider()?.valueAsNumber).toBe(3);
+      expect(value()).toBe('3');
+      expect(q('label[for="agent-max-concurrent"]')?.textContent).toContain('Max Concurrent');
+    });
+
+    it('shows the live value while dragging and saves nothing until release', () => {
+      slide(7, 'input');
+      fixture.detectChanges();
+      expect(value()).toBe('7');
+      expect(slider()?.getAttribute('aria-valuetext')).toBe('7 agents at once');
+      expect(state.saveSettings).not.toHaveBeenCalled();
+    });
+
+    it('saves on release through the state, with a toast and an Undo that writes the previous value', async () => {
+      slide(7, 'input');
+      slide(7, 'change');
+      await flush();
+      expect(state.saveSettings).toHaveBeenCalledWith({ orchestration: { maxConcurrentAgents: 7 } }, CONTEXT);
+      expect(value()).toBe('7');
+      expect(feedback.toast()).toEqual({ tone: 'status', message: 'Saved max concurrent agents to All Ptah apps.', canUndo: true });
+      await feedback.undo();
+      await flush();
+      expect(state.saveSettings).toHaveBeenLastCalledWith({ orchestration: { maxConcurrentAgents: 3 } }, CONTEXT);
+      expect(value()).toBe('3');
+    });
+
+    it('D15: a failed save shows the saved value again and an alert, never "Saved"', async () => {
+      state.persist = false;
+      slide(9, 'input');
+      slide(9, 'change');
+      await flush();
+      expect(value()).toBe('3');
+      expect(slider()?.valueAsNumber).toBe(3);
+      expect(feedback.toast()?.tone).toBe('alert');
+      expect(feedback.toast()?.message).toContain('Could not save max concurrent agents.');
+    });
+
+    it('writes nothing when released on the saved value or before the state is read', async () => {
+      slide(3, 'change');
+      await flush();
+      expect(state.saveSettings).not.toHaveBeenCalled();
+      state.orchestration.set(unloaded());
+      fixture.detectChanges();
+      expect(value()).toBe('—');
+      expect(isDisabledControl(slider())).toBe(true);
+    });
   });
 
-  it('has no expand chevron or click-to-expand row, and no drag grip', () => {
-    expect(element.querySelector('.cursor-pointer')).toBeNull();
-    expect(element.querySelector('.rotate-90')).toBeNull();
-    expect(element.innerHTML).not.toMatch(/grip/i);
-    // Reordering arrows stay.
-    expect(element.querySelectorAll('button[aria-label="Move up"]').length).toBeGreaterThan(0);
+  describe('preferred order popover (#73, plan §3 row 892)', () => {
+    it('opens a dialog listing the installed agents in the matrix order, with 24 px ▲/▼ per row', async () => {
+      await openOrder();
+      expect(popover()?.getAttribute('role')).toBe('dialog');
+      expect(button('policy-order-edit')?.getAttribute('aria-expanded')).toBe('true');
+      expect(rows()).toEqual(['codex', 'antigravity', 'glm-1', 'copilot', 'opencode']);
+      expect(q('[data-testid="policy-order-row-copilot"]')?.textContent).toContain('off');
+      const up = button('policy-order-up-antigravity');
+      expect(up?.getAttribute('aria-label')).toBe('Move Antigravity up');
+      expect(button('policy-order-down-antigravity')?.getAttribute('aria-label')).toBe('Move Antigravity down');
+      for (const size of ['h-6', 'min-h-6', 'w-6']) expect(up?.className).toContain(size);
+    });
+
+    it('disables ▲ on the first row and ▼ on the last', async () => {
+      await openOrder();
+      expect(isDisabledControl(button('policy-order-up-codex'))).toBe(true);
+      expect(isDisabledControl(button('policy-order-down-codex'))).toBe(false);
+      expect(isDisabledControl(button('policy-order-up-opencode'))).toBe(false);
+      expect(isDisabledControl(button('policy-order-down-opencode'))).toBe(true);
+    });
+
+    it('moves an agent down, then up, writing the whole order each time, with Undo', async () => {
+      await openOrder();
+      button('policy-order-down-codex')?.click();
+      await flush();
+      expect(state.saveSettings).toHaveBeenLastCalledWith(
+        { orchestration: { preferredAgentOrder: ['antigravity', 'codex', 'glm-1', 'copilot', 'opencode'] } }, CONTEXT);
+      expect(rows()).toEqual(['antigravity', 'codex', 'glm-1', 'copilot', 'opencode']);
+      expect(chips()).toEqual(['antigravity', 'codex', 'glm-1', 'copilot', 'opencode']);
+      expect(feedback.toast()?.message).toBe('Saved preferred agent order to All Ptah apps.');
+      button('policy-order-up-opencode')?.click();
+      await flush();
+      expect(state.saveSettings).toHaveBeenLastCalledWith(
+        { orchestration: { preferredAgentOrder: ['antigravity', 'codex', 'glm-1', 'opencode', 'copilot'] } }, CONTEXT);
+      await feedback.undo();
+      await flush();
+      expect(state.saveSettings).toHaveBeenLastCalledWith(
+        { orchestration: { preferredAgentOrder: ['antigravity', 'codex', 'glm-1', 'copilot', 'opencode'] } }, CONTEXT);
+      expect(q('[data-testid="policy-order-error"]')).toBeNull();
+    });
+
+    it('keeps focus on the moved row: the button used, or its other one at the end', async () => {
+      await openOrder();
+      button('policy-order-down-glm-1')?.click();
+      await flush();
+      TestBed.tick();
+      expect(document.activeElement).toBe(button('policy-order-down-glm-1'));
+      button('policy-order-down-glm-1')?.click();
+      await flush();
+      TestBed.tick();
+      expect(rows()).toEqual(['codex', 'antigravity', 'copilot', 'opencode', 'glm-1']);
+      expect(document.activeElement).toBe(button('policy-order-up-glm-1'));
+    });
+
+    it('D15: a failed move keeps the saved order and shows a fixed sentence, never the host text', async () => {
+      state.persist = false;
+      state.saveSettings.mockImplementation(async () => {
+        state.commit.set({ ...idle, status: 'failed', unsaved: ['Orchestration policy'], message: HOST_ERROR });
+        return true;
+      });
+      await openOrder();
+      button('policy-order-down-codex')?.click();
+      await flush();
+      expect(rows()).toEqual(['codex', 'antigravity', 'glm-1', 'copilot', 'opencode']);
+      expect(q('[data-testid="policy-order-error"]')?.textContent?.trim())
+        .toBe('Could not save the preferred order. The order shown is the saved one.');
+      expect(popover()?.textContent).not.toContain('EACCES');
+      expect(feedback.toast()?.tone).toBe('alert');
+    });
+
+    it('m-1: a refused move shows its own sentence even when commit() still says an earlier save was "saved"', async () => {
+      state.commit.set({ ...idle, status: 'saved', saved: ['Orchestration policy'] });
+      state.saveSettings.mockImplementationOnce(async () => false);
+      await openOrder();
+      button('policy-order-down-codex')?.click();
+      await flush();
+      expect(state.commit().status).toBe('saved');
+      expect(rows()).toEqual(['codex', 'antigravity', 'glm-1', 'copilot', 'opencode']);
+      expect(q('[data-testid="policy-order-error"]')?.textContent?.trim())
+        .toBe('Could not save the preferred order. The order shown is the saved one.');
+      expect(feedback.toast()).toEqual({ tone: 'alert', message: 'Another change is still saving.', canUndo: false });
+    });
+
+    it('m-1: a write that throws shows the popover sentence too', async () => {
+      state.commit.set({ ...idle, status: 'saved', saved: ['Orchestration policy'] });
+      state.saveSettings.mockImplementationOnce(async () => { throw new Error(HOST_ERROR); });
+      await openOrder();
+      button('policy-order-down-codex')?.click();
+      await flush();
+      expect(q('[data-testid="policy-order-error"]')?.textContent?.trim())
+        .toBe('Could not save the preferred order. The order shown is the saved one.');
+      expect(popover()?.textContent).not.toContain('EACCES');
+    });
+
+    it('V36-8: the popover is titled by a non-heading element (no skipped heading level)', async () => {
+      await openOrder();
+      const title = q('#policy-order-title');
+      expect(title?.tagName).toBe('P');
+      expect(title?.textContent?.trim()).toBe('Preferred order');
+      expect(popover()?.getAttribute('aria-labelledby')).toBe('policy-order-title');
+      expect(popover()?.querySelector('h1, h2, h3, h4, h5, h6')).toBeNull();
+    });
+
+    it('V36-2: helper text is at least 12 px (text-xs); no 10 or 11 px text outside the btn-xs label', async () => {
+      await openOrder();
+      const small = Array.from(element().querySelectorAll<HTMLElement>('[class*="text-[10px]"], [class*="text-[11px]"]'))
+        .filter((node) => !node.classList.contains('btn'));
+      expect(small).toHaveLength(0);
+      expect(q('[data-testid="policy-order"]')?.className).toContain('text-xs');
+    });
+
+    it('closes on Escape and returns focus to the trigger', async () => {
+      const trigger = button('policy-order-edit');
+      trigger?.focus();
+      await openOrder();
+      popover()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush();
+      expect(popover()).toBeNull();
+      expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('cannot reorder until both the policy and the instances are read (an order from one would drop the other)', async () => {
+      state.cliAgents.set(unloaded());
+      fixture.detectChanges();
+      expect(chips()).toEqual(['codex', 'antigravity', 'copilot', 'opencode']);
+      await openOrder();
+      const down = button('policy-order-down-codex');
+      expect(down?.getAttribute('aria-disabled')).toBe('true');
+      down?.click();
+      await flush();
+      expect(state.saveSettings).not.toHaveBeenCalled();
+    });
+
+    it('cannot reorder while a save runs (D3): the buttons are aria-disabled and ignore clicks, not natively disabled', async () => {
+      await openOrder();
+      expect(button('policy-order-down-codex')?.hasAttribute('aria-disabled')).toBe(false);
+      const finish = deferNextSave();
+      button('policy-order-down-codex')?.click();
+      await flush();
+      expect(state.saveSettings).toHaveBeenCalledTimes(1);
+      const down = button('policy-order-down-antigravity');
+      expect(down?.getAttribute('aria-disabled')).toBe('true');
+      // Native `disabled` only marks the ends; a disabled focused button would drop focus to the page (Batch 36).
+      expect(down?.disabled).toBe(false);
+      down?.click();
+      await flush();
+      expect(state.saveSettings).toHaveBeenCalledTimes(1);
+      finish(true);
+      await flush();
+      expect(button('policy-order-down-antigravity')?.hasAttribute('aria-disabled')).toBe(false);
+    });
+
+    it('keeps focus on the button used while the save runs, and Esc then closes and returns focus to the trigger', async () => {
+      const trigger = button('policy-order-edit');
+      trigger?.focus();
+      await openOrder();
+      const finish = deferNextSave();
+      const down = button('policy-order-down-codex');
+      down?.focus();
+      down?.click();
+      await flush();
+      // Saving: the button is aria-disabled, still focusable, and keeps focus.
+      expect(down?.getAttribute('aria-disabled')).toBe('true');
+      expect(document.activeElement).toBe(down);
+      popover()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await flush();
+      expect(popover()).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+      // The save finishing later neither reopens the popover nor takes focus from the trigger.
+      finish(true);
+      await flush();
+      TestBed.tick();
+      expect(popover()).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('says so when no agent is installed', () => {
+      state.orchestration.set(ready({ ...ORCHESTRATION, detectedClis: [detected('pi', false)] }));
+      state.cliAgents.set(ready([]));
+      fixture.detectChanges();
+      expect(q('[data-testid="policy-order-empty"]')?.textContent?.trim()).toBe('No CLI agent installed yet.');
+      expect(button('policy-order-edit')).toBeNull();
+    });
   });
 
-  it('routes "Manage provider, model and credentials" to the Providers CLI agents section', () => {
-    const manage = Array.from(element.querySelectorAll('button')).find((node) =>
-      node.textContent?.includes('Manage provider, model and credentials in Providers'),
-    );
-    manage?.click();
-    expect(appState.requestSettingsTab).toHaveBeenCalledWith({ tab: 'providers', section: 'cli-agents' });
-    expect(appState.setCurrentView).toHaveBeenCalledWith('settings');
+  describe('Re-detect (#72)', () => {
+    it('re-detects through the state and announces completion', async () => {
+      button('policy-redetect')?.click();
+      await flush();
+      expect(state.redetectClis).toHaveBeenCalledTimes(1);
+      expect(q('[role="status"]')?.textContent?.trim()).toBe('CLI agents re-detected.');
+      expect(q('[data-testid="policy-redetect-error"]')).toBeNull();
+    });
+
+    it('is disabled with a spinner while detection runs', () => {
+      state.cliDetection.set({ status: 'loading', data: null, error: null });
+      fixture.detectChanges();
+      expect(isDisabledControl(button('policy-redetect'))).toBe(true);
+      expect(button('policy-redetect')?.textContent).toContain('Detecting…');
+    });
+
+    it.each([
+      ['a failed detection', async (s: StateStub) => { s.cliDetection.set({ status: 'error', data: null, error: HOST_ERROR as string as ProvidersSettingsSection<unknown>['error'] }); }],
+      ['a thrown command', async () => { throw new Error(HOST_ERROR); }],
+    ])('shows a fixed sentence after %s, never the host text', async (_label, run) => {
+      state.redetectClis.mockImplementation(() => run(state));
+      button('policy-redetect')?.click();
+      await flush();
+      expect(q('[data-testid="policy-redetect-error"]')?.textContent?.trim())
+        .toBe('Could not re-detect CLI agents. Your saved settings have not changed.');
+      expect(element().textContent).not.toContain('EACCES');
+      expect(isDisabledControl(button('policy-redetect'))).toBe(false);
+    });
+  });
+
+  describe('order strip: only whole chips, then "+N" (Batch 53.4, B38-4)', () => {
+    let resize: (() => void) | null = null;
+    /** Every observer the component made: the element it observes and whether it was disconnected. */
+    const observers: { target: Element | null; disconnected: boolean }[] = [];
+    const original = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    beforeAll(() => {
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+        private readonly record = { target: null as Element | null, disconnected: false };
+        constructor(callback: () => void) { resize = callback; observers.push(this.record); }
+        observe(target: Element): void { this.record.target = target; /* the test calls the callback */ }
+        disconnect(): void { this.record.disconnected = true; }
+      };
+    });
+    afterAll(() => { (globalThis as { ResizeObserver?: unknown }).ResizeObserver = original; });
+
+    /** Lays the strip out: its width, each chip 60 px, the arrow 10 px, "+N" 25 px (gap-1 = 4 px). */
+    function layOut(stripWidth: number): void {
+      const strip = q('[data-testid="policy-order"]');
+      if (!strip) throw new Error('no strip');
+      Object.defineProperty(strip, 'clientWidth', { configurable: true, value: stripWidth });
+      const measure = strip.nextElementSibling as HTMLElement;
+      for (const node of Array.from(measure.querySelectorAll<HTMLElement>('[data-measure]'))) {
+        const kind = node.getAttribute('data-measure');
+        Object.defineProperty(node, 'offsetWidth', { configurable: true, value: kind === 'chip' ? 60 : kind === 'arrow' ? 10 : 25 });
+      }
+      resize?.();
+      fixture.detectChanges();
+    }
+
+    it('a narrow strip shows the whole chips that fit and "+N" for the rest; the Edit button names the whole order', () => {
+      fixture.detectChanges();
+      // 5 chips need 60·5 + 4·18 = 372 px. In 200 px: two chips (60 + 78) plus "→ +3" (43) = 181 px.
+      layOut(200);
+      expect(chips()).toEqual(['codex', 'antigravity']);
+      expect(q('[data-testid="policy-order-more"]')?.textContent?.trim()).toBe('+3');
+      expect(button('policy-order-edit')?.getAttribute('aria-label')).toContain('5. OpenCode. Edit order');
+    });
+
+    it('M-7 (Batch 55b): an order that empties and refills makes a new strip; the observer follows it and lets the old one go', () => {
+      TestBed.tick();
+      const first = q('[data-testid="policy-order"]');
+      expect(observers.filter((o) => !o.disconnected).map((o) => o.target)).toEqual([first]);
+      state.orchestration.set(ready({ ...ORCHESTRATION, detectedClis: [detected('pi', false)] }));
+      state.cliAgents.set(ready([]));
+      TestBed.tick();
+      expect(q('[data-testid="policy-order"]')).toBeNull();
+      expect(observers.every((o) => o.disconnected)).toBe(true);
+      state.orchestration.set(ready(ORCHESTRATION));
+      state.cliAgents.set(ready([GLM]));
+      TestBed.tick();
+      const second = q('[data-testid="policy-order"]');
+      expect(second).not.toBeNull();
+      expect(second).not.toBe(first);
+      expect(observers.filter((o) => !o.disconnected).map((o) => o.target)).toEqual([second]);
+      layOut(200);
+      expect(chips()).toEqual(['codex', 'antigravity']);
+      fixture.destroy();
+      expect(observers.every((o) => o.disconnected)).toBe(true);
+    });
+
+    it('a wide strip shows every chip and no "+N"', () => {
+      fixture.detectChanges();
+      layOut(400);
+      expect(chips()).toEqual(['codex', 'antigravity', 'glm-1', 'copilot', 'opencode']);
+      expect(q('[data-testid="policy-order-more"]')).toBeNull();
+    });
   });
 });

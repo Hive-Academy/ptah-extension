@@ -1,18 +1,11 @@
 /**
  * Settings Components - Barrel Export
+ *
+ * The Advanced and Search & Voice tab children (membership card, system prompt, output style,
+ * MCP port, VS Code LM, web search, voice and its panels) are deliberately NOT exported: they
+ * load only inside the `@defer` blocks of `settings.component.html`, and a re-export here keeps
+ * them in the eager bundle. Nothing outside this folder imports them.
  */
 
 export { SettingsComponent } from './settings.component';
-export { LicenseStatusCardComponent } from './license/license-status-card.component';
-export { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
-export { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
-export { WorkflowsConfigComponent } from './pro-features/workflows-config.component';
-export { OutputStyleConfigComponent } from './output-style/output-style-config.component';
-export { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 export { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
-export { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
-export { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
-export { VoiceConfigComponent } from './ptah-ai/voice-config.component';
-export { LocalSttPanelComponent } from './ptah-ai/local-stt-panel.component';
-export { LocalTtsPanelComponent } from './ptah-ai/local-tts-panel.component';
-export { ElevenLabsPanelComponent } from './ptah-ai/elevenlabs-panel.component';

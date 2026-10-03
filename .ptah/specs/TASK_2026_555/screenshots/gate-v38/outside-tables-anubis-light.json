@@ -1,0 +1,43 @@
+{
+ "overview": [
+  {
+   "id": "provider-table",
+   "th": "",
+   "color": "oklch(0.508476 0.043215 351.11)",
+   "ratio": 5.53,
+   "btnColor": null
+  },
+  {
+   "id": "coverage-table",
+   "th": "Server",
+   "color": "oklch(0.508476 0.043215 351.11)",
+   "ratio": 4.94,
+   "btnColor": null
+  }
+ ],
+ "servers": [
+  {
+   "id": "provider-table",
+   "th": "",
+   "color": "oklch(0.508476 0.043215 351.11)",
+   "ratio": 5.53,
+   "btnColor": null
+  }
+ ],
+ "synthetic": [
+  {
+   "id": "synth-dashboard",
+   "th": "Model",
+   "color": "oklch(0.508476 0.043215 351.11)",
+   "ratio": 4.94,
+   "btnColor": null
+  },
+  {
+   "id": "synth-skill",
+   "th": "Task",
+   "color": "oklch(0.508476 0.043215 351.11)",
+   "ratio": 5.53,
+   "btnColor": null
+  }
+ ]
+}

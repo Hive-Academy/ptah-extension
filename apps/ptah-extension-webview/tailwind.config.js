@@ -93,9 +93,11 @@ module.exports = {
           'base-200': '#1a1a20',
           'base-300': '#242430',
           'base-content': '#e8e6e1',
-          // Secondary text tier. 40% toward base-100 in OKLCH → 5.29:1. See
-          // the `colors` block above and base-content-muted.spec.ts.
-          '--bcm': '63.048152% 0.00745 23.427972',
+          // Secondary text tier. 38.25% toward base-100 in OKLCH: 5.56:1 on
+          // base-100, 5.20:1 on base-200, 4.60:1 on base-300 (TASK_2026_555
+          // Batch 51: muted text also sits on base-200/300 headers). See the
+          // `colors` block above and base-content-muted.spec.ts.
+          '--bcm': '64.337084% 0.007433 26.281219',
 
           // SEMANTIC COLORS
           info: '#3b82f6',
@@ -156,9 +158,11 @@ module.exports = {
           'base-200': 'oklch(93.982% 0.007 61.449)', // Slightly darker cream
           'base-300': 'oklch(91.586% 0.006 53.44)', // Card/panel background
           'base-content': 'oklch(23.574% 0.066 313.189)', // Dark purple-gray text
-          // Secondary text tier. 40% toward base-100 in OKLCH → 5.01:1. See
-          // the `colors` block above and base-content-muted.spec.ts.
-          '--bcm': '53.2596% 0.0412 354.4634',
+          // Secondary text tier. 36.75% toward base-100 in OKLCH: 5.56:1 on
+          // base-100, 4.96:1 on base-200, 4.61:1 on base-300 (TASK_2026_555
+          // Batch 51: muted text also sits on base-200/300 headers). See the
+          // `colors` block above and base-content-muted.spec.ts.
+          '--bcm': '50.847645% 0.043215 351.109855',
 
           // SEMANTIC COLORS (cupcake exact match)
           info: 'oklch(68% 0.169 237.323)',

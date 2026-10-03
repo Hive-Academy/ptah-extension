@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { DependencyContainer } from 'tsyringe';
 import {
   type Logger,
   type LicenseService,
@@ -38,6 +39,37 @@ export interface BootstrapResult {
   rpcVerification?: RpcVerificationResult;
   /** Event-loop monitor + CPU profile capture; disposed in `deactivate()`. */
   diagnostics: DiagnosticsHandle;
+}
+
+/**
+ * Publish user-defined providers to the shared registry cache. Runs BEFORE
+ * anything resolves a provider by id — until it runs, getAnthropicProvider()
+ * knows only the built-ins. Non-fatal and independent of the settings
+ * migrations' outcome (TASK_2026_555 Batch 2b): a failure is logged and
+ * activation continues with the built-in providers.
+ */
+export function loadCustomProviders(container: DependencyContainer): void {
+  try {
+    const customProviders = container.resolve<CustomProviderStore>(
+      SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE,
+    );
+    const { entries, dropped } = customProviders.load();
+    if (dropped.length > 0) {
+      console.warn(
+        `[Ptah VS Code] Dropped ${dropped.length} malformed custom provider entr${
+          dropped.length === 1 ? 'y' : 'ies'
+        }`,
+      );
+    }
+    console.log(
+      `[Ptah VS Code] Custom providers published (${entries.length} custom providers)`,
+    );
+  } catch (loadError: unknown) {
+    console.warn(
+      '[Ptah VS Code] Custom provider load failed (non-fatal); only built-in providers are available:',
+      loadError instanceof Error ? loadError.message : String(loadError),
+    );
+  }
 }
 
 /**
@@ -106,23 +138,7 @@ export async function bootstrapVscode(
       SETTINGS_TOKENS.MIGRATION_RUNNER,
     );
     await migrationRunner.runMigrations();
-    // Publish user-defined providers to the shared registry cache BEFORE
-    // anything resolves a provider by id — until this runs,
-    // getAnthropicProvider() knows only the built-ins.
-    const customProviders = DIContainer.resolve<CustomProviderStore>(
-      SETTINGS_TOKENS.CUSTOM_PROVIDER_STORE,
-    );
-    const { entries, dropped } = customProviders.load();
-    if (dropped.length > 0) {
-      console.warn(
-        `[Ptah VS Code] Dropped ${dropped.length} malformed custom provider entr${
-          dropped.length === 1 ? 'y' : 'ies'
-        }`,
-      );
-    }
-    console.log(
-      `[Ptah VS Code] Settings registered and migrations applied (${entries.length} custom providers)`,
-    );
+    console.log('[Ptah VS Code] Settings registered and migrations applied');
   } catch (settingsError) {
     console.warn(
       '[Ptah VS Code] Settings registration / migration failed (non-fatal):',
@@ -131,6 +147,9 @@ export async function bootstrapVscode(
         : String(settingsError),
     );
   }
+  // Outside the settings try: a failed migration must not leave user-defined
+  // providers unpublished for the whole session.
+  loadCustomProviders(diContainer);
   // Run outside the settings try so settings failures cannot skip key migration.
   await runCursorApiKeyMigration(diContainer);
   const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);

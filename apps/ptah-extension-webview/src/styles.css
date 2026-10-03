@@ -245,6 +245,61 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --bcm: 52% 0 0;
 }
 
+/* ============================================================================
+   TABLE HEADERS + aria-disabled BUTTONS (TASK_2026_555 Batch 51)
+   ============================================================================
+   1. daisyUI draws `.table` headers in `base-content` at 60% alpha, which is
+      4.45:1 on anubis-light's base-100 (below AA at 12 px). Headers use the
+      measured muted token instead, which clears 4.5:1 on every base surface
+      (base-content-muted.spec.ts).
+   2. Settings disables a control that may hold focus with
+      `aria-disabled="true"`, never native `disabled`: native `disabled` drops
+      focus to body, and Esc then no longer reaches the enclosing popover
+      (Gate V 36 M-2, re-check 2 N3). Such a `.btn` gets daisyUI's own
+      `.btn:disabled` look (neutral/20 fill, base-content/20 text, no border),
+      but stays focusable and clickable; the handlers refuse the click. A
+      non-`.btn` button (the roles table's cell) is dimmed. Scoped to Settings,
+      whose controls are built for it; other surfaces keep their own styles.
+   Both live in `@layer components`: after daisyUI, and before utilities. ==== */
+@layer components {
+  .table :where(thead, tfoot) {
+    color: var(--fallback-bc, oklch(var(--bcm, var(--bc))));
+  }
+
+  :where(ptah-settings) .btn[aria-disabled='true'],
+  :where(ptah-settings) .btn[aria-disabled='true']:hover {
+    --tw-border-opacity: 0;
+    background-color: var(--fallback-n, oklch(var(--n) / var(--tw-bg-opacity)));
+    --tw-bg-opacity: 0.2;
+    color: var(--fallback-bc, oklch(var(--bc) / var(--tw-text-opacity)));
+    --tw-text-opacity: 0.2;
+    cursor: not-allowed;
+  }
+
+  :where(ptah-settings) button[aria-disabled='true']:not(.btn) {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  /* Batch 54.1: fields, selects, checkboxes, toggles and radios disabled while a save runs keep focus too
+     (ptahBusyDisabled); they dim like a non-.btn button. */
+  :where(ptah-settings) :is(input, select, textarea)[aria-disabled='true'] {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  /* Batch 55b F1: daisyUI draws a coloured checkbox, radio or toggle's Tab ring in its own colour (primary teal is
+     1.4:1 on anubis-light) and a plain toggle's at 20% base-content. In Settings every one gets the full base-content
+     ring the other Settings controls use, which clears 3:1 in both themes. Same specificity as
+     `.checkbox-primary:focus-visible` and later, so it wins; an explicit `focus-visible:outline-*` utility still wins. */
+  :where(ptah-settings) :is(.checkbox, .radio, .toggle):focus-visible {
+    outline-style: solid;
+    outline-width: 2px;
+    outline-offset: 2px;
+    outline-color: var(--fallback-bc, oklch(var(--bc) / 1));
+  }
+}
+
 /* Light theme overrides for glass morphism and decorative elements */
 [data-theme='anubis-light'] {
   /* Glass Morphism - Light mode (subtle warm cream overlay) */
@@ -2021,9 +2076,11 @@ Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
   }
 
   /* ===== Popover/Overlay Backgrounds ===== */
-  /* Native popovers should have solid backgrounds */
+  /* Native popovers should have solid backgrounds. The substring match must not reach NativePopoverComponent's
+     trigger wrapper (`popover-trigger`): it drew a square border around every popover trigger in light theme,
+     e.g. the Settings scope badge (TASK_2026_555 Gate V 28). */
   .ptah-native-popover-panel,
-  [class*='popover'] {
+  [class*='popover']:not(.popover-trigger) {
     background-color: oklch(var(--b1));
     border: 1px solid oklch(var(--b3));
   }

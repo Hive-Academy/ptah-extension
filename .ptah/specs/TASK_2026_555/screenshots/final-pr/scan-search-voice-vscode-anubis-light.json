@@ -1,0 +1,78 @@
+{
+ "name": "search-voice-vscode-anubis-light",
+ "axe": [],
+ "coloured": {
+  "tokens": {
+   "primary": [
+    68,
+    235,
+    211,
+    1
+   ],
+   "secondary": [
+    167,
+    108,
+    0,
+    1
+   ],
+   "accent": [
+    255,
+    214,
+    167,
+    1
+   ],
+   "info": [
+    0,
+    164,
+    242,
+    1
+   ],
+   "success": [
+    0,
+    186,
+    123,
+    1
+   ],
+   "warning": [
+    247,
+    127,
+    0,
+    1
+   ],
+   "error": [
+    175,
+    0,
+    25,
+    1
+   ]
+  },
+  "hits": []
+ },
+ "disabled": [],
+ "alerts": [],
+ "stops": 70,
+ "noRing": [],
+ "lowRing": [
+  "INPUT Use Tavily for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Serper for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Exa for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Tavily for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Serper for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Exa for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Tavily for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Serper for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Exa for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Tavily for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Serper for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box=",
+  "INPUT Use Exa for web search | 1.4 | 68,235,211 | solid 2px off 2px | checkbox checkbox-xs checkbox-primary | box="
+ ],
+ "ringCols": [
+  "135,78,0",
+  "68,235,211",
+  "41,19,52",
+  "41,19,52 (base-content class)",
+  "122,92,105"
+ ],
+ "minRing": 1.4,
+ "maxRing": 15.92
+}

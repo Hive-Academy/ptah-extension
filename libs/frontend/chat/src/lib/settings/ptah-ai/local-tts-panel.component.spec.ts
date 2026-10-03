@@ -1,13 +1,22 @@
+import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  ProvidersSettingsStateService,
+  RpcResult,
+  VSCodeService,
+} from '@ptah-extension/core';
 import {
   createMockRpcService,
+  rpcError,
   rpcSuccess,
   type MockRpcService,
 } from '@ptah-extension/core/testing';
 import type { VoiceProviderConfigLocalDto } from '@ptah-extension/shared';
+import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 
 import { LocalTtsPanelComponent } from './local-tts-panel.component';
+import { isDisabledControl } from '../feedback/busy-disabled.testing';
 
 function localConfig(
   overrides: Partial<VoiceProviderConfigLocalDto> = {},
@@ -22,101 +31,289 @@ function localConfig(
   };
 }
 
-function routeRpc(
-  rpc: MockRpcService,
-  routes: Record<string, () => unknown>,
-): void {
-  rpc.call.mockImplementation((method: string) => {
-    const handler = routes[method];
-    if (handler) return Promise.resolve(handler());
-    return Promise.resolve(rpcSuccess({ ok: true }));
+const VOICES = () =>
+  rpcSuccess({
+    ok: true,
+    voices: [
+      { id: 'af_heart', label: 'Heart', category: 'American English' },
+      { id: 'bf_emma', label: 'Emma', category: 'British English' },
+    ],
   });
-}
-
-function mount(
-  rpc: MockRpcService,
-  config: VoiceProviderConfigLocalDto,
-): ComponentFixture<LocalTtsPanelComponent> {
-  TestBed.configureTestingModule({
-    imports: [LocalTtsPanelComponent],
-    providers: [{ provide: ClaudeRpcService, useValue: rpc }],
-  });
-  const fixture = TestBed.createComponent(LocalTtsPanelComponent);
-  fixture.componentRef.setInput('config', config);
-  fixture.detectChanges();
-  return fixture;
-}
-
-async function settle(
-  fixture: ComponentFixture<LocalTtsPanelComponent>,
-): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  fixture.detectChanges();
-}
 
 describe('LocalTtsPanelComponent', () => {
-  afterEach(() => TestBed.resetTestingModule());
+  let fixture: ComponentFixture<LocalTtsPanelComponent>;
+  let feedback: SettingsSaveFeedbackService;
+  let element: HTMLElement;
+
+  function routeRpc(
+    rpc: MockRpcService,
+    routes: Record<string, () => unknown>,
+  ): void {
+    (rpc.call as jest.Mock).mockImplementation((method: string) => {
+      const handler = routes[method];
+      if (handler) return Promise.resolve(handler());
+      return Promise.resolve(rpcSuccess({ ok: true }));
+    });
+  }
+
+  function mount(
+    rpc: MockRpcService,
+    config: VoiceProviderConfigLocalDto,
+  ): LocalTtsPanelComponent {
+    TestBed.configureTestingModule({
+      imports: [LocalTtsPanelComponent],
+      providers: [
+        { provide: ClaudeRpcService, useValue: rpc },
+        {
+          provide: ProvidersSettingsStateService,
+          useValue: { commit: signal({ status: 'idle' }) },
+        },
+        {
+          provide: VSCodeService,
+          useValue: { isElectron: true, config: signal({}) },
+        },
+        SettingsSaveFeedbackService,
+      ],
+    });
+    fixture = TestBed.createComponent(LocalTtsPanelComponent);
+    feedback = TestBed.inject(SettingsSaveFeedbackService);
+    element = fixture.nativeElement as HTMLElement;
+    fixture.componentRef.setInput('config', config);
+    fixture.detectChanges();
+    return fixture.componentInstance;
+  }
+
+  /** Flushes pending RPC promises (not `whenStable()`: the toast's 8 s timer holds it open). */
+  async function settle(): Promise<void> {
+    for (let pass = 0; pass < 3; pass += 1) {
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+      fixture.detectChanges();
+    }
+  }
+
+  function byTestId<T extends HTMLElement = HTMLElement>(id: string): T {
+    const el = element.querySelector<T>(`[data-testid="${id}"]`);
+    if (!el) throw new Error(`missing [data-testid="${id}"]`);
+    return el;
+  }
+
+  function calls(rpc: MockRpcService, method: string): unknown[] {
+    return rpc.call.mock.calls.filter(([m]) => m === method).map(([, p]) => p);
+  }
+
+  afterEach(() => {
+    feedback?.dismiss();
+    fixture?.destroy();
+    TestBed.resetTestingModule();
+  });
 
   it('fetches voices from voice:listVoices {providerId:local} and renders them', async () => {
     const rpc = createMockRpcService();
-    routeRpc(rpc, {
-      'voice:listVoices': () =>
-        rpcSuccess({
-          ok: true,
-          voices: [
-            { id: 'af_heart', label: 'Heart', category: 'American English' },
-            { id: 'bf_emma', label: 'Emma', category: 'British English' },
-          ],
-        }),
-    });
-
-    const fixture = mount(rpc, localConfig());
-    await settle(fixture);
+    routeRpc(rpc, { 'voice:listVoices': VOICES });
+    mount(rpc, localConfig());
+    await settle();
 
     expect(rpc.call).toHaveBeenCalledWith('voice:listVoices', {
       providerId: 'local',
     });
-    const options = fixture.nativeElement.querySelectorAll(
-      '[data-testid="local-tts-voice-select"] option',
-    );
-    expect(options.length).toBe(2);
-    const groups = fixture.nativeElement.querySelectorAll(
-      '[data-testid="local-tts-voice-select"] optgroup',
-    );
-    expect(groups.length).toBe(2);
+    expect(
+      byTestId<HTMLSelectElement>('local-tts-voice-select').options.length,
+    ).toBe(2);
+    expect(
+      byTestId<HTMLSelectElement>('local-tts-voice-select').querySelectorAll(
+        'optgroup',
+      ).length,
+    ).toBe(2);
   });
 
-  it('persists a voice change via voice:setTtsConfig with the current model source', async () => {
+  it('persists a voice change voice-only and toasts it with Undo, with no Saved chip (V17/V20)', async () => {
     const rpc = createMockRpcService();
     routeRpc(rpc, {
-      'voice:listVoices': () =>
-        rpcSuccess({
-          ok: true,
-          voices: [
-            { id: 'af_heart', label: 'Heart' },
-            { id: 'bf_emma', label: 'Emma' },
-          ],
-        }),
+      'voice:listVoices': VOICES,
       'voice:setTtsConfig': () => rpcSuccess({ ok: true }),
     });
+    const component = mount(rpc, localConfig());
+    await settle();
+    let emitted = 0;
+    component.changed.subscribe(() => (emitted += 1));
 
-    const fixture = mount(rpc, localConfig());
-    await settle(fixture);
-
-    const select = fixture.nativeElement.querySelector(
-      '[data-testid="local-tts-voice-select"]',
-    ) as HTMLSelectElement;
+    const select = byTestId<HTMLSelectElement>('local-tts-voice-select');
     select.value = 'bf_emma';
     select.dispatchEvent(new Event('change'));
-    await settle(fixture);
+    await settle();
 
-    expect(rpc.call).toHaveBeenCalledWith('voice:setTtsConfig', {
-      voice: 'bf_emma',
-      modelSource: 'curated',
+    // Voice-only payload: an unsaved source draft is never persisted as a side effect.
+    expect(calls(rpc, 'voice:setTtsConfig')).toEqual([{ voice: 'bf_emma' }]);
+    expect(feedback.toast()).toEqual({
+      tone: 'status',
+      message: 'Saved text-to-speech voice.',
+      canUndo: true,
     });
+    expect(element.querySelector('[data-testid="local-tts-saved"]')).toBeNull();
+    expect(emitted).toBe(1);
+
+    await feedback.undo();
+    await settle();
+
+    expect(calls(rpc, 'voice:setTtsConfig')).toEqual([
+      { voice: 'bf_emma' },
+      { voice: 'af_heart' },
+    ]);
+    expect(component.selectedVoice()).toBe('af_heart');
+    expect(select.value).toBe('af_heart');
   });
+
+  it('reverts the voice select and raises an alert when the write fails (D15)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:listVoices': VOICES,
+      'voice:setTtsConfig': () => rpcError('disk full'),
+    });
+    const component = mount(rpc, localConfig());
+    await settle();
+
+    const select = byTestId<HTMLSelectElement>('local-tts-voice-select');
+    select.value = 'bf_emma';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+
+    expect(component.selectedVoice()).toBe('af_heart');
+    expect(select.value).toBe('af_heart');
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message: 'Could not save the text-to-speech configuration.',
+      canUndo: false,
+    });
+    const alert = byTestId('local-tts-panel-error');
+    expect(alert.textContent).toContain(
+      'Could not save the text-to-speech configuration.',
+    );
+    // F1: the host's raw error text never reaches the panel.
+    expect(alert.textContent).not.toContain('disk full');
+    expect(element.querySelector('[data-testid="local-tts-saved"]')).toBeNull();
+  });
+
+  it('never surfaces a thrown host error in the save alert (F1)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:listVoices': VOICES,
+      'voice:setTtsConfig': () =>
+        Promise.reject(new Error('secret host detail')),
+    });
+    const component = mount(rpc, localConfig());
+    await settle();
+
+    const select = byTestId<HTMLSelectElement>('local-tts-voice-select');
+    select.value = 'bf_emma';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+
+    expect(component.selectedVoice()).toBe('af_heart');
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message: 'Could not save the text-to-speech configuration.',
+      canUndo: false,
+    });
+    expect(byTestId('local-tts-panel-error').textContent?.trim()).toBe(
+      'Could not save the text-to-speech configuration.',
+    );
+    expect(element.textContent).not.toContain('secret host detail');
+  });
+
+  it('never surfaces a { ok:false } host error in the save alert (F1)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:listVoices': VOICES,
+      'voice:setTtsConfig': () =>
+        rpcSuccess({ ok: false, error: 'host detail' }),
+    });
+    const component = mount(rpc, localConfig());
+    await settle();
+
+    const select = byTestId<HTMLSelectElement>('local-tts-voice-select');
+    select.value = 'bf_emma';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+
+    expect(component.selectedVoice()).toBe('af_heart');
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message: 'Could not save the text-to-speech configuration.',
+      canUndo: false,
+    });
+    expect(byTestId('local-tts-panel-error').textContent?.trim()).toBe(
+      'Could not save the text-to-speech configuration.',
+    );
+    expect(element.textContent).not.toContain('host detail');
+  });
+
+  /** The three host-failure shapes a panel action can see (F1). */
+  const HOST_FAILURES: readonly [string, () => unknown][] = [
+    ['an RPC error', () => rpcError('host detail')],
+    ['a thrown Error', () => Promise.reject(new Error('secret host detail'))],
+    ['an { ok:false } result', () => rpcSuccess({ ok: false, error: 'host detail' })],
+  ];
+
+  function expectFixedAlert(sentence: string): void {
+    const alert = byTestId('local-tts-panel-error');
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.textContent?.trim()).toBe(sentence);
+    expect(element.textContent).not.toContain('host detail');
+  }
+
+  it.each(HOST_FAILURES)(
+    'shows a fixed sentence, never host text, when the voice list fails with %s (F1)',
+    async (_shape, failure) => {
+      const rpc = createMockRpcService();
+      routeRpc(rpc, { 'voice:listVoices': failure });
+      const component = mount(rpc, localConfig());
+      await settle();
+
+      expect(component.errorMessage()).toBe('Could not load the voices.');
+      expectFixedAlert('Could not load the voices.');
+    },
+  );
+
+  it.each(HOST_FAILURES)(
+    'shows a fixed sentence, never host text, when the download fails with %s (F1)',
+    async (_shape, failure) => {
+      const rpc = createMockRpcService();
+      routeRpc(rpc, {
+        'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
+        'voice:downloadTtsModel': failure,
+      });
+      const component = mount(rpc, localConfig());
+      await settle();
+
+      byTestId<HTMLButtonElement>('local-tts-download-btn').click();
+      await settle();
+
+      expect(component.errorMessage()).toBe(
+        'Could not download the text-to-speech model.',
+      );
+      expectFixedAlert('Could not download the text-to-speech model.');
+    },
+  );
+
+  it.each(HOST_FAILURES)(
+    'shows a fixed sentence, never host text, when the preview fails with %s (F1)',
+    async (_shape, failure) => {
+      const rpc = createMockRpcService();
+      routeRpc(rpc, {
+        'voice:listVoices': VOICES,
+        'voice:synthesize': failure,
+      });
+      const component = mount(rpc, localConfig());
+      await settle();
+
+      byTestId<HTMLButtonElement>('local-tts-preview-btn').click();
+      await settle();
+
+      expect(component.isPreviewing()).toBe(false);
+      expect(component.errorMessage()).toBe('Could not play the preview.');
+      expectFixedAlert('Could not play the preview.');
+    },
+  );
 
   it('reads back the model source + custom id from voice:getTtsConfig on init', async () => {
     const rpc = createMockRpcService();
@@ -133,74 +330,94 @@ describe('LocalTtsPanelComponent', () => {
           },
         }),
     });
-
-    const fixture = mount(rpc, localConfig());
-    await settle(fixture);
-    const component = fixture.componentInstance;
+    const component = mount(rpc, localConfig());
+    await settle();
 
     expect(rpc.call).toHaveBeenCalledWith('voice:getTtsConfig', {});
     expect(component.source()).toBe('hf');
     expect(component.customModel()).toBe('owner/kokoro-custom');
 
     // The custom input is rendered (not the curated-only layout).
-    const input = fixture.nativeElement.querySelector(
-      '[data-testid="local-tts-custom-input"]',
-    ) as HTMLInputElement;
-    expect(input).not.toBeNull();
-    expect(input.value).toBe('owner/kokoro-custom');
+    expect(byTestId<HTMLInputElement>('local-tts-custom-input').value).toBe(
+      'owner/kokoro-custom',
+    );
   });
 
-  it('shows the custom input for the HF source and validates repo id shape', async () => {
+  it('shows the custom input for the HF source and validates repo id shape (V13/V15)', async () => {
     const rpc = createMockRpcService();
     routeRpc(rpc, {
       'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
       'voice:setTtsConfig': () => rpcSuccess({ ok: true }),
     });
+    const component = mount(rpc, localConfig());
+    await settle();
 
-    const fixture = mount(rpc, localConfig());
-    await settle(fixture);
-    const component = fixture.componentInstance;
-
-    // Switch to HF source.
-    (
-      fixture.nativeElement.querySelector(
-        '[data-testid="local-tts-source-hf"]',
-      ) as HTMLButtonElement
-    ).click();
+    byTestId<HTMLButtonElement>('local-tts-source-hf').click();
     fixture.detectChanges();
+    expect(calls(rpc, 'voice:setTtsConfig')).toEqual([]);
 
-    const input = fixture.nativeElement.querySelector(
-      '[data-testid="local-tts-custom-input"]',
-    ) as HTMLInputElement;
-    expect(input).not.toBeNull();
+    const input = byTestId<HTMLInputElement>('local-tts-custom-input');
 
-    // Invalid (no slash) → validation fails.
+    // Invalid (no slash) → validation fails and Save stays disabled.
     input.value = 'not-a-repo';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     expect(component.customModelValid()).toBe(false);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('local-tts-custom-save'))).toBe(true);
 
-    // Valid owner/name → validation passes.
+    // Valid owner/name → save enabled and persisted.
     input.value = 'owner/kokoro-model';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     expect(component.customModelValid()).toBe(true);
 
-    (
-      fixture.nativeElement.querySelector(
-        '[data-testid="local-tts-custom-save"]',
-      ) as HTMLButtonElement
-    ).click();
-    await settle(fixture);
+    byTestId<HTMLButtonElement>('local-tts-custom-save').click();
+    await settle();
 
-    expect(rpc.call).toHaveBeenCalledWith('voice:setTtsConfig', {
-      voice: 'af_heart',
-      modelSource: 'hf',
-      customModel: 'owner/kokoro-model',
+    expect(calls(rpc, 'voice:setTtsConfig')).toEqual([
+      { voice: 'af_heart', modelSource: 'hf', customModel: 'owner/kokoro-model' },
+    ]);
+    expect(feedback.toast()).toEqual({
+      tone: 'status',
+      message: 'Saved text-to-speech model source.',
+      canUndo: false,
     });
   });
 
-  it('switching back to curated persists immediately with modelSource:curated', async () => {
+  it('keeps the custom draft and alerts when the custom save fails (D15, S-explicit)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
+      'voice:setTtsConfig': () => rpcError('disk full'),
+    });
+    const component = mount(rpc, localConfig());
+    await settle();
+
+    byTestId<HTMLButtonElement>('local-tts-source-hf').click();
+    fixture.detectChanges();
+    const input = byTestId<HTMLInputElement>('local-tts-custom-input');
+    input.value = 'owner/kokoro-model';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    byTestId<HTMLButtonElement>('local-tts-custom-save').click();
+    await settle();
+
+    expect(component.customModel()).toBe('owner/kokoro-model');
+    expect(component.source()).toBe('hf');
+    expect(input.value).toBe('owner/kokoro-model');
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message: 'Could not save the text-to-speech configuration.',
+      canUndo: false,
+    });
+    const alert = byTestId('local-tts-panel-error');
+    expect(alert.textContent).toContain(
+      'Could not save the text-to-speech configuration.',
+    );
+    expect(alert.textContent).not.toContain('disk full');
+  });
+
+  it('returns to Curated immediately and Undo restores the previous source (V13, S-sel)', async () => {
     const rpc = createMockRpcService();
     routeRpc(rpc, {
       'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
@@ -216,47 +433,94 @@ describe('LocalTtsPanelComponent', () => {
         }),
       'voice:setTtsConfig': () => rpcSuccess({ ok: true }),
     });
+    const component = mount(rpc, localConfig());
+    await settle();
 
-    const fixture = mount(rpc, localConfig());
-    await settle(fixture);
+    byTestId<HTMLButtonElement>('local-tts-source-curated').click();
+    await settle();
 
-    (
-      fixture.nativeElement.querySelector(
-        '[data-testid="local-tts-source-curated"]',
-      ) as HTMLButtonElement
-    ).click();
-    await settle(fixture);
-
-    expect(fixture.componentInstance.source()).toBe('curated');
-    expect(rpc.call).toHaveBeenCalledWith('voice:setTtsConfig', {
-      voice: 'af_heart',
-      modelSource: 'curated',
+    expect(calls(rpc, 'voice:setTtsConfig')).toEqual([
+      { voice: 'af_heart', modelSource: 'curated' },
+    ]);
+    expect(component.source()).toBe('curated');
+    expect(feedback.toast()).toEqual({
+      tone: 'status',
+      message: 'Saved text-to-speech model source.',
+      canUndo: true,
     });
     // Custom input disappears once curated is active.
-    expect(
-      fixture.nativeElement.querySelector(
-        '[data-testid="local-tts-custom-input"]',
-      ),
-    ).toBeNull();
+    expect(element.querySelector('[data-testid="local-tts-custom-input"]')).toBeNull();
+
+    await feedback.undo();
+    await settle();
+
+    expect(calls(rpc, 'voice:setTtsConfig')).toEqual([
+      { voice: 'af_heart', modelSource: 'curated' },
+      { voice: 'af_heart', modelSource: 'dir', customModel: '/models/kokoro' },
+    ]);
+    expect(component.source()).toBe('dir');
+    expect(component.customModel()).toBe('/models/kokoro');
   });
 
-  it('downloads the TTS model with the tts progress sentinel preserved', async () => {
+  it('reverts the source toggle when the return to Curated fails (D15)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, {
+      'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
+      'voice:getTtsConfig': () =>
+        rpcSuccess({
+          ok: true,
+          config: {
+            voice: 'af_heart',
+            downloaded: false,
+            modelSource: 'dir',
+            customModel: '/models/kokoro',
+          },
+        }),
+      'voice:setTtsConfig': () => rpcError('disk full'),
+    });
+    const component = mount(rpc, localConfig());
+    await settle();
+
+    byTestId<HTMLButtonElement>('local-tts-source-curated').click();
+    await settle();
+
+    expect(component.source()).toBe('dir');
+    expect(feedback.toast()).toEqual({
+      tone: 'alert',
+      message: 'Could not save the text-to-speech configuration.',
+      canUndo: false,
+    });
+    expect(element.textContent).not.toContain('disk full');
+  });
+
+  it('abandons an unsaved custom draft without a write when Curated is already saved (V13)', async () => {
+    const rpc = createMockRpcService();
+    routeRpc(rpc, { 'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }) });
+    const component = mount(rpc, localConfig());
+    await settle();
+
+    byTestId<HTMLButtonElement>('local-tts-source-hf').click();
+    fixture.detectChanges();
+    byTestId<HTMLButtonElement>('local-tts-source-curated').click();
+    await settle();
+
+    expect(calls(rpc, 'voice:setTtsConfig')).toEqual([]);
+    expect(component.source()).toBe('curated');
+    expect(feedback.toast()).toBeNull();
+  });
+
+  it('downloads the TTS model with the tts progress sentinel preserved (V19)', async () => {
     const rpc = createMockRpcService();
     routeRpc(rpc, {
       'voice:listVoices': () => rpcSuccess({ ok: true, voices: [] }),
       'voice:downloadTtsModel': () =>
         rpcSuccess({ ok: true, alreadyPresent: false }),
     });
+    mount(rpc, localConfig());
+    await settle();
 
-    const fixture = mount(rpc, localConfig());
-    await settle(fixture);
-
-    (
-      fixture.nativeElement.querySelector(
-        '[data-testid="local-tts-download-btn"]',
-      ) as HTMLButtonElement
-    ).click();
-    await settle(fixture);
+    byTestId<HTMLButtonElement>('local-tts-download-btn').click();
+    await settle();
 
     expect(rpc.call).toHaveBeenCalledWith(
       'voice:downloadTtsModel',
@@ -280,14 +544,41 @@ describe('LocalTtsPanelComponent', () => {
           },
         }),
     });
+    const component = mount(rpc, localConfig());
+    await settle();
 
-    const fixture = mount(rpc, localConfig());
-    await settle(fixture);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('local-tts-download-btn'))).toBe(true);
+    expect(component.canDownload()).toBe(false);
+  });
 
-    const btn = fixture.nativeElement.querySelector(
-      '[data-testid="local-tts-download-btn"]',
-    ) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    expect(fixture.componentInstance.canDownload()).toBe(false);
+  it('disables save triggers while a write is in flight (D3)', async () => {
+    const rpc = createMockRpcService();
+    let resolveWrite!: (result: RpcResult<{ ok: boolean }>) => void;
+    (rpc.call as jest.Mock).mockImplementation((method: string) => {
+      if (method === 'voice:listVoices') return Promise.resolve(VOICES());
+      if (method !== 'voice:setTtsConfig') {
+        return Promise.resolve(rpcSuccess({ ok: true }));
+      }
+      return new Promise<RpcResult<{ ok: boolean }>>((resolve) => {
+        resolveWrite = resolve;
+      });
+    });
+    mount(rpc, localConfig());
+    await settle();
+
+    const select = byTestId<HTMLSelectElement>('local-tts-voice-select');
+    select.value = 'bf_emma';
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+
+    expect(isDisabledControl(select)).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('local-tts-preview-btn'))).toBe(true);
+    expect(isDisabledControl(byTestId<HTMLButtonElement>('local-tts-download-btn'))).toBe(true);
+
+    resolveWrite(rpcSuccess({ ok: true }));
+    await settle();
+
+    expect(isDisabledControl(select)).toBe(false);
+    expect(calls(rpc, 'voice:setTtsConfig')).toEqual([{ voice: 'bf_emma' }]);
   });
 });

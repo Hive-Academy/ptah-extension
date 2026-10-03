@@ -88,6 +88,7 @@ import {
 import type { ClaudeCliHealth } from '@ptah-extension/shared';
 import type { WorkspaceScopeResolver } from '@ptah-extension/settings-core';
 
+import { ConnectionCheckRecorder } from '../utils/connection-check-recorder';
 import { AuthRpcHandlers } from './auth-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -437,6 +438,7 @@ function makeHarness(
     // Draft verification is not exercised by this harness: every probe path
     // has its own coverage. Present only to keep the positional list aligned.
     {} as unknown as import('@ptah-extension/auth-providers').DraftVerificationService,
+    new ConnectionCheckRecorder(),
     webviewManager as unknown as import('@ptah-extension/vscode-core').WebviewManager,
     adapterEvents as unknown as import('@ptah-extension/agent-sdk').SdkAdapterEvents,
   );
@@ -462,6 +464,23 @@ function makeHarness(
   };
 }
 
+/** Include Error messages/stacks, which ordinary JSON serialization omits. */
+function diagnosticText(h: Harness): string {
+  return JSON.stringify(
+    [
+      ...h.logger.debug.mock.calls,
+      ...h.logger.info.mock.calls,
+      ...h.logger.warn.mock.calls,
+      ...h.logger.error.mock.calls,
+      ...h.sentry.captureException.mock.calls,
+    ],
+    (_key, value: unknown) =>
+      value instanceof Error
+        ? { name: value.name, message: value.message, stack: value.stack }
+        : value,
+  );
+}
+
 /** Total probe/secret-store invocations across every source `computeAuthStatus` reads. */
 function probeCounts(h: Harness): {
   cli: number;
@@ -474,7 +493,7 @@ function probeCounts(h: Harness): {
     copilot: h.copilot.isAuthenticated.mock.calls.length,
     codex: h.codex.getTokenStatus.mock.calls.length,
     secrets:
-      h.authSecrets.hasCredential.mock.calls.length +
+      h.authSecrets.getCredential.mock.calls.length +
       h.authSecrets.hasProviderKey.mock.calls.length,
   };
 }
@@ -726,7 +745,8 @@ describe('AuthRpcHandlers', () => {
       expect(h.cliDetector.performHealthCheck).toHaveBeenCalledTimes(1);
       expect(h.copilot.isAuthenticated).toHaveBeenCalledTimes(1);
       expect(h.codex.getTokenStatus).toHaveBeenCalledTimes(1);
-      expect(h.authSecrets.hasCredential).toHaveBeenCalledTimes(1);
+      // One read serves both `hasApiKey` and `apiKeyHint` (Batch 28c).
+      expect(h.authSecrets.getCredential).toHaveBeenCalledTimes(1);
     });
 
     it('serves a second call within the TTL with ZERO probe or secret-store work', async () => {
@@ -1482,6 +1502,92 @@ describe('AuthRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('auth:testConnection', () => {
+    it('reports an SDK error without a message as a connection failure, not a timeout', async () => {
+      jest.useFakeTimers();
+      try {
+        const h = makeHarness();
+        h.sdkAdapter.getHealth.mockReturnValue({
+          status: 'error',
+          lastCheck: Date.now(),
+        });
+        h.handlers.register();
+        const pending = call<
+          import('@ptah-extension/shared').AuthTestConnectionResponse
+        >(h, 'auth:testConnection');
+        await jest.runAllTimersAsync();
+        const result = await pending;
+        expect(result.success).toBe(false);
+        expect(result.errorMessage).toBe('Could not test the connection.');
+        expect(result.health?.errorMessage).toBeUndefined();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it.each(['throw', 'error', 'available', 'final-read'] as const)(
+      'keeps secret-like SDK error text out of results, logs and Sentry (%s)',
+      async (failure) => {
+        jest.useFakeTimers();
+        try {
+          const secret = 'sk-test-CONNECTION-SECRET';
+          const h = makeHarness();
+          h.handlers.register();
+          if (failure === 'throw') {
+            h.sdkAdapter.getHealth.mockImplementation(() => {
+              throw new Error(`SDK rejected ${secret}`);
+            });
+          } else {
+            h.sdkAdapter.getHealth.mockReturnValue({
+              status: failure === 'available' ? 'available' : 'error',
+              lastCheck: Date.now(),
+              errorMessage: `SDK rejected ${secret}`,
+            });
+            if (failure === 'final-read') {
+              h.sdkAdapter.getHealth.mockImplementation(() => {
+                throw new Error(`SDK rejected ${secret}`);
+              });
+              for (let attempt = 0; attempt < 5; attempt++) {
+                h.sdkAdapter.getHealth.mockReturnValueOnce({
+                  status: 'initializing',
+                  lastCheck: Date.now(),
+                });
+              }
+            }
+          }
+          const pending = call<{
+            success: boolean;
+            errorMessage?: string;
+          }>(h, 'auth:testConnection');
+          await jest.runAllTimersAsync();
+          const result = await pending;
+          expect(result.success).toBe(failure === 'available');
+          expect(result.errorMessage).toBe(
+            failure === 'available'
+              ? undefined
+              : 'Could not test the connection.',
+          );
+          for (const text of [JSON.stringify(result), diagnosticText(h)]) {
+            expect(text).not.toContain(secret);
+            expect(text).not.toContain('SDK rejected');
+          }
+          if (failure === 'throw' || failure === 'final-read') {
+            expect(h.logger.error).toHaveBeenCalledWith(
+              'RPC: auth:testConnection failed',
+              { errorType: 'Error' },
+            );
+            expect(h.sentry.captureException).toHaveBeenCalledWith(
+              expect.objectContaining({
+                message: 'auth:testConnection failed (Error)',
+              }),
+              { errorSource: 'AuthRpcHandlers.registerTestConnection' },
+            );
+          }
+        } finally {
+          jest.useRealTimers();
+        }
+      },
+    );
+
     it('returns success as soon as SDK health reports available', async () => {
       // Speed up the retry backoff; see the timeout test for rationale.
       const realSetTimeout = global.setTimeout;
@@ -1521,6 +1627,10 @@ describe('AuthRpcHandlers', () => {
 
       try {
         const h = makeHarness({ sdkStatus: 'error' });
+        h.sdkAdapter.getHealth.mockReturnValue({
+          status: 'initializing',
+          lastCheck: Date.now(),
+        });
         h.handlers.register();
 
         const result = await call<{
@@ -1529,7 +1639,7 @@ describe('AuthRpcHandlers', () => {
         }>(h, 'auth:testConnection');
 
         expect(result.success).toBe(false);
-        expect(result.errorMessage).toBeDefined();
+        expect(result.errorMessage).toBe('Connection test timed out');
         // Exponential-backoff loop invokes setTimeout once per attempt.
         expect(global.setTimeout).toHaveBeenCalledTimes(5);
       } finally {
@@ -1674,9 +1784,95 @@ describe('AuthRpcHandlers', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('network down');
+      expect(result.error).toBe('GitHub sign-in failed. Try again.');
       expect(h.sentry.captureException).toHaveBeenCalled();
     });
+
+    it('never returns the thrown error text: no token or path in the result (Batch 12b)', async () => {
+      const h = makeHarness();
+      h.copilot.login.mockRejectedValue(
+        new Error(
+          `token sk-test-FAKEKEY123 rejected; wrote C:\\Users\\someone\\.ptah\\settings.json`,
+        ),
+      );
+      h.handlers.register();
+
+      const response = await h.rpcHandler.handleMessage({
+        method: 'auth:copilotLogin',
+        params: {},
+        correlationId: 'corr-leak',
+      });
+
+      const serialized = JSON.stringify(response);
+      expect(serialized).not.toContain('sk-test-FAKEKEY123');
+      expect(serialized).not.toContain('someone');
+      expect(serialized).not.toContain('settings.json');
+      expect((response.data as { error?: string }).error).toBe(
+        'GitHub sign-in failed. Try again.',
+      );
+    });
+  });
+
+  describe('auth:setApiKey error text (Batch 12b)', () => {
+    const FAKE_KEY = 'sk-test-FAKEKEY123';
+    const leakyError = () =>
+      new Error(
+        `keychain write of ${FAKE_KEY} failed at C:\\Users\\someone\\.ptah\\settings.json`,
+      );
+
+    it.each([
+      [
+        'saving a key',
+        FAKE_KEY,
+        'setProviderKey',
+        'Could not save the API key.',
+      ],
+      [
+        'clearing a key',
+        '',
+        'deleteProviderKey',
+        'Could not delete the stored key.',
+      ],
+      [
+        'clearing a blank key',
+        '   ',
+        'deleteProviderKey',
+        'Could not delete the stored key.',
+      ],
+    ] as const)(
+      'returns fixed text and never the key or path when %s fails',
+      async (_label, apiKey, method, expectedError) => {
+        const h = makeHarness();
+        (h.authSecrets[method] as jest.Mock).mockRejectedValue(leakyError());
+        h.handlers.register();
+
+        const response = await h.rpcHandler.handleMessage({
+          method: 'auth:setApiKey',
+          params: { provider: 'z-ai', apiKey },
+          correlationId: 'corr-leak',
+        });
+
+        const serialized = JSON.stringify(response);
+        expect(serialized).not.toContain(FAKE_KEY);
+        expect(serialized).not.toContain('someone');
+        expect(serialized).not.toContain('settings.json');
+        expect(response.data).toEqual({
+          success: false,
+          error: expectedError,
+        });
+        expect(diagnosticText(h)).not.toContain(FAKE_KEY);
+        expect(diagnosticText(h)).not.toContain('someone');
+        expect(diagnosticText(h)).not.toContain('settings.json');
+        expect(h.logger.error).toHaveBeenCalledWith(
+          'RPC: auth:setApiKey failed',
+          { errorType: 'Error' },
+        );
+        expect(h.sentry.captureException).toHaveBeenCalledWith(
+          expect.objectContaining({ message: 'auth:setApiKey failed (Error)' }),
+          { errorSource: 'AuthRpcHandlers.registerSetApiKey' },
+        );
+      },
+    );
   });
 
   describe('auth:copilotLogout', () => {
@@ -2008,27 +2204,55 @@ describe('AuthRpcHandlers', () => {
   // runtime (ActiveProviderResolver) actually uses, never llm.defaultProvider.
   describe('auth:getEffectiveRoute driver identity', () => {
     function routeHarness(configSeed: Record<string, unknown>) {
-      const h = makeHarness({ configSeed, credentialsSeed: { apiKey: 'sk-ant-x' }, providerKeysSeed: { openrouter: 'or-key' } });
+      const h = makeHarness({
+        configSeed,
+        credentialsSeed: { apiKey: 'sk-ant-x' },
+        providerKeysSeed: { openrouter: 'or-key' },
+      });
       h.handlers.register();
       // The route composes llm:getProviderStatus (registered by LlmRpcHandlers in the app).
       // Report the same llm.defaultProvider the seed stores, as the real handler does,
       // so a resolver that trusted it would pick that provider.
       h.rpcHandler.registerMethod('llm:getProviderStatus', async () => ({
-        defaultProvider: (configSeed['llm.defaultProvider'] as string | undefined) ?? 'openrouter',
+        defaultProvider:
+          (configSeed['llm.defaultProvider'] as string | undefined) ??
+          'openrouter',
         providers: [
-          { name: 'anthropic', authType: 'apiKey', hasApiKey: true, isLocal: false, requiresProxy: false },
-          { name: 'openrouter', authType: 'apiKey', hasApiKey: true, isLocal: false, requiresProxy: false },
+          {
+            name: 'anthropic',
+            authType: 'apiKey',
+            hasApiKey: true,
+            isLocal: false,
+            requiresProxy: false,
+          },
+          {
+            name: 'openrouter',
+            authType: 'apiKey',
+            hasApiKey: true,
+            isLocal: false,
+            requiresProxy: false,
+          },
         ],
       }));
       return h;
     }
     function runtimeProvider(h: Harness): string {
-      return new ActiveProviderResolver(h.scopeResolver as unknown as WorkspaceScopeResolver).resolveActiveAuth().providerId;
+      return new ActiveProviderResolver(
+        h.scopeResolver as unknown as WorkspaceScopeResolver,
+      ).resolveActiveAuth().providerId;
     }
 
     it('apiKey with a conflicting llm.defaultProvider reports direct Anthropic, like the runtime', async () => {
-      const h = routeHarness({ authMethod: 'apiKey', 'llm.defaultProvider': 'openrouter', anthropicProviderId: 'claude-cli' });
-      const route = await call<{ driverProviderId: string; ready: boolean }>(h, 'auth:getEffectiveRoute', { refresh: true });
+      const h = routeHarness({
+        authMethod: 'apiKey',
+        'llm.defaultProvider': 'openrouter',
+        anthropicProviderId: 'claude-cli',
+      });
+      const route = await call<{ driverProviderId: string; ready: boolean }>(
+        h,
+        'auth:getEffectiveRoute',
+        { refresh: true },
+      );
       expect(route.driverProviderId).toBe('anthropic');
       expect(route.driverProviderId).toBe(runtimeProvider(h));
       expect(route.ready).toBe(true);
@@ -2038,8 +2262,15 @@ describe('AuthRpcHandlers', () => {
     });
 
     it('thirdParty with no selector reports the runtime fallback provider', async () => {
-      const h = routeHarness({ authMethod: 'thirdParty', 'llm.defaultProvider': 'anthropic' });
-      const route = await call<{ driverProviderId: string }>(h, 'auth:getEffectiveRoute', { refresh: true });
+      const h = routeHarness({
+        authMethod: 'thirdParty',
+        'llm.defaultProvider': 'anthropic',
+      });
+      const route = await call<{ driverProviderId: string }>(
+        h,
+        'auth:getEffectiveRoute',
+        { refresh: true },
+      );
       expect(route.driverProviderId).toBe(runtimeProvider(h));
       expect(route.driverProviderId).toBe('openrouter');
     });

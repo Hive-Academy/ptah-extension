@@ -105,6 +105,10 @@ export interface AgentOrchestrationConfig {
   piModel?: string;
   /** Whether a Cursor API key is configured (CURSOR_API_KEY or secrets store entry ptah.auth.provider.cursor). The raw key is never returned to the UI. */
   cursorApiKeyConfigured: boolean;
+  /** Whether a Cursor API key is present in the secrets store (ptah.auth.provider.cursor), regardless of CURSOR_API_KEY. The raw key is never returned to the UI. */
+  cursorApiKeyStored: boolean;
+  /** Whether the CURSOR_API_KEY environment variable is set to a non-blank value. The env var takes precedence over the stored key at resolution time. */
+  cursorApiKeyEnvSet: boolean;
   /** Codex reasoning effort (empty string = SDK default) */
   codexReasoningEffort: string;
   /** Copilot reasoning effort (empty string = SDK default) */

@@ -114,9 +114,9 @@ Drop PNG files into `apps/ptah-docs/public/screenshots/` (served at `/screenshot
 
 ## Browser Automation (1)
 
-| Filename               | Shows                                                              | Page                                        |
-| ---------------------- | ------------------------------------------------------------------ | ------------------------------------------- |
-| `browser-settings.png` | Browser settings (executable path, headless toggle, user-data dir) | `browser-automation/launching-a-browser.md` |
+| Filename               | Shows                                                                            | Page                                        |
+| ---------------------- | -------------------------------------------------------------------------------- | ------------------------------------------- |
+| `browser-settings.png` | Advanced tab, MCP & Browser section (MCP port, tool namespaces, Allow localhost) | `browser-automation/launching-a-browser.md` |
 
 ## Settings (2)
 
@@ -174,19 +174,19 @@ The rest of the list above is still hand-captured.
 These were referenced by docs pages with no file behind them. The surface does
 not exist in the app, so the reference was removed rather than faked:
 
-| Shot                                                  | Why not                                                                                                                                               |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `open-folder-dialog`                                  | Native OS dialog — outside the renderer Playwright drives                                                                                             |
-| `sessions-analytics`, `sessions-analytics-trends`     | The dashboard is card-only (no charts), and its widest range is 14 days, so no profile here has a session inside it                                   |
-| `sessions-cost-summary`                               | Cost comes from JSONL transcripts; no session on hand has any                                                                                         |
-| `sessions-autoimport`, `sessions-autoimport-disambig` | No auto-import banner or disambiguation prompt exists                                                                                                 |
-| `agents-import`, `agents-import-filters`              | No import-history surface exists                                                                                                                      |
-| `agents-sync-targets`, `agents-sync-diff`             | No CLI-sync UI exists                                                                                                                                 |
-| `context-inspector`                                   | No context-inspector surface exists                                                                                                                   |
-| `templates-panel`                                     | No Templates panel exists in the Electron app                                                                                                         |
-| `setup-import`                                        | No session-import dialog exists — the Claude CLI history import is automatic and silent                                                               |
-| `diff-agent-proposed`                                 | Needs a live agent turn proposing an edit — not reproducible in a capture pass                                                                        |
-| `browser-settings`                                    | `ptah-browser-settings` exists but holds one "Allow Localhost" toggle, while the page describes an executable path, headless toggle and user-data dir |
+| Shot                                                  | Why not                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `open-folder-dialog`                                  | Native OS dialog — outside the renderer Playwright drives                                                                                                                                                                                                                                                                            |
+| `sessions-analytics`, `sessions-analytics-trends`     | The dashboard is card-only (no charts), and its widest range is 14 days, so no profile here has a session inside it                                                                                                                                                                                                                  |
+| `sessions-cost-summary`                               | Cost comes from JSONL transcripts; no session on hand has any                                                                                                                                                                                                                                                                        |
+| `sessions-autoimport`, `sessions-autoimport-disambig` | No auto-import banner or disambiguation prompt exists                                                                                                                                                                                                                                                                                |
+| `agents-import`, `agents-import-filters`              | No import-history surface exists                                                                                                                                                                                                                                                                                                     |
+| `agents-sync-targets`, `agents-sync-diff`             | No CLI-sync UI exists                                                                                                                                                                                                                                                                                                                |
+| `context-inspector`                                   | No context-inspector surface exists                                                                                                                                                                                                                                                                                                  |
+| `templates-panel`                                     | No Templates panel exists in the Electron app                                                                                                                                                                                                                                                                                        |
+| `setup-import`                                        | No session-import dialog exists — the Claude CLI history import is automatic and silent                                                                                                                                                                                                                                              |
+| `diff-agent-proposed`                                 | Needs a live agent turn proposing an edit — not reproducible in a capture pass                                                                                                                                                                                                                                                       |
+| `browser-settings`                                    | `ptah-browser-settings` was deleted (Batch 44 of TASK_2026_555): its one "Allow localhost" toggle now sits in the Advanced tab, MCP & Browser section (`ptah-mcp-port-config`), beside the MCP port and tool namespaces. The page still describes an executable path, headless toggle and user-data dir, which the app does not have |
 
 The last two rows are docs-prose drift, not missing assets: the pages describe
 behaviour the app does not have. Fixing that prose is a separate pass.

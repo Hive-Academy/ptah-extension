@@ -326,6 +326,7 @@ export {
 export type { TerminalLaunch } from './utils/terminal-launch';
 export { PtahFileSettingsManager } from './file-settings-manager';
 export type { FileSettingsDefaults } from './file-settings-manager';
+export { SettingsPersistError } from './file-settings-errors';
 export {
   ENHANCE_TIMEOUT_DEFAULT_MS,
   ENHANCE_TIMEOUT_MAX_MS,

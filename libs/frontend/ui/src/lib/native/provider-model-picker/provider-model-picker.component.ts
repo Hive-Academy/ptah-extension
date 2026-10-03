@@ -31,7 +31,11 @@
  * - {@link refreshCatalog} re-runs the model load (the error row offers a
  *   Retry wired to it);
  * - {@link disabled} disables the whole control;
- * - the trailing content slot takes a host-rendered scope row.
+ * - the trailing content slot takes a host-rendered scope row;
+ * - {@link searchable} (TASK_2026_555, D12) swaps the model `<select>` for an
+ *   internal type-to-filter field; off by default.
+ * Tool-use is surfaced in both modes: a per-option marker and a
+ * "`N` models · `M` support tool use" summary line.
  * A model id absent from the loaded catalogue stays selectable and renders
  * "`<id>` · not in current catalog".
  *
@@ -65,6 +69,10 @@ import {
 } from '@ptah-extension/shared';
 
 import { PROVIDER_MODELS_LOADER } from './provider-models-loader.port';
+import {
+  ProviderModelSearchFieldComponent,
+  type ProviderModelSearchOption,
+} from './provider-model-search-field.component';
 
 /** Emitted by {@link ProviderModelPickerComponent.selectionChange}. */
 export interface ProviderModelSelection {
@@ -89,6 +97,13 @@ interface ProviderOption {
 }
 
 const INHERIT_PROVIDER_LABEL = 'Active provider (default)';
+
+/**
+ * Per-option tool-use marker in the native `<select>`. An `<option>` renders
+ * text only, so the marker is a text suffix; the searchable field renders a
+ * badge instead. Only models the catalogue reports as tool-capable get it.
+ */
+const TOOL_USE_OPTION_SUFFIX = ' · tool use';
 
 /**
  * Characters of prompt budget suggested per token of context window.
@@ -128,6 +143,7 @@ function buildDefaultModelLabel(
 @Component({
   selector: 'ptah-provider-model-picker',
   standalone: true,
+  imports: [ProviderModelSearchFieldComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -162,11 +178,13 @@ function buildDefaultModelLabel(
               >Provider</span
             >
             <select
-              class="select select-bordered select-sm"
+              class="select select-bordered select-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
               data-testid="provider-model-picker-provider"
               [value]="selectedProvider()"
-              [disabled]="disabled()"
+              [attr.aria-disabled]="disabled() ? 'true' : null"
               [attr.aria-label]="providerAriaLabel()"
+              (mousedown)="blockWhileDisabled($event)"
+              (keydown)="blockWhileDisabled($event)"
               (change)="onProviderChange($event)"
             >
               <option value="" [selected]="selectedProvider() === ''">
@@ -184,27 +202,72 @@ function buildDefaultModelLabel(
           </label>
         }
 
-        <label class="flex flex-col gap-1">
-          <span class="text-xs font-medium text-base-content-muted">Model</span>
-          <select
-            class="select select-bordered select-sm"
-            data-testid="provider-model-picker-model"
-            [value]="selectedModelId()"
-            [disabled]="modelsLoading() || disabled()"
-            [attr.aria-label]="modelAriaLabel()"
-            (change)="onModelChange($event)"
-          >
-            <option value="" [selected]="selectedModelId() === ''">
-              {{ defaultModelLabel() }}
-            </option>
-            @for (m of modelOptions(); track m.id) {
-              <option [value]="m.id" [selected]="m.id === selectedModelId()">
-                {{ m.name }}
+        @if (searchable()) {
+          <div class="flex flex-col gap-1">
+            <span class="text-xs font-medium text-base-content-muted"
+              >Model</span
+            >
+            <ptah-provider-model-search-field
+              [options]="modelOptions()"
+              [selectedId]="selectedModelId()"
+              [defaultLabel]="defaultModelLabel()"
+              [disabled]="modelsLoading() || disabled()"
+              [ariaLabel]="modelAriaLabel()"
+              (modelSelected)="selectModel($event)"
+            />
+          </div>
+        } @else {
+          <label class="flex flex-col gap-1">
+            <span class="text-xs font-medium text-base-content-muted"
+              >Model</span
+            >
+            <select
+              class="select select-bordered select-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+              data-testid="provider-model-picker-model"
+              [value]="selectedModelId()"
+              [disabled]="modelsLoading()"
+              [attr.aria-disabled]="disabled() ? 'true' : null"
+              [attr.aria-label]="modelAriaLabel()"
+              (mousedown)="blockWhileDisabled($event)"
+              (keydown)="blockWhileDisabled($event)"
+              (change)="onModelChange($event)"
+            >
+              <option value="" [selected]="selectedModelId() === ''">
+                {{ defaultModelLabel() }}
               </option>
-            }
-          </select>
-        </label>
+              @for (m of modelOptions(); track m.id) {
+                <option [value]="m.id" [selected]="m.id === selectedModelId()">
+                  {{ m.name }}{{ m.supportsToolUse ? toolUseOptionSuffix : '' }}
+                </option>
+              }
+            </select>
+          </label>
+        }
       </div>
+
+      @if (toolUseSummary(); as summary) {
+        <p class="px-3 pb-2">
+          <span
+            class="inline-flex items-center gap-1 rounded-full border border-info/40 bg-info/10 px-2 py-0.5 text-xs text-base-content"
+            data-testid="provider-model-picker-tooluse-summary"
+          >
+            <!-- Colour on the icon and border only; the label stays base-content (deviation 6, AA). -->
+            <svg
+              class="h-3 w-3 text-info"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path
+                d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+              />
+            </svg>
+            {{ summary }}
+          </span>
+        </p>
+      }
 
       @if (toolUseWarning()) {
         <p
@@ -341,10 +404,20 @@ export class ProviderModelPickerComponent {
    */
   readonly disabled = input<boolean>(false);
 
+  /**
+   * Opt-in type-to-filter model control (D12). When `true`, the model
+   * `<select>` is replaced by an internal search field that filters the
+   * catalogue by name or id (capped at 50 rows). Default `false` keeps the
+   * native `<select>` exactly as before — Settings opts in; the Memory and
+   * Thoth Skills consumers do not.
+   */
+  readonly searchable = input<boolean>(false);
+
   /** Fires on every user edit of either select, with both current values. */
   readonly selectionChange = output<ProviderModelSelection>();
 
   protected readonly inheritProviderLabel = INHERIT_PROVIDER_LABEL;
+  protected readonly toolUseOptionSuffix = TOOL_USE_OPTION_SUFFIX;
 
   /**
    * Registry + externally supplied options. The registry accessor itself is
@@ -420,16 +493,40 @@ export class ProviderModelPickerComponent {
    * misreports the pin. The label preserves the existing
    * "`<id>` · not in current catalog" display.
    */
-  protected readonly modelOptions = computed<readonly ProviderOption[]>(() => {
-    const options = this._models().map((m) => ({ id: m.id, name: m.name }));
+  protected readonly modelOptions = computed<
+    readonly ProviderModelSearchOption[]
+  >(() => {
+    const options = this._models().map((m) => ({
+      id: m.id,
+      name: m.name,
+      supportsToolUse: m.supportsToolUse,
+    }));
     const pinned = this._model();
     if (pinned && !options.some((o) => o.id === pinned)) {
       return [
-        { id: pinned, name: `${pinned} · not in current catalog` },
+        {
+          id: pinned,
+          name: `${pinned} · not in current catalog`,
+          supportsToolUse: null,
+        },
         ...options,
       ];
     }
     return options;
+  });
+
+  /**
+   * Always-on catalogue summary (#38): "`N` models · `M` support tool use",
+   * counted over the loaded catalogue only (a pinned out-of-catalogue id is
+   * not evidence either way). Null while the catalogue is empty.
+   */
+  protected readonly toolUseSummary = computed<string | null>(() => {
+    const models = this._models();
+    if (models.length === 0) return null;
+    const capable = models.filter((m) => m.supportsToolUse).length;
+    const noun = models.length === 1 ? 'model' : 'models';
+    const verb = capable === 1 ? 'supports' : 'support';
+    return `${models.length} ${noun} · ${capable} ${verb} tool use`;
   });
 
   protected readonly defaultModelLabel = computed(() =>
@@ -496,8 +593,24 @@ export class ProviderModelPickerComponent {
     });
   }
 
+  /**
+   * A disabled picker (a save runs) keeps its selects focusable, `aria-disabled` rather than native `disabled`, so the
+   * select the user just changed keeps focus and Esc still reaches the popover or drawer (TASK_2026_555 Batch 54.1).
+   * Opening it and changing it with keys are refused; Tab and Esc still work.
+   */
+  protected blockWhileDisabled(event: Event): void {
+    if (!this.disabled()) return;
+    if (event instanceof KeyboardEvent && (event.key === 'Tab' || event.key === 'Escape')) return;
+    event.preventDefault();
+  }
+
   protected onProviderChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
+    const select = event.target as HTMLSelectElement;
+    if (this.disabled()) {
+      select.value = this.selectedProvider();
+      return;
+    }
+    const value = select.value;
     this._provider.set(value);
     // A model id from the previous provider is meaningless here.
     this._model.set('');
@@ -506,7 +619,17 @@ export class ProviderModelPickerComponent {
   }
 
   protected onModelChange(event: Event): void {
-    this._model.set((event.target as HTMLSelectElement).value);
+    const select = event.target as HTMLSelectElement;
+    if (this.disabled()) {
+      select.value = this.selectedModelId();
+      return;
+    }
+    this.selectModel(select.value);
+  }
+
+  /** Shared by the `<select>` and the searchable field. */
+  protected selectModel(modelId: string): void {
+    this._model.set(modelId);
     this.emit();
   }
 

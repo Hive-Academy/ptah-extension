@@ -394,14 +394,17 @@ describe('PtahFileSettingsManager', () => {
   // -------------------------------------------------------------------------
 
   describe('flushSync() — Batch 1 invariants', () => {
-    it('TC-1: writes synchronously — file is readable with no await between flushSync and readFileSync', () => {
+    it('TC-1: writes synchronously — file is readable with no await between flushSync and readFileSync', async () => {
       // Arrange: construct manager, set a value (sync in-memory write; async disk write queued)
       const mgr = new PtahFileSettingsManager({});
       // Use the internal sync path — set() is async but flushSync() should
       // independently serialize current in-memory state.
       // We trigger a set() but do NOT await it so the async persist() may not
       // have finished. Then we call flushSync() and read synchronously.
-      void mgr.set('authMethod', 'flushSync-value');
+      // The pending write is awaited at the end: set() rejects when its write
+      // fails, and afterEach removing the directory mid-write would leave that
+      // rejection unhandled.
+      const pendingWrite = mgr.set('authMethod', 'flushSync-value');
 
       // Act: flush synchronously — CRITICAL: no await anywhere in this block
       mgr.flushSync();
@@ -411,11 +414,12 @@ describe('PtahFileSettingsManager', () => {
       const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8'); // no await
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       expect(parsed['authMethod']).toBe('flushSync-value');
+      await pendingWrite;
     });
 
-    it('TC-1b: flushSync writes nested JSON with $schema and version headers', () => {
+    it('TC-1b: flushSync writes nested JSON with $schema and version headers', async () => {
       const mgr = new PtahFileSettingsManager({});
-      void mgr.set('authMethod', 'batch1-test');
+      const pendingWrite = mgr.set('authMethod', 'batch1-test');
       mgr.flushSync();
 
       const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
@@ -424,11 +428,12 @@ describe('PtahFileSettingsManager', () => {
       expect(parsed['version']).toBe(1);
       // Verify nested unflatten happened (authMethod is a top-level key, not nested)
       expect(parsed['authMethod']).toBe('batch1-test');
+      await pendingWrite;
     });
 
-    it('TC-2: flushSync does not throw when the write target is unwritable (crash-safety)', () => {
+    it('TC-2: flushSync does not throw when the write target is unwritable (crash-safety)', async () => {
       const mgr = new PtahFileSettingsManager({});
-      void mgr.set('authMethod', 'safe');
+      const pendingWrite = mgr.set('authMethod', 'safe');
 
       // Arrange: make the .flush.tmp path a directory — writeFileSync will throw EISDIR
       fs.mkdirSync(PTAH_DIR, { recursive: true });
@@ -446,6 +451,8 @@ describe('PtahFileSettingsManager', () => {
       expect(errorSpy).toHaveBeenCalled();
 
       errorSpy.mockRestore();
+      // The async write uses its own temp name, so the occupied flush slot does not block it.
+      await pendingWrite;
       // Cleanup: remove the dir so afterEach cleanPtahDir works
       try {
         fs.rmdirSync(tmpPath);

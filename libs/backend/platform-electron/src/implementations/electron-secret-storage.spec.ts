@@ -160,6 +160,24 @@ describe('ElectronSecretStorage — Electron-specific behaviour', () => {
     expect(parsed).not.toHaveProperty('transient');
   });
 
+  it('delete persists across a provider restart (file reload path: delete -> get is undefined)', async () => {
+    const first = new ElectronSecretStorage(
+      storage,
+      createEncryptingSafeStorage(),
+    );
+    await first.store('persistent-delete', 'secret-val');
+    expect(await first.get('persistent-delete')).toBe('secret-val');
+
+    await first.delete('persistent-delete');
+    expect(await first.get('persistent-delete')).toBeUndefined();
+
+    const second = new ElectronSecretStorage(
+      storage,
+      createEncryptingSafeStorage(),
+    );
+    expect(await second.get('persistent-delete')).toBeUndefined();
+  });
+
   it('delete on a missing key does not throw and does not fire onDidChange', async () => {
     const provider = new ElectronSecretStorage(
       storage,

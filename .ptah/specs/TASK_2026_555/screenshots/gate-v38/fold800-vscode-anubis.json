@@ -1,0 +1,67 @@
+[
+ {
+  "width": 800,
+  "boxScroll": 752,
+  "boxClient": 752,
+  "boxRectW": 752,
+  "boxRectRight": 776,
+  "maxChildRight": 776,
+  "who": "div",
+  "docScroll": 800,
+  "docClient": 800,
+  "dpr": 1,
+  "cols": "242.656px 242.672px 242.672px"
+ },
+ {
+  "width": 801,
+  "boxScroll": 753,
+  "boxClient": 753,
+  "boxRectW": 753,
+  "boxRectRight": 777,
+  "maxChildRight": 777,
+  "who": "div",
+  "docScroll": 801,
+  "docClient": 801,
+  "dpr": 1,
+  "cols": "243px 243px 243px"
+ },
+ {
+  "width": 802,
+  "boxScroll": 754,
+  "boxClient": 754,
+  "boxRectW": 754,
+  "boxRectRight": 778,
+  "maxChildRight": 778,
+  "who": "div",
+  "docScroll": 802,
+  "docClient": 802,
+  "dpr": 1,
+  "cols": "243.328px 243.328px 243.328px"
+ },
+ {
+  "width": 803,
+  "boxScroll": 755,
+  "boxClient": 755,
+  "boxRectW": 755,
+  "boxRectRight": 779,
+  "maxChildRight": 779,
+  "who": "div",
+  "docScroll": 803,
+  "docClient": 803,
+  "dpr": 1,
+  "cols": "243.656px 243.672px 243.672px"
+ },
+ {
+  "width": 800,
+  "boxScroll": 752,
+  "boxClient": 752,
+  "boxRectW": 752,
+  "boxRectRight": 776,
+  "maxChildRight": 776,
+  "who": "div",
+  "docScroll": 800,
+  "docClient": 800,
+  "dpr": 1,
+  "cols": "242.656px 242.672px 242.672px"
+ }
+]

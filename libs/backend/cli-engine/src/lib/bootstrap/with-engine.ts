@@ -24,7 +24,10 @@ import {
 import type { CliMessageTransport } from '../transport/cli-message-transport.js';
 import type { CliWebviewManagerAdapter } from '../transport/cli-webview-manager-adapter.js';
 import type { CliFireAndForgetHandler } from '../transport/cli-fire-and-forget-handler.js';
-import type { IFileDialog } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  type IFileDialog,
+} from '@ptah-extension/platform-core';
 import { emitFatalError } from '../output/stderr-json.js';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { MigrationRunner } from '@ptah-extension/settings-core';
@@ -91,18 +94,6 @@ type PermissionLevelLite = 'ask' | 'auto-edit' | 'yolo' | 'plan';
 interface SdkPermissionHandlerLifecycle {
   setPermissionLevel(level: PermissionLevelLite): void;
 }
-
-/**
- * Symbol token for the workspace provider binding registered by
- * `CliDIContainer.setup`. Resolved by `Symbol.for('WorkspaceProvider')` to
- * match `PLATFORM_TOKENS.WORKSPACE_PROVIDER` from `@ptah-extension/platform-core`
- * without taking a dependency on that import here.
- *
- * Used by the `authMethod` value migration shim (CLI bug batch item #12) to
- * normalize legacy camelCase tokens (`'claudeCli'`) to their kebab-case
- * canonical form (`'claude-cli'`) on bootstrap.
- */
-const WORKSPACE_PROVIDER_TOKEN = Symbol.for('WorkspaceProvider');
 
 /**
  * Symbol token for the Logger binding registered by `CliDIContainer.setup`
@@ -521,8 +512,11 @@ export async function migrateLegacyAuthMethod(
 ): Promise<void> {
   let provider: WorkspaceProviderLite;
   try {
+    // The platform token CliDIContainer.setup registers the workspace provider
+    // under. (A local Symbol.for('WorkspaceProvider') matched no registration,
+    // so this migration silently never ran — TASK_2026_555 Batch 2b.)
     provider = container.resolve<WorkspaceProviderLite>(
-      WORKSPACE_PROVIDER_TOKEN,
+      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
     );
   } catch {
     return;
