@@ -2127,7 +2127,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 32: Lane resume gate (S4, component 14) — COMPLETE (S4 wave A; report reports/batch-32-report.md)
+## Batch 32: Lane resume gate (S4, component 14) — COMPLETE (S4 wave A; commit 384266a77; report reports/batch-32-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2186,7 +2186,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 33: Blocking waits — manager and tools (S4, component 15 part 1) — PENDING (S4 wave B, after Batch 32 commits)
+## Batch 33: Blocking waits — manager and tools (S4, component 15 part 1) — COMPLETE (commit: SHA_PENDING)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2196,7 +2196,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Phase: S4-a
 - Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools`; `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 33.1: `waitForAgents` — PENDING
+### Task 33.1: `waitForAgents` — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:362-372 (D13), :1074-1075
@@ -2205,7 +2205,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Validation notes: resolves within one tick of the exit event.
 - Implementation details: none.
 
-### Task 33.2: Schema and `ptah_agent_wait` tool — PENDING
+### Task 33.2: Schema and `ptah_agent_wait` tool — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/wait-tools-args.schema.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-wait.tool.ts` (+ specs)
 - Plan reference: implementation-plan.md:1076-1078
@@ -2214,7 +2214,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Validation notes: size bound asserted.
 - Implementation details: none.
 
-### Task 33.3: `ptah_run_check` tool — PENDING
+### Task 33.3: `ptah_run_check` tool — COMPLETE
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/run-check.tool.ts` (+ spec)
 - Plan reference: implementation-plan.md:1079-1093
@@ -2227,10 +2227,11 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 - Size bounds and schema rejections specced; scoped command passes
 - Reviewer: code-logic-reviewer (process spawning and input validation)
+- Accepted deviations (team-leader, Mode 2): Nx entry is `node_modules/nx/dist/bin/nx.js` first, then `node_modules/nx/bin/nx.js` (Nx 23.2.1 has no `bin/`, verified on disk); barrel `cli-agents/index.ts` exports `MAX_AGENT_WAIT_MS` and the wait types; `project` additionally refuses a leading `-`; defaults `mode=all`, timeouts 600 s, `agentIds` ≤10. Batch 34 carries the wiring notes in `reports/batch-33-report.md` § Plan deviations (workspaceRoot from `resolveSpoolRoot`, `describeZodIssues`, `toolErrorResponse`, no budget override).
 
 ---
 
-## Batch 34: Blocking waits — surfaces and `waitFor` rewrite (S4, component 15 part 2) — PENDING (S4 wave C, after Batch 33 commits)
+## Batch 34: Blocking waits — surfaces and `waitFor` rewrite (S4, component 15 part 2) — IN_PROGRESS (S4 wave C)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2240,7 +2241,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Phase: S4-a (last batch of the phase; code-logic + style phase review due after its commit)
 - Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools`; `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 34.1: Advertised schemas and both dispatchers — PENDING
+### Task 34.1: Advertised schemas and both dispatchers — IN_PROGRESS
 
 - File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/agent-tool.dispatcher.ts` (+ parity spec)
 - Plan reference: implementation-plan.md:1099
@@ -2249,7 +2250,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 - Validation notes: parity spec updated.
 - Implementation details: none.
 
-### Task 34.2: `ptah.agent.waitFor` uses `waitForAgents`; help text — PENDING
+### Task 34.2: `ptah.agent.waitFor` uses `waitForAgents`; help text — IN_PROGRESS
 
 - Batch 6 follow-up F6-M1: in `ptah.agent.spawn`, destructure and drop a caller-supplied `systemPrompt` with a one-line WARN, as `roleDefinition` already is. Also reject a non-string `effort` at this boundary.
 - PR 1 phase-end follow-up PR1-M1 (folded here, same file): the Ptah-CLI branch drops a caller's `effort` without notice. The `registry.spawnAgent(request.ptahCliId, ptahCliTask, {...})` options at `agent-namespace.builder.ts:229-237` do not carry it. Fix: if the registry's spawn options accept `effort`, pass the validated value through. If they do not, log a one-line WARN that names the lane and says `effort` is ignored, as the `systemPrompt` drop does. Add a spec for whichever path applies.

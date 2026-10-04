@@ -130,6 +130,45 @@ function roleStampOf(
     : undefined;
 }
 
+/** `any`: return when one lane ends. `all`: return when every lane has ended. */
+export type AgentWaitMode = 'any' | 'all';
+
+/** Longest {@link AgentProcessManager.waitForAgents} wait: 15 minutes (TASK_2026_597, D13). */
+export const MAX_AGENT_WAIT_MS = 900_000;
+
+/**
+ * One requested id in a {@link AgentWaitResult}.
+ *
+ * - `exited`: the lane is no longer running; `info` is its terminal record.
+ * - `running`: the wait timed out before this lane ended; `info` is current.
+ * - `not_found`: this host holds no record under the id.
+ * - `other_workspace`: the record exists but belongs to another workspace, so
+ *   this caller may not see it (the same scope rule as `getStatus`).
+ */
+export type AgentWaitEntry =
+  | {
+      readonly agentId: string;
+      readonly state: 'exited';
+      readonly info: AgentProcessInfo;
+    }
+  | {
+      readonly agentId: string;
+      readonly state: 'running';
+      readonly info: AgentProcessInfo;
+    }
+  | { readonly agentId: string; readonly state: 'not_found' }
+  | { readonly agentId: string; readonly state: 'other_workspace' };
+
+export interface AgentWaitResult {
+  readonly mode: AgentWaitMode;
+  /** True when the wait ended on its timer rather than on the lanes. */
+  readonly timedOut: boolean;
+  /** Wall-clock time the call waited, in ms. */
+  readonly waitedMs: number;
+  /** One entry per distinct requested id, in request order. */
+  readonly entries: readonly AgentWaitEntry[];
+}
+
 export class AgentContinueError extends Error {
   constructor(
     readonly code: AgentContinueErrorCode,
@@ -936,6 +975,111 @@ export class AgentProcessManager {
       .map((t) => ({
         ...t.info,
       }));
+  }
+
+  /**
+   * Block until the given lanes end, or until `timeoutMs` passes
+   * (TASK_2026_597, D13).
+   *
+   * Event-driven, never polled: it listens for `agent:exited` and settles in
+   * the listener itself, so the caller resumes within one tick of the event.
+   * A lane that is already terminal when the call starts counts as ended at
+   * once. `any` returns when one known lane has ended; `all` when every known
+   * lane has. Unknown ids and ids from another workspace are reported per id
+   * and never waited on, so a wait with no known lane returns immediately.
+   *
+   * On timeout the result is partial, not an error: `timedOut` is set and each
+   * lane is reported in its current state, so the call is safe to repeat.
+   * The timeout is clamped to `0..`{@link MAX_AGENT_WAIT_MS}. The listener and
+   * the timer are removed on every exit path.
+   */
+  async waitForAgents(
+    agentIds: readonly string[],
+    mode: AgentWaitMode,
+    timeoutMs: number,
+  ): Promise<AgentWaitResult> {
+    const startedAt = Date.now();
+    const limit = Number.isNaN(timeoutMs)
+      ? 0
+      : Math.min(Math.max(0, Math.floor(timeoutMs)), MAX_AGENT_WAIT_MS);
+    const ids = [...new Set(agentIds)];
+    const scopeRoot = this.spawnEnvironment.scopedWorkspaceRoot();
+    const scopeKey =
+      scopeRoot === undefined ? undefined : normalizeWorkspaceRoot(scopeRoot);
+
+    const unseen = new Map<string, 'not_found' | 'other_workspace'>();
+    const ended = new Map<string, AgentProcessInfo>();
+    const pending = new Set<string>();
+    for (const id of ids) {
+      const tracked = this.agents.get(id);
+      if (!tracked) {
+        unseen.set(id, 'not_found');
+      } else if (
+        !this.spawnEnvironment.isWithinScope(
+          tracked.info.workingDirectory,
+          scopeKey,
+        )
+      ) {
+        unseen.set(id, 'other_workspace');
+      } else if (tracked.info.status === 'running') {
+        pending.add(id);
+      } else {
+        ended.set(id, { ...tracked.info });
+      }
+    }
+
+    const satisfied = (): boolean =>
+      pending.size === 0 || (mode === 'any' && ended.size > 0);
+
+    let timedOut = false;
+    if (!satisfied()) {
+      if (limit === 0) {
+        timedOut = true;
+      } else {
+        await new Promise<void>((resolve) => {
+          // `finish` closes over `timer`; it can only run from the listener
+          // or the timer itself, both after the assignment below.
+          const finish = (): void => {
+            this.events.off('agent:exited', onExit);
+            clearTimeout(timer);
+            resolve();
+          };
+          const onExit = (info: AgentProcessInfo): void => {
+            const id = String(info.agentId);
+            if (!pending.delete(id)) return;
+            ended.set(id, { ...info });
+            if (satisfied()) finish();
+          };
+          this.events.on('agent:exited', onExit);
+          const timer = this.unrefTimer(
+            setTimeout(() => {
+              timedOut = true;
+              finish();
+            }, limit),
+          );
+        });
+      }
+    }
+
+    const entries = ids.map((agentId): AgentWaitEntry => {
+      const missing = unseen.get(agentId);
+      if (missing) return { agentId, state: missing };
+      const done = ended.get(agentId);
+      if (done) return { agentId, state: 'exited', info: done };
+      // Still pending: report the record as it is now. A lane whose status
+      // turned terminal without an `agent:exited` (a timed-out lane whose
+      // adapter never settled its abort) is reported as ended all the same.
+      const current = this.agents.get(agentId);
+      if (!current) return { agentId, state: 'not_found' };
+      const info = { ...current.info };
+      return {
+        agentId,
+        state: info.status === 'running' ? 'running' : 'exited',
+        info,
+      };
+    });
+
+    return { mode, timedOut, waitedMs: Date.now() - startedAt, entries };
   }
 
   /**
