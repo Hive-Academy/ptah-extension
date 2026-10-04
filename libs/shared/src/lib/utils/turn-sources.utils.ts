@@ -10,8 +10,7 @@ import {
 import { classifyTestCommand } from './test-command-matcher';
 
 export type TurnSourceUnavailable =
-  | { readonly kind: 'unavailable' }
-  | { readonly kind: 'pending' };
+  { readonly kind: 'unavailable' } | { readonly kind: 'pending' };
 
 export interface TurnUsageSource {
   readonly input: number;
@@ -30,12 +29,10 @@ export type TurnDiffSource =
   | TurnSourceUnavailable;
 
 export type TurnTestsSnapshotSource =
-  | ({ readonly kind: 'available' } & TurnTestsSource)
-  | TurnSourceUnavailable;
+  ({ readonly kind: 'available' } & TurnTestsSource) | TurnSourceUnavailable;
 
 export type TurnUsageSnapshotSource =
-  | ({ readonly kind: 'available' } & TurnUsageSource)
-  | TurnSourceUnavailable;
+  ({ readonly kind: 'available' } & TurnUsageSource) | TurnSourceUnavailable;
 
 export interface TurnSourceSnapshot {
   readonly state: 'pending' | 'terminal';
@@ -59,15 +56,20 @@ function hasFiniteNonNegativeValue(value: unknown): value is number {
 function isIncomplete(messages: readonly ExecutionChatMessage[]): boolean {
   return messages.some((message) => {
     const status = message.streamingState?.status;
-    return status === 'error' || status === 'interrupted' || hasNonTerminalTest(message.streamingState);
+    return (
+      status === 'error' ||
+      status === 'interrupted' ||
+      hasNonTerminalTest(message.streamingState)
+    );
   });
 }
 
 function hasNonTerminalTest(node: ExecutionNode | null): boolean {
   if (node === null) return false;
-  const command = node.toolInput !== undefined && Object.hasOwn(node.toolInput, 'command')
-    ? node.toolInput['command']
-    : undefined;
+  const command =
+    node.toolInput !== undefined && Object.hasOwn(node.toolInput, 'command')
+      ? node.toolInput['command']
+      : undefined;
   if (
     node.type === 'tool' &&
     node.toolName === 'Bash' &&
@@ -81,9 +83,14 @@ function hasNonTerminalTest(node: ExecutionNode | null): boolean {
   return node.children.some(hasNonTerminalTest);
 }
 
-function assistantRoots(messages: readonly ExecutionChatMessage[]): readonly ExecutionNode[] | null {
+function assistantRoots(
+  messages: readonly ExecutionChatMessage[],
+): readonly ExecutionNode[] | null {
   const assistants = messages.filter((message) => message.role === 'assistant');
-  if (assistants.length === 0 || assistants.some((message) => message.streamingState === null)) {
+  if (
+    assistants.length === 0 ||
+    assistants.some((message) => message.streamingState === null)
+  ) {
     return null;
   }
 
@@ -122,18 +129,21 @@ export function buildTurnSourceSnapshot(
   }
 
   const roots = assistantRoots(input.turnMessages);
-  const runs = roots === null ? null : collectTurnTests(roots, { finalized: true });
+  const runs =
+    roots === null ? null : collectTurnTests(roots, { finalized: true });
   return {
     state: 'terminal',
     incomplete: isIncomplete(input.turnMessages),
-    diff: input.changeSet === 'pending'
-      ? { kind: 'pending' }
-      : input.changeSet === null
+    diff:
+      input.changeSet === 'pending'
+        ? { kind: 'pending' }
+        : input.changeSet === null
+          ? { kind: 'unavailable' }
+          : { kind: 'available', changeSet: input.changeSet },
+    tests:
+      runs === null
         ? { kind: 'unavailable' }
-        : { kind: 'available', changeSet: input.changeSet },
-    tests: runs === null
-      ? { kind: 'unavailable' }
-      : { kind: 'available', runs, summary: summarizeTurnTests(runs) },
+        : { kind: 'available', runs, summary: summarizeTurnTests(runs) },
     usage: usageFor(input.blockMessage),
   };
 }

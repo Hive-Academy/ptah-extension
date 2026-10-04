@@ -17,12 +17,21 @@ export type RenderPtahUiBlockResult =
   | { readonly ok: false; readonly reason: string };
 
 /** Runs the complete untrusted ptah-ui fence boundary without throwing. */
-export function renderPtahUiBlock(body: string, input: RenderPtahUiBlockInput): RenderPtahUiBlockResult {
+export function renderPtahUiBlock(
+  body: string,
+  input: RenderPtahUiBlockInput,
+): RenderPtahUiBlockResult {
   try {
     const parsed = parsePtahUi(body);
     if (!parsed.ok) return { ok: false, reason: parsed.failure.message };
-    const content = resolvePtahUi(convertPtahUi(parsed.doc, input.surfaceId), input.snapshot);
-    const validated = validateSurfaceDocument(content.surface, input.countBytes);
+    const content = resolvePtahUi(
+      convertPtahUi(parsed.doc, input.surfaceId),
+      input.snapshot,
+    );
+    const validated = validateSurfaceDocument(
+      content.surface,
+      input.countBytes,
+    );
     if (!validated.ok) {
       return {
         ok: false,

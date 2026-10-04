@@ -111,9 +111,9 @@ class ChangeSetCardStub {
   selector: 'ptah-turn-tests-row',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<span data-testid="turn-tests-stub">{{
-    runs().length
-  }} runs, incomplete: {{ incomplete() }}</span>`,
+  template: `<span data-testid="turn-tests-stub"
+    >{{ runs().length }} runs, incomplete: {{ incomplete() }}</span
+  >`,
 })
 class TurnTestsRowStub {
   readonly runs = input.required<readonly TurnTestRun[]>();
@@ -339,8 +339,9 @@ describe('ChatTranscriptComponent change-set cards', () => {
       fixture.nativeElement.querySelectorAll('[data-testid="chat-change-set"]')
         .length,
     ).toBe(1);
-    const row: HTMLElement =
-      fixture.nativeElement.querySelector('[data-testid="chat-turn-tests"]');
+    const row: HTMLElement = fixture.nativeElement.querySelector(
+      '[data-testid="chat-turn-tests"]',
+    );
     expect(row.textContent).not.toMatch(/files?/i);
   });
 
@@ -355,8 +356,9 @@ describe('ChatTranscriptComponent change-set cards', () => {
     const fixture = await render([], jest.fn(), {
       messages: TEST_MESSAGES,
     });
-    const row: HTMLElement =
-      fixture.nativeElement.querySelector('[data-testid="chat-turn-tests"]');
+    const row: HTMLElement = fixture.nativeElement.querySelector(
+      '[data-testid="chat-turn-tests"]',
+    );
     expect(row).not.toBeNull();
     expect(
       row.querySelector('[data-testid="turn-tests-stub"]')?.textContent.trim(),

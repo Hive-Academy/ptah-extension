@@ -117,7 +117,10 @@ describe('TurnTestsRowComponent', () => {
   });
 
   it('labels the section with the outcome and is not a live region', () => {
-    render([run('nx test chat', 'passed'), run('npx jest foo', 'failed')], true);
+    render(
+      [run('nx test chat', 'passed'), run('npx jest foo', 'failed')],
+      true,
+    );
 
     // A historical recap row must not be announced again on reload or a lazy
     // mount, so nothing inside it is a live region (review concern d).
@@ -147,15 +150,12 @@ describe('TurnTestsRowComponent', () => {
       true,
     );
 
-    const results = await axe.run(
-      native() as Parameters<typeof axe.run>[0],
-      {
-        rules: {
-          'color-contrast': { enabled: false },
-          'target-size': { enabled: false },
-        },
+    const results = await axe.run(native() as Parameters<typeof axe.run>[0], {
+      rules: {
+        'color-contrast': { enabled: false },
+        'target-size': { enabled: false },
       },
-    );
+    });
 
     expect(results.violations.map((violation) => violation.id)).toEqual([]);
   });

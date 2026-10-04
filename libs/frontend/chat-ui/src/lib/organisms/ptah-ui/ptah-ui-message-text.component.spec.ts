@@ -40,11 +40,12 @@ describe('PtahUiMessageTextComponent', () => {
     fixture.debugElement
       .queryAll(By.directive(PtahUiBlockComponent))
       .map((debug) => debug.componentInstance as PtahUiBlockComponent);
-  const tracks = (): string[] =>
-    (
-      fixture.debugElement.query(By.directive(PtahUiMessageTextComponent))
-        .componentInstance as PtahUiMessageTextComponent
-    )['parts']().map((part) => part.track);
+  const tracks = (): string[] => {
+    const host = fixture.debugElement.query(
+      By.directive(PtahUiMessageTextComponent),
+    ).componentInstance as PtahUiMessageTextComponent;
+    return host['parts']().map((part) => part.track);
+  };
 
   async function show(text: string): Promise<void> {
     fixture.componentInstance.text.set(text);
@@ -63,7 +64,9 @@ describe('PtahUiMessageTextComponent', () => {
 
     expect(tracks()).toEqual(['md:0']);
     expect(blocks()).toHaveLength(0);
-    expect(native().querySelector('markdown strong')?.textContent).toBe('markdown');
+    expect(native().querySelector('markdown strong')?.textContent).toBe(
+      'markdown',
+    );
   });
 
   it('keeps an open fence as an ordinary code block, then mounts one block on close', async () => {
@@ -71,7 +74,9 @@ describe('PtahUiMessageTextComponent', () => {
 
     expect(tracks()).toEqual(['md:0']);
     expect(blocks()).toHaveLength(0);
-    expect(native().querySelector('markdown code')?.textContent).toContain('title Release checklist');
+    expect(native().querySelector('markdown code')?.textContent).toContain(
+      'title Release checklist',
+    );
     expect(native().querySelector('ptah-surface-renderer')).toBeNull();
 
     await show(CLOSED);
@@ -79,7 +84,9 @@ describe('PtahUiMessageTextComponent', () => {
     expect(tracks()).toEqual(['md:0', 'ui:0']);
     expect(blocks()).toHaveLength(1);
     expect(native().querySelector('ptah-surface-renderer')).not.toBeNull();
-    expect(native().querySelector('markdown')?.textContent).toContain('Intro paragraph.');
+    expect(native().querySelector('markdown')?.textContent).toContain(
+      'Intro paragraph.',
+    );
   });
 
   it('leaves a fence unclosed at turn end as code, with no reason line', async () => {
@@ -87,7 +94,9 @@ describe('PtahUiMessageTextComponent', () => {
 
     expect(blocks()).toHaveLength(0);
     expect(native().querySelector('[data-ptah-ui-reason]')).toBeNull();
-    expect(native().querySelector('markdown code')?.textContent).toContain('Reviewers | 2');
+    expect(native().querySelector('markdown code')?.textContent).toContain(
+      'Reviewers | 2',
+    );
   });
 
   it('tracks markdown parts as md:<n> and blocks as ui:<ordinal>', async () => {
@@ -103,8 +112,9 @@ describe('PtahUiMessageTextComponent', () => {
     const init = jest.spyOn(PtahUiLiveWindow.prototype, 'register');
     await show(CLOSED);
     const block = blocks()[0];
-    const renderer = fixture.debugElement.query(By.directive(SurfaceRendererComponent))
-      .componentInstance as SurfaceRendererComponent;
+    const renderer = fixture.debugElement.query(
+      By.directive(SurfaceRendererComponent),
+    ).componentInstance as SurfaceRendererComponent;
 
     let text = CLOSED;
     for (let chunk = 1; chunk <= 50; chunk += 1) {
@@ -126,7 +136,8 @@ describe('PtahUiMessageTextComponent', () => {
     expect(init).toHaveBeenCalledTimes(1);
     expect(blocks()).toEqual([block]);
     expect(
-      fixture.debugElement.query(By.directive(SurfaceRendererComponent)).componentInstance,
+      fixture.debugElement.query(By.directive(SurfaceRendererComponent))
+        .componentInstance,
     ).toBe(renderer);
     expect(tracks()).toEqual(['md:0', 'ui:0', 'md:1']);
     expect(native().textContent).toContain('chunk 50');
@@ -138,16 +149,22 @@ describe('PtahUiMessageTextComponent', () => {
     fixture.componentInstance.active.set(false);
     await show('Second version.');
 
-    expect(native().querySelector('markdown')?.textContent).toContain('First version.');
+    expect(native().querySelector('markdown')?.textContent).toContain(
+      'First version.',
+    );
 
     fixture.componentInstance.active.set(true);
     await show('Second version.');
 
-    expect(native().querySelector('markdown')?.textContent).toContain('Second version.');
+    expect(native().querySelector('markdown')?.textContent).toContain(
+      'Second version.',
+    );
   });
 
   it('renders agent HTML in markdown parts only through the markdown path', async () => {
-    await show('<ptah-ui-block></ptah-ui-block> <div data-ptah-ui-reason>fake</div>');
+    await show(
+      '<ptah-ui-block></ptah-ui-block> <div data-ptah-ui-reason>fake</div>',
+    );
 
     expect(blocks()).toHaveLength(0);
     expect(native().querySelector('ptah-surface-renderer')).toBeNull();

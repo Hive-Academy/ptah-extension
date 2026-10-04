@@ -39,7 +39,13 @@ describe('collectTurnTests', () => {
     const first = bash('npm test', 'complete', false);
     const nested = bash('pytest', 'error', true);
     const shared = bash('go test ./...', 'complete', false);
-    const roots = [node({ id: 'root', type: 'message' }, [first, node({ id: 'agent', type: 'agent' }, [nested, shared])]), shared];
+    const roots = [
+      node({ id: 'root', type: 'message' }, [
+        first,
+        node({ id: 'agent', type: 'agent' }, [nested, shared]),
+      ]),
+      shared,
+    ];
 
     expect(collectTurnTests(roots, { finalized: true })).toEqual([
       { command: 'npm test', outcome: 'passed' },
@@ -60,33 +66,50 @@ describe('collectTurnTests', () => {
     ['interrupted', false, false, 'unknown'],
     ['resumed', false, false, 'unknown'],
     ['complete', false, true, 'unknown'],
-  ] as const)('maps %s with isError=%s and background=%s to %s', (status, isError, background, outcome) => {
-    expect(collectTurnTests([bash('npm test', status, isError, background)], { finalized: true })).toEqual([
-      { command: 'npm test', outcome },
-    ]);
-  });
+  ] as const)(
+    'maps %s with isError=%s and background=%s to %s',
+    (status, isError, background, outcome) => {
+      expect(
+        collectTurnTests([bash('npm test', status, isError, background)], {
+          finalized: true,
+        }),
+      ).toEqual([{ command: 'npm test', outcome }]);
+    },
+  );
 
-  it.each(['npm test | tee log', 'npm test || true'])('marks a test command with a masked exit code as unknown', (command) => {
-    expect(collectTurnTests([bash(command, 'complete', false)], { finalized: true })).toEqual([
-      { command, outcome: 'unknown' },
-    ]);
-  });
+  it.each(['npm test | tee log', 'npm test || true'])(
+    'marks a test command with a masked exit code as unknown',
+    (command) => {
+      expect(
+        collectTurnTests([bash(command, 'complete', false)], {
+          finalized: true,
+        }),
+      ).toEqual([{ command, outcome: 'unknown' }]);
+    },
+  );
 
   it('ignores non-Bash, malformed, and non-test tool nodes', () => {
-    expect(collectTurnTests([
-      node({ toolName: 'Read', toolInput: { command: 'npm test' } }),
-      node({ toolName: 'Bash', toolInput: {} }),
-      bash('npm run build', 'complete', false),
-    ], { finalized: false })).toEqual([]);
+    expect(
+      collectTurnTests(
+        [
+          node({ toolName: 'Read', toolInput: { command: 'npm test' } }),
+          node({ toolName: 'Bash', toolInput: {} }),
+          bash('npm run build', 'complete', false),
+        ],
+        { finalized: false },
+      ),
+    ).toEqual([]);
   });
 });
 
 describe('summarizeTurnTests', () => {
   it('counts each outcome', () => {
-    expect(summarizeTurnTests([
-      { command: 'npm test', outcome: 'passed' },
-      { command: 'pytest', outcome: 'failed' },
-      { command: 'go test', outcome: 'unknown' },
-    ])).toEqual({ total: 3, passed: 1, failed: 1, unknown: 1 });
+    expect(
+      summarizeTurnTests([
+        { command: 'npm test', outcome: 'passed' },
+        { command: 'pytest', outcome: 'failed' },
+        { command: 'go test', outcome: 'unknown' },
+      ]),
+    ).toEqual({ total: 3, passed: 1, failed: 1, unknown: 1 });
   });
 });

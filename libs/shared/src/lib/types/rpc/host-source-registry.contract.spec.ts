@@ -51,10 +51,7 @@ describe('host-source registry contract', () => {
   });
 
   it('does not remove host-source RPC methods', () => {
-    expectNoRemovedHostSourceNames(
-      RPC_METHOD_NAMES,
-      BASELINE_RPC_METHOD_NAMES,
-    );
+    expectNoRemovedHostSourceNames(RPC_METHOD_NAMES, BASELINE_RPC_METHOD_NAMES);
   });
 
   it('does not add host-source push message types', () => {

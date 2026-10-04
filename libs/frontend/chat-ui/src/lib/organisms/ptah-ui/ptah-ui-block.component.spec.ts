@@ -55,7 +55,13 @@ const EMPTY: TurnSourceSnapshot = {
     runs: [],
     summary: { total: 0, passed: 0, failed: 0, unknown: 0 },
   },
-  usage: { kind: 'available', input: 10, output: 20, cost: 0.01, durationMs: 1200 },
+  usage: {
+    kind: 'available',
+    input: 10,
+    output: 20,
+    cost: 0.01,
+    durationMs: 1200,
+  },
 };
 
 interface BlockSpec {
@@ -139,7 +145,10 @@ async function axeViolations(root: HTMLElement): Promise<string[]> {
     AXE_OPTIONS,
   );
   return results.violations
-    .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
+    .filter(
+      (violation) =>
+        violation.impact === 'serious' || violation.impact === 'critical',
+    )
     .map((violation) => violation.id);
 }
 
@@ -210,7 +219,11 @@ describe('PtahUiBlockComponent', () => {
       expect(instance.interaction().submitDisabled).toBe(true);
       expect(instance.interaction().selection).toBeNull();
       expect(reasonLine()).toBeNull();
-      expect(native().querySelector('[data-testid="ptah-ui-block"]')?.getAttribute('data-ptah-ui-mode')).toBe('live');
+      expect(
+        native()
+          .querySelector('[data-testid="ptah-ui-block"]')
+          ?.getAttribute('data-ptah-ui-mode'),
+      ).toBe('live');
     });
 
     it('binds only the void renderFailed output on the renderer (template)', () => {
@@ -220,22 +233,30 @@ describe('PtahUiBlockComponent', () => {
       );
       const tag = source.match(/<ptah-surface-renderer[\s\S]*?\/>/)?.[0] ?? '';
       expect(tag).not.toBe('');
-      expect([...tag.matchAll(/\((\w+)\)=/g)].map((match) => match[1])).toEqual([
-        'renderFailed',
-      ]);
+      expect([...tag.matchAll(/\((\w+)\)=/g)].map((match) => match[1])).toEqual(
+        ['renderFailed'],
+      );
     });
 
     it('subscribes to no interaction output of the rendered renderer', async () => {
       create();
       await settle(fixture);
 
-      const renderer = fixture.debugElement.query(By.directive(SurfaceRendererComponent));
+      const renderer = fixture.debugElement.query(
+        By.directive(SurfaceRendererComponent),
+      );
       const instance = renderer.componentInstance as SurfaceRendererComponent;
       const listenerCount = (name: keyof SurfaceRendererComponent): number =>
-        (instance[name] as unknown as { listeners: unknown[] | null }).listeners?.length ?? 0;
+        (instance[name] as unknown as { listeners: unknown[] | null }).listeners
+          ?.length ?? 0;
 
       expect(listenerCount('renderFailed')).toBe(1);
-      for (const name of ['actionInvoke', 'inputCommit', 'selectionChange', 'viewStateChange'] as const) {
+      for (const name of [
+        'actionInvoke',
+        'inputCommit',
+        'selectionChange',
+        'viewStateChange',
+      ] as const) {
         expect(listenerCount(name)).toBe(0);
       }
     });
@@ -247,7 +268,9 @@ describe('PtahUiBlockComponent', () => {
         viewModel: null,
       });
       configure();
-      TestBed.overrideProvider(SURFACE_VIEW_MODEL_BUILDER, { useValue: failingBuilder });
+      TestBed.overrideProvider(SURFACE_VIEW_MODEL_BUILDER, {
+        useValue: failingBuilder,
+      });
       fixture = TestBed.createComponent(BlockHostComponent);
       await settle(fixture);
 
@@ -256,12 +279,18 @@ describe('PtahUiBlockComponent', () => {
       await settle(plain);
 
       const blockMarkdown = native().querySelector('markdown');
-      const plainMarkdown = (plain.nativeElement as HTMLElement).querySelector('markdown');
+      const plainMarkdown = (plain.nativeElement as HTMLElement).querySelector(
+        'markdown',
+      );
       expect(blockMarkdown?.innerHTML).toBe(plainMarkdown?.innerHTML);
-      expect(fixture.debugElement.query(By.directive(SurfaceRendererComponent))).toBeNull();
+      expect(
+        fixture.debugElement.query(By.directive(SurfaceRendererComponent)),
+      ).toBeNull();
 
       const reason = reasonLine();
-      expect(reason?.textContent?.trim()).toBe('Not rendered: could not display');
+      expect(reason?.textContent?.trim()).toBe(
+        'Not rendered: could not display',
+      );
       expect(reason?.closest('code')).toBeNull();
       expect(reason?.closest('markdown')).toBeNull();
       expect(blockMarkdown?.getAttribute('aria-describedby')).toBe(reason?.id);
@@ -277,9 +306,13 @@ describe('PtahUiBlockComponent', () => {
       await settle(plain);
 
       const blockMarkdown = native().querySelector('markdown');
-      const plainMarkdown = (plain.nativeElement as HTMLElement).querySelector('markdown');
+      const plainMarkdown = (plain.nativeElement as HTMLElement).querySelector(
+        'markdown',
+      );
       expect(blockMarkdown?.innerHTML).toBe(plainMarkdown?.innerHTML);
-      expect(blockMarkdown?.querySelector('code')?.textContent).toContain('gauge 5');
+      expect(blockMarkdown?.querySelector('code')?.textContent).toContain(
+        'gauge 5',
+      );
 
       const reason = reasonLine();
       expect(reason?.textContent?.trim()).toMatch(/^Not rendered: .*gauge/);
@@ -288,7 +321,9 @@ describe('PtahUiBlockComponent', () => {
       expect(blockMarkdown?.textContent).not.toContain('Not rendered');
       expect(reason?.id).toBeTruthy();
       expect(blockMarkdown?.getAttribute('aria-describedby')).toBe(reason?.id);
-      expect(fixture.debugElement.query(By.directive(SurfaceRendererComponent))).toBeNull();
+      expect(
+        fixture.debugElement.query(By.directive(SurfaceRendererComponent)),
+      ).toBeNull();
     });
 
     it('falls back with "internal error" when the pipeline throws, and the host still renders', async () => {
@@ -297,21 +332,29 @@ describe('PtahUiBlockComponent', () => {
       });
       await settle(fixture);
 
-      expect(reasonLine()?.textContent?.trim()).toBe('Not rendered: internal error');
-      expect(native().querySelector('markdown code')?.textContent).toContain('Release checklist');
+      expect(reasonLine()?.textContent?.trim()).toBe(
+        'Not rendered: internal error',
+      );
+      expect(native().querySelector('markdown code')?.textContent).toContain(
+        'Release checklist',
+      );
     });
 
     it('updates a live block in place when the snapshot changes', async () => {
       create();
       useBody(SOURCE_BODY);
       await settle(fixture);
-      const before = fixture.debugElement.query(By.directive(PtahUiBlockComponent)).componentInstance;
+      const before = fixture.debugElement.query(
+        By.directive(PtahUiBlockComponent),
+      ).componentInstance;
       expect(native().textContent).toContain('unavailable');
 
       fixture.componentInstance.snapshot.set(PENDING);
       await settle(fixture);
 
-      const after = fixture.debugElement.query(By.directive(PtahUiBlockComponent)).componentInstance;
+      const after = fixture.debugElement.query(
+        By.directive(PtahUiBlockComponent),
+      ).componentInstance;
       expect(after).toBe(before);
       expect(native().textContent).toContain('pending');
     });
@@ -321,14 +364,18 @@ describe('PtahUiBlockComponent', () => {
       useBody(SOURCE_BODY);
       fixture.componentInstance.snapshot.set(PENDING);
       await settle(fixture);
-      const before = fixture.debugElement.query(By.directive(PtahUiBlockComponent)).componentInstance;
+      const before = fixture.debugElement.query(
+        By.directive(PtahUiBlockComponent),
+      ).componentInstance;
       expect(native().textContent).toContain('pending');
       expect(native().textContent).not.toContain('No files changed this turn');
 
       fixture.componentInstance.snapshot.set(EMPTY);
       await settle(fixture);
 
-      const after = fixture.debugElement.query(By.directive(PtahUiBlockComponent)).componentInstance;
+      const after = fixture.debugElement.query(
+        By.directive(PtahUiBlockComponent),
+      ).componentInstance;
       expect(after).toBe(before);
       expect(native().textContent).toContain('No files changed this turn');
       expect(native().textContent).toContain('No tests ran this turn');
@@ -340,12 +387,15 @@ describe('PtahUiBlockComponent', () => {
       create();
       // Eight newer blocks already hold the window: this one mounts as a snapshot.
       const window = fixture.debugElement.injector.get(PtahUiLiveWindow);
-      for (let index = 0; index < 8; index += 1) window.register(`newer-${index}`, 100 + index);
+      for (let index = 0; index < 8; index += 1)
+        window.register(`newer-${index}`, 100 + index);
       useBody(SOURCE_BODY);
       await settle(fixture);
 
       expect(
-        native().querySelector('[data-testid="ptah-ui-block"]')?.getAttribute('data-ptah-ui-mode'),
+        native()
+          .querySelector('[data-testid="ptah-ui-block"]')
+          ?.getAttribute('data-ptah-ui-mode'),
       ).toBe('snapshot');
       const surfaceId = 'ptah-ui-node-1-0';
       expect(pipelineCalls.get(surfaceId)).toBe(1);
@@ -384,7 +434,9 @@ describe('PtahUiBlockComponent', () => {
 
       expect(native().textContent).toBe(before);
       expect(
-        native().querySelector('[data-testid="ptah-ui-block"]')?.getAttribute('data-ptah-ui-mode'),
+        native()
+          .querySelector('[data-testid="ptah-ui-block"]')
+          ?.getAttribute('data-ptah-ui-mode'),
       ).toBe('live');
       expect(native().querySelector('[data-ptah-ui-reason]')).toBeNull();
       const rendererAfter = fixture.debugElement.query(
@@ -398,7 +450,9 @@ describe('PtahUiBlockComponent', () => {
       await settle(fixture);
 
       const focusable = [
-        ...native().querySelectorAll<HTMLElement>('button, a[href], input, select, [tabindex]'),
+        ...native().querySelectorAll<HTMLElement>(
+          'button, a[href], input, select, [tabindex]',
+        ),
       ];
       expect(focusable.length).toBeGreaterThan(0);
       for (const element of focusable) {
@@ -407,34 +461,53 @@ describe('PtahUiBlockComponent', () => {
       }
     });
 
-    type AxeState = 'live' | 'pending' | 'unavailable' | 'empty' | 'fallback' | 'snapshot';
-    const states: readonly AxeState[] = ['live', 'pending', 'unavailable', 'empty', 'fallback', 'snapshot'];
+    type AxeState =
+      'live' | 'pending' | 'unavailable' | 'empty' | 'fallback' | 'snapshot';
+    const states: readonly AxeState[] = [
+      'live',
+      'pending',
+      'unavailable',
+      'empty',
+      'fallback',
+      'snapshot',
+    ];
 
     describe.each(['light', 'dark'] as const)('axe, %s theme', (theme) => {
-      it.each(states)('has no serious or critical violations: %s', async (state) => {
-        setTheme(theme);
-        create();
-        if (state === 'pending' || state === 'unavailable' || state === 'empty') useBody(SOURCE_BODY);
-        if (state === 'pending') fixture.componentInstance.snapshot.set(PENDING);
-        if (state === 'empty') fixture.componentInstance.snapshot.set(EMPTY);
-        if (state === 'fallback') useBody(INVALID_BODY);
-        if (state === 'snapshot') {
-          // Eight newer blocks already hold the window: this one mounts as a snapshot.
-          const window = fixture.debugElement.injector.get(PtahUiLiveWindow);
-          for (let index = 0; index < 8; index += 1) window.register(`newer-${index}`, 100 + index);
-        }
-        await settle(fixture);
+      it.each(states)(
+        'has no serious or critical violations: %s',
+        async (state) => {
+          setTheme(theme);
+          create();
+          if (
+            state === 'pending' ||
+            state === 'unavailable' ||
+            state === 'empty'
+          )
+            useBody(SOURCE_BODY);
+          if (state === 'pending')
+            fixture.componentInstance.snapshot.set(PENDING);
+          if (state === 'empty') fixture.componentInstance.snapshot.set(EMPTY);
+          if (state === 'fallback') useBody(INVALID_BODY);
+          if (state === 'snapshot') {
+            // Eight newer blocks already hold the window: this one mounts as a snapshot.
+            const window = fixture.debugElement.injector.get(PtahUiLiveWindow);
+            for (let index = 0; index < 8; index += 1)
+              window.register(`newer-${index}`, 100 + index);
+          }
+          await settle(fixture);
 
-        if (state === 'fallback') expect(reasonLine()).not.toBeNull();
-        else expect(reasonLine()).toBeNull();
-        if (state === 'snapshot') {
-          expect(native().querySelector('[inert]')).not.toBeNull();
-          expect(
-            native().querySelector('[data-testid="ptah-ui-text-alternative"]')?.textContent,
-          ).toContain('Release checklist');
-        }
-        expect(await axeViolations(native())).toEqual([]);
-      });
+          if (state === 'fallback') expect(reasonLine()).not.toBeNull();
+          else expect(reasonLine()).toBeNull();
+          if (state === 'snapshot') {
+            expect(native().querySelector('[inert]')).not.toBeNull();
+            expect(
+              native().querySelector('[data-testid="ptah-ui-text-alternative"]')
+                ?.textContent,
+            ).toContain('Release checklist');
+          }
+          expect(await axeViolations(native())).toEqual([]);
+        },
+      );
     });
 
     it('gives each chart an accessible name', async () => {
@@ -446,7 +519,9 @@ describe('PtahUiBlockComponent', () => {
       );
       expect(charts.length).toBeGreaterThan(0);
       for (const chart of charts) {
-        const name = chart.getAttribute('aria-label') ?? chart.getAttribute('aria-labelledby');
+        const name =
+          chart.getAttribute('aria-label') ??
+          chart.getAttribute('aria-labelledby');
         expect(name).toBeTruthy();
       }
     });
@@ -457,7 +532,10 @@ describe('PtahUiBlockComponent', () => {
     const detachSpies = new Map<string, jest.SpyInstance>();
     const reattachSpies = new Map<string, jest.SpyInstance>();
 
-    const spec = (index: number): BlockSpec => ({ nodeId: `n${index}`, orderKey: index });
+    const spec = (index: number): BlockSpec => ({
+      nodeId: `n${index}`,
+      orderKey: index,
+    });
     const surfaceIdOf = (index: number): string => `ptah-ui-n${index}-0`;
     const liveWindow = (): PtahUiLiveWindow =>
       fixture.debugElement.injector.get(PtahUiLiveWindow);
@@ -465,7 +543,11 @@ describe('PtahUiBlockComponent', () => {
     function blockElement(index: number): HTMLElement {
       const match = fixture.debugElement
         .queryAll(By.directive(PtahUiBlockComponent))
-        .find((debug) => (debug.componentInstance as PtahUiBlockComponent).nodeId() === `n${index}`);
+        .find(
+          (debug) =>
+            (debug.componentInstance as PtahUiBlockComponent).nodeId() ===
+            `n${index}`,
+        );
       if (match === undefined) throw new Error(`block ${index} is not mounted`);
       return match.nativeElement as HTMLElement;
     }
@@ -473,7 +555,11 @@ describe('PtahUiBlockComponent', () => {
     function blockInstance(index: number): PtahUiBlockComponent {
       const match = fixture.debugElement
         .queryAll(By.directive(PtahUiBlockComponent))
-        .find((debug) => (debug.componentInstance as PtahUiBlockComponent).nodeId() === `n${index}`);
+        .find(
+          (debug) =>
+            (debug.componentInstance as PtahUiBlockComponent).nodeId() ===
+            `n${index}`,
+        );
       if (match === undefined) throw new Error(`block ${index} is not mounted`);
       return match.componentInstance as PtahUiBlockComponent;
     }
@@ -497,11 +583,14 @@ describe('PtahUiBlockComponent', () => {
       expect(mode(index)).toBe('snapshot');
       const renderer = element.querySelector('ptah-surface-renderer');
       expect(renderer?.closest('[inert]')).not.toBeNull();
-      for (const control of element.querySelectorAll('button, a[href], input, select, [tabindex]')) {
+      for (const control of element.querySelectorAll(
+        'button, a[href], input, select, [tabindex]',
+      )) {
         expect(control.closest('[inert]')).not.toBeNull();
       }
       expect(
-        element.querySelector('[data-testid="ptah-ui-text-alternative"]')?.textContent,
+        element.querySelector('[data-testid="ptah-ui-text-alternative"]')
+          ?.textContent,
       ).toContain('Release checklist');
     }
 
@@ -509,7 +598,9 @@ describe('PtahUiBlockComponent', () => {
       const element = blockElement(index);
       expect(mode(index)).toBe('live');
       expect(element.querySelector('[inert]')).toBeNull();
-      expect(element.querySelector('[data-testid="ptah-ui-text-alternative"]')).toBeNull();
+      expect(
+        element.querySelector('[data-testid="ptah-ui-text-alternative"]'),
+      ).toBeNull();
     }
 
     beforeEach(() => {
@@ -522,7 +613,10 @@ describe('PtahUiBlockComponent', () => {
     it('keeps at most 8 live blocks, freezes the 4 oldest, and survives remounts', async () => {
       // Insert 12 blocks one at a time, as a streaming transcript does.
       for (let index = 1; index <= 12; index += 1) {
-        fixture.componentInstance.blocks.update((blocks) => [...blocks, spec(index)]);
+        fixture.componentInstance.blocks.update((blocks) => [
+          ...blocks,
+          spec(index),
+        ]);
         await settle(fixture);
         spyOnDetector(index);
         expect(liveWindow().liveCount()).toBeLessThanOrEqual(8);
@@ -566,7 +660,8 @@ describe('PtahUiBlockComponent', () => {
       assertSnapshot(1);
       for (let index = 2; index <= 4; index += 1) assertSnapshot(index);
       for (let index = 5; index <= 12; index += 1) assertLive(index);
-      for (const spy of reattachSpies.values()) expect(spy).not.toHaveBeenCalled();
+      for (const spy of reattachSpies.values())
+        expect(spy).not.toHaveBeenCalled();
     });
   });
 });

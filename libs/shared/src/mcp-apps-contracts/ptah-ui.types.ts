@@ -21,7 +21,10 @@ export type PtahUiValue = string | PtahUiScalar;
 
 export interface PtahUiStatsElement {
   readonly kind: 'stats';
-  readonly items: readonly { readonly label: string; readonly value: PtahUiValue }[];
+  readonly items: readonly {
+    readonly label: string;
+    readonly value: PtahUiValue;
+  }[];
 }
 
 export interface PtahUiLiteralTableElement {
@@ -50,7 +53,10 @@ export interface PtahUiChartElement {
   readonly kind: 'chart';
   readonly chart: 'line' | 'bar';
   readonly title: string;
-  readonly points: readonly { readonly label: string; readonly value: number }[];
+  readonly points: readonly {
+    readonly label: string;
+    readonly value: number;
+  }[];
 }
 
 export type PtahUiSourceName = 'diff' | 'tests' | 'usage';

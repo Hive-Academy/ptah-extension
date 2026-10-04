@@ -56,7 +56,7 @@ const TAB_ID = 'tab-host-data';
 const WORKSPACE_ROOT = 'D:/repo';
 
 const SENTINEL_PATH = 'zz_sentinel_610.ts';
-const SENTINEL_COST = 0.610610;
+const SENTINEL_COST = 0.61061;
 const SENTINEL_TOKENS = 610610;
 const SENTINEL_LABEL = 'A5_SENTINEL_TEST_LABEL';
 
@@ -209,9 +209,7 @@ function setupSeededSender(): SeededSender {
       tab: tabs()[0],
       workspacePath: WORKSPACE_ROOT,
     })),
-    markResuming: jest.fn((id: string) =>
-      patchTab(id, { status: 'resuming' }),
-    ),
+    markResuming: jest.fn((id: string) => patchTab(id, { status: 'resuming' })),
     markStreaming: jest.fn(),
     markTabStreaming: jest.fn(),
     setMessages: jest.fn((id: string, next: ExecutionChatMessage[]) =>
@@ -280,9 +278,8 @@ function setupSeededSender(): SeededSender {
     assistant,
     messages,
     send: async () => {
-      const outcome = await TestBed.inject(MessageSenderService).send(
-        'follow up',
-      );
+      const outcome =
+        await TestBed.inject(MessageSenderService).send('follow up');
       return {
         outcome,
         params: continueParams[0] as Record<string, unknown> | undefined,
@@ -350,7 +347,8 @@ describe('MessageSenderService host data boundary', () => {
     const rendered = renderPtahUiBlock(PTAH_UI_FENCE_BODY, {
       surfaceId: 'host-data-boundary',
       snapshot,
-      countBytes: (value) => new TextEncoder().encode(JSON.stringify(value)).length,
+      countBytes: (value) =>
+        new TextEncoder().encode(JSON.stringify(value)).length,
     });
     if (!rendered.ok) throw new Error(rendered.reason);
 

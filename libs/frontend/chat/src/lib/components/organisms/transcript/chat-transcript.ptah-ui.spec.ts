@@ -103,7 +103,12 @@ function assistantTree(id: string, startTime: number): ExecutionNode {
 // streaming clock `transcriptOrderKey` ranks by.
 const MESSAGES: readonly ExecutionChatMessage[] = [
   makeTranscriptMessage('u1', 'user', 100),
-  makeTranscriptMessage('a1', 'assistant', 5_000, assistantTree('a1-tree', 105)),
+  makeTranscriptMessage(
+    'a1',
+    'assistant',
+    5_000,
+    assistantTree('a1-tree', 105),
+  ),
   makeTranscriptMessage('u2', 'user', 200),
   makeTranscriptMessage('a2', 'assistant', 210),
 ];
@@ -224,8 +229,8 @@ describe('ChatTranscriptComponent ptah-ui live window', () => {
     // streaming tree's startTime (105), not its own timestamp (5_000), so a
     // streaming bubble keeps one stable key.
     const keys = bubbleNodes(fixture).map(
-      (node) => (node.componentInstance as TranscriptMessageBubbleStub)
-        .ptahUiOrderKey,
+      (node) =>
+        (node.componentInstance as TranscriptMessageBubbleStub).ptahUiOrderKey,
     );
     expect(keys).toEqual([100, 105, 200, 210]);
   });
@@ -235,8 +240,8 @@ describe('ChatTranscriptComponent ptah-ui live window', () => {
     // Electron-only scope: no map is computed and every bubble keeps the `0`
     // default, which the VS Code (always null) ptah-ui context never reads.
     const keys = bubbleNodes(fixture).map(
-      (node) => (node.componentInstance as TranscriptMessageBubbleStub)
-        .ptahUiOrderKey,
+      (node) =>
+        (node.componentInstance as TranscriptMessageBubbleStub).ptahUiOrderKey,
     );
     expect(keys).toEqual([0, 0, 0, 0]);
   });
@@ -377,7 +382,8 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
   ): Map<string, TurnSourceSnapshot | null | undefined> {
     const result = new Map<string, TurnSourceSnapshot | null | undefined>();
     for (const node of fixture.debugElement.queryAll(
-      (candidate) => candidate.componentInstance instanceof TranscriptMessageBubbleStub,
+      (candidate) =>
+        candidate.componentInstance instanceof TranscriptMessageBubbleStub,
     )) {
       const bubble = node.componentInstance as TranscriptMessageBubbleStub & {
         ptahUiSnapshot?: TurnSourceSnapshot | null;
@@ -607,7 +613,9 @@ describe('ChatTranscriptComponent ptah-ui source snapshots', () => {
     await settleRealChain(fixture);
 
     // Same block instance (Req 3.2, in place), now showing the real count.
-    const after = fixture.debugElement.query(By.directive(PtahUiBlockComponent));
+    const after = fixture.debugElement.query(
+      By.directive(PtahUiBlockComponent),
+    );
     expect(after?.componentInstance).toBe(block);
     const text = fixture.nativeElement.textContent ?? '';
     expect(text).not.toContain('pending');

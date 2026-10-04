@@ -66,8 +66,10 @@ const EMPTY_STRING_SET: ReadonlySet<string> = new Set<string>();
 const EMPTY_MESSAGES: readonly ExecutionChatMessage[] = [];
 const EMPTY_TREES: readonly ExecutionNode[] = [];
 const EMPTY_ORDER_KEYS: ReadonlyMap<string, number> = new Map<string, number>();
-const NO_PTAH_UI_SNAPSHOTS: ReadonlyMap<string, TurnSourceSnapshot> =
-  new Map<string, TurnSourceSnapshot>();
+const NO_PTAH_UI_SNAPSHOTS: ReadonlyMap<string, TurnSourceSnapshot> = new Map<
+  string,
+  TurnSourceSnapshot
+>();
 
 /**
  * The still-open turn's snapshot: every source pending, exactly what
@@ -710,9 +712,9 @@ export class ChatTranscriptComponent {
       const endMessage = run.assistants[run.assistants.length - 1];
       const finalized = run.endIndex < view.streamingBoundary;
       const changeSet: TurnChangeSet | null | 'pending' = finalized
-        ? changeSetForMessage(endMessage, changeSets) ??
+        ? (changeSetForMessage(endMessage, changeSets) ??
           anchoredChangeSetFor(anchors, endMessage) ??
-          (index === runs.length - 1 ? 'pending' : null)
+          (index === runs.length - 1 ? 'pending' : null))
         : 'pending';
       const entry = this._turnSnapshotEntries.get(endMessage.id);
       const snapshot =

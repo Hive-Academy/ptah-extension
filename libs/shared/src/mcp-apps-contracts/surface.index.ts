@@ -125,7 +125,10 @@ export type { PtahUiBinding, PtahUiConversion } from './ptah-ui-converter';
 export { resolvePtahUi } from './ptah-ui-resolver';
 export type { ResolvedPtahUiContent } from './ptah-ui-resolver';
 export { renderPtahUiBlock } from './ptah-ui-pipeline';
-export type { RenderPtahUiBlockInput, RenderPtahUiBlockResult } from './ptah-ui-pipeline';
+export type {
+  RenderPtahUiBlockInput,
+  RenderPtahUiBlockResult,
+} from './ptah-ui-pipeline';
 export type {
   PtahUiDocument,
   PtahUiElement,

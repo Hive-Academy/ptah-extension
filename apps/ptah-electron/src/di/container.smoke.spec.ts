@@ -251,7 +251,9 @@ describe('Electron DI — trusted host kind', () => {
   it('resolves HOST_KIND as electron after phase 1 registration', () => {
     const c = buildMinimalContainer();
     const logger = c.resolve<Logger>(TOKENS.LOGGER);
-    const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-host-kind-'));
+    const userDataPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'ptah-host-kind-'),
+    );
 
     try {
       registerPhase1Infra(

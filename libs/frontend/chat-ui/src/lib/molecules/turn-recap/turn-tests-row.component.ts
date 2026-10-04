@@ -89,11 +89,9 @@ const OUTCOME_CLASS: Readonly<Record<TurnTestOutcome, string>> = {
               class="flex items-baseline gap-1.5 py-0.5"
               data-testid="turn-tests-run"
             >
-              <span
-                [class]="row.cls"
-                data-testid="turn-tests-run-outcome"
-                >{{ row.outcome }}</span
-              >
+              <span [class]="row.cls" data-testid="turn-tests-run-outcome">{{
+                row.outcome
+              }}</span>
               <span
                 class="font-mono text-[10px] text-base-content-muted min-w-0 flex-1 break-all"
                 [title]="row.command"

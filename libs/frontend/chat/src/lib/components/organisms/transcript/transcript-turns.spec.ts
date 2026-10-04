@@ -83,7 +83,10 @@ describe('groupTurns', () => {
   it('ends each turn at the last assistant message before the next user message', () => {
     const turns = groupTurns(TRANSCRIPT, 5);
     expect(turns.map((turn) => turn.endMessageId)).toEqual(['a1b', 'a2']);
-    expect(turns[0].roots).toEqual([TRANSCRIPT[1].streamingState, TRANSCRIPT[2].streamingState]);
+    expect(turns[0].roots).toEqual([
+      TRANSCRIPT[1].streamingState,
+      TRANSCRIPT[2].streamingState,
+    ]);
     expect(turns[1].roots).toEqual([TRANSCRIPT[4].streamingState]);
   });
 
@@ -152,14 +155,22 @@ describe('groupTurns', () => {
   it('marks a turn incomplete when a test node never finished after finalization (A-3)', () => {
     const pending = [
       user('u1', 100),
-      assistant('a1', 110, treeRoot('t1', [PASSED_JEST, bashNode('n4', 'npm test', 'pending')])),
+      assistant(
+        'a1',
+        110,
+        treeRoot('t1', [PASSED_JEST, bashNode('n4', 'npm test', 'pending')]),
+      ),
     ];
     expect(groupTurns(pending, 2)[0].incomplete).toBe(true);
 
     // A non-test tool that never finished, or a finished turn, is not incomplete.
     const settled = [
       user('u1', 100),
-      assistant('a1', 110, treeRoot('t1', [PASSED_JEST, bashNode('n4', 'ls', 'pending')])),
+      assistant(
+        'a1',
+        110,
+        treeRoot('t1', [PASSED_JEST, bashNode('n4', 'ls', 'pending')]),
+      ),
     ];
     expect(groupTurns(settled, 2)[0].incomplete).toBe(false);
 

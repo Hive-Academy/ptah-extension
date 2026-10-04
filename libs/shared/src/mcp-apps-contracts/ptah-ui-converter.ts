@@ -1,5 +1,8 @@
 import type { SurfaceComponent, SurfaceEnvelope } from './surface.types';
-import { SURFACE_CATALOG_VERSION, SURFACE_SCHEMA_VERSION } from './surface-catalog';
+import {
+  SURFACE_CATALOG_VERSION,
+  SURFACE_SCHEMA_VERSION,
+} from './surface-catalog';
 import type {
   PtahUiDocument,
   PtahUiElement,
@@ -28,7 +31,10 @@ export interface PtahUiConversion {
 }
 
 /** Converts parsed ptah-ui grammar to a display-only v2 surface. */
-export function convertPtahUi(doc: PtahUiDocument, surfaceId: string): PtahUiConversion {
+export function convertPtahUi(
+  doc: PtahUiDocument,
+  surfaceId: string,
+): PtahUiConversion {
   const bindings: PtahUiBinding[] = [];
   const components: SurfaceComponent[] = [];
   for (const element of doc.elements) {
@@ -69,46 +75,87 @@ function convertElement(
     case 'table':
       if ('source' in element) {
         const columns = element.columns ?? sourceColumns(element.source);
-        bindings.push({ kind: 'rows', componentId: id, source: element.source, columns });
+        bindings.push({
+          kind: 'rows',
+          componentId: id,
+          source: element.source,
+          columns,
+        });
         return table(id, columns, []);
       }
       return table(id, element.columns, element.rows);
     case 'list':
       if ('source' in element) {
         const columns = sourceColumns(element.source);
-        bindings.push({ kind: 'rows', componentId: id, source: element.source, columns });
+        bindings.push({
+          kind: 'rows',
+          componentId: id,
+          source: element.source,
+          columns,
+        });
         return { kind: 'list', id, items: [] };
       }
-      return { kind: 'list', id, items: element.items.map((text) => ({ text: { text } })) };
+      return {
+        kind: 'list',
+        id,
+        items: element.items.map((text) => ({ text: { text } })),
+      };
     case 'chart':
       return {
         kind: element.chart === 'line' ? 'line-chart' : 'bar-chart',
         id,
         title: { text: element.title },
-        series: [{ name: element.title, points: element.points.map((point) => ({ x: point.label, y: point.value })) }],
+        series: [
+          {
+            name: element.title,
+            points: element.points.map((point) => ({
+              x: point.label,
+              y: point.value,
+            })),
+          },
+        ],
       };
   }
 }
 
-function convertStatValue(value: string | PtahUiScalar, componentId: string, bindings: PtahUiBinding[]): string {
+function convertStatValue(
+  value: string | PtahUiScalar,
+  componentId: string,
+  bindings: PtahUiBinding[],
+): string {
   if (typeof value === 'string') return value;
-  bindings.push({ kind: 'scalar', componentId, source: value.source, field: value.field });
+  bindings.push({
+    kind: 'scalar',
+    componentId,
+    source: value.source,
+    field: value.field,
+  });
   return `$${value.source}.${value.field}`;
 }
 
-function table(id: string, columns: readonly string[], rows: readonly (readonly string[])[]): SurfaceComponent {
+function table(
+  id: string,
+  columns: readonly string[],
+  rows: readonly (readonly string[])[],
+): SurfaceComponent {
   return {
     kind: 'table',
     id,
-    columns: columns.map((label, index) => ({ key: `c${index}`, label: { text: label } })),
+    columns: columns.map((label, index) => ({
+      key: `c${index}`,
+      label: { text: label },
+    })),
     rows,
   };
 }
 
 function sourceColumns(source: PtahUiSourceName): readonly string[] {
   switch (source) {
-    case 'diff': return ['path', 'status', 'additions', 'deletions'];
-    case 'tests': return ['command', 'outcome'];
-    case 'usage': return [];
+    case 'diff':
+      return ['path', 'status', 'additions', 'deletions'];
+    case 'tests':
+      return ['command', 'outcome'];
+    case 'usage':
+      return [];
   }
 }

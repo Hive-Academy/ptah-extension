@@ -1,19 +1,34 @@
-import { formatDurationMs, formatUsdCost } from '../lib/utils/usage-format.utils';
+import {
+  formatDurationMs,
+  formatUsdCost,
+} from '../lib/utils/usage-format.utils';
 import type { TurnSourceSnapshot } from '../lib/utils/turn-sources.utils';
 
-import type { SurfaceComponent, SurfaceContent, SurfaceEnvelope } from './surface.types';
+import type {
+  SurfaceComponent,
+  SurfaceContent,
+  SurfaceEnvelope,
+} from './surface.types';
 import type { PtahUiBinding, PtahUiConversion } from './ptah-ui-converter';
 import type { PtahUiSourceName } from './ptah-ui.types';
 
-export type ResolvedPtahUiContent = Extract<SurfaceContent, { readonly contract: 'dashboard-spec/2' }>;
+export type ResolvedPtahUiContent = Extract<
+  SurfaceContent,
+  { readonly contract: 'dashboard-spec/2' }
+>;
 
 /** Resolves host-owned turn data into a fully literal renderable surface. */
 export function resolvePtahUi(
   conversion: PtahUiConversion,
   snapshot: TurnSourceSnapshot | null,
 ): ResolvedPtahUiContent {
-  const components = conversion.envelope.components.map((component) => resolveComponent(component, conversion.bindings, snapshot));
-  const surface: Omit<SurfaceEnvelope, 'dataModel'> = { ...conversion.envelope, components };
+  const components = conversion.envelope.components.map((component) =>
+    resolveComponent(component, conversion.bindings, snapshot),
+  );
+  const surface: Omit<SurfaceEnvelope, 'dataModel'> = {
+    ...conversion.envelope,
+    components,
+  };
   return { contract: 'dashboard-spec/2', surface, dataModel: {} };
 }
 
@@ -22,7 +37,9 @@ function resolveComponent(
   bindings: readonly PtahUiBinding[],
   snapshot: TurnSourceSnapshot | null,
 ): SurfaceComponent {
-  const binding = bindings.find((candidate) => candidate.componentId === component.id);
+  const binding = bindings.find(
+    (candidate) => candidate.componentId === component.id,
+  );
   if (binding === undefined) return component;
   if (binding.kind === 'scalar' && component.kind === 'stat') {
     return { ...component, value: scalarValue(binding, snapshot) };
@@ -31,39 +48,59 @@ function resolveComponent(
   return component;
 }
 
-function scalarValue(binding: Extract<PtahUiBinding, { readonly kind: 'scalar' }>, snapshot: TurnSourceSnapshot | null): string | number {
+function scalarValue(
+  binding: Extract<PtahUiBinding, { readonly kind: 'scalar' }>,
+  snapshot: TurnSourceSnapshot | null,
+): string | number {
   switch (binding.source) {
     case 'diff': {
       const source = snapshot === null ? null : snapshot.diff;
-      if (source === null || source.kind !== 'available') return source?.kind ?? 'unavailable';
+      if (source === null || source.kind !== 'available')
+        return source?.kind ?? 'unavailable';
       if (source.changeSet.countsUnavailable) return 'unavailable';
       switch (binding.field) {
-        case 'files': return source.changeSet.totals.files;
-        case 'additions': return source.changeSet.totals.additions;
-        case 'deletions': return source.changeSet.totals.deletions;
-        default: return 'unavailable';
+        case 'files':
+          return source.changeSet.totals.files;
+        case 'additions':
+          return source.changeSet.totals.additions;
+        case 'deletions':
+          return source.changeSet.totals.deletions;
+        default:
+          return 'unavailable';
       }
     }
     case 'tests': {
       const source = snapshot === null ? null : snapshot.tests;
-      if (source === null || source.kind !== 'available') return source?.kind ?? 'unavailable';
+      if (source === null || source.kind !== 'available')
+        return source?.kind ?? 'unavailable';
       switch (binding.field) {
-        case 'total': return source.summary.total;
-        case 'passed': return source.summary.passed;
-        case 'failed': return source.summary.failed;
-        case 'unknown': return source.summary.unknown;
-        default: return 'unavailable';
+        case 'total':
+          return source.summary.total;
+        case 'passed':
+          return source.summary.passed;
+        case 'failed':
+          return source.summary.failed;
+        case 'unknown':
+          return source.summary.unknown;
+        default:
+          return 'unavailable';
       }
     }
     case 'usage': {
       const source = snapshot === null ? null : snapshot.usage;
-      if (source === null || source.kind !== 'available') return source?.kind ?? 'unavailable';
+      if (source === null || source.kind !== 'available')
+        return source?.kind ?? 'unavailable';
       switch (binding.field) {
-        case 'cost': return formatUsdCost(source.cost) ?? 'unavailable';
-        case 'duration': return formatDurationMs(source.durationMs);
-        case 'input': return source.input;
-        case 'output': return source.output;
-        default: return 'unavailable';
+        case 'cost':
+          return formatUsdCost(source.cost) ?? 'unavailable';
+        case 'duration':
+          return formatDurationMs(source.durationMs);
+        case 'input':
+          return source.input;
+        case 'output':
+          return source.output;
+        default:
+          return 'unavailable';
       }
     }
   }
@@ -76,25 +113,48 @@ function resolveRows(
 ): SurfaceComponent {
   const source = rowsSource(snapshot, binding.source);
   if (component.kind === 'table' && component.columns.length === 0) {
-    return statusList(component.id, source === 'pending' || source === 'unavailable'
-      ? source
-      : emptyMessage(binding.source));
+    return statusList(
+      component.id,
+      source === 'pending' || source === 'unavailable'
+        ? source
+        : emptyMessage(binding.source),
+    );
   }
   if (component.kind === 'list') {
-    if (source === 'pending' || source === 'unavailable') return { ...component, items: [{ text: { text: source } }] };
+    if (source === 'pending' || source === 'unavailable')
+      return { ...component, items: [{ text: { text: source } }] };
     const rows = rowValues(binding.source, source, binding.columns);
-    return { ...component, items: rows.length === 0 ? [{ text: { text: emptyMessage(binding.source) } }] : rows.map(([text]) => ({ text: { text: String(text) } })) };
+    return {
+      ...component,
+      items:
+        rows.length === 0
+          ? [{ text: { text: emptyMessage(binding.source) } }]
+          : rows.map(([text]) => ({ text: { text: String(text) } })),
+    };
   }
   if (component.kind !== 'table') return component;
   if (source === 'pending' || source === 'unavailable') {
     // Req 3.2-3.4 requires a visible status while retaining the table's declared shape.
-    return { ...component, rows: [statusRow(component.columns.length, source)] };
+    return {
+      ...component,
+      rows: [statusRow(component.columns.length, source)],
+    };
   }
   const rows = rowValues(binding.source, source, binding.columns);
-  return { ...component, rows, description: rows.length === 0 ? { text: emptyMessage(binding.source) } : sourceDescription(binding.source, source) };
+  return {
+    ...component,
+    rows,
+    description:
+      rows.length === 0
+        ? { text: emptyMessage(binding.source) }
+        : sourceDescription(binding.source, source),
+  };
 }
 
-function statusRow(columnCount: number, status: 'pending' | 'unavailable'): readonly string[] {
+function statusRow(
+  columnCount: number,
+  status: 'pending' | 'unavailable',
+): readonly string[] {
   return Array.from({ length: columnCount }, () => status);
 }
 
@@ -102,40 +162,85 @@ function statusList(id: string, text: string): SurfaceComponent {
   return { kind: 'list', id, items: [{ text: { text } }] };
 }
 
-function rowsSource(snapshot: TurnSourceSnapshot | null, name: PtahUiSourceName): TurnSourceSnapshot['diff'] | TurnSourceSnapshot['tests'] | TurnSourceSnapshot['usage'] | 'pending' | 'unavailable' {
+function rowsSource(
+  snapshot: TurnSourceSnapshot | null,
+  name: PtahUiSourceName,
+):
+  | TurnSourceSnapshot['diff']
+  | TurnSourceSnapshot['tests']
+  | TurnSourceSnapshot['usage']
+  | 'pending'
+  | 'unavailable' {
   if (snapshot === null || !Object.hasOwn(snapshot, name)) return 'unavailable';
   const source = snapshot[name];
   return source.kind === 'available' ? source : source.kind;
 }
 
-function isDiffRowsSource(value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>): value is Extract<TurnSourceSnapshot['diff'], { readonly kind: 'available' }> {
+function isDiffRowsSource(
+  value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>,
+): value is Extract<
+  TurnSourceSnapshot['diff'],
+  { readonly kind: 'available' }
+> {
   return Object.hasOwn(value, 'changeSet');
 }
 
-function isTestRowsSource(value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>): value is Extract<TurnSourceSnapshot['tests'], { readonly kind: 'available' }> {
+function isTestRowsSource(
+  value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>,
+): value is Extract<
+  TurnSourceSnapshot['tests'],
+  { readonly kind: 'available' }
+> {
   return Object.hasOwn(value, 'runs');
 }
 
-function rowValues(source: PtahUiSourceName, value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>, columns: readonly string[]): readonly (readonly (string | number | null)[])[] {
-  if (source === 'diff' && isDiffRowsSource(value)) return value.changeSet.files.map((file) => columns.map((column) => {
-    if (column === 'path') return file.path;
-    if (column === 'status') return file.status;
-    if (column === 'additions') return file.binary ? 'binary' : file.additions ?? 'unknown';
-    if (column === 'deletions') return file.binary ? 'binary' : file.deletions ?? 'unknown';
-    return 'unavailable';
-  }));
-  if (source === 'tests' && isTestRowsSource(value)) return value.runs.map((run) => columns.map((column) => column === 'command' ? run.command : column === 'outcome' ? run.outcome : 'unavailable'));
+function rowValues(
+  source: PtahUiSourceName,
+  value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>,
+  columns: readonly string[],
+): readonly (readonly (string | number | null)[])[] {
+  if (source === 'diff' && isDiffRowsSource(value))
+    return value.changeSet.files.map((file) =>
+      columns.map((column) => {
+        if (column === 'path') return file.path;
+        if (column === 'status') return file.status;
+        if (column === 'additions')
+          return file.binary ? 'binary' : (file.additions ?? 'unknown');
+        if (column === 'deletions')
+          return file.binary ? 'binary' : (file.deletions ?? 'unknown');
+        return 'unavailable';
+      }),
+    );
+  if (source === 'tests' && isTestRowsSource(value))
+    return value.runs.map((run) =>
+      columns.map((column) =>
+        column === 'command'
+          ? run.command
+          : column === 'outcome'
+            ? run.outcome
+            : 'unavailable',
+      ),
+    );
   return [];
 }
 
-function sourceDescription(source: PtahUiSourceName, value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>): { readonly text: string } | undefined {
+function sourceDescription(
+  source: PtahUiSourceName,
+  value: Exclude<ReturnType<typeof rowsSource>, 'pending' | 'unavailable'>,
+): { readonly text: string } | undefined {
   if (source !== 'diff' || !isDiffRowsSource(value)) return undefined;
   const notes: string[] = [];
-  if (value.changeSet.truncatedCount > 0) notes.push(`+${value.changeSet.truncatedCount} more`);
-  if (value.changeSet.baselineMissing) notes.push('may include earlier changes');
+  if (value.changeSet.truncatedCount > 0)
+    notes.push(`+${value.changeSet.truncatedCount} more`);
+  if (value.changeSet.baselineMissing)
+    notes.push('may include earlier changes');
   return notes.length === 0 ? undefined : { text: notes.join('; ') };
 }
 
 function emptyMessage(source: PtahUiSourceName): string {
-  return source === 'diff' ? 'No files changed this turn' : source === 'tests' ? 'No tests ran this turn' : 'No rows available';
+  return source === 'diff'
+    ? 'No files changed this turn'
+    : source === 'tests'
+      ? 'No tests ran this turn'
+      : 'No rows available';
 }

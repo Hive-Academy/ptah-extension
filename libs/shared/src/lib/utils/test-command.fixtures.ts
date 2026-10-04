@@ -23,7 +23,11 @@ export const TEST_COMMAND_FIXTURES: readonly TestCommandFixture[] = [
   { rule: 'R4 script', command: 'npm install -D vitest', matches: false },
   { rule: 'R4 executable', command: 'nx test chat', matches: true },
   { rule: 'R4 executable', command: 'nx run chat:test:ci', matches: true },
-  { rule: 'R4 executable', command: 'nx run-many --targets=lint,test', matches: true },
+  {
+    rule: 'R4 executable',
+    command: 'nx run-many --targets=lint,test',
+    matches: true,
+  },
   { rule: 'R4 executable', command: 'python -m pytest -q', matches: true },
   { rule: 'R4 executable', command: 'go test ./...', matches: true },
   { rule: 'R4 executable', command: 'nx build chat', matches: false },

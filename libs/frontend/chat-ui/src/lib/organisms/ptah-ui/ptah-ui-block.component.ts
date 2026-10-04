@@ -67,7 +67,9 @@ function utf8JsonBytes(value: unknown): number {
 function blockSurfaceId(nodeId: string, ordinal: number): string {
   const suffix = `-${ordinal}`;
   const room =
-    SURFACE_LIMITS.maxSurfaceIdLength - SURFACE_ID_PREFIX.length - suffix.length;
+    SURFACE_LIMITS.maxSurfaceIdLength -
+    SURFACE_ID_PREFIX.length -
+    suffix.length;
   const safeNodeId = nodeId.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, room);
   return `${SURFACE_ID_PREFIX}${safeNodeId}${suffix}`;
 }
@@ -109,7 +111,10 @@ function blockSurfaceId(nodeId: string, ordinal: number): string {
         />
       </div>
       @if (snapshotMode()) {
-        <p class="sr-only whitespace-pre-line" data-testid="ptah-ui-text-alternative">
+        <p
+          class="sr-only whitespace-pre-line"
+          data-testid="ptah-ui-text-alternative"
+        >
           {{ textAlternative() }}
         </p>
       }

@@ -9,12 +9,14 @@ export const PTAH_UI_CORPUS: readonly PtahUiCorpusCase[] = [
   {
     name: 'turn-summary-sources-crlf',
     body: 'title Release readiness\r\nstats\r\n  Files changed | $diff.files\r\n  Tests passed | $tests.passed\r\n  Prompt cost | $usage.cost\r\n  Quoted budget | \\$5\r\n',
-    purpose: 'A compact turn summary with source scalars, CRLF line endings, and an escaped leading dollar.',
+    purpose:
+      'A compact turn summary with source scalars, CRLF line endings, and an escaped leading dollar.',
   },
   {
     name: 'literal-table-escapes-unicode',
     body: 'title Migration notes\ntable\n  Check | Detail | Owner\n  Schema \\| contract | \\\\ | Priya\n  Price | $5 today | équipe\n  Empty detail |  | 東京\n',
-    purpose: 'A literal table covering escaped pipe and backslash, an empty cell, a literal mid-cell dollar, and Unicode.',
+    purpose:
+      'A literal table covering escaped pipe and backslash, an empty cell, a literal mid-cell dollar, and Unicode.',
   },
   {
     name: 'changed-files-columns',
@@ -34,6 +36,7 @@ export const PTAH_UI_CORPUS: readonly PtahUiCorpusCase[] = [
   {
     name: 'release-checklist-mixed',
     body: 'title Release checklist\nstats\n  Reviewers | 2\n  Risk | low\ntable\n  Area | Status\n  Parser | ready\n  Renderer | queued\nlist\n  - Run the focused shared tests\n  - Attach the compactness report\nchart bar Completed checks\n  Draft | 1\n  Verified | 3\n',
-    purpose: 'A mixed agent update using title, stats, literal table, literal list, and bar chart.',
+    purpose:
+      'A mixed agent update using title, stats, literal table, literal list, and bar chart.',
   },
 ];

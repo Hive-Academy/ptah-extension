@@ -63,7 +63,10 @@ function makeHarness(): Harness {
   const service = new ChatSessionService(
     createMockLogger() as unknown as Logger,
     { broadcastMessage: jest.fn().mockResolvedValue(undefined) } as never,
-    { get: jest.fn(), getWithDefault: jest.fn().mockReturnValue(false) } as unknown as ConfigManager,
+    {
+      get: jest.fn(),
+      getWithDefault: jest.fn().mockReturnValue(false),
+    } as unknown as ConfigManager,
     {
       startChatSession,
       resumeSession,
@@ -72,27 +75,59 @@ function makeHarness(): Harness {
     } as unknown as IAgentAdapter,
     { captureException: jest.fn() } as unknown as SentryService,
     { getPort: jest.fn().mockReturnValue(0) } as never,
-    { readForResume: jest.fn().mockResolvedValue({ events: [], resolvedWorkspacePath: WORKSPACE }) } as never,
+    {
+      readForResume: jest
+        .fn()
+        .mockResolvedValue({ events: [], resolvedWorkspacePath: WORKSPACE }),
+    } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
       registerFromHistoryEvents: jest.fn().mockReturnValue(0),
       getResumableBySession: jest.fn().mockReturnValue([]),
     } as unknown as SubagentRegistryService,
-    { intercept: jest.fn().mockReturnValue({ action: 'passthrough' }) } as never,
-    { get: jest.fn().mockResolvedValue(null), getCliSessionsForRestore: jest.fn().mockResolvedValue([]) } as never,
-    createMockWorkspaceProvider({ folders: [WORKSPACE] }) as unknown as IWorkspaceProvider,
-    { type: 'cli', extensionPath: '/tmp/ptah', globalStoragePath: '/tmp/storage', workspaceStoragePath: '/tmp/workspace' } as never,
-    { isMcpServerRunning: jest.fn().mockReturnValue(false), resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined) } as never,
+    {
+      intercept: jest.fn().mockReturnValue({ action: 'passthrough' }),
+    } as never,
+    {
+      get: jest.fn().mockResolvedValue(null),
+      getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
+    } as never,
+    createMockWorkspaceProvider({
+      folders: [WORKSPACE],
+    }) as unknown as IWorkspaceProvider,
+    {
+      type: 'cli',
+      extensionPath: '/tmp/ptah',
+      globalStoragePath: '/tmp/storage',
+      workspaceStoragePath: '/tmp/workspace',
+    } as never,
+    {
+      isMcpServerRunning: jest.fn().mockReturnValue(false),
+      resolveEnhancedPromptsContent: jest.fn().mockResolvedValue(undefined),
+    } as never,
     {
       handleStart: jest.fn().mockResolvedValue({ result: { success: false } }),
-      handleContinue: jest.fn().mockResolvedValue({ error: '__NOT_PTAH_CLI__' }),
+      handleContinue: jest
+        .fn()
+        .mockResolvedValue({ error: '__NOT_PTAH_CLI__' }),
     } as never,
-    { streamEventsToWebview: jest.fn(), isStreaming: jest.fn().mockReturnValue(false) } as never,
-    { injectInterruptedAgentsContext: jest.fn().mockImplementation(async (prompt: string) => ({ prompt })) } as never,
+    {
+      streamEventsToWebview: jest.fn(),
+      isStreaming: jest.fn().mockReturnValue(false),
+    } as never,
+    {
+      injectInterruptedAgentsContext: jest
+        .fn()
+        .mockImplementation(async (prompt: string) => ({ prompt })),
+    } as never,
     { routeFollowUpSlashCommand: jest.fn().mockResolvedValue(null) } as never,
     createMockModelSettings() as unknown as ModelSettings,
     { getProviderKey: jest.fn().mockResolvedValue(undefined) } as never,
-    { resolveProviderProfileForWorkspace: jest.fn().mockResolvedValue(undefined) } as never,
+    {
+      resolveProviderProfileForWorkspace: jest
+        .fn()
+        .mockResolvedValue(undefined),
+    } as never,
     { resolveSessionFields: jest.fn().mockResolvedValue({}) } as never,
     new SessionMcpStatusRegistry(),
     { register: jest.fn().mockReturnValue(() => undefined) } as never,
@@ -117,7 +152,10 @@ function flagParams<T extends ChatStartParams | ChatContinueParams>(
   return ptahUiFence === undefined ? params : { ...params, ptahUiFence };
 }
 
-function expectFlag(config: Record<string, unknown>, flag: boolean | undefined): void {
+function expectFlag(
+  config: Record<string, unknown>,
+  flag: boolean | undefined,
+): void {
   if (flag === undefined) {
     expect('ptahUiFence' in config).toBe(false);
   } else {
@@ -126,17 +164,38 @@ function expectFlag(config: Record<string, unknown>, flag: boolean | undefined):
 }
 
 describe('ChatSessionService ptahUiFence forwarding', () => {
-  it.each([true, false, undefined])('forwards %p unchanged on chat:start', async (ptahUiFence) => {
-    const h = makeHarness();
-    await h.service.startSession(flagParams({ tabId: TAB_ID, prompt: 'start', workspacePath: WORKSPACE }, ptahUiFence));
+  it.each([true, false, undefined])(
+    'forwards %p unchanged on chat:start',
+    async (ptahUiFence) => {
+      const h = makeHarness();
+      await h.service.startSession(
+        flagParams(
+          { tabId: TAB_ID, prompt: 'start', workspacePath: WORKSPACE },
+          ptahUiFence,
+        ),
+      );
 
-    expectFlag(h.startChatSession.mock.calls[0][0], ptahUiFence);
-  });
+      expectFlag(h.startChatSession.mock.calls[0][0], ptahUiFence);
+    },
+  );
 
-  it.each([true, false, undefined])('forwards %p unchanged on chat:continue resume', async (ptahUiFence) => {
-    const h = makeHarness();
-    await h.service.continueSession(flagParams({ tabId: TAB_ID, sessionId: SESSION_ID, prompt: 'continue', workspacePath: WORKSPACE }, ptahUiFence));
+  it.each([true, false, undefined])(
+    'forwards %p unchanged on chat:continue resume',
+    async (ptahUiFence) => {
+      const h = makeHarness();
+      await h.service.continueSession(
+        flagParams(
+          {
+            tabId: TAB_ID,
+            sessionId: SESSION_ID,
+            prompt: 'continue',
+            workspacePath: WORKSPACE,
+          },
+          ptahUiFence,
+        ),
+      );
 
-    expectFlag(h.resumeSession.mock.calls[0][1], ptahUiFence);
-  });
+      expectFlag(h.resumeSession.mock.calls[0][1], ptahUiFence);
+    },
+  );
 });

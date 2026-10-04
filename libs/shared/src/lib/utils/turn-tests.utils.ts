@@ -21,7 +21,8 @@ export interface TurnTestSummary {
 
 function outcomeFor(node: ExecutionNode, finalized: boolean): TurnTestOutcome {
   if (node.toolInput?.['run_in_background'] === true) return 'unknown';
-  if (!finalized && node.status !== 'complete' && node.status !== 'error') return 'unknown';
+  if (!finalized && node.status !== 'complete' && node.status !== 'error')
+    return 'unknown';
   if (node.status !== 'complete' && node.status !== 'error') return 'unknown';
   if (node.isError === true) return 'failed';
   if (node.isError === false) return 'passed';
@@ -61,7 +62,9 @@ export function collectTurnTests(
 }
 
 /** Counts the outcome categories in a collected test run list. */
-export function summarizeTurnTests(runs: readonly TurnTestRun[]): TurnTestSummary {
+export function summarizeTurnTests(
+  runs: readonly TurnTestRun[],
+): TurnTestSummary {
   if (!Array.isArray(runs)) {
     return { total: 0, passed: 0, failed: 0, unknown: 0 };
   }

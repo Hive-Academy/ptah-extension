@@ -68,10 +68,14 @@ export function segmentPtahUi(text: string): PtahUiSegment[] {
   return segments;
 }
 
-function findPtahUiClose(lines: readonly Line[], start: number): number | undefined {
+function findPtahUiClose(
+  lines: readonly Line[],
+  start: number,
+): number | undefined {
   const opening: Fence = { marker: '`', length: 3 };
   for (let index = start; index < lines.length; index += 1) {
-    if (isTargetClosingFence(removeTrailingSpaces(lines[index].text), opening)) return index;
+    if (isTargetClosingFence(removeTrailingSpaces(lines[index].text), opening))
+      return index;
   }
   return undefined;
 }
@@ -85,7 +89,13 @@ function readLines(text: string): Line[] {
     lines.push({ text: text.slice(start, end), start, end, next: index + 1 });
     start = index + 1;
   }
-  if (start < text.length) lines.push({ text: text.slice(start), start, end: text.length, next: text.length });
+  if (start < text.length)
+    lines.push({
+      text: text.slice(start),
+      start,
+      end: text.length,
+      next: text.length,
+    });
   return lines;
 }
 

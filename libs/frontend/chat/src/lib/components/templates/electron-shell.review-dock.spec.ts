@@ -173,21 +173,16 @@ describe('ElectronShellComponent review dock', () => {
     error.mockRestore();
   });
 
-  it(
-    'loads nothing until the dock opens, then mounts ReviewShellComponent',
-    async () => {
-      await createFixture();
-      expect(query('[data-testid="review-shell-stub"]')).toBeNull();
+  it('loads nothing until the dock opens, then mounts ReviewShellComponent', async () => {
+    await createFixture();
+    expect(query('[data-testid="review-shell-stub"]')).toBeNull();
 
-      layoutStub.editorPanelVisible.set(true);
-      await settle();
+    layoutStub.editorPanelVisible.set(true);
+    await settle();
 
-      expect(query('[data-testid="review-shell-stub"]')).not.toBeNull();
-      expect(retryButton()).toBeUndefined();
-    },
-    // Cold shell compilation resolves execution-node's deferred import wiring even with the ptah-ui stub.
-    20_000,
-  );
+    expect(query('[data-testid="review-shell-stub"]')).not.toBeNull();
+    expect(retryButton()).toBeUndefined();
+  }, 20_000); // Cold shell compilation resolves execution-node's deferred import wiring even with the ptah-ui stub.
 
   it('shows Retry when the chunk fails, and Retry loads the shell', async () => {
     await createFixture();

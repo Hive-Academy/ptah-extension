@@ -97,7 +97,10 @@ describe('eager-closure bundle gate', () => {
     const basePath = join(directory, 'base-stats.json');
     const headPath = join(directory, 'head-stats.json');
     try {
-      writeFileSync(basePath, JSON.stringify(stats({ 'main.js': { inputs: {} } })));
+      writeFileSync(
+        basePath,
+        JSON.stringify(stats({ 'main.js': { inputs: {} } })),
+      );
       writeFileSync(
         headPath,
         JSON.stringify(
@@ -109,10 +112,14 @@ describe('eager-closure bundle gate', () => {
         ),
       );
       expect(() =>
-        execFileSync(process.execPath, [GATE_PATH, headPath, '--base', basePath], {
-          encoding: 'utf8',
-          stdio: 'pipe',
-        }),
+        execFileSync(
+          process.execPath,
+          [GATE_PATH, headPath, '--base', basePath],
+          {
+            encoding: 'utf8',
+            stdio: 'pipe',
+          },
+        ),
       ).toThrow('unlisted eager input growth');
     } finally {
       rmSync(directory, { recursive: true, force: true });
@@ -125,7 +132,11 @@ describeIfBuiltOrFail(
   'npx nx build ptah-extension-webview --configuration=production --skip-nx-cache --stats-json',
 )('eager-closure production build gate', () => {
   it('has no forbidden eager input', () => {
-    const builtStats = JSON.parse(readFileSync(STATS_PATH, 'utf8')) as ChunkStats;
-    expect(() => eagerClosureGate.assertNoForbiddenEager(builtStats)).not.toThrow();
+    const builtStats = JSON.parse(
+      readFileSync(STATS_PATH, 'utf8'),
+    ) as ChunkStats;
+    expect(() =>
+      eagerClosureGate.assertNoForbiddenEager(builtStats),
+    ).not.toThrow();
   });
 });

@@ -71,7 +71,11 @@ export class PtahUiMessageTextComponent {
     let markdownIndex = 0;
     return segmentPtahUi(this.text()).map((segment): PtahUiTextPart =>
       segment.kind === 'markdown'
-        ? { kind: 'markdown', track: `md:${markdownIndex++}`, text: segment.text }
+        ? {
+            kind: 'markdown',
+            track: `md:${markdownIndex++}`,
+            text: segment.text,
+          }
         : {
             kind: 'block',
             track: `ui:${segment.ordinal}`,

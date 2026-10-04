@@ -21,13 +21,19 @@ function makeBuilder(hostKind?: HostKind): BuilderWithSystemPrompt {
   ) => SdkQueryOptionsBuilder;
   const builder = new ctor(
     { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-    { createCallback: jest.fn().mockReturnValue(() => ({ behavior: 'allow' })) },
+    {
+      createCallback: jest.fn().mockReturnValue(() => ({ behavior: 'allow' })),
+    },
     noopHooks,
     { getConfig: jest.fn().mockReturnValue({ enabled: true }) },
     noopHooks,
     noopHooks,
     {},
-    { resolveModelId: jest.fn(), hasCachedModels: jest.fn(), getSupportedModels: jest.fn() },
+    {
+      resolveModelId: jest.fn(),
+      hasCachedModels: jest.fn(),
+      getSupportedModels: jest.fn(),
+    },
     {
       buildBlock: jest.fn().mockResolvedValue(''),
       buildSessionStartBlock: jest.fn().mockResolvedValue(''),
@@ -67,7 +73,12 @@ function expectHintAbsent(prompt: string): void {
 
 describe('SdkQueryOptionsBuilder ptah-ui hint gate', () => {
   it.each([
-    ['electron explicit coding', 'electron', { mcpToolProfile: 'coding' }, true],
+    [
+      'electron explicit coding',
+      'electron',
+      { mcpToolProfile: 'coding' },
+      true,
+    ],
     [
       'electron coding disabled or absent',
       'electron',
@@ -75,34 +86,51 @@ describe('SdkQueryOptionsBuilder ptah-ui hint gate', () => {
       false,
     ],
     ['electron apps', 'electron', { mcpToolProfile: 'apps' }, false],
-    ['undefined spoofed', undefined, { mcpToolProfile: 'coding', ptahUiFence: true }, false],
-    ['vscode spoofed', 'vscode', { mcpToolProfile: 'coding', ptahUiFence: true }, false],
-    ['tui spoofed', 'tui', { mcpToolProfile: 'coding', ptahUiFence: true }, false],
-    ['cli spoofed', 'cli', { mcpToolProfile: 'coding', ptahUiFence: true }, false],
-  ] as const)(
-    '%s',
-    async (_label, hostKind, sessionConfig, expected) => {
-      const prompt = await assembledFor(hostKind, {
-        ...sessionConfig,
-        ...(expected ? { ptahUiFence: true } : {}),
-      });
+    [
+      'undefined spoofed',
+      undefined,
+      { mcpToolProfile: 'coding', ptahUiFence: true },
+      false,
+    ],
+    [
+      'vscode spoofed',
+      'vscode',
+      { mcpToolProfile: 'coding', ptahUiFence: true },
+      false,
+    ],
+    [
+      'tui spoofed',
+      'tui',
+      { mcpToolProfile: 'coding', ptahUiFence: true },
+      false,
+    ],
+    [
+      'cli spoofed',
+      'cli',
+      { mcpToolProfile: 'coding', ptahUiFence: true },
+      false,
+    ],
+  ] as const)('%s', async (_label, hostKind, sessionConfig, expected) => {
+    const prompt = await assembledFor(hostKind, {
+      ...sessionConfig,
+      ...(expected ? { ptahUiFence: true } : {}),
+    });
 
-      if (!expected) {
-        expectHintAbsent(prompt);
-        if (_label === 'electron coding disabled or absent') {
-          expectHintAbsent(
-            await assembledFor(hostKind, { mcpToolProfile: 'coding' }),
-          );
-        }
-        return;
+    if (!expected) {
+      expectHintAbsent(prompt);
+      if (_label === 'electron coding disabled or absent') {
+        expectHintAbsent(
+          await assembledFor(hostKind, { mcpToolProfile: 'coding' }),
+        );
       }
-      expect(prompt.split(PTAH_UI_HINT)).toHaveLength(2);
-      expect(prompt).toContain(`${PTAH_CORE_SYSTEM_PROMPT}\n\n${PTAH_UI_HINT}`);
-      expect(
-        await assembledFor(hostKind, { ptahUiFence: true }),
-      ).toContain(PTAH_UI_HINT);
-    },
-  );
+      return;
+    }
+    expect(prompt.split(PTAH_UI_HINT)).toHaveLength(2);
+    expect(prompt).toContain(`${PTAH_CORE_SYSTEM_PROMPT}\n\n${PTAH_UI_HINT}`);
+    expect(await assembledFor(hostKind, { ptahUiFence: true })).toContain(
+      PTAH_UI_HINT,
+    );
+  });
 });
 
 describe('assembleSystemPrompt ptah-ui hint', () => {
