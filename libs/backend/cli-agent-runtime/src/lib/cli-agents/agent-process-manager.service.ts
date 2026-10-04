@@ -1832,9 +1832,17 @@ export class AgentProcessManager {
     // signal exists to end. `handleExit` stamps the same `completedAt`, so the
     // notifier's duplicate guard collapses the two into one signal.
     this.signalLaneCompletion(tracked);
+    // Also before the kill, for the same reason: `agent:exited` is what
+    // `waitForAgents` settles on, and an abort that never settles would never
+    // reach `handleExit`. Marking the lane exited makes a later real exit take
+    // `handleExit`'s early return, so this ending is emitted exactly once.
+    tracked.hasExited = true;
+    this.events.emit('agent:exited', tracked.info);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
     this.clearIdleRelease(tracked);
+    this.flushDelta(agentId);
+    this.outputBuffer.discard(agentId);
     this.scheduleCleanup(agentId);
   }
 

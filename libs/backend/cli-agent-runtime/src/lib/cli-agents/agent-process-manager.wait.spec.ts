@@ -213,6 +213,44 @@ describe('AgentProcessManager.waitForAgents', () => {
     ]);
   });
 
+  it('settles when the inactivity timeout ends a lane whose abort never settles, and emits that ending once', async () => {
+    jest.useFakeTimers();
+    const manager = makeManager();
+    const internals = manager as unknown as {
+      agents: Map<string, { info: AgentProcessInfo; hasExited: boolean }>;
+      killProcess: () => Promise<void>;
+      handleTimeout: (agentId: string) => Promise<void>;
+      handleExit: (
+        agentId: string,
+        code: number | null,
+        signal: string | null,
+      ) => void;
+    };
+    internals.agents.set(ID_A, { info: infoOf(ID_A), hasExited: false });
+    // The adapter's abort never settles, so `handleExit` is never reached.
+    internals.killProcess = () => new Promise<void>(() => undefined);
+    const exits: AgentProcessInfo[] = [];
+    manager.events.on('agent:exited', (info) => exits.push(info));
+
+    const wait = manager.waitForAgents([ID_A], 'all', 60_000);
+    void internals.handleTimeout(ID_A);
+
+    const result = await wait;
+    expect(result.timedOut).toBe(false);
+    expect(result.entries).toEqual([
+      {
+        agentId: ID_A,
+        state: 'exited',
+        info: expect.objectContaining({ status: 'timeout' }),
+      },
+    ]);
+
+    // A real exit arriving later must not emit the same ending again.
+    internals.handleExit(ID_A, 1, null);
+    jest.runOnlyPendingTimers();
+    expect(exits).toHaveLength(1);
+  });
+
   it('reports unknown and other-workspace ids per id and never waits on them', async () => {
     const manager = makeManager();
     seed(manager, infoOf(ID_ELSEWHERE, { workingDirectory: ROOT_B }));

@@ -92,6 +92,8 @@ describe('buildRunCheckTool', () => {
     const tool = buildRunCheckTool();
     expect(tool.name).toBe(RUN_CHECK_TOOL_NAME);
     expect(tool.inputSchema.required).toEqual(['project', 'targets']);
+    // Matches the `.strict()` RunCheckArgsSchema: unknown keys are rejected.
+    expect(tool.inputSchema.additionalProperties).toBe(false);
     expect(tool.inputSchema.properties['timeoutSec']).toMatchObject({
       maximum: 900,
     });

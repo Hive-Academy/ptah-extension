@@ -1060,6 +1060,39 @@ describe('buildAgentNamespace — waitFor', () => {
   });
 
   it.each([
+    [-5, 0],
+    [Number.NaN, 0],
+    ['soon' as unknown as number, 0],
+    [1234.9, 1234],
+  ])(
+    'normalises timeout %p to %p ms, the same value the error names',
+    async (requested, expected) => {
+      const { deps, mocks } = makeDeps();
+      mocks.processManager.waitForAgents.mockResolvedValue({
+        mode: 'all',
+        timedOut: true,
+        waitedMs: expected,
+        entries: [
+          {
+            agentId: 'x',
+            state: 'running',
+            info: { ...info, status: 'running' },
+          },
+        ],
+      });
+
+      await expect(
+        buildAgentNamespace(deps).waitFor('x', { timeout: requested }),
+      ).rejects.toThrow(`timed out after ${expected}ms for agent x`);
+      expect(mocks.processManager.waitForAgents).toHaveBeenCalledWith(
+        ['x'],
+        'all',
+        expected,
+      );
+    },
+  );
+
+  it.each([
     ['not_found', 'Agent not found: x. This host holds no record'],
     ['other_workspace', 'Agent x exists but belongs to another workspace'],
   ])(

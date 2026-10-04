@@ -474,10 +474,13 @@ export function buildAgentNamespace(
     // One event-driven wait (TASK_2026_597, D13): it settles on the lane's
     // `agent:exited` event, with no polling loop behind it.
     waitFor: async (agentId, options?) => {
-      const timeoutMs = Math.min(
-        options?.timeout ?? MAX_AGENT_WAIT_MS,
-        MAX_AGENT_WAIT_MS,
-      );
+      // Normalised here, the same way `waitForAgents` clamps it, so the
+      // timeout named in the error below is the wait that actually ran.
+      const requested = options?.timeout ?? MAX_AGENT_WAIT_MS;
+      const timeoutMs =
+        typeof requested === 'number' && requested > 0
+          ? Math.min(Math.floor(requested), MAX_AGENT_WAIT_MS)
+          : 0;
       const result = await agentProcessManager.waitForAgents(
         [agentId],
         'all',

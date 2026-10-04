@@ -158,6 +158,7 @@ export function buildRunCheckTool(): MCPToolDefinition {
         },
       },
       required: ['project', 'targets'],
+      additionalProperties: false,
     },
     annotations: { destructiveHint: false, openWorldHint: false },
   };
