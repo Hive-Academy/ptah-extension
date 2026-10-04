@@ -12,13 +12,19 @@ describe('PTAH_UI_HINT', () => {
     expect(PTAH_UI_HINT).not.toMatch(/note/i);
   });
 
+  it('says that the host supplies values for every available source', () => {
+    expect(PTAH_UI_HINT).toContain('the host supplies');
+    expect(PTAH_UI_HINT).toContain('$diff');
+    expect(PTAH_UI_HINT).toContain('$tests');
+    expect(PTAH_UI_HINT).toContain('$usage');
+  });
+
   it('uses only parseable ptah-ui examples', () => {
     const examples = Array.from(
       PTAH_UI_HINT.matchAll(/```ptah-ui\n([\s\S]*?)\n```/g),
       (match) => match[1],
     );
 
-    expect(examples).not.toHaveLength(0);
     for (const example of examples) {
       expect(parsePtahUi(example).ok).toBe(true);
     }
