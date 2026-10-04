@@ -6,7 +6,12 @@
  */
 
 import { TestBed } from '@angular/core/testing';
-import { AgentMonitorStore, subagentUsageView } from './agent-monitor.store';
+import {
+  AgentMonitorStore,
+  subagentUsageView,
+  type SubagentRecord,
+} from './agent-monitor.store';
+import { BackgroundAgentStore } from './background-agent.store';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
@@ -43,6 +48,7 @@ const mockVSCodeService = {
 
 describe('AgentMonitorStore', () => {
   let store: AgentMonitorStore;
+  let backgroundAgentStore: BackgroundAgentStore;
   let rpcMock: ReturnType<typeof createMockRpcService>;
 
   beforeEach(() => {
@@ -50,6 +56,7 @@ describe('AgentMonitorStore', () => {
     TestBed.configureTestingModule({
       providers: [
         AgentMonitorStore,
+        BackgroundAgentStore,
         { provide: TabManagerService, useValue: mockTabManager },
         { provide: VSCodeService, useValue: mockVSCodeService },
         { provide: ClaudeRpcService, useValue: rpcMock },
@@ -57,6 +64,7 @@ describe('AgentMonitorStore', () => {
     });
 
     store = TestBed.inject(AgentMonitorStore);
+    backgroundAgentStore = TestBed.inject(BackgroundAgentStore);
     mockActiveTab.set(null);
   });
 
@@ -995,47 +1003,83 @@ describe('AgentMonitorStore', () => {
         }
       }
 
-      it('returns only records with no workflowRunId', () => {
+      function markTaskBackgrounded(toolCallId: string, sessionId?: string): void {
+        backgroundAgentStore.onStarted({
+          toolCallId,
+          agentId: `background-${toolCallId}`,
+          agentType: 'Explore',
+          agentDescription: 'explore',
+          sessionId,
+          timestamp: 2,
+        } as BackgroundAgentStartedEvent);
+      }
+
+      it('excludes foreground subagents and workflow subagents', () => {
         startPlainSubagent('toolu_plain_1', 'running');
         startWorkflowSubagent('toolu_wf_1', 'run-1');
 
         mockActiveTab.set(null);
         const subs = store.activeSessionSubagents();
-        expect(subs.map((r) => r.parentToolUseId)).toEqual(['toolu_plain_1']);
+        expect(subs).toEqual([]);
+      });
+
+      it('includes a record whose status is background', () => {
+        startPlainSubagent('toolu_background', 'background');
+        mockActiveTab.set(null);
+        const ids = store
+          .activeSessionSubagents()
+          .map((r) => r.parentToolUseId);
+        expect(ids).toEqual(['toolu_background']);
       });
 
       it.each<SubagentRecord['status']>([
         'running',
         'pending',
         'paused',
-        'background',
-      ])('includes active status: %s', (status) => {
-        startPlainSubagent(`toolu_${status}`, status);
+      ])('excludes foreground status: %s', (status) => {
+        startPlainSubagent(`toolu_foreground_${status}`, status);
         mockActiveTab.set(null);
         const ids = store
           .activeSessionSubagents()
           .map((r) => r.parentToolUseId);
-        expect(ids).toContain(`toolu_${status}`);
+        expect(ids).not.toContain(`toolu_foreground_${status}`);
       });
 
-      it.each<SubagentRecord['status']>([
-        'completed',
-        'failed',
-        'killed',
-        'stopped',
-      ])('excludes non-active terminal status: %s', (status) => {
-        startPlainSubagent(`toolu_terminal_${status}`, status);
-        mockActiveTab.set(null);
-        const ids = store
-          .activeSessionSubagents()
-          .map((r) => r.parentToolUseId);
-        expect(ids).not.toContain(`toolu_terminal_${status}`);
+      it('includes a running record once its Task tool call is backgrounded reactively', () => {
+        startPlainSubagent('toolu_backgrounded', 'running');
+        expect(store.activeSessionSubagents()).toEqual([]);
+
+        markTaskBackgrounded('toolu_backgrounded', 'sess-A');
+
+        expect(store.activeSessionSubagents().map((r) => r.parentToolUseId)).toEqual([
+          'toolu_backgrounded',
+        ]);
+      });
+
+      it('excludes a completed record even while its Task tool call remains backgrounded', () => {
+        startPlainSubagent('toolu_completed_background', 'completed', 'sess-A');
+        backgroundAgentStore.onStarted({
+          toolCallId: 'toolu_completed_background',
+          agentId: 'completed-background-agent',
+          agentType: 'Explore',
+          agentDescription: 'explore',
+          sessionId: 'sess-A',
+          timestamp: 2,
+        } as BackgroundAgentStartedEvent);
+
+        mockActiveTab.set({ claudeSessionId: 'sess-A' });
+
+        expect(store.activeSessionSubagents()).toEqual([]);
+        expect(store.sessionSubagentsForSession('sess-A')).toEqual([]);
       });
 
       it('scopes by active session and shows unowned subagents in all sessions', () => {
         startPlainSubagent('toolu_sess_a', 'running', 'sess-A');
         startPlainSubagent('toolu_sess_b', 'running', 'sess-B');
         startPlainSubagent('toolu_unowned', 'running');
+        markTaskBackgrounded('toolu_sess_a', 'sess-A');
+        markTaskBackgrounded('toolu_sess_b', 'sess-B');
+        markTaskBackgrounded('toolu_unowned');
 
         mockActiveTab.set({ claudeSessionId: 'sess-A' });
         const ids = store
@@ -1048,6 +1092,8 @@ describe('AgentMonitorStore', () => {
       it('sessionSubagentsForSession filters by exact sessionId and handles unresolved scope', () => {
         startPlainSubagent('toolu_a', 'running', 'sess-A');
         startPlainSubagent('toolu_b', 'running', 'sess-B');
+        markTaskBackgrounded('toolu_a', 'sess-A');
+        markTaskBackgrounded('toolu_b', 'sess-B');
 
         expect(
           store

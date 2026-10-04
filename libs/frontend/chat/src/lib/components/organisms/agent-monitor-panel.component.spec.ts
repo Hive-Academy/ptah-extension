@@ -411,7 +411,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       subagent({
         parentToolUseId: 'toolu_task_1',
         teammateName: 'Worker 1',
-        status: 'running',
+        status: 'background',
       }),
     ]);
     const fixture = createPanel(null);
@@ -428,12 +428,32 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       subagent({
         parentToolUseId: 'toolu_task_1',
         teammateName: 'Worker 1',
-        status: 'running',
+        status: 'background',
       }),
     ]);
     const fixture = createPanel(null);
 
     expect(fixture.nativeElement.textContent).not.toContain('No agents');
+  });
+
+  it('reflects selector-provided session subagents in the panel list and count', () => {
+    activeTabAgentsSig.set([agent({ agentId: 'cli_1', displayName: 'CLI Agent' })]);
+    activeSessionSubagentsSig.set([
+      subagent({
+        parentToolUseId: 'toolu_background',
+        teammateName: 'Background worker',
+        status: 'running',
+      }),
+    ]);
+
+    const fixture = createPanel(null);
+
+    expect(fixture.componentInstance.sessionSubagents()).toEqual([
+      expect.objectContaining({ parentToolUseId: 'toolu_background' }),
+    ]);
+    expect(fixture.componentInstance.standaloneAgents()).toHaveLength(1);
+    expect(fixture.componentInstance.workflowGroups()).toHaveLength(0);
+    expect(fixture.componentInstance.totalCount()).toBe(2);
   });
 
   it('shows empty state when no agents or subagents exist', () => {
