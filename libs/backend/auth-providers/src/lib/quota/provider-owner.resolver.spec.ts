@@ -28,13 +28,15 @@ import {
 const SECRET = 'sk-private-credential-123';
 const EMAIL = 'private-user@example.test';
 
-function harness(options: {
-  keys?: Record<string, string | undefined>;
-  keyReadFails?: boolean;
-  route?: SessionQuotaRoute | null;
-  account?: ClaudeAccountInfo;
-  codexOwnerKey?: string | null;
-} = {}) {
+function harness(
+  options: {
+    keys?: Record<string, string | undefined>;
+    keyReadFails?: boolean;
+    route?: SessionQuotaRoute | null;
+    account?: ClaudeAccountInfo;
+    codexOwnerKey?: string | null;
+  } = {},
+) {
   const logger = createMockLogger();
   const getProviderKey = jest.fn(async (slot: string) => {
     if (options.keyReadFails) throw new Error(`store failure for ${SECRET}`);
@@ -43,7 +45,9 @@ function harness(options: {
   const probe = {
     readAccount: jest.fn(async () => options.account ?? null),
     readPlanUsage: jest.fn(async () => null),
-    sessionRoute: jest.fn(() => (options.route === undefined ? null : options.route)),
+    sessionRoute: jest.fn(() =>
+      options.route === undefined ? null : options.route,
+    ),
   } satisfies SessionQuotaProbe;
   const codexHome = new CodexHomeResolver(resolve('synthetic-codex-home'));
   const resolver = new ProviderOwnerResolver(
@@ -58,7 +62,9 @@ function harness(options: {
 
 function expectRestorable(ref: QuotaOwnerRef): void {
   expect(parseQuotaOwnerRef(ref)).toEqual(ref);
-  expect(ref.key).toMatch(/^[a-z0-9][a-z0-9._-]{0,63}#(account|credential|cli-store|unknown):[0-9a-f]{16}$/);
+  expect(ref.key).toMatch(
+    /^[a-z0-9][a-z0-9._-]{0,63}#(account|credential|cli-store|unknown):[0-9a-f]{16}$/,
+  );
   expect(ref.label).not.toContain('@');
 }
 
@@ -80,12 +86,32 @@ describe('credentialFromHeaders (F78)', () => {
     ['Bearer with two spaces', { Authorization: 'Bearer  K' }, 'K'],
     ['Basic scheme', { Authorization: 'Basic X' }, 'X'],
     ['raw authorization', { Authorization: 'K' }, 'K'],
-    ['one scheme stripped only', { Authorization: 'Bearer Bearer K' }, 'Bearer K'],
-    ['x-api-key over authorization', { 'x-api-key': 'A', authorization: 'Bearer B' }, 'A'],
+    [
+      'one scheme stripped only',
+      { Authorization: 'Bearer Bearer K' },
+      'Bearer K',
+    ],
+    [
+      'x-api-key over authorization',
+      { 'x-api-key': 'A', authorization: 'Bearer B' },
+      'A',
+    ],
     ['mixed-case X-Api-Key', { 'X-Api-Key': ' K ' }, 'K'],
-    ['repeated header uses its first value', { authorization: ['Bearer K', 'Bearer Z'] }, 'K'],
-    ['scheme glued to the value is not a scheme', { authorization: 'BearerK' }, 'BearerK'],
-    ['empty x-api-key falls back to authorization', { 'x-api-key': '  ', authorization: 'Bearer K' }, 'K'],
+    [
+      'repeated header uses its first value',
+      { authorization: ['Bearer K', 'Bearer Z'] },
+      'K',
+    ],
+    [
+      'scheme glued to the value is not a scheme',
+      { authorization: 'BearerK' },
+      'BearerK',
+    ],
+    [
+      'empty x-api-key falls back to authorization',
+      { 'x-api-key': '  ', authorization: 'Bearer K' },
+      'K',
+    ],
   ])('%s', (_name, headers, expected) => {
     expect(credentialFromHeaders(headers)).toBe(expected);
   });
@@ -109,16 +135,24 @@ describe('owner keys', () => {
       quotaOwnerRefFromKey(unknownOwnerKey('openai-codex', resolve('home'))),
     ];
     expect(refs.map((ref) => ref.identityKind)).toEqual([
-      'account', 'credential', 'cli-store', 'unknown',
+      'account',
+      'credential',
+      'cli-store',
+      'unknown',
     ]);
     expect(refs.map((ref) => ref.label)).toEqual([
-      'Claude account', 'Ollama Cloud API key', 'OpenCode CLI login', 'Codex (owner unknown)',
+      'Claude account',
+      'Ollama Cloud API key',
+      'OpenCode CLI login',
+      'Codex (owner unknown)',
     ]);
     for (const ref of refs) expectRestorable(ref);
   });
 
   it('trims the credential before hashing', () => {
-    expect(credentialOwnerKey('p', `  ${SECRET} `)).toBe(credentialOwnerKey('p', SECRET));
+    expect(credentialOwnerKey('p', `  ${SECRET} `)).toBe(
+      credentialOwnerKey('p', SECRET),
+    );
   });
 
   it('normalises provider ids into the restorable slug', () => {
@@ -127,7 +161,9 @@ describe('owner keys', () => {
     expect(normaliseOwnerProviderId('--x')).toBe('x');
     expect(normaliseOwnerProviderId('###')).toBe('unknown');
     expect(normaliseOwnerProviderId('a'.repeat(80))).toHaveLength(64);
-    const ref = quotaOwnerRefFromKey(credentialOwnerKey('Custom Provider!', SECRET));
+    const ref = quotaOwnerRefFromKey(
+      credentialOwnerKey('Custom Provider!', SECRET),
+    );
     expect(ref.providerId).toBe('custom-provider-');
     expect(ref.label).toBe('Provider API key');
     expectRestorable(ref);
@@ -141,7 +177,9 @@ describe('owner keys', () => {
   });
 
   it('rejects a key that is not canonical', () => {
-    expect(() => quotaOwnerRefFromKey('anthropic:abc')).toThrow('Not a canonical quota owner key');
+    expect(() => quotaOwnerRefFromKey('anthropic:abc')).toThrow(
+      'Not a canonical quota owner key',
+    );
   });
 });
 
@@ -153,8 +191,12 @@ describe('ProviderOwnerResolver', () => {
     const apiKey = credentialFromHeaders({ 'X-Api-Key': SECRET });
     expect(bearer).not.toBeNull();
     expect(apiKey).not.toBeNull();
-    expect(credentialOwnerKey('ollama-cloud', bearer as string)).toBe(stored.key);
-    expect(credentialOwnerKey('ollama-cloud', apiKey as string)).toBe(stored.key);
+    expect(credentialOwnerKey('ollama-cloud', bearer as string)).toBe(
+      stored.key,
+    );
+    expect(credentialOwnerKey('ollama-cloud', apiKey as string)).toBe(
+      stored.key,
+    );
     expect(stored.identityKind).toBe('credential');
     expectRestorable(stored);
   });
@@ -164,13 +206,18 @@ describe('ProviderOwnerResolver', () => {
     ['blank', '   '],
     ['an Ollama placeholder', OLLAMA_AUTH_TOKEN_PLACEHOLDER],
     ['a proxy placeholder', CODEX_PROXY_TOKEN_PLACEHOLDER],
-  ])('gives an unknown owner when the stored key is %s', async (_name, stored) => {
-    const { resolver } = harness({ keys: { 'ollama-cloud': stored } });
-    const ref = await resolver.ownerForProviderKey('ollama-cloud');
-    expect(ref.identityKind).toBe('unknown');
-    expect(ref.key).toBe(unknownOwnerKey('ollama-cloud', 'provider-key:ollama-cloud'));
-    expectRestorable(ref);
-  });
+  ])(
+    'gives an unknown owner when the stored key is %s',
+    async (_name, stored) => {
+      const { resolver } = harness({ keys: { 'ollama-cloud': stored } });
+      const ref = await resolver.ownerForProviderKey('ollama-cloud');
+      expect(ref.identityKind).toBe('unknown');
+      expect(ref.key).toBe(
+        unknownOwnerKey('ollama-cloud', 'provider-key:ollama-cloud'),
+      );
+      expectRestorable(ref);
+    },
+  );
 
   it('a failed secret read gives unknown and logs neither the error nor the secret', async () => {
     const { resolver, logger } = harness({ keyReadFails: true });
@@ -180,37 +227,65 @@ describe('ProviderOwnerResolver', () => {
       '[ProviderOwnerResolver] provider key read failed',
       { providerId: 'ollama-cloud' },
     );
-    expect(JSON.stringify((logger.warn as jest.Mock).mock.calls)).not.toContain(SECRET);
+    expect(JSON.stringify((logger.warn as jest.Mock).mock.calls)).not.toContain(
+      SECRET,
+    );
   });
 
   it("reads a Ptah CLI agent's own slot and keys it under the lane's provider", async () => {
-    const { resolver, getProviderKey } = harness({ keys: { 'ptahCli.glm-1': SECRET } });
+    const { resolver, getProviderKey } = harness({
+      keys: { 'ptahCli.glm-1': SECRET },
+    });
     const ref = await resolver.ownerForPtahCli('glm-1', 'ollama-cloud');
     expect(getProviderKey).toHaveBeenCalledWith('ptahCli.glm-1');
     expect(ref.key).toBe(credentialOwnerKey('ollama-cloud', SECRET));
-    const missing = await harness().resolver.ownerForPtahCli('glm-1', 'ollama-cloud');
+    const missing = await harness().resolver.ownerForPtahCli(
+      'glm-1',
+      'ollama-cloud',
+    );
     expect(missing.key).toBe(unknownOwnerKey('ollama-cloud', 'ptah-cli:glm-1'));
   });
 
   it('keys a Claude account by email plus organization, and unknown without an email', () => {
     const { resolver } = harness();
-    const a = resolver.ownerForClaudeAccount({ email: EMAIL, organization: 'Org A' }, 'session:s1');
-    const b = resolver.ownerForClaudeAccount({ email: EMAIL, organization: 'Org B' }, 'session:s1');
+    const a = resolver.ownerForClaudeAccount(
+      { email: EMAIL, organization: 'Org A' },
+      'session:s1',
+    );
+    const b = resolver.ownerForClaudeAccount(
+      { email: EMAIL, organization: 'Org B' },
+      'session:s1',
+    );
     expect(a).toEqual({
-      providerId: 'anthropic', identityKind: 'account', label: 'Claude account',
+      providerId: 'anthropic',
+      identityKind: 'account',
+      label: 'Claude account',
       key: accountOwnerKey('anthropic', `${EMAIL}\0Org A`),
     });
     expect(b.key).not.toBe(a.key);
-    const unknown = resolver.ownerForClaudeAccount({ apiKeySource: 'user' }, 'session:s1');
+    const unknown = resolver.ownerForClaudeAccount(
+      { apiKeySource: 'user' },
+      'session:s1',
+    );
     expect(unknown.key).toBe(unknownOwnerKey('anthropic', 'session:s1'));
-    expect(resolver.ownerForClaudeAccount(null, 'session:s2').identityKind).toBe('unknown');
+    expect(
+      resolver.ownerForClaudeAccount(null, 'session:s2').identityKind,
+    ).toBe('unknown');
     for (const ref of [a, b, unknown]) expectRestorable(ref);
   });
 
   it('uses the Codex owner key when one was read, else an unknown owner keyed by CODEX_HOME', () => {
-    const known = accountOwnerKey('openai-codex', `${resolve('synthetic-codex-home')}\0${EMAIL}`);
-    expect(harness({ codexOwnerKey: known }).resolver.ownerForCodexHome()).toEqual({
-      providerId: 'openai-codex', identityKind: 'account', label: 'Codex account', key: known,
+    const known = accountOwnerKey(
+      'openai-codex',
+      `${resolve('synthetic-codex-home')}\0${EMAIL}`,
+    );
+    expect(
+      harness({ codexOwnerKey: known }).resolver.ownerForCodexHome(),
+    ).toEqual({
+      providerId: 'openai-codex',
+      identityKind: 'account',
+      label: 'Codex account',
+      key: known,
     });
     const { resolver, codexHome } = harness();
     const unknown = resolver.ownerForCodexHome();
@@ -224,7 +299,9 @@ describe('ProviderOwnerResolver', () => {
     try {
       const { resolver } = harness();
       const opencode = resolver.ownerForCliStore('opencode');
-      expect(opencode.key).toBe(cliStoreOwnerKey('opencode', join(resolve('xdg-data'), 'opencode')));
+      expect(opencode.key).toBe(
+        cliStoreOwnerKey('opencode', join(resolve('xdg-data'), 'opencode')),
+      );
       expect(opencode.label).toBe('OpenCode CLI login');
       const antigravity = resolver.ownerForCliStore('antigravity');
       expect(antigravity.identityKind).toBe('cli-store');
@@ -248,7 +325,9 @@ describe('ProviderOwnerResolver', () => {
     });
 
     it('native without an account: unknown, keyed by the session', async () => {
-      const { resolver } = harness({ route: { providerId: 'anthropic', routeKind: 'native' } });
+      const { resolver } = harness({
+        route: { providerId: 'anthropic', routeKind: 'native' },
+      });
       const ref = await resolver.ownerForSession('s1');
       expect(ref.key).toBe(unknownOwnerKey('anthropic', 'session:s1'));
     });
@@ -258,7 +337,9 @@ describe('ProviderOwnerResolver', () => {
         route: { providerId: 'anthropic', routeKind: 'direct-key' },
         keys: { anthropic: SECRET },
       });
-      expect((await resolver.ownerForSession('s1')).key).toBe(credentialOwnerKey('anthropic', SECRET));
+      expect((await resolver.ownerForSession('s1')).key).toBe(
+        credentialOwnerKey('anthropic', SECRET),
+      );
     });
 
     it('proxy: the stored key the proxy sends', async () => {
@@ -266,8 +347,46 @@ describe('ProviderOwnerResolver', () => {
         route: { providerId: 'ollama-cloud', routeKind: 'proxy' },
         keys: { 'ollama-cloud': SECRET },
       });
-      expect((await resolver.ownerForSession('s1')).key).toBe(credentialOwnerKey('ollama-cloud', SECRET));
+      expect((await resolver.ownerForSession('s1')).key).toBe(
+        credentialOwnerKey('ollama-cloud', SECRET),
+      );
     });
+
+    it('cloud-direct proxy with no provider id resolves to the Ollama Cloud key', async () => {
+      const { resolver, getProviderKey } = harness({
+        route: {
+          providerId: null,
+          routeKind: 'proxy',
+          baseUrlHost: 'ollama.com',
+        },
+        keys: { 'ollama-cloud': SECRET },
+      });
+      expect((await resolver.ownerForSession('s1')).key).toBe(
+        credentialOwnerKey('ollama-cloud', SECRET),
+      );
+      expect(getProviderKey).toHaveBeenCalledWith('ollama-cloud');
+    });
+
+    it.each([
+      ['ambiguous daemon', '127.0.0.1'],
+      ['plain local Ollama', undefined],
+      ['unrelated proxy', 'proxy.example.test'],
+    ])(
+      '%s with no provider evidence stays unknown',
+      async (_name, baseUrlHost) => {
+        const { resolver, getProviderKey } = harness({
+          route: {
+            providerId: null,
+            routeKind: 'proxy',
+            ...(baseUrlHost && { baseUrlHost }),
+          },
+        });
+        expect((await resolver.ownerForSession('s1')).key).toBe(
+          unknownOwnerKey('unknown', 'session:s1'),
+        );
+        expect(getProviderKey).not.toHaveBeenCalled();
+      },
+    );
 
     it('Codex proxy: the Codex account home, never a stored key', async () => {
       const known = accountOwnerKey('openai-codex', `home\0${EMAIL}`);
@@ -281,15 +400,26 @@ describe('ProviderOwnerResolver', () => {
 
     it.each([
       ['no record', null, 'unknown'],
-      ['no route', { providerId: null, routeKind: 'unknown' } as const, 'unknown'],
-      ['proxy without a provider id', { providerId: null, routeKind: 'proxy' } as const, 'unknown'],
-    ])('%s: unknown, keyed by the session', async (_name, route, providerId) => {
-      const { resolver, probe } = harness({ route });
-      const ref = await resolver.ownerForSession('s9');
-      expect(ref.key).toBe(unknownOwnerKey(providerId, 'session:s9'));
-      expect(probe.readAccount).not.toHaveBeenCalled();
-      expectRestorable(ref);
-    });
+      [
+        'no route',
+        { providerId: null, routeKind: 'unknown' } as const,
+        'unknown',
+      ],
+      [
+        'proxy without a provider id',
+        { providerId: null, routeKind: 'proxy' } as const,
+        'unknown',
+      ],
+    ])(
+      '%s: unknown, keyed by the session',
+      async (_name, route, providerId) => {
+        const { resolver, probe } = harness({ route });
+        const ref = await resolver.ownerForSession('s9');
+        expect(ref.key).toBe(unknownOwnerKey(providerId, 'session:s9'));
+        expect(probe.readAccount).not.toHaveBeenCalled();
+        expectRestorable(ref);
+      },
+    );
   });
 
   it('never puts identity material into a ref or a log', async () => {

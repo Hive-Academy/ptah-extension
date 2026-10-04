@@ -64,6 +64,8 @@ import {
   createCodexPlanUsageReader,
   type CodexPlanUsageSource,
 } from './readers/codex-plan-usage.reader';
+import { createAntigravityPlanUsageReader } from './readers/antigravity-plan-usage.reader';
+import { createOllamaCloudPlanUsageReader } from './readers/ollama-cloud-plan-usage.reader';
 import type {
   PlanOwnerTarget,
   PlanUsageReader,
@@ -142,6 +144,8 @@ export class PlanUsageService {
     this.readers = {
       anthropic: createClaudePlanUsageReader(probe, logger, now),
       'openai-codex': createCodexPlanUsageReader(codexUsage, now),
+      'ollama-cloud': createOllamaCloudPlanUsageReader(logger, now),
+      antigravity: createAntigravityPlanUsageReader(logger, now),
     };
   }
 

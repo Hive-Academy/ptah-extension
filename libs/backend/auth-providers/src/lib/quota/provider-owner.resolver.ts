@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { inject, injectable } from 'tsyringe';
+import { OLLAMA_CLOUD_DIRECT_BASE_URL } from '@ptah-extension/shared';
 import {
   Logger,
   TOKENS,
@@ -202,7 +203,12 @@ export function quotaOwnerRefFromKey(key: string): QuotaOwnerRef {
   }
   const providerId = match[1];
   const identityKind = match[2] as QuotaOwnerIdentityKind;
-  return { providerId, identityKind, key, label: ownerLabel(providerId, identityKind) };
+  return {
+    providerId,
+    identityKind,
+    key,
+    label: ownerLabel(providerId, identityKind),
+  };
 }
 
 function ownerKey(
@@ -354,9 +360,22 @@ export class ProviderOwnerResolver {
   async ownerForSession(sessionId: string): Promise<QuotaOwnerRef> {
     const route = this.probe.sessionRoute(sessionId);
     const sessionMaterial = `session:${sessionId}`;
+    if (
+      route?.routeKind === 'proxy' &&
+      !route.providerId &&
+      route.baseUrlHost === new URL(OLLAMA_CLOUD_DIRECT_BASE_URL).hostname
+    ) {
+      return this.ownerForProviderKey('ollama-cloud');
+    }
+    // The 127.0.0.1:11434 daemon route is shared by local Ollama and Ollama
+    // Cloud fallback. Its route has no selected provider/auth-method evidence,
+    // so it deliberately remains an unknown owner rather than being guessed.
     if (!route || route.routeKind === 'unknown' || !route.providerId) {
       return quotaOwnerRefFromKey(
-        unknownOwnerKey(route?.providerId ?? UNROUTED_PROVIDER_ID, sessionMaterial),
+        unknownOwnerKey(
+          route?.providerId ?? UNROUTED_PROVIDER_ID,
+          sessionMaterial,
+        ),
       );
     }
     switch (route.routeKind) {
@@ -395,7 +414,8 @@ export class ProviderOwnerResolver {
 function cliStorePath(cli: CliStoreOwner): string {
   if (cli === 'opencode') {
     const dataHome =
-      process.env['XDG_DATA_HOME']?.trim() || join(homedir(), '.local', 'share');
+      process.env['XDG_DATA_HOME']?.trim() ||
+      join(homedir(), '.local', 'share');
     return join(dataHome, 'opencode');
   }
   return join(homedir(), '.gemini');

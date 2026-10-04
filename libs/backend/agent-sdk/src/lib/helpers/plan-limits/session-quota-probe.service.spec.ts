@@ -495,5 +495,26 @@ describe('SessionQuotaProbeService', () => {
         'sk-secret',
       );
     });
+
+    it('exposes only the parsed base URL host for a proxy route', () => {
+      const { sessions, probe } = setup();
+      sessions.add(
+        fakeRecord({
+          route: { kind: 'proxy', providerId: null },
+          authEnv: {
+            ANTHROPIC_BASE_URL: 'https://ollama.com/v1',
+            ANTHROPIC_API_KEY: 'sk-secret',
+          },
+        }),
+      );
+      expect(probe.sessionRoute('tab-1')).toEqual({
+        providerId: null,
+        routeKind: 'proxy',
+        baseUrlHost: 'ollama.com',
+      });
+      expect(JSON.stringify(probe.sessionRoute('tab-1'))).not.toContain(
+        'sk-secret',
+      );
+    });
   });
 });

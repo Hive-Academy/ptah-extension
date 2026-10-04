@@ -79,6 +79,8 @@ export type SessionQuotaRouteKind =
 export interface SessionQuotaRoute {
   readonly providerId: string | null;
   readonly routeKind: SessionQuotaRouteKind;
+  /** Non-secret host parsed from ANTHROPIC_BASE_URL, when the record has one. */
+  readonly baseUrlHost?: string;
 }
 
 /** What `auth-providers` consumes through `SDK_TOKENS.SDK_SESSION_QUOTA_PROBE`. */
@@ -195,8 +197,15 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
     if (!record) return null;
     const route = record.capacityRoute;
     if (!route) return { providerId: null, routeKind: 'unknown' };
+    const baseUrlHost = hostFromBaseUrl(
+      record.accountingAuthEnv.ANTHROPIC_BASE_URL,
+    );
     if (route.kind === 'proxy') {
-      return { providerId: route.providerId, routeKind: 'proxy' };
+      return {
+        providerId: route.providerId,
+        routeKind: 'proxy',
+        ...(baseUrlHost && { baseUrlHost }),
+      };
     }
     // Same OAuth-vs-key test as `SdkModelService` (direct route, no API key).
     const hasApiKey = Boolean(
@@ -205,6 +214,7 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
     return {
       providerId: route.providerId,
       routeKind: hasApiKey ? 'direct-key' : 'native',
+      ...(baseUrlHost && { baseUrlHost }),
     };
   }
 
@@ -286,5 +296,14 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }
+  }
+}
+
+function hostFromBaseUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return undefined;
   }
 }
