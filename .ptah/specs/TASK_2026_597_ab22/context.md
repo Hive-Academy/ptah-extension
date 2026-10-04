@@ -204,6 +204,9 @@ OUT:
 - S4 worktree: `D:\projects\ptah-extension\.claude-worktrees\task-597-s4` (node_modules is a junction to the main
   checkout). Branch `fix/task-597-s4-lane-guards`, PR #642 (S4-a). Reuse this worktree and branch for S4 Wave D
   only if PR #642 is still open; once #642 merges, start Wave D on a NEW branch from the latest `origin/main`.
+- 2026-10-04: PR #642 MERGED (`0a0438384`, includes the review fixes `50eb14bce`, `ccd8a8a9c`). Wave D continues in
+  the same worktree on NEW branch `fix/task-597-s4-wave-d` (its base `ccd8a8a9c` is the parent of the #642 merge, so
+  the PR diff is only the Wave D commits). The worktree was kept because Wave D agents were editing in it.
 - PR 3 (merged as #639): branch `fix/task-597-session-budget`. PR 2 (merged as #637) and PR 1 (merged as #634):
   do not reuse them. The worktrees `.claude-worktrees/task-597-session-budget` and `task-597-followups` can be
   removed.
