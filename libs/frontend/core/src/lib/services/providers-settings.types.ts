@@ -76,7 +76,8 @@ export type ProvidersOrchestrationPolicyField =
   | 'disabledClis'
   | 'preferredAgentOrder'
   | 'maxConcurrentAgents'
-  | 'copilotAutoApprove';
+  | 'copilotAutoApprove'
+  | 'subagentPromptCacheTtl';
 export interface ProvidersSettingsPatch {
   readonly auth?: AuthSaveSettingsParams;
   readonly model?: RpcMethodParams<'config:model-switch'>;
@@ -103,12 +104,14 @@ export interface ProvidersSettingsPatch {
 /**
  * Orchestration settings the Settings page renders: the per-CLI models and efforts, the CLI
  * matrix inputs, and the Cursor credential flags (never the key). `detectedClis` is the host's
- * last detection; `redetectClis()` refreshes it.
+ * last detection; `redetectClis()` refreshes it. `subagentPromptCacheTtlEnvOverride` is read-only: the host's
+ * `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL`, absent when unset; it is never written.
  */
 export type ProvidersOrchestration = Pick<
   RpcMethodResult<'agent:getConfig'>,
   | ProvidersOrchestrationField
   | ProvidersOrchestrationPolicyField
+  | 'subagentPromptCacheTtlEnvOverride'
   | 'detectedClis'
   | 'cursorApiKeyConfigured'
   | 'cursorApiKeyStored'
@@ -163,8 +166,12 @@ export interface ProvidersConnectionCheck {
   readonly providerId: string;
   readonly status: 'checking' | 'done' | 'failed';
 }
-export type ProvidersCliModels = Readonly<Record<string, Pick<PtahCliConfig, 'selectedModel' | 'tierMappings'>>>;
-export type ProvidersMainSources = Readonly<Partial<Record<'model' | 'effort', ScopedSettingEntry>>>;
+export type ProvidersCliModels = Readonly<
+  Record<string, Pick<PtahCliConfig, 'selectedModel' | 'tierMappings'>>
+>;
+export type ProvidersMainSources = Readonly<
+  Partial<Record<'model' | 'effort', ScopedSettingEntry>>
+>;
 /** Transient wizard command. The service never retains its credential in a signal. */
 export interface ProvidersConnectionDraft {
   readonly providerId: string;
@@ -175,15 +182,24 @@ export interface ProvidersConnectionDraft {
   readonly credential: { kind: 'apiKey'; value: string } | null;
   readonly baseUrl: string | null;
   readonly verified: { readonly probeId: string } | null;
-  readonly tiers: { readonly everyday: string; readonly complex: string; readonly fast: string };
+  readonly tiers: {
+    readonly everyday: string;
+    readonly complex: string;
+    readonly fast: string;
+  };
   /** Stored main-agent tiers as the wizard loaded them; the compare-and-set baseline for edits. */
-  readonly tierSnapshot: { readonly everyday: string | null; readonly complex: string | null; readonly fast: string | null };
+  readonly tierSnapshot: {
+    readonly everyday: string | null;
+    readonly complex: string | null;
+    readonly fast: string | null;
+  };
   /** Tiers the user changed from the snapshot. Only these are written. */
   readonly editedTiers: readonly ('everyday' | 'complex' | 'fast')[];
   readonly saveTo: SettingScope;
   readonly activation: 'connect-only' | 'use-main-agent';
 }
-export type ProvidersExternalAuthAction = 'sign-in' | 'sign-in-cancel' | 'cli-login' | 'cli-check';
+export type ProvidersExternalAuthAction =
+  'sign-in' | 'sign-in-cancel' | 'cli-login' | 'cli-check';
 export interface ProvidersExternalAuth {
   readonly providerId: string | null;
   readonly signInState: 'idle' | 'in-flight' | 'signed-in' | 'failed';
