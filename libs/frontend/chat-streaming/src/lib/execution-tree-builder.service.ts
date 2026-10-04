@@ -783,6 +783,19 @@ export class ExecutionTreeBuilderService {
     this.clearCache(`tab-${tabId}`);
   }
 
+  /**
+   * Release every memo a CLOSED tab can own: its main-panel entry, its canvas
+   * tile entry (`tile-${tabId}`, ChatTranscriptComponent) and its older-history
+   * page entry (`history-page-${tabId}`, SessionHistoryReplayer). Close-only —
+   * `clearForTab` stays main-panel-scoped because it also runs on finalization
+   * and transcript-retention eviction while a tile may still show the tab.
+   */
+  clearForClosedTab(tabId: string): void {
+    this.clearForTab(tabId);
+    this.clearCache(`tile-${tabId}`);
+    this.clearCache(`history-page-${tabId}`);
+  }
+
   clearForSession(sessionId: string): void {
     this.clearCache(`session-${sessionId}`);
     this.clearCache(sessionId);

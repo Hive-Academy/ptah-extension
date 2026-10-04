@@ -27,17 +27,19 @@ const SESSION_B = '22222222-2222-4222-8222-222222222222';
 
 interface Harness {
   closedTab: ReturnType<typeof signal<ClosedTabEvent | null>>;
+  emitClosedTab: (event: ClosedTabEvent) => void;
   rpcCall: jest.Mock;
-  findTabBySessionId: jest.Mock;
+  findTabsBySessionId: jest.Mock;
   findContainingSession: jest.Mock;
   surfacesFor: jest.Mock;
 }
 
 function makeHarness(initial: ClosedTabEvent | null = null): Harness {
   const closedTab = signal<ClosedTabEvent | null>(initial);
+  const listeners = new Set<(event: ClosedTabEvent) => void>();
   const rpcCall = jest.fn().mockResolvedValue({ success: true });
   // Default: the closed tab is gone and no other tab holds the session.
-  const findTabBySessionId = jest.fn().mockReturnValue(null);
+  const findTabsBySessionId = jest.fn().mockReturnValue([]);
   // Default: no conversation record (StreamRouter already removed it).
   const findContainingSession = jest.fn().mockReturnValue(null);
   const surfacesFor = jest.fn().mockReturnValue([]);
@@ -48,7 +50,11 @@ function makeHarness(initial: ClosedTabEvent | null = null): Harness {
         provide: TabManagerService,
         useValue: {
           closedTab: closedTab.asReadonly(),
-          findTabBySessionId,
+          onTabClosed: (listener: (event: ClosedTabEvent) => void) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+          findTabsBySessionId,
         },
       },
       { provide: ConversationRegistry, useValue: { findContainingSession } },
@@ -61,8 +67,12 @@ function makeHarness(initial: ClosedTabEvent | null = null): Harness {
 
   return {
     closedTab,
+    emitClosedTab: (event) => {
+      closedTab.set(event);
+      for (const listener of listeners) listener(event);
+    },
     rpcCall,
-    findTabBySessionId,
+    findTabsBySessionId,
     findContainingSession,
     surfacesFor,
   };
@@ -72,7 +82,7 @@ function close(
   h: Harness,
   evt: Partial<ClosedTabEvent> & Pick<ClosedTabEvent, 'tabId'>,
 ): void {
-  h.closedTab.set({ sessionId: SESSION_A, kind: 'close', ...evt });
+  h.emitClosedTab({ sessionId: SESSION_A, kind: 'close', ...evt });
   TestBed.tick();
 }
 
@@ -123,7 +133,18 @@ describe('ClosedTabSessionEnderService', () => {
     expect(h.rpcCall).toHaveBeenCalledWith('chat:abort', {
       sessionId: SESSION_A,
     });
-    expect(h.findTabBySessionId).toHaveBeenCalledWith(SESSION_A);
+    expect(h.findTabsBySessionId).toHaveBeenCalledWith(SESSION_A);
+  });
+
+  it('handles two closes in the same tick exactly once each', () => {
+    const h = makeHarness();
+
+    h.emitClosedTab({ tabId: 't1', sessionId: SESSION_A, kind: 'close' });
+    h.emitClosedTab({ tabId: 't2', sessionId: SESSION_B, kind: 'close' });
+
+    expect(h.rpcCall).toHaveBeenCalledTimes(2);
+    expect(h.rpcCall).toHaveBeenNthCalledWith(1, 'chat:abort', { sessionId: SESSION_A });
+    expect(h.rpcCall).toHaveBeenNthCalledWith(2, 'chat:abort', { sessionId: SESSION_B });
   });
 
   it('streamAbortDispatched: true sends no RPC (the abort listener already did)', () => {
@@ -176,14 +197,27 @@ describe('ClosedTabSessionEnderService', () => {
 
   it('a session still held by another tab sends no RPC', () => {
     const h = makeHarness();
-    h.findTabBySessionId.mockReturnValue({
-      id: 'tile-tab',
-      claudeSessionId: SESSION_A,
-    });
+    h.findTabsBySessionId.mockReturnValue([
+      { id: 'tile-tab', claudeSessionId: SESSION_A },
+    ]);
 
     close(h, { tabId: 't1' });
 
     expect(h.rpcCall).not.toHaveBeenCalled();
+  });
+
+  it('ends the session when its listener runs before the router unbinds the closing tab', () => {
+    const h = makeHarness();
+    // The closed tab remains in the binding lookup at notification time.
+    h.findTabsBySessionId.mockReturnValue([
+      { id: 't1', claudeSessionId: SESSION_A },
+    ]);
+
+    close(h, { tabId: 't1' });
+
+    expect(h.rpcCall).toHaveBeenCalledWith('chat:abort', {
+      sessionId: SESSION_A,
+    });
   });
 
   it('a session still bound to a non-tab surface sends no RPC', () => {

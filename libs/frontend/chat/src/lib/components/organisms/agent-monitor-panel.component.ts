@@ -707,6 +707,8 @@ export class AgentMonitorPanelComponent {
   /** Auto-follow the streaming agent output unless the user scrolled up. */
   private pinnedToBottom = true;
   private resizeObserver: ResizeObserver | null = null;
+  /** Pending requestAnimationFrame handle for the coalesced pin measurement. */
+  private scrollMeasureFrame: number | null = null;
   private static readonly NEAR_BOTTOM_PX = 80;
 
   readonly effectiveAgents = computed(
@@ -1088,14 +1090,32 @@ export class AgentMonitorPanelComponent {
       this.resizeObserver.observe(content);
       this.destroyRef.onDestroy(() => this.resizeObserver?.disconnect());
     });
+    this.destroyRef.onDestroy(() => this.cancelScrollMeasure());
   }
 
-  /** Track whether the user is pinned to the bottom (auto-follow) or scrolled up. */
+  /**
+   * Track whether the user is pinned to the bottom (auto-follow) or scrolled
+   * up. The `scrollHeight`/`scrollTop`/`clientHeight` read happens in one
+   * coalesced requestAnimationFrame per frame, not synchronously in the
+   * scroll handler: while a turn streams the document is layout-dirty, and a
+   * synchronous read forces a full-document reflow on every scroll event.
+   */
   onScroll(): void {
-    const el = this._scroll()?.nativeElement;
-    if (!el) return;
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    this.pinnedToBottom = distance < AgentMonitorPanelComponent.NEAR_BOTTOM_PX;
+    if (this.scrollMeasureFrame !== null) return;
+    this.scrollMeasureFrame = requestAnimationFrame(() => {
+      this.scrollMeasureFrame = null;
+      const el = this._scroll()?.nativeElement;
+      if (!el) return;
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      this.pinnedToBottom =
+        distance < AgentMonitorPanelComponent.NEAR_BOTTOM_PX;
+    });
+  }
+
+  private cancelScrollMeasure(): void {
+    if (this.scrollMeasureFrame === null) return;
+    cancelAnimationFrame(this.scrollMeasureFrame);
+    this.scrollMeasureFrame = null;
   }
 
   pickStandalone(agentId: string): void {

@@ -16,6 +16,7 @@ export class AgentLaneScrollDirective {
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly destroyRef = inject(DestroyRef);
   private pinned = true;
+  private measureFrame: number | null = null;
 
   constructor() {
     afterNextRender(() => {
@@ -28,10 +29,29 @@ export class AgentLaneScrollDirective {
       observer.observe(content);
       this.destroyRef.onDestroy(() => observer.disconnect());
     });
+    this.destroyRef.onDestroy(() => this.cancelMeasure());
   }
 
+  /**
+   * Recompute the pin state in the next animation frame instead of reading
+   * `scrollHeight`/`scrollTop`/`clientHeight` synchronously in the scroll
+   * handler. While a turn streams, the document is usually layout-dirty, so a
+   * synchronous read forces a full layout on every scroll event; coalescing
+   * into one read per frame pays that cost at most once. The ResizeObserver
+   * above still follows within the frame the content grows.
+   */
   onScroll(): void {
-    const el = this.element.nativeElement;
-    this.pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (this.measureFrame !== null) return;
+    this.measureFrame = requestAnimationFrame(() => {
+      this.measureFrame = null;
+      const el = this.element.nativeElement;
+      this.pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    });
+  }
+
+  private cancelMeasure(): void {
+    if (this.measureFrame === null) return;
+    cancelAnimationFrame(this.measureFrame);
+    this.measureFrame = null;
   }
 }

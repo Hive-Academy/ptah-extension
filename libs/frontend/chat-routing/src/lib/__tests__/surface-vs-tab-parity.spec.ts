@@ -218,11 +218,16 @@ function makeTabManagerMock() {
     [],
   );
   const closedTabSignal = signal<ClosedTabEvent | null>(null);
+  const closedTabListeners = new Set<(event: ClosedTabEvent) => void>();
   const activeTabIdSignal = signal<string | null>(null);
   const visibleTabIdsSignal = signal<ReadonlySet<string>>(new Set());
   return {
     tabs: tabsSignal.asReadonly(),
     closedTab: closedTabSignal.asReadonly(),
+    onTabClosed: (listener: (event: ClosedTabEvent) => void) => {
+      closedTabListeners.add(listener);
+      return () => closedTabListeners.delete(listener);
+    },
     activeTabId: activeTabIdSignal.asReadonly(),
     visibleTabIds: visibleTabIdsSignal.asReadonly(),
     setStreamingState: jest.fn(),

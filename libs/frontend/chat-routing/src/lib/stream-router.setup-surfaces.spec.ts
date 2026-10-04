@@ -87,10 +87,15 @@ function makePermission(
 function makeTabManagerMock() {
   const tabs = signal<{ id: string; claudeSessionId: string | null }[]>([]);
   const closedTab = signal<ClosedTabEvent | null>(null);
+  const closedTabListeners = new Set<(event: ClosedTabEvent) => void>();
   const activeTabId = signal<string | null>(null);
   return {
     tabs: tabs.asReadonly(),
     closedTab: closedTab.asReadonly(),
+    onTabClosed: (listener: (event: ClosedTabEvent) => void) => {
+      closedTabListeners.add(listener);
+      return () => closedTabListeners.delete(listener);
+    },
     activeTabId: activeTabId.asReadonly(),
     _setActiveTabId: (id: string | null) => activeTabId.set(id),
   };
@@ -173,6 +178,7 @@ describe('StreamRouter — prompt routing across every Setup Hub workflow', () =
           provide: ExecutionTreeBuilderService,
           useValue: {
             clearForTab: jest.fn(),
+            clearForClosedTab: jest.fn(),
             clearForSession: jest.fn(),
             clearCache: jest.fn(),
           },

@@ -14,9 +14,15 @@
  */
 
 import { TestBed } from '@angular/core/testing';
+import { computed, signal } from '@angular/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import { createMockRpcService } from '@ptah-extension/core/testing';
 import { AgentMonitorTreeBuilderService } from './agent-monitor-tree-builder.service';
 import { createExecutionNode } from '@ptah-extension/shared';
 import type {
+  AgentProcessInfo,
   CliOutputSegment,
   ExecutionNode,
   FlatStreamEventUnion,
@@ -89,7 +95,13 @@ describe('AgentMonitorTreeBuilderService', () => {
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [AgentMonitorTreeBuilderService],
+      providers: [
+        AgentMonitorTreeBuilderService,
+        {
+          provide: AgentMonitorStore,
+          useValue: { agentsById: signal(new Map()) },
+        },
+      ],
     });
     service = TestBed.inject(AgentMonitorTreeBuilderService);
   });
@@ -474,5 +486,131 @@ describe('AgentMonitorTreeBuilderService', () => {
       expect(service.buildTree('agent-A', events)).not.toBe(aFirst);
       expect(service.buildTree('agent-B', events)).not.toBe(bFirst);
     });
+  });
+});
+
+describe('AgentMonitorTreeBuilderService — releases caches of agents the store drops', () => {
+  const mockActiveTab = signal<{ claudeSessionId?: string } | null>(null);
+  let store: AgentMonitorStore;
+  let service: AgentMonitorTreeBuilderService;
+  let clearSpy: jest.SpyInstance;
+  const events = [messageStart('e1', 'm1'), textDelta('e2', 'm1', 0, 'hi')];
+
+  function info(
+    agentId: string,
+    status: AgentProcessInfo['status'],
+    parentSessionId: string,
+    completedAt = 1_000,
+  ): AgentProcessInfo {
+    return {
+      agentId,
+      cli: 'codex',
+      task: `Task ${agentId}`,
+      parentSessionId,
+      status,
+      startedAt: new Date(completedAt - 1).toISOString(),
+      completedAt: new Date(completedAt).toISOString(),
+    } as unknown as AgentProcessInfo;
+  }
+
+  /** Spawn an agent and give it a cache entry, as its card would. */
+  function spawn(agentId: string, parentSessionId: string): void {
+    store.onAgentSpawned(info(agentId, 'running', parentSessionId));
+    service.buildTree(agentId, events);
+  }
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        AgentMonitorStore,
+        AgentMonitorTreeBuilderService,
+        {
+          provide: TabManagerService,
+          useValue: {
+            activeTab: mockActiveTab,
+            activeTabSessionId: computed(
+              () => mockActiveTab()?.claudeSessionId ?? null,
+            ),
+            tabs: signal([]),
+          },
+        },
+        {
+          provide: VSCodeService,
+          useValue: { config: signal({ panelId: '' }), postMessage: jest.fn() },
+        },
+        { provide: ClaudeRpcService, useValue: createMockRpcService() },
+      ],
+    });
+    store = TestBed.inject(AgentMonitorStore);
+    service = TestBed.inject(AgentMonitorTreeBuilderService);
+    clearSpy = jest.spyOn(service, 'clearAgentCache');
+  });
+
+  afterEach(() => {
+    store.ngOnDestroy();
+    TestBed.resetTestingModule();
+  });
+
+  it('clears the cache of a finished agent evicted past the completed cap, never a running one', () => {
+    spawn('running', 'sess-a');
+    for (let i = 0; i < 21; i++) spawn(`done-${i}`, 'sess-a');
+    TestBed.tick();
+
+    for (let i = 0; i < 21; i++) {
+      store.onAgentExited(info(`done-${i}`, 'completed', 'sess-a', 1_000 + i));
+    }
+    TestBed.tick();
+
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    expect(clearSpy).toHaveBeenCalledWith('done-0');
+    // A surviving agent keeps its memo — the same tree comes back by reference.
+    const kept = service.buildTree('done-20', events);
+    expect(service.buildTree('done-20', events)).toBe(kept);
+    expect(clearSpy).not.toHaveBeenCalledWith('running');
+  });
+
+  it('clears every agent of a session torn down by forceClearSessionAgents', () => {
+    spawn('closed-running', 'sess-closed');
+    spawn('closed-done', 'sess-closed');
+    spawn('other', 'sess-open');
+    store.onAgentExited(info('closed-done', 'completed', 'sess-closed'));
+    TestBed.tick();
+
+    store.forceClearSessionAgents('sess-closed');
+    TestBed.tick();
+
+    expect(clearSpy).toHaveBeenCalledWith('closed-running');
+    expect(clearSpy).toHaveBeenCalledWith('closed-done');
+    expect(clearSpy).not.toHaveBeenCalledWith('other');
+  });
+
+  it('keeps running agents when a non-forced session clear drops only finished ones', () => {
+    spawn('live', 'sess-a');
+    spawn('finished', 'sess-a');
+    store.onAgentExited(info('finished', 'completed', 'sess-a'));
+    TestBed.tick();
+    const liveTree = service.buildTree('live', events);
+
+    store.clearSessionAgents('sess-a');
+    TestBed.tick();
+
+    expect(clearSpy).toHaveBeenCalledWith('finished');
+    expect(clearSpy).not.toHaveBeenCalledWith('live');
+    expect(service.buildTree('live', events)).toBe(liveTree);
+  });
+
+  it('does not touch the cache on output deltas that keep the agent set unchanged', () => {
+    spawn('streaming', 'sess-a');
+    TestBed.tick();
+
+    store.onAgentOutput({
+      agentId: 'streaming',
+      stdoutDelta: 'more output',
+      stderrDelta: '',
+      timestamp: 2,
+    } as never);
+    TestBed.tick();
+
+    expect(clearSpy).not.toHaveBeenCalled();
   });
 });
