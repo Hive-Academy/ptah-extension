@@ -1,11 +1,11 @@
-/** Formats a known USD cost exactly as the chat cost badge does. */
+/** Shared formatter used by the chat cost badge. */
 export function formatUsdCost(cost: number | null | undefined): string | null {
   if (typeof cost !== 'number' || !Number.isFinite(cost)) return null;
 
   return cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`;
 }
 
-/** Formats a duration exactly as the chat duration badge does. */
+/** Shared formatter used by the chat duration badge. */
 export function formatDurationMs(durationMs: number): string {
   let ms = durationMs;
   if (ms > 0 && ms < 100) {
