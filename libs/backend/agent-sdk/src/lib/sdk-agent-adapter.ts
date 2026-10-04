@@ -23,6 +23,8 @@ import {
   type ProviderProfile,
   type MessageAnchorHint,
   type PermissionLevel,
+  type SessionBudgetState,
+  type SessionStatsEntry,
   blankToUndefined,
 } from '@ptah-extension/shared';
 import type { SdkRuntimeStateService } from './helpers/sdk-runtime-state.service';
@@ -42,6 +44,7 @@ import type {
   SessionStatsOwnerService,
   SessionStatsPrefix,
 } from './session-stats/session-stats-owner.service';
+import type { SessionBudgetService } from './helpers/session-budget/session-budget.service';
 import {
   ModelInfo,
   type ForkSessionResult,
@@ -169,6 +172,9 @@ export class SdkAgentAdapter implements IAgentAdapter {
    */
   private readonly pendingUserActivity = new Map<string, PendingUserActivity>();
 
+  /** An `observe` throw is WARNed once per adapter, never per result. */
+  private budgetObserveWarned = false;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
@@ -221,6 +227,15 @@ export class SdkAgentAdapter implements IAgentAdapter {
     private readonly historyReader: Pick<
       SessionHistoryReaderService,
       'readSessionUsagePrefix' | 'readLastSavedCostState'
+    >,
+    /**
+     * The session budget stage machine (TASK_2026_597 N7): fed every result
+     * snapshot, told of every main-loop compaction, released on session end.
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_BUDGET)
+    private readonly sessionBudget: Pick<
+      SessionBudgetService,
+      'observe' | 'recordCompaction' | 'release' | 'clearAll'
     >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
@@ -562,6 +577,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.modelService.clearCache();
     // Backend disposal ends every session; nothing may outlive it.
     this.statsOwner.clearAll();
+    this.sessionBudget.clearAll();
     this.initialized = false;
     this.runtimeState.reset();
     this.logger.info('[SdkAgentAdapter] Disposed successfully');
@@ -798,6 +814,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.callbacks.getResultStats(),
       ),
       onTurnEnd: this.releaseTurnOnResult(trackingId),
+      onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
     });
@@ -806,9 +823,13 @@ export class SdkAgentAdapter implements IAgentAdapter {
   endSession(sessionId: SessionId): void {
     this.flushPendingUserActivityFor(sessionId);
     const statsLeases = this.captureStatsLeases(sessionId);
+    const budgetKeys = this.sessionKeys(sessionId);
     this.sessionLifecycle
       .endSession(sessionId)
-      .then(() => this.releaseStatsOwners(statsLeases))
+      .then(() => {
+        this.releaseStatsOwners(statsLeases);
+        this.releaseBudget(budgetKeys);
+      })
       .catch((err) => {
         this.logger.warn(
           '[SdkAgentAdapter] Error ending session',
@@ -823,14 +844,35 @@ export class SdkAgentAdapter implements IAgentAdapter {
    * the record's tab id and canonical id), as an owner lease.
    */
   private captureStatsLeases(sessionId: SessionId): OwnerLease[] {
-    const rec = this.sessionLifecycle.find(sessionId as string);
     const leases = new Map<number, OwnerLease>();
-    for (const key of [sessionId as string, rec?.tabId, rec?.realSessionId]) {
-      if (typeof key !== 'string' || key.length === 0) continue;
+    for (const key of this.sessionKeys(sessionId)) {
       const lease = this.statsOwner.leaseOf(key);
       if (lease) leases.set(lease.generation, lease);
     }
     return [...leases.values()];
+  }
+
+  /**
+   * Every key a session may be held under now: the id the caller used, the
+   * record's tab id and its canonical id. Captured BEFORE a teardown awaits,
+   * while the record still exists.
+   */
+  private sessionKeys(sessionId: SessionId): string[] {
+    const rec = this.sessionLifecycle.find(sessionId as string);
+    return [sessionId as string, rec?.tabId, rec?.realSessionId].filter(
+      (key): key is string => typeof key === 'string' && key.length > 0,
+    );
+  }
+
+  /**
+   * Drop the budget state of an ended session. The budget keys by the real
+   * SDK id (F1), which a caller holding only the tab id reaches through the
+   * record captured before teardown.
+   */
+  private releaseBudget(keys: readonly string[]): void {
+    for (const key of keys) {
+      this.sessionBudget.release(key);
+    }
   }
 
   /**
@@ -920,6 +962,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
           this.callbacks.getResultStats(),
         ),
         onTurnEnd: this.releaseTurnOnResult(sessionId),
+        onCompactBoundary: this.recordBudgetCompaction,
         tabId: config?.tabId,
       });
     }
@@ -1058,6 +1101,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.callbacks.getResultStats(),
       ),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
+      onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
     });
@@ -1094,12 +1138,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
       this.flushPendingUserActivityFor(sessionId);
     }
     const statsLeases = this.captureStatsLeases(sessionId);
+    const budgetKeys = this.sessionKeys(sessionId);
     const ended = await this.sessionLifecycle.endSessionIfTokenMatches(
       sessionId,
       token,
     );
     if (ended) {
       this.releaseStatsOwners(statsLeases);
+      this.releaseBudget(budgetKeys);
     }
     return ended;
   }
@@ -1374,6 +1420,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.callbacks.getResultStats(),
       ),
       onTurnEnd: this.releaseTurnOnResult(sessionId),
+      onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
       activityWatchdog,
     });
@@ -1390,8 +1437,10 @@ export class SdkAgentAdapter implements IAgentAdapter {
     this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
     this.flushPendingUserActivityFor(sessionId);
     const statsLeases = this.captureStatsLeases(sessionId);
+    const budgetKeys = this.sessionKeys(sessionId);
     await this.sessionLifecycle.endSession(sessionId);
     this.releaseStatsOwners(statsLeases);
+    this.releaseBudget(budgetKeys);
   }
 
   async forkSession(
@@ -1584,11 +1633,54 @@ export class SdkAgentAdapter implements IAgentAdapter {
   ): ResultStatsCallback {
     return (stats) => {
       this.notifyActivity(sessionId, 'assistant');
+      // The budget keys by `stats.sessionStats.sessionId` (the real SDK id),
+      // never by this wrapper's id, which is the tracking id for a new session.
+      const budget = this.observeBudget(stats.sessionStats);
       if (inner) {
-        inner(stats);
+        // The payload keeps the IDENTICAL `sessionStats` reference; `budget`
+        // is only added when the budget produced a state.
+        inner(budget ? { ...stats, budget } : stats);
       }
     };
   }
+
+  /**
+   * Feed one result snapshot to the session budget. A throw never reaches the
+   * result-stats broadcast: it is WARNed once and the payload goes out as it
+   * would without a budget.
+   */
+  private observeBudget(
+    snapshot: SessionStatsEntry | undefined,
+  ): SessionBudgetState | undefined {
+    let budget: SessionBudgetState | undefined;
+    try {
+      budget = this.sessionBudget.observe(snapshot);
+    } catch (error: unknown) {
+      if (!this.budgetObserveWarned) {
+        this.budgetObserveWarned = true;
+        this.logger.warn(
+          '[SdkAgentAdapter] Session budget observe failed; stats are published without a budget',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    }
+    return budget;
+  }
+
+  /**
+   * `StreamTransformer.onCompactBoundary`: one main-loop compaction for the
+   * session budget's handoff trigger. Never throws into the stream.
+   */
+  private readonly recordBudgetCompaction = (sessionId: SessionId): void => {
+    try {
+      this.sessionBudget.recordCompaction(sessionId as string);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[SdkAgentAdapter] Session budget could not record a compaction for ${sessionId}`,
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  };
 
   /**
    * Release the streaming pump's turn claim on the SDK `result` message, so a

@@ -3235,7 +3235,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 54: N7 stage machine and `SessionBudgetService` — IMPLEMENTED (PR 3, decision 13; commits with Batch 55 because di-lint needs the writer registration)
+## Batch 54: N7 stage machine and `SessionBudgetService` — COMPLETE (PR 3, decision 13; committed with Batch 55 because di-lint needs the writer registration)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3284,7 +3284,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 55: N7 agent-sdk wiring and broadcast forwarding — IN_PROGRESS (PR 3, decision 13)
+## Batch 55: N7 agent-sdk wiring and broadcast forwarding — COMPLETE (PR 3, decision 13; report batch-55-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3343,7 +3343,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 56: N7 `chat:continue` gate and resume budget — PENDING (PR 3, decision 13)
+## Batch 56: N7 `chat:continue` gate and resume budget — IN_PROGRESS (PR 3, decision 13)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3381,7 +3381,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 57: N7 `session:budgetAction` RPC unit — PENDING (PR 3, decision 13)
+## Batch 57: N7 `session:budgetAction` RPC unit — IN_PROGRESS (PR 3, decision 13)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run

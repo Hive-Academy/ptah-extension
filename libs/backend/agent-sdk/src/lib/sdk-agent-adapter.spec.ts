@@ -37,7 +37,9 @@ import type {
   AISessionConfig,
   AuthEnv,
   FlatStreamEventUnion,
+  SessionBudgetState,
   SessionId,
+  SessionStatsEntry,
 } from '@ptah-extension/shared';
 import {
   createMockLogger,
@@ -66,6 +68,7 @@ import {
   type RunUsageResult,
   type SessionStatsPrefix,
 } from './session-stats/session-stats-owner.service';
+import type { SessionBudgetService } from './helpers/session-budget/session-budget.service';
 import type {
   SessionLifecycleManager,
   StreamTransformer,
@@ -349,6 +352,21 @@ interface AdapterHarness {
   events: SdkAdapterEvents;
   activityRegistry: SessionActivityRegistry;
   sessionIdResolvedRegistry: SessionIdResolvedCallbackRegistry;
+  sessionBudget: ReturnType<typeof createMockSessionBudget>;
+}
+
+function createMockSessionBudget(): jest.Mocked<
+  Pick<
+    SessionBudgetService,
+    'observe' | 'recordCompaction' | 'release' | 'clearAll'
+  >
+> {
+  return {
+    observe: jest.fn().mockReturnValue(undefined),
+    recordCompaction: jest.fn(),
+    release: jest.fn(),
+    clearAll: jest.fn(),
+  };
 }
 
 function makeAdapter(
@@ -384,6 +402,7 @@ function makeAdapter(
   );
   const statsOwner = new SessionStatsOwnerService();
   const historyReader = createMockHistoryReader();
+  const sessionBudget = createMockSessionBudget();
 
   const adapter = new SdkAgentAdapter(
     asLogger(logger),
@@ -405,6 +424,7 @@ function makeAdapter(
     sessionIdResolvedRegistry,
     statsOwner,
     historyReader as unknown as SessionHistoryReaderService,
+    sessionBudget,
   );
 
   return {
@@ -427,6 +447,7 @@ function makeAdapter(
     events,
     activityRegistry,
     sessionIdResolvedRegistry,
+    sessionBudget,
   };
 }
 
@@ -1926,6 +1947,183 @@ describe('SdkAgentAdapter', () => {
       };
       (arg.onResultStats as ResultStatsCallback)(fakeStats);
       expect(onStats).toHaveBeenCalledWith(fakeStats);
+    });
+  });
+
+  describe('session budget wiring (TASK_2026_597 N7)', () => {
+    const REAL_ID = '6f1c2a5e-4b7d-4c1e-9a3f-2d8e5b0c7a91';
+
+    function snapshotFor(sessionId: string): SessionStatsEntry {
+      return { sessionId, revision: 1 } as unknown as SessionStatsEntry;
+    }
+
+    function budgetFor(sessionId: string): SessionBudgetState {
+      return {
+        sessionId,
+        stage: 'tighten',
+        unit: 'tokens',
+        measure: 'tokens',
+        used: 30_000_000,
+        limit: 50_000_000,
+        percent: 60,
+        lowerBound: false,
+        revision: 1,
+        compactions: 0,
+        extensions: 0,
+        blocked: false,
+      };
+    }
+
+    async function startNewSession(h: AdapterHarness, onStats?: jest.Mock) {
+      await h.adapter.initialize();
+      if (onStats) h.adapter.setResultStatsCallback(onStats);
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude-sonnet-4-20250514',
+        abortController: new AbortController(),
+      } as ExecuteQueryResult);
+      // Tracking id `tab_1` differs from the real SDK id (AS-1, F1).
+      await h.adapter.startChatSession(makeSessionConfig());
+      return h.streamTransformer.transform.mock.calls[0][0];
+    }
+
+    function resultStats(sessionStats?: SessionStatsEntry) {
+      return {
+        sessionId: 'tab_1' as unknown as SessionId,
+        turnCost: 0,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+        duration: 0,
+        ...(sessionStats && { sessionStats }),
+      };
+    }
+
+    it('observes the snapshot and forwards it by IDENTICAL reference with the budget beside it', async () => {
+      const h = makeAdapter();
+      const onStats = jest.fn();
+      const arg = await startNewSession(h, onStats);
+      const snapshot = snapshotFor(REAL_ID);
+      const budget = budgetFor(REAL_ID);
+      h.sessionBudget.observe.mockReturnValueOnce(budget);
+
+      (arg.onResultStats as ResultStatsCallback)(resultStats(snapshot));
+
+      // Keyed by the snapshot's real id, not the wrapper's tracking id.
+      expect(h.sessionBudget.observe).toHaveBeenCalledTimes(1);
+      expect(h.sessionBudget.observe.mock.calls[0][0]).toBe(snapshot);
+      const payload = onStats.mock.calls[0][0];
+      expect(payload.sessionStats).toBe(snapshot);
+      expect(payload.budget).toBe(budget);
+      expect(payload.budget.sessionId).toBe(REAL_ID);
+      expect(payload.sessionId).toBe('tab_1');
+    });
+
+    it('forwards the stats object untouched when the budget has no state', async () => {
+      const h = makeAdapter();
+      const onStats = jest.fn();
+      const arg = await startNewSession(h, onStats);
+      const stats = resultStats();
+
+      (arg.onResultStats as ResultStatsCallback)(stats);
+
+      expect(h.sessionBudget.observe).toHaveBeenCalledWith(undefined);
+      expect(onStats.mock.calls[0][0]).toBe(stats);
+      expect('budget' in onStats.mock.calls[0][0]).toBe(false);
+    });
+
+    it('still publishes the stats when observe throws, and warns once', async () => {
+      const h = makeAdapter();
+      const onStats = jest.fn();
+      const arg = await startNewSession(h, onStats);
+      h.sessionBudget.observe.mockImplementation(() => {
+        throw new Error('boom');
+      });
+      const first = resultStats(snapshotFor(REAL_ID));
+      const second = resultStats(snapshotFor(REAL_ID));
+
+      (arg.onResultStats as ResultStatsCallback)(first);
+      (arg.onResultStats as ResultStatsCallback)(second);
+
+      expect(onStats.mock.calls[0][0]).toBe(first);
+      expect(onStats.mock.calls[1][0]).toBe(second);
+      const budgetWarnings = h.logger.warn.mock.calls.filter((call) =>
+        String(call[0]).includes('Session budget observe failed'),
+      );
+      expect(budgetWarnings).toHaveLength(1);
+    });
+
+    it('observes even when no result-stats callback is registered', async () => {
+      const h = makeAdapter();
+      const arg = await startNewSession(h);
+      const snapshot = snapshotFor(REAL_ID);
+
+      (arg.onResultStats as ResultStatsCallback)(resultStats(snapshot));
+
+      expect(h.sessionBudget.observe.mock.calls[0][0]).toBe(snapshot);
+    });
+
+    it('passes a compaction recorder to the transformer that never throws', async () => {
+      const h = makeAdapter();
+      const arg = await startNewSession(h);
+      expect(typeof arg.onCompactBoundary).toBe('function');
+
+      arg.onCompactBoundary?.(REAL_ID as unknown as SessionId);
+      expect(h.sessionBudget.recordCompaction).toHaveBeenCalledWith(REAL_ID);
+
+      h.sessionBudget.recordCompaction.mockImplementationOnce(() => {
+        throw new Error('boom');
+      });
+      expect(() =>
+        arg.onCompactBoundary?.(REAL_ID as unknown as SessionId),
+      ).not.toThrow();
+      expect(h.logger.warn).toHaveBeenCalled();
+    });
+
+    it('releases the budget under every key of an interrupted session', async () => {
+      const h = makeAdapter();
+      h.sessionLifecycle.find.mockReturnValue({
+        tabId: 'tab_1',
+        realSessionId: REAL_ID,
+      } as unknown as ReturnType<SessionLifecycleManager['find']>);
+
+      await h.adapter.interruptSession('tab_1' as unknown as SessionId);
+
+      expect(h.sessionBudget.release).toHaveBeenCalledWith('tab_1');
+      expect(h.sessionBudget.release).toHaveBeenCalledWith(REAL_ID);
+    });
+
+    it('releases the budget when a token-matched end succeeds, not when it loses', async () => {
+      const h = makeAdapter();
+      h.sessionLifecycle.endSessionIfTokenMatches.mockResolvedValueOnce(false);
+      await h.adapter.endSessionIfTokenMatches(
+        REAL_ID as unknown as SessionId,
+        'tok',
+      );
+      expect(h.sessionBudget.release).not.toHaveBeenCalled();
+
+      await h.adapter.endSessionIfTokenMatches(
+        REAL_ID as unknown as SessionId,
+        'tok',
+      );
+      expect(h.sessionBudget.release).toHaveBeenCalledWith(REAL_ID);
+    });
+
+    it('releases the budget after endSession tears the session down', async () => {
+      const h = makeAdapter();
+
+      h.adapter.endSession(REAL_ID as unknown as SessionId);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(h.sessionBudget.release).toHaveBeenCalledWith(REAL_ID);
+    });
+
+    it('clears every budget state on dispose', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+
+      h.adapter.dispose();
+
+      expect(h.sessionBudget.clearAll).toHaveBeenCalledTimes(1);
     });
   });
 
