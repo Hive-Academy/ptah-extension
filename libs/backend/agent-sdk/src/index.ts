@@ -201,6 +201,16 @@ export {
   isPostCompactHook,
 } from './lib/helpers';
 export { CompactionConfigProvider } from './lib/helpers';
+// Plan limits (TASK_2026_596)
+export {
+  SessionPlanLimitCallbackRegistry,
+  type SessionPlanLimitEvent,
+  type SessionPlanLimitSignal,
+} from './lib/helpers/plan-limits/session-plan-limit-callback-registry';
+export type {
+  ClaudePlanLimitEvidence,
+  ClaudeTurnBilling,
+} from './lib/helpers/plan-limits/claude-rate-limit.mapper';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
 export {
   SdkAdapterEvents,
