@@ -52,7 +52,7 @@ const WINDOW_REASON_TEXT: Readonly<
             {{ title() }}
           </div>
           <p
-            class="mt-0.5 text-base-content/80"
+            class="mt-0.5 text-base-content-muted"
             data-testid="session-budget-body"
           >
             {{ body() }}

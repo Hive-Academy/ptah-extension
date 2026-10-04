@@ -85,7 +85,6 @@ const FOCUS =
       } @placeholder {
         <div
           class="min-h-[30rem] rounded-xl border border-base-300 bg-base-200/40"
-          aria-busy="true"
           data-testid="session-budget-placeholder"
         ></div>
       }

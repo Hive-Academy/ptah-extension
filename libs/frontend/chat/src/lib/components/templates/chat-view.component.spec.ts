@@ -2004,6 +2004,19 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
     );
   });
 
+  it('reports a rejected budget action without leaving the action busy', async () => {
+    const { h, view } = setup();
+    h.rpcCallMock.mockRejectedValueOnce(new Error('connection lost'));
+
+    await view.onBudgetAction('extend');
+
+    expect(h.showErrorMock).toHaveBeenLastCalledWith(
+      'Budget action failed: connection lost',
+      'tab-abc',
+    );
+    expect(view.budgetActionBusy()).toBe(false);
+  });
+
   it('preview loads the handoff text for this session', async () => {
     const { h, view } = setup();
     h.rpcCallMock.mockResolvedValue(

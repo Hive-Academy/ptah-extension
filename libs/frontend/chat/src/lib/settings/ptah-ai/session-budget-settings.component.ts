@@ -35,6 +35,8 @@ const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
 const BUDGET_KEYS = Object.keys(SESSION_BUDGET_SETTINGS) as BudgetKey[];
 const NUMBER_FORMAT = new Intl.NumberFormat('en-US');
+/** A missing host response must reveal Retry instead of leaving the settings card busy. */
+const SETTINGS_READ_TIMEOUT_MS = 5_000;
 const UNIT_LABELS: Readonly<Record<SessionBudgetUnit, string>> = {
   tokens: 'Tokens',
   cost: 'Cost (USD)',
@@ -360,6 +362,7 @@ export class SessionBudgetSettingsComponent implements OnInit {
             this.vscode,
             'settings:get',
             { key: SESSION_BUDGET_SETTINGS[key].key },
+            SETTINGS_READ_TIMEOUT_MS,
           ),
         ),
       );
@@ -430,7 +433,14 @@ export class SessionBudgetSettingsComponent implements OnInit {
       this.clearDraft(key);
       return;
     }
-    if (await this.write(key, parsed.value)) this.clearDraft(key);
+    if (await this.write(key, parsed.value)) {
+      this.clearDraft(key);
+      if (key === 'tightenPercent' || key === 'handoffPercent') {
+        await this.commit(
+          key === 'tightenPercent' ? 'handoffPercent' : 'tightenPercent',
+        );
+      }
+    }
   }
 
   async toggle(key: BooleanKey, event: Event): Promise<void> {

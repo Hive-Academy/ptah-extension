@@ -188,15 +188,25 @@ export class SessionHandoffWriter {
   }
 
   /**
-   * Remove a temp file left by a failed write. A failure here is logged and
-   * does not replace the write failure the caller reports.
+   * Remove a temp file left by a failed write. ENOENT and ENOTDIR mean the
+   * temp file was never created, so there is nothing to remove; any other
+   * failure is logged and does not replace the write failure the caller
+   * reports.
    */
   private async removeTemp(temp: string): Promise<void> {
     try {
       await fs.rm(temp, { force: true });
     } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT/ENOTDIR mean the temp
+      // file was never created (nothing at the path, or the handoffs directory
+      // is not a directory), so there is nothing to remove; any other removal
+      // failure is reported below.
+      const code = errorCode(error);
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        return;
+      }
       this.logger.warn('[SessionHandoffWriter] Could not remove a temp file', {
-        code: errorCode(error),
+        code,
         error: error instanceof Error ? error.message : String(error),
       });
     }

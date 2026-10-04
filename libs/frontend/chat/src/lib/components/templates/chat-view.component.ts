@@ -1193,6 +1193,12 @@ export class ChatViewComponent implements OnDestroy {
         this.resolvedTabId(),
       );
       return null;
+    } catch (error: unknown) {
+      this.showActionError(
+        `Budget action failed: ${error instanceof Error ? error.message : String(error)}`,
+        this.resolvedTabId(),
+      );
+      return null;
     } finally {
       this.budgetActionBusy.set(false);
     }

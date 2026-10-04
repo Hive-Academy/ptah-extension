@@ -128,6 +128,14 @@ describe('SessionBudgetSettingsComponent', () => {
       expect(writes()).toEqual([]);
     });
 
+    it('bounds each settings read so an unanswered host RPC reaches the Retry state', async () => {
+      await create();
+      const readTimeouts = mockRpcCall.mock.calls
+        .filter((call) => call[1] === 'settings:get')
+        .map((call) => call[3]);
+      expect(readTimeouts).toEqual(Array(10).fill(5_000));
+    });
+
     it('shows a load error with Retry when a read fails, and Retry reads again', async () => {
       readFails = true;
       await create();
@@ -247,6 +255,20 @@ describe('SessionBudgetSettingsComponent', () => {
       expect(writes()).toEqual([
         { key: 'sessionBudget.handoffPercent', value: 95 },
         { key: 'sessionBudget.tightenPercent', value: 90 },
+      ]);
+    });
+
+    it('revalidates and saves a pending tighten draft after its handoff partner changes', async () => {
+      await create();
+      await enter('tightenPercent', '85');
+      expect(byTestId('session-budget-tightenPercent-error')).not.toBeNull();
+
+      await enter('handoffPercent', '95');
+
+      expect(byTestId('session-budget-tightenPercent-error')).toBeNull();
+      expect(writes()).toEqual([
+        { key: 'sessionBudget.handoffPercent', value: 95 },
+        { key: 'sessionBudget.tightenPercent', value: 85 },
       ]);
     });
   });
