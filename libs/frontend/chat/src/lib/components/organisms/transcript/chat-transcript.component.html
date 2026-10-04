@@ -71,7 +71,9 @@
       @if (changeSetAnchors().get(msg.id); as changeSets) {
         @defer (when changeSets.length > 0) {
           @for (changeSet of changeSets; track changeSetKey(changeSet)) {
-            <div class="px-2 pb-3" data-testid="chat-change-set">
+            <!-- pl-11 lines the card up with the assistant bubble column
+                 (px-2 + 24 px avatar + 12 px chat column gap). -->
+            <div class="pl-11 pr-2 pb-3" data-testid="chat-change-set">
               <ptah-change-set-card
                 [changeSet]="changeSet"
                 [host]="changeSetHost()"
