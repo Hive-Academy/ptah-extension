@@ -23,6 +23,7 @@ describe('TaskPromptBridgeService', () => {
   let requestCanvasTab: jest.Mock;
   let requestComposerPrefill: jest.Mock;
   let createTab: jest.Mock;
+  let activeWorkspacePath: string | null;
   let expectLink: jest.Mock;
 
   const flush = async (): Promise<void> => {
@@ -39,6 +40,7 @@ describe('TaskPromptBridgeService', () => {
     requestCanvasTab = jest.fn();
     requestComposerPrefill = jest.fn();
     createTab = jest.fn(() => 'tab-1');
+    activeWorkspacePath = null;
     expectLink = jest.fn();
 
     TestBed.configureTestingModule({
@@ -55,7 +57,15 @@ describe('TaskPromptBridgeService', () => {
             requestComposerPrefill,
           },
         },
-        { provide: TabManagerService, useValue: { createTab } },
+        {
+          provide: TabManagerService,
+          useValue: {
+            createTab,
+            get activeWorkspacePath() {
+              return activeWorkspacePath;
+            },
+          },
+        },
         {
           provide: BoardTaskLinkCaptureService,
           useValue: { expect: expectLink },
@@ -97,7 +107,28 @@ describe('TaskPromptBridgeService', () => {
     await flush();
 
     expect(createTab).toHaveBeenCalledWith('TASK_2026_300');
-    expect(requestCanvasTab).toHaveBeenCalledWith('tab-1', 'TASK_2026_300');
+    expect(requestCanvasTab).toHaveBeenCalledWith(
+      'tab-1',
+      null,
+      'TASK_2026_300',
+    );
+  });
+
+  it('carries the active workspace path on the canvas tile request (stale-drop support)', async () => {
+    layoutMode.set('grid');
+    activeWorkspacePath = '/ws/a';
+    request.set({
+      prompt: '/orchestrate TASK_2026_304',
+      sessionName: 'TASK_2026_304',
+    });
+
+    await flush();
+
+    expect(requestCanvasTab).toHaveBeenCalledWith(
+      'tab-1',
+      '/ws/a',
+      'TASK_2026_304',
+    );
   });
 
   it.each([
