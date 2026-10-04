@@ -1,0 +1,1 @@
+{"type":"assistant","isSidechain":true,"message":{"type":"message","role":"assistant","content":[],"stop_reason":null,"usage":{"input_tokens":2,"cache_creation_input_tokens":15967,"cache_read_input_tokens":18001,"output_tokens":8,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":15967},"service_tier":"standard"}}}
