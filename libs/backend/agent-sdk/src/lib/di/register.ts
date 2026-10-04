@@ -21,6 +21,7 @@ import type {
   Logger,
 } from '@ptah-extension/vscode-core';
 import { MEMORY_CONTRACT_TOKENS } from '@ptah-extension/memory-contracts';
+import type { CodeOutliner } from '@ptah-extension/tool-output-reducers';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
@@ -101,6 +102,7 @@ import { SessionBudgetConfigProvider } from '../helpers/session-budget/session-b
 import { SessionHandoffBuilder } from '../helpers/session-budget/session-handoff-builder';
 import { SessionHandoffWriter } from '../helpers/session-budget/session-handoff-writer';
 import { SessionBudgetService } from '../helpers/session-budget/session-budget.service';
+import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { SDK_TOKENS } from './tokens';
 
 /**
@@ -403,6 +405,25 @@ export function registerSdkServices(
     { useClass: CompactionConfigProvider },
     { lifecycle: Lifecycle.Singleton },
   );
+
+  // A factory rather than `useClass`: `SDK_CODE_OUTLINER` is optional and is
+  // bound by the hosts, not here. It is looked up when the capper is first
+  // resolved; when no host bound it, the capper gets none and Read reduction
+  // takes the log reducer plus the file path pointer.
+  container.register(SDK_TOKENS.SDK_TOOL_OUTPUT_CAPPER, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new ToolOutputCapper(
+          c.resolve<Logger>(TOKENS.LOGGER),
+          c.resolve<CompactionConfigProvider>(
+            SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
+          ),
+          c.isRegistered(SDK_TOKENS.SDK_CODE_OUTLINER, true)
+            ? c.resolve<CodeOutliner>(SDK_TOKENS.SDK_CODE_OUTLINER)
+            : undefined,
+        ),
+    ),
+  });
 
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,

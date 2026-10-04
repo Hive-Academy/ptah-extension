@@ -54,6 +54,18 @@ export const SDK_TOKENS = {
   SDK_SUBAGENT_HOOK_HANDLER: Symbol.for('SdkSubagentHookHandler'),
   SDK_COMPACTION_CONFIG_PROVIDER: Symbol.for('SdkCompactionConfigProvider'),
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
+  /**
+   * `ToolOutputCapper`: caps Bash, PowerShell, Grep, Read and non-Ptah MCP
+   * tool output at `compaction.toolOutputBudgetTokens` (TASK_2026_597 A3).
+   */
+  SDK_TOOL_OUTPUT_CAPPER: Symbol.for('SdkToolOutputCapper'),
+  /**
+   * Optional `CodeOutliner` (`@ptah-extension/tool-output-reducers`) the
+   * capper outlines over-budget source files with. Bound by the hosts (the
+   * tree-sitter outliner); when absent, Read reduction takes the log reducer
+   * plus the file path pointer.
+   */
+  SDK_CODE_OUTLINER: Symbol.for('SdkCodeOutliner'),
 
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
   SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY: Symbol.for(
