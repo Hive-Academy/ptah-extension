@@ -30,6 +30,7 @@
 
 import * as http from 'http';
 import * as https from 'https';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { Logger } from '@ptah-extension/vscode-core';
 import type {
@@ -206,6 +207,9 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
   /** Log prefix derived from config name, e.g. '[CopilotProxy]' */
   private readonly logPrefix: string;
+
+  /** Opaque per-instance id for quota observations (`ProviderQuotaContext.sourceId`). */
+  private readonly quotaSourceId = randomUUID();
 
   constructor(
     protected readonly logger: Logger,
@@ -1176,6 +1180,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               ownerKey: quotaOwnerKey,
               model: originalRequest.model,
               statusCode,
+              sourceId: this.quotaSourceId,
             });
             const headers: Record<string, string> = {};
             if (retryAfter) {
@@ -1235,6 +1240,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             ownerKey: quotaOwnerKey,
             model: originalRequest.model,
             statusCode,
+            sourceId: this.quotaSourceId,
           });
           let translationFailed = false;
           const complete = () => {

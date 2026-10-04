@@ -12,6 +12,10 @@ import {
 import { ProviderAuthResolver } from '../auth/provider-auth-resolver';
 import { DraftVerificationService } from '../auth/draft-verification.service';
 import { OpenRouterPricingService } from '../providers/openrouter';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { PlanLimitLedgerService } from '../quota/plan-limit-ledger.service';
+import { ProviderOwnerResolver } from '../quota/provider-owner.resolver';
+import { PlanCredentialSource } from '../quota/plan-credential.source';
 
 describe('required auth registration without the memory curator', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -48,6 +52,34 @@ describe('required auth registration without the memory curator', () => {
     expect(
       c.resolve(AUTH_PROVIDERS_TOKENS.SDK_DRAFT_VERIFICATION),
     ).toBeInstanceOf(DraftVerificationService);
+  });
+
+  it('resolves the plan-limit services lazily, with agent-sdk tokens registered afterwards', () => {
+    const { c } = setup();
+    // Hosts run `registerSdkServices` after this library; register the
+    // agent-sdk and platform boundaries only now to prove nothing resolved early.
+    const registry = { register: jest.fn(() => jest.fn()) };
+    c.registerInstance(SDK_TOKENS.SDK_SESSION_PLAN_LIMIT_REGISTRY, registry);
+    c.registerInstance(SDK_TOKENS.SDK_SESSION_QUOTA_PROBE, {});
+    c.registerInstance(PLATFORM_TOKENS.STATE_STORAGE, {
+      get: () => undefined,
+      update: async () => undefined,
+      keys: () => [],
+    });
+
+    const ledger = c.resolve<PlanLimitLedgerService>(
+      AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,
+    );
+    expect(ledger).toBeInstanceOf(PlanLimitLedgerService);
+    expect(c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER)).toBe(ledger);
+    expect(registry.register).toHaveBeenCalledTimes(1);
+    expect(
+      c.resolve(AUTH_PROVIDERS_TOKENS.PROVIDER_OWNER_RESOLVER),
+    ).toBeInstanceOf(ProviderOwnerResolver);
+    expect(
+      c.resolve(AUTH_PROVIDERS_TOKENS.PLAN_CREDENTIAL_SOURCE),
+    ).toBeInstanceOf(PlanCredentialSource);
+    ledger.dispose();
   });
 
   it('preserves the resolver and proxy singletons when a host registers curator auth again', () => {

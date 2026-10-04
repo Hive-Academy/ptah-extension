@@ -176,6 +176,32 @@ describe('ProviderQuotaStore — observers (TASK_2026_596 Component 9)', () => {
     ]);
   });
 
+  it('passes the writer source id through to both observer kinds', () => {
+    const store = new ProviderQuotaStore();
+    const rateLimits: unknown[] = [];
+    const successes: unknown[] = [];
+    store.onRateLimit((o) => rateLimits.push(o));
+    store.onSuccess((o) => successes.push(o));
+
+    store.recordRateLimit('a-provider', undefined, T0, {
+      ownerKey: null,
+      statusCode: 429,
+      sourceId: 'proxy-1',
+    });
+    store.recordSuccess(
+      'a-provider',
+      { ownerKey: null, statusCode: 200, sourceId: 'proxy-1' },
+      T0 + 1,
+    );
+
+    expect(rateLimits).toEqual([
+      expect.objectContaining({ sourceId: 'proxy-1' }),
+    ]);
+    expect(successes).toEqual([
+      expect.objectContaining({ sourceId: 'proxy-1' }),
+    ]);
+  });
+
   it('reports a 429 without context as unattributed (owner null)', () => {
     const store = new ProviderQuotaStore();
     const listener = jest.fn();

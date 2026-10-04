@@ -236,10 +236,23 @@ function canonicalPath(path: string): string {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
+/**
+ * True for a value Ptah stores or sends in place of a real key while a local
+ * proxy or daemon owns authentication. It identifies nobody.
+ */
+export function isPlaceholderCredential(value: string): boolean {
+  return PLACEHOLDER_CREDENTIALS.has(value.trim());
+}
+
+/** Secret-store slot of a Ptah CLI agent's own key (`ptahCli.<id>`). */
+export function ptahCliKeySlot(ptahCliId: string): string {
+  return `${PTAH_CLI_KEY_PREFIX}.${ptahCliId}`;
+}
+
 /** A stored key that identifies someone, or `null` for absent / placeholder. */
 function realCredential(raw: string | undefined): string | null {
   const trimmed = typeof raw === 'string' ? raw.trim() : '';
-  if (trimmed.length === 0 || PLACEHOLDER_CREDENTIALS.has(trimmed)) return null;
+  if (trimmed.length === 0 || isPlaceholderCredential(trimmed)) return null;
   return trimmed;
 }
 
@@ -281,7 +294,7 @@ export class ProviderOwnerResolver {
     providerId: string,
   ): Promise<QuotaOwnerRef> {
     const credential = await this.readSecret(
-      `${PTAH_CLI_KEY_PREFIX}.${ptahCliId}`,
+      ptahCliKeySlot(ptahCliId),
       providerId,
     );
     return quotaOwnerRefFromKey(

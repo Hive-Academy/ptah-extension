@@ -1060,6 +1060,21 @@ describe('TranslationProxyBase — quota owner key at the response boundary (TAS
     });
   });
 
+  it('F68: each proxy instance tags its observations with its own source id', async () => {
+    await run(rateLimited);
+    await run(answered(200));
+
+    expect(rateLimits).toHaveLength(1);
+    expect(successes).toHaveLength(1);
+    const first = rateLimits[0].sourceId;
+    const second = successes[0].sourceId;
+    expect(typeof first).toBe('string');
+    expect(first).not.toHaveLength(0);
+    expect(typeof second).toBe('string');
+    // `run` starts a fresh proxy each time: two instances, two ids.
+    expect(second).not.toBe(first);
+  });
+
   it('F80: a 3xx clears the gate but emits no ledger success', async () => {
     providerQuotaStore.recordRateLimit('fake-provider');
 

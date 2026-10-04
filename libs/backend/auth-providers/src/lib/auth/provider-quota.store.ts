@@ -48,6 +48,12 @@ export interface ProviderQuotaContext {
   readonly ownerKey: string | null;
   readonly model?: string;
   readonly statusCode: number;
+  /**
+   * Opaque id of the proxy instance that saw the answer, stable for that
+   * instance's lifetime. Route material for an unattributed owner, so two
+   * proxies' unattributed 429s never merge into one owner.
+   */
+  readonly sourceId?: string;
 }
 
 /**
@@ -64,6 +70,8 @@ export interface ProviderQuotaObservation {
   readonly observedAt: number;
   /** The provider gate deadline now in effect; `null` once cleared. */
   readonly gateUntil: number | null;
+  /** {@link ProviderQuotaContext.sourceId}; absent when the writer gave none. */
+  readonly sourceId?: string;
 }
 
 export type ProviderQuotaListener = (
@@ -162,6 +170,7 @@ export class ProviderQuotaStore {
       retryAfterRaw,
       observedAt: now,
       gateUntil: until,
+      ...(ctx?.sourceId !== undefined && { sourceId: ctx.sourceId }),
     });
     return { providerId: id, until };
   }
@@ -194,6 +203,7 @@ export class ProviderQuotaStore {
       retryAfterRaw: null,
       observedAt: now,
       gateUntil: null,
+      ...(ctx.sourceId !== undefined && { sourceId: ctx.sourceId }),
     });
   }
 
