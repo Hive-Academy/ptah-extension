@@ -34,6 +34,7 @@ import type {
   CliOutputSegment,
   CliSessionReference,
   FlatStreamEventUnion,
+  LaneStopReason,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
 import { CliDetectionService } from './cli-detection.service';
@@ -64,10 +65,7 @@ import {
   collectHandoffCarryOver,
   type LaneResumeGate,
 } from './lane-resume-gate';
-import {
-  LaneBudgetGuard,
-  type LaneBudgetStopReason,
-} from './lane-budget-guard';
+import { LaneBudgetGuard } from './lane-budget-guard';
 import { findBlockedLaneModel } from './lane-spawn-policy';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
 import type { TrackedAgent } from './tracked-agent';
@@ -871,7 +869,7 @@ export class AgentProcessManager {
 
     const action = guard.observe(segment);
     if (action.kind === 'steer') {
-      void this.steerLane(agentId, action.message, guard.toolCallCount);
+      this.steerLane(agentId, action.message, guard.toolCallCount);
     } else if (action.kind === 'stop') {
       void this.stopLaneForBudget(
         agentId,
@@ -882,28 +880,26 @@ export class AgentProcessManager {
   }
 
   /**
-   * Send the guard's one steer message. A CLI that cannot take it is logged
-   * and otherwise ignored: the guard keeps counting, so the stop threshold
-   * still ends the lane.
+   * Deliver the guard's one steer message as a mid-turn steer, and only that.
+   * It never goes through {@link sendToAgent}: a queued turn would run after
+   * the lane finished (overwriting its report), and interrupt-resume would
+   * discard the running turn's work. A handle without `steer` is logged once
+   * (the guard asks once per turn) and the stop threshold still ends the lane.
    */
-  private async steerLane(
-    agentId: string,
-    message: string,
-    toolCalls: number,
-  ): Promise<void> {
+  private steerLane(agentId: string, message: string, toolCalls: number): void {
+    const handle = this.agents.get(agentId)?.sdkHandle;
+    if (!handle?.steer) {
+      this.logger.warn(
+        '[AgentProcessManager] Lane budget steer not delivered (no mid-turn steer); the stop threshold still applies',
+        { agentId, toolCalls },
+      );
+      return;
+    }
     try {
-      const outcome = await this.sendToAgent(agentId, message);
-      if (outcome.mode === 'unsupported') {
-        this.logger.warn(
-          '[AgentProcessManager] Lane budget steer not delivered; the stop threshold still applies',
-          { agentId, toolCalls, detail: outcome.detail },
-        );
-        return;
-      }
+      handle.steer(message);
       this.logger.info('[AgentProcessManager] Lane budget steer sent', {
         agentId,
         toolCalls,
-        mode: outcome.mode,
       });
     } catch (error: unknown) {
       this.logger.warn(
@@ -919,11 +915,11 @@ export class AgentProcessManager {
 
   /**
    * Stop a lane the guard gave up on, through the ordinary {@link stop} path,
-   * with `stopReason` on the record so status readers can see why.
+   * with `stopReason` stamped on the record.
    */
   private async stopLaneForBudget(
     agentId: string,
-    stopReason: LaneBudgetStopReason,
+    stopReason: LaneStopReason,
     toolCalls: number,
   ): Promise<void> {
     const tracked = this.agents.get(agentId);
@@ -937,7 +933,7 @@ export class AgentProcessManager {
     // Stamped before `stop`, which spreads `tracked.info` into the terminal
     // record, the completion signal and `agent:exited`.
     tracked.info = { ...tracked.info, stopReason };
-    // A queued steer must not start a new turn once the lane is stopped.
+    // A queued caller message must not start a new turn once the lane is stopped.
     this.messageRouter.discardPending(agentId, tracked);
     try {
       await this.stop(agentId);
@@ -1644,6 +1640,10 @@ export class AgentProcessManager {
       completedAt: undefined,
       exitCode: undefined,
     };
+    // Every turn started here carries a caller's message (the guard's steer is
+    // mid-turn only and never starts a turn), so the new task gets a fresh
+    // budget and its own steer.
+    this.laneGuards.get(agentId)?.reset();
     this.armInactivityWatchdog(agentId, tracked);
 
     this.events.emit('agent:spawned', tracked.info);
@@ -2110,9 +2110,9 @@ export class AgentProcessManager {
     tracked.hasExited = true;
 
     clearTimeout(tracked.timeoutHandle);
-    // A continuation-capable lane can start another turn on this record (a
-    // queued or interrupt-resumed steer does exactly that), so its guard
-    // keeps counting until the subprocess is released, stopped or timed out.
+    // A continuation-capable lane can start another caller turn on this
+    // record, so its guard is kept (and reset by `continueConversation`) until
+    // the subprocess is released, stopped or timed out.
     if (tracked.sdkHandle?.supportsContinuation?.() !== true) {
       this.releaseLaneGuard(agentId);
     }

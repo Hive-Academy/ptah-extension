@@ -9,11 +9,14 @@ import { COMPACTION_MAX_DWELL_MS } from './compaction/compaction-state.types';
 /**
  * Query-local root activity accounting. Silence is not evidence of failure while
  * a known tool is running: report uncertainty, never impose a tool runtime
- * limit. A compaction is accounted the same way for at most
- * {@link COMPACTION_MAX_DWELL_MS} from when it opened; past that bound the
- * watchdog stops re-arming and takes the timeout path (TASK_2026_597 A8), the
- * same bound at which the compaction coordinator gives up on the compaction.
- * Only unaccounted root silence invokes the recovery callback.
+ * limit. A compaction is accounted the same way. Where the compaction
+ * coordinator controls the session (`enforceCompactionDwell` returns true) it
+ * is accounted for at most {@link COMPACTION_MAX_DWELL_MS} from when it opened;
+ * past that bound the watchdog stops re-arming and times out with cause
+ * `'compaction-dwell'` (TASK_2026_597 A8), the same bound at which the
+ * coordinator gives up on the compaction. An observe-only session keeps the
+ * TASK_2026_411 B8 behaviour: an open compaction is reported overdue, never cut.
+ * Otherwise only unaccounted root silence invokes the recovery callback.
  * Idle/permission holds remain reference counted; operation ownership is keyed
  * and idempotent instead. Child registration never owns a parent hold.
  */
@@ -37,9 +40,11 @@ export class NoActivityWatchdog {
 
   constructor(
     private readonly timeoutMs: number,
-    private readonly onTimeout: () => void,
+    private readonly onTimeout: (cause: WatchdogTimeoutCause) => void,
     private readonly onOverdue: (operations: readonly string[]) => void = () =>
       undefined,
+    /** Read at each arm: whether the compaction dwell bound applies now. */
+    private readonly enforceCompactionDwell: () => boolean = () => false,
   ) {}
 
   start(): void {
@@ -207,9 +212,14 @@ export class NoActivityWatchdog {
     }
   }
 
-  /** Milliseconds left before the open compaction exceeds its dwell bound. */
+  /**
+   * Milliseconds left before the open compaction exceeds its dwell bound; null
+   * while none is open or the bound does not apply to this session.
+   */
   private compactionDwellRemainingMs(): number | null {
-    if (this.compactingSinceMs === null) return null;
+    if (this.compactingSinceMs === null || !this.enforceCompactionDwell()) {
+      return null;
+    }
     return (
       this.compactingSinceMs + COMPACTION_MAX_DWELL_MS - performance.now()
     );
@@ -241,7 +251,8 @@ export class NoActivityWatchdog {
   private arm(): void {
     this.clear();
     if (this.holds > 0 || this.stopped || this.fired || !this.started) return;
-    // While a compaction is open the deadline never runs past its dwell bound.
+    // While an enforced compaction is open the deadline never runs past its
+    // dwell bound.
     const dwellRemainingMs = this.compactionDwellRemainingMs();
     const delayMs =
       dwellRemainingMs === null
@@ -251,8 +262,8 @@ export class NoActivityWatchdog {
       this.timer = null;
       if (this.stopped || this.fired) return;
       const operations = [...this.tools.values()];
+      if (this.compactingSinceMs !== null) operations.push('compaction');
       const remainingMs = this.compactionDwellRemainingMs();
-      if (remainingMs !== null) operations.push('compaction');
       // A compaction open for COMPACTION_MAX_DWELL_MS is no longer accounted
       // silence: stop re-arming and take the timeout path below.
       const dwellExceeded = remainingMs !== null && remainingMs <= 0;
@@ -268,7 +279,7 @@ export class NoActivityWatchdog {
         return;
       }
       this.fired = true;
-      this.onTimeout();
+      this.onTimeout(dwellExceeded ? 'compaction-dwell' : 'no-activity');
     }, delayMs);
     this.timer.unref?.();
   }
@@ -282,8 +293,15 @@ export class NoActivityWatchdog {
 }
 
 /**
- * Unaccounted silence recovery window, NOT a tool runtime cap. Compaction is
- * capped separately at `COMPACTION_MAX_DWELL_MS` from when it opened.
+ * Why the watchdog fired: unaccounted root silence, or an enforced compaction
+ * open for `COMPACTION_MAX_DWELL_MS`.
+ */
+export type WatchdogTimeoutCause = 'no-activity' | 'compaction-dwell';
+
+/**
+ * Unaccounted silence recovery window, NOT a tool runtime cap. Where the
+ * coordinator controls the session, compaction is capped separately at
+ * `COMPACTION_MAX_DWELL_MS` from when it opened.
  */
 export const NO_ACTIVITY_TIMEOUT_MS = 180_000;
 

@@ -3832,7 +3832,7 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
 
   /** The one spool file written under `root`. */
   function onlySpoolFile(root = spoolRoot): string {
-    const files = fs.readdirSync(spoolDir(root));
+    const files = fs.readdirSync(spoolDir(root)).filter((n) => n !== '.gitignore');
     expect(files).toHaveLength(1);
     return fs.readFileSync(path.join(spoolDir(root), files[0]), 'utf8');
   }
@@ -4191,7 +4191,7 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
       expect(text).not.toContain('FOOTER-NOISE');
       expect(text).not.toContain('<p>');
       expect(onlySpoolFile()).toBe(page.html);
-      const [spooled] = fs.readdirSync(spoolDir());
+      const [spooled] = fs.readdirSync(spoolDir()).filter((n) => n !== '.gitignore');
       const trailer =
         /\n\n\[reduced: html-extract(?: — partial, cut at a line end)? — showing \d+ of \d+ tokens — full output: ([^\]]+)\]$/.exec(
           text,
@@ -4297,7 +4297,7 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
     expect(text).not.toContain('TAIL-MARKER');
     expect(text).not.toContain('[reduced:');
     expect(onlySpoolFile()).toBe(value);
-    const [spooled] = fs.readdirSync(spoolDir());
+    const [spooled] = fs.readdirSync(spoolDir()).filter((n) => n !== '.gitignore');
     expect(text).toContain(
       `; full value: ${path.join(spoolDir(), spooled)} — for page content use ptah_browser_content with a selector]`,
     );
@@ -4408,7 +4408,7 @@ describe('protocol-handlers › tool-result budget (TASK_2026_559 2f.1)', () => 
         await callWithDeclaredRoot('\\\\server\\share');
         await callWithDeclaredRoot('\\\\?\\UNC\\server\\share');
 
-        const files = fs.readdirSync(spoolDir(hostRoot));
+        const files = fs.readdirSync(spoolDir(hostRoot)).filter((n) => n !== '.gitignore');
         expect(files).toHaveLength(2);
         for (const [arg] of realpath.mock.calls) {
           expect(String(arg)).not.toMatch(/server/);

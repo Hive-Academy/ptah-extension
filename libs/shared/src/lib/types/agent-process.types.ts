@@ -164,13 +164,20 @@ export interface AgentProcessInfo {
   readonly originalTask?: string;
   /**
    * Why the host stopped the lane, when it was not the caller
-   * (TASK_2026_597, R9.4): `tool-call-budget` — the lane reached its tool-call
-   * stop threshold; `repeat-call` — it repeated one identical tool call up to
-   * the repeat threshold. Status, the agent card and the completion signal
-   * read it. Unset when the lane ended on its own or the caller stopped it.
+   * (TASK_2026_597, R9.4). Stamped on the record before the stop, so it is
+   * present on the terminal record and the `agent:exited` payload. Unset when
+   * the lane ended on its own or the caller stopped it.
    */
-  stopReason?: 'tool-call-budget' | 'repeat-call' | string;
+  stopReason?: LaneStopReason;
 }
+
+/**
+ * Why the host's lane budget guard stopped a lane (TASK_2026_597, R9.4):
+ * `tool-call-budget` — the lane reached its tool-call stop threshold;
+ * `repeat-call` — it repeated one identical tool call up to the repeat
+ * threshold.
+ */
+export type LaneStopReason = 'tool-call-budget' | 'repeat-call';
 
 /**
  * What the resume gate did with a `resumeSessionId` spawn (TASK_2026_597):

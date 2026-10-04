@@ -149,6 +149,44 @@ describe('LaneBudgetGuard', () => {
     expect(run(guard, [distinct(3), distinct(4)])).toEqual([]);
   });
 
+  it('leaves file-edit calls out of the repeat check but counts them in the budget', () => {
+    const guard = new LaneBudgetGuard({ steerAt: 99, stopAt: 30, repeatAt: 3 });
+    // Codex file changes carry only the path, so normal edits share a key.
+    const edits = Array.from({ length: 30 }, (_, i) =>
+      call(i % 2 === 0 ? 'Edit' : 'write', {
+        toolInput: { file_path: 'same.ts' },
+      }),
+    );
+
+    expect(run(guard, edits)).toEqual([
+      { at: 30, action: { kind: 'stop', stopReason: 'tool-call-budget' } },
+    ]);
+  });
+
+  describe('reset (a new caller task)', () => {
+    it('clears counts, repeats and the one-time steer', () => {
+      const guard = new LaneBudgetGuard({ steerAt: 2, stopAt: 4, repeatAt: 3 });
+      expect(run(guard, [distinct(1), distinct(1), distinct(2)])).toEqual([
+        { at: 2, action: { kind: 'steer', message: laneBudgetSteerMessage(2) } },
+      ]);
+
+      guard.reset();
+      expect(guard.toolCallCount).toBe(0);
+
+      // Same repeated key and the steer again, both counted from zero.
+      expect(run(guard, [distinct(1), distinct(1), distinct(3)])).toEqual([
+        { at: 2, action: { kind: 'steer', message: laneBudgetSteerMessage(2) } },
+      ]);
+    });
+
+    it('does not revive a guard that already asked for a stop', () => {
+      const guard = new LaneBudgetGuard({ steerAt: 99, stopAt: 2, repeatAt: 99 });
+      run(guard, [distinct(1), distinct(2)]);
+      guard.reset();
+      expect(run(guard, [distinct(3), distinct(4)])).toEqual([]);
+    });
+  });
+
   describe('glob loops (Batch 10 finding b)', () => {
     it('a long run of identical glob calls stops at the repeat threshold', () => {
       const guard = new LaneBudgetGuard(DEFAULTS);

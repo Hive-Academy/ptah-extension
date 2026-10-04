@@ -3,10 +3,11 @@
  * refusal (TASK_2026_597, component 16 and R9.5).
  *
  * The contract under test: a lane's `tool-call` segments feed one guard; the
- * steer threshold sends ONE message through `sendToAgent`; the stop threshold
- * stops the lane through `stop` with `stopReason` on the record, even when the
- * steer could not be delivered; the guard is dropped when the lane ends; and a
- * blocked model is refused before the adapter is asked to start anything.
+ * steer threshold sends ONE mid-turn `handle.steer` (never `sendToAgent`, and
+ * only "not delivered" on a handle without one); the stop threshold stops the
+ * lane through `stop` with `stopReason` on the record; a caller's new turn
+ * resets the counts; the guard is dropped when the lane ends; and a blocked
+ * model is refused before the adapter is asked to start anything.
  */
 import 'reflect-metadata';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -90,12 +91,21 @@ function makeHarness(): Harness {
 
 interface FakeLane {
   readonly handle: SdkHandle;
+  /** The handle's mid-turn `steer`, when the lane was built with one. */
+  readonly steer: jest.Mock;
   emit(segment: CliOutputSegment): void;
   finish(code: number): void;
 }
 
+interface LaneOptions {
+  /** Give the handle a mid-turn `steer` (only Pi has one in production). */
+  readonly steer?: boolean;
+  /** Give the handle continuation, so a caller can start another turn. */
+  readonly continuation?: boolean;
+}
+
 /** A segment-streaming handle whose `done` settles on abort or `finish`. */
-function makeLane(): FakeLane {
+function makeLane(options: LaneOptions = {}): FakeLane {
   let segmentListener: ((segment: CliOutputSegment) => void) | undefined;
   let settle: (code: number) => void = () => undefined;
   const done = new Promise<number>((resolve) => {
@@ -103,6 +113,7 @@ function makeLane(): FakeLane {
   });
   const abort = new AbortController();
   abort.signal.addEventListener('abort', () => settle(130));
+  const steer = jest.fn();
   const handle = {
     abort,
     done,
@@ -110,9 +121,19 @@ function makeLane(): FakeLane {
     onSegment: (listener: (segment: CliOutputSegment) => void) => {
       segmentListener = listener;
     },
+    ...(options.steer ? { steer } : {}),
+    ...(options.continuation
+      ? {
+          supportsContinuation: () => true,
+          continue: jest.fn(async () => ({
+            done: new Promise<number>(() => undefined),
+          })),
+        }
+      : {}),
   } as unknown as SdkHandle;
   return {
     handle,
+    steer,
     emit: (segment) => segmentListener?.(segment),
     finish: (code) => settle(code),
   };
@@ -127,11 +148,14 @@ function toolCall(toolName: string, path: string): CliOutputSegment {
   } as CliOutputSegment;
 }
 
-async function startLane(manager: AgentProcessManager): Promise<{
+async function startLane(
+  manager: AgentProcessManager,
+  options: LaneOptions = {},
+): Promise<{
   readonly lane: FakeLane;
   readonly agentId: string;
 }> {
-  const lane = makeLane();
+  const lane = makeLane(options);
   const result = await manager.spawnFromSdkHandle(lane.handle, {
     task: 'build the thing',
     cli: 'codex',
@@ -160,32 +184,29 @@ function statusOf(
 }
 
 describe('AgentProcessManager lane budget guard', () => {
-  it('sends the steer once, at the steer threshold', async () => {
+  it('steers once, mid-turn through handle.steer, never through sendToAgent', async () => {
     const { manager } = makeHarness();
-    const { lane, agentId } = await startLane(manager);
-    const send = jest
-      .spyOn(manager, 'sendToAgent')
-      .mockResolvedValue({ mode: 'steer' });
+    const { lane, agentId } = await startLane(manager, { steer: true });
+    const send = jest.spyOn(manager, 'sendToAgent');
 
     lane.emit(toolCall('read', 'a'));
     lane.emit({ type: 'text', content: 'thinking' } as CliOutputSegment);
-    expect(send).not.toHaveBeenCalled();
+    expect(lane.steer).not.toHaveBeenCalled();
     lane.emit(toolCall('read', 'b'));
     lane.emit(toolCall('read', 'c'));
     await settle();
 
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith(
-      agentId,
+    expect(lane.steer).toHaveBeenCalledTimes(1);
+    expect(lane.steer).toHaveBeenCalledWith(
       expect.stringContaining('2 tool calls'),
     );
+    expect(send).not.toHaveBeenCalled();
     expect(statusOf(manager, agentId).status).toBe('running');
   });
 
   it('stops the lane at the stop threshold and surfaces stopReason in status', async () => {
     const { manager } = makeHarness();
-    const { lane, agentId } = await startLane(manager);
-    jest.spyOn(manager, 'sendToAgent').mockResolvedValue({ mode: 'steer' });
+    const { lane, agentId } = await startLane(manager, { steer: true });
     const stop = jest.spyOn(manager, 'stop');
     const exited: AgentProcessInfo[] = [];
     manager.events.on('agent:exited', (info: AgentProcessInfo) =>
@@ -211,7 +232,6 @@ describe('AgentProcessManager lane budget guard', () => {
   it('stops a lane repeating one identical call with repeat-call', async () => {
     const { manager } = makeHarness();
     const { lane, agentId } = await startLane(manager);
-    jest.spyOn(manager, 'sendToAgent').mockResolvedValue({ mode: 'steer' });
 
     for (let i = 0; i < 3; i++) lane.emit(toolCall('read', 'same'));
     await settle();
@@ -219,24 +239,25 @@ describe('AgentProcessManager lane budget guard', () => {
     expect(statusOf(manager, agentId).stopReason).toBe('repeat-call');
   });
 
-  it('logs an unsupported steer and still enforces the stop', async () => {
+  it('does not queue or interrupt-resume the steer on a handle without steer', async () => {
     const { manager, logger } = makeHarness();
-    const { lane, agentId } = await startLane(manager);
-    // No mock: the fake handle has no steer, interrupt or continuation, so
-    // the real router answers `unsupported`.
+    // Continuation but no steer: the general router would park the message as
+    // a post-completion turn. The guard must not.
+    const { lane, agentId } = await startLane(manager, { continuation: true });
     const send = jest.spyOn(manager, 'sendToAgent');
 
     lane.emit(toolCall('read', 'a'));
     lane.emit(toolCall('read', 'b'));
     await settle();
-    expect(send).toHaveBeenCalledTimes(1);
-    await expect(send.mock.results[0].value).resolves.toEqual(
-      expect.objectContaining({ mode: 'unsupported' }),
+    expect(send).not.toHaveBeenCalled();
+    const notDelivered = logger.warn.mock.calls.filter(([text]) =>
+      String(text).includes(
+        'Lane budget steer not delivered (no mid-turn steer)',
+      ),
     );
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Lane budget steer not delivered'),
-      expect.objectContaining({ agentId, toolCalls: 2 }),
-    );
+    expect(notDelivered).toEqual([
+      [expect.any(String), expect.objectContaining({ agentId, toolCalls: 2 })],
+    ]);
 
     lane.emit(toolCall('read', 'c'));
     lane.emit(toolCall('read', 'd'));
@@ -267,12 +288,37 @@ describe('AgentProcessManager lane budget guard', () => {
   it('releases the guard when the lane is stopped by the budget', async () => {
     const { manager } = makeHarness();
     const { lane } = await startLane(manager);
-    jest.spyOn(manager, 'sendToAgent').mockResolvedValue({ mode: 'steer' });
 
     for (const path of ['a', 'b', 'c', 'd']) lane.emit(toolCall('read', path));
     await settle();
 
     expect(guardCount(manager)).toBe(0);
+  });
+
+  it('gives a new caller task a fresh budget and its own steer', async () => {
+    const { manager } = makeHarness();
+    const { lane, agentId } = await startLane(manager, {
+      steer: true,
+      continuation: true,
+    });
+
+    // Turn 1: three calls, one steer, then the lane completes its task.
+    for (const path of ['a', 'b', 'c']) lane.emit(toolCall('read', path));
+    lane.finish(0);
+    await settle();
+    expect(statusOf(manager, agentId).status).toBe('completed');
+    expect(lane.steer).toHaveBeenCalledTimes(1);
+
+    // Turn 2 from the caller: without a reset the first call would be the
+    // 4th and stop the lane; with it, the steer fires again at 2.
+    await manager.continueConversation(agentId, 'next task');
+    for (const path of ['d', 'e', 'f']) lane.emit(toolCall('read', path));
+    await settle();
+
+    const info = statusOf(manager, agentId);
+    expect(info.status).toBe('running');
+    expect(info.stopReason).toBeUndefined();
+    expect(lane.steer).toHaveBeenCalledTimes(2);
   });
 });
 

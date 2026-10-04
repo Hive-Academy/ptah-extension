@@ -50,8 +50,8 @@ describe('query operation ownership', () => {
         trigger,
         custom_instructions: null,
       });
-      // Past COMPACTION_MAX_DWELL_MS the watchdog times out instead; that
-      // bound is pinned in no-activity-watchdog.spec.ts.
+      // Where the coordinator controls the session the watchdog times out past
+      // COMPACTION_MAX_DWELL_MS; that bound is pinned in no-activity-watchdog.spec.ts.
       jest.advanceTimersByTime(WINDOW - 1);
       expect(timeout).not.toHaveBeenCalled();
       wd.observe({

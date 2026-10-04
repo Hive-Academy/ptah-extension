@@ -43,7 +43,10 @@ import {
 } from './session-query-executor.service';
 import type { SubagentBudgetSink } from './session-query-executor.service';
 import { CompactionCoordinator } from '../compaction/compaction-coordinator';
-import type { CompactionTimers } from '../compaction/compaction-state.types';
+import {
+  COMPACTION_MAX_DWELL_MS,
+  type CompactionTimers,
+} from '../compaction/compaction-state.types';
 import type {
   ContextUsageReading,
   IContextUsagePort,
@@ -895,6 +898,76 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
     run.activityWatchdog.observe(result());
     expect(coordinator.getState(REAL)).toBeUndefined();
     expect(readAtTurnEnd).not.toHaveBeenCalled();
+  });
+
+  describe('compaction dwell bound scope (TASK_2026_597 S1)', () => {
+    /** Starts the watchdog under fake timers and opens a root compaction. */
+    async function openCompaction(
+      coordinator: CompactionCoordinator,
+      tabId: string,
+    ) {
+      const { executor, registry } = makeHarness('ask', {} as AuthEnv, {
+        coordinator,
+      });
+      const run = await executor.executeQuery(makeConfig(tabId));
+      startFirstTurn(registry, tabId);
+      jest.useFakeTimers();
+      run.activityWatchdog.start();
+      run.activityWatchdog.observe(init());
+      run.activityWatchdog.observe(compacting());
+      return run;
+    }
+
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    it('an OBSERVE_ONLY session survives a 400 s compaction (B8 behaviour)', async () => {
+      const coordinator = new CompactionCoordinator(noTimers);
+      const run = await openCompaction(coordinator, 'tab_dwell_observe');
+      expect(coordinator.getState(REAL)).toBe('OBSERVE_ONLY');
+
+      jest.advanceTimersByTime(400_000);
+      expect(run.abortController.signal.aborted).toBe(false);
+
+      run.activityWatchdog.observe(boundary());
+      jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS - 1);
+      expect(run.abortController.signal.aborted).toBe(false);
+      run.activityWatchdog.stop();
+      run.abortController.abort();
+    });
+
+    it('a controlled session times out at the 300 s bound with its own message', async () => {
+      const coordinator = actingCoordinator();
+      const run = await openCompaction(coordinator, 'tab_dwell_acting');
+      expect(coordinator.getState(REAL)).not.toBe('OBSERVE_ONLY');
+
+      jest.advanceTimersByTime(COMPACTION_MAX_DWELL_MS - 1);
+      expect(run.abortController.signal.aborted).toBe(false);
+      jest.advanceTimersByTime(1);
+
+      expect(run.abortController.signal.aborted).toBe(true);
+      const message = (run.abortController.signal.reason as Error).message;
+      expect(message).toContain(
+        `Compaction did not finish within ${COMPACTION_MAX_DWELL_MS / 1000}s`,
+      );
+      expect(message.toLowerCase()).not.toContain('no stream activity');
+      expect(message.toLowerCase()).not.toContain('abort');
+    });
+
+    it('a controlled session still completes a 216 s compaction (B8 measurement)', async () => {
+      const coordinator = actingCoordinator();
+      const run = await openCompaction(coordinator, 'tab_dwell_b8');
+
+      jest.advanceTimersByTime(216_000);
+      run.activityWatchdog.observe(boundary());
+      jest.advanceTimersByTime(NO_ACTIVITY_TIMEOUT_MS - 1);
+
+      expect(run.abortController.signal.aborted).toBe(false);
+      run.activityWatchdog.stop();
+      run.abortController.abort();
+    });
   });
 
   it('is fail-open: a throwing coordinator or a rejecting port never breaks the turn', async () => {

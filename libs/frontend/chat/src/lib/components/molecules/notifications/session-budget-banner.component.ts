@@ -73,7 +73,7 @@ const WINDOW_REASON_TEXT: Readonly<
           @if (current === 'rotation') {
             <button
               type="button"
-              class="btn btn-xs btn-primary"
+              class="btn btn-xs btn-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               aria-label="Rotate session: start a new session from a handoff"
               [disabled]="busy()"
               (click)="rotate.emit()"
@@ -110,7 +110,7 @@ const WINDOW_REASON_TEXT: Readonly<
           } @else {
             <button
               type="button"
-              class="btn btn-xs btn-primary"
+              class="btn btn-xs btn-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               [disabled]="busy()"
               (click)="continueInNewSession.emit()"
             >

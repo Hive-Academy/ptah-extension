@@ -566,7 +566,7 @@ describe('CompactionHookHandler — attempt timing and the bounded watchdog (TAS
     watchdog.stop();
   });
 
-  it('a compaction still open at COMPACTION_MAX_DWELL_MS (300 s) takes the watchdog timeout path', async () => {
+  it('a compaction still open at COMPACTION_MAX_DWELL_MS (300 s) takes the watchdog timeout path where the coordinator controls the session', async () => {
     jest.useFakeTimers();
     const handler = new CompactionHookHandler(
       makeLogger(),
@@ -579,6 +579,7 @@ describe('CompactionHookHandler — attempt timing and the bounded watchdog (TAS
       NO_ACTIVITY_TIMEOUT_MS,
       onTimeout,
       jest.fn(),
+      () => true,
     );
     const handlerHooks = handler.createHooks('sess-slow', '/repo', jest.fn());
     const watchdogHooks = watchdog.lifecycleHooks();
@@ -594,6 +595,7 @@ describe('CompactionHookHandler — attempt timing and the bounded watchdog (TAS
     expect(onTimeout).not.toHaveBeenCalled();
     jest.advanceTimersByTime(1);
     expect(onTimeout).toHaveBeenCalledTimes(1);
+    expect(onTimeout).toHaveBeenCalledWith('compaction-dwell');
     watchdog.stop();
   });
 

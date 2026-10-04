@@ -10,6 +10,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { FILE_BASED_SETTINGS_DEFAULTS } from '@ptah-extension/platform-core';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import {
   isValidAutoCompactWindow,
@@ -51,17 +52,6 @@ export interface CompactionConfig {
   /** Weighted-token total at which a subagent is stopped (`compaction.subagentStopWeightedTokens`). */
   readonly subagentStopWeightedTokens: number;
 }
-
-/**
- * Defaults for the file-based compaction budgets. They mirror
- * `FILE_BASED_SETTINGS_DEFAULTS` in platform-core, which supplies them when the
- * key is absent; they are repeated here so a hand-edited invalid value falls
- * back to the same number.
- */
-const TOOL_OUTPUT_BUDGET_TOKENS_DEFAULT = 2500;
-const SUBAGENT_HANDOFF_TOKENS_DEFAULT = 150_000;
-const ROTATION_SUGGEST_TOKENS_DEFAULT = 300_000;
-const SUBAGENT_STOP_WEIGHTED_TOKENS_DEFAULT = 3_000_000;
 
 /**
  * Provides compaction configuration from settings
@@ -123,19 +113,15 @@ export class CompactionConfigProvider {
       envWindow,
       toolOutputBudgetTokens: this.readBudget(
         'compaction.toolOutputBudgetTokens',
-        TOOL_OUTPUT_BUDGET_TOKENS_DEFAULT,
       ),
       subagentHandoffTokens: this.readBudget(
         'compaction.subagentHandoffTokens',
-        SUBAGENT_HANDOFF_TOKENS_DEFAULT,
       ),
       rotationSuggestTokens: this.readBudget(
         'compaction.rotationSuggestTokens',
-        ROTATION_SUGGEST_TOKENS_DEFAULT,
       ),
       subagentStopWeightedTokens: this.readBudget(
         'compaction.subagentStopWeightedTokens',
-        SUBAGENT_STOP_WEIGHTED_TOKENS_DEFAULT,
       ),
     };
 
@@ -156,7 +142,10 @@ export class CompactionConfigProvider {
    * value that is not a positive integer (non-number, non-integer, zero or
    * negative) is warned about and treated as unset.
    */
-  private readBudget(key: string, defaultValue: number): number {
+  private readBudget(key: string): number {
+    // One edit site: the default comes from platform-core, which also supplies
+    // it when the key is absent; an invalid hand-edited value falls back to it.
+    const defaultValue = FILE_BASED_SETTINGS_DEFAULTS[key] as number;
     const raw = this.config.get<unknown>(key);
     if (raw === undefined || raw === null) return defaultValue;
     if (typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0) {

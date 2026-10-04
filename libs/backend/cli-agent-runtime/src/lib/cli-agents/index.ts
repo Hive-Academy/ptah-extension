@@ -10,6 +10,7 @@ export { CliDetectionService } from './cli-detection.service';
 export {
   AgentProcessManager,
   AgentContinueError,
+  LaneModelBlockedError,
   MIN_CONCURRENT_AGENTS,
   MAX_CONCURRENT_AGENTS,
   DEFAULT_CONCURRENT_AGENTS,

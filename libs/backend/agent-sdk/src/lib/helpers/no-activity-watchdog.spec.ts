@@ -254,11 +254,13 @@ describe('NoActivityWatchdog', () => {
 
     const preCompact = { hook_event_name: 'PreCompact', trigger: 'auto' };
     const postCompact = { hook_event_name: 'PostCompact', trigger: 'auto' };
+    /** The coordinator controls the session, so the dwell bound applies. */
+    const enforced = () => true;
 
     it('reports an open compaction as overdue, then stops re-arming at COMPACTION_MAX_DWELL_MS and times out', async () => {
       const onTimeout = jest.fn();
       const onOverdue = jest.fn();
-      const wd = new NoActivityWatchdog(10_000, onTimeout, onOverdue);
+      const wd = new NoActivityWatchdog(10_000, onTimeout, onOverdue, enforced);
       wd.start();
 
       await fireHook(wd, preCompact);
@@ -270,6 +272,7 @@ describe('NoActivityWatchdog', () => {
 
       jest.advanceTimersByTime(1);
       expect(onTimeout).toHaveBeenCalledTimes(1);
+      expect(onTimeout).toHaveBeenCalledWith('compaction-dwell');
       expect(onOverdue).toHaveBeenCalledTimes(overdueCalls);
 
       // Fired once: no timer is left to re-arm.
@@ -281,7 +284,7 @@ describe('NoActivityWatchdog', () => {
     it('with the production window, an open compaction is overdue at 180 s and times out at the 300 s bound', async () => {
       const onTimeout = jest.fn();
       const onOverdue = jest.fn();
-      const wd = new NoActivityWatchdog(WINDOW, onTimeout, onOverdue);
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout, onOverdue, enforced);
       wd.start();
 
       await fireHook(wd, preCompact);
@@ -298,7 +301,7 @@ describe('NoActivityWatchdog', () => {
 
     it('root activity during the compaction does not push the deadline past the dwell bound', async () => {
       const onTimeout = jest.fn();
-      const wd = new NoActivityWatchdog(WINDOW, onTimeout);
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout, undefined, enforced);
       wd.start();
 
       await fireHook(wd, preCompact);
@@ -316,7 +319,7 @@ describe('NoActivityWatchdog', () => {
     it('a compaction closed before the bound restores the normal window, and the next one gets a fresh bound', async () => {
       const onTimeout = jest.fn();
       const onOverdue = jest.fn();
-      const wd = new NoActivityWatchdog(10_000, onTimeout, onOverdue);
+      const wd = new NoActivityWatchdog(10_000, onTimeout, onOverdue, enforced);
       wd.start();
 
       await fireHook(wd, preCompact);
@@ -332,7 +335,7 @@ describe('NoActivityWatchdog', () => {
 
     it('a re-announced compaction keeps its original start', async () => {
       const onTimeout = jest.fn();
-      const wd = new NoActivityWatchdog(10_000, onTimeout, jest.fn());
+      const wd = new NoActivityWatchdog(10_000, onTimeout, jest.fn(), enforced);
       wd.start();
 
       await fireHook(wd, preCompact);
@@ -341,6 +344,37 @@ describe('NoActivityWatchdog', () => {
       jest.advanceTimersByTime(COMPACTION_MAX_DWELL_MS / 2);
 
       expect(onTimeout).toHaveBeenCalledTimes(1);
+    });
+
+    it('without enforcement (OBSERVE_ONLY) a 400 s compaction is reported overdue, never cut', async () => {
+      const onTimeout = jest.fn();
+      const onOverdue = jest.fn();
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout, onOverdue);
+      wd.start();
+
+      await fireHook(wd, preCompact);
+      jest.advanceTimersByTime(400_000);
+      expect(onOverdue).toHaveBeenCalledTimes(2);
+      expect(onOverdue).toHaveBeenLastCalledWith(['compaction']);
+      expect(onTimeout).not.toHaveBeenCalled();
+
+      // Closing it restores the plain no-activity window.
+      await fireHook(wd, postCompact);
+      jest.advanceTimersByTime(WINDOW);
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+      expect(onTimeout).toHaveBeenCalledWith('no-activity');
+    });
+
+    it('an enforced compaction closed at 216 s (B8 measurement) completes', async () => {
+      const onTimeout = jest.fn();
+      const wd = new NoActivityWatchdog(WINDOW, onTimeout, jest.fn(), enforced);
+      wd.start();
+
+      await fireHook(wd, preCompact);
+      jest.advanceTimersByTime(216_000);
+      await fireHook(wd, postCompact);
+      jest.advanceTimersByTime(WINDOW - 1);
+      expect(onTimeout).not.toHaveBeenCalled();
     });
 
     it('an outstanding root tool is still not capped', async () => {

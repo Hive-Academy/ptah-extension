@@ -212,7 +212,7 @@ export {
   type SubagentBudgetMonitor,
   type SubagentResumeAdvice,
   type SubagentResumeAdviceInput,
-} from './lib/helpers/compaction/subagent-budget-monitor';
+} from './lib/helpers';
 export { SdkModuleLoader, SubagentHookHandler } from './lib/helpers';
 export {
   SdkAdapterEvents,

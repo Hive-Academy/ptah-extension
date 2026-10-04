@@ -212,10 +212,30 @@ export class AgentSpawnEnvironment {
     const stop = read('laneToolCallStopAt', d.stopAt);
     const repeat = read('laneRepeatCallStopAt', d.repeatAt);
     const pairOk = isInt(steer, 1) && isInt(stop, 1) && stop > steer;
+    const repeatOk = isInt(repeat, 2);
+    if (!pairOk) {
+      this.logger.warn(
+        '[AgentSpawnEnvironment] Invalid lane tool-call guard value, using the default',
+        {
+          key: 'agentOrchestration.laneToolCallSteerAt/laneToolCallStopAt',
+          steerAt: d.steerAt,
+          stopAt: d.stopAt,
+        },
+      );
+    }
+    if (!repeatOk) {
+      this.logger.warn(
+        '[AgentSpawnEnvironment] Invalid lane tool-call guard value, using the default',
+        {
+          key: 'agentOrchestration.laneRepeatCallStopAt',
+          repeatAt: d.repeatAt,
+        },
+      );
+    }
     return {
       steerAt: pairOk ? steer : d.steerAt,
       stopAt: pairOk ? stop : d.stopAt,
-      repeatAt: isInt(repeat, 2) ? repeat : d.repeatAt,
+      repeatAt: repeatOk ? repeat : d.repeatAt,
     };
   }
 

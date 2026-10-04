@@ -82,7 +82,9 @@ afterEach(async () => {
 
 async function spoolFiles(): Promise<string[]> {
   const dir = path.join(cwd, '.ptah', 'tmp', 'mcp-out');
-  return existsSync(dir) ? fs.readdir(dir) : [];
+  return existsSync(dir)
+    ? (await fs.readdir(dir)).filter((name) => name !== '.gitignore')
+    : [];
 }
 
 describe('ToolOutputCapper', () => {

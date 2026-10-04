@@ -9,16 +9,27 @@
  *   `toolArgs`, else the tool name alone) reaches `repeatAt` occurrences it
  *   asks for a stop with `repeat-call`. Cursor's adapter redacts or drops
  *   `toolInput`, so its keys can be coarser; that is accepted.
+ * - File-edit calls (Write, Edit, Delete, ...) count toward the budget but not
+ *   toward the repeat check: some adapters (Codex file changes) report only
+ *   the path, so repeated normal edits to one file would share a key.
  *
  * The guard only decides. The manager delivers the steer and performs the
- * stop. One guard per tracked lane, dropped with the lane. No timers; each
- * segment costs one map update.
+ * stop. One guard per tracked lane, dropped with the lane, and {@link reset}
+ * when the caller starts a new turn on it. No timers; each segment costs one
+ * map update.
  */
 
-import type { CliOutputSegment } from '@ptah-extension/shared';
+import type { CliOutputSegment, LaneStopReason } from '@ptah-extension/shared';
 
-/** Why the guard asked for a lane to be stopped. */
-export type LaneBudgetStopReason = 'tool-call-budget' | 'repeat-call';
+/** Tool names (lower-cased) that edit files; left out of the repeat check. */
+const FILE_EDIT_TOOLS: ReadonlySet<string> = new Set([
+  'write',
+  'edit',
+  'multiedit',
+  'delete',
+  'notebookedit',
+  'apply_patch',
+]);
 
 export interface LaneBudgetThresholds {
   /** Tool calls after which ONE steer message is sent. */
@@ -33,7 +44,7 @@ export interface LaneBudgetThresholds {
 export type LaneBudgetAction =
   | { readonly kind: 'none' }
   | { readonly kind: 'steer'; readonly message: string }
-  | { readonly kind: 'stop'; readonly stopReason: LaneBudgetStopReason };
+  | { readonly kind: 'stop'; readonly stopReason: LaneStopReason };
 
 const NONE: LaneBudgetAction = { kind: 'none' };
 
@@ -67,12 +78,13 @@ export class LaneBudgetGuard {
     if (this.stopped || segment.type !== 'tool-call') return NONE;
 
     this.toolCalls += 1;
-    const key = callKey(segment);
-    const repeats = (this.repeats.get(key) ?? 0) + 1;
-    this.repeats.set(key, repeats);
-
-    if (repeats >= this.thresholds.repeatAt) {
-      return this.stop('repeat-call');
+    if (!isFileEdit(segment)) {
+      const key = callKey(segment);
+      const repeats = (this.repeats.get(key) ?? 0) + 1;
+      this.repeats.set(key, repeats);
+      if (repeats >= this.thresholds.repeatAt) {
+        return this.stop('repeat-call');
+      }
     }
     if (this.toolCalls >= this.thresholds.stopAt) {
       return this.stop('tool-call-budget');
@@ -84,11 +96,27 @@ export class LaneBudgetGuard {
     return NONE;
   }
 
-  private stop(stopReason: LaneBudgetStopReason): LaneBudgetAction {
+  /**
+   * Start counting afresh for a new task the caller sent to the lane: counts,
+   * repeats and the one-time steer are cleared. A guard that already asked
+   * for a stop stays stopped.
+   */
+  reset(): void {
+    if (this.stopped) return;
+    this.toolCalls = 0;
+    this.steered = false;
+    this.repeats.clear();
+  }
+
+  private stop(stopReason: LaneStopReason): LaneBudgetAction {
     this.stopped = true;
     this.repeats.clear();
     return { kind: 'stop', stopReason };
   }
+}
+
+function isFileEdit(segment: CliOutputSegment): boolean {
+  return FILE_EDIT_TOOLS.has((segment.toolName ?? '').toLowerCase());
 }
 
 function callKey(segment: CliOutputSegment): string {

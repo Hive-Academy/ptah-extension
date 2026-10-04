@@ -43,7 +43,11 @@ import {
   type SDKMessage,
 } from '../../types/sdk-types/claude-sdk.types';
 import type { CompactionCoordinator } from '../compaction/compaction-coordinator';
-import type { CompactionSessionClass } from '../compaction/compaction-state.types';
+import {
+  COMPACTION_MAX_DWELL_MS,
+  CompactionState,
+  type CompactionSessionClass,
+} from '../compaction/compaction-state.types';
 import type { IContextUsagePort } from '../compaction/context-usage.port';
 import type { SubagentBudgetMonitor } from '../compaction/subagent-budget-monitor';
 import type { SdkModuleLoader } from '../sdk-module-loader';
@@ -64,6 +68,7 @@ import type { SdkQueryRunner } from '../sdk-query-runner.service';
 import {
   NoActivityWatchdog,
   NO_ACTIVITY_TIMEOUT_MS,
+  type WatchdogTimeoutCause,
 } from '../no-activity-watchdog';
 import type { HarnessPolicySync } from '../../harness/harness-policy-sync';
 
@@ -250,6 +255,18 @@ class CompactionSessionTap {
     }
   }
 
+  /**
+   * Whether the coordinator acts on this run's session (any state but
+   * OBSERVE_ONLY). Gates the watchdog's compaction dwell bound; an unknown
+   * session counts as observe-only, which never cuts a compaction.
+   */
+  controlsSession(): boolean {
+    const sessionId = this.sessionId;
+    if (this.released || !this.coordinator || sessionId === null) return false;
+    const state = this.coordinator.getState(sessionId);
+    return state !== undefined && state !== CompactionState.OBSERVE_ONLY;
+  }
+
   /** Session end: drop every id this run tracked. Idempotent. */
   release(): void {
     if (this.released) return;
@@ -346,10 +363,12 @@ class CompactionObservingWatchdog extends NoActivityWatchdog {
   constructor(
     private readonly tap: CompactionSessionTap,
     timeoutMs: number,
-    onTimeout: () => void,
+    onTimeout: (cause: WatchdogTimeoutCause) => void,
     onOverdue: (operations: readonly string[]) => void,
   ) {
-    super(timeoutMs, onTimeout, onOverdue);
+    // The dwell bound applies only where the coordinator acts (TASK_2026_597
+    // S1); an OBSERVE_ONLY session keeps B8's "report overdue, keep waiting".
+    super(timeoutMs, onTimeout, onOverdue, () => tap.controlsSession());
   }
 
   override observe(message: SDKMessage): void {
@@ -513,14 +532,18 @@ export class SessionQueryExecutor {
     const activityWatchdog = new CompactionObservingWatchdog(
       compactionTap,
       NO_ACTIVITY_TIMEOUT_MS,
-      () => {
+      (cause) => {
         if (abortController.signal.aborted) {
           return;
         }
         const seconds = Math.round(NO_ACTIVITY_TIMEOUT_MS / 1000);
+        const dwellSeconds = Math.round(COMPACTION_MAX_DWELL_MS / 1000);
         this.logger.error(
-          `[SessionLifecycle] Session ${sessionId} produced no stream activity for ${seconds}s — ` +
-            `recovering unaccounted silence; liveness unknown (requestedModel=${providerModel}, resolvedModel=${rec.currentModel})`,
+          cause === 'compaction-dwell'
+            ? `[SessionLifecycle] Session ${sessionId} compaction did not finish within ${dwellSeconds}s — ` +
+                `stopping for recovery (requestedModel=${providerModel}, resolvedModel=${rec.currentModel})`
+            : `[SessionLifecycle] Session ${sessionId} produced no stream activity for ${seconds}s — ` +
+                `recovering unaccounted silence; liveness unknown (requestedModel=${providerModel}, resolvedModel=${rec.currentModel})`,
         );
         // Invariant (session-lifecycle-abort / stream-closed-abort): resolve
         // pending permissions BEFORE the abort tears down the CLI stream, so
@@ -544,10 +567,14 @@ export class SessionQueryExecutor {
         try {
           abortController.abort(
             new Error(
-              `No stream activity for ${seconds}s — no response from provider ` +
-                `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
-                `Unaccounted root inactivity; liveness is unknown. Stopping for recovery. The provider may be ` +
-                `unreachable or overloaded — check configuration or retry.`,
+              cause === 'compaction-dwell'
+                ? `Compaction did not finish within ${dwellSeconds}s ` +
+                  `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
+                  `Stopping for recovery; retry the turn.`
+                : `No stream activity for ${seconds}s — no response from provider ` +
+                  `(baseUrl="${providerBaseUrl}", model="${providerModel}"). ` +
+                  `Unaccounted root inactivity; liveness is unknown. Stopping for recovery. The provider may be ` +
+                  `unreachable or overloaded — check configuration or retry.`,
             ),
           );
         } catch (abortErr) {
