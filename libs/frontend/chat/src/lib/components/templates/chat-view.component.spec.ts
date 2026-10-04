@@ -272,6 +272,7 @@ function makeHarness(
     visibleTabIds: signal<ReadonlySet<string>>(new Set()).asReadonly(),
     tabs: tabsSig.asReadonly(),
     createTab: createTabMock,
+    activeWorkspacePath: '/ws',
     toggleTabViewMode: jest.fn(),
     streamingTabIds: signal<Set<string>>(new Set()).asReadonly(),
     openSessionTab: openSessionTabMock,
@@ -2069,7 +2070,7 @@ describe('ChatViewComponent — session budget banner wiring (TASK_2026_597 N7)'
 
     await view.onBudgetContinue();
 
-    expect(h.requestCanvasTabMock).toHaveBeenCalledWith('tab-new');
+    expect(h.requestCanvasTabMock).toHaveBeenCalledWith('tab-new', '/ws');
   });
 
   it('continue opens no tab when the action fails', async () => {
