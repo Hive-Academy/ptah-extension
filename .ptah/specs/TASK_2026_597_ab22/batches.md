@@ -3601,3 +3601,8 @@ them until `agent_start` creates it); the panel falls back to its session input,
 `parentSessionId` is missing. Named later task PR2-B1: backend binding of `agentId` when the SubagentStart hook has no
 `toolUseId` (covers foreground subagents and `subagent:send-message` / `subagent:stop`); heuristic, exact `agentId:` match
 only.
+
+Batch 47a scoped review: APPROVED (0 Blocking, 0 Serious, 2 Moderate, 2 Minor; `pr2-phase-end-code-logic-review.md`
+§ Batch 47a scoped review). Named later tasks: PR2-M4 rekey a pending identity that holds a placeholder tab id
+(`agent-monitor.store.ts:1686-1700`); PR2-M5 evict pending identities when `agent_start` never arrives or the session is
+cleared (`agent-monitor.store.ts:599-601`).

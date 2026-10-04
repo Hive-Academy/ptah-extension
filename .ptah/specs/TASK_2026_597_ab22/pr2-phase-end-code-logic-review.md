@@ -137,3 +137,24 @@ Implicit requirements not addressed: none beyond M1 to M3.
 - Confidence: MEDIUM-HIGH
 - Top risk: the N2 cold-read after an abort (M1), which costs tokens but loses no work.
 - What a robust implementation would add: stamp activity in `markAllInterrupted`; evict the usage map for orphan ids; export the env-var name constant from shared; trim the env value; split the formatting-only churn out of the providers-settings files.
+
+## Batch 47a scoped review
+
+Commit `8e18817ee` (libs only). Scope: `agent-monitor.store.ts`, `accumulator-core.service.ts`, `agent-monitor-panel.component.ts` plus specs.
+
+**Verdict: APPROVED** — 0 blocking, 0 serious, 2 moderate, 2 minor.
+
+Checks:
+
+- **Merge is fill-only, creates nothing, no status change: PASS.** `fillIdentity` (agent-monitor.store.ts:2298-2311) uses `record.x ?? identity.x` per field, returns the same reference when nothing changes (signal write skipped), and touches no status. `onBackgroundAgentStarted` (:1686-1708) returns early when the record is absent (stores pending only) and when `toolCallId` is empty. It never calls `set` for a new key.
+- **Pending map bounded/cleared: PASS with caveats.** Entry is consumed (`delete`) in `withPendingIdentity` (:1718-1725) by all four creating reducers (agent_start/progress/status/completed, :1673/1757/1791/1825) and cleared in `ngOnDestroy` (:865). Keyed by toolCallId, one slot per key (overwrite, no growth per event). Growth is bounded by distinct background tool ids per app lifetime.
+- **toolCallId collision on SendMessage resume: PASS.** Resume files under a different tool_use id (research note line 53). Even on a same-key hit, the fill-only rule means an existing agentId is never replaced (spec "never replaces fields the record already has"), so no mis-attribution of an id to the wrong record; worst case is a no-op.
+- **Panel session fallback cannot load another session's transcript: PASS.** Chain is record.parentSessionId, then the panel's own `sessionId()` input, then the active tab (agent-monitor-panel.component.ts:899-908). A scoped tile never reaches the active-tab step with an unresolved owner mismatch because its own `sessionId` wins; the active-tab step is reached only for the global (`sessionId === null`) panel, whose visible set is already scoped to the active tab via `agentVisibleInSession`. A wrong-session lookup would also be keyed on a unique agentId, so it yields not-found/empty, not another subagent's transcript. The transcript key (`session::agentId`, :1064-1070) re-fires correctly if the fallback session changes.
+- **No timers: PASS.** No `setTimeout`/`setInterval`/effects added to the store; the panel change adds only a `computed` and parameterises the existing effect.
+
+Findings:
+
+1. Moderate — agent-monitor.store.ts:1686-1700 vs :1591-1602. A pending identity captured with a pre-init placeholder `sessionId` (tab id) is not rekeyed by the placeholder-to-real-session rewrite, which walks only `_subagents`. If the event arrives before `agent_start` and before `init`, the later-created record can inherit the stale tab id as `parentSessionId` when it has none of its own. Impact: that record becomes scoped to the placeholder and may be hidden from the resolved tile, and the transcript request uses the wrong session. Narrow window (needs the reverse event order and a pre-init session). Fix: rekey `_pendingBackgroundIdentity` entries in the same rewrite, or drop `parentSessionId` from the pending identity and let the creating reducer's own event supply it.
+2. Moderate — agent-monitor.store.ts:599-601, :1697-1699. Pending entries are never evicted if `agent_start` never arrives (a background agent not tracked by the monitor), and are not removed by session clear/`clearSessionAgents`. A stale entry could later fill a record that reuses the key (unlikely, since tool ids are unique), and it holds memory until destroy. Fix: delete the pending entry on session clear and cap the map size.
+3. Minor — agent-monitor-panel.component.ts:905. `activeTabSessionId` can itself be a pre-init placeholder; the fallback would then request a transcript for a non-existent session and show the viewer's error state rather than the "not available yet" empty state. Cosmetic.
+4. Minor — the spec "applies an identity that arrived before agent_start" covers only the agent_start path; the progress/status/completed consumers of `withPendingIdentity` have no test.
