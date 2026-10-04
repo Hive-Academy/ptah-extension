@@ -38,11 +38,16 @@ import { SubagentStateStore } from './subagent-registry/subagent-state-store';
 import { SubagentHistoryRegistrar } from './subagent-registry/subagent-history-registrar';
 
 /**
- * Input for registering a new subagent (status is set automatically)
+ * Input for registering a new subagent (status and lastActivityAt are set
+ * automatically)
  */
 export type SubagentRegistration = Omit<
   SubagentRecord,
-  'status' | 'interruptedAt' | 'completedAt' | 'backgroundStartedAt'
+  | 'status'
+  | 'interruptedAt'
+  | 'completedAt'
+  | 'backgroundStartedAt'
+  | 'lastActivityAt'
 >;
 
 /**
@@ -116,6 +121,7 @@ export class SubagentRegistryService {
       }),
       ...(teammateName ? { teammateName } : {}),
       ...(taskId ? { taskId } : {}),
+      lastActivityAt: this.store.now(),
     };
 
     this.store.set(registration.toolCallId, record);
@@ -297,6 +303,10 @@ export class SubagentRegistryService {
       );
       return;
     }
+    // Every update is activity, including the SubagentStop completion: when
+    // that completion is ignored during teardown the kept interrupted record
+    // carries the time the subagent last ran (its prompt-cache warmth).
+    record.lastActivityAt = this.store.now();
     if (
       updates.status === 'completed' ||
       updates.status === 'background_completed'
@@ -515,7 +525,8 @@ export class SubagentRegistryService {
    * Restore a durable snapshot of interrupted SDK subagents.
    *
    * Existing toolCallIds win so this is additive and history replay can safely
-   * run afterward without producing duplicates.
+   * run afterward without producing duplicates. A carried `lastActivityAt` is
+   * kept as-is; a snapshot without one stays unset (cold prompt cache).
    */
   restoreResumableBySession(
     parentSessionId: string,

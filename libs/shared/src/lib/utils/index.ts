@@ -41,6 +41,7 @@ export {
   type SubagentPromptCacheTtlInput,
   type SubagentPromptCacheTtlResolution,
 } from './subagent-prompt-cache-ttl';
+export { computeSubagentCacheState } from './subagent-cache-state';
 export {
   mergeAgentsRegion,
   PTAH_AGENTS_REGION_BEGIN,
