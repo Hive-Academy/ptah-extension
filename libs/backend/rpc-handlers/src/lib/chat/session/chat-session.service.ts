@@ -53,6 +53,7 @@ import {
   AuthRequiredError,
   type SessionEndCallbackRegistry,
   type SessionMcpStatusCallbackRegistry,
+  type SessionBudgetService,
 } from '@ptah-extension/agent-sdk';
 import {
   PLATFORM_TOKENS,
@@ -157,6 +158,25 @@ interface SdkSessionLaunch {
   readonly mcpToolProfile?: ChatStartParams['mcpToolProfile'];
 }
 
+/** What `chat:continue` and `chat:resume` need from the session budget (N7). */
+type ChatSessionBudget = Pick<
+  SessionBudgetService,
+  'canSend' | 'observeLoaded'
+>;
+
+/**
+ * Prompts that still pass a blocked session budget (F3): both shrink or end
+ * the context the budget counts. Exact match on the trimmed prompt, so a
+ * custom slash command (or `/compact` with arguments) stays blocked.
+ */
+const BUDGET_EXEMPT_PROMPTS: ReadonlySet<string> = new Set([
+  '/compact',
+  '/clear',
+]);
+
+const SESSION_BUDGET_REACHED_MESSAGE =
+  'Session budget reached. Choose "Allow 20% more" or "Continue in new session" to keep working.';
+
 @injectable()
 export class ChatSessionService {
   constructor(
@@ -223,6 +243,12 @@ export class ChatSessionService {
      */
     @inject(TOKENS.AGENT_PROCESS_MANAGER, { isOptional: true })
     private readonly agentProcessManager: AgentProcessManager | null = null,
+    /**
+     * Optional so a host without the budget registration sends and resumes
+     * exactly as before: the `chat:continue` gate is then always open.
+     */
+    @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
+    private readonly sessionBudget: ChatSessionBudget | null = null,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -426,6 +452,33 @@ export class ChatSessionService {
       };
     }
     return {};
+  }
+
+  /**
+   * The `chat:continue` budget gate (TASK_2026_597 N7). At the limit the
+   * session pauses after the turn that crossed it: the next send is refused
+   * until the user allows 20% more or continues in a new session. `/compact`
+   * and `/clear` still pass. No budget service, or no figure yet, is open.
+   */
+  private refuseIfBudgetReached(
+    sessionId: SessionId,
+    prompt: string,
+  ): ChatContinueResult | null {
+    if (!this.sessionBudget) return null;
+    if (BUDGET_EXEMPT_PROMPTS.has(prompt.trim())) return null;
+    const check = this.sessionBudget.canSend(sessionId);
+    if (check.ok) return null;
+    this.logger.info('RPC: chat:continue - refused: session budget reached', {
+      sessionId,
+      stage: check.state.stage,
+      percent: check.state.percent,
+      extensions: check.state.extensions,
+    });
+    return {
+      success: false,
+      errorCode: 'SESSION_BUDGET_REACHED',
+      error: SESSION_BUDGET_REACHED_MESSAGE,
+    };
   }
 
   /**
@@ -793,6 +846,8 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
+      const budgetRefusal = this.refuseIfBudgetReached(sessionId, prompt);
+      if (budgetRefusal) return budgetRefusal;
       // Threaded into the resume below rather than dropped: `autoResumeIfInactive`
       // re-derives `mcpServerRunning` from `isMcpServerRunning()`, which only
       // says the HTTP server is up — it cannot know whether the `.mcp.json`
@@ -986,6 +1041,8 @@ export class ChatSessionService {
       const fullEvents = result.events;
       const stats = result.stats;
       const staleSnapshot = result.staleSnapshot;
+      // Recompute the stage from the resume figure (N7); no stats, no budget.
+      const budget = this.sessionBudget?.observeLoaded(stats ?? null);
 
       const restoredFromMetadata =
         this.subagentRegistry.restoreResumableBySession(
@@ -1099,6 +1156,7 @@ export class ChatSessionService {
         success: true,
         events: page?.events ?? fullEvents,
         stats,
+        ...(budget ? { budget } : {}),
         resumableSubagents,
         cliSessions,
         activated,

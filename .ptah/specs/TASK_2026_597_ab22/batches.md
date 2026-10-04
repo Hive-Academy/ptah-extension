@@ -3343,7 +3343,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 56: N7 `chat:continue` gate and resume budget — IN_PROGRESS (PR 3, decision 13)
+## Batch 56: N7 `chat:continue` gate and resume budget — COMPLETE (PR 3, decision 13; report batch-56-executor-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -3555,7 +3555,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 61: N7 budget settings card — PENDING (PR 3, decision 13)
+## Batch 61: N7 budget settings card — IN_PROGRESS (PR 3, decision 13)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
