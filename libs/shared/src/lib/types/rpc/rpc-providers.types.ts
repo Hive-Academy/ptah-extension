@@ -11,6 +11,13 @@ import type {
   CustomProviderEntryChanges,
   CustomProviderEntryInput,
 } from '../../providers/provider-registry';
+import type {
+  OwnerLimitEvidence,
+  PlanLimitCooldown,
+  PlanLimitWindow,
+  PlanLimitsSnapshot,
+  QuotaOwnerRef,
+} from '../plan-limit.types';
 
 /** Model tier for provider model mapping */
 export type ProviderModelTier = 'sonnet' | 'opus' | 'haiku';
@@ -164,7 +171,9 @@ export type ProviderAccountUsageStatus =
   | 'cli-unavailable'
   | 'cli-version-unsupported'
   | 'service-unavailable'
-  | 'stale';
+  | 'stale'
+  /** The route has an owner but no source that reports its limits. */
+  | 'no-usage-source';
 
 export interface ProviderGetAccountUsageResult {
   readonly status: ProviderAccountUsageStatus;
@@ -191,7 +200,30 @@ export interface ProviderGetAccountUsageResult {
       readonly tokens: string;
     }>;
   };
+  /** Plan-limit view of the same owner (TASK_2026_596). */
+  readonly owner?: QuotaOwnerRef;
+  readonly windows?: readonly PlanLimitWindow[];
+  readonly ownerEvidence?: readonly OwnerLimitEvidence[];
+  readonly cooldown?: PlanLimitCooldown;
+  readonly windowSetEstablished?: boolean;
 }
+
+/**
+ * Parameters for provider:getPlanLimits. Every field narrows or extends the
+ * owners returned; none carries a credential or a credential reference.
+ */
+export interface ProviderGetPlanLimitsParams {
+  /** The dashboard's selected provider. */
+  providerId?: string;
+  /** Sessions whose owner and model scope the view shows. */
+  sessionIds?: string[];
+  /** Opaque owner keys of runs shown in the view, for owners discovery no longer lists. */
+  ownerKeys?: string[];
+  /** Bypass reader caches. */
+  refresh?: boolean;
+}
+
+export type ProviderGetPlanLimitsResult = PlanLimitsSnapshot;
 // ---------------------------------------------------------------------------
 // User-defined provider entries — TASK_2026_236
 //
