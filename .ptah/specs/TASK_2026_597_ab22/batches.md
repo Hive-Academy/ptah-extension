@@ -1840,7 +1840,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 25: A3 capper wiring (S4, component 18 part 2) — WAITS-FOR-#639 (S4 wave after #639; see § S4 stage start)
+## Batch 25: A3 capper wiring (S4, component 18 part 2) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -1885,7 +1885,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 26: A8 coordinator core and context-usage port (S4, component 21 part 1) — WAITS-FOR-#639 (S4 wave after #639; see § S4 stage start)
+## Batch 26: A8 coordinator core and context-usage port (S4, component 21 part 1) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -1931,7 +1931,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 27: A8 wiring — watchdog, hooks, executor, events (S4, component 21 part 2) — WAITS-FOR-#639 (S4 wave after #639; see § S4 stage start)
+## Batch 27: A8 wiring — watchdog, hooks, executor, events (S4, component 21 part 2) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -1966,7 +1966,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 28: A5 subagent budget monitor (S4, component 19) — WAITS-FOR-#639 (S4 wave after #639; see § S4 stage start)
+## Batch 28: A5 subagent budget monitor (S4, component 19) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2012,7 +2012,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 29: A6 rotation advisor backend (S4, component 20 backend) — WAITS-FOR-#639 (S4 wave after #639; see § S4 stage start)
+## Batch 29: A6 rotation advisor backend (S4, component 20 backend) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2056,7 +2056,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — PENDING (Task 30.2 COMPLETE in S4 wave A, commit 539fed084, report reports/batch-30-2-report.md; Task 30.1 WAITS-FOR-#639 with Batch 29)
+## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — PENDING (Task 30.2 COMPLETE in S4 wave A, commit 539fed084, report reports/batch-30-2-report.md; Task 30.1 PENDING with Batch 29, S4 Wave D)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
@@ -2092,7 +2092,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 31: Session rotation banner (S4, component 20 frontend) — WAITS-FOR-#639 (S4 wave after #639; see § S4 stage start)
+## Batch 31: Session rotation banner (S4, component 20 frontend) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
@@ -2270,7 +2270,7 @@ In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` o
 
 ---
 
-## Batch 35: Lane budget guard and blocked models (S4, component 16 + R9.5) — WAITS-FOR-#639 (S4 wave after #639; see § S4 stage start)
+## Batch 35: Lane budget guard and blocked models (S4, component 16 + R9.5) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
