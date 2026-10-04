@@ -47,7 +47,9 @@ const FOCUS =
  * Order: the policy bar (Batch 33), the CLI matrix (Batch 30), then the background roles in a `<details>` that is
  * closed by default (deviation 4: the §1.2 fold budget) and opened by the background-role deep links. The `cli-agents`
  * deep link focuses the matrix table (`[data-testid="cli-matrix"]`); Batch 34 retired the old Ptah CLI instance manager,
- * whose capabilities live in the matrix, its add-instance and tier modals, and its popovers (D14).
+ * whose capabilities live in the matrix, its add-instance and tier modals, and its popovers (D14). The session-budget
+ * card (N7) comes after the roles `<details>`, below that fold content, so its deferred chunk and placeholder cannot
+ * push the roles summary past the §1.2 fold.
  *
  * A deep link is consumed once applied (the section focused and, for a role, its popover open): `focusTargetConsumed`
  * lets Settings clear the target, so the same link raised again while on this tab applies again (Gate V 36, M-1).
@@ -76,16 +78,6 @@ const FOCUS =
           class="min-h-[22rem] rounded-xl border border-base-300 bg-base-200/40"
           aria-busy="true"
           data-testid="cli-matrix-placeholder"
-        ></div>
-      }
-
-      <!-- Session budget (TASK_2026_597 N7): its own chunk, loaded when scrolled into view. -->
-      @defer (on viewport) {
-        <ptah-session-budget-settings />
-      } @placeholder {
-        <div
-          class="min-h-[30rem] rounded-xl border border-base-300 bg-base-200/40"
-          data-testid="session-budget-placeholder"
         ></div>
       }
 
@@ -187,6 +179,19 @@ const FOCUS =
           />
         </section>
       </details>
+
+      <!-- Session budget (TASK_2026_597 N7): its own chunk, loaded when scrolled into view. It sits after the
+           background roles — below the Orchestration fold content (Batch 36: the roles summary ends within the
+           660 px fold at 1024x768) — and its placeholder is one row, so neither the chunk nor the placeholder can
+           push the fold regions down. -->
+      @defer (on viewport) {
+        <ptah-session-budget-settings />
+      } @placeholder {
+        <div
+          class="min-h-[2.75rem] rounded-xl border border-base-300 bg-base-200/40"
+          data-testid="session-budget-placeholder"
+        ></div>
+      }
 
       @if (state.commit().status !== 'idle') {
         <div

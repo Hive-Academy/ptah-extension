@@ -211,7 +211,8 @@ describe('OrchestrationSettingsComponent', () => {
     const ttl = () =>
       element.querySelector('[data-testid="subagent-cache-ttl-setting"]');
     const blocks = await fixture.getDeferBlocks();
-    const block = blocks[blocks.length - 1];
+    // The TTL block is second in template order, after the matrix and before the session-budget block.
+    const block = blocks[1];
     await block.render(DeferBlockState.Placeholder);
     expect(
       element.querySelector('[data-testid="subagent-cache-ttl-placeholder"]'),
@@ -227,27 +228,31 @@ describe('OrchestrationSettingsComponent', () => {
     );
   });
 
-  it('defers the session budget card in its own block, between the CLI matrix and the subagent cache TTL card', async () => {
+  it('defers the session budget card in its own block, after the background roles (below the Orchestration fold)', async () => {
     await render();
     const budget = () =>
       element.querySelector('[data-testid="session-budget-settings"]');
     const blocks = await fixture.getDeferBlocks();
     expect(blocks).toHaveLength(3);
-    const block = blocks[1];
+    const block = blocks[2];
     await block.render(DeferBlockState.Placeholder);
     expect(
       element.querySelector('[data-testid="session-budget-placeholder"]'),
     ).not.toBeNull();
     expect(budget()).toBeNull();
     await block.render(DeferBlockState.Complete);
-    await blocks[2].render(DeferBlockState.Complete);
+    await blocks[1].render(DeferBlockState.Complete);
     const ttl = element.querySelector(
       '[data-testid="subagent-cache-ttl-setting"]',
     );
     expect(matrixTable()?.compareDocumentPosition(budget() as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(budget()?.compareDocumentPosition(ttl as Node)).toBe(
+    expect(ttl?.compareDocumentPosition(budget() as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    // After the roles <details>: the deferred card cannot push the roles summary past the fold.
+    expect(rolesDetails()?.compareDocumentPosition(budget() as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
