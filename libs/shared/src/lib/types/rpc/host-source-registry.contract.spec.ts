@@ -21,7 +21,7 @@ function isHostSourceName(name: string): boolean {
   return HOST_SOURCE_NAME_PATTERN.test(name);
 }
 
-function expectKnownHostSourceNames(
+function expectNoAddedHostSourceNames(
   currentNames: readonly string[],
   baselineNames: readonly string[],
 ): void {
@@ -33,13 +33,39 @@ function expectKnownHostSourceNames(
   expect(addedHostSourceNames).toEqual([]);
 }
 
+function expectNoRemovedHostSourceNames(
+  currentNames: readonly string[],
+  baselineNames: readonly string[],
+): void {
+  const currentNameSet = new Set(currentNames);
+  const removedHostSourceNames = baselineNames.filter(
+    (name) => isHostSourceName(name) && !currentNameSet.has(name),
+  );
+
+  expect(removedHostSourceNames).toEqual([]);
+}
+
 describe('host-source registry contract', () => {
   it('does not add host-source RPC methods', () => {
-    expectKnownHostSourceNames(RPC_METHOD_NAMES, BASELINE_RPC_METHOD_NAMES);
+    expectNoAddedHostSourceNames(RPC_METHOD_NAMES, BASELINE_RPC_METHOD_NAMES);
+  });
+
+  it('does not remove host-source RPC methods', () => {
+    expectNoRemovedHostSourceNames(
+      RPC_METHOD_NAMES,
+      BASELINE_RPC_METHOD_NAMES,
+    );
   });
 
   it('does not add host-source push message types', () => {
-    expectKnownHostSourceNames(
+    expectNoAddedHostSourceNames(
+      Object.values(MESSAGE_TYPES),
+      BASELINE_MESSAGE_TYPES,
+    );
+  });
+
+  it('does not remove host-source push message types', () => {
+    expectNoRemovedHostSourceNames(
       Object.values(MESSAGE_TYPES),
       BASELINE_MESSAGE_TYPES,
     );

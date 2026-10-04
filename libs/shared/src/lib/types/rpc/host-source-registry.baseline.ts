@@ -1,6 +1,7 @@
 /**
  * Generated from the f314a4f8a host-source registries.
- * Regenerate with: npx tsx -e "import { writeFileSync } from 'node:fs'; import { RPC_METHOD_NAMES } from './libs/shared/src/lib/types/rpc.types.ts'; import { MESSAGE_TYPES } from './libs/shared/src/lib/types/messages/message-constants.ts'; const rpcMethodNames = [...RPC_METHOD_NAMES].sort(); const messageTypes = Object.values(MESSAGE_TYPES).sort(); const content = ['/' + '** Generated from the f314a4f8a host-source registries. ' + '*' + '/', '', 'export const BASELINE_RPC_METHOD_NAMES: readonly string[] = ' + JSON.stringify(rpcMethodNames, null, 2) + ';', '', 'export const BASELINE_MESSAGE_TYPES: readonly string[] = ' + JSON.stringify(messageTypes, null, 2) + ';', ''].join(String.fromCharCode(10)); writeFileSync('libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts', content);"
+ * Regenerate: npx tsx scripts/generate-host-source-registry-baseline.ts
+ * Any change to this baseline requires a Gate 2 exception in TASK_2026_610.
  */
 
 export const BASELINE_RPC_METHOD_NAMES: readonly string[] = [
