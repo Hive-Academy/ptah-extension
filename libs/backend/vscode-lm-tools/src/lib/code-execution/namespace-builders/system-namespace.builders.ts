@@ -504,9 +504,13 @@ DISCOVERY:
 - list() - List available CLI agents with installation status
   returns: [{ cli, installed, path?, version?, messagingMode }]
 
-WAITING:
-- waitFor(agentId, { pollInterval?, timeout? }) - Block until agent completes
-  Default pollInterval: 2000ms
+WAITING (event-driven, no polling; a wait cannot outlast execute_code's own timeout):
+- waitFor(agentId, { timeout? }) - Block until the agent ends; returns its final status
+  timeout in ms, default and max 900000. Throws if it is still running at the timeout.
+- waitForAgents(agentIds, 'any'|'all', timeoutMs) - Block until any/all lanes end
+  returns: { mode, timedOut, waitedMs, entries: [{ agentId, state, info? }] }
+  state: 'exited'|'running'|'not_found'|'other_workspace'. A timeout is a partial
+  result, not an error. Outside execute_code, prefer the ptah_agent_wait tool.
 
 EXAMPLE:
   const [agent] = (await ptah.agent.list()).filter((a) => a.installed);

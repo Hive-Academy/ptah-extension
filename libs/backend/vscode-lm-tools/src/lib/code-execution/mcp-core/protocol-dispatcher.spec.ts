@@ -7678,7 +7678,8 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       const apps = await list('apps');
       expect(await list('coding')).toEqual(coding);
       expect(await list('admin')).toEqual(coding);
-      expect(coding).toHaveLength(hasIDECapabilities ? 59 : 56);
+      // +2 (TASK_2026_597 Batch 34): ptah_agent_wait and ptah_run_check.
+      expect(coding).toHaveLength(hasIDECapabilities ? 61 : 58);
       expect(
         apps.filter((tool) => !APPS_ONLY_TOOL_NAMES.has(tool.name)),
       ).toEqual(coding);
@@ -7989,5 +7990,99 @@ describe('protocol-handlers › session tools', () => {
     const { text, isError } = agentToolResult(res);
     expect(isError).toBe(true);
     expect(text).toMatch(/Agent sessions are unavailable/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ptah_run_check — the folder it runs in (TASK_2026_597 S4-a review S1).
+// No Nx is installed in these temp trees, so the tool stops at "Nx was not
+// found in this workspace (<folder>)" — which names the folder it resolved,
+// without spawning anything.
+// ---------------------------------------------------------------------------
+
+describe('protocol-handlers › ptah_run_check workspace root (S4-a S1)', () => {
+  let mainRoot: string;
+  let worktree: string;
+  let outside: string;
+
+  beforeEach(() => {
+    mainRoot = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-s1-main-')),
+    );
+    worktree = path.join(mainRoot, '.claude-worktrees', 'lane');
+    fs.mkdirSync(worktree, { recursive: true });
+    outside = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-s1-out-')),
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(mainRoot, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  async function runCheckCall(
+    declared: string | undefined,
+    folders: string[],
+  ): Promise<{
+    text: string;
+    isError: boolean;
+    structured?: Record<string, unknown>;
+  }> {
+    const res = await handleMCPRequest(
+      makeRequest({
+        id: 's1-run-check',
+        method: 'tools/call',
+        params: {
+          name: 'ptah_run_check',
+          arguments: { project: 'app', targets: ['lint'] },
+        },
+        ...(declared !== undefined ? { _callerWorkspaceRoot: declared } : {}),
+      }),
+      buildDeps({ workspaceProvider: knownFolders(...folders) }),
+    );
+    const result = res.result as {
+      content: Array<{ text: string }>;
+      isError?: boolean;
+      structuredContent?: Record<string, unknown>;
+    };
+    return {
+      text: result.content[0].text,
+      isError: result.isError === true,
+      structured: result.structuredContent,
+    };
+  }
+
+  it('runs in a declared worktree inside an open folder, and names it in text and structuredContent', async () => {
+    const reply = await runCheckCall(worktree, [mainRoot]);
+    expect(reply.text).toContain(`Nx was not found in this workspace (${worktree})`);
+    expect(reply.structured).toMatchObject({ cwd: worktree, verdict: 'not_run' });
+  });
+
+  it('runs in the host record of a declared open folder', async () => {
+    const reply = await runCheckCall(mainRoot, [outside, mainRoot]);
+    expect(reply.structured).toMatchObject({ cwd: mainRoot });
+  });
+
+  it('refuses a declared root outside every open folder instead of using the first one', async () => {
+    const reply = await runCheckCall(outside, [mainRoot]);
+    expect(reply.isError).toBe(true);
+    expect(reply.text).toContain('nothing was run');
+    expect(reply.text).toContain(outside);
+    expect(reply.text).not.toContain('Nx was not found');
+    expect(reply.structured).toBeUndefined();
+  });
+
+  it('refuses a declared directory inside an open folder that does not exist', async () => {
+    const reply = await runCheckCall(path.join(mainRoot, 'missing'), [mainRoot]);
+    expect(reply.isError).toBe(true);
+    expect(reply.text).toContain('nothing was run');
+  });
+
+  it('refuses an MCP call that declares no root, even with one folder open', async () => {
+    const reply = await runCheckCall(undefined, [mainRoot]);
+    expect(reply.isError).toBe(true);
+    expect(reply.text).toContain('declared no workspace root');
+    expect(reply.structured).toBeUndefined();
   });
 });

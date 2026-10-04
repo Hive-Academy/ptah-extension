@@ -5,13 +5,13 @@
  *   - {@link StdioTransport}     — `IMcpServer` framing adapter over a host
  *                                  JSON-RPC notifier.
  *   - {@link StdioMcpServerService} — handles `initialize`, `tools/list`,
- *                                  `tools/call`. Phase 3 dispatches the six
- *                                  `agent_*` tools to the in-process
- *                                  `PtahAPI.agent` namespace and
+ *                                  `tools/call`. It dispatches the
+ *                                  `agent_*` tools and `run_check` through
+ *                                  {@link AgentToolDispatcher} and
  *                                  `session_submit` to a CLI-supplied
  *                                  composite handler.
  *   - {@link registerMcpStdioServices} — DI registration helper.
- *   - {@link buildMcpMvpTools}   — 7-tool MVP catalog with MCP-wire names.
+ *   - {@link buildMcpMvpTools}   — 10-tool MVP catalog with MCP-wire names.
  *   - {@link AgentToolDispatcher} — exported for unit-test reuse.
  *   - {@link ISessionSubmitHandler} / {@link SessionSubmitCancellation} —
  *                                  port the CLI implements to supply the
@@ -50,6 +50,8 @@ export {
   buildMcpAgentReportTool,
   buildMcpAgentStopTool,
   buildMcpAgentListTool,
+  buildMcpAgentWaitTool,
+  buildMcpRunCheckTool,
   buildMcpSessionSubmitTool,
   buildMcpMvpTools,
   type McpMvpToolName,

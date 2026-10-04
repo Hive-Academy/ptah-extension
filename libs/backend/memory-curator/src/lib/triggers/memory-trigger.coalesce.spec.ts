@@ -137,6 +137,7 @@ function makeCurator(): MemoryCuratorService {
     pushEvent: jest.fn(),
     recentEvents: jest.fn(() => []),
     lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
+    forgetSession: jest.fn(),
   } as unknown as MemoryCuratorService;
 }
 

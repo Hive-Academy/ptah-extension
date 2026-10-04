@@ -1749,28 +1749,84 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 24: Output budget engine moves to tool-output-reducers (S4, component 18 part 1) — DEFERRED (follow-up, decision 11)
+## S4 stage start (user chose S4 = Batches 24-35; re-validated on origin/main c179f3eb5, branch `fix/task-597-s4-lane-guards`)
+
+Task paths in Batches 24-35 now point at the `task-597-s4` worktree (they named `task-597-lane-token-burn`).
+
+Drift on main:
+
+- All edited files exist. New files (`agent-sdk/.../helpers/compaction/*`, `tool-output-reducers/src/lib/output-budget/*`, lane gate/guard, wait/run-check tools) do not exist yet, as expected. `tool-output-reducers/src/index.ts` is 33 lines.
+- `session-metadata-store.ts` is at `libs/backend/agent-sdk/src/lib/session-metadata-store.ts` (not under `helpers/`).
+- The stale resume warning is at `agent-process-manager.service.ts:342` (plan said `:332-336`).
+- Task 28.2 is SUPERSEDED (row 38 above): Batch 38 shipped the only TTL path. Do not build 28.2.
+- Batch 32 reuses the Batch 41 resume wording (row 41 above).
+- Unmet dependencies: Batches 25, 28, 29 and 35.3 read keys that S3 Batches 16-17 add (`compaction.toolOutputBudgetTokens`, `subagentHandoffTokens`, `rotationSuggestTokens`, `agentOrchestration.laneToolCallSteerAt/StopAt`, `laneRepeatCallStopAt`). Those batches are still DEFERRED, and grep finds none of these keys in `libs/`. Batch 32 lists Batch 13 (OpenCode stream usage) as a dependency, also DEFERRED.
+
+Overlap with open PR #639 (`fix/task-597-session-budget`, N7/N8 Batches 50-61; 89 files):
+
+- #639 edits `agent-sdk/src/lib/di/tokens.ts`, `di/register.ts`, `src/index.ts`, `platform-core/src/file-settings-keys.ts`, `shared/.../rpc.types.ts`, and these chat files: `chat-view.component.*`, `message-dispatch.service`, `session-loader.service`.
+- N8 does not reuse A5/A6/A8 (addendum :27-29). It builds its own pieces instead: a `getContextUsage` read, a deterministic handoff builder, and a `session-budget-banner` with "Continue in new session". As a result, A6 (Batches 29-31) duplicates the N8 handoff and banner, and Task 26.2 overlaps the N8 context read. Component 10 (addendum § Component 10) waits for Batch 28.
+
+Per-batch decision:
+
+| Batch | Decision | Why |
+| ----- | -------- | --- |
+| 24 | Run now | tool-output-reducers + vscode-lm-tools; no #639 file |
+| 25 | WAITS-FOR-#639 | agent-sdk `di/tokens.ts`/`register.ts`; also needs the Batch 16-17 budget key |
+| 26-27 | WAITS-FOR-#639, reduce scope | same DI files; after the merge, 26.2 wraps the N8 `getContextUsage` read instead of adding a second one |
+| 28 | WAITS-FOR-#639 | DI files; 28.2 dropped; add Component 10 parts 10.1-10.3; needs the Batch 16-17 handoff key |
+| 29, 31 | WAITS-FOR-#639, scope review | duplicate the N8 handoff and banner. After the merge, the orchestrator decides with the user: either drop A6, or rebuild `seedPrompt` on `session-handoff-builder` and the banner on `session-budget-banner` |
+| 30 | Split | Task 30.2 (curator) runs now; Task 30.1 waits with Batch 29 |
+| 32 | Run now, reduced scope | no #639 file. OpenCode is labelled `estimate` until Batch 13 lands (already the gate's fallback) |
+| 33, 34 | Run now, in order after 32 | cli-agent-runtime + vscode-lm-tools only |
+| 35 | WAITS-FOR-#639 | 35.3 needs the lane-guard keys, which belong to the `file-settings-keys.ts` contract #639 edits; 35.4 also runs after 33 |
+
+RISK (the orchestrator must decide before the post-#639 wave): S3 Batches 16-17 must land before Batches 25, 28, 29 and 35. Recommended: after #639 merges, pull Batch 16 and Tasks 17.3-17.5 into the second S4 wave, ahead of Batch 25. The alternative is to keep S3 whole and run it first.
+
+Parallel groups (subagent executors only; CLI lanes disabled; max 3 at once; file-disjoint):
+
+- Wave A (now): Batch 24 (backend-developer) + Batch 30, Task 30.2 only (backend-developer) + Batch 32 (backend-developer).
+- Wave B: Batch 33 (backend-developer), after 32 is committed.
+- Wave C: Batch 34 (backend-developer), after 33 is committed.
+- After #639 merges and the 16-17 decision is made: Batches 25 → 26 → 27 → 28 → 29 → 30.1 → 31 run in series (shared agent-sdk DI files). Batch 35 (cli-agent-runtime) can run in parallel with that chain.
+
+Phases: S4-a = Batches 24, 30.2, 32, 33, 34. Its review is code-logic plus style, because `ptah_agent_wait` and `ptah_run_check` are new public tools; it is requested after Batch 34 commits. S4-b = the post-#639 batches: code-logic, plus visual for Batch 31 if A6 is kept.
+
+Scoped checks (every batch): `test,lint,typecheck` on the changed projects, plus `typecheck` on every project that imports them. Also run `npx nx run di-lint:lint` and `npx nx run degradation-audit:lint`. Importer sets on main:
+
+- tool-output-reducers → vscode-lm-tools, workspace-intelligence
+- vscode-lm-tools → ptah-extension-vscode, ptah-electron, ptah-cli, cli-engine, rpc-handlers, gateway-chat-bridge
+- cli-agent-runtime → the three apps, cli-engine, rpc-handlers, vscode-lm-tools
+- memory-curator → ptah-extension-vscode, ptah-electron, cli-engine, rpc-handlers, skill-synthesis, thoth-runtime
+- shared changes → `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=<changed shared file> --sep=,)`
+
+In a fresh worktree, run `npx nx run ptah-electron:build-workspace-watch-host` once before tests that include `@ptah-extension/platform-electron`; one of its specs needs that build.
+
+---
+
+## Batch 24: Output budget engine moves to tool-output-reducers (S4, component 18 part 1) — COMPLETE (S4 wave A; commit 7099066f3; report reports/batch-24-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: behaviour-preserving move across two libraries, pinned by the existing spec
 - Tasks: 2 | Depends on: Task 1.0, Batch 7 | Concurrent-safe with: Batches 23, 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/tool-output-reducers @ptah-extension/vscode-lm-tools`
+- Phase: S4-a | Phase review: code-logic + style at phase end (after Batch 34)
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/tool-output-reducers @ptah-extension/vscode-lm-tools`; `npx nx run-many -t typecheck -p @ptah-extension/workspace-intelligence ptah-extension-vscode ptah-electron ptah-cli @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 24.1: `applyOutputBudget` and `spool` — PENDING
+### Task 24.1: `applyOutputBudget` and `spool` — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/tool-output-reducers/src/lib/output-budget/apply-output-budget.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/tool-output-reducers/src/lib/output-budget/spool.ts` (+ specs), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/tool-output-reducers/src/index.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/tool-output-reducers/src/lib/output-budget/apply-output-budget.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/tool-output-reducers/src/lib/output-budget/spool.ts` (+ specs), `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/tool-output-reducers/src/index.ts`
 - Plan reference: implementation-plan.md:299-307 (D8), :1160-1162
 - Pattern to follow: `tool-result-budget.ts:20-24, 52-54, 162-215, 291+`
 - Quality requirements: generic reduce, fit, spool, trailer; depends only on `platform-core`.
 - Validation notes: barrel stays ≤150 lines.
 - Implementation details: none.
 
-### Task 24.2: `applyToolResultBudget` becomes a thin wrapper — PENDING
+### Task 24.2: `applyToolResultBudget` becomes a thin wrapper — COMPLETE
 
 - Depends on: Task 24.1
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-result-budget.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-result-budget.ts`
 - Plan reference: implementation-plan.md:1160-1162
 - Pattern to follow: same file
 - Quality requirements: keeps Ptah override tables; calls the moved engine.
@@ -1784,18 +1840,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 25: A3 capper wiring (S4, component 18 part 2) — DEFERRED (follow-up, decision 11)
+## Batch 25: A3 capper wiring (S4, component 18 part 2) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: first of the serial agent-sdk `di/tokens.ts` edits; host bindings for the outliner
 - Tasks: 3 | Depends on: Batches 17, 24 | Concurrent-safe with: Batch 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk` and `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`; typecheck every agent-sdk importer (`npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/backend/agent-sdk/src/index.ts --sep=,)`); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 25.1: `ToolOutputCapper` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/tool-output-capper.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/tool-output-capper.ts` (+ spec)
 - Plan reference: implementation-plan.md:1163-1170
 - Pattern to follow: `applyOutputBudget` from Batch 24
 - Quality requirements: Bash, PowerShell, Grep, Read, non-`ptah` MCP; `mcp__ptah__*` skipped; budget from `compaction.toolOutputBudgetTokens`; whole-file Read over budget → outline + trailer naming the path and "read with offset/limit"; others → reduced form + spool path.
@@ -1805,7 +1862,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 ### Task 25.2: Hook returns `updatedToolOutput` — PENDING
 
 - Depends on: Task 25.1
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/post-tool-use-hook-handler.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/post-tool-use-hook-handler.ts` (+ spec)
 - Plan reference: implementation-plan.md:1169
 - Pattern to follow: `:60-108`
 - Quality requirements: returns `hookSpecificOutput.updatedToolOutput` only when changed.
@@ -1814,7 +1871,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 25.3: Tokens, register, host outliner bindings — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file under `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/apps/ptah-extension-vscode/src/di/` and `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/apps/ptah-electron/src/di/` phase files
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file under `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/apps/ptah-extension-vscode/src/di/` and `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/apps/ptah-electron/src/di/` phase files
 - Plan reference: implementation-plan.md:487-491
 - Pattern to follow: `Symbol.for` tokens at `agent-sdk/src/lib/di/tokens.ts:49`; `TreeSitterCodeOutliner` `vscode-lm-tools mcp-core/code-outliner.adapter.ts:338`
 - Quality requirements: `SDK_TOOL_OUTPUT_CAPPER`, `SDK_CODE_OUTLINER` (optional injection).
@@ -1828,18 +1885,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 26: A8 coordinator core and context-usage port (S4, component 21 part 1) — DEFERRED (follow-up, decision 11)
+## Batch 26: A8 coordinator core and context-usage port (S4, component 21 part 1) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: state machine needs design care; placed before A5/A6 because the advisor needs the port (order deviation recorded above)
 - Tasks: 3 | Depends on: Batches 23, 25 | Concurrent-safe with: Batches 30, 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`; typecheck every agent-sdk importer (`npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/backend/agent-sdk/src/index.ts --sep=,)`); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 26.1: State types and coordinator — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-state.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-state.types.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.ts` (+ spec)
 - Plan reference: implementation-plan.md:1225-1250
 - Pattern to follow: `/compact` streamed path `slash-command-interceptor.ts:1-20, 77`
 - Quality requirements: IDLE, ARMED, TRIGGERED, COMPACTING, COOLDOWN, BACKOFF, OBSERVE_ONLY with the listed transitions; `COMPACTION_MAX_DWELL_MS = 180_000`; dedupe of manual `/compact` with "compaction already running"; rebind on PostCompact `session_id`; sync idempotent `dispose`.
@@ -1848,7 +1906,9 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 26.2: `IContextUsagePort` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/context-usage.port.ts` (+ spec)
+- S4 stage start: N8 (#639) already reads `getContextUsage` for its tighten step. After the merge, build the port as the single reader that N8 and the coordinator share. Do not add a second call per turn.
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/context-usage.port.ts` (+ spec)
 - Plan reference: implementation-plan.md:1245-1246
 - Pattern to follow: SDK `getContextUsage` (plan :151)
 - Quality requirements: `{totalTokens, maxTokens, autoCompactThreshold?, source}`; at most once per turn end.
@@ -1857,7 +1917,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 26.3: Tokens and register — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
 - Plan reference: implementation-plan.md:487
 - Pattern to follow: Task 25.3
 - Quality requirements: `SDK_COMPACTION_COORDINATOR`, `SDK_CONTEXT_USAGE_PORT`.
@@ -1871,18 +1931,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 27: A8 wiring — watchdog, hooks, executor, events (S4, component 21 part 2) — DEFERRED (follow-up, decision 11)
+## Batch 27: A8 wiring — watchdog, hooks, executor, events (S4, component 21 part 2) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: edits to live session plumbing; serial on `session-query-executor` and `sdk-adapter-events`
 - Tasks: 2 | Depends on: Batch 26 | Concurrent-safe with: Batches 30, 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`; typecheck every agent-sdk importer (`npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/backend/agent-sdk/src/index.ts --sep=,)`); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 27.1: Bounded watchdog dwell — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/no-activity-watchdog.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/no-activity-watchdog.ts` (+ spec)
 - Plan reference: implementation-plan.md:1243-1244
 - Pattern to follow: `arm()` `:215-238, 249`
 - Quality requirements: stops re-arming once compaction has been open 180 s, then fires its timeout path.
@@ -1891,7 +1952,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 27.2: Hook handler, executor and events wiring — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts` (+ specs)
 - Plan reference: implementation-plan.md:1247, :1253
 - Pattern to follow: `compaction-hook-handler.ts:246, 353-387, 404-480`; `session-query-executor.service.ts:259-268`; `sdk-adapter-events.service.ts:131-137`
 - Quality requirements: PreCompact/PostCompact and `compact_boundary` reach the coordinator; turn end calls the port once; `compactionStateChanged` (from, to, trigger, pre/post) logged at INFO.
@@ -1905,36 +1966,39 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 28: A5 subagent budget monitor (S4, component 19) — DEFERRED (follow-up, decision 11)
+## Batch 28: A5 subagent budget monitor (S4, component 19) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: agent-sdk only; serial on options builder, executor and tokens
 - Tasks: 3 | Depends on: Batch 27 | Concurrent-safe with: Batches 30, 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk`; typecheck every agent-sdk importer (`npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/backend/agent-sdk/src/index.ts --sep=,)`); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 28.1: `SubagentBudgetMonitor` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/subagent-budget-monitor.ts` (+ spec)
 - Plan reference: implementation-plan.md:1183-1199
 - Pattern to follow: `stopSubagent` `subagent-message-dispatcher.ts:280`
 - Quality requirements: at or above `compaction.subagentHandoffTokens`, stop the subagent, stream the one parent handoff message, mark not resumable; fresh spawn delegated to the parent model.
 - Validation notes: AS10 — fixture from a `~/.claude/projects/**/subagents/*.jsonl` line (sanitized); no usage → observe-only, logged once per session.
 - Implementation details: spec: below threshold no action; at threshold stop + message once.
 
-### Task 28.2: Selective `subagentPromptCacheTtl` — PENDING
+### Task 28.2: Selective `subagentPromptCacheTtl` — SUPERSEDED (do not build; Batch 38 shipped the only TTL path, row 38 of the dedupe table)
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` (TTL only, + spec)
+- S4 stage start: when Batch 28 runs, add addendum § Component 10 parts 10.1-10.3 instead of this task. Those parts are per-subagent `contextTokens`/`weightedUsed`, the `subagentStopWeightedTokens` stop, resume advice, and F11. Read them from `implementation-plan-addendum-n7-n8.md` once #639 has merged.
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` (TTL only, + spec)
 - Plan reference: implementation-plan.md:1195-1196
-- Pattern to follow: `session-metadata-store.ts:117`
+- Pattern to follow: `libs/backend/agent-sdk/src/lib/session-metadata-store.ts:117`
 - Quality requirements: `'1h'` only when the session lists resumable subagents.
 - Validation notes: none.
 - Implementation details: none.
 
 ### Task 28.3: Executor feed, tokens, register — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-query-executor.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
 - Plan reference: implementation-plan.md:1200, :487
 - Pattern to follow: Batch 27 wiring
 - Quality requirements: forwarded subagent messages reach the monitor; `SDK_SUBAGENT_BUDGET_MONITOR`.
@@ -1948,18 +2012,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 29: A6 rotation advisor backend (S4, component 20 backend) — DEFERRED (follow-up, decision 11)
+## Batch 29: A6 rotation advisor backend (S4, component 20 backend) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: agent-sdk advisor plus the shared message contract
 - Tasks: 3 | Depends on: Batch 28 | Concurrent-safe with: Batch 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk @ptah-extension/shared` and the three-app typecheck
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/agent-sdk @ptah-extension/shared`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/shared/src/lib/types/messages/message-constants.ts --sep=,)`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 29.1: Message type and payload — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/messages/message-constants.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/sdk-hook.types.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/messages/message-constants.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/sdk-hook.types.ts`
 - Plan reference: implementation-plan.md:476-477
 - Pattern to follow: `SESSION_COMPACTION_COMPLETE` `message-constants.ts:136`
 - Quality requirements: `SESSION_CONTEXT_ADVISORY = 'session:contextAdvisory'`; payload `{ sessionId, kind: 'rotation-suggested', contextTokens, threshold, seedPrompt }`.
@@ -1968,7 +2033,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 29.2: `SessionRotationAdvisor` with tokens and register — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/compaction/session-rotation-advisor.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/compaction/session-rotation-advisor.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/di/tokens.ts`, the agent-sdk register file
 - Plan reference: implementation-plan.md:1206-1209
 - Pattern to follow: port from Batch 26
 - Quality requirements: one advisory per session per threshold crossing at `compaction.rotationSuggestTokens`; `seedPrompt` ≤4,000 chars with task folder paths if known, latest compact summary or last assistant text, and "continue from here".
@@ -1977,7 +2042,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 29.3: `SdkAdapterEvents` emits the advisory — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/agent-sdk/src/lib/helpers/sdk-adapter-events.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:1209
 - Pattern to follow: `emitCompactionComplete` `:131-137`
 - Quality requirements: new emit method.
@@ -1991,28 +2056,29 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — DEFERRED (follow-up, decision 11)
+## Batch 30: Advisory notifier and A7 curator guardrail (S4, component 20) — PENDING (Task 30.2 COMPLETE in S4 wave A, commit 539fed084, report reports/batch-30-2-report.md; Task 30.1 PENDING with Batch 29, S4 Wave D)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: two small disjoint edits in two libraries
 - Tasks: 2 | Depends on: Task 29.1 for the notifier (curator part has no dependency) | Concurrent-safe with: Batches 26-28 (curator part only), 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/rpc-handlers @ptah-extension/memory-curator`
+- Phase: S4-a (Task 30.2) / S4-b (Task 30.1)
+- Verify (Task 30.2 now): `npx nx run-many -t test,lint,typecheck -p @ptah-extension/memory-curator`; `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/skill-synthesis @ptah-extension/thoth-runtime`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`. Task 30.1 later: `test,lint,typecheck -p @ptah-extension/rpc-handlers` plus typecheck of its importers
 
 ### Task 30.1: `SessionLifecycleNotifier` forwards the advisory — PENDING
 
 - Depends on: Batch 29
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/rpc-handlers/src/lib/handlers/session-lifecycle-notifier.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/rpc-handlers/src/lib/handlers/session-lifecycle-notifier.ts` (+ spec)
 - Plan reference: implementation-plan.md:1209, :1214
 - Pattern to follow: `:90-113`
 - Quality requirements: broadcast to the webview; failure logged (`:107-113`).
 - Validation notes: none.
 - Implementation details: none.
 
-### Task 30.2: Curator PreCompact coalescing — PENDING
+### Task 30.2: Curator PreCompact coalescing — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/memory-curator/src/lib/memory-curator.service.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/memory-curator/src/lib/memory-curator.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:1212-1213
 - Pattern to follow: reactor `:218-276`
 - Quality requirements: per-session `{lastFiredAt}`; `CURATOR_PRECOMPACT_MIN_INTERVAL_MS = 900_000`; skip logged; reactor stays registered; entry deleted on session end.
@@ -2026,18 +2092,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 31: Session rotation banner (S4, component 20 frontend) — DEFERRED (follow-up, decision 11)
+## Batch 31: Session rotation banner (S4, component 20 frontend) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
 - Execution mode: sequential
 - Rationale: rendered chat UI
 - Tasks: 2 | Depends on: Batch 30 | Concurrent-safe with: Batch 32
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/chat`
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/chat`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/frontend/chat/src/index.ts --sep=,)`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 31.1: `session-rotation-banner` component — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/components/molecules/session-rotation-banner.component.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/frontend/chat/src/lib/components/molecules/session-rotation-banner.component.ts` (+ spec)
 - Plan reference: implementation-plan.md:1210-1211
 - Pattern to follow: existing chat molecules
 - Quality requirements: "Rotate session" opens a new session tab prefilled with `seedPrompt` (the user sends it); "Keep this session" dismisses, nothing changes.
@@ -2046,7 +2113,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 31.2: Store and handler wiring — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/services/chat-store/compaction-lifecycle.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/frontend/chat/src/lib/services/chat-message-handler.service.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/frontend/chat/src/lib/services/chat-store/compaction-lifecycle.service.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/frontend/chat/src/lib/services/chat-message-handler.service.ts` (+ specs)
 - Plan reference: implementation-plan.md:1221
 - Pattern to follow: `compaction-lifecycle.service.ts:584`
 - Quality requirements: handles `session:contextAdvisory`; banner shown per session.
@@ -2060,47 +2127,50 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 32: Lane resume gate (S4, component 14) — DEFERRED (follow-up, decision 11)
+## Batch 32: Lane resume gate (S4, component 14) — COMPLETE (S4 wave A; commit 384266a77; report reports/batch-32-report.md)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: second serial edit of the manager; adds `lastRequestContext` (moved here from component 16 because the gate needs it first)
 - Tasks: 4 | Depends on: Batches 6, 13 | Concurrent-safe with: Batches 23-31
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared` and the three-app typecheck
+- Phase: S4-a
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/shared/src/lib/types/agent-process.types.ts --sep=,)` (covers the three apps, vscode-lm-tools, platform-electron); `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 32.1: `AgentProcessInfo.lastRequestContext` — PENDING
+- S4 stage start (reduced scope): Batch 13 (OpenCode stream usage) is still DEFERRED. Until it lands, label OpenCode lanes `estimate`, which is the gate's existing fallback; there is no OpenCode stream read yet. Task 32.4's resume guidance reuses the Batch 41 wording (`chat-subagent-context-injector.service.ts:153-175`). The stale warning is now at `agent-process-manager.service.ts:342`. File-disjoint from Batches 24 and 30.2 in wave A.
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/agent-process.types.ts`
+### Task 32.1: `AgentProcessInfo.lastRequestContext` — COMPLETE
+
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/agent-process.types.ts`
 - Plan reference: implementation-plan.md:454
 - Pattern to follow: existing `AgentProcessInfo`
 - Quality requirements: `{ tokens: number; source: 'rollout' | 'stream' | 'estimate' }`.
 - Validation notes: none.
 - Implementation details: none.
 
-### Task 32.2: Codex rollout usage reader — PENDING
+### Task 32.2: Codex rollout usage reader — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-rollout-usage.reader.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/codex/codex-rollout-usage.reader.ts` (+ spec)
 - Plan reference: implementation-plan.md:1053-1055
 - Pattern to follow: field names in `scripts/agent-usage/codex-rollout.reader.ts` (Batch 10); `codexHomeDir()`
 - Quality requirements: finds `rollout-*-<threadId>.jsonl`, newest date dirs first; reads the last `token_count` `info.last_token_usage` from the file tail.
 - Validation notes: never the `turn.completed` sum.
 - Implementation details: fixture tail spec.
 
-### Task 32.3: `LaneResumeGate` with token and register — PENDING
+### Task 32.3: `LaneResumeGate` with token and register — COMPLETE
 
 - Depends on: Task 32.2
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-resume-gate.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/di/tokens.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/di/register.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-resume-gate.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/di/tokens.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/di/register.ts`
 - Plan reference: implementation-plan.md:1050-1058, :484-486
 - Pattern to follow: `CLI_AGENT_RUNTIME_TOKENS` `di/tokens.ts:1-25`; `register.ts:49, 77`
 - Quality requirements: `RESUME_GATE_MAX_CONTEXT_TOKENS = 60_000`, `RESUME_GATE_MAX_IDLE_MS = 600_000`; Codex from rollout, OpenCode from stream, others labelled estimate; logs through `IOutputChannel`.
 - Validation notes: missing rollout → estimate; decision always logged with source.
 - Implementation details: spec boundaries 60k, 10 min, each source.
 
-### Task 32.4: Manager consults the gate; handoff spawn; stale warning fixed — PENDING
+### Task 32.4: Manager consults the gate; handoff spawn; stale warning fixed — COMPLETE
 
 - Depends on: Tasks 32.1, 32.3
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (resume entry, + spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (resume entry, + spec)
 - Plan reference: implementation-plan.md:1059-1062
 - Pattern to follow: `:332-336`
 - Quality requirements: on `fresh`, spawn a new lane with the new message, the original task, the previous final text (last 2,000 chars) and changed files from `file-change` segments; no git process. Records `lastRequestContext` from the stream.
@@ -2109,41 +2179,44 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Batch 32 verification
 
+- Accepted deviations (team-leader, S4 wave A): only the `resumeSessionId` spawn is gated; continuation of an idle lane (`continueConversation`/`sendToAgent`) and `spawnFromSdkHandle` stay ungated (contract change to `AgentMessageOutcome` needed); `contextTokens` is `number | null`; every streamed figure is labelled `estimate` until Batch 13. Carry the two ungated paths into the S4-a phase review and Batch 35 scope.
+
 - Gate specced; manager handoff; scoped + app typecheck pass
 - Reviewer: code-logic-reviewer
 
 ---
 
-## Batch 33: Blocking waits — manager and tools (S4, component 15 part 1) — DEFERRED (follow-up, decision 11)
+## Batch 33: Blocking waits — manager and tools (S4, component 15 part 1) — COMPLETE (commit: 378688a1f)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: third serial manager edit plus new tool files; process spawning in `run-check`
 - Tasks: 3 | Depends on: Batch 32 | Concurrent-safe with: Batches 23-31
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools`
+- Phase: S4-a
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/vscode-lm-tools`; `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 33.1: `waitForAgents` — PENDING
+### Task 33.1: `waitForAgents` — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:362-372 (D13), :1074-1075
 - Pattern to follow: `events` emitter `:143-144, 1269, 1653`
 - Quality requirements: `(ids, 'any'|'all', timeoutMs ≤ 900_000)`; resolves on `agent:exited`, no polling; timeout returns partial; unknown ids reported per id; listeners removed.
 - Validation notes: resolves within one tick of the exit event.
 - Implementation details: none.
 
-### Task 33.2: Schema and `ptah_agent_wait` tool — PENDING
+### Task 33.2: Schema and `ptah_agent_wait` tool — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/wait-tools-args.schema.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-wait.tool.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/wait-tools-args.schema.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/agent-wait.tool.ts` (+ specs)
 - Plan reference: implementation-plan.md:1076-1078
 - Pattern to follow: `agent-spawn-args.schema.ts`; `tool-result-budget.ts:52-54`
 - Quality requirements: `{agentIds, mode, timeoutSec ≤ 900}`; per lane status, exit code, duration, stop reason, deliverable check, last lines; whole reply ≤4,000 chars (`WAIT_SUMMARY_MAX_CHARS`).
 - Validation notes: size bound asserted.
 - Implementation details: none.
 
-### Task 33.3: `ptah_run_check` tool — PENDING
+### Task 33.3: `ptah_run_check` tool — COMPLETE
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/run-check.tool.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/run-check.tool.ts` (+ spec)
 - Plan reference: implementation-plan.md:1079-1093
 - Pattern to follow: `.ptah/tmp` convention `tool-result-budget.ts:20-24`
 - Quality requirements: `project` `^[A-Za-z0-9@/_.-]{1,120}$`; `targets` ⊆ test, lint, typecheck, build; runs `node <workspace>/node_modules/nx/bin/nx.js run-many -t <targets> -p <project> --outputStyle=static` from an argument array, `shell:false`, cwd = caller workspace root; full log `.ptah/tmp/checks/<ts>-<project>.log`; summary ≤4,000 chars; timeout kills the process tree.
@@ -2154,33 +2227,36 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 - Size bounds and schema rejections specced; scoped command passes
 - Reviewer: code-logic-reviewer (process spawning and input validation)
+- Accepted deviations (team-leader, Mode 2): Nx entry is `node_modules/nx/dist/bin/nx.js` first, then `node_modules/nx/bin/nx.js` (Nx 23.2.1 has no `bin/`, verified on disk); barrel `cli-agents/index.ts` exports `MAX_AGENT_WAIT_MS` and the wait types; `project` additionally refuses a leading `-`; defaults `mode=all`, timeouts 600 s, `agentIds` ≤10. Batch 34 carries the wiring notes in `reports/batch-33-report.md` § Plan deviations (workspaceRoot from `resolveSpoolRoot`, `describeZodIssues`, `toolErrorResponse`, no budget override).
 
 ---
 
-## Batch 34: Blocking waits — surfaces and `waitFor` rewrite (S4, component 15 part 2) — DEFERRED (follow-up, decision 11)
+## Batch 34: Blocking waits — surfaces and `waitFor` rewrite (S4, component 15 part 2) — COMPLETE (orchestrator commit, rule 3; deviations in reports/batch-34-report.md accepted)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: one library; serial after Batches 5 and 7 on the same files
 - Tasks: 2 | Depends on: Batch 33 | Concurrent-safe with: Batches 23-31
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools`
+- Phase: S4-a (last batch of the phase; code-logic + style phase review due after its commit)
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/vscode-lm-tools`; `npx nx run-many -t typecheck -p ptah-extension-vscode ptah-electron ptah-cli @ptah-extension/cli-engine @ptah-extension/rpc-handlers @ptah-extension/gateway-chat-bridge`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
-### Task 34.1: Advertised schemas and both dispatchers — PENDING
+### Task 34.1: Advertised schemas and both dispatchers — IN_PROGRESS
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/agent-tool.dispatcher.ts` (+ parity spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/tool-description.builder.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-core/protocol-dispatcher.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-stdio/agent-tool.dispatcher.ts` (+ parity spec)
 - Plan reference: implementation-plan.md:1099
 - Pattern to follow: Batch 7 edits
 - Quality requirements: both tools on HTTP and stdio surfaces.
 - Validation notes: parity spec updated.
 - Implementation details: none.
 
-### Task 34.2: `ptah.agent.waitFor` uses `waitForAgents`; help text — PENDING
+### Task 34.2: `ptah.agent.waitFor` uses `waitForAgents`; help text — IN_PROGRESS
 
 - Batch 6 follow-up F6-M1: in `ptah.agent.spawn`, destructure and drop a caller-supplied `systemPrompt` with a one-line WARN, as `roleDefinition` already is. Also reject a non-string `effort` at this boundary.
+- PR 1 phase-end follow-up PR1-M1 (folded here, same file): the Ptah-CLI branch drops a caller's `effort` without notice. The `registry.spawnAgent(request.ptahCliId, ptahCliTask, {...})` options at `agent-namespace.builder.ts:229-237` do not carry it. Fix: if the registry's spawn options accept `effort`, pass the validated value through. If they do not, log a one-line WARN that names the lane and says `effort` is ignored, as the `systemPrompt` drop does. Add a spec for whichever path applies.
 - Carried from Batch 7 (d992ea3b9), deferred: the MCP surfaces now bound `effort` with `MAX_EFFORT_LENGTH` (`mcp-core/agent-spawn-args.schema.ts`), but the `execute_code` path does not. Apply the same string, 1..32 rule here so the `Lane policy` log line stays bounded.
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/agent-namespace.builder.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts` (+ specs)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/agent-namespace.builder.ts`, `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts` (+ specs)
 - Plan reference: implementation-plan.md:1087, :1099
 - Pattern to follow: `agent-namespace.builder.ts:29-30, 415-450`; `system-namespace.builders.ts:508`
 - Quality requirements: polling loop removed.
@@ -2194,18 +2270,19 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ---
 
-## Batch 35: Lane budget guard and blocked models (S4, component 16 + R9.5) — DEFERRED (follow-up, decision 11)
+## Batch 35: Lane budget guard and blocked models (S4, component 16 + R9.5) — PENDING (S4 Wave D; #639 merged; see § S4 stage start and context.md § Handoff 4)
 
 - Recommended executor: backend-developer
 - Fallback executor: backend-developer re-run
 - Execution mode: sequential
 - Rationale: last serial manager edit; reads the lane-guard keys from Batches 16-17
 - Tasks: 4 | Depends on: Batches 17, 33 | Concurrent-safe with: Batches 23-31
-- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared` and the three-app typecheck
+- Phase: S4-b
+- Verify: `npx nx run-many -t test,lint,typecheck -p @ptah-extension/cli-agent-runtime @ptah-extension/shared`; `npx nx run-many -t typecheck -p $(npx nx show projects --affected --files=libs/shared/src/lib/types/agent-process.types.ts --sep=,)`; `npx nx run di-lint:lint`; `npx nx run degradation-audit:lint`
 
 ### Task 35.1: `LaneBudgetGuard` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-budget-guard.ts` (+ spec)
 - Plan reference: implementation-plan.md:1101-1117
 - Pattern to follow: plain class, no token (plan :485-486)
 - Quality requirements: counts `tool-call` segments; ONE steer at steer-at ("You have made N tool calls. Stop exploring, finish the deliverable now, and report."); stop at stop-at with `stopReason:'tool-call-budget'`; identical tool + normalised `toolInput` (else `toolArgs`, else name) reaching repeat-at stops with `'repeat-call'`. O(1) per segment, no timers.
@@ -2214,7 +2291,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 ### Task 35.2: `AgentProcessInfo.stopReason` — PENDING
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/shared/src/lib/types/agent-process.types.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/shared/src/lib/types/agent-process.types.ts`
 - Plan reference: implementation-plan.md:452-453
 - Pattern to follow: Task 32.1
 - Quality requirements: `stopReason?: 'tool-call-budget' | 'repeat-call' | string`.
@@ -2225,7 +2302,7 @@ Batch 6 follow-ups (recorded, not fixed now):
 
 - Batch 6 note F6-m3: `isReviewerOrTester` is exact and case-sensitive, per R2.4. Leave it unchanged unless R2.4 is relaxed.
 
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-spawn-policy.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.ts`
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-spawn-policy.ts` (+ spec), `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-spawn-environment.service.ts`
 - Plan reference: implementation-plan.md:440-441, :698, :728
 - Pattern to follow: Task 6.1
 - Quality requirements: `BLOCKED_LANE_MODELS = ['mimo-v2.6-flash-free']`, matched on the id after the last `/`, case-insensitive; spawn environment returns the three guard thresholds (routed reads, defaults 40/60/20; invalid file values → default).
@@ -2239,7 +2316,7 @@ Batch 6 follow-ups (recorded, not fixed now):
   - Bound each `ignoredEfforts` value with `String(v).slice(0, 32)`.
 
 - Depends on: Tasks 35.1-35.3
-- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-lane-token-burn/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (+ spec)
+- File: `D:/projects/ptah-extension/.claude-worktrees/task-597-s4/libs/backend/cli-agent-runtime/src/lib/cli-agents/agent-process-manager.service.ts` (+ spec)
 - Plan reference: implementation-plan.md:708-710, :1113
 - Pattern to follow: `trackSdkHandle` `:476-605`, segment subscription `:535-548`, `stop` `:1227`
 - Quality requirements: guard per tracked lane, released on exit; steer through `sendToAgent`; `unsupported` delivery logged, stop still enforced; `stopReason` in status; `LaneModelBlockedError` (lib error base) thrown before `runSdk`: "Model `<id>` is blocked for lanes because it is known to loop. Choose another model."
@@ -2825,7 +2902,7 @@ Edge cases:
 
 Review: `pr1-phase-end-code-logic-review.md` (0 Blocking, 0 Serious, 2 Moderate, 3 Minor). No fix round. Follow-ups:
 
-- PR1-M1: a Ptah-CLI lane silently drops `effort` (`agent-namespace.builder.ts:231`). Follow-up task, with F6-M1 (Task 34.2).
+- PR1-M1: a Ptah-CLI lane silently drops `effort` (`agent-namespace.builder.ts:231`). Follow-up task, with F6-M1 (Task 34.2). Folded into Task 34.2 at S4 stage start.
 - PR1-M2: a live change to `compaction.enabled` is not applied; only `compaction.threshold` is (`session-lifecycle-manager.ts:409`). Follow-up task, with the deferred compaction settings batches (16/17).
 - Minor items: recorded in the review file only.
 

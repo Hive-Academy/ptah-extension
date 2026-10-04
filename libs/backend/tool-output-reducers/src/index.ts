@@ -31,3 +31,17 @@ export type {
   ReduceOutputOptions,
   ReduceOutputResult,
 } from './lib/reduce-output';
+export { applyOutputBudget } from './lib/output-budget/apply-output-budget';
+export type {
+  ApplyOutputBudgetInput,
+  OutputBudgetOutcome,
+  OutputReduction,
+} from './lib/output-budget/apply-output-budget';
+export {
+  relativeSpoolLocator,
+  spoolToolText,
+} from './lib/output-budget/spool';
+export type {
+  SpoolOutcome,
+  SpoolRequestId,
+} from './lib/output-budget/spool';
