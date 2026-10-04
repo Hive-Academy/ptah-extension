@@ -31,6 +31,9 @@ import type { ExecutionNode, TurnChangeSet } from '@ptah-extension/shared';
 // and esbuild splits it out only when no eager code imports that file.
 import { ChangeSetCardComponent } from '@ptah-extension/chat-ui/change-set-card';
 import type { ChangeSetCardHost } from '@ptah-extension/chat-ui/change-set-card';
+// Same lazy-entry contract as the change-set card above (see
+// `libs/frontend/chat-ui/src/turn-recap.ts`).
+import { TurnTestsRowComponent } from '@ptah-extension/chat-ui/turn-recap';
 import {
   ChangeSetStore,
   type ChangeSetMarks,
@@ -42,6 +45,11 @@ import {
   transcriptOrderKey,
   type ChangeSetAnchors,
 } from './transcript-change-set-anchors';
+import {
+  anchorTurnTests,
+  NO_TURN_TESTS_ANCHORS,
+  type TurnTestsAnchors,
+} from './transcript-turns';
 import { filterCompactionNoise } from './transcript-filter.utils';
 import { TranscriptOlderHistorySentinelDirective } from './transcript-older-history-sentinel.directive';
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
@@ -149,6 +157,8 @@ const EMPTY_VIEW_MODEL: TranscriptViewModel = {
     TranscriptPrependAnchorDirective,
     // Used only inside `@defer`, so the compiler loads it lazily.
     ChangeSetCardComponent,
+    // Used only inside `@defer`, so the compiler loads it lazily.
+    TurnTestsRowComponent,
   ],
   providers: [TranscriptRenderWindow],
   templateUrl: './chat-transcript.component.html',
@@ -481,6 +491,24 @@ export class ChatTranscriptComponent {
       this.changeSetStore.changeSetsFor(this.sessionId()),
     );
     this._frozenAnchors = next;
+    return next;
+  });
+
+  private _frozenTurnTestsAnchors: TurnTestsAnchors = NO_TURN_TESTS_ANCHORS;
+
+  /**
+   * Tests rows per message: each finalized turn's collected test runs render
+   * after the turn's last assistant message (see `anchorTurnTests`), next to
+   * the change-set card. Electron only [user scope] — the VS Code webview
+   * computes nothing and renders no row. Gated like `vm`, so a hidden
+   * transcript keeps its last placement and does no grouping work.
+   */
+  protected readonly turnTestsAnchors = computed<TurnTestsAnchors>(() => {
+    if (!this.vscodeService.isElectron) return NO_TURN_TESTS_ANCHORS;
+    const view = this.vm();
+    if (!this.workActive()) return this._frozenTurnTestsAnchors;
+    const next = anchorTurnTests(view.messages, view.streamingBoundary);
+    this._frozenTurnTestsAnchors = next;
     return next;
   });
 

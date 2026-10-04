@@ -39,10 +39,14 @@ jest.mock('ngx-markdown', () => {
 });
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { VSCodeService } from '@ptah-extension/core';
 import { ChangeSetCardComponent } from '@ptah-extension/chat-ui/change-set-card';
+import { TurnTestsRowComponent } from '@ptah-extension/chat-ui/turn-recap';
 import type {
   ExecutionChatMessage,
+  ExecutionNode,
   TurnChangeSet,
+  TurnTestRun,
 } from '@ptah-extension/shared';
 import { ChatTranscriptComponent } from './chat-transcript.component';
 import {
@@ -98,12 +102,38 @@ class ChangeSetCardStub {
   readonly openScm = output<void>();
 }
 
+/**
+ * Stands in for the tests row for the same reason as the card stub above:
+ * the spec asserts the transcript's own decisions (placement, inputs), not
+ * the row's markup, which `turn-tests-row.component.spec.ts` covers.
+ */
+@Component({
+  selector: 'ptah-turn-tests-row',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `<span data-testid="turn-tests-stub">{{
+    runs().length
+  }} runs, incomplete: {{ incomplete() }}</span>`,
+})
+class TurnTestsRowStub {
+  readonly runs = input.required<readonly TurnTestRun[]>();
+  readonly incomplete = input<boolean>(false);
+}
+
 describe('ChatTranscriptComponent change-set cards', () => {
   afterEach(() => TestBed.resetTestingModule());
+
+  interface RenderOptions {
+    /** Overrides the default no-tree MESSAGES fixture. */
+    readonly messages?: readonly ExecutionChatMessage[];
+    /** Host gate; the harness default is Electron (`true`). */
+    readonly isElectron?: boolean;
+  }
 
   async function render(
     changeSets: readonly TurnChangeSet[],
     review: jest.Mock = jest.fn(() => Promise.resolve()),
+    options: RenderOptions = {},
   ): Promise<ComponentFixture<ChatTranscriptComponent>> {
     configureTranscriptTestBed({
       tabs: signal([
@@ -111,7 +141,7 @@ describe('ChatTranscriptComponent change-set cards', () => {
           id: 'tab-1',
           claudeSessionId: 'session-1',
           status: 'loaded',
-          messages: MESSAGES,
+          messages: options.messages ?? MESSAGES,
           streamingState: null,
         },
       ]),
@@ -119,9 +149,17 @@ describe('ChatTranscriptComponent change-set cards', () => {
       changeSets: signal(changeSets),
       changeSetActions: { review },
     });
+    if (options.isElectron === false) {
+      TestBed.overrideProvider(VSCodeService, {
+        useValue: {
+          getPtahIconUri: () => 'ptah.svg',
+          isElectron: false,
+        } as unknown as VSCodeService,
+      });
+    }
     TestBed.overrideComponent(ChatTranscriptComponent, {
-      remove: { imports: [ChangeSetCardComponent] },
-      add: { imports: [ChangeSetCardStub] },
+      remove: { imports: [ChangeSetCardComponent, TurnTestsRowComponent] },
+      add: { imports: [ChangeSetCardStub, TurnTestsRowStub] },
     });
     const fixture = TestBed.createComponent(ChatTranscriptComponent);
     fixture.componentRef.setInput('tabId', 'tab-1');
@@ -203,5 +241,139 @@ describe('ChatTranscriptComponent change-set cards', () => {
         '[data-testid="chat-change-set-error"]',
       ),
     ).toBeNull();
+  });
+
+  // --- Turn tests row (TASK_2026_610 Batch A4) ---
+
+  function bashNode(id: string, command: string): ExecutionNode {
+    return {
+      id,
+      type: 'tool',
+      toolName: 'Bash',
+      toolInput: { command },
+      status: 'complete',
+      content: '',
+      children: [],
+      isCollapsed: false,
+    };
+  }
+
+  function assistantTree(
+    id: string,
+    children: readonly ExecutionNode[],
+  ): ExecutionNode {
+    return {
+      id,
+      type: 'message',
+      status: 'complete',
+      content: 'assistant reply',
+      children,
+      isCollapsed: false,
+    };
+  }
+
+  const TEST_MESSAGES: readonly ExecutionChatMessage[] = [
+    makeTranscriptMessage('u1', 'user', 100),
+    makeTranscriptMessage(
+      'a1',
+      'assistant',
+      110,
+      assistantTree('a1-tree', [
+        bashNode('a1-jest', 'npx jest libs/frontend/chat'),
+      ]),
+    ),
+    makeTranscriptMessage('u2', 'user', 200),
+    makeTranscriptMessage('a2', 'assistant', 210),
+  ];
+
+  it('renders the card and the tests row after the turn’s last assistant message', async () => {
+    const fixture = await render([CHANGE_SET], jest.fn(), {
+      messages: TEST_MESSAGES,
+    });
+    // The card keeps its place after the turn-ending message (Req 1.1); the
+    // tests row is the second block, below the card.
+    expect(contentChildren(fixture)).toEqual([
+      'u1',
+      'a1',
+      'chat-change-set',
+      'chat-turn-tests',
+      'u2',
+      'a2',
+    ]);
+    expect(
+      fixture.nativeElement
+        .querySelector('[data-testid="turn-tests-stub"]')
+        .textContent.trim(),
+    ).toBe('1 runs, incomplete: false');
+  });
+
+  it('renders neither the tests row nor the card for a no-op turn', async () => {
+    // The turn ran a Bash command, but not a test command (Req 1.4), and the
+    // session produced no change set.
+    const fixture = await render([], jest.fn(), {
+      messages: [
+        makeTranscriptMessage('u1', 'user', 100),
+        makeTranscriptMessage(
+          'a1',
+          'assistant',
+          110,
+          assistantTree('a1-tree', [bashNode('a1-ls', 'ls -la')]),
+        ),
+        makeTranscriptMessage('u2', 'user', 200),
+        makeTranscriptMessage('a2', 'assistant', 210),
+      ],
+    });
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="chat-turn-tests"]'),
+    ).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="chat-change-set"]'),
+    ).toBeNull();
+  });
+
+  it('lists the turn’s files only once — the tests row carries no file content', async () => {
+    const fixture = await render([CHANGE_SET], jest.fn(), {
+      messages: TEST_MESSAGES,
+    });
+    expect(
+      fixture.nativeElement.querySelectorAll('[data-testid="chat-change-set"]')
+        .length,
+    ).toBe(1);
+    const row: HTMLElement =
+      fixture.nativeElement.querySelector('[data-testid="chat-turn-tests"]');
+    expect(row.textContent).not.toMatch(/files?/i);
+  });
+
+  it('renders the tests row after a reload', async () => {
+    // Session-loader fixture (Req 1.8 / A-1): after a reload,
+    // `SessionHistoryReplayer.replay` finalizes through the same
+    // `MessageFinalizationService`
+    // (`session-history-replayer.service.ts:226` → `finalizeSessionHistory`),
+    // so a reloaded tab's messages keep their root trees — a finalized
+    // `streamingState` whose Bash nodes keep `toolInput.command` and a
+    // terminal status. The fixture mirrors that stored shape.
+    const fixture = await render([], jest.fn(), {
+      messages: TEST_MESSAGES,
+    });
+    const row: HTMLElement =
+      fixture.nativeElement.querySelector('[data-testid="chat-turn-tests"]');
+    expect(row).not.toBeNull();
+    expect(
+      row.querySelector('[data-testid="turn-tests-stub"]')?.textContent.trim(),
+    ).toBe('1 runs, incomplete: false');
+  });
+
+  it('renders no tests row when the host is not Electron', async () => {
+    const fixture = await render([CHANGE_SET], jest.fn(), {
+      messages: TEST_MESSAGES,
+      isElectron: false,
+    });
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="chat-turn-tests"]'),
+    ).toBeNull();
+    // The change-set card is not Electron-gated and still renders.
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="chat-change-set"]'),
+    ).not.toBeNull();
   });
 });
