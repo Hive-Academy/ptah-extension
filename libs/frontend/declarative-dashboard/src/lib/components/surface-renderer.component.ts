@@ -189,7 +189,7 @@ function sameSelection(left: SurfaceSelection | null, right: SurfaceSelection): 
       <!-- Root stats flow as compact tiles, several across (prototype stats row); every other node takes a full row. -->
       <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-2 gap-y-4 text-base-content" data-testid="surface-root">
         <header class="col-span-full flex flex-col gap-0.5">
-          <h2 class="text-base font-semibold">{{ title() }}</h2>
+          @if (hasTitle()) { <h2 class="text-base font-semibold">{{ title() }}</h2> }
           @if (description(); as description) { <p class="text-xs text-base-content-muted">{{ description }}</p> }
         </header>
         <!-- Position plus id: duplicate ids stay distinct, and a swapped id gets a fresh view. -->
@@ -222,6 +222,8 @@ export class SurfaceRendererComponent {
   }));
   public readonly viewModel = computed(() => this.attempt().viewModel);
   public readonly title = computed(() => plainText(this.viewModel()?.title) ?? '');
+  /** A title of blank text is no title: the heading renders only for real text. */
+  public readonly hasTitle = computed(() => this.title().trim().length > 0);
   public readonly description = computed(() => plainText(this.viewModel()?.description));
   public readonly surfaceId = computed(() => surfaceIdOf(this.renderable()));
 
