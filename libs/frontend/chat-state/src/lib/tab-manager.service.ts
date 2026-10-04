@@ -2235,6 +2235,18 @@ export class TabManagerService {
   }
 
   /**
+   * Install the budget state a `SESSION_BUDGET_REACHED` refusal carried, so
+   * the limit banner shows even when no stats broadcast delivered a state for
+   * this session. Dropped when it names another session than the tab is bound
+   * to; it never touches the tab's stats snapshot.
+   */
+  installSessionBudget(tabId: string, budget: SessionBudgetState): void {
+    const tab = this.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    if (!tab || tab.claudeSessionId !== budget.sessionId) return;
+    this.updateTabInternal(tabId, { sessionBudget: budget });
+  }
+
+  /**
    * Apply a loaded session's resume payload: install the backend snapshot and
    * the originating sessionModel together so future `chat:continue` calls use
    * the original session model. `budget` follows the snapshot exactly as in

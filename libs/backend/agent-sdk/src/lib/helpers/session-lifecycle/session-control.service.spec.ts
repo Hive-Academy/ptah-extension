@@ -559,7 +559,7 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
     });
   });
 
-  it('a read-back miss sends null back, drops the override and reports not-honoured with the model class', async () => {
+  it('a read-back miss restores the configured window (never null), drops the override and reports not-honoured with the model class', async () => {
     const h = makeHarness(() => configOf({ contextTokenThreshold: 600_000 }));
     const q = attachQuery(h, {
       honours: false,
@@ -576,9 +576,11 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
       applied: false,
       reason: 'not-honoured',
     });
+    // Regression (PR 3 review S-4): the user's compaction.threshold is what
+    // goes back, resolved exactly as restore resolves it.
     expect(q.applyFlagSettings.mock.calls.map((c) => c[0])).toEqual([
       { autoCompactWindow: TARGET },
-      { autoCompactWindow: null },
+      { autoCompactWindow: 600_000 },
     ]);
     expect(q.rec.autoCompactOverride).toBeNull();
     const warn = h.logger.warn as jest.Mock;
@@ -587,6 +589,101 @@ describe('SessionControl.applySessionAutoCompactWindow — E2-gated tighten (TAS
       expect.stringContaining('NOT honoured'),
       expect.objectContaining({ modelClass: 'proxied', target: TARGET }),
     );
+  });
+
+  it('a read-back miss with no configured window sends null back (the runtime decides), as restore does', async () => {
+    const h = makeHarness(() => configOf());
+    const q = attachQuery(h, { honours: false });
+
+    await h.control.applySessionAutoCompactWindow(TAB_ID, TARGET);
+
+    expect(q.applyFlagSettings.mock.calls.map((c) => c[0])).toEqual([
+      { autoCompactWindow: TARGET },
+      { autoCompactWindow: null },
+    ]);
+    expect(q.rec.autoCompactOverride).toBeNull();
+  });
+
+  it('a second read-back failure after the target was sent puts the configured window back and clears the override (M-2)', async () => {
+    const h = makeHarness(() => configOf({ contextTokenThreshold: 600_000 }));
+    const q = attachQuery(h);
+    q.getContextUsage
+      .mockResolvedValueOnce({
+        autoCompactThreshold: 967_000,
+        isAutoCompactEnabled: true,
+      })
+      .mockRejectedValueOnce(new Error('control closed'));
+
+    const result = await h.control.applySessionAutoCompactWindow(
+      TAB_ID,
+      TARGET,
+    );
+
+    expect(result).toEqual({
+      target: TARGET,
+      applied: false,
+      reason: 'failed',
+    });
+    expect(q.applyFlagSettings.mock.calls.map((c) => c[0])).toEqual([
+      { autoCompactWindow: TARGET },
+      { autoCompactWindow: 600_000 },
+    ]);
+    expect(q.rec.autoCompactOverride).toBeNull();
+  });
+
+  it('when the put-back fails too, the target stays recorded because the runtime holds it (M-2)', async () => {
+    const h = makeHarness(() => configOf({ contextTokenThreshold: 600_000 }));
+    const q = attachQuery(h);
+    q.getContextUsage
+      .mockResolvedValueOnce({
+        autoCompactThreshold: 967_000,
+        isAutoCompactEnabled: true,
+      })
+      .mockRejectedValueOnce(new Error('control closed'));
+    q.applyFlagSettings
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('control closed'));
+
+    const result = await h.control.applySessionAutoCompactWindow(
+      TAB_ID,
+      TARGET,
+    );
+
+    expect(result).toEqual({
+      target: TARGET,
+      applied: false,
+      reason: 'failed',
+    });
+    expect(q.rec.autoCompactOverride).toBe(TARGET);
+
+    // The record and the runtime agree, so restore has something to undo.
+    q.applyFlagSettings.mockClear();
+    await h.control.applySessionAutoCompactWindow(TAB_ID, null);
+    expect(q.applyFlagSettings).toHaveBeenCalledWith({
+      autoCompactWindow: 600_000,
+    });
+    expect(q.rec.autoCompactOverride).toBeNull();
+  });
+
+  it('a not-honoured put-back that fails keeps the target recorded and is not retried', async () => {
+    const h = makeHarness(() => configOf({ contextTokenThreshold: 600_000 }));
+    const q = attachQuery(h, { honours: false });
+    q.applyFlagSettings
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('control closed'));
+
+    const result = await h.control.applySessionAutoCompactWindow(
+      TAB_ID,
+      TARGET,
+    );
+
+    expect(result).toEqual({
+      target: TARGET,
+      applied: false,
+      reason: 'failed',
+    });
+    expect(q.applyFlagSettings).toHaveBeenCalledTimes(2);
+    expect(q.rec.autoCompactOverride).toBe(TARGET);
   });
 
   it('skips with env-override when CLAUDE_CODE_AUTO_COMPACT_WINDOW pins the window', async () => {

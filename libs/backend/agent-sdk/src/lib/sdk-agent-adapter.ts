@@ -1433,14 +1433,20 @@ export class SdkAgentAdapter implements IAgentAdapter {
     return this.sessionLifecycle.interruptCurrentTurn(sessionId);
   }
 
+  /**
+   * Stop (`chat:abort`), `/clear` and the dead-record cleanups before a resume
+   * or slash command. The record is torn down but the conversation goes on
+   * under the same SDK id, so the session budget is NOT released here: its
+   * stage, blocked state, extensions ("Allow 20% more"), compactions and
+   * dismissals must survive a Stop. Only a real end releases it (`endSession`,
+   * a token-matched stream-exit end, dispose).
+   */
   async interruptSession(sessionId: SessionId): Promise<void> {
     this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
     this.flushPendingUserActivityFor(sessionId);
     const statsLeases = this.captureStatsLeases(sessionId);
-    const budgetKeys = this.sessionKeys(sessionId);
     await this.sessionLifecycle.endSession(sessionId);
     this.releaseStatsOwners(statsLeases);
-    this.releaseBudget(budgetKeys);
   }
 
   async forkSession(

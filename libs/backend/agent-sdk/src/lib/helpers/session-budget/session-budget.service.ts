@@ -193,19 +193,22 @@ export class SessionBudgetService {
   }
 
   /**
-   * Whether a new turn may be sent. The session's state decides; with no
-   * state the owner's current snapshot is evaluated on the fly; with neither
-   * the answer is ok (fail-open, F2).
+   * Whether a new turn may be sent, decided against the CURRENT settings: a
+   * blocked session stops being blocked as soon as the user disables the
+   * budget, turns `blockAtLimit` off or raises the limit, with no result
+   * needed (no result arrives while sends are refused). The session's stored
+   * figure decides, re-evaluated when the settings changed; with no figure the
+   * current snapshot is evaluated and, when it blocks, installed on the entry
+   * so the refusal's state is the one `act` (extend, dismiss) works on. With
+   * neither the answer is ok (fail-open, F2).
    */
   canSend(sessionId: string): SessionBudgetSendCheck {
     const entry = this.entries.get(sessionId);
-    if (entry?.figure) {
-      return entry.figure.blocked
-        ? { ok: false, state: this.composeState(entry, entry.figure) }
-        : SEND_OK;
-    }
     try {
-      return this.checkSnapshot(sessionId, entry);
+      const config = this.configSource.getConfig();
+      if (!config.enabled) return SEND_OK;
+      if (entry?.figure) return this.checkStored(entry, config);
+      return this.checkSnapshot(sessionId, entry, config);
     } catch (error: unknown) {
       // Fail-open by design (F2): an unreadable budget never blocks a send;
       // the failure is WARNed once for the session.
@@ -226,7 +229,7 @@ export class SessionBudgetService {
         case 'dismiss':
           return this.dismiss(entry);
         case 'extend':
-          return this.extend(entry);
+          return this.extend(sessionId, entry);
         case 'restore-window':
           return await this.restoreWindow(sessionId, entry);
         case 'write-handoff':
@@ -362,14 +365,41 @@ export class SessionBudgetService {
     return this.composeState(entry, figure);
   }
 
+  /**
+   * The stored figure's verdict. Settings changed since it was computed
+   * (limit, `blockAtLimit`, unit, ...): re-evaluate the stored snapshot first,
+   * exactly as the next result would (stage reset, actions of a newly entered
+   * stage scheduled).
+   */
+  private checkStored(
+    entry: BudgetEntry,
+    config: SessionBudgetConfig,
+  ): SessionBudgetSendCheck {
+    let state: SessionBudgetState | undefined;
+    if (entry.configKey !== configKeyOf(config)) {
+      state = this.applyEvaluation(entry, config, {
+        resetStage: false,
+        runActions: true,
+      });
+    }
+    const figure = entry.figure;
+    if (!figure?.blocked) return SEND_OK;
+    return { ok: false, state: state ?? this.composeState(entry, figure) };
+  }
+
+  /**
+   * No stored figure (no result observed yet, or the figure was dropped while
+   * the budget was disabled): evaluate the owner's current snapshot, else the
+   * last one the entry kept. A blocking figure is installed on the entry, so
+   * the refusal is backed by state that `extend` and `dismiss` act on.
+   */
   private checkSnapshot(
     sessionId: string,
     entry: BudgetEntry | undefined,
+    config: SessionBudgetConfig,
   ): SessionBudgetSendCheck {
-    const snapshot = this.statsOwner.snapshot(sessionId);
+    const snapshot = this.statsOwner.snapshot(sessionId) ?? entry?.snapshot;
     if (!snapshot) return SEND_OK;
-    const config = this.configSource.getConfig();
-    if (!config.enabled) return SEND_OK;
     const figure = evaluateSessionBudget({
       snapshot,
       config,
@@ -380,10 +410,29 @@ export class SessionBudgetService {
       resetMeasure: false,
     });
     if (!figure.blocked) return SEND_OK;
+    const state = this.installFigure(sessionId, snapshot, config);
     return {
       ok: false,
-      state: { sessionId, ...figure },
+      state: state ?? { sessionId, ...figure },
     };
+  }
+
+  /**
+   * Store `snapshot` as the session's figure (creating the entry), as a live
+   * result would. Used when the gate or "Allow 20% more" needs a figure the
+   * session never received a result for.
+   */
+  private installFigure(
+    sessionId: string,
+    snapshot: SessionStatsEntry,
+    config: SessionBudgetConfig,
+  ): SessionBudgetState | undefined {
+    const entry = this.entryFor(sessionId);
+    entry.snapshot = snapshot;
+    return this.applyEvaluation(entry, config, {
+      resetStage: false,
+      runActions: true,
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -558,8 +607,19 @@ export class SessionBudgetService {
     return { success: true, state: this.composeState(entry, entry.figure) };
   }
 
-  /** "Allow 20% more": at `limit` only; each extension adds 20% of the limit. */
-  private extend(entry: BudgetEntry | undefined): SessionBudgetActionResult {
+  /**
+   * "Allow 20% more": at `limit` only; each extension adds 20% of the limit.
+   * A session with no stored figure gets one from its current snapshot first
+   * (the figure the gate refuses on), so a refused session can always extend;
+   * with no snapshot either there is nothing to extend and it says so.
+   */
+  private extend(
+    sessionId: string,
+    current: BudgetEntry | undefined,
+  ): SessionBudgetActionResult {
+    const entry = current?.figure
+      ? current
+      : this.entryWithCurrentFigure(sessionId, current);
     if (!entry?.figure) return this.noState();
     if (entry.figure.stage !== 'limit') {
       return {
@@ -637,6 +697,23 @@ export class SessionBudgetService {
   // ---------------------------------------------------------------------------
   // State helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * The entry with a figure built from the session's current snapshot (the
+   * owner's, else the one the entry kept), or `undefined` when the budget is
+   * disabled or there is no snapshot.
+   */
+  private entryWithCurrentFigure(
+    sessionId: string,
+    entry: BudgetEntry | undefined,
+  ): BudgetEntry | undefined {
+    const config = this.configSource.getConfig();
+    if (!config.enabled) return undefined;
+    const snapshot = this.statsOwner.snapshot(sessionId) ?? entry?.snapshot;
+    if (!snapshot) return undefined;
+    this.installFigure(sessionId, snapshot, config);
+    return this.entries.get(sessionId);
+  }
 
   private entryFor(sessionId: string): BudgetEntry {
     let entry = this.entries.get(sessionId);

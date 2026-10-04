@@ -119,8 +119,9 @@ export class MessageSenderService {
   /**
    * Whether `chat:continue` was refused because the session reached its
    * budget limit. Like {@link handleAuthRequired}, the code may sit on the
-   * envelope or on `data`. The limit state itself is already on the tab
-   * (`sessionBudget`, from the stats broadcast), so nothing is written here.
+   * envelope or on `data`. The refusal's `budget` state is installed on the
+   * tab by the caller, so the banner shows even when no stats broadcast
+   * delivered one (a refusal is never silent).
    */
   private isSessionBudgetReached(
     result: RpcResult<{ errorCode?: string }>,
@@ -724,6 +725,10 @@ export class MessageSenderService {
 
       const authFailed = this.handleAuthRequired(result);
       const budgetReached = this.isSessionBudgetReached(result);
+      const refusalBudget = budgetReached ? result.data?.budget : undefined;
+      if (refusalBudget) {
+        this.tabManager.installSessionBudget(activeTabId, refusalBudget);
+      }
       if (!result.success || authFailed || result.data?.success === false) {
         console.error(
           '[MessageSender] Failed to continue chat:',

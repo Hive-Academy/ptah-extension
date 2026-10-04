@@ -168,6 +168,12 @@ export interface ChatContinueResult {
   errorCode?: RpcUserErrorCode;
   /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
   providerId?: string;
+  /**
+   * The budget state that refused the send, when errorCode is
+   * 'SESSION_BUDGET_REACHED' (TASK_2026_597): lets the tab show the banner
+   * even when it never received a published state for this session.
+   */
+  budget?: SessionBudgetState;
 }
 
 /** Parameters for chat:abort RPC method */

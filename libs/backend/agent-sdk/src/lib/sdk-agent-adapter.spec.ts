@@ -2078,7 +2078,7 @@ describe('SdkAgentAdapter', () => {
       expect(h.logger.warn).toHaveBeenCalled();
     });
 
-    it('releases the budget under every key of an interrupted session', async () => {
+    it('keeps the budget of an interrupted session (Stop is not a session end)', async () => {
       const h = makeAdapter();
       h.sessionLifecycle.find.mockReturnValue({
         tabId: 'tab_1',
@@ -2086,6 +2086,22 @@ describe('SdkAgentAdapter', () => {
       } as unknown as ReturnType<SessionLifecycleManager['find']>);
 
       await h.adapter.interruptSession('tab_1' as unknown as SessionId);
+
+      expect(h.sessionLifecycle.endSession).toHaveBeenCalled();
+      expect(h.sessionBudget.release).not.toHaveBeenCalled();
+      expect(h.sessionBudget.clearAll).not.toHaveBeenCalled();
+    });
+
+    it('releases the budget under every key when endSession ends the session', async () => {
+      const h = makeAdapter();
+      h.sessionLifecycle.find.mockReturnValue({
+        tabId: 'tab_1',
+        realSessionId: REAL_ID,
+      } as unknown as ReturnType<SessionLifecycleManager['find']>);
+
+      h.adapter.endSession('tab_1' as unknown as SessionId);
+      await Promise.resolve();
+      await Promise.resolve();
 
       expect(h.sessionBudget.release).toHaveBeenCalledWith('tab_1');
       expect(h.sessionBudget.release).toHaveBeenCalledWith(REAL_ID);

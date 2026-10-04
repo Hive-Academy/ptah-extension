@@ -287,10 +287,13 @@ function params(prompt: string): ChatContinueParams {
   };
 }
 
+// The refusal carries the state that refused it (PR 3 review S-3), so a tab
+// that never received a published state still shows the banner.
 const REFUSED = {
   success: false,
   errorCode: 'SESSION_BUDGET_REACHED',
   error: expect.stringContaining('Allow 20% more'),
+  budget: budgetState(),
 };
 
 describe('chat:continue — session budget gate', () => {
@@ -361,9 +364,15 @@ describe('chat:continue — session budget gate', () => {
     );
 
     expect(budget.observe(statsAt(LIMIT, 2))?.blocked).toBe(true);
-    expect(await h.service.continueSession(params('next step'))).toEqual(
-      REFUSED,
-    );
+    expect(await h.service.continueSession(params('next step'))).toEqual({
+      ...REFUSED,
+      budget: expect.objectContaining({
+        sessionId: SESSION_ID,
+        stage: 'limit',
+        revision: 2,
+        blocked: true,
+      }),
+    });
     expect(h.sendMessageToSession).toHaveBeenCalledTimes(1);
   });
 

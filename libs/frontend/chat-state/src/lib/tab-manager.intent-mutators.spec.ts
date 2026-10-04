@@ -1254,6 +1254,22 @@ describe('TabManagerService — intent-named mutators', () => {
         expect(budgetOf(id)).toBe(live);
       });
 
+      // PR 3 review S-3: a SESSION_BUDGET_REACHED refusal carries its state.
+      it('installSessionBudget installs a refusal state for the bound session only', () => {
+        const id = service.createTab('budget refusal');
+        service.attachSession(id, SESS_X);
+        const refused = budgetState(SESS_X, 6, 600);
+
+        service.installSessionBudget(id, budgetState('other-session', 9, 900));
+        expect(budgetOf(id) ?? null).toBeNull();
+
+        service.installSessionBudget(id, refused);
+        expect(budgetOf(id)).toBe(refused);
+        expect(
+          service.tabs().find((t) => t.id === id)?.sessionStats ?? null,
+        ).toBeNull();
+      });
+
       it('resetTabToFresh clears the budget with the snapshot', () => {
         const id = service.createTab('budget reset');
         service.attachSession(id, SESS_X);

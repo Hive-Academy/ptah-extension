@@ -384,8 +384,100 @@ describe('SessionBudgetService.canSend', () => {
       state: expect.objectContaining({ sessionId: SID, stage: 'limit' }),
     });
     expect(h.ownerSnapshot).toHaveBeenCalledWith(SID);
-    h.ownerSnapshot.mockReturnValue(at(50, 9));
+
+    const below = harness();
+    below.ownerSnapshot.mockReturnValue(at(50, 9));
+    expect(below.service.canSend(SID)).toEqual({ ok: true });
+  });
+
+  it('S-3: a refusal from the snapshot installs its figure, so extend works and the gate opens', async () => {
+    const h = harness();
+    h.ownerSnapshot.mockReturnValue(at(105, 9));
+    const refused = h.service.canSend(SID);
+    expect(refused).toEqual({
+      ok: false,
+      state: expect.objectContaining({
+        sessionId: SID,
+        stage: 'limit',
+        blocked: true,
+        revision: 9,
+      }),
+    });
+
+    const extended = await h.service.act(SID, 'extend');
+    expect(extended).toEqual({
+      success: true,
+      state: expect.objectContaining({
+        extensions: 1,
+        limit: 60_000_000,
+        blocked: false,
+      }),
+    });
     expect(h.service.canSend(SID)).toEqual({ ok: true });
+  });
+
+  it('S-3: a figure dropped while disabled is rebuilt from the kept snapshot when re-enabled over the limit', async () => {
+    const h = harness({ enabled: false });
+    h.service.observe(at(120, 1));
+    h.setConfig({ enabled: true });
+
+    const refused = h.service.canSend(SID);
+    expect(refused.ok).toBe(false);
+    expect(refused.ok === false && refused.state.stage).toBe('limit');
+    expect((await h.service.act(SID, 'extend')).success).toBe(true);
+  });
+
+  it('S-3: extend with no stored figure builds one from the current snapshot', async () => {
+    const h = harness();
+    h.ownerSnapshot.mockReturnValue(at(105, 4));
+    const result = await h.service.act(SID, 'extend');
+    expect(result).toEqual({
+      success: true,
+      state: expect.objectContaining({ extensions: 1, blocked: false }),
+    });
+  });
+
+  it('S-2: disabling the budget while blocked opens the gate at once; re-enabling blocks again', () => {
+    const h = harness();
+    expect(h.service.observe(at(120, 1))?.blocked).toBe(true);
+    h.setConfig({ enabled: false });
+    expect(h.service.canSend(SID)).toEqual({ ok: true });
+    h.setConfig({ enabled: true });
+    expect(h.service.canSend(SID).ok).toBe(false);
+  });
+
+  it('S-2: turning blockAtLimit off while blocked opens the gate with no new result', () => {
+    const h = harness();
+    expect(h.service.observe(at(120, 1))?.blocked).toBe(true);
+    h.setConfig({ blockAtLimit: false });
+    expect(h.service.canSend(SID)).toEqual({ ok: true });
+  });
+
+  it('S-2: raising the limit while blocked re-evaluates the stored figure', () => {
+    const h = harness();
+    expect(h.service.observe(at(120, 1))?.blocked).toBe(true);
+    h.setConfig({ tokens: 120_000_000 });
+    expect(h.service.canSend(SID)).toEqual({ ok: true });
+    // The re-evaluated figure is the one the next result builds on.
+    expect(h.service.observe(at(120, 2))).toMatchObject({
+      stage: 'tighten',
+      limit: 120_000_000,
+    });
+  });
+
+  it('S-2: lowering the limit refuses with the re-evaluated state', () => {
+    const h = harness();
+    h.service.observe(at(50, 1));
+    expect(h.service.canSend(SID)).toEqual({ ok: true });
+    h.setConfig({ tokens: LIMIT / 4 });
+    expect(h.service.canSend(SID)).toEqual({
+      ok: false,
+      state: expect.objectContaining({
+        stage: 'limit',
+        limit: LIMIT / 4,
+        blocked: true,
+      }),
+    });
   });
 
   it('without state or snapshot, ok (fail-open)', () => {

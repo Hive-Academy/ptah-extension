@@ -91,6 +91,7 @@ describe('MessageSenderService', () => {
     setMessages: jest.Mock;
     consumeFirstMessagePreamble: jest.Mock;
     findTabByIdAcrossWorkspaces: jest.Mock;
+    installSessionBudget: jest.Mock;
     activeWorkspacePath: string | null;
   };
   /** Tabs parked in a NON-active workspace — absent from `tabs()` by design. */
@@ -158,6 +159,7 @@ describe('MessageSenderService', () => {
       }),
       isTabStreaming: jest.fn((tabId: string) => streamingTabIds.has(tabId)),
       consumeFirstMessagePreamble: jest.fn(() => null),
+      installSessionBudget: jest.fn(),
       // Stub returns a real AbortSignal so the wireAbortDispatch listener
       // can attach without throwing.
       createAbortController: jest.fn(() => new AbortController().signal),
@@ -489,8 +491,45 @@ describe('MessageSenderService', () => {
             rpcCall.mock.calls.some(([method]) => method === 'chat:start'),
           ).toBe(false);
           expect(flagAuthRequired).not.toHaveBeenCalled();
+          expect(tabManager.installSessionBudget).not.toHaveBeenCalled();
         },
       );
+
+      // PR 3 review S-3: a refusal is never silent — the state it carries is
+      // installed on the tab so the limit banner shows.
+      it('installs the budget state a refusal carries on the tab', async () => {
+        const budget = {
+          sessionId: 'sess-X',
+          stage: 'limit',
+          unit: 'tokens',
+          measure: 'tokens',
+          used: 60,
+          limit: 50,
+          percent: 120,
+          lowerBound: false,
+          revision: 7,
+          compactions: 0,
+          extensions: 0,
+          blocked: true,
+        };
+        failContinue({
+          success: true,
+          data: {
+            success: false,
+            errorCode: 'SESSION_BUDGET_REACHED',
+            error: 'Session budget reached',
+            budget,
+          },
+        });
+
+        const outcome = await service.send('over budget', { tabId: 'tab-1' });
+
+        expect(outcome.errorCode).toBe('SESSION_BUDGET_REACHED');
+        expect(tabManager.installSessionBudget).toHaveBeenCalledWith(
+          'tab-1',
+          budget,
+        );
+      });
 
       it('returns no error code for any other rejection', async () => {
         failContinue({

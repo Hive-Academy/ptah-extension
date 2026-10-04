@@ -478,6 +478,7 @@ export class ChatSessionService {
       success: false,
       errorCode: 'SESSION_BUDGET_REACHED',
       error: SESSION_BUDGET_REACHED_MESSAGE,
+      budget: check.state,
     };
   }
 
