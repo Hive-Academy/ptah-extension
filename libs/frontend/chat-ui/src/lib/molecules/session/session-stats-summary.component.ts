@@ -9,6 +9,7 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import {
   resolveModelDisplayName,
+  type SessionBudgetState,
   type SessionStatsEntry,
   type ContextCapacity,
 } from '@ptah-extension/shared';
@@ -100,23 +101,44 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
               <span class="tabular-nums" data-testid="stats-tokens">{{
                 tokensLabel()
               }}</span>
+              @if (tokensBudgetSuffix(); as suffix) {
+                <span
+                  class="tabular-nums text-base-content-muted"
+                  data-testid="stats-tokens-budget"
+                  >{{ suffix }}</span
+                >
+              }
             </span>
             <span
               class="inline-flex items-center gap-1 bg-success/10 border border-success/20 rounded px-1.5 py-0.5 whitespace-nowrap"
+              [attr.title]="costTooltip()"
             >
               <span class="text-[10px] uppercase text-base-content-muted"
                 >Cost</span
               >
-              <span data-testid="stats-cost">
-                <ptah-cost-badge [cost]="totalCost()" />
-              </span>
-              @if (knownSubtotal(); as known) {
-                <span
-                  class="text-[10px] text-base-content-muted tabular-nums"
-                  data-testid="stats-known-subtotal"
-                  [title]="knownSubtotalTooltip"
-                  >known subtotal {{ formatCost(known.value) }}</span
-                >
+              @if (costBudgetText(); as budgetText) {
+                <span class="tabular-nums" data-testid="stats-cost-budget">{{
+                  budgetText
+                }}</span>
+              } @else {
+                <span data-testid="stats-cost">
+                  <ptah-cost-badge [cost]="totalCost()" />
+                </span>
+                @if (costBudgetSuffix(); as suffix) {
+                  <span
+                    class="tabular-nums text-base-content-muted"
+                    data-testid="stats-cost-limit"
+                    >{{ suffix }}</span
+                  >
+                }
+                @if (knownSubtotal(); as known) {
+                  <span
+                    class="text-[10px] text-base-content-muted tabular-nums"
+                    data-testid="stats-known-subtotal"
+                    [title]="knownSubtotalTooltip"
+                    >known subtotal {{ formatCost(known.value) }}</span
+                  >
+                }
               }
             </span>
             @if (durationMs(); as duration) {
@@ -269,32 +291,56 @@ type ModelUsageRow = NonNullable<SessionStatsEntry['modelUsageList']>[number];
             </div>
             <div
               class="text-sm font-semibold tabular-nums leading-tight mt-0.5"
-              data-testid="stats-tokens"
             >
-              {{ tokensLabel() }}
+              <span data-testid="stats-tokens">{{ tokensLabel() }}</span>
+              @if (tokensBudgetSuffix(); as suffix) {
+                <span
+                  class="text-[10px] font-normal text-base-content-muted"
+                  data-testid="stats-tokens-budget"
+                  >{{ suffix }}</span
+                >
+              }
             </div>
           </div>
 
           <!-- Cost Card -->
           <div
             class="bg-base-200/50 rounded px-2 py-1.5 border border-success/20"
+            [attr.title]="costTooltip()"
           >
             <div
               class="text-[10px] uppercase tracking-wider text-base-content-muted leading-tight"
             >
               Cost
             </div>
-            <div data-testid="stats-cost">
-              <ptah-cost-badge [cost]="totalCost()" />
-            </div>
-            @if (knownSubtotal(); as known) {
+            @if (costBudgetText(); as budgetText) {
               <div
-                class="text-[10px] text-base-content-muted tabular-nums leading-tight mt-0.5"
-                data-testid="stats-known-subtotal"
-                [title]="knownSubtotalTooltip"
+                class="text-xs tabular-nums leading-tight mt-0.5"
+                data-testid="stats-cost-budget"
               >
-                known subtotal {{ formatCost(known.value) }}
+                {{ budgetText }}
               </div>
+            } @else {
+              <div data-testid="stats-cost">
+                <ptah-cost-badge [cost]="totalCost()" />
+              </div>
+              @if (costBudgetSuffix(); as suffix) {
+                <div
+                  class="text-[10px] text-base-content-muted tabular-nums leading-tight"
+                  data-testid="stats-cost-limit"
+                >
+                  {{ suffix }}
+                </div>
+              }
+              @if (knownSubtotal(); as known) {
+                <div
+                  class="text-[10px] text-base-content-muted tabular-nums leading-tight mt-0.5"
+                  data-testid="stats-known-subtotal"
+                  [title]="knownSubtotalTooltip"
+                >
+                  known subtotal {{ formatCost(known.value) }}
+                </div>
+              }
             }
           </div>
 
@@ -678,6 +724,15 @@ export class SessionStatsSummaryComponent {
   /** Number of context compactions in this session */
   readonly compactionCount = input<number>(0);
 
+  /**
+   * The session budget computed from the same snapshot (TASK_2026_597 N7).
+   * It adds the limit beside the TOKENS or COST figure; the numerator for
+   * `tokens` and `cost` stays the snapshot's own figure. Only the two cost
+   * fallbacks show the budget's `used`, because the snapshot has no total
+   * for them. `null` leaves the chip exactly as without a budget.
+   */
+  readonly budget = input<SessionBudgetState | null>(null);
+
   /** Whether the stats section is collapsed to a compact bar */
   readonly isStatsCollapsed = signal(true);
 
@@ -793,8 +848,74 @@ export class SessionStatsSummaryComponent {
     return typeof count === 'number' ? this.formatTokens(count) : '—';
   });
 
+  /** `/ 50.0M` beside TOKENS when the budget is counted in tokens. */
+  readonly tokensBudgetSuffix = computed(() => {
+    const budget = this.budget();
+    return budget?.measure === 'tokens'
+      ? `/ ${this.formatTokens(budget.limit)}`
+      : null;
+  });
+
+  /** `/ $30` beside the COST badge when the budget is counted in dollars. */
+  readonly costBudgetSuffix = computed(() => {
+    const budget = this.budget();
+    return budget?.measure === 'cost'
+      ? `/ ${this.formatBudgetUsd(budget.limit)}`
+      : null;
+  });
+
+  /**
+   * Replaces the COST value for the two fallbacks the snapshot cannot show:
+   * a lower bound when some models are unpriced, and a weighted token
+   * estimate when none is. `null` keeps the badge.
+   */
+  readonly costBudgetText = computed(() => {
+    const budget = this.budget();
+    if (!budget || budget.used === null) return null;
+    if (budget.measure === 'cost-lower-bound') {
+      return `≥ ${this.formatCost(budget.used)} / ${this.formatBudgetUsd(budget.limit)} (some models have no price)`;
+    }
+    if (budget.measure === 'weighted-fallback') {
+      return `est. ${this.formatTokens(budget.used)} / ${this.formatTokens(budget.limit)} weighted tokens (no price for this model)`;
+    }
+    return null;
+  });
+
+  /** "Session budget: …" line, with the chip's own numerator. */
+  private readonly budgetTooltip = computed(() => {
+    const budget = this.budget();
+    if (!budget || budget.percent === null) return null;
+    let used: string;
+    let limit: string;
+    if (budget.measure === 'tokens') {
+      used = this.tokensLabel();
+      limit = this.formatTokens(budget.limit);
+    } else if (budget.measure === 'weighted-fallback') {
+      used = this.formatOptionalTokens(budget.used ?? undefined);
+      limit = this.formatTokens(budget.limit);
+    } else {
+      const cost =
+        budget.measure === 'cost' ? this.totalCost() : (budget.used ?? null);
+      used = `${budget.measure === 'cost-lower-bound' ? '≥ ' : ''}${this.formatCost(cost)}`;
+      limit = this.formatBudgetUsd(budget.limit);
+    }
+    return `Session budget: ${Math.floor(budget.percent)}% used (${used} of ${limit}). At 50% Ptah lowers auto-compact; at 80% it prepares a handoff; at 100% new messages pause.`;
+  });
+
+  /** COST chip tooltip: the budget line when the budget is counted in cost. */
+  readonly costTooltip = computed(() =>
+    this.budget()?.measure === 'tokens' ? null : this.budgetTooltip(),
+  );
+
   /** Tooltip with the backend's token breakdown. */
   readonly tokenTooltip = computed(() => {
+    const budgetLine =
+      this.budget()?.measure === 'tokens' ? this.budgetTooltip() : null;
+    const breakdown = this.tokenBreakdown();
+    return budgetLine ? `${breakdown}\n\n${budgetLine}` : breakdown;
+  });
+
+  private readonly tokenBreakdown = computed(() => {
     const stats = this.snapshot();
     if (!stats) return 'Token usage unavailable.';
     const t = stats.tokens;
@@ -836,6 +957,11 @@ export class SessionStatsSummaryComponent {
       return `$${cost.toFixed(4)}`;
     }
     return `$${cost.toFixed(2)}`;
+  }
+
+  /** A configured dollar limit: `$30`, or `$12.50` when it has cents. */
+  protected formatBudgetUsd(limit: number): string {
+    return Number.isInteger(limit) ? `$${limit}` : `$${limit.toFixed(2)}`;
   }
 
   /** Format tokens for display */

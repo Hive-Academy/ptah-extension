@@ -3500,7 +3500,7 @@ When Batch 28 is scheduled, its decomposition adds these parts. Task 28.2 stays 
 
 ---
 
-## Batch 60: N7 chip, banner, chat-view mount — IN_PROGRESS (PR 3, decision 13)
+## Batch 60: N7 chip, banner, chat-view mount — COMPLETE (PR 3, decision 13; report batch-60-executor-report.md)
 
 - Recommended executor: frontend-developer
 - Fallback executor: frontend-developer re-run
