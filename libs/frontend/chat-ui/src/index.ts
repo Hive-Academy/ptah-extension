@@ -90,6 +90,10 @@ export { ToolCallHeaderComponent } from './lib/molecules/tool-execution/tool-cal
 export { ToolInputDisplayComponent } from './lib/molecules/tool-execution/tool-input-display.component';
 export { ToolOutputDisplayComponent } from './lib/molecules/tool-execution/tool-output-display.component';
 export {
+  PtahUiLiveWindow,
+  PTAH_UI_LIVE_CAP,
+} from './lib/services/ptah-ui-live-window';
+export {
   generateAgentColor,
   generateAgentColorOklch,
   formatOklch,
