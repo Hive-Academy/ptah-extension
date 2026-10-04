@@ -69,10 +69,12 @@
 
 <!-- 2. Shared chrome — ALWAYS rendered, hidden when standalone view is active -->
 <!-- Uses [class.hidden] (CSS display:none) so canvas tiles survive navigation to settings/analytics -->
-<div class="flex h-full" [class.hidden]="isStandaloneView()">
+<div #shellRow class="flex h-full" [class.hidden]="isStandaloneView()">
   <!-- Session Sidebar (toggleable and resizable width, no border — tab
        provides visual edge). Open width defaults to 272 px, follows the
-       right-edge resize handle (bottom of the aside) and persists. -->
+       right-edge resize handle (bottom of the aside) and persists, capped so
+       the main area keeps room (never below the old 224 px; see
+       session-sidebar-width.ts). -->
   <aside
     class="relative flex flex-col bg-base-200 duration-300"
     [class.transition-all]="!sidebarResizing()"
@@ -499,7 +501,7 @@
         tabindex="0"
         class="absolute top-0 right-0 z-10 h-full w-1 cursor-col-resize touch-none hover:bg-primary/40 focus-visible:bg-primary/40 transition-colors duration-200"
         [attr.aria-valuemin]="sidebarMinWidth"
-        [attr.aria-valuemax]="sidebarMaxWidth"
+        [attr.aria-valuemax]="sidebarMaxWidth()"
         [attr.aria-valuenow]="sidebarWidth()"
         (pointerdown)="onSidebarResizeStart($event)"
         (pointermove)="onSidebarResizeMove($event)"
