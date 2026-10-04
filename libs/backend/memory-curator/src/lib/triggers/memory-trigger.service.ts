@@ -475,6 +475,7 @@ export class MemoryTriggerService {
     const state = this.sessions.get(sessionId);
     if (state?.idleTimer) clearTimeout(state.idleTimer);
     this.sessions.delete(sessionId);
+    this.curator.forgetSession(sessionId);
   }
 
   private onUserPromptSubmit(payload: UserPromptSubmitPayload): void {

@@ -12,7 +12,10 @@ import type {
   IEmbedder,
   VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
-import { MemoryCuratorService } from './memory-curator.service';
+import {
+  CURATOR_PRECOMPACT_MIN_INTERVAL_MS,
+  MemoryCuratorService,
+} from './memory-curator.service';
 import { MemoryStore } from './memory.store';
 import type { MemorySearchService } from './memory-search.service';
 import { memoryId, type MemorySearchHit } from './memory.types';
@@ -1415,6 +1418,284 @@ describe('MemoryCuratorService — manual PreCompact window budget', () => {
     });
 
     expect(extract).toHaveBeenCalledTimes(CURATOR_MAX_WINDOWS);
+  });
+});
+
+/**
+ * TASK_2026_597 A7 (R5.5) — PreCompact curations of one session are coalesced
+ * to at most one per {@link CURATOR_PRECOMPACT_MIN_INTERVAL_MS}.
+ */
+describe('MemoryCuratorService — PreCompact coalescing (TASK_2026_597 A7)', () => {
+  type PreCompactData = Parameters<
+    Parameters<ICompactionCallbackRegistry['register']>[0]
+  >[0];
+
+  let now: number;
+  beforeEach(() => {
+    now = 1_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  function buildHarness(): {
+    svc: MemoryCuratorService;
+    fire: (sessionId?: string, trigger?: string) => Promise<void>;
+    read: jest.Mock;
+    register: jest.Mock;
+    dispose: jest.Mock;
+    logger: { info: jest.Mock };
+    extract: jest.Mock;
+  } {
+    let handler: ((data: PreCompactData) => void) | null = null;
+    const dispose = jest.fn();
+    const extract = jest
+      .fn()
+      .mockResolvedValue({ status: 'extracted', drafts: [] });
+    const register = jest.fn((cb: (data: PreCompactData) => void) => {
+      handler = cb;
+      return dispose;
+    });
+    const registry = { register } as unknown as ICompactionCallbackRegistry;
+    const store = {
+      list: jest.fn(() => ({ memories: [], total: 0 })),
+      findMergeCandidates: jest.fn(() => []),
+      insertMemoryWithChunks: jest.fn().mockResolvedValue(undefined),
+      appendChunks: jest.fn().mockResolvedValue(undefined),
+      getById: jest.fn(),
+    } as unknown as MemoryStore;
+    const read = jest.fn().mockResolvedValue('USER: hello\n\nASSISTANT: hi');
+    const logger = makeLogger();
+    const svc = new MemoryCuratorService(
+      logger,
+      registry,
+      store,
+      { read } as unknown as ITranscriptReader,
+      {
+        extract,
+        resolve: jest.fn().mockResolvedValue([]),
+      } as unknown as ICuratorLLM,
+    );
+    svc.start();
+    return {
+      svc,
+      read,
+      register,
+      dispose,
+      extract,
+      logger: logger as unknown as { info: jest.Mock },
+      fire: async (sessionId = 's-compact', trigger = 'auto') => {
+        if (!handler)
+          throw new Error('curator did not subscribe to PreCompact');
+        handler({
+          sessionId,
+          trigger: trigger as PreCompactData['trigger'],
+          timestamp: now,
+          preTokens: 150_000,
+          cwd: '/ws',
+        });
+        await svc.drain();
+      },
+    };
+  }
+
+  function skipLogs(logger: { info: jest.Mock }): unknown[][] {
+    return logger.info.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('skipping a PreCompact curation'),
+    );
+  }
+
+  it('fires once for two PreCompacts within the interval, logs the skip, and stays registered', async () => {
+    const h = buildHarness();
+
+    await h.fire();
+    now += CURATOR_PRECOMPACT_MIN_INTERVAL_MS - 1;
+    await h.fire();
+
+    expect(h.read).toHaveBeenCalledTimes(1);
+    const skips = skipLogs(h.logger);
+    expect(skips).toHaveLength(1);
+    expect(skips[0][1]).toMatchObject({
+      sessionId: 's-compact',
+      trigger: 'auto',
+      sinceLastMs: CURATOR_PRECOMPACT_MIN_INTERVAL_MS - 1,
+      minIntervalMs: CURATOR_PRECOMPACT_MIN_INTERVAL_MS,
+    });
+    expect(h.register).toHaveBeenCalledTimes(1);
+    expect(h.dispose).not.toHaveBeenCalled();
+  });
+
+  it('fires again once the interval has passed', async () => {
+    const h = buildHarness();
+
+    await h.fire();
+    now += CURATOR_PRECOMPACT_MIN_INTERVAL_MS;
+    await h.fire();
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(0);
+  });
+
+  it('measures the interval from the last PreCompact that fired, not the last one skipped', async () => {
+    const h = buildHarness();
+
+    await h.fire();
+    now += CURATOR_PRECOMPACT_MIN_INTERVAL_MS / 2;
+    await h.fire();
+    now += CURATOR_PRECOMPACT_MIN_INTERVAL_MS / 2;
+    await h.fire();
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps one watermark per session', async () => {
+    const h = buildHarness();
+
+    await h.fire('s-a');
+    await h.fire('s-b');
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+  });
+
+  it('forgets the watermark when the session ends', async () => {
+    const h = buildHarness();
+
+    await h.fire();
+    h.svc.forgetSession('s-compact');
+    await h.fire();
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not stamp the watermark when the pass fails, so the next PreCompact retries', async () => {
+    const h = buildHarness();
+    h.extract.mockResolvedValueOnce({
+      status: 'stalled',
+      reason: 'provider-unreachable',
+      providerId: 'openai-codex',
+    });
+
+    await h.fire();
+    now += 1_000;
+    await h.fire();
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(0);
+  });
+
+  it('does not skip a manual compaction inside the interval', async () => {
+    const h = buildHarness();
+
+    await h.fire('s-compact', 'auto');
+    now += 1_000;
+    await h.fire('s-compact', 'manual');
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(0);
+  });
+
+  it('carries the watermark across rekeySession', async () => {
+    const h = buildHarness();
+
+    await h.fire('tab-1');
+    h.svc.rekeySession('tab-1', 'real-1');
+    await h.fire('real-1');
+    await h.fire('tab-1');
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(1);
+  });
+
+  /** Holds the next transcript read open until `release()` is called. */
+  function holdNextRead(read: jest.Mock): () => void {
+    let release: () => void = () => undefined;
+    read.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          release = () => resolve('USER: hello\n\nASSISTANT: hi');
+        }),
+    );
+    return () => release();
+  }
+
+  it('skips a second auto PreCompact that arrives while the first pass is still pending', async () => {
+    const h = buildHarness();
+    const release = holdNextRead(h.read);
+
+    const first = h.fire();
+    const second = h.fire();
+    release();
+    await Promise.all([first, second]);
+
+    expect(h.read).toHaveBeenCalledTimes(1);
+    expect(
+      skipLogs(h.logger).some((c) => String(c[0]).includes('already in flight')),
+    ).toBe(true);
+
+    // The settled reservation became the watermark.
+    now += 1_000;
+    await h.fire();
+    expect(h.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not stamp the watermark after a manual compaction', async () => {
+    const h = buildHarness();
+
+    await h.fire('s-compact', 'manual');
+    now += 1_000;
+    await h.fire('s-compact', 'auto');
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(0);
+  });
+
+  it('stamps the CURRENT session id when the session is rekeyed while its pass is pending', async () => {
+    const h = buildHarness();
+    const release = holdNextRead(h.read);
+
+    const first = h.fire('tab-1');
+    h.svc.rekeySession('tab-1', 'real-1');
+    release();
+    await first;
+    now += 1_000;
+    await h.fire('real-1');
+    await h.fire('tab-1');
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(1);
+    expect(skipLogs(h.logger)[0][1]).toMatchObject({ sessionId: 'real-1' });
+  });
+
+  it('does not restore the watermark of a session forgotten while its pass was pending', async () => {
+    const h = buildHarness();
+    const release = holdNextRead(h.read);
+
+    const first = h.fire();
+    h.svc.forgetSession('s-compact');
+    release();
+    await first;
+    now += 1_000;
+    await h.fire();
+
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(0);
+  });
+
+  it('keeps the later watermark when both rekeyed ids have one', async () => {
+    const h = buildHarness();
+    const halfInterval = CURATOR_PRECOMPACT_MIN_INTERVAL_MS / 2;
+
+    await h.fire('real-1');
+    now += halfInterval + 1;
+    await h.fire('tab-1');
+    h.svc.rekeySession('tab-1', 'real-1');
+    now += halfInterval;
+    await h.fire('real-1');
+
+    // Measured from tab-1's later pass, real-1 is still inside the interval.
+    expect(h.read).toHaveBeenCalledTimes(2);
+    expect(skipLogs(h.logger)).toHaveLength(1);
   });
 });
 

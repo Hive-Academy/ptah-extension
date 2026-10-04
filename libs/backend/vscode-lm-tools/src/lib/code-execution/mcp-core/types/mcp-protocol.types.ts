@@ -115,6 +115,7 @@ export interface MCPToolDefinition {
     type: 'object';
     properties: Record<string, unknown>;
     required?: string[];
+    additionalProperties?: boolean;
   };
 
   /** MCP protocol annotations — hints for LLM clients about tool behavior */

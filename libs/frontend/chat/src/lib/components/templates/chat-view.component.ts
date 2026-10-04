@@ -1159,7 +1159,10 @@ export class ChatViewComponent implements OnDestroy {
     }
     const tabId = this._tabManager.createTab();
     if (this._appState.layoutMode() === 'grid') {
-      this._appState.requestCanvasTab(tabId);
+      this._appState.requestCanvasTab(
+        tabId,
+        this._tabManager.activeWorkspacePath,
+      );
     }
     const outcome = await this.chatStore.sendOrQueueMessage(seed, { tabId });
     if (!outcome.success) {

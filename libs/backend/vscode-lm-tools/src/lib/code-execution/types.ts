@@ -16,6 +16,8 @@ import type {
 import type {
   AgentReportDelivery,
   AgentReportInput,
+  AgentWaitMode,
+  AgentWaitResult,
 } from '@ptah-extension/cli-agent-runtime';
 import type {
   Approximation,
@@ -379,15 +381,29 @@ export interface AgentNamespace {
   listRoles: () => Promise<string[]>;
 
   /**
-   * Wait for an agent to complete (polling)
+   * Wait for one agent to end. Event-driven (`waitForAgents`), never polled.
    * @param agentId - Agent ID
-   * @param options - Poll interval (default: 2000ms), timeout (default: no timeout)
-   * @returns Final agent status
+   * @param options - timeout in ms (default and maximum: 900000, 15 minutes)
+   * @returns The agent's terminal status
+   * @throws When the agent is unknown or belongs to another workspace, or
+   *   when it is still running at the timeout
    */
   waitFor: (
     agentId: string,
-    options?: { pollInterval?: number; timeout?: number },
+    options?: { timeout?: number },
   ) => Promise<AgentProcessInfo>;
+
+  /**
+   * Block until the given lanes end (`all`) or the first one does (`any`),
+   * or until `timeoutMs` (clamped to 0..900000) passes. A timeout is a
+   * partial result (`timedOut: true`), never an error; unknown ids and ids
+   * from another workspace are reported per id. Backs `ptah_agent_wait`.
+   */
+  waitForAgents: (
+    agentIds: readonly string[],
+    mode: AgentWaitMode,
+    timeoutMs: number,
+  ) => Promise<AgentWaitResult>;
 }
 
 /**
